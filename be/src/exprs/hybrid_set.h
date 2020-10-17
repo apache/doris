@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_HYBIRD_SET_H
-#define DORIS_BE_SRC_QUERY_EXPRS_HYBIRD_SET_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
+#define DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
 
 #include <cstring>
 #include <unordered_set>
@@ -30,20 +30,20 @@
 
 namespace doris {
 
-class HybirdSetBase {
+class HybridSetBase {
 public:
-    HybirdSetBase() {
+    HybridSetBase() {
     }
-    virtual ~HybirdSetBase() {
+    virtual ~HybridSetBase() {
     }
     virtual void insert(void* data) = 0;
 
-    virtual void insert(HybirdSetBase* set) = 0;
+    virtual void insert(HybridSetBase* set) = 0;
 
     virtual int size() = 0;
     virtual bool find(void* data) = 0;
 
-    static HybirdSetBase* create_set(PrimitiveType type);
+    static HybridSetBase* create_set(PrimitiveType type);
     class IteratorBase {
     public:
         IteratorBase() {
@@ -59,12 +59,12 @@ public:
 };
 
 template<class T>
-class HybirdSet : public HybirdSetBase {
+class HybridSet : public HybridSetBase {
 public:
-    HybirdSet() {
+    HybridSet() {
     }
 
-    virtual ~HybirdSet() {
+    virtual ~HybridSet() {
     }
 
     virtual void insert(void* data) {
@@ -78,9 +78,9 @@ public:
         }
     }
 
-    virtual void insert(HybirdSetBase* set) {
-        HybirdSet<T>* hybird_set = reinterpret_cast<HybirdSet<T>*>(set);
-        _set.insert(hybird_set->_set.begin(), hybird_set->_set.end());
+    virtual void insert(HybridSetBase* set) {
+        HybridSet<T>* hybrid_set = reinterpret_cast<HybridSet<T>*>(set);
+        _set.insert(hybrid_set->_set.begin(), hybrid_set->_set.end());
     }
 
     virtual int size() {
@@ -133,7 +133,7 @@ private:
     ObjectPool _pool;
 };
 
-class StringValueSet : public HybirdSetBase {
+class StringValueSet : public HybridSetBase {
 public:
     StringValueSet() {
     }
@@ -147,7 +147,7 @@ public:
         _set.insert(str_value);
     }
 
-    void insert(HybirdSetBase* set) {
+    void insert(HybridSetBase* set) {
         StringValueSet* string_set =  reinterpret_cast<StringValueSet*>(set);
         _set.insert(string_set->_set.begin(), string_set->_set.end());
     }
@@ -207,4 +207,4 @@ private:
 
 }
 
-#endif  // DORIS_BE_SRC_QUERY_EXPRS_HYBIRD_SET_H
+#endif  // DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H

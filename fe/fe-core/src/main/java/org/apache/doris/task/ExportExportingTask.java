@@ -88,7 +88,7 @@ public class ExportExportingTask extends MasterTask {
         if (job.isReplayed()) {
             // If the job is created from replay thread, all plan info will be lost.
             // so the job has to be cancelled.
-            String failMsg = "FE restarted or Master changed during exporting. Job must be cancalled.";
+            String failMsg = "FE restarted or Master changed during exporting. Job must be cancelled.";
             job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
             return;
         }
@@ -166,7 +166,7 @@ public class ExportExportingTask extends MasterTask {
         }
 
         if (job.updateState(ExportJob.JobState.FINISHED)) {
-            LOG.warn("export job successed. job: {}", job);
+            LOG.warn("export job success. job: {}", job);
             registerProfile();
         }
 

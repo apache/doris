@@ -25,7 +25,7 @@
 
 namespace doris {
 
-// Each bloom filter index contains mutiple bloom filter entries,
+// Each bloom filter index contains multiple bloom filter entries,
 //     each of which is related to a data block.
 //     BloomFilterIndexReader allow caller to get specified bloom filter entry
 //     by parsing bloom filter index buffer.

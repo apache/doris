@@ -180,7 +180,7 @@ public class Planner {
             fragments = distributedPlanner.createPlanFragments(singleNodePlan);
         }
 
-        // Optimize the transfer of query statistic when query does't contain limit.
+        // Optimize the transfer of query statistic when query doesn't contain limit.
         PlanFragment rootFragment = fragments.get(fragments.size() - 1);
         QueryStatisticsTransferOptimizer queryStatisticTransferOptimizer = new QueryStatisticsTransferOptimizer(rootFragment);
         queryStatisticTransferOptimizer.optimizeQueryStatisticsTransfer();

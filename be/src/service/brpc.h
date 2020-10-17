@@ -20,7 +20,7 @@
 // This file is used to fixed macro conflict between butil and gutil
 // all header need by brpc is contain in this file.
 // include this file instead of include <brpc/xxx.h>
-// and this file must put the first include in soure file
+// and this file must put the first include in source file
 
 #include "gutil/macros.h"
 // Macros in the guti/macros.h, use butil's define

@@ -41,7 +41,7 @@ import java.text.StringCharacterIterator;
  * In addition, it provides methods for string traversal without converting the
  * byte array to a string.
  * <p>
- * Also includes utilities for serializing/deserialing a string, coding/decoding
+ * Also includes utilities for serializing/deserializing a string, coding/decoding
  * a string, checking if a byte array contains valid UTF8 code, calculating the
  * length of an encoded string.
  */
@@ -110,7 +110,7 @@ public class Text implements Writable {
     /**
      * Returns the Unicode Scalar Value (32-bit integer value) for the character
      * at <code>position</code>. Note that this method avoids using the
-     * converter or doing String instatiation
+     * converter or doing String instantiation
      * 
      * @return the Unicode scalar value at position or -1 if the position is
      *         invalid or points to a trailing byte
@@ -132,7 +132,7 @@ public class Text implements Writable {
     }
 
     /**
-     * Finds any occurence of <code>what</code> in the backing buffer, starting
+     * Finds any occurrence of <code>what</code> in the backing buffer, starting
      * as position <code>start</code>. The starting position is measured in
      * bytes and the return value is in terms of byte position in the buffer.
      * The backing buffer is not converted to a string for this operation.

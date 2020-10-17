@@ -369,40 +369,40 @@ public:
     /// Templated equality functions. These assume the input values are not NULL.
     template<typename T>
     static inline bool equals(const PrimitiveType& type, const T& x, const T& y) {
-        return equals_intenal(x, y);
+        return equals_internal(x, y);
     }
 
     /// Templated equality functions. These assume the input values are not NULL.
     template<typename T>
     static inline bool equals(const T& x, const T& y) {
-        return equals_intenal(x, y);
+        return equals_internal(x, y);
     }
 
     template<typename T>
     static inline bool equals(const TypeDescriptor& type, const T& x, const T& y) {
-        return equals_intenal(x, y);
+        return equals_internal(x, y);
     }
 
     template<typename T>
     static inline bool equals(const FunctionContext::TypeDesc& type, const T& x, const T& y) {
-        return equals_intenal(x, y);
+        return equals_internal(x, y);
     }
 private:
     /// Implementations of Equals().
     template<typename T>
-    static inline bool equals_intenal(const T& x, const T& y);
+    static inline bool equals_internal(const T& x, const T& y);
 
 };
 
 template<typename T>
-inline bool AnyValUtil::equals_intenal(const T& x, const T& y) {
+inline bool AnyValUtil::equals_internal(const T& x, const T& y) {
     DCHECK(!x.is_null);
     DCHECK(!y.is_null);
     return x.val == y.val;
 }
 
 template<> 
-inline bool AnyValUtil::equals_intenal(const StringVal& x, const StringVal& y) {
+inline bool AnyValUtil::equals_internal(const StringVal& x, const StringVal& y) {
     DCHECK(!x.is_null);
     DCHECK(!y.is_null);
     StringValue x_sv = StringValue::from_string_val(x);
@@ -411,7 +411,7 @@ inline bool AnyValUtil::equals_intenal(const StringVal& x, const StringVal& y) {
 }
 
 template<> 
-inline bool AnyValUtil::equals_intenal(const DateTimeVal& x, const DateTimeVal& y) {
+inline bool AnyValUtil::equals_internal(const DateTimeVal& x, const DateTimeVal& y) {
     DCHECK(!x.is_null);
     DCHECK(!y.is_null);
     DateTimeValue x_tv = DateTimeValue::from_datetime_val(x);
@@ -420,14 +420,14 @@ inline bool AnyValUtil::equals_intenal(const DateTimeVal& x, const DateTimeVal& 
 }
 
 template<> 
-inline bool AnyValUtil::equals_intenal(const DecimalVal& x, const DecimalVal& y) {
+inline bool AnyValUtil::equals_internal(const DecimalVal& x, const DecimalVal& y) {
     DCHECK(!x.is_null);
     DCHECK(!y.is_null);
     return x == y;
 }
 
 template<> 
-inline bool AnyValUtil::equals_intenal(const DecimalV2Val& x, const DecimalV2Val& y) {
+inline bool AnyValUtil::equals_internal(const DecimalV2Val& x, const DecimalV2Val& y) {
     DCHECK(!x.is_null);
     DCHECK(!y.is_null);
     return x == y;

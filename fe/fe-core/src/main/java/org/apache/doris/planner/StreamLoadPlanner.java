@@ -47,7 +47,6 @@ import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -123,7 +122,7 @@ public class StreamLoadPlanner {
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
             if (negative && !col.isKey() && col.getAggregationType() != AggregateType.SUM) {
-                throw new DdlException("Column is not SUM AggreateType. column:" + col.getName());
+                throw new DdlException("Column is not SUM AggregateType. column:" + col.getName());
             }
         }
 
@@ -213,7 +212,11 @@ public class StreamLoadPlanner {
             for (Partition partition : destTable.getPartitions()) {
                 partitionIds.add(partition.getId());
             }
+            if (partitionIds.isEmpty()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_EMPTY_PARTITION_IN_TABLE, destTable.getName());
+            }
         }
+
         return partitionIds;
     }
 }

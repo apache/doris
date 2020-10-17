@@ -74,7 +74,7 @@ Moderator主要负责给PR设定相关标签，推动相关reviewer进行评论�
 
 3. 鼓励Committer作为自己PR的Moderator。
 
-4. Reviewer需要进行代码级的review，可以参考Code Review Guidline。
+4. Reviewer需要进行代码级的review，可以参考Code Review Guideline。
 
 5. Reviewer一旦评论了某个PR之后，需要持续跟进这个PR的后续改动，不鼓励评论了之后就不再管Contributor的后续回复了。
 

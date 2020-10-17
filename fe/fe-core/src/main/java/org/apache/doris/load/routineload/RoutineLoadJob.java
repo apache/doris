@@ -346,10 +346,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             if (routineLoadDesc.getPartitionNames() != null) {
                 partitions = routineLoadDesc.getPartitionNames();
             }
-            mergeType = routineLoadDesc.getMergeType();
             if (routineLoadDesc.getDeleteCondition() != null) {
                 deleteCondition = routineLoadDesc.getDeleteCondition();
             }
+            mergeType = routineLoadDesc.getMergeType();
             if (mergeType == LoadTask.MergeType.MERGE) {
                 columnDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
             } else if (mergeType == LoadTask.MergeType.DELETE) {
@@ -1412,7 +1412,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         out.writeLong(totalTaskExcutionTimeMs);
         out.writeLong(committedTaskNum);
         out.writeLong(abortedTaskNum);
-
         origStmt.write(out);
         out.writeInt(jobProperties.size());
         for (Map.Entry<String, String> entry : jobProperties.entrySet()) {
@@ -1468,7 +1467,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         totalTaskExcutionTimeMs = in.readLong();
         committedTaskNum = in.readLong();
         abortedTaskNum = in.readLong();
-
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_76) {
             String stmt = Text.readString(in);
             origStmt = new OriginStatement(stmt, 0);

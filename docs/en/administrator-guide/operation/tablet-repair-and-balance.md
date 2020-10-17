@@ -314,7 +314,7 @@ Duplicate status view mainly looks at the status of the duplicate, as well as th
     
 	The figure above shows some additional information, including copy size, number of rows, number of versions, where the data path is located.
 
-	> Note: The contents of the `State'column shown here do not represent the health status of the replica, but the status of the replica under certain tasks, such as CLONE, SCHEMA CHANGE, ROLLUP, etc.
+	> Note: The contents of the `State` column shown here do not represent the health status of the replica, but the status of the replica under certain tasks, such as CLONE, SCHEMA CHANGE, ROLLUP, etc.
 
 	In addition, users can check the distribution of replicas in a specified table or partition by following commands.
 

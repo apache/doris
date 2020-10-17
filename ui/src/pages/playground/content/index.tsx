@@ -24,12 +24,12 @@ import {
     CODEMIRROR_OPTIONS,
     AdhocContentRouteKeyEnum,
 } from '../adhoc.data';
-import {Button, Row, Col, message} from 'antd';
+import {Button, Row, Col, notification} from 'antd';
 import {PlayCircleFilled} from '@ant-design/icons';
 import {Switch, Route, Redirect} from 'react-router';
 import {AdhocContentResult} from './content-result';
 import {useRequest} from '@umijs/hooks';
-import {AdHocAPI} from 'Utils/api';
+import {AdHocAPI} from 'Src/api/api';
 import {Result} from '@src/interfaces/http.interface';
 import {isSuccess, getDbName, getTimeNow} from 'Utils/utils';
 import {CodeMirrorWithFullscreen} from 'Components/codemirror-with-fullscreen/codemirror-with-fullscreen';
@@ -46,7 +46,6 @@ require('react-resizable/css/styles.css');
 let editorInstance: any;
 let isQueryTableClicked = false;
 let isFieldNameInserted = false;
-
 export function AdHocContent(props: any) {
     let { t } = useTranslation();
     const {match} = props;
@@ -55,7 +54,7 @@ export function AdHocContent(props: any) {
     });
     const [code, setCode] = useState('');
     const editorAreaHeight = +(localStorage.getItem('editorAreaHeight') || 300);
-    const beginTime = getTimeNow();
+    // const beginTime = getTimeNow();
     const runQuery = useRequest<Result<any>>(
         () =>
             AdHocAPI.doQuery({
@@ -65,22 +64,22 @@ export function AdHocContent(props: any) {
         {
             manual: true,
             onSuccess: res => {
-                const endTime = getTimeNow();
+                // const endTime = getTimeNow();
                 const {db_name, tbl_name} = getDbName();
                 if (isSuccess(res)) {
                     res.sqlCode = code;
-                    res = {...res, db_name, tbl_name, beginTime, endTime}
+                    res = {...res, db_name, tbl_name}
                     props.history.push({pathname:`/Playground/result/${db_name}-${tbl_name}`,state: res});
                     runSQLSuccessSubject.next(true);
                 } else {
                     res.sqlCode = code;
-                    res = {...res, db_name, tbl_name, beginTime, endTime}
+                    res = {...res, db_name, tbl_name}
                     props.history.push({pathname:`/Playground/result/${db_name}-${tbl_name}`,state: res});
                     runSQLSuccessSubject.next(false);
                 }
             },
             onError: () => {
-                message.error(t('errMsg'));
+                notification.error({message: t('errMsg')});
                 runSQLSuccessSubject.next(false);
             },
         },

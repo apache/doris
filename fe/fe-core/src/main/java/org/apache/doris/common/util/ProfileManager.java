@@ -37,11 +37,11 @@ import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 
 /*
- * if you want to visit the atrribute(such as queryID,defaultDb) 
+ * if you want to visit the attribute(such as queryID,defaultDb)
  * you can use profile.getInfoStrings("queryId")
  * All attributes can be seen from the above.
  * 
- * why the element in the finished profile arary is not RuntimeProfile,
+ * why the element in the finished profile array is not RuntimeProfile,
  * the purpose is let coordinator can destruct earlier(the fragment profile is in Coordinator) 
  * 
  */

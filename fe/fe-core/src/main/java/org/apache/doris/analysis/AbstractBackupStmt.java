@@ -66,8 +66,8 @@ public class AbstractBackupStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         labelName.analyze(analyzer);
         
-        // user need database level priv(not table level), because when doing restore operation,
-        // the restore table may be newly created, so we can not judge its privs.
+        // user need database level privilege(not table level), because when doing restore operation,
+        // the restore table may be newly created, so we can not judge its privileges.
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(),
                 labelName.getDbName(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
@@ -82,7 +82,7 @@ public class AbstractBackupStmt extends DdlStmt {
         for (TableRef tblRef : tblRefs) {
             if (!Strings.isNullOrEmpty(tblRef.getName().getDb())) {
                 throw new AnalysisException("Cannot specify database name on backup objects: "
-                        + tblRef.getName().getTbl() + ". Sepcify database name before label");
+                        + tblRef.getName().getTbl() + ". Specify database name before label");
             }
             // set db name because we can not persist empty string when writing bdbje log
             tblRef.getName().setDb(labelName.getDbName());

@@ -773,7 +773,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
             }
 
             VLOG(1) << slot->col_name() << " fixed_values add num: "
-                    << pred->hybird_set()->size();
+                    << pred->hybrid_set()->size();
 
             // if there are too many elements in InPredicate, exceed the limit,
             // we will not push any condition of this column to storage engine.
@@ -781,16 +781,16 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
             // slow down the query process.
             // ATTN: This is just an experience value. You may need to try
             // different thresholds to improve performance.
-            if (pred->hybird_set()->size() > _max_pushdown_conditions_per_column) {
-                VLOG(3) << "Predicate value num " << pred->hybird_set()->size()
-                        << " excede limit " << _max_pushdown_conditions_per_column;
+            if (pred->hybrid_set()->size() > _max_pushdown_conditions_per_column) {
+                VLOG(3) << "Predicate value num " << pred->hybrid_set()->size()
+                        << " exceed limit " << _max_pushdown_conditions_per_column;
                 continue;
             }
 
             // begin to push InPredicate value into ColumnValueRange
-            HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
+            HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
             while (iter->has_next()) {
-                // column in (NULL,...) counldn't push down to StorageEngine
+                // column in (NULL,...) couldn't push down to StorageEngine
                 // so that discard whole ColumnValueRange
                 if (NULL == iter->get_value()) {
                     range->clear();

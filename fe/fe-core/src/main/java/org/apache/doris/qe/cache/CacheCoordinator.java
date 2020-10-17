@@ -17,22 +17,23 @@
 
 package org.apache.doris.qe.cache;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.proto.PUniqueId;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.system.Backend;
-import org.apache.doris.proto.PUniqueId;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.Hashtable;
+import java.util.Iterator;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.TreeMap;
-import java.util.Iterator;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -82,7 +83,7 @@ public class CacheCoordinator {
                 }
                 Long key = tailMap.firstKey();
                 virtualNode = tailMap.get(key);
-                if (SimpleScheduler.isAlive(virtualNode)) {
+                if (SimpleScheduler.isAvailable(virtualNode)) {
                     break;
                 } else {
                     LOG.debug("backend {} not alive, key {}, retry {}", virtualNode.getId(), key, retryTimes);

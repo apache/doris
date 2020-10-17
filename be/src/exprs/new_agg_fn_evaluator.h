@@ -26,7 +26,7 @@
 #include "common/compiler_util.h"
 #include "common/status.h"
 #include "exprs/agg_fn.h"
-#include "exprs/hybird_map.h"
+#include "exprs/hybrid_map.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple_row.h"
 #include "runtime/types.h"

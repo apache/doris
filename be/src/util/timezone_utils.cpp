@@ -27,20 +27,20 @@ const std::string TimezoneUtils::default_time_zone = "+08:00";
 bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) {
     re2::StringPiece value;
     if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value, 1)) {
-        bool postive = value[0] != '-';
+        bool positive = value[0] != '-';
 
         //Regular expression guarantees hour and minute mush be int
         int hour = std::stoi(value.substr(1, 2).as_string());
         int minute = std::stoi(value.substr(4, 2).as_string());
 
         // timezone offsets around the world extended from -12:00 to +14:00
-        if (!postive && hour > 12) {
+        if (!positive && hour > 12) {
             return false;
-        } else if (postive && hour > 14) {
+        } else if (positive && hour > 14) {
             return false;
         }
         int offset = hour * 60 * 60 + minute * 60;
-        offset *= postive ? 1 : -1;
+        offset *= positive ? 1 : -1;
         ctz = cctz::fixed_time_zone(cctz::seconds(offset));
         return true;
     } else if (timezone == "CST"){

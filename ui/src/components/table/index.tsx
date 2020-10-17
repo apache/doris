@@ -24,7 +24,7 @@ import {getColumns, filterTableData} from './table.utils.tsx';
 import './index.less';
 
 export default function SortFilterTable(props: any) {
-    const {isFilter=false, isSort=false, allTableData, isInner, isSystem=false} = props;
+    const {isFilter=false, isSort=false, allTableData, isInner, isSystem=false, path=''} = props;
     const [tableData, setTableData] = useState([]);
     const [localColumns, setColumns] = useState([]);
     // function onChange(pagination, filters, sorter, extra) {
@@ -39,7 +39,7 @@ export default function SortFilterTable(props: any) {
     );
     useEffect(() => {
         if(allTableData.rows&&allTableData.column_names){
-            setColumns(getColumns(allTableData.column_names, isSort, isInner, allTableData.href_columns||allTableData.href_column));
+            setColumns(getColumns(allTableData.column_names, isSort, isInner, allTableData.href_columns||allTableData.href_column, path));
             setTableData(allTableData.rows);
         }
     }, [allTableData]);

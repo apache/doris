@@ -38,7 +38,7 @@ public class AlterRoutineLoadOperationLogTest {
     private static String fileName = "./AlterRoutineLoadOperationLogTest";
 
     @Test
-    public void testSerialzeAlterViewInfo() throws IOException, AnalysisException {
+    public void testSerializeAlterViewInfo() throws IOException, AnalysisException {
         // 1. Write objects to file
         File file = new File(fileName);
         file.createNewFile();

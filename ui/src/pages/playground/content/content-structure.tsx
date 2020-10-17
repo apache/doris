@@ -18,13 +18,13 @@
  */
  
 import React, {useState,useEffect} from 'react';
-import {Tabs, Row, Table} from 'antd';
+import {Tabs, Row, Table, notification} from 'antd';
 import {TabPaneType,QUERY_TABTYPE} from '../adhoc.data';
 import React from 'react';
 import {FlatBtn} from 'Components/flatbtn';
 import {TABLE_DELAY} from 'Constants';
 import {useRequest} from '@umijs/hooks';
-import {AdHocAPI} from 'Utils/api';
+import {AdHocAPI} from 'Src/api/api';
 import {getDbName} from 'Utils/utils';
 import {Result} from '@src/interfaces/http.interface';
 import {DataPrev} from './components/data-prev';
@@ -57,10 +57,17 @@ export function ContentStructure(props: any) {
     }, [cols])
     
     const history = useHistory();
+    function goImport(){
+        if(db_name && tbl_name){
+            history.push('/Playground/import/'+db_name+'-'+tbl_name);
+        } else {
+            notification.error({message: t('selectWarning')});
+        }
+    }
     return (
         <Tabs
             // activeKey={TabPaneType.Structure}
-            onChange={key => {if (key ===QUERY_TABTYPE.key3) {history.push('/Playground/import/'+db_name+'-'+tbl_name);}}}
+            onChange={key => {if (key ===QUERY_TABTYPE.key3) {goImport()}}}
         >
             <Tabs.TabPane tab={t('tableStructure')} key={QUERY_TABTYPE.key1}>
                 <Row justify="space-between" style={{marginBottom: 10}}>

@@ -150,7 +150,7 @@ public class LoadManager implements Writable{
             createLoadJob(loadJob);
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
-            LOG.info("deplicate request for mini load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
+            LOG.info("duplicate request for mini load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
             return e.getTxnId();
         } catch (UserException e) {
             if (loadJob != null) {
@@ -282,6 +282,62 @@ public class LoadManager implements Writable{
         addLoadJob(loadJob);
         // persistent
         Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+    }
+
+    public void cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException {
+        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDbName());
+        if (db == null) {
+            throw new DdlException("Db does not exist. name: " + stmt.getDbName());
+        }
+
+        // List of load jobs waiting to be cancelled
+        List<LoadJob> loadJobs = Lists.newArrayList();
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
+            if (labelToLoadJobs == null) {
+                throw new DdlException("Load job does not exist");
+            }
+
+            // get jobs by label
+            List<LoadJob> matchLoadJobs = Lists.newArrayList();
+            if (isAccurateMatch) {
+                if (labelToLoadJobs.containsKey(stmt.getLabel())) {
+                    matchLoadJobs.addAll(labelToLoadJobs.get(stmt.getLabel()));
+                }
+            } else {
+                for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
+                    if (entry.getKey().contains(stmt.getLabel())) {
+                        matchLoadJobs.addAll(entry.getValue());
+                    }
+                }
+            }
+
+            if (matchLoadJobs.isEmpty()) {
+                throw new DdlException("Load job does not exist");
+            }
+
+            // check state here
+            List<LoadJob> uncompletedLoadJob = matchLoadJobs.stream().filter(entity -> !entity.isTxnDone())
+                    .collect(Collectors.toList());
+            if (uncompletedLoadJob.isEmpty()) {
+                throw new DdlException("There is no uncompleted job which label " +
+                        (isAccurateMatch ? "is " : "like ") + stmt.getLabel());
+            }
+
+            loadJobs.addAll(uncompletedLoadJob);
+        } finally {
+            readUnlock();
+        }
+
+        for (LoadJob loadJob : loadJobs) {
+            try {
+                loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
+            } catch (DdlException e) {
+                throw new DdlException("Cancel load job [" + loadJob.getId() + "] fail, " +
+                        "label=[" + loadJob.getLabel() + "] failed msg=" + e.getMessage());
+            }
+        }
     }
 
     public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
@@ -638,11 +694,11 @@ public class LoadManager implements Writable{
         }
     }
 
-    public void updateJobPrgress(Long jobId, Long beId, TUniqueId loadId, TUniqueId fragmentId,
-            long scannedRows, boolean isDone) {
+    public void updateJobProgress(Long jobId, Long beId, TUniqueId loadId, TUniqueId fragmentId,
+                                  long scannedRows, boolean isDone) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
-            job.updateProgess(beId, loadId, fragmentId, scannedRows, isDone);
+            job.updateProgress(beId, loadId, fragmentId, scannedRows, isDone);
         }
     }
 

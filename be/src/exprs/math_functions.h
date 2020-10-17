@@ -91,12 +91,14 @@ public:
         doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& base,
         const doris_udf::DoubleVal& exp);
 
-    /// Used for both Rand() and RandSeed()
+    /// Used for both rand() and rand_seed()
     static void rand_prepare(
         doris_udf::FunctionContext*, doris_udf::FunctionContext::FunctionStateScope);
     static doris_udf::DoubleVal rand(doris_udf::FunctionContext*);
     static doris_udf::DoubleVal rand_seed(
         doris_udf::FunctionContext*, const doris_udf::BigIntVal& seed);
+    static void rand_close(
+        FunctionContext* ctx, FunctionContext::FunctionStateScope scope);
 
     static doris_udf::StringVal bin(
         doris_udf::FunctionContext* ctx, const doris_udf::BigIntVal& v);

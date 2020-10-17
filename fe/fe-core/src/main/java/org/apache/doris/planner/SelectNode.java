@@ -24,7 +24,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 import java.util.List;
@@ -63,13 +62,14 @@ public class SelectNode extends PlanNode {
     @Override
     public void computeStats(Analyzer analyzer) {
         super.computeStats(analyzer);
-        if (getChild(0).cardinality == -1) {
-            cardinality = -1;
+        long cardinality = getChild(0).cardinality;
+        double selectivity = computeSelectivity();
+        if (cardinality < 0 || selectivity < 0) {
+            this.cardinality = -1;
         } else {
-            cardinality = Math.round(((double) getChild(0).cardinality) * computeSelectivity());
-            Preconditions.checkState(cardinality >= 0);
+            this.cardinality = Math.round(cardinality * selectivity);
         }
-        LOG.info("stats Select: cardinality=" + Long.toString(cardinality));
+        LOG.debug("stats Select: cardinality={}", this.cardinality);
     }
 
     @Override

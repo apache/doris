@@ -24,7 +24,7 @@ namespace doris {
 
 // BaseCompaction is derived from Compaction.
 // BaseCompaction will implements
-//   1. its policy to pick rowsests
+//   1. its policy to pick rowsets
 //   2. do compaction to produce new rowset.
 
 class BaseCompaction : public Compaction {

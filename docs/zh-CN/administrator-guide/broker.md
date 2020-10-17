@@ -253,13 +253,8 @@ WITH BROKER "broker_name"
 1. 通过 AK/SK 访问
 
     * AK/SK：Access Key 和 Secret Key。在百度云安全认证中心可以查看用户的 AK/SK。
-    * Region Endpoint：BOS 所在地区的 Endpoint：
-
-        * 华北-北京：http://bj.bcebos.com
-        * 华北-保定：http://bd.bcebos.com
-        * 华南-广州：http://gz.bcebos.com
-        * 华东-苏州：http://sz.bcebos.com
-
+    * Region Endpoint：BOS 所在地区的 Endpoint。
+    * BOS支持的区域及对应 Endpoint 请查看[获取访问域名](https://cloud.baidu.com/doc/BOS/s/Ck1rk80hn#%E8%8E%B7%E5%8F%96%E8%AE%BF%E9%97%AE%E5%9F%9F%E5%90%8D)
 
     示例如下：
 

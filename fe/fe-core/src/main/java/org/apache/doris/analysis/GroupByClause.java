@@ -130,7 +130,7 @@ public class GroupByClause implements ParseNode {
         return groupingExprs;
     }
 
-    // generate grouping exprs from group by, grouping sets, cube, rollup cluase
+    // generate grouping exprs from group by, grouping sets, cube, rollup clause
     public void genGroupingExprs() throws AnalysisException {
         if (exprGenerated) {
             return;
@@ -144,11 +144,11 @@ public class GroupByClause implements ParseNode {
         if (groupingType == GroupingType.CUBE || groupingType == GroupingType.ROLLUP) {
             if (CollectionUtils.isEmpty(groupingExprs)) {
                 throw new AnalysisException(
-                        "The expresions in GROUPING CUBE or ROLLUP can not be empty");
+                        "The expressions in GROUPING CUBE or ROLLUP can not be empty");
             }
         } else if (groupingType == GroupingType.GROUPING_SETS) {
             if (CollectionUtils.isEmpty(groupingSetList)) {
-                throw new AnalysisException("The expresions in GROUPINGING SETS can not be empty");
+                throw new AnalysisException("The expressions in GROUPING SETS can not be empty");
             }
             // collect all Expr elements
             Set<Expr> groupingExprSet = new LinkedHashSet<>();

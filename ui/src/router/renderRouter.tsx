@@ -19,9 +19,11 @@
  
 import React from 'react';
 import { Route, Redirect, Switch } from 'react-router-dom';
-import router from '.';
+import {getBasePath} from 'Src/utils/utils';
+
 let isLogin = document.cookie;
 const renderRoutes = (routes, authPath = '/login') => {
+    let basepath = getBasePath();
     if(routes){
         return (
             <Switch>
@@ -32,8 +34,8 @@ const renderRoutes = (routes, authPath = '/login') => {
                         exact={route.exact}
                         strict={route.strict}
                         render= { props =>{
-                            if(props.location.pathname === '/'){
-                                return <Redirect to="/home" />;
+                            if(props.location.pathname === basepath+'/'){
+                                return <Redirect to={"/home"} />;
                             }
                             if (isLogin) {
                                 return route.render ? (

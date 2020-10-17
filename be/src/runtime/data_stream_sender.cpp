@@ -33,6 +33,7 @@
 #include "runtime/client_cache.h"
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/mem_tracker.h"
+#include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/network_util.h"
 #include "util/thrift_client.h"
@@ -114,10 +115,10 @@ public:
     // of close operation, client should call close_wait() to finish channel's close.
     // We split one close operation into two phases in order to make multiple channels
     // can run parallel.
-    void close(RuntimeState* state);
+    Status close(RuntimeState* state);
 
     // Get close wait's response, to finish channel close operation.
-    void close_wait(RuntimeState* state);
+    Status close_wait(RuntimeState* state);
 
     int64_t num_data_bytes_sent() const {
         return _num_data_bytes_sent;
@@ -132,14 +133,20 @@ public:
         return uid.to_string();
     }
 
+    TUniqueId get_fragment_instance_id() {
+        return _fragment_instance_id;
+    }
+
 private:
     inline Status _wait_last_brpc() {
         auto cntl = &_closure->cntl;
         brpc::Join(cntl->call_id());
         if (cntl->Failed()) {
-            LOG(WARNING) << "failed to send brpc batch, error=" << berror(cntl->ErrorCode())
-                << ", error_text=" << cntl->ErrorText();
-            return Status::ThriftRpcError("failed to send batch");
+            std::stringstream ss;
+            ss << "failed to send brpc batch, error=" << berror(cntl->ErrorCode())
+                << ", error_text=" << cntl->ErrorText() << ", client: " << BackendOptions::get_localhost();
+            LOG(WARNING) << ss.str();
+            return Status::ThriftRpcError(ss.str());
         }
         return Status::OK();
     }
@@ -241,6 +248,9 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
 }
 
 Status DataStreamSender::Channel::add_row(TupleRow* row) {
+    if (_fragment_instance_id.lo == -1) {
+        return Status::OK();
+    }
     int row_num = _batch->add_row();
 
     if (row_num == RowBatch::INVALID_ROW_INDEX) {
@@ -296,16 +306,25 @@ Status DataStreamSender::Channel::close_internal() {
     return Status::OK();
 }
 
-void DataStreamSender::Channel::close(RuntimeState* state) {
-    state->log_error(close_internal().get_error_msg());
+Status DataStreamSender::Channel::close(RuntimeState* state) {
+    Status st = close_internal();
+    if (!st.ok()) {
+        state->log_error(st.get_error_msg());
+    }
+    return st;
 }
 
-void DataStreamSender::Channel::close_wait(RuntimeState* state) {
+Status DataStreamSender::Channel::close_wait(RuntimeState* state) {
     if (_need_close) {
-        state->log_error(_wait_last_brpc().get_error_msg());
+        Status st = _wait_last_brpc();
+        if (!st.ok()) {
+            state->log_error(st.get_error_msg());
+        }
         _need_close = false;
+        return st;
     }
     _batch.reset();
+    return Status::OK();
 }
 
 DataStreamSender::DataStreamSender(
@@ -329,18 +348,27 @@ DataStreamSender::DataStreamSender(
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED
             || sink.output_partition.type == TPartitionType::HASH_PARTITIONED
             || sink.output_partition.type == TPartitionType::RANDOM
-            || sink.output_partition.type == TPartitionType::RANGE_PARTITIONED);
-    // TODO: use something like google3's linked_ptr here (scoped_ptr isn't copyable)
+            || sink.output_partition.type == TPartitionType::RANGE_PARTITIONED
+            || sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED);
+    // TODO: use something like google3's linked_ptr here (scoped_ptr isn't copyable
+
+    std::map<int64_t, int64_t> fragment_id_to_channel_index;
     for (int i = 0; i < destinations.size(); ++i) {
         // Select first dest as transfer chain.
         bool is_transfer_chain = (i == 0);
-        _channel_shared_ptrs.emplace_back(
-            new Channel(this, row_desc,
-                        destinations[i].brpc_server,
-                        destinations[i].fragment_instance_id,
-                        sink.dest_node_id, per_channel_buffer_size, 
-                        is_transfer_chain, send_query_statistics_with_every_batch));
-        _channels.push_back(_channel_shared_ptrs[i].get());
+        const auto& fragment_instance_id = destinations[i].fragment_instance_id;
+        if (fragment_id_to_channel_index.find(fragment_instance_id.lo) == fragment_id_to_channel_index.end()) {
+            _channel_shared_ptrs.emplace_back(
+                    new Channel(this, row_desc,
+                                destinations[i].brpc_server,
+                                fragment_instance_id,
+                                sink.dest_node_id, per_channel_buffer_size,
+                                is_transfer_chain, send_query_statistics_with_every_batch));
+            fragment_id_to_channel_index.insert({fragment_instance_id.lo, _channel_shared_ptrs.size() - 1});
+            _channels.push_back(_channel_shared_ptrs.back().get());
+        } else {
+            _channel_shared_ptrs.emplace_back(_channel_shared_ptrs[fragment_id_to_channel_index[fragment_instance_id.lo]]);
+        }
     }
 }
 
@@ -353,7 +381,7 @@ static bool compare_part_use_range(const PartitionInfo* v1, const PartitionInfo*
 Status DataStreamSender::init(const TDataSink& tsink) {
     RETURN_IF_ERROR(DataSink::init(tsink));
     const TDataStreamSink& t_stream_sink = tsink.stream_sink;
-    if (_part_type == TPartitionType::HASH_PARTITIONED) {
+    if (_part_type == TPartitionType::HASH_PARTITIONED || _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         RETURN_IF_ERROR(Expr::create_expr_trees(
                 _pool, t_stream_sink.output_partition.partition_exprs, &_partition_expr_ctxs));
     } else if (_part_type == TPartitionType::RANGE_PARTITIONED) {
@@ -402,7 +430,7 @@ Status DataStreamSender::prepare(RuntimeState* state) {
         // Randomize the order we open/transmit to channels to avoid thundering herd problems.
         srand(reinterpret_cast<uint64_t>(this));
         random_shuffle(_channels.begin(), _channels.end());
-    } else if (_part_type == TPartitionType::HASH_PARTITIONED) {
+    } else if (_part_type == TPartitionType::HASH_PARTITIONED || _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         RETURN_IF_ERROR(Expr::prepare(_partition_expr_ctxs, state, _row_desc, _expr_mem_tracker));
     } else {
         RETURN_IF_ERROR(Expr::prepare(_partition_expr_ctxs, state, _row_desc, _expr_mem_tracker));
@@ -449,7 +477,7 @@ Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
     SCOPED_TIMER(_profile->total_time_counter());
 
     // Unpartition or _channel size
-    if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
+    if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1 ) {
         RETURN_IF_ERROR(serialize_batch(batch, _current_pb_batch, _channels.size()));
         for (auto channel : _channels) {
             RETURN_IF_ERROR(channel->send_batch(_current_pb_batch));
@@ -479,7 +507,26 @@ Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
                 hash_val = RawValue::get_hash_value_fvn(
                     partition_val, ctx->root()->type(), hash_val);
             }
-            RETURN_IF_ERROR(_channels[hash_val % num_channels]->add_row(row));
+            auto target_channel_id = hash_val % num_channels;
+            RETURN_IF_ERROR(_channels[target_channel_id]->add_row(row));
+        }
+    } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+        // hash-partition batch's rows across channels
+        int num_channels = _channel_shared_ptrs.size();
+
+        for (int i = 0; i < batch->num_rows(); ++i) {
+            TupleRow* row = batch->get_row(i);
+            size_t hash_val = 0;
+
+            for (auto ctx : _partition_expr_ctxs) {
+                void* partition_val = ctx->get_value(row);
+                // We must use the crc hash function to make sure the hash val equal
+                // to left table data distribute hash val
+                hash_val = RawValue::zlib_crc32(
+                        partition_val, ctx->root()->type(), hash_val);
+            }
+            auto target_channel_id = hash_val % num_channels;
+            RETURN_IF_ERROR(_channel_shared_ptrs[target_channel_id]->add_row(row));
         }
     } else {
         // Range partition
@@ -606,19 +653,26 @@ Status DataStreamSender::compute_range_part_code(
 Status DataStreamSender::close(RuntimeState* state, Status exec_status) {
     // TODO: only close channels that didn't have any errors
     // make all channels close parallel
+    Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {
-        _channels[i]->close(state);
+        Status st = _channels[i]->close(state);
+        if (!st.ok() && final_st.ok()) {
+            final_st = st;
+        }
     }
     // wait all channels to finish
     for (int i = 0; i < _channels.size(); ++i) {
-        _channels[i]->close_wait(state);
+        Status st = _channels[i]->close_wait(state);
+        if (!st.ok() && final_st.ok()) {
+            final_st = st;
+        }
     }
     for (auto iter : _partition_infos) {
-        RETURN_IF_ERROR(iter->close(state));
+        iter->close(state);
     }
     Expr::close(_partition_expr_ctxs, state);
 
-    return Status::OK();
+    return final_st;
 }
 
 template<typename T>

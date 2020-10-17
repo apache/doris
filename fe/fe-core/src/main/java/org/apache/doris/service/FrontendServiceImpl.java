@@ -322,6 +322,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             desc.setColumnScale(decimalDigits);
                         }
                         final TColumnDef colDef = new TColumnDef(desc);
+                        final String comment = column.getComment();
+                        if(comment != null) {
+                            colDef.setComment(comment);
+                        }
                         columns.add(colDef);
                     }
                 }

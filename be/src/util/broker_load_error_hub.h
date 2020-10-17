@@ -32,7 +32,7 @@ namespace doris {
 class BrokerWriter;
 class ExecEnv;
 
-// Broker load error hub will write load error info to the sepcified
+// Broker load error hub will write load error info to the specified
 // remote storage via broker.
 // We should only open this error hub if there are error line.
 // Because open the writer via broker may cost several seconds.

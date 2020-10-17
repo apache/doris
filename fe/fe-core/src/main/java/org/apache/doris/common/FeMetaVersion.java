@@ -30,7 +30,7 @@ public final class FeMetaVersion {
     public static final int VERSION_12 = 12;
     // jira 2245 load priority
     public static final int VERSION_15 = 15;
-    // jira 1635 dynamice fe
+    // jira 1635 dynamic fe
     public static final int VERSION_16 = 16;
     // jira 1988 backup and restore
     public static final int VERSION_17 = 17;
@@ -77,7 +77,7 @@ public final class FeMetaVersion {
     // added collation_server to variables (palo-3059)
     public static final int VERSION_37 = 37;
 
-    // paralle exec param and batch size
+    // parallel exec param and batch size
     public static final int VERSION_38 = 38;
 
     // schema change support row to column

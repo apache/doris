@@ -65,7 +65,7 @@ Query:
     Default Db: default_cluster:test
     Sql Statement: select max(Bid_Price) from quotes group by Symbol
 ```
-这里详尽的列出了**查询的ID，执行时间，执行语句**等等的总结信息。接下来内容是打印从BE收集到的各个Fragement的详细信息。
+这里详尽的列出了**查询的ID，执行时间，执行语句**等等的总结信息。接下来内容是打印从BE收集到的各个Fragment的详细信息。
  ```
     Fragment 0:
       Instance 9664061c57e84404-85ae111b8ba7e83d (host=TNetworkAddress(hostname:192.168.0.1, port:9060)):(Active: 10s270ms, % non-child: 0.14%)

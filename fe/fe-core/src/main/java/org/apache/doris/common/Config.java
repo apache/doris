@@ -80,7 +80,7 @@ public class Config extends ConfigBase {
      *       Slow query contains all queries which cost exceed *qe_slow_log_ms*
      *       
      * qe_slow_log_ms:
-     *      If the response time of a query exceed this threshold, it will be recored in audit log as slow_query.
+     *      If the response time of a query exceed this threshold, it will be recorded in audit log as slow_query.
      *      
      * audit_log_roll_interval:
      *      DAY:  log suffix is yyyyMMdd
@@ -296,10 +296,17 @@ public class Config extends ConfigBase {
 
     /**
      * The backlog_num for netty http server
-     * When you enlarge this backlog_num, you should ensure it's value larger than
-     * the linux /proc/sys/net/core/somaxconn config
+     * When you enlarge this backlog_num, you should enlarge the value in
+     * the linux /proc/sys/net/core/somaxconn file at the same time
      */
     @ConfField public static int http_backlog_num = 1024;
+
+    /**
+     * The backlog_num for mysql nio server
+     * When you enlarge this backlog_num, you should enlarge the value in
+     * the linux /proc/sys/net/core/somaxconn file at the same time
+     */
+    @ConfField public static int mysql_nio_backlog_num = 1024;
 
     /**
      * The connection timeout and socket timeout config for thrift server
@@ -348,7 +355,7 @@ public class Config extends ConfigBase {
     /**
      * node(FE or BE) will be considered belonging to the same Palo cluster if they have same cluster id.
      * Cluster id is usually a random integer generated when master FE start at first time.
-     * You can also sepecify one.
+     * You can also specify one.
      */
     @ConfField public static int cluster_id = -1;
   
@@ -572,7 +579,7 @@ public class Config extends ConfigBase {
     public static int desired_max_waiting_jobs = 100;
   
     /**
-     * maximun concurrent running txn num including prepare, commit txns under a single db
+     * maximum concurrent running txn num including prepare, commit txns under a single db
      * txn manager will reject coming txns
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -603,7 +610,7 @@ public class Config extends ConfigBase {
     public static int clone_job_timeout_second = 7200; // 2h
     /**
      * Concurrency of LOW priority clone jobs.
-     * Concurrency of High priority clone jobs is currently unlimit.
+     * Concurrency of High priority clone jobs is currently unlimited.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int clone_max_job_num = 100;
@@ -1086,7 +1093,7 @@ public class Config extends ConfigBase {
      * not work to avoid OOM.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static long metadata_checkopoint_memory_threshold = 60;
+    public static long metadata_checkpoint_memory_threshold = 60;
 
     /**
      * If set to true, the checkpoint thread will make the checkpoint regardless of the jvm memory used percent.
@@ -1258,9 +1265,26 @@ public class Config extends ConfigBase {
     public static long default_db_data_quota_bytes = 1024 * 1024 * 1024 * 1024L; // 1TB
 
     /*
-     * Maximum percentage of data that can be filtered (due to reasons such as data is irregulary)
+     * Maximum percentage of data that can be filtered (due to reasons such as data is irregularly)
      * The default value is 0.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static double default_max_filter_ratio = 0;
+
+    /**
+     * HTTP Server V2 is implemented by SpringBoot.
+     * It uses an architecture that separates front and back ends.
+     * Only enable httpv2 can user to use the new Frontend UI interface
+     */
+    @ConfField
+    public static boolean enable_http_server_v2 = false;
+
+    /*    
+     * Base path is the URL prefix for all API paths.
+     * Some deployment environments need to configure additional base path to match resources.
+     * This Api will return the path configured in Config.http_api_extra_base_path.
+     * Default is empty, which means not set.
+     */
+    @ConfField
+    public static String http_api_extra_base_path = "";
 }

@@ -62,7 +62,7 @@ Usually used to troubleshoot network problems.
 
 ### `doris_fe_snmp{name="tcp_in_segs"}`
 
-Value of the `Tcp: InSegs` field in `/proc/net/snmp`. Represents the number of receivied TCP packets.
+Value of the `Tcp: InSegs` field in `/proc/net/snmp`. Represents the number of received TCP packets.
 
 Use `(NEW_tcp_in_errs - OLD_tcp_in_errs) / (NEW_tcp_in_segs - OLD_tcp_in_segs)` can calculate the error rate of received TCP packets.
 

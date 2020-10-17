@@ -35,7 +35,7 @@ import org.apache.logging.log4j.Logger;
 import java.lang.reflect.Field;
 
 // A builtin Audit plugin, registered when FE start.
-// it will receive "AFTER_QUERY" AuditEventy and print it as a log in fe.audit.log
+// it will receive "AFTER_QUERY" AuditEvent and print it as a log in fe.audit.log
 public class AuditLogBuilder extends Plugin implements AuditPlugin {
     private static final Logger LOG = LogManager.getLogger(AuditLogBuilder.class);
 

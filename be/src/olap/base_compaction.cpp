@@ -45,7 +45,8 @@ OLAPStatus BaseCompaction::compact() {
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
 
     // 2. do base compaction, merge rowsets
-    RETURN_NOT_OK(do_compaction());
+    int64_t permits = _tablet->calc_base_compaction_score();
+    RETURN_NOT_OK(do_compaction(permits));
     TRACE("compaction finished");
 
     // 3. set state to success
@@ -84,7 +85,7 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
         return OLAP_SUCCESS;
     }
 
-    // 2. the ratio between base rowset and all input cumulative rowsets reachs the threshold
+    // 2. the ratio between base rowset and all input cumulative rowsets reaches the threshold
     int64_t base_size = 0;
     int64_t cumulative_total_size = 0;
     for (auto& rowset : _input_rowsets) {
@@ -98,21 +99,21 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     double base_cumulative_delta_ratio = config::base_cumulative_delta_ratio;
     if (base_size == 0) {
         // base_size == 0 means this may be a base version [0-1], which has no data.
-        // set to 1 to void devide by zero
+        // set to 1 to void divide by zero
         base_size = 1;
     }
     double cumulative_base_ratio = static_cast<double>(cumulative_total_size) / base_size;
 
     if (cumulative_base_ratio > base_cumulative_delta_ratio) {
         LOG(INFO) << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
-                  << ", cumualtive_total_size=" << cumulative_total_size
+                  << ", cumulative_total_size=" << cumulative_total_size
                   << ", base_size=" << base_size
                   << ", cumulative_base_ratio=" << cumulative_base_ratio
                   << ", policy_ratio=" << base_cumulative_delta_ratio;
         return OLAP_SUCCESS;
     }
 
-    // 3. the interval since last base compaction reachs the threshold
+    // 3. the interval since last base compaction reaches the threshold
     int64_t base_creation_time = _input_rowsets[0]->creation_time();
     int64_t interval_threshold = config::base_compaction_interval_seconds_since_last_operation;
     int64_t interval_since_last_base_compaction = time(NULL) - base_creation_time;
@@ -134,7 +135,7 @@ OLAPStatus BaseCompaction::_check_rowset_overlapping(const vector<RowsetSharedPt
     for (auto& rs : rowsets) {
         if (rs->rowset_meta()->is_segments_overlapping()) {
             LOG(WARNING) << "There is overlapping rowset before cumulative point, "
-                << "rowset verison=" << rs->start_version()
+                << "rowset version=" << rs->start_version()
                 << "-" << rs->end_version()
                 << ", cumulative point=" << _tablet->cumulative_layer_point()
                 << ", tablet=" << _tablet->full_name();

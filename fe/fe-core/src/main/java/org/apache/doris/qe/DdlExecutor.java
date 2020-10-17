@@ -43,6 +43,7 @@ import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
+import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -104,6 +105,8 @@ public class DdlExecutor {
             catalog.dropFunction((DropFunctionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
             catalog.createTable((CreateTableStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateTableLikeStmt) {
+            catalog.createTableLike((CreateTableLikeStmt) ddlStmt);
         } else if (ddlStmt instanceof DropTableStmt) {
             catalog.dropTable((DropTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateMaterializedViewStmt) {
@@ -132,11 +135,17 @@ public class DdlExecutor {
                 catalog.getLoadManager().createLoadJobFromStmt(loadStmt);
             }
         } else if (ddlStmt instanceof CancelLoadStmt) {
-            if (catalog.getLoadInstance().isLabelExist(
-                    ((CancelLoadStmt) ddlStmt).getDbName(), ((CancelLoadStmt) ddlStmt).getLabel())) {
-                catalog.getLoadInstance().cancelLoadJob((CancelLoadStmt) ddlStmt);
-            } else {
-                catalog.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
+            boolean isAccurateMatch = ((CancelLoadStmt) ddlStmt).isAccurateMatch();
+            boolean isLabelExist = catalog.getLoadInstance().isLabelExist(
+                    ((CancelLoadStmt) ddlStmt).getDbName(),
+                    ((CancelLoadStmt) ddlStmt).getLabel(), isAccurateMatch);
+            if (isLabelExist) {
+                catalog.getLoadInstance().cancelLoadJob((CancelLoadStmt) ddlStmt,
+                        isAccurateMatch);
+            }
+            if (!isLabelExist || isAccurateMatch) {
+                catalog.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt,
+                        isAccurateMatch);
             }
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             catalog.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);

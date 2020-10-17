@@ -227,7 +227,7 @@ public class TabletInvertedIndex {
                                     }
                                 } // end for txn id
 
-                                // update replicas's version count
+                                // update replicase's version count
                                 // no need to write log, and no need to get db lock.
                                 if (backendTabletInfo.isSetVersionCount()) {
                                     replica.setVersionCount(backendTabletInfo.getVersionCount());

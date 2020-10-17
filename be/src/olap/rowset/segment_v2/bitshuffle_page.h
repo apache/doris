@@ -227,7 +227,7 @@ public:
         CHECK(!_parsed);
         if (_data.size < BITSHUFFLE_PAGE_HEADER_SIZE) {
             std::stringstream ss;
-            ss << "file corrupton: invalid data size:" << _data.size << ", header size:" << BITSHUFFLE_PAGE_HEADER_SIZE;
+            ss << "file corruption: invalid data size:" << _data.size << ", header size:" << BITSHUFFLE_PAGE_HEADER_SIZE;
             return Status::InternalError(ss.str());
         }
         _num_elements = decode_fixed32_le((const uint8_t*)&_data[0]);

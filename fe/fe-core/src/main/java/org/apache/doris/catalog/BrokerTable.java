@@ -171,7 +171,7 @@ public class BrokerTable extends Table {
 
         columnSeparator = copiedProps.get(COLUMN_SEPARATOR);
         if (Strings.isNullOrEmpty(columnSeparator)) {
-            // use default separater
+            // use default separator
             columnSeparator = "\t";
         }
         copiedProps.remove(COLUMN_SEPARATOR);

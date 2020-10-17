@@ -92,6 +92,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
     public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
 
+    public static final String PROPERTIES_SWAP_TABLE = "swap";
+
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
         if (properties == null) {
@@ -156,7 +158,7 @@ public class PropertyAnalyzer {
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
         short shortKeyColumnCount = (short) -1;
         if (properties != null && properties.containsKey(PROPERTIES_SHORT_KEY)) {
-            // check and use speciefied short key
+            // check and use specified short key
             try {
                 shortKeyColumnCount = Short.parseShort(properties.get(PROPERTIES_SHORT_KEY));
             } catch (NumberFormatException e) {

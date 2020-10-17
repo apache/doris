@@ -99,7 +99,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
-// Do one COM_QEURY process.
+// Do one COM_QUERY process.
 // first: Parse receive byte array to statement struct.
 // second: Do handle function for statement.
 public class StmtExecutor {
@@ -217,10 +217,7 @@ public class StmtExecutor {
     }
 
     public boolean isQueryStmt() {
-        if (parsedStmt != null && parsedStmt instanceof QueryStmt) {
-            return true;
-        }
-        return false;
+        return parsedStmt != null && parsedStmt instanceof QueryStmt;
     }
 
     public StatementBase getParsedStmt() {
@@ -429,7 +426,7 @@ public class StmtExecutor {
         }
         redirectStatus = parsedStmt.getRedirectStatus();
 
-        // yiguolei: insertstmt's grammer analysis will write editlog, so that we check if the stmt should be forward to master here
+        // yiguolei: insert stmt's grammar analysis will write editlog, so that we check if the stmt should be forward to master here
         // if the stmt should be forward to master, then just return here and the master will do analysis again
         if (isForwardToMaster()) {
             return;

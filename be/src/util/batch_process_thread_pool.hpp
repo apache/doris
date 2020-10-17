@@ -71,7 +71,7 @@ public:
     // future. Therefore the caller needs to ensure that any data referenced by work (if T
     // is, e.g., a pointer type) remains valid until work has been processed, and it's up to
     // the caller to provide their own signalling mechanism to detect this (or to wait until
-    // after DrainAndshutdown returns).
+    // after DrainAndShutdown returns).
     //
     // Returns true if the work item was successfully added to the queue, false otherwise
     // (which typically means that the thread pool has already been shut down).
@@ -103,7 +103,7 @@ public:
 
     // Blocks until the work queue is empty, and then calls shutdown to stop the worker
     // threads and Join to wait until they are finished.
-    // Any work Offer()'ed during DrainAndshutdown may or may not be processed.
+    // Any work Offer()'ed during DrainAndShutdown may or may not be processed.
     void drain_and_shutdown() {
         {
             boost::unique_lock<boost::mutex> l(_lock);
@@ -129,7 +129,7 @@ private:
                     // the first task should blocking, or the tasks queue is empty
                     has_task = _work_queue.blocking_get(&task);
                 } else {
-                    // the 2rd, 3rd... task shoudl non blocking get
+                    // the 2rd, 3rd... task should non blocking get
                     has_task = _work_queue.non_blocking_get(&task);
                     if (!has_task) {
                         break;

@@ -48,7 +48,7 @@ BrokerScanNode::BrokerScanNode(
 BrokerScanNode::~BrokerScanNode() {
 }
 
-// We use the ParttitionRange to compare here. It should not be a member function of PartitionInfo
+// We use the PartitionRange to compare here. It should not be a member function of PartitionInfo
 // class because there are some other member in it.
 static bool compare_part_use_range(const PartitionInfo* v1, const PartitionInfo* v2) {
     return v1->range() < v2->range();

@@ -582,7 +582,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // check if the new column already exist in base schema.
         // do not support adding new column which already exist in base schema.
-        List<Column> baseSchema = olapTable.getBaseSchema();
+        List<Column> baseSchema = olapTable.getBaseSchema(true);
         boolean found = false;
         for (Column column : baseSchema) { 
             if (column.getName().equalsIgnoreCase(newColName)) {
@@ -1381,7 +1381,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // index id -> index schema
         Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
-        for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema().entrySet()) {
+        for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
             indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
         }
         List<Index> newIndexes = olapTable.getCopiedIndexes();

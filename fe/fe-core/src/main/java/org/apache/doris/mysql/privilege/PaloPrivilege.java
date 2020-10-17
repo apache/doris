@@ -24,7 +24,7 @@ public enum PaloPrivilege {
     SELECT_PRIV("Select_priv", 3, "Privilege for select data in tables"),
     LOAD_PRIV("Load_priv", 4, "Privilege for loading data into tables"),
     ALTER_PRIV("Alter_priv", 5, "Privilege for alter database or table"),
-    CREATE_PRIV("Create_priv", 6, "Privilege for createing database or table"),
+    CREATE_PRIV("Create_priv", 6, "Privilege for creating database or table"),
     DROP_PRIV("Drop_priv", 7, "Privilege for dropping database or table"),
     USAGE_PRIV("Usage_priv", 8, "Privilege for using resource");
 

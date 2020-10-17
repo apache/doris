@@ -526,5 +526,11 @@ public class SelectStmtTest {
         String sql = "with tmp as (select count(*) from db1.table1) select * from tmp;";
         dorisAssert.withoutUseDatabase();
         dorisAssert.query(sql).explainQuery();
+
+        sql = "with tmp as (select * from db1.table1) " +
+                "select a.siteid, b.citycode, a.siteid from (select siteid, citycode from tmp) a " +
+                "left join (select siteid, citycode from tmp) b on a.siteid = b.siteid;";
+        dorisAssert.withoutUseDatabase();
+        dorisAssert.query(sql).explainQuery();
     }
 }

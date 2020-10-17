@@ -671,13 +671,13 @@ public class DataDescription {
 
     public void analyze(String fullDbName) throws AnalysisException {
         if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
-            throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE");
+            throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE.");
         }
         if (mergeType == LoadTask.MergeType.MERGE && deleteCondition == null) {
-            throw new AnalysisException("Except DELETE ON clause where merge type is MERGE");
+            throw new AnalysisException("Excepted DELETE ON clause when merge type is MERGE.");
         }
         if (mergeType != LoadTask.MergeType.APPEND && isNegative) {
-            throw new AnalysisException("not support MERGE or DELETE with NEGATIVE");
+            throw new AnalysisException("not support MERGE or DELETE with NEGATIVE.");
         }
         checkLoadPriv(fullDbName);
         analyzeWithoutCheckPriv(fullDbName);

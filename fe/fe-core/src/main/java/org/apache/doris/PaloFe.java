@@ -91,7 +91,7 @@ public class PaloFe {
             Log4jConfig.initLogging(dorisHomeDir + "/conf/");
 
             // set dns cache ttl
-            java.security.Security.setProperty("networkaddress.cache.ttl" , "60");
+            java.security.Security.setProperty("networkaddress.cache.ttl", "60");
 
             // check command line options
             checkCommandLineOptions(cmdLineOpts);
@@ -111,16 +111,25 @@ public class PaloFe {
             // 3. HttpServer for HTTP Server
             QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
-            HttpServer httpServer = new HttpServer(
-                    Config.http_port,
-                    Config.http_max_line_length,
-                    Config.http_max_header_size,
-                    Config.http_max_chunk_size
-            );
-            httpServer.setup();
+
 
             feServer.start();
-            httpServer.start();
+
+            if (!Config.enable_http_server_v2) {
+                HttpServer httpServer = new HttpServer(
+                        Config.http_port,
+                        Config.http_max_line_length,
+                        Config.http_max_header_size,
+                        Config.http_max_chunk_size
+                );
+                httpServer.setup();
+                httpServer.start();
+            } else {
+                org.apache.doris.httpv2.HttpServer httpServer2 = new org.apache.doris.httpv2.HttpServer();
+                httpServer2.setPort(Config.http_port);
+                httpServer2.start(dorisHomeDir);
+            }
+
             qeService.start();
 
             ThreadPoolManager.registerAllThreadPoolMetric();

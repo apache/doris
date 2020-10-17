@@ -336,6 +336,10 @@ public class InsertStmt extends DdlStmt {
                 for (Partition partition : olapTable.getPartitions()) {
                     targetPartitionIds.add(partition.getId());
                 }
+                if (targetPartitionIds.isEmpty()) {
+                    ErrorReport.reportAnalysisException(
+                            ErrorCode.ERR_EMPTY_PARTITION_IN_TABLE, targetTable.getName());
+                }
             }
             // need a descriptor
             DescriptorTable descTable = analyzer.getDescTbl();
@@ -620,7 +624,7 @@ public class InsertStmt extends DdlStmt {
             Expr expr = row.get(i);
             Column col = targetColumns.get(i);
 
-            // TargeTable's hll column must be hll_hash's result
+            // TargetTable's hll column must be hll_hash's result
             if (col.getType().equals(Type.HLL)) {
                 checkHllCompatibility(col, expr);
             }

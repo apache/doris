@@ -37,7 +37,7 @@ public:
     void handle_updates(const TAgentPublishRequest& agent_publish_request);
 
 private:
-    std::map<TTopicType::type, std::vector<TopicListener*>> _registed_listeners;
+    std::map<TTopicType::type, std::vector<TopicListener*>> _registered_listeners;
     boost::shared_mutex _listener_mtx;
 };
 } // namespace doris

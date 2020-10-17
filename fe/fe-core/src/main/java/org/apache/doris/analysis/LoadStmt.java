@@ -265,7 +265,7 @@ public class LoadStmt extends DdlStmt {
             throw new AnalysisException("No data file in load statement.");
         }
         // check data descriptions, support 2 cases bellow:
-        // case 1: muti file paths, muti data descriptions
+        // case 1: multi file paths, multi data descriptions
         // case 2: one hive table, one data description
         boolean isLoadFromTable = false;
         for (DataDescription dataDescription : dataDescriptions) {
@@ -305,7 +305,7 @@ public class LoadStmt extends DdlStmt {
             etlJobType = resourceDesc.getEtlJobType();
             // TODO(wyb): spark-load
             if (!Config.enable_spark_load) {
-                throw new AnalysisException("Spark Load is comming soon");
+                throw new AnalysisException("Spark Load is coming soon");
             }
             // check resource usage privilege
             if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(),

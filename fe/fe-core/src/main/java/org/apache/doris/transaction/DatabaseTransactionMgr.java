@@ -105,7 +105,7 @@ public class DatabaseTransactionMgr {
     private Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newHashMap();
 
 
-    // to store transtactionStates with final status
+    // to store transactionStates with final status
     private ArrayDeque<TransactionState> finalStatusTransactionStateDeque = new ArrayDeque<>();
 
     // label -> txn ids
@@ -278,7 +278,7 @@ public class DatabaseTransactionMgr {
                 if (!notAbortedTxns.isEmpty()) {
                     TransactionState notAbortedTxn = notAbortedTxns.get(0);
                     if (requestId != null && notAbortedTxn.getTransactionStatus() == TransactionStatus.PREPARE
-                            && notAbortedTxn.getRequsetId() != null && notAbortedTxn.getRequsetId().equals(requestId)) {
+                            && notAbortedTxn.getRequestId() != null && notAbortedTxn.getRequestId().equals(requestId)) {
                         // this may be a retry request for same job, just return existing txn id.
                         throw new DuplicatedRequestException(DebugUtil.printId(requestId),
                                 notAbortedTxn.getTransactionId(), "");
@@ -747,7 +747,7 @@ public class DatabaseTransactionMgr {
                                                 partitionCommitInfo.getVersion(), partitionCommitInfo.getVersionHash());
                                         LOG.warn("transaction state {} has error, the replica [{}] not appeared in error replica list "
                                                 + " and its version not equal to partition commit version or commit version - 1"
-                                                + " if its not a upgrate stage, its a fatal error. ", transactionState, replica);
+                                                + " if its not a upgrade stage, its a fatal error. ", transactionState, replica);
                                     }
                                 } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
                                     // the replica's version is larger than or equal to current transaction partition's version
@@ -1244,7 +1244,7 @@ public class DatabaseTransactionMgr {
                             long lastFailedVersionHash = replica.getLastFailedVersionHash();
                             long newVersion = newCommitVersion;
                             long newVersionHash = newCommitVersionHash;
-                            long lastSucessVersion = replica.getLastSuccessVersion();
+                            long lastSuccessVersion = replica.getLastSuccessVersion();
                             long lastSuccessVersionHash = replica.getLastSuccessVersionHash();
                             if (!errorReplicaIds.contains(replica.getId())) {
                                 if (replica.getLastFailedVersion() > 0) {
@@ -1265,7 +1265,7 @@ public class DatabaseTransactionMgr {
                                 }
 
                                 // success version always move forward
-                                lastSucessVersion = newCommitVersion;
+                                lastSuccessVersion = newCommitVersion;
                                 lastSuccessVersionHash = newCommitVersionHash;
                             } else {
                                 // for example, A,B,C 3 replicas, B,C failed during publish version, then B C will be set abnormal
@@ -1280,7 +1280,7 @@ public class DatabaseTransactionMgr {
                                     lastFailedVersionHash = newCommitVersionHash;
                                 }
                             }
-                            replica.updateVersionInfo(newVersion, newVersionHash, lastFailedVersion, lastFailedVersionHash, lastSucessVersion, lastSuccessVersionHash);
+                            replica.updateVersionInfo(newVersion, newVersionHash, lastFailedVersion, lastFailedVersionHash, lastSuccessVersion, lastSuccessVersionHash);
                         }
                     }
                 } // end for indices

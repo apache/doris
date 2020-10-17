@@ -93,6 +93,7 @@ public class SlotRef extends Expr {
     }
 
     public SlotDescriptor getDesc() {
+        Preconditions.checkState(isAnalyzed);
         Preconditions.checkNotNull(desc);
         return desc;
     }

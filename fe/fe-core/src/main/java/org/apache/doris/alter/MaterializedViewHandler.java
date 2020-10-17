@@ -342,7 +342,7 @@ public class MaterializedViewHandler extends AlterHandler {
         if (mvName.equals(newStorageFormatIndexName)) {
             mvJob.setStorageFormat(TStorageFormat.V2);
         } else {
-            // use base table's storage foramt as the mv's format
+            // use base table's storage format as the mv's format
             mvJob.setStorageFormat(olapTable.getStorageFormat());
         }
 
@@ -517,7 +517,7 @@ public class MaterializedViewHandler extends AlterHandler {
         boolean meetReplaceValue = false;
         KeysType keysType = olapTable.getKeysType();
         Map<String, Column> baseColumnNameToColumn = Maps.newHashMap();
-        for (Column column : olapTable.getSchemaByIndexId(baseIndexId)) {
+        for (Column column : olapTable.getSchemaByIndexId(baseIndexId, true)) {
             baseColumnNameToColumn.put(column.getName(), column);
         }
         if (keysType.isAggregationFamily()) {
@@ -554,6 +554,12 @@ public class MaterializedViewHandler extends AlterHandler {
                     } else {
                         throw new DdlException("Rollup should contains all keys if there is a REPLACE value");
                     }
+                }
+                if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasDeleteSign()) {
+                    rollupSchema.add(new Column(olapTable.getDeleteSignColumn()));
+                }
+                if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
+                    rollupSchema.add(new Column(olapTable.getSequenceCol()));
                 }
             }
         } else if (KeysType.DUP_KEYS == keysType) {

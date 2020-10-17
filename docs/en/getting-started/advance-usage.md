@@ -114,7 +114,7 @@ After successful submission, you can view the progress of the job by following c
 
 When the job state is FINISHED, the job is completed.
 
-When Rollup is established, you can use `DESC table1 ALL'to view the Rollup information of the table.
+When Rollup is established, you can use `DESC table1 ALL` to view the Rollup information of the table.
 
 ```
 mysql> desc table1 all;

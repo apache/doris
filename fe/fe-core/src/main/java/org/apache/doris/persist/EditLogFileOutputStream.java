@@ -127,7 +127,7 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
         long position = fc.position();
         if (position + 4096 >= fc.size()) {
             // use pre allocate , then file size will not be changed very time,
-            // so fsync need't upate file size every time. This is an optimization.
+            // so fsync needn't update file size every time. This is an optimization.
             long newSize = position + 1024 * 1024; // 1MB
             fill.position(0);
             fc.write(fill, newSize);

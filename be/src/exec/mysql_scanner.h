@@ -56,7 +56,7 @@ public:
 
     // query for DORIS
     Status query(const std::string& table, const std::vector<std::string>& fields,
-                 const std::vector<std::string>& filters);
+                 const std::vector<std::string>& filters, const uint64_t limit);
     Status get_next_row(char** *buf, unsigned long** lengths, bool* eos);
 
     int field_num() const {

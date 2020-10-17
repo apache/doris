@@ -63,7 +63,7 @@ There are two ways to configure FE configuration items:
     
 2. Dynamic configuration
 
-    After the FE starts, you can set the configuration items dynamically through the following commands. This command requires administrator priviledge.
+    After the FE starts, you can set the configuration items dynamically through the following commands. This command requires administrator privilege.
 
     `ADMIN SET FRONTEND CONFIG (" fe_config_name "=" fe_config_value ");`
 
@@ -333,6 +333,14 @@ This variable is a dynamic configuration, and users can modify the configuration
 ### `history_job_keep_max_second`
 
 ### `http_backlog_num`
+
+The backlog_num for netty http server, When you enlarge this backlog_num,
+you should enlarge the value in the linux /proc/sys/net/core/somaxconn file at the same time
+
+### `mysql_nio_backlog_num`
+
+The backlog_num for mysql nio server, When you enlarge this backlog_num,
+you should enlarge the value in the linux /proc/sys/net/core/somaxconn file at the same time
 
 ### `http_port`
 
@@ -698,7 +706,22 @@ The function is still in the experimental stage, so the default value is false.
 Used to set default database data quota size, default is 1T.
 
 
-### 'default_max_filter_ratio'
+### `default_max_filter_ratio`
 
-Used to set default max filter ratio of load Job. It will be overridden by 'max_filter_ratio' of the load job properties，default value is 0, value range 0-1.
+Used to set default max filter ratio of load Job. It will be overridden by `max_filter_ratio` of the load job properties，default value is 0, value range 0-1.
 
+### `enable_http_server_v2`
+
+Whether to enable the V2 version of the HTTP Server implementation. The new HTTP Server is implemented using SpringBoot. And realize the separation of front and back ends.
+Only when it is turned on, can you use the new UI interface under the `ui/` directory.
+
+Default is false.
+
+### `http_api_extra_base_path`
+
+In some deployment environments, user need to specify an additional base path as the unified prefix of the HTTP API. This parameter is used by the user to specify additional prefixes.
+After setting, user can get the parameter value through the `GET /api/basepath` interface.
+And the new UI will also try to get this base path first to assemble the URL.
+Only valid when `enable_http_server_v2` is true.
+
+The default is empty, that is, not set.

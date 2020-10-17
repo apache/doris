@@ -434,7 +434,7 @@ void TaskWorkerPool::_alter_tablet_worker_thread_callback() {
             agent_task_req = _tasks.front();
             _tasks.pop_front();
         }
-        int64_t signatrue = agent_task_req.signature;
+        int64_t signature = agent_task_req.signature;
         LOG(INFO) << "get alter table task, signature: " << agent_task_req.signature;
         bool is_task_timeout = false;
         if (agent_task_req.__isset.recv_time) {
@@ -450,7 +450,7 @@ void TaskWorkerPool::_alter_tablet_worker_thread_callback() {
             TTaskType::type task_type = agent_task_req.task_type;
             switch (task_type) {
             case TTaskType::ALTER:
-                _alter_tablet(agent_task_req, signatrue,
+                _alter_tablet(agent_task_req, signature,
                               task_type, &finish_task_request);
                 break;
             default:
@@ -1086,7 +1086,6 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
     TReportRequest request;
     request.__set_backend(_backend);
     request.__isset.tablets = true;
-    request.__set_report_version(_s_report_version);
 
     while (_is_work) {
         if (_master_info.network_address.port == 0) {
@@ -1116,6 +1115,7 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
                 std::max(DorisMetrics::instance()->tablet_cumulative_max_compaction_score->value(),
                          DorisMetrics::instance()->tablet_base_max_compaction_score->value());
         request.__set_tablet_max_compaction_score(max_compaction_score);
+        request.__set_report_version(_s_report_version);
 
         TMasterResult result;
         AgentStatus status = _master_client->report(request, &result);

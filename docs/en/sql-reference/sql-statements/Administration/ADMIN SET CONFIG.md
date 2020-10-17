@@ -28,7 +28,7 @@ under the License.
 ## Description
 
 This statement is used to set the configuration items for the cluster (currently only the configuration items for setting FE are supported).
-Settable configuration items can be viewed through AMDIN SHOW FRONTEND CONFIG; commands.
+Settable configuration items can be viewed through `ADMIN SHOW FRONTEND CONFIG;` commands.
 
 Grammar:
 

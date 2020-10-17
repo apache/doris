@@ -231,6 +231,18 @@ public class OlapTable extends Table {
         return indexMap;
     }
 
+    public void checkAndSetName(String newName, boolean onlyCheck) throws DdlException {
+        // check if rollup has same name
+        for (String idxName : getIndexNameToId().keySet()) {
+            if (idxName.equals(newName)) {
+                throw new DdlException("New name conflicts with rollup index name: " + idxName);
+            }
+        }
+        if (!onlyCheck) {
+            setName(newName);
+        }
+    }
+
     public void setName(String newName) {
         // change name in indexNameToId
         long baseIndexId = indexNameToId.remove(this.name);
@@ -514,9 +526,14 @@ public class OlapTable extends Table {
 
     // schema
     public Map<Long, List<Column>> getIndexIdToSchema() {
+        return getIndexIdToSchema(Util.showHiddenColumns());
+    }
+
+    // schema
+    public Map<Long, List<Column>> getIndexIdToSchema(boolean full) {
         Map<Long, List<Column>> result = Maps.newHashMap();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
-            result.put(entry.getKey(), entry.getValue().getSchema(Util.showHiddenColumns()));
+            result.put(entry.getKey(), entry.getValue().getSchema(full));
         }
         return result;
     }
@@ -635,7 +652,7 @@ public class OlapTable extends Table {
                 partition.setName(newPartitionName);
                 nameToPartition.clear();
                 nameToPartition.put(newPartitionName, partition);
-                LOG.info("rename patition {} in table {}", newPartitionName, name);
+                LOG.info("rename partition {} in table {}", newPartitionName, name);
                 break;
             }
         } else {

@@ -25,8 +25,8 @@ namespace doris {
 // check utf8 code using simd instructions
 // Return true - success,  false fail
 bool validate_utf8(const char *src, size_t len);
-// chech utf8 use naive c++
+// check utf8 use naive c++
 bool validate_utf8_naive(const char *data, size_t len);
-} // namespce doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_UTIL_UTF8_CHECK_H

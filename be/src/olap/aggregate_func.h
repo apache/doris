@@ -44,7 +44,7 @@ public:
     //
     // Memory Note: For plain memory can be allocated from *mem_pool, whose lifetime
     // will last util finalize function is called. Memory allocated from heap should
-    // be freed in finalize functioin to avoid memory leak.
+    // be freed in finalize function to avoid memory leak.
     inline void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) const {
         _init_fn(dst, src, src_null, mem_pool, agg_pool);
     }
@@ -444,7 +444,7 @@ template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_CHAR>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_VARCHAR> {
 };
-// when data load, after hll_hash fucntion, hll_union column won't be null
+// when data load, after hll_hash function, hll_union column won't be null
 // so when init, update hll, the src is not null
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL> {
@@ -491,7 +491,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         slice->size = hll->serialize((uint8_t*)slice->data);
     }
 };
-// when data load, after bitmap_init fucntion, bitmap_union column won't be null
+// when data load, after bitmap_init function, bitmap_union column won't be null
 // so when init, update bitmap, the src is not null
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {

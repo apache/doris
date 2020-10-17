@@ -82,7 +82,7 @@ public abstract class DistributionInfo implements Writable {
         return "";
     }
 
-    public boolean eqauls(DistributionInfo info) {
+    public boolean equals(DistributionInfo info) {
         return false;
     }
 

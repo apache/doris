@@ -103,7 +103,8 @@ public enum ErrorCode {
     ERR_PARTITION_CLAUSE_ON_NONPARTITIONED(1747, new byte[] {'H', 'Y', '0', '0', '0'},
             "PARTITION () clause on non partitioned table"),
     ERR_EMPTY_PARTITION_IN_TABLE(1748, new byte[] {'H', 'Y', '0', '0', '0'},
-            "data cannot be inserted into table with emtpy partition. [%s]"),
+            "data cannot be inserted into table with empty partition. " +
+                    "Use `SHOW PARTITIONS FROM %s` to see the currently partitions of this table. "),
     ERR_NO_SUCH_PARTITION(1749, new byte[] {'H', 'Y', '0', '0', '0'}, "partition '%s' doesn't exist"),
     // Following is Palo's error code, which start from 5000
     ERR_NOT_OLAP_TABLE(5000, new byte[] {'H', 'Y', '0', '0', '0'}, "Table '%s' is not a OLAP table"),
@@ -236,7 +237,9 @@ public enum ErrorCode {
     ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO(5071, new byte[] {'4', '2', '0', '0', '0'},
             "Dynamic partition replication num must greater than 0"),
     ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_FORMAT(5072, new byte[] {'4', '2', '0', '0', '0'},
-            "Invalid dynamic partition replication num: %s.");
+            "Invalid dynamic partition replication num: %s."),
+    ERROR_CREATE_TABLE_LIKE_EMPTY(5073, new byte[] {'4', '2', '0', '0', '0'},
+            "Origin create table stmt is empty");
 
     ErrorCode(int code, byte[] sqlState, String errorMsg) {
         this.code = code;

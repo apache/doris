@@ -179,7 +179,7 @@ public class ConnectScheduler {
                 ConnectProcessor processor = new ConnectProcessor(context);
                 processor.loop();
             } catch (Exception e) {
-                // for unauthrorized access such lvs probe request, may cause exception, just log it in debug level
+                // for unauthorized access such lvs probe request, may cause exception, just log it in debug level
                 if (context.getCurrentUserIdentity() != null) {
                     LOG.warn("connect processor exception because ", e);
                 } else {

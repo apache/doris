@@ -35,7 +35,7 @@ ODBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(
 
 ## 名词解释
 
-### Doirs相关
+### Doris相关
 * FE：Frontend，Doris 的前端节点,负责元数据管理和请求接入
 * BE：Backend，Doris 的后端节点,负责查询执行和数据存储
 

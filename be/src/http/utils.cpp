@@ -161,11 +161,11 @@ void do_dir_response(const std::string& dir_path, HttpRequest *req) {
         HttpChannel::send_error(req, HttpStatus::INTERNAL_SERVER_ERROR);
     }
 
-    const std::string FILE_DELIMETER_IN_DIR_RESPONSE = "\n";
+    const std::string FILE_DELIMITER_IN_DIR_RESPONSE = "\n";
 
     std::stringstream result;
     for (const std::string& file_name : files) {
-        result << file_name << FILE_DELIMETER_IN_DIR_RESPONSE;
+        result << file_name << FILE_DELIMITER_IN_DIR_RESPONSE;
     }
 
     std::string result_str = result.str();

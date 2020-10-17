@@ -196,7 +196,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                                 long tableId = transactionState.getTableIdList().get(i);
                                 Table table = db.getTable(tableId);
                                 if (table == null || table.getType() != Table.TableType.OLAP) {
-                                    LOG.warn("Table [{}] in databse [{}] has been dropped.", tableId, db.getFullName());
+                                    LOG.warn("Table [{}] in database [{}] has been dropped.", tableId, db.getFullName());
                                     continue;
                                 }
                                 OlapTable olapTable = (OlapTable) table;
@@ -233,7 +233,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                     // if finish transaction state failed, then update publish version time, should check 
                     // to finish after some interval
                     transactionState.updateSendTaskTime();
-                    LOG.debug("publish version for transation {} failed, has {} error replicas during publish", 
+                    LOG.debug("publish version for transaction {} failed, has {} error replicas during publish",
                             transactionState, publishErrorReplicaIds.size());
                 }
             }

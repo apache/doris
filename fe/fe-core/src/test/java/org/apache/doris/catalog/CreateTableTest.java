@@ -128,7 +128,7 @@ public class CreateTableTest {
     }
 
     @Test
-    public void testAbormal() throws DdlException {
+    public void testAbnormal() throws DdlException {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Floating point type column can not be distribution column",
                 () -> createTable("create table test.atbl1\n" + "(k1 int, k2 float)\n" + "duplicate key(k1)\n"

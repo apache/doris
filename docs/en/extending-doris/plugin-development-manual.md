@@ -33,7 +33,7 @@ Doris plugin framework supports install/uninstall custom plugins at runtime with
 For example, the audit plugin worked after a request execution, it can obtain information related to a request (access user, request IP, SQL, etc...) and write the information into the specified table.
 
 Differences from UDF:
-* UDF is a function used for data calculation when SQL is executed. Plugin is additional function that is used to extend Doris with customized function, such as support different storage engines and different import ways, and plugin does't participate in data calculation when executing SQL.
+* UDF is a function used for data calculation when SQL is executed. Plugin is additional function that is used to extend Doris with customized function, such as support different storage engines and different import ways, and plugin doesn't participate in data calculation when executing SQL.
 * The execution cycle of UDF is limited to a SQL execution. The execution cycle of plugin may be the same as the Doris process.
 * The usage scene is different. If you need to support special data algorithms when executing SQL, then UDF is recommended, if you need to run custom functions on Doris, or start a background thread to do tasks, then the use of plugin is recommended.
 

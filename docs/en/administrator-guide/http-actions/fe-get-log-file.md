@@ -71,4 +71,4 @@ To get FE log via HTTP
 
 ## Notification
 
-Need ADMIN priviledge.
+Need ADMIN privilege.

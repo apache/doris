@@ -679,8 +679,9 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
     result->__set_tablets_stats(_tablet_stat_cache);
 }
 
-TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType compaction_type,
-                                                              DataDir* data_dir) {
+TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
+        CompactionType compaction_type, DataDir* data_dir,
+        vector<TTabletId> &tablet_submitted_compaction) {
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str = compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
     uint32_t highest_score = 0;
@@ -690,6 +691,12 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
         tablet_map_t& tablet_map = _tablet_map_array[i];
         for (tablet_map_t::value_type& table_ins : tablet_map){
             for (TabletSharedPtr& tablet_ptr : table_ins.second.table_arr) {
+                vector<TTabletId>::iterator it_tablet =
+                        find(tablet_submitted_compaction.begin(), tablet_submitted_compaction.end(),
+                             tablet_ptr->tablet_id());
+                if (it_tablet != tablet_submitted_compaction.end()) {
+                    continue;
+                }
                 AlterTabletTaskSharedPtr cur_alter_task = tablet_ptr->alter_task();
                 if (cur_alter_task != nullptr
                     && cur_alter_task->alter_state() != ALTER_FINISHED
@@ -738,7 +745,6 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
                     }
                 }
 
-
                 uint32_t table_score = 0;
                 {
                     ReadLock rdlock(tablet_ptr->get_header_lock_ptr());
@@ -757,7 +763,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
     }
 
     if (best_tablet != nullptr) {
-        LOG(INFO) << "Found the best tablet for compaction. "
+        VLOG(1) << "Found the best tablet for compaction. "
                   << "compaction_type=" << compaction_type_str
                   << ", tablet_id=" << best_tablet->tablet_id()
                   << ", highest_score=" << highest_score;

@@ -152,12 +152,12 @@ public class BDBJEJournal implements Journal {
         }
         LOG.debug("opCode = {}, journal size = {}", op, theData.getSize()); 
         // Write the key value pair to bdb.
-        boolean writeSuccessed = false;
+        boolean writeSucceed = false;
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
                 // Parameter null means auto commit
                 if (currentJournalDB.put(null, theKey, theData) == OperationStatus.SUCCESS) {
-                    writeSuccessed = true;
+                    writeSucceed = true;
                     LOG.debug("master write journal {} finished. db name {}, current time {}",
                               id, currentJournalDB.getDatabaseName(), System.currentTimeMillis());
                     break;
@@ -173,7 +173,7 @@ public class BDBJEJournal implements Journal {
             }
         }
 
-        if (!writeSuccessed) {
+        if (!writeSucceed) {
             if (op == OperationType.OP_TIMESTAMP) {
                 /*
                  * Do not exit if the write operation is OP_TIMESTAMP.

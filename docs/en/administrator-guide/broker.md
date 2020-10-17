@@ -260,12 +260,8 @@ Authentication information is usually provided as a Key-Value in the Property Ma
 1. Access via AK / SK
 
     * AK/SK: Access Key and Secret Key. You can check the user's AK / SK in Baidu Cloud Security Certification Center.
-    * Region Endpoint: Endpoint of the BOS region:
-
-        * North China-Beijing: http://bj.bcebos.com
-        * North China-Baoding: http://bd.bcebos.com
-        * South China-Guangzhou: http://gz.bcebos.com
-        * East China-Suzhou: http://sz.bcebos.com
+    * Region Endpoint: Endpoint of the BOS region.
+    * For the regions supported by BOS and corresponding Endpoints, please see [Get access domain name](https://cloud.baidu.com/doc/BOS/s/Ck1rk80hn#%E8%8E%B7%E5%8F%96%E8%AE %BF%E9%97%AE%E5%9F%9F%E5%90%8D)
 
     Examples are as follows：
 

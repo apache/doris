@@ -193,6 +193,6 @@ public class HaController {
             removed.put("Value", feName);
             list.add(removed);
         }
-        result.put("removedFronteds", list);
+        result.put("removedFrontends", list);
     }
 }
