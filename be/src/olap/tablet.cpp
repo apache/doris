@@ -327,8 +327,10 @@ const RowsetSharedPtr Tablet::rowset_with_max_version() const {
     }
 
     auto iter = _rs_version_map.find(max_version);
-    DCHECK(_rs_version_map.find(max_version) != _rs_version_map.end())
-        << "invalid version:" << max_version;
+    if (iter == _rs_version_map.end()) {
+        DCHECK(false) << "invalid version:" << max_version;
+        return nullptr;
+    }
     return iter->second;
 }
 
