@@ -1310,6 +1310,27 @@ public class QueryPlanTest {
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
     }
+
+    @Test
+    public void testLeadAndLagFunction() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        String queryStr = "explain select time, lead(query_time, 1, NULL) over () as time2 from test.test1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("lead(`query_time`, 1, NULL)"));
+
+        queryStr = "explain select time, lead(query_time, 1, 2) over () as time2 from test.test1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("lead(`query_time`, 1, 2)"));
+
+        queryStr = "explain select time, lead(time, 1, '2020-01-01 00:00:00') over () as time2 from test.test1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("lead(`time`, 1, '2020-01-01 00:00:00')"));
+
+        queryStr = "explain select time, lag(query_time, 1, 2) over () as time2 from test.test1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("lag(`query_time`, 1, 2)"));
+    }
 }
 
 
