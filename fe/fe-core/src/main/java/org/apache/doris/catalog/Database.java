@@ -29,7 +29,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.persist.CreateTableInfo;
-import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
@@ -306,7 +305,7 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
-    public void refreshTableSchemaWithLock(String tableName, List<Column> newSchema, boolean isReplay) throws DdlException{
+    public void allterExternalTableSchemaWithLock(String tableName, List<Column> newSchema) throws DdlException{
         writeLock();
         try {
             if (!nameToTable.containsKey(tableName)) {
@@ -314,12 +313,6 @@ public class Database extends MetaObject implements Writable {
             } else {
                 Table table = nameToTable.get(tableName);
                 table.setNewFullSchema(newSchema);
-
-                if (!isReplay) {
-                    // Write edit log
-                    RefreshExternalTableInfo info = new RefreshExternalTableInfo(fullQualifiedName, tableName, newSchema);
-                    Catalog.getCurrentCatalog().getEditLog().logRefreshExternalTableSchema(info);
-                }
             }
         } finally {
             writeUnlock();

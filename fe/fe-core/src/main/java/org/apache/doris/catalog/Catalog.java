@@ -4298,9 +4298,9 @@ public class Catalog {
         }
     }
 
-    public void replayRefreshTable(String dbName, String tableName, List<Column> newSchema) throws DdlException {
+    public void replayAlterExteranlTableSchema(String dbName, String tableName, List<Column> newSchema) throws DdlException {
         Database db = this.fullNameToDb.get(dbName);
-        db.refreshTableSchemaWithLock(tableName, newSchema, true);
+        db.allterExternalTableSchemaWithLock(tableName, newSchema);
     }
 
     private void createTablets(String clusterName, MaterializedIndex index, ReplicaState replicaState,
@@ -5072,33 +5072,14 @@ public class Catalog {
     }
 
     // entry of rename table operation
-    public void renameTable(Database db, OlapTable table, TableRenameClause tableRenameClause) throws DdlException {
-        if (table.getState() != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
-        }
-
-        String tableName = table.getName();
-        String newTableName = tableRenameClause.getNewTableName();
-        if (tableName.equals(newTableName)) {
-            throw new DdlException("Same table name");
-        }
-
-        // check if name is already used
-        if (db.getTable(newTableName) != null) {
-            throw new DdlException("Table name[" + newTableName + "] is already used");
-        }
-
-        table.checkAndSetName(newTableName, false);
-
-        db.dropTable(table.getName());
-        db.createTable(table);
-
-        TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
-        editLog.logTableRename(tableInfo);
-        LOG.info("rename table[{}] to {}", tableName, newTableName);
-    }
-
     public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
+        if (table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
+            if ( olapTable.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table[" + olapTable.getName() + "] is under " + olapTable.getState());
+            }
+        }
+
         String tableName = table.getName();
         String newTableName = tableRenameClause.getNewTableName();
         if (tableName.equals(newTableName)) {

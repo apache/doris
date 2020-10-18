@@ -182,9 +182,9 @@ public class EditLog {
                 }
                 case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
                     RefreshExternalTableInfo info = (RefreshExternalTableInfo) journal.getData();
-                    LOG.info("Begin to unprotect refresh table. db = "
+                    LOG.info("Begin to unprotect alter external table schema. db = "
                             + info.getDbName() + " table = " + info.getTableName());
-                    catalog.replayRefreshTable(info.getDbName(), info.getTableName(), info.getNewSchema());
+                    catalog.replayAlterExteranlTableSchema(info.getDbName(), info.getTableName(), info.getNewSchema());
                     break;
                 }
                 case OperationType.OP_DROP_TABLE: {
