@@ -19,15 +19,12 @@
 
 namespace doris {
 
-// This should only be used in unit test. 1GB
-static StoragePageCache s_ut_cache(1073741824);
-
-StoragePageCache* StoragePageCache::_s_instance = &s_ut_cache;
+StoragePageCache* StoragePageCache::_s_instance = nullptr;
 
 void StoragePageCache::create_global_cache(size_t capacity) {
-    if (_s_instance == &s_ut_cache) {
-        _s_instance = new StoragePageCache(capacity);
-    }
+    DCHECK(_s_instance == nullptr);
+    static StoragePageCache instance(capacity);
+    _s_instance = &instance;
 }
 
 StoragePageCache::StoragePageCache(size_t capacity) : _cache(new_lru_cache(capacity)) {
