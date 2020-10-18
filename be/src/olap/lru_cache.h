@@ -389,12 +389,12 @@ namespace doris {
             std::atomic<uint64_t> _last_id;
 
             std::shared_ptr<MetricEntity> _entity = nullptr;
-            IntGauge* capacity;
-            IntGauge* usage;
-            DoubleGauge* usage_ratio;
-            IntAtomicCounter* lookup_count;
-            IntAtomicCounter* hit_count;
-            DoubleGauge* hit_ratio;
+            IntGauge* capacity = nullptr;
+            IntGauge* usage = nullptr;
+            DoubleGauge* usage_ratio = nullptr;
+            IntAtomicCounter* lookup_count = nullptr;
+            IntAtomicCounter* hit_count = nullptr;
+            DoubleGauge* hit_ratio = nullptr;
     };
 
 }  // namespace doris
