@@ -40,7 +40,7 @@ class CgroupsMgrTest : public testing::Test {
 public:
     // create a mock cgroup folder 
     static void SetUpTestCase() {
-        ASSERT_FALSE(boost::filesystem::exists(_s_cgroup_path));
+        ASSERT_TRUE(boost::filesystem::remove_all(_s_cgroup_path));
         // create a mock cgroup path
         ASSERT_TRUE(boost::filesystem::create_directory(_s_cgroup_path));
         
