@@ -84,7 +84,7 @@ public abstract class BaseAction implements IAction {
     @Override
     public void handleRequest(BaseRequest request) throws Exception {
         BaseResponse response = new BaseResponse();
-        LOG.info("receive http request. url={}", request.getRequest().uri());
+        LOG.debug("receive http request. url={}", request.getRequest().uri());
         try {
             execute(request, response);
         } catch (Exception e) {

@@ -127,7 +127,7 @@ import static org.apache.doris.thrift.TStatusCode.NOT_IMPLEMENTED_ERROR;
 // Frontend service used to serve all request for this frontend through
 // thrift protocol
 public class FrontendServiceImpl implements FrontendService.Iface {
-    private static final Logger LOG = LogManager.getLogger(MasterImpl.class);
+    private static final Logger LOG = LogManager.getLogger(FrontendServiceImpl.class);
     private MasterImpl masterImpl;
     private ExecuteEnv exeEnv;
 
@@ -377,7 +377,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Deprecated
     @Override
     public TFeResult miniLoad(TMiniLoadRequest request) throws TException {
-        LOG.info("receive mini load request: label: {}, db: {}, tbl: {}, backend: {}",
+        LOG.debug("receive mini load request: label: {}, db: {}, tbl: {}, backend: {}",
                 request.getLabel(), request.getDb(), request.getTbl(), request.getBackend());
 
         ConnectContext context = new ConnectContext(null);
@@ -499,7 +499,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // update etl task status
         TMiniLoadEtlStatusResult statusResult = request.getEtlTaskStatus();
-        LOG.info("load job id: {}, etl task id: {}, status: {}", jobId, taskId, statusResult);
+        LOG.debug("load job id: {}, etl task id: {}, status: {}", jobId, taskId, statusResult);
         EtlStatus taskStatus = taskInfo.getTaskStatus();
         if (taskStatus.setState(statusResult.getEtlState())) {
             if (statusResult.isSetCounters()) {
@@ -517,7 +517,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMiniLoadBeginResult miniLoadBegin(TMiniLoadBeginRequest request) throws TException {
-        LOG.info("receive mini load begin request. label: {}, user: {}, ip: {}",
+        LOG.debug("receive mini load begin request. label: {}, user: {}, ip: {}",
                  request.getLabel(), request.getUser(), request.getUserIp());
 
         TMiniLoadBeginResult result = new TMiniLoadBeginResult();
@@ -577,7 +577,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // add this log so that we can track this stmt
-        LOG.info("receive forwarded stmt {} from FE: {}", params.getStmtId(), clientAddr.getHostname());
+        LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), clientAddr.getHostname());
         ConnectContext context = new ConnectContext(null);
         ConnectProcessor processor = new ConnectProcessor(context);
         TMasterOpResult result = processor.proxyExecute(params);
@@ -604,7 +604,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFeResult loadCheck(TLoadCheckRequest request) throws TException {
-        LOG.info("receive load check request. label: {}, user: {}, ip: {}",
+        LOG.debug("receive load check request. label: {}, user: {}, ip: {}",
                  request.getLabel(), request.getUser(), request.getUserIp());
 
         TStatus status = new TStatus(TStatusCode.OK);
@@ -634,7 +634,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.info("receive txn begin request, db: {}, tbl: {}, label: {}, backend: {}",
+        LOG.debug("receive txn begin request, db: {}, tbl: {}, label: {}, backend: {}",
                 request.getDb(), request.getTbl(), request.getLabel(), clientAddr);
         LOG.debug("txn begin request: {}", request);
 
@@ -645,7 +645,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setTxnId(loadTxnBeginImpl(request, clientAddr));
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
-            LOG.info("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
+            LOG.warn("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
             result.setTxnId(e.getTxnId());
         } catch (LabelAlreadyUsedException e) {
             status.setStatusCode(TStatusCode.LABEL_ALREADY_EXISTS);
@@ -712,7 +712,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxnCommitResult loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.info("receive txn commit request. db: {}, tbl: {}, txn id: {}, backend: {}",
+        LOG.debug("receive txn commit request. db: {}, tbl: {}, txn id: {}, backend: {}",
                 request.getDb(), request.getTbl(), request.getTxnId(), clientAddr);
         LOG.debug("txn commit request: {}", request);
 
@@ -778,7 +778,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.info("receive txn rollback request. db: {}, tbl: {}, txn id: {}, reason: {}, backend: {}",
+        LOG.debug("receive txn rollback request. db: {}, tbl: {}, txn id: {}, reason: {}, backend: {}",
                 request.getDb(), request.getTbl(), request.getTxnId(), request.getReason(), clientAddr);
         LOG.debug("txn rollback request: {}", request);
 
@@ -827,7 +827,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) {
         String clientAddr = getClientAddrAsString();
-        LOG.info("receive stream load put request. db:{}, tbl: {}, txn id: {}, load id: {}, backend: {}",
+        LOG.debug("receive stream load put request. db:{}, tbl: {}, txn id: {}, load id: {}, backend: {}",
                  request.getDb(), request.getTbl(), request.getTxnId(), DebugUtil.printId(request.getLoadId()),
                  clientAddr);
         LOG.debug("stream load put request: {}", request);

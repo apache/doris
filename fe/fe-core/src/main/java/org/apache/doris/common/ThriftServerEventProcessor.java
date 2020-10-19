@@ -75,7 +75,7 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
                 break;
         }
         if (tSocket == null) {
-            LOG.info("fail to get client socket. server type: {}", thriftServer.getType());
+            LOG.warn("fail to get client socket. server type: {}", thriftServer.getType());
             return null;
         }
         SocketAddress socketAddress = tSocket.getSocket().getRemoteSocketAddress();
@@ -83,7 +83,7 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
         if (socketAddress instanceof InetSocketAddress) {
             inetSocketAddress = (InetSocketAddress) socketAddress;
         } else {
-            LOG.info("fail to get client socket address. server type: {}",
+            LOG.warn("fail to get client socket address. server type: {}",
                     thriftServer.getType());
             return null;
         }
@@ -93,7 +93,7 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
 
         thriftServer.addConnect(clientAddress);
 
-        LOG.info("create thrift context. client: {}", clientAddress);
+        LOG.debug("create thrift context. client: {}", clientAddress);
         return new ThriftServerContext(clientAddress);
     }
 
@@ -108,7 +108,7 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
         TNetworkAddress clientAddress = thriftServerContext.getClient();
         connectionContext.remove();
         thriftServer.removeConnect(clientAddress);
-        LOG.info("delete thrift context. client: {}", clientAddress);
+        LOG.debug("delete thrift context. client: {}", clientAddress);
     }
 
     @Override
@@ -119,7 +119,6 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
 
         ThriftServerContext thriftServerContext = (ThriftServerContext) serverContext;
         TNetworkAddress clientAddress = thriftServerContext.getClient();
-        Preconditions.checkState(serverContext instanceof ThriftServerContext);
         connectionContext.set(new ThriftServerContext(clientAddress));
     }
 }
