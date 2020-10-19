@@ -399,7 +399,7 @@ public class BackupJob extends AbstractJob {
                             Replica replica = chooseReplica(tablet, visibleVersion, visibleVersionHash);
                             if (replica == null) {
                                 status = new Status(ErrCode.COMMON_ERROR,
-                                        "faild to choose replica to make snapshot for tablet " + tablet.getId()
+                                        "failed to choose replica to make snapshot for tablet " + tablet.getId()
                                                 + ". visible version: " + visibleVersion
                                                 + ", visible version hash: " + visibleVersionHash);
                                 return;
@@ -429,7 +429,7 @@ public class BackupJob extends AbstractJob {
                         : tableRef.getPartitionNames().getPartitionNames();
                 OlapTable copiedTbl = tbl.selectiveCopy(reservedPartitions, true, IndexExtState.VISIBLE);
                 if (copiedTbl == null) {
-                    status = new Status(ErrCode.COMMON_ERROR, "faild to copy table: " + tblName);
+                    status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + tblName);
                     return;
                 }
                 copiedTables.add(copiedTbl);

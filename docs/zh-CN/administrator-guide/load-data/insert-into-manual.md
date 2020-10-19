@@ -44,7 +44,7 @@ Insert Into 命令需要通过 MySQL 协议提交，创建导入请求会同步�
 语法：
 
 ```
-INSERT INTO table_name [WITH LABEL label] [partition_info] [col_list] [query_stmt] [VALUES];
+INSERT INTO table_name [partition_info] [WITH LABEL label] [col_list] [query_stmt] [VALUES];
 ```
 
 示例：
@@ -227,7 +227,7 @@ Insert Into 本身就是一个 SQL 命令，其返回结果会根据执行结果
 ## 最佳实践
 
 ### 应用场景
-1. 用户希望仅导入几条假数据，验证一下 Doris 系统的功能。此时适合使用 INSERT INTO VALUS 的语法。
+1. 用户希望仅导入几条假数据，验证一下 Doris 系统的功能。此时适合使用 INSERT INTO VALUES 的语法。
 2. 用户希望将已经在 Doris 表中的数据进行 ETL 转换并导入到一个新的 Doris 表中，此时适合使用 INSERT INTO SELECT 语法。
 3. 用户可以创建一种外部表，如 MySQL 外部表映射一张 MySQL 系统中的表。或者创建 Broker 外部表来映射 HDFS 上的数据文件。然后通过 INSERT INTO SELECT 语法将外部表中的数据导入到 Doris 表中存储。
 

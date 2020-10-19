@@ -45,7 +45,7 @@ namespace doris {
 /// guaranteed to succeed unless an unexpected system error occurs (e.g. we can't allocate
 /// all of the required memory from the OS). Reservations must be set up so that the total
 /// of all reservations does not exceed 'system_bytes_limit', thus ensuring that
-/// BufferAllocator can alway find memory to fulfill reservations.
+/// BufferAllocator can always find memory to fulfill reservations.
 ///
 /// +========================+
 /// | IMPLEMENTATION NOTES   |

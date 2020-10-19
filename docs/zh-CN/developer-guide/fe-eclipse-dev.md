@@ -101,7 +101,7 @@ java.lang.Exception: Method xxxx should have no parameters
 
 ## 运行 FE
 
-可以在 Ecplise 中直接启动一个 FE 进程，方便对代码进行调试。
+可以在 Eclipse 中直接启动一个 FE 进程，方便对代码进行调试。
 
 1. 创建一个运行目录：
 
@@ -115,7 +115,7 @@ java.lang.Exception: Method xxxx should have no parameters
     
     在第一步创建的 `conf/` 目录下创建配置文件 `fe.conf`。你可以直接将源码目录下 `conf/fe.conf` 拷贝过来并做简单修改。
     
-3. 在 Ecplise 中找到 `src/main/java/org/apache/doris/PaloFe.java` 文件，右击选择 `Run As -> Run Configurations...`。在 `Environment` 标签页中添加如下环境变量：
+3. 在 Eclipse 中找到 `src/main/java/org/apache/doris/PaloFe.java` 文件，右击选择 `Run As -> Run Configurations...`。在 `Environment` 标签页中添加如下环境变量：
 
     * `DORIS_HOME: /path/to/doris/fe/run/`
     * `PID_DIR: /path/to/doris/fe/run/`

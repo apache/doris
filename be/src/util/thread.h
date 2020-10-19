@@ -130,7 +130,7 @@ public:
     // Thread object, so will be faster to call.
     //
     // Thread::unique_thread_id() (or Thread::tid()) should be preferred for
-    // performance sensistive code, however it is only guaranteed to return a
+    // performance sensitive code, however it is only guaranteed to return a
     // unique and stable thread ID, not necessarily the system thread ID.
     static int64_t current_thread_id();
 

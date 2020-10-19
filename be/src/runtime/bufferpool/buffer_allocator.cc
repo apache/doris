@@ -334,7 +334,7 @@ int64_t BufferPool::BufferAllocator::ScavengeBuffers(
   //    threads can't take the memory that we need from an arena that we haven't yet
   //    examined (or from 'system_bytes_available_') because in order to do so, it would
   //    have had to return the equivalent amount of memory to an earlier arena or added
-  //    it back into 'systems_bytes_reamining_'. The former can't happen since we're
+  //    it back into 'systems_bytes_remaining_'. The former can't happen since we're
   //    still holding those locks, and the latter is solved by trying to decrease
   //    system_bytes_remaining_ with DecreaseBytesRemaining() at the end.
   DCHECK_GT(target_bytes, 0);

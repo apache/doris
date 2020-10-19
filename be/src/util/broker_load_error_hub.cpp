@@ -96,7 +96,7 @@ Status BrokerLoadErrorHub::write_to_broker() {
 
 std::string BrokerLoadErrorHub::debug_string() const {
     std::stringstream out;
-    out << "(tatal_error_num=" << _total_error_num << ")";
+    out << "(total_error_num=" << _total_error_num << ")";
     return out.str();
 }
 

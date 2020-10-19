@@ -50,4 +50,4 @@ ERRORS
 curl -u root -XPOST http://host:port/api/testDb/testLabel/_cancel
 
 ## keyword
-Cancel, Rabel
+Cancel, Label

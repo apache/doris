@@ -41,8 +41,8 @@ public abstract class LoadErrorHub {
     private static final Logger LOG = LogManager.getLogger(LoadErrorHub.class);
 
     public static final String MYSQL_PROTOCOL = "MYSQL";
-    public static final String BROKER_PROTOCAL = "BROKER";
-    
+    public static final String BROKER_PROTOCOL = "BROKER";
+
     public static enum HubType {
         MYSQL_TYPE,
         BROKER_TYPE,

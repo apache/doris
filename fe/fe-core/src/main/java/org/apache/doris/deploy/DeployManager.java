@@ -288,7 +288,7 @@ public class DeployManager extends MasterDaemon {
                     ok = true;
                 }
             } catch (Exception e) {
-                LOG.error("failed to get elecetable fe hosts from remote.", e);
+                LOG.error("failed to get electable fe hosts from remote.", e);
                 ok = false;
             }
 

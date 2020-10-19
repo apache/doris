@@ -110,7 +110,7 @@ protected:
         string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, seg_id++);
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions block_opts({ filename });
-        Status st = fs::fs_util::block_mgr_for_ut()->create_block(block_opts, &wblock);
+        Status st = fs::fs_util::block_manager()->create_block(block_opts, &wblock);
         ASSERT_TRUE(st.ok());
         SegmentWriter writer(wblock.get(), 0, &build_schema, opts);
         st = writer.init(10);
@@ -609,7 +609,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     std::string fname = dname + "/int_case";
     std::unique_ptr<fs::WritableBlock> wblock;
     fs::CreateBlockOptions wblock_opts({ fname });
-    Status st = fs::fs_util::block_mgr_for_ut()->create_block(wblock_opts, &wblock);
+    Status st = fs::fs_util::block_manager()->create_block(wblock_opts, &wblock);
     ASSERT_TRUE(st.ok());
     SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
     st = writer.init(10);
@@ -775,7 +775,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     std::string fname = dname + "/string_case";
     std::unique_ptr<fs::WritableBlock> wblock;
     fs::CreateBlockOptions wblock_opts({ fname });
-    Status st = fs::fs_util::block_mgr_for_ut()->create_block(wblock_opts, &wblock);
+    Status st = fs::fs_util::block_manager()->create_block(wblock_opts, &wblock);
     ASSERT_TRUE(st.ok());
     SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
     st = writer.init(10);
@@ -1139,6 +1139,7 @@ TEST_F(SegmentReaderWriterTest, TestBloomFilterIndexUniqueModel) {
 }
 
 int main(int argc, char** argv) {
+    doris::StoragePageCache::create_global_cache(1<<30);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

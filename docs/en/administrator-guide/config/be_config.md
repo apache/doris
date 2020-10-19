@@ -34,10 +34,47 @@ This document mainly introduces the relevant configuration items of BE.
 (TODO)
 
 ## Set configuration items
-(TODO)
+
+There are two ways to configure BE configuration items:
+
+1. Static configuration
+
+         Add and set configuration items in the `conf/be.conf` file. The configuration items in `be.conf` will be read when BE starts. Configuration items not in `be.conf` will use default values.
+
+2. Dynamic configuration
+
+         After BE starts, the configuration items can be dynamically set with the following commands.
+
+         ```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'```
+
+         **Configuration items modified in this way will become invalid after the BE process restarts. **
 
 ## Examples
-(TODO)
+
+1. Modify `max_compaction_concurrency` statically
+
+         By adding in the `be.conf` file:
+
+         ```max_compaction_concurrency=5```
+
+         Then restart the BE process to take effect the configuration.
+
+2. Modify `streaming_load_max_mb` dynamically
+
+         After BE starts, the configuration item `streaming_load_max_mb` is dynamically set by the following command:
+
+         ```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024```
+
+         The return value is as follows, indicating that the setting is successful.
+
+         ```
+         {
+             "status": "OK",
+             "msg": ""
+         }
+         ```
+
+         **The configuration will be invalid after BE restarted. **
 
 ## Configurations
 
@@ -162,7 +199,7 @@ Similar to `base_compaction_trace_threshold`.
 * Description: Configure the merge policy of the cumulative compaction stage. Currently, two merge policy have been implemented, num_based and size_based.
 * Default value: size_based
 
-In detail, ordinary is the initial version of the cumulative compaction merge policy. After a cumulative compaction, the base compaction process is directly performed. The size_based policy is an optimized version of the ordinary strategy. Versions are merged only when the disk volume of the rowset is of the same order of magnitude. After the compaction, the output rowset which satifies the conditions is promoted to the base compaction stage. In the case of a large number of small batch imports: reduce the write magnification of base compact, trade-off between read magnification and space magnification, and reducing file version data.
+In detail, ordinary is the initial version of the cumulative compaction merge policy. After a cumulative compaction, the base compaction process is directly performed. The size_based policy is an optimized version of the ordinary strategy. Versions are merged only when the disk volume of the rowset is of the same order of magnitude. After the compaction, the output rowset which satisfies the conditions is promoted to the base compaction stage. In the case of a large number of small batch imports: reduce the write magnification of base compact, trade-off between read magnification and space magnification, and reducing file version data.
 
 ### `cumulative_size_based_promotion_size_mbytes`
 
@@ -300,7 +337,7 @@ The default value is `false`.
 * Default: false
 
 The merged expired rowset version path will be deleted after half an hour. In abnormal situations, deleting these versions will result in the problem that the consistent path of the query cannot be constructed. When the configuration is false, the program check is strict and the program will directly report an error and exit.
-When configured as true, the program will run normally and ignore this error. In general, ignoring this error will not affect the query, only when the merged version is dispathed by fe, -230 error will appear.
+When configured as true, the program will run normally and ignore this error. In general, ignoring this error will not affect the query, only when the merged version is dispatched by fe, -230 error will appear.
 
 ### inc_rowset_expired_sec
 
@@ -373,6 +410,12 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `max_tablet_num_per_shard`
 
+### `max_tablet_version_num`
+
+* Type: int
+* Description: Limit the number of versions of a single tablet. It is used to prevent a large number of version accumulation problems caused by too frequent import or untimely compaction. When the limit is exceeded, the import task will be rejected.
+* Default value: 500
+
 ### `mem_limit`
 
 ### `memory_limitation_per_thread_for_schema_change`
@@ -384,6 +427,11 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `min_buffer_size`
 
 ### `min_compaction_failure_interval_sec`
+
+* Type: int32
+* Description: During the cumulative compaction process, when the selected tablet fails to be merged successfully, it will wait for a period of time before it may be selected again. The waiting period is the value of this configuration.
+* Default value: 600
+* Unit: seconds
 
 ### `min_cumulative_compaction_num_singleton_deltas`
 

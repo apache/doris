@@ -101,6 +101,14 @@ OLAPStatus DeltaWriter::init() {
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
+    // check tablet version number
+    if (_tablet->version_count() > config::max_tablet_version_num) {
+        LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
+            << ", exceed limit: " << config::max_tablet_version_num
+            << ". tablet: " << _tablet->full_name();
+        return OLAP_ERR_TABLE_NOT_FOUND;
+    }
+
     {
         ReadLock base_migration_rlock(_tablet->get_migration_lock_ptr(), TRY_LOCK);
         if (!base_migration_rlock.own_lock()) {

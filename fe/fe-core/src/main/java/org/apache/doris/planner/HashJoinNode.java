@@ -62,6 +62,7 @@ public class HashJoinNode extends PlanNode {
     private DistributionMode distrMode;
     private boolean isColocate = false; //the flag for colocate join
     private String colocateReason = ""; // if can not do colocate join, set reason here
+    private boolean isBucketShuffle = false; // the flag for bucket shuffle join
 
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef,
                         List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts) {
@@ -120,6 +121,10 @@ public class HashJoinNode extends PlanNode {
 
     public boolean isColocate() {
         return isColocate;
+    }
+
+    public boolean isBucketShuffle() {
+        return distrMode.equals(DistributionMode.BUCKET_SHUFFLE);
     }
 
     public void setColocate(boolean colocate, String reason) {
@@ -299,10 +304,11 @@ public class HashJoinNode extends PlanNode {
         return distrMode == DistributionMode.PARTITIONED;
     }
 
-    enum DistributionMode {
+    public enum DistributionMode {
         NONE("NONE"),
         BROADCAST("BROADCAST"),
-        PARTITIONED("PARTITIONED");
+        PARTITIONED("PARTITIONED"),
+        BUCKET_SHUFFLE("BUCKET_SHUFFLE");
 
         private final String description;
 

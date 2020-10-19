@@ -347,8 +347,8 @@ AgentStatus CgroupsMgr::init_cgroups() {
             _is_cgroups_init_success = true;
             return AgentStatus::DORIS_SUCCESS;
     } else {
-        LOG(ERROR) << "Could not find a valid cgroups path for resource isolation,"
-            << "current value is " << _root_cgroups_path;
+        LOG(WARNING) << "Could not find a valid cgroups path for resource isolation,"
+            << "current value is " << _root_cgroups_path << ". ignore it.";
         _is_cgroups_init_success = false;
         return AgentStatus::DORIS_ERROR;
     }

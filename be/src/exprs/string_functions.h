@@ -181,9 +181,16 @@ public:
     };
 
     static StringVal do_money_format(FunctionContext *context, const std::string& v) {
-        std::locale comma_locale(std::locale(), new CommaMoneypunct ());
-        std::stringstream ss;
-        ss.imbue(comma_locale);
+        static std::locale comma_locale(std::locale(), new CommaMoneypunct());
+        static std::stringstream ss;
+        static bool ss_init = false;
+        if (UNLIKELY(!ss_init)) {
+            ss.imbue(comma_locale);
+            ss_init = true;
+        }
+        static std::string empty_string;
+        ss.str(empty_string);
+
         ss << std::put_money(v);
         return AnyValUtil::from_string_temp(context, ss.str());
     };

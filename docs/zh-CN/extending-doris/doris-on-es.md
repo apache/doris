@@ -35,7 +35,7 @@ Doris-On-ES将Doris的分布式查询规划能力和ES(Elasticsearch)的全文�
 
 ## 名词解释
 
-### Doirs相关
+### Doris相关
 * FE：Frontend，Doris 的前端节点,负责元数据管理和请求接入
 * BE：Backend，Doris 的后端节点,负责查询执行和数据存储
 
@@ -134,7 +134,7 @@ PROPERTIES (
 **password** | 对应用户的密码信息
 
 * ES 7.x之前的集群请注意在建表的时候选择正确的**索引类型type**
-* 认证方式目前仅支持Http Bastic认证，并且需要确保该用户有访问: /\_cluster/state/、\_nodes/http等路径和index的读权限; 集群未开启安全认证，用户名和密码不需要设置
+* 认证方式目前仅支持Http Basic认证，并且需要确保该用户有访问: /\_cluster/state/、\_nodes/http等路径和index的读权限; 集群未开启安全认证，用户名和密码不需要设置
 * Doris表中的列名需要和ES中的字段名完全匹配，字段类型应该保持一致
 *  **ENGINE**必须是 **Elasticsearch**
 

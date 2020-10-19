@@ -101,7 +101,7 @@ public class AlterRoutineLoadStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoPproperties() throws AnalysisException, UserException {
+    public void testNoProperties() throws AnalysisException, UserException {
         AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
                 Maps.newHashMap(), new RoutineLoadDataSourceProperties());
         stmt.analyze(analyzer);

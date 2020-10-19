@@ -62,7 +62,7 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
     {
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions opts({ fname });
-        Status st = fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock);
+        Status st = fs::fs_util::block_manager()->create_block(opts, &wblock);
         ASSERT_TRUE(st.ok()) << st.to_string();
 
         std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
@@ -285,6 +285,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal) {
 }
 
 int main(int argc, char** argv) {
+    doris::StoragePageCache::create_global_cache(1<<30);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

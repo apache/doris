@@ -61,7 +61,7 @@ Status ThriftRpcHelper::rpc(
     ClientConnection<T> client(
             _s_exec_env->get_client_cache<T>(), address, timeout_ms, &status);
     if (!status.ok()) {
-        LOG(WARNING) << "Connect frontent failed, address=" << address
+        LOG(WARNING) << "Connect frontend failed, address=" << address
             << ", status=" << status.get_error_msg();
         return status;
     }

@@ -77,7 +77,7 @@ StringVal StringFunctions::substring(
     // create index indicate every char start byte
     // e.g.  "hello word 你好" => [0,1,2,3,4,5,6,7,8,9,10,11,14] 你 and 好 are 3 bytes
     // why use a vector as index? It is unnecessary if there is no negative pos val,
-    // but if has pos is negative it is not easy to determin where to start, so need a
+    // but if has pos is negative it is not easy to determine where to start, so need a
     // index save every character's length
     size_t byte_pos = 0;
     std::vector<size_t> index;
@@ -984,7 +984,7 @@ StringVal StringFunctions::split_part(FunctionContext* context, const StringVal&
     for (int i = 1; i <= field.val; i++) { // find
         int last_index = i - 1;
         find[last_index] = index_of(content.ptr, 0, content.len, delimiter.ptr, 0, delimiter.len, from);
-        from = find[last_index] + 1;
+        from = find[last_index] + delimiter.len;
         if (find[last_index] == -1) {
             break;
         }

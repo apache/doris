@@ -84,8 +84,8 @@ using strings::Substitute;
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(unused_rowsets_count, MetricUnit::ROWSETS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(compaction_mem_current_consumption, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_mem_current_consumption, MetricUnit::BYTES);
 
 StorageEngine* StorageEngine::_s_instance = nullptr;
 
@@ -119,7 +119,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
           _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
           _memtable_flush_executor(nullptr),
-          _block_manager(nullptr),
           _default_rowset_type(ALPHA_ROWSET),
           _heartbeat_flags(nullptr) {
     if (_s_instance == nullptr) {
@@ -140,6 +139,7 @@ StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     DEREGISTER_HOOK_METRIC(compaction_mem_current_consumption);
     _clear();
+    _compaction_thread_pool->shutdown();
 }
 
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
@@ -179,10 +179,6 @@ Status StorageEngine::_open() {
 
     _memtable_flush_executor.reset(new MemTableFlushExecutor());
     _memtable_flush_executor->init(dirs);
-
-    fs::BlockManagerOptions bm_opts;
-    bm_opts.read_only = false;
-    _block_manager.reset(new fs::FileBlockManager(Env::Default(), std::move(bm_opts)));
 
     _parse_default_rowset_type();
 
@@ -380,7 +376,7 @@ Status StorageEngine::_check_all_root_path_cluster_id() {
         if (tmp_cluster_id == -1) {
             _is_all_cluster_id_exist = false;
         } else if (tmp_cluster_id == cluster_id) {
-            // both hava right cluster id, do nothing
+            // both have right cluster id, do nothing
         } else if (cluster_id == -1) {
             cluster_id = tmp_cluster_id;
         } else {
@@ -578,7 +574,7 @@ void StorageEngine::_start_clean_fd_cache() {
     VLOG(10) << "end clean file descritpor cache";
 }
 
-void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
+void StorageEngine::_perform_cumulative_compaction(TabletSharedPtr best_tablet) {
     scoped_refptr<Trace> trace(new Trace);
     MonotonicStopWatch watch;
     watch.start();
@@ -589,12 +585,6 @@ void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
     });
     ADOPT_TRACE(trace.get());
     TRACE("start to perform cumulative compaction");
-    TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(
-            CompactionType::CUMULATIVE_COMPACTION, data_dir);
-    if (best_tablet == nullptr) {
-        return;
-    }
-    TRACE("found best tablet $0", best_tablet->get_tablet_info().tablet_id);
 
     DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
 
@@ -603,8 +593,8 @@ void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
 
     OLAPStatus res = cumulative_compaction.compact();
     if (res != OLAP_SUCCESS) {
-        best_tablet->set_last_cumu_compaction_failure_time(UnixMillis());
         if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
+            best_tablet->set_last_cumu_compaction_failure_time(UnixMillis());
             DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
             LOG(WARNING) << "failed to do cumulative compaction. res=" << res
                         << ", table=" << best_tablet->full_name();
@@ -614,7 +604,7 @@ void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
     best_tablet->set_last_cumu_compaction_failure_time(0);
 }
 
-void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
+void StorageEngine::_perform_base_compaction(TabletSharedPtr best_tablet) {
     scoped_refptr<Trace> trace(new Trace);
     MonotonicStopWatch watch;
     watch.start();
@@ -625,12 +615,6 @@ void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
     });
     ADOPT_TRACE(trace.get());
     TRACE("start to perform base compaction");
-    TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(
-            CompactionType::BASE_COMPACTION, data_dir);
-    if (best_tablet == nullptr) {
-        return;
-    }
-    TRACE("found best tablet $0", best_tablet->get_tablet_info().tablet_id);
 
     DorisMetrics::instance()->base_compaction_request_total->increment(1);
 

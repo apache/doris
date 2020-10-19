@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -29,10 +30,6 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TOlapRewriteNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -72,7 +69,7 @@ public class OlapRewriteNode extends PlanNode {
     public void init(Analyzer analyzer) throws UserException {
         assignConjuncts(analyzer);
       
-        // Set smap to the combined childrens' smaps and apply that to all conjuncts_.
+        // Set smap to the combined children's smaps and apply that to all conjuncts_.
         createDefaultSmap(analyzer);
 
         computeStats(analyzer);
@@ -104,11 +101,12 @@ public class OlapRewriteNode extends PlanNode {
     @Override
     public void computeStats(Analyzer analyzer) {
         super.computeStats(analyzer);
-        if (getChild(0).cardinality == -1) {
-            cardinality = -1;
+        long cardinality = getChild(0).cardinality;
+        double selectivity = computeSelectivity();
+        if (cardinality < 0 || selectivity < 0) {
+            this.cardinality = -1;
         } else {
-            cardinality = Math.round(((double) getChild(0).cardinality) * computeSelectivity());
-            Preconditions.checkState(cardinality >= 0);
+            this.cardinality = Math.round(cardinality * selectivity);
         }
     }
 

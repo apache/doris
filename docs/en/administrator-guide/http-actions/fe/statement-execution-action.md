@@ -63,37 +63,39 @@ None
 
     ```
     {
-    	"msg": "success",
-    	"code": 0,
-    	"data": {
-    		"type": "result_set",
-    		"data": [
-    			[1],
-    			[2]
-    		],
-    		"meta": [{
-    			"name": "k1",
-    			"type": "INT"
-    		}],
-    		"status": {}
-    	},
-    	"count": 0
+        "msg": "success",
+        "code": 0,
+        "data": {
+            "type": "result_set",
+            "data": [
+                [1],
+                [2]
+            ],
+            "meta": [{
+                "name": "k1",
+                "type": "INT"
+            }],
+            "status": {},
+            "time": 10
+        },
+        "count": 0
     }
     ```
 
-    * The type field is `result_set`, which means the result set is returned. The results need to be obtained and displayed based on the meta and data fields. The meta field describes the column information returned. The data field returns the result row. The column type in each row needs to be judged by the content of the meta field. The status field returns some information of MySQL, such as the number of alarm rows, status code, etc.
+    * The type field is `result_set`, which means the result set is returned. The results need to be obtained and displayed based on the meta and data fields. The meta field describes the column information returned. The data field returns the result row. The column type in each row needs to be judged by the content of the meta field. The status field returns some information of MySQL, such as the number of alarm rows, status code, etc. The time field return the execution time, unit is millisecond.
 
 * Return execution result
 
     ```
     {
-    	"msg": "success",
-    	"code": 0,
-    	"data": {
-    		"type": "exec_status",
-    		"status": {}
-    	},
-    	"count": 0
+        "msg": "success",
+        "code": 0,
+        "data": {
+            "type": "exec_status",
+            "status": {}
+        },
+        "count": 0,
+        "time": 10
     }
     ```
 

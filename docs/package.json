@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "axios": "^0.19.2",
-    "parallax-js": "^3.1.0"
+    "parallax-js": "^3.1.0",
+    "vue-router": "3.4.5"
   }
 }

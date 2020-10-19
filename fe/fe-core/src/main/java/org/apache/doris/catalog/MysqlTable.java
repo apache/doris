@@ -17,8 +17,12 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.collect.Maps;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMySQLTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -39,6 +43,7 @@ import java.util.zip.Adler32;
 public class MysqlTable extends Table {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
 
+    private static final String ODBC_CATALOG_RESOURCE = "odbc_catalog_resource";
     private static final String MYSQL_HOST = "host";
     private static final String MYSQL_PORT = "port";
     private static final String MYSQL_USER = "user";
@@ -46,6 +51,7 @@ public class MysqlTable extends Table {
     private static final String MYSQL_DATABASE = "database";
     private static final String MYSQL_TABLE = "table";
 
+    private String odbcCatalogResourceName;
     private String host;
     private String port;
     private String userName;
@@ -66,43 +72,62 @@ public class MysqlTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of mysql table, "
-                    + "they are: host, port, user, password, database and table");
+                    + "they are: odbc_catalog_resource or [host, port, user, password] and database and table");
         }
 
-        // Set up
-        host = properties.get(MYSQL_HOST);
-        if (Strings.isNullOrEmpty(host)) {
-            throw new DdlException("Host of MySQL table is null. "
-                    + "Please add properties('host'='xxx.xxx.xxx.xxx') when create table");
-        }
+        if (properties.containsKey(ODBC_CATALOG_RESOURCE)) {
+            odbcCatalogResourceName = properties.get(ODBC_CATALOG_RESOURCE);
 
-        port = properties.get(MYSQL_PORT);
-        if (Strings.isNullOrEmpty(port)) {
-            // Maybe null pointer or number convert
-            throw new DdlException("Port of MySQL table is null. "
-                    + "Please add properties('port'='3306') when create table");
+            // 1. check whether resource exist
+            Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName);
+            if (oriResource == null) {
+                throw new DdlException("Resource does not exist. name: " + odbcCatalogResourceName);
+            }
+
+            // 2. check resource usage privilege
+            if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(),
+                    odbcCatalogResourceName,
+                    PrivPredicate.USAGE)) {
+                throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
+                        + "'@'" + ConnectContext.get().getRemoteIP()
+                        + "' for resource '" + odbcCatalogResourceName + "'");
+            }
         } else {
-            try {
-                Integer.valueOf(port);
-            } catch (Exception e) {
-                throw new DdlException("Port of MySQL table must be a number."
-                        + "Please add properties('port'='3306') when create table");
+            // Set up
+            host = properties.get(MYSQL_HOST);
+            if (Strings.isNullOrEmpty(host)) {
+                throw new DdlException("Host of MySQL table is null. "
+                        + "Please set proper resource or add properties('host'='xxx.xxx.xxx.xxx') when create table");
+            }
 
+            port = properties.get(MYSQL_PORT);
+            if (Strings.isNullOrEmpty(port)) {
+                // Maybe null pointer or number convert
+                throw new DdlException("Port of MySQL table is null. "
+                        + "Please set proper resource or add properties('port'='3306') when create table");
+            } else {
+                try {
+                    Integer.valueOf(port);
+                } catch (Exception e) {
+                    throw new DdlException("Port of MySQL table must be a number."
+                            + "Please set proper resource or add properties('port'='3306') when create table");
+
+                }
+            }
+
+            userName = properties.get(MYSQL_USER);
+            if (Strings.isNullOrEmpty(userName)) {
+                throw new DdlException("User of MySQL table is null. "
+                        + "Please set proper resource or add properties('user'='root') when create table");
+            }
+
+            passwd = properties.get(MYSQL_PASSWORD);
+            if (passwd == null) {
+                throw new DdlException("Password of MySQL table is null. "
+                        + "Please set proper resource or add properties('password'='xxxx') when create table");
             }
         }
-
-        userName = properties.get(MYSQL_USER);
-        if (Strings.isNullOrEmpty(userName)) {
-            throw new DdlException("User of MySQL table is null. "
-                    + "Please add properties('user'='root') when create table");
-        }
-
-        passwd = properties.get(MYSQL_PASSWORD);
-        if (passwd == null) {
-            throw new DdlException("Password of MySQL table is null. "
-                    + "Please add properties('password'='xxxx') when create table");
-        }
-
+        
         mysqlDatabaseName = properties.get(MYSQL_DATABASE);
         if (Strings.isNullOrEmpty(mysqlDatabaseName)) {
             throw new DdlException("Database of MySQL table is null. "
@@ -115,21 +140,51 @@ public class MysqlTable extends Table {
                     + "Please add properties('table'='xxxx') when create table");
         }
     }
+    
+    private String getPropertyFromResource(String propertyName) {
+        OdbcCatalogResource odbcCatalogResource = (OdbcCatalogResource)
+                (Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName));
+        if (odbcCatalogResource == null) {
+            throw new RuntimeException("Resource does not exist. name: " + odbcCatalogResourceName);
+        }
+        
+        String property = odbcCatalogResource.getProperties(propertyName);
+        if (property == null) {
+            throw new RuntimeException("The property:" + propertyName + " do not set in resource " + odbcCatalogResourceName);
+        }
+        return property;
+    }
+
+    public String getOdbcCatalogResourceName() {
+        return odbcCatalogResourceName;
+    }
 
     public String getHost() {
-        return host;
+        if (host != null) {
+            return host;
+        }
+        return getPropertyFromResource(MYSQL_HOST);
     }
 
     public String getPort() {
-        return port;
+        if (port != null) {
+            return port;
+        }
+        return getPropertyFromResource(MYSQL_PORT);
     }
 
     public String getUserName() {
-        return userName;
+        if (userName != null) {
+            return userName;
+        }
+        return getPropertyFromResource(MYSQL_USER);
     }
 
     public String getPasswd() {
-        return passwd;
+        if (passwd != null) {
+            return passwd;
+        }
+        return getPropertyFromResource(MYSQL_PASSWORD);
     }
 
     public String getMysqlDatabaseName() {
@@ -142,7 +197,7 @@ public class MysqlTable extends Table {
 
     public TTableDescriptor toThrift() {
         TMySQLTable tMySQLTable = 
-                new TMySQLTable(host, port, userName, passwd, mysqlDatabaseName, mysqlTableName);
+                new TMySQLTable(getHost(), getPort(), getUserName(), getPasswd(), mysqlDatabaseName, mysqlTableName);
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.MYSQL_TABLE,
                 fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setMysqlTable(tMySQLTable);
@@ -161,13 +216,13 @@ public class MysqlTable extends Table {
             // type
             adler32.update(type.name().getBytes(charsetName));
             // host
-            adler32.update(host.getBytes(charsetName));
+            adler32.update(getHost().getBytes(charsetName));
             // port
-            adler32.update(port.getBytes(charsetName));
+            adler32.update(getPort().getBytes(charsetName));
             // username
-            adler32.update(userName.getBytes(charsetName));
+            adler32.update(getUserName().getBytes(charsetName));
             // passwd
-            adler32.update(passwd.getBytes(charsetName));
+            adler32.update(getPasswd().getBytes(charsetName));
             // mysql db
             adler32.update(mysqlDatabaseName.getBytes(charsetName));
             // mysql table
@@ -185,23 +240,54 @@ public class MysqlTable extends Table {
     public void write(DataOutput out) throws IOException {
         super.write(out);
 
-        Text.writeString(out, host);
-        Text.writeString(out, port);
-        Text.writeString(out, userName);
-        Text.writeString(out, passwd);
-        Text.writeString(out, mysqlDatabaseName);
-        Text.writeString(out, mysqlTableName);
+        Map<String, String> serializeMap = Maps.newHashMap();
+        serializeMap.put(ODBC_CATALOG_RESOURCE, odbcCatalogResourceName);
+        serializeMap.put(MYSQL_HOST, host);
+        serializeMap.put(MYSQL_PORT, port);
+        serializeMap.put(MYSQL_USER, userName);
+        serializeMap.put(MYSQL_PASSWORD, passwd);
+        serializeMap.put(MYSQL_DATABASE, mysqlDatabaseName);
+        serializeMap.put(MYSQL_TABLE, mysqlTableName);
+
+        int size = (int) serializeMap.values().stream().filter(v -> {
+            return v != null;
+        }).count();
+        out.writeInt(size);
+        for (Map.Entry<String, String> kv : serializeMap.entrySet()) {
+            if (kv.getValue() != null) {
+                Text.writeString(out, kv.getKey());
+                Text.writeString(out, kv.getValue());
+            }
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
-        // Read MySQL meta
-        host = Text.readString(in);
-        port = Text.readString(in);
-        userName = Text.readString(in);
-        passwd = Text.readString(in);
-        mysqlDatabaseName = Text.readString(in);
-        mysqlTableName = Text.readString(in);
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_92) {
+            // Read MySQL meta
+            int size = in.readInt();
+            Map<String, String> serializeMap = Maps.newHashMap();
+            for (int i = 0; i < size; i++) {
+                String key = Text.readString(in);
+                String value = Text.readString(in);
+                serializeMap.put(key, value);
+            }
+
+            odbcCatalogResourceName = serializeMap.get(ODBC_CATALOG_RESOURCE);
+            host = serializeMap.get(MYSQL_HOST);
+            port = serializeMap.get(MYSQL_PORT);
+            userName = serializeMap.get(MYSQL_USER);
+            passwd = serializeMap.get(MYSQL_PASSWORD);
+            mysqlDatabaseName = serializeMap.get(MYSQL_DATABASE);
+            mysqlTableName = serializeMap.get(MYSQL_TABLE);
+        } else {
+            host = Text.readString(in);
+            port = Text.readString(in);
+            userName = Text.readString(in);
+            passwd = Text.readString(in);
+            mysqlDatabaseName = Text.readString(in);
+            mysqlTableName = Text.readString(in);
+        }
     }
 }

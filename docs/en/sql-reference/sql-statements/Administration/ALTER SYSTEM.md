@@ -106,7 +106,7 @@ ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
 ("type"= "broker",
 "Name" = BOS,
 "path" = "bos://backup-cmy/logs",
-"bosu endpoint" ="http://gz.bcebos.com",
+"bos_endpoint" ="http://gz.bcebos.com",
 "bos_accesskey" = "069fc278xxxxxx24ddb522",
 "bos_secret_accesskey"="700adb0c6xxxxxx74d59eaa980a"
 );

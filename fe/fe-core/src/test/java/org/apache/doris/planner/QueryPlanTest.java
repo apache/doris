@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -68,6 +69,10 @@ public class QueryPlanTest {
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
+
+        // disable bucket shuffle join
+        Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
+
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
@@ -288,6 +293,27 @@ public class QueryPlanTest {
                 "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
                 "properties(\"replication_num\" = \"1\");");
 
+        createTable("create table test.bucket_shuffle1\n" +
+                "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 5\n" +
+                "properties(\"replication_num\" = \"1\"" +
+                ");");
+
+        createTable("CREATE TABLE test.`bucket_shuffle2` (\n" +
+                "  `k1` int NULL COMMENT \"\",\n" +
+                "  `k2` smallint(6) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "(PARTITION p1 VALUES [(\"-128\"), (\"-64\")),\n" +
+                "PARTITION p2 VALUES [(\"-64\"), (\"0\")),\n" +
+                "PARTITION p3 VALUES [(\"0\"), (\"64\")))\n" +
+                "DISTRIBUTED BY HASH(k1, k2) BUCKETS 5\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"DEFAULT\"\n" +
+                ");");
+
         createTable("create table test.colocate1\n" +
                 "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 1\n" +
                 "properties(\"replication_num\" = \"1\"," +
@@ -346,7 +372,7 @@ public class QueryPlanTest {
                 "\"database\" = \"db1\",\n" +
                 "\"table\" = \"tbl1\",\n" +
                 "\"driver\" = \"Oracle Driver\",\n" +
-                "\"type\" = \"oracle\"\n" +
+                "\"odbc_type\" = \"oracle\"\n" +
                 ");");
 
         createTable("create external table test.odbc_mysql\n" +
@@ -360,7 +386,7 @@ public class QueryPlanTest {
                 "\"database\" = \"db1\",\n" +
                 "\"table\" = \"tbl1\",\n" +
                 "\"driver\" = \"Oracle Driver\",\n" +
-                "\"type\" = \"mysql\"\n" +
+                "\"odbc_type\" = \"mysql\"\n" +
                 ");");
     }
 
@@ -917,10 +943,20 @@ public class QueryPlanTest {
         Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql52),
                 "OUTPUT EXPRS: `k7`"));
 
-        // 5.3 test different in then expr and else expr, and return CastExpr<SlotRef>
+        // 5.3 test different type in then expr and else expr, and return CastExpr<SlotRef>
         String sql53 = "select case when 2 < 1 then 'all' else k1 end as col53 from test.baseall group by col53";
         Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql53),
-                "OUTPUT EXPRS:<slot 0> `k1`"));
+                "OUTPUT EXPRS: `k1`"));
+
+        // 5.4 test return CastExpr<SlotRef> with other SlotRef in selectListItem
+        String sql54 = "select k2, case when 2 < 1 then 'all' else k1 end as col54, k7 from test.baseall group by k2, col54, k7";
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql54),
+                "OUTPUT EXPRS:<slot 3> `k2` | <slot 4> `k1` | <slot 5> `k7`"));
+
+        // 5.5 test return CastExpr<CastExpr<SlotRef>> with other SlotRef in selectListItem
+        String sql55 = "select case when 2 < 1 then 'all' else cast(k1 as int) end as col55, k7 from test.baseall group by col55, k7";
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql55),
+                "OUTPUT EXPRS:<slot 2> CAST(`k1` AS INT) | <slot 3> `k7`"));
     }
 
     @Test
@@ -1004,6 +1040,66 @@ public class QueryPlanTest {
         queryStr = "explain select * from test.dynamic_partition t1, test.dynamic_partition t2 where t1.k1 = t2.k1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("colocate: false"));
+    }
+
+    @Test
+    public void testBucketShuffleJoin() throws Exception {
+        FeConstants.runningUnitTest = true;
+        // enable bucket shuffle join
+        Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", true);
+
+        // set data size and row count for the olap table
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTable("bucket_shuffle1");
+        for (Partition partition : tbl.getPartitions()) {
+            partition.updateVisibleVersionAndVersionHash(2, 0);
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(10000);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersionInfo(2, 0, 200000, 10000);
+                    }
+                }
+            }
+        }
+
+        db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        tbl = (OlapTable) db.getTable("bucket_shuffle2");
+        for (Partition partition : tbl.getPartitions()) {
+            partition.updateVisibleVersionAndVersionHash(2, 0);
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(10000);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersionInfo(2, 0, 200000, 10000);
+                    }
+                }
+            }
+        }
+
+        // single partition
+        String queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where t1.k1 = t2.k1 and t1.k1 = t2.k2";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE"));
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
+
+        // not bucket shuffle join do not support different type
+        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where cast (t1.k1 as tinyint) = t2.k1 and t1.k1 = t2.k2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
+
+        // left table distribution column not match
+        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where t1.k1 = t2.k1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
+
+        // multi partition, should not be bucket shuffle join
+        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle2 t2 where t1.k1 = t2.k1 and t1.k1 = t2.k2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
+
+        // disable bucket shuffle join again
+        Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
     }
 
     @Test
@@ -1119,6 +1215,26 @@ public class QueryPlanTest {
     }
 
     @Test
+    public void testLimitOfExternalTable() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        // ODBC table (MySQL)
+        String queryStr = "explain select * from odbc_mysql where k1 > 10 and abs(k1) > 10 limit 10";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("LIMIT 10"));
+
+        // ODBC table (Oracle)
+        queryStr = "explain select * from odbc_oracle where k1 > 10 and abs(k1) > 10 limit 10";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("ROWNUM <= 10"));
+
+        // MySQL table
+        queryStr = "explain select * from mysql_table where k1 > 10 and abs(k1) > 10 limit 10";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("LIMIT 10"));
+    }
+
+    @Test
     public void testPreferBroadcastJoin() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String queryStr = "explain select * from (select k1 from jointest group by k1)t2, jointest t1 where t1.k1 = t2.k1";
@@ -1193,6 +1309,27 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
+    }
+
+    @Test
+    public void testLeadAndLagFunction() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        String queryStr = "explain select time, lead(query_time, 1, NULL) over () as time2 from test.test1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("lead(`query_time`, 1, NULL)"));
+
+        queryStr = "explain select time, lead(query_time, 1, 2) over () as time2 from test.test1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("lead(`query_time`, 1, 2)"));
+
+        queryStr = "explain select time, lead(time, 1, '2020-01-01 00:00:00') over () as time2 from test.test1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("lead(`time`, 1, '2020-01-01 00:00:00')"));
+
+        queryStr = "explain select time, lag(query_time, 1, 2) over () as time2 from test.test1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("lag(`query_time`, 1, 2)"));
     }
 }
 

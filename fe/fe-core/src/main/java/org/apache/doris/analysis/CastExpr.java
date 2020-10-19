@@ -207,7 +207,9 @@ public class CastExpr extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        Preconditions.checkState(!isImplicit);
+        if (isImplicit) {
+            return;
+        }
         // When cast target type is string and it's length is default -1, the result length
         // of cast is decided by child.
         if (targetTypeDef.getType().isScalarType()) {

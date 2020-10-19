@@ -26,7 +26,7 @@ under the License.
 
 # Apache Doris 发布流程
 
-Apache 的发布必须至少是 IPMC 成员，拥有 apache 邮箱的commiter，这个角色叫做 release manager。
+Apache 的发布必须至少是 IPMC 成员，拥有 apache 邮箱的committer，这个角色叫做 release manager。
 
 发布的大致流程如下：
 

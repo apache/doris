@@ -61,7 +61,7 @@ PROPERTIES (
 1. Colcoate Table must be an OLAP-type table
 2. The BUCKET number of tables with the same colocate_with attribute must be the same
 3. The number of copies of tables with the same colocate_with attribute must be the same
-4. Data types of DISTRIBUTTED Columns for tables with the same colocate_with attribute must be the same
+4. Data types of DISTRIBUTED Columns for tables with the same colocate_with attribute must be the same
 
 3 Colocate Join's applicable scenario:
 

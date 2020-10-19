@@ -116,7 +116,8 @@ Status MysqlScanNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(_mysql_scanner->open());
-    RETURN_IF_ERROR(_mysql_scanner->query(_table_name, _columns, _filters));
+    RETURN_IF_ERROR(_mysql_scanner->query(_table_name, _columns, _filters, _limit));
+
     // check materialize slot num
     int materialize_num = 0;
 
@@ -161,11 +162,6 @@ Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_TIMER(materialize_tuple_timer());
 
-    if (reached_limit()) {
-        *eos = true;
-        return Status::OK();
-    }
-
     // create new tuple buffer for row_batch
     int tuple_buffer_size = row_batch->capacity() * _tuple_desc->byte_size();
     void* tuple_buffer = _tuple_pool->allocate(tuple_buffer_size);
@@ -181,11 +177,10 @@ Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
     while (true) {
         RETURN_IF_CANCELLED(state);
 
-        if (reached_limit() || row_batch->is_full()) {
+        if (row_batch->is_full()) {
             // hang on to last allocated chunk in pool, we'll keep writing into it in the
             // next get_next() call
             row_batch->tuple_data_pool()->acquire_data(_tuple_pool.get(), !reached_limit());
-            *eos = reached_limit();
             return Status::OK();
         }
 

@@ -57,7 +57,7 @@ In order for a table to have the same data distribution, the table in the same C
 
 Tables in the same CG do not require consistency in the number, scope, and type of partition columns.
 
-After fixing the number of bucket columns and buckets, the tables in the same CG will have the same Buckets Sequnce. The number of replicas determines the number of replicas of Tablets in each bucket, which BE they are stored on. Suppose that Buckets Sequnce is `[0, 1, 2, 3, 4, 5, 6, 7] `, and that BE nodes have `[A, B, C, D] `4. A possible distribution of data is as follows:
+After fixing the number of bucket columns and buckets, the tables in the same CG will have the same Buckets Sequence. The number of replicas determines the number of replicas of Tablets in each bucket, which BE they are stored on. Suppose that Buckets Sequence is `[0, 1, 2, 3, 4, 5, 6, 7] `, and that BE nodes have `[A, B, C, D] `4. A possible distribution of data is as follows:
 
 ```
 +---+ +---+ +---+ +---+ +---+ +---+ +---+ +---+
@@ -141,7 +141,7 @@ SHOW PROC '/colocation_group/10005.10008';
 * BucketIndex: Subscript to the bucket sequence.
 * Backend Ids: A list of BE node IDs where data fragments are located in buckets.
 
-> The above commands require AMDIN privileges. Normal user view is not supported at this time.
+> The above commands require ADMIN privileges. Normal user view is not supported at this time.
 
 ### Modify Colocate Group
 
@@ -172,7 +172,7 @@ Copies can only be stored on specified BE nodes. So when a BE is unavailable (do
 
 ### Duplicate Equilibrium
 
-Doris will try to distribute the fragments of the Collocation table evenly across all BE nodes. For the replica balancing of common tables, the granularity is single replica, that is to say, it is enough to find BE nodes with lower load for each replica alone. The equilibrium of the Colocation table is at the Bucket level, where all replicas within a Bucket migrate together. We adopt a simple equalization algorithm, which distributes Buckets Sequnce evenly on all BEs, regardless of the actual size of the replicas, but only according to the number of replicas. Specific algorithms can be referred to the code annotations in `ColocateTableBalancer.java`.
+Doris will try to distribute the fragments of the Collocation table evenly across all BE nodes. For the replica balancing of common tables, the granularity is single replica, that is to say, it is enough to find BE nodes with lower load for each replica alone. The equilibrium of the Colocation table is at the Bucket level, where all replicas within a Bucket migrate together. We adopt a simple equalization algorithm, which distributes Buckets Sequence evenly on all BEs, regardless of the actual size of the replicas, but only according to the number of replicas. Specific algorithms can be referred to the code annotations in `ColocateTableBalancer.java`.
 
 > Note 1: Current Colocation replica balancing and repair algorithms may not work well for heterogeneous deployed Oris clusters. The so-called heterogeneous deployment, that is, the BE node's disk capacity, number, disk type (SSD and HDD) is inconsistent. In the case of heterogeneous deployment, small BE nodes and large BE nodes may store the same number of replicas.
 >
@@ -357,60 +357,21 @@ The API is implemented on the FE side and accessed using `fe_host: fe_http_port`
     GET /api/colocate
     
     Return the internal Colocation info in JSON format:
-    
+
     {
-    	"colocate_meta": {
-    		"groupName2Id": {
-    			"g1": {
-    				"dbId": 10005,
-    				"grpId": 10008
-    			}
-    		},
-    		"group2Tables": {},
-    		"table2Group": {
-    			"10007": {
-    				"dbId": 10005,
-    				"grpId": 10008
-    			},
-    			"10040": {
-    				"dbId": 10005,
-    				"grpId": 10008
-    			}
-    		},
-    		"group2Schema": {
-    			"10005.10008": {
-    				"groupId": {
-    					"dbId": 10005,
-    					"grpId": 10008
-    				},
-    				"distributionColTypes": [{
-    					"type": "INT",
-    					"len": -1,
-    					"isAssignedStrLenInColDefinition": false,
-    					"precision": 0,
-    					"scale": 0
-    				}],
-    				"bucketsNum": 10,
-    				"replicationNum": 2
-    			}
-    		},
-    		"group2BackendsPerBucketSeq": {
-    			"10005.10008": [
-    				[10004, 10002],
-    				[10003, 10002],
-    				[10002, 10004],
-    				[10003, 10002],
-    				[10002, 10004],
-    				[10003, 10002],
-    				[10003, 10004],
-    				[10003, 10004],
-    				[10003, 10004],
-    				[10002, 10004]
-    			]
-    		},
-    		"unstableGroups": []
+        "msg": "success",
+    	"code": 0,
+    	"data": {
+    		"infos": [
+    			["10003.12002", "10003_group1", "10037, 10043", "1", "1", "int(11)", "true"]
+    		],
+    		"unstableGroupIds": [],
+    		"allGroupIds": [{
+    			"dbId": 10003,
+    			"grpId": 12002
+    		}]
     	},
-    	"status": "OK"
+    	"count": 0 
     }
     ```
 2. Mark Group as Stable or Unstable
@@ -436,7 +397,7 @@ The API is implemented on the FE side and accessed using `fe_host: fe_http_port`
 	The interface can force the number distribution of a group.
 
     ```
-    POST /api/colocate/bucketseq?db_id=10005&group_id= 10008
+    POST /api/colocate/bucketseq?db_id=10005&group_id=10008
     
     Body:
     [[10004,10002],[10003,10002],[10002,10004],[10003,10002],[10002,10004],[10003,10002],[10003,10004],[10003,10004],[10003,10004],[10002,10004]]

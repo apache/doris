@@ -88,7 +88,7 @@ public class GrantStmtTest {
         stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new TablePattern("testDb", "*"), privileges);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:testUser", stmt.getUserIdent().getQualifiedUser());
-        Assert.assertEquals("testCluster:testDb", stmt.getTblPattern().getQuolifiedDb());
+        Assert.assertEquals("testCluster:testDb", stmt.getTblPattern().getQualifiedDb());
 
         privileges = Lists.newArrayList(AccessPrivilege.READ_ONLY, AccessPrivilege.ALL);
         stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new TablePattern("testDb", "*"), privileges);
@@ -120,6 +120,6 @@ public class GrantStmtTest {
         List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.ALL);
         stmt = new GrantStmt(new UserIdentity("", "%"), null, new TablePattern("testDb", "*"), privileges);
         stmt.analyze(analyzer);
-        Assert.fail("No exeception throws.");
+        Assert.fail("No exception throws.");
     }
 }

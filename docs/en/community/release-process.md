@@ -26,7 +26,7 @@ under the License.
 
 # Publish of Apache Doris
 
-Apache publishing must be at least an IPMC member, a commiter with Apache mailboxes, a role called release manager.
+Apache publishing must be at least an IPMC member, a committer with Apache mailboxes, a role called release manager.
 
 The general process of publication is as follows:
 
@@ -170,7 +170,7 @@ Email address is apache's mailbox.
 
 ##### View and Output
 
-The first line shows the name of the public key file (pubring. gpg), the second line shows the public key characteristics (4096 bits, Hash string and generation time), the third line shows the "user ID", and the fourth line shows the private key characteristics.
+The first line shows the name of the public key file (pubring.gpg), the second line shows the public key characteristics (4096 bits, Hash string and generation time), the third line shows the "user ID", and the fourth line shows the private key characteristics.
 
 ```
 $ gpg --list-keys

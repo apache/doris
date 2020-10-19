@@ -20,7 +20,7 @@
 import React, {useState,useEffect} from 'react';
 import {Tree, Spin, Space} from 'antd';
 import {TableOutlined, HddOutlined} from '@ant-design/icons';
-import {AdHocAPI} from 'Utils/api';
+import {AdHocAPI} from 'Src/api/api';
 import {
     AdhocContentRouteKeyEnum,
 } from '../adhoc.data';
@@ -32,7 +32,6 @@ interface DataNode {
 }
 
 const initTreeDate: DataNode[] = [];
-
 function updateTreeData(list: DataNode[], key: React.Key, children: DataNode[]): DataNode[] {
     return list.map(node => {
         if (node.key === key) {

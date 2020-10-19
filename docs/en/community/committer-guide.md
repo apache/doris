@@ -76,7 +76,7 @@ and you will be able to manage issues and pull request directly through our Gith
 
 5. Once a reviewer has commented on a PR, they need to keep following up on subsequent changes to that PR.
 
-6. A PR must get at least a +1 appove from committer who is not the author.
+6. A PR must get at least a +1 approved from committer who is not the author.
 
 7. After the first +1 to the PR, wait at least one working day before merging. The main purpose is to wait for the rest of the community to come to review.
 

@@ -307,6 +307,6 @@ Cluster situation: The concurrency of Stream load is not affected by cluster siz
 
 		Since Stream load is an HTTP protocol submission creation import task, HTTP Clients in various languages usually have their own request retry logic. After receiving the first request, the Doris system has started to operate Stream load, but because the result is not returned to the Client side in time, the Client side will retry to create the request. At this point, the Doris system is already operating on the first request, so the second request will be reported to Label Already Exists.
 
-		To sort out the possible methods mentioned above: Search FE Master's log with Label to see if there are two ``redirect load action to destination = ``redirect load action to destination'cases in the same Label. If so, the request is submitted repeatedly by the Client side.
+		To sort out the possible methods mentioned above: Search FE Master's log with Label to see if there are two ``redirect load action to destination = ``redirect load action to destination cases in the same Label. If so, the request is submitted repeatedly by the Client side.
 
 		It is suggested that the user calculate the approximate import time according to the data quantity of the current request, and change the request time-out time of the Client end according to the import time-out time, so as to avoid the request being submitted by the Client end many times.

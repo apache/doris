@@ -46,7 +46,7 @@ You will get logstash-output-doris-{version}.gem file in the same directory
 ### 3.Plug-in installation
 copy logstash-output-doris-{version}.gem to the logstash installation directory
 
-Excuting an order
+Executing an order
 
 `./bin/logstash-plugin install logstash-output-doris-{version}.gem` 
 

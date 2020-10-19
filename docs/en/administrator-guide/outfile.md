@@ -73,7 +73,7 @@ WITH BROKER `broker_name`
     Other properties
 
     ```
-    PROPERTIELS
+    PROPERTIES
     ("key1" = "val1", "key2" = "val2", ...)
     ```
 
@@ -91,12 +91,12 @@ WITH BROKER `broker_name`
     SELECT * FROM tbl
     INTO OUTFILE "hdfs:/path/to/result_"
     FORMAT AS CSV
-    PROPERTIELS
+    PROPERTIES
     (
         "broker.name" = "my_broker",
         "broker.hadoop.security.authentication" = "kerberos",
         "broker.kerberos_principal" = "doris@YOUR.COM",
-        "broker.kerberos_keytab" = "/home/doris/my.keytab"
+        "broker.kerberos_keytab" = "/home/doris/my.keytab",
         "column_separator" = ",",
         "line_delimiter" = "\n",
         "max_file_size" = "100MB"
@@ -119,7 +119,7 @@ WITH BROKER `broker_name`
     (SELECT k3 FROM tbl2)
     SELEC k1 FROM x1 UNION SELECT k3 FROM x2
     INTO OUTFILE "hdfs:/path/to/result_"
-    PROPERTIELS
+    PROPERTIES
     (
         "broker.name" = "my_broker",
         "broker.username"="user",
@@ -144,7 +144,7 @@ WITH BROKER `broker_name`
     SELECT k1 FROM tbl1 UNION SELECT k2 FROM tbl1
     INTO OUTFILE "bos://bucket/result_"
     FORMAT AS PARQUET
-    PROPERTIELS
+    PROPERTIES
     (
         "broker.name" = "my_broker",
         "broker.bos_endpoint" = "http://bj.bcebos.com",

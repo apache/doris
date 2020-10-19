@@ -141,7 +141,7 @@ OLAPStatus TabletMetaManager::traverse_headers(OlapMeta* meta,
         // new format key format: "tabletmata_" + tablet_id + "_" + schema_hash  0.10
         split_string<char>(key, '_', &parts);
         if (parts.size() != 3) {
-            LOG(WARNING) << "invalid tablet_meta key:" << key << ", splitted size:" << parts.size();
+            LOG(WARNING) << "invalid tablet_meta key:" << key << ", split size:" << parts.size();
             return true;
         }
         TTabletId tablet_id = std::stol(parts[1].c_str(), nullptr, 10);

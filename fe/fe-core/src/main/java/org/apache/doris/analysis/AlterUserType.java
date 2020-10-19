@@ -18,10 +18,10 @@
 package org.apache.doris.analysis;
 
 public enum AlterUserType {
-    ADD_USER_WHITELIST("add_whiltList"),
-    DELETE_USER_WHITELIST("delete_whiltList");
+    ADD_USER_WHITELIST("add_whiteList"),
+    DELETE_USER_WHITELIST("delete_whiteList");
 
-    private String type; 
+    private String type;
     
     private AlterUserType(String type) {
         this.type = type;

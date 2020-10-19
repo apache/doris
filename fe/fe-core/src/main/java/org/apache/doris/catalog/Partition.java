@@ -462,7 +462,7 @@ public class Partition extends MetaObject implements Writable {
         return (visibleVersion == partition.visibleVersion)
                 && (visibleVersionHash == partition.visibleVersionHash)
                 && (baseIndex.equals(partition.baseIndex)
-                && distributionInfo.eqauls(partition.distributionInfo));
+                && distributionInfo.equals(partition.distributionInfo));
     }
 
     @Override

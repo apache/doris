@@ -30,7 +30,7 @@ under the License.
 
 `BITMAP TO_BITMAP(expr)`
 
-Convert an unsigned bigint (ranging from 0 to 18446744073709551615) to a bitmap containing that value. Mainly be used to load interger value into bitmap column, e.g.,
+Convert an unsigned bigint (ranging from 0 to 18446744073709551615) to a bitmap containing that value. Mainly be used to load integer value into bitmap column, e.g.,
 
 ```
 cat data | curl --location-trusted -u user:passwd -T - -H "columns: dt,page,user_id, user_id=to_bitmap(user_id)"   http://host:8410/api/test/testDb/_stream_load

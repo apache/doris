@@ -275,7 +275,7 @@ public class AnalyticExpr extends Expr {
                     rangeExpr.getType(), orderByElements.get(0).getExpr().getType(), false)) {
             throw new AnalysisException(
                 "The value expression of a PRECEDING/FOLLOWING clause of a RANGE window must "
-                + "be implicitly convertable to the ORDER BY expression's type: "
+                + "be implicitly convertible to the ORDER BY expression's type: "
                 + rangeExpr.toSql() + " cannot be implicitly converted to "
                 + orderByElements.get(0).getExpr().toSql());
         }
@@ -531,7 +531,7 @@ public class AnalyticExpr extends Expr {
 
         // Set a window from UNBOUNDED PRECEDING to CURRENT_ROW for row_number().
         if (analyticFnName.getFunction().equalsIgnoreCase(ROWNUMBER)) {
-            Preconditions.checkState(window == null, "Unexpected window set for row_numer()");
+            Preconditions.checkState(window == null, "Unexpected window set for row_number()");
             window = new AnalyticWindow(AnalyticWindow.Type.ROWS,
                                         new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
                                         new Boundary(BoundaryType.CURRENT_ROW, null));
@@ -556,13 +556,13 @@ public class AnalyticExpr extends Expr {
                 newExprParams.add(new IntLiteral("1", Type.BIGINT));
                 // Default default value is NULL.
                 newExprParams.add(new NullLiteral());
-                throw new AnalysisException("Lag/offset must have three paremeters");
+                throw new AnalysisException("Lag/offset must have three parameters");
             } else if (getFnCall().getChildren().size() == 2) {
                 newExprParams = Lists.newArrayListWithExpectedSize(3);
                 newExprParams.addAll(getFnCall().getChildren());
                 // Default default value is NULL.
                 newExprParams.add(new NullLiteral());
-                throw new AnalysisException("Lag/offset must have three paremeters");
+                throw new AnalysisException("Lag/offset must have three parameters");
             } else  {
                 Preconditions.checkState(getFnCall().getChildren().size() == 3);
             }
@@ -573,7 +573,7 @@ public class AnalyticExpr extends Expr {
                 getFnCall().uncheckedCastChild(getFnCall().getChildren().get(0).getType(), 2);
             }  catch (Exception e) {
                 LOG.warn("" , e);
-                throw new AnalysisException("Convert type error in offset fn(defalut value); old_type="
+                throw new AnalysisException("Convert type error in offset fn(default value); old_type="
                                             + getFnCall().getChildren().get(2).getType() + " new_type="
                                             + getFnCall().getChildren().get(0).getType()) ;
             }

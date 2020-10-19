@@ -92,7 +92,7 @@ private:
     // id of this load channel
     TabletsChannelKey _key;
 
-    // make execute sequece
+    // make execute sequence
     std::mutex _lock;
 
     enum State {

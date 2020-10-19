@@ -91,7 +91,7 @@ public class MetaInfoAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
-        // 1. get all database with priviledge
+        // 1. get all database with privilege
         List<String> dbNames = null;
         try {
             dbNames = Catalog.getCurrentCatalog().getClusterDbNames(ns);

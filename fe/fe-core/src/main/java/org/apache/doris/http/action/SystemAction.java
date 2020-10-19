@@ -158,7 +158,7 @@ public class SystemAction extends WebBaseAction {
         }
     }
 
-    // some expamle:
+    // some example:
     //   '/'            => '/'
     //   '///aaa'       => '///'
     //   '/aaa/bbb///'  => '/aaa'
