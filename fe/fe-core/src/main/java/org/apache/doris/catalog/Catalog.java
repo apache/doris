@@ -3661,6 +3661,14 @@ public class Catalog {
             replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, replicationNum);
             if (isReplicationNumSet) {
                 olapTable.setReplicationNum(replicationNum);
+            } else {
+                List<Long> backends = Catalog.getCurrentSystemInfo().getBackendIds(true);
+                if (backends.size() == 0) {
+                    throw new DdlException("no backends existed.");
+                } else if (backends.size() < FeConstants.default_replication_num) {
+                    replicationNum = (short) backends.size();
+                }
+                olapTable.setReplicationNum(replicationNum);
             }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());

@@ -109,6 +109,10 @@ public class CreateTableTest {
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_type' = 'int');"));
 
+        ExceptionChecker
+                .expectThrowsNoException(() -> createTable("create table test.tbl9(key1 int, key2 varchar(10)) \n"
+                        + "distributed by hash(key1) buckets 1;"));
+
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
         OlapTable tbl6 = (OlapTable) db.getTable("tbl6");
         Assert.assertTrue(tbl6.getColumn("k1").isKey());
