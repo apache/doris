@@ -114,16 +114,22 @@ public class OdbcScanNode extends ScanNode {
         return output.toString();
     }
 
+    // only all conjuncts be pushed down as filter, we can
+    // push down limit operation to ODBC table
+    private boolean needPushDownLimit() {
+        return limit != -1 && conjuncts.isEmpty();
+    }
+
     private String getOdbcQueryStr() {
         StringBuilder sql = new StringBuilder("SELECT ");
 
         // Oracle use the where clause to do top n
-        if (limit != -1 && odbcType == TOdbcTableType.ORACLE) {
+        if (needPushDownLimit() && odbcType == TOdbcTableType.ORACLE) {
             filters.add("ROWNUM <= " + limit);
         }
 
         // MSSQL use select top to do top n
-        if (limit != -1 && odbcType == TOdbcTableType.SQLSERVER) {
+        if (needPushDownLimit() && odbcType == TOdbcTableType.SQLSERVER) {
             sql.append("TOP " + limit + " ");
         }
 
@@ -137,7 +143,7 @@ public class OdbcScanNode extends ScanNode {
         }
 
         // Other DataBase use limit do top n
-        if (limit != -1 && (odbcType == TOdbcTableType.MYSQL || odbcType == TOdbcTableType.POSTGRESQL || odbcType == TOdbcTableType.MONGODB) ) {
+        if (needPushDownLimit() && (odbcType == TOdbcTableType.MYSQL || odbcType == TOdbcTableType.POSTGRESQL || odbcType == TOdbcTableType.MONGODB) ) {
             sql.append(" LIMIT " + limit);
         }
         
