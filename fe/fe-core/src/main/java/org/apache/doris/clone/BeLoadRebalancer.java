@@ -20,13 +20,11 @@ package org.apache.doris.clone;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -43,32 +41,16 @@ import java.util.Map;
 import java.util.Set;
 
 /*
- * LoadBalancer is responsible for 
+ * BeLoadRebalancer strategy:
  * 1. selecting alternative tablets from high load backends, and return them to tablet scheduler.
  * 2. given a tablet, find a backend to migration.
+ * 3. deleting the redundant replica in high load, so don't override getCachedSrcBackendId().
  */
-public class LoadBalancer {
-    private static final Logger LOG = LogManager.getLogger(LoadBalancer.class);
+public class BeLoadRebalancer extends Rebalancer {
+    private static final Logger LOG = LogManager.getLogger(BeLoadRebalancer.class);
 
-    private Map<String, ClusterLoadStatistic> statisticMap;
-    private TabletInvertedIndex invertedIndex;
-    private SystemInfoService infoService;
-
-    public LoadBalancer(Map<String, ClusterLoadStatistic> statisticMap) {
-        this.statisticMap = statisticMap;
-        this.invertedIndex = Catalog.getCurrentInvertedIndex();
-        this.infoService = Catalog.getCurrentSystemInfo();
-    }
-
-    public List<TabletSchedCtx> selectAlternativeTablets() {
-        List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
-        for (Map.Entry<String, ClusterLoadStatistic> entry : statisticMap.entrySet()) {
-            for (TStorageMedium medium : TStorageMedium.values()) {
-                alternativeTablets.addAll(selectAlternativeTabletsForCluster(entry.getKey(),
-                        entry.getValue(), medium));
-            }
-        }
-        return alternativeTablets;
+    public BeLoadRebalancer(Map<String, ClusterLoadStatistic> statisticMap) {
+        super(statisticMap);
     }
 
     /*
@@ -79,14 +61,15 @@ public class LoadBalancer {
      *         and whether it is benefit for balance (All these will be checked in tablet scheduler)
      *      2. Only select tablets from 'high' backends.
      *      3. Only select tablets from 'high' and 'mid' paths.
-     * 
+     *
      * Here we only select tablets from high load node, do not set its src or dest, all this will be set
      * when this tablet is being scheduled in tablet scheduler.
-     * 
+     *
      * NOTICE that we may select any available tablets here, ignore their state.
      * The state will be checked when being scheduled in tablet scheduler.
      */
-    private List<TabletSchedCtx> selectAlternativeTabletsForCluster(
+    @Override
+    protected List<TabletSchedCtx> selectAlternativeTabletsForCluster(
             String clusterName, ClusterLoadStatistic clusterStat, TStorageMedium medium) {
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
 
@@ -95,7 +78,7 @@ public class LoadBalancer {
         List<BackendLoadStatistic> midBEs = Lists.newArrayList();
         List<BackendLoadStatistic> highBEs = Lists.newArrayList();
         clusterStat.getBackendStatisticByClass(lowBEs, midBEs, highBEs, medium);
-        
+
         if (lowBEs.isEmpty() && highBEs.isEmpty()) {
             LOG.info("cluster is balance: {} with medium: {}. skip", clusterName, medium);
             return alternativeTablets;
@@ -108,7 +91,7 @@ public class LoadBalancer {
                     lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
             return alternativeTablets;
         }
-        
+
         if (lowBEs.stream().noneMatch(BackendLoadStatistic::hasAvailDisk)) {
             LOG.info("all low load backends {} have no available disk with medium: {}. skip",
                     lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
@@ -125,7 +108,8 @@ public class LoadBalancer {
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,
         // so we need to traverse it from last to first
-        OUTER: for (int i = highBEs.size() - 1; i >= 0; i--) {
+        OUTER:
+        for (int i = highBEs.size() - 1; i >= 0; i--) {
             BackendLoadStatistic beStat = highBEs.get(i);
 
             // classify the paths.
@@ -135,7 +119,7 @@ public class LoadBalancer {
             beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, medium);
             // we only select tablets from available mid and high load path
             pathHigh.addAll(pathMid);
-            
+
             // get all tablets on this backend, and shuffle them for random selection
             List<Long> tabletIds = invertedIndex.getTabletIdsByBackendIdAndStorageMedium(beStat.getBeId(), medium);
             Collections.shuffle(tabletIds);
@@ -170,7 +154,7 @@ public class LoadBalancer {
                     if (tabletMeta == null) {
                         continue;
                     }
-                    
+
                     if (colocateTableIndex.isColocateTable(tabletMeta.getTableId())) {
                         continue;
                     }
@@ -211,8 +195,9 @@ public class LoadBalancer {
      * 2. Select a low load backend as destination. And tablet should not has replica on this backend.
      * 3. Create a clone task.
      */
+    @Override
     public void createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots,
-            AgentBatchTask batchTask) throws SchedException {
+                                  AgentBatchTask batchTask) throws SchedException {
         ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster());
         if (clusterStat == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
@@ -283,7 +268,7 @@ public class LoadBalancer {
                 if (hosts.contains(lowBackend.getHost())) {
                     continue;
                 }
-                
+
                 // no replica on this low load backend
                 // 1. check if this clone task can make the cluster more balance.
                 List<RootPathLoadStatistic> availPaths = Lists.newArrayList();
