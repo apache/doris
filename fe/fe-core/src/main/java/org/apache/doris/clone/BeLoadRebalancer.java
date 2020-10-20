@@ -108,8 +108,7 @@ public class BeLoadRebalancer extends Rebalancer {
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,
         // so we need to traverse it from last to first
-        OUTER:
-        for (int i = highBEs.size() - 1; i >= 0; i--) {
+        OUTER:for (int i = highBEs.size() - 1; i >= 0; i--) {
             BackendLoadStatistic beStat = highBEs.get(i);
 
             // classify the paths.
