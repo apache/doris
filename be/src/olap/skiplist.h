@@ -408,7 +408,7 @@ void SkipList<Key,Comparator>::InsertWithHint(const Key& key, bool is_exist, Hin
     DCHECK(!is_exist || x) << "curr pointer must not be null if row exists";
 
 #ifndef BE_TEST
-    // The key already exists and duplicate keys are not allowed, so we need to aggreage them
+    // The key already exists and duplicate keys are not allowed, so we need to aggregate them
     if (!_can_dup && is_exist) {
         return;
     }

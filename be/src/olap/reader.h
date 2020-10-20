@@ -76,7 +76,7 @@ struct ReaderParams {
 
     void check_validation() const {
         if (UNLIKELY(version.first == -1)) {
-            LOG(FATAL) << "verison is not set. tablet=" << tablet->full_name();
+            LOG(FATAL) << "version is not set. tablet=" << tablet->full_name();
         }
     }
 

@@ -69,7 +69,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(Tablet* tab
 
     // calculate promotion size
     auto base_rowset_meta = existing_rss.begin();
-    // check base rowset frist version must be zero
+    // check base rowset first version must be zero
     CHECK((*base_rowset_meta)->start_version() == 0);
 
     int64_t promotion_size = 0;
@@ -424,7 +424,7 @@ void NumBasedCumulativeCompactionPolicy::calculate_cumulative_point(Tablet* tabl
     }
 }
 
-void CumulativeCompactionPolicy::pick_candicate_rowsets(int64_t skip_window_sec, 
+void CumulativeCompactionPolicy::pick_candidate_rowsets(int64_t skip_window_sec,
         const std::unordered_map<Version, RowsetSharedPtr, HashOfVersion>& rs_version_map,
         int64_t cumulative_point, std::vector<RowsetSharedPtr>* candidate_rowsets) {
 

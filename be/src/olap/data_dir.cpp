@@ -615,12 +615,12 @@ OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
         if (config::storage_strict_check_incompatible_old_format) {
             LOG(FATAL) << "There are incompatible old format metas, current version does not support "
                        << "and it may lead to data missing!!! "
-                       << "talbet_id = " << tablet_id << " schema_hash = " << schema_hash;
+                       << "tablet_id = " << tablet_id << " schema_hash = " << schema_hash;
         } else {
             LOG(WARNING)
                     << "There are incompatible old format metas, current version does not support "
                     << "and it may lead to data missing!!! "
-                    << "talbet_id = " << tablet_id << " schema_hash = " << schema_hash;
+                    << "tablet_id = " << tablet_id << " schema_hash = " << schema_hash;
         }
         return false;
     };

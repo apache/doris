@@ -123,7 +123,7 @@ public:
     //
     // The function call extra cost is acceptable. Compared with returning all children
     // into a given vector, the performance of this method is 5% worse. However this
-    // approach is more flexiable and efficient in fulfilling other requirements.
+    // approach is more flexible and efficient in fulfilling other requirements.
     //
     // Returns OK if "dir" exists.
     //         NotFound if "dir" does not exist, the calling process does not have

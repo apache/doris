@@ -73,7 +73,7 @@ private:
     // Collect all scanners 's status
     Status collect_scanners_status();
 
-    // One scanner worker, This scanner will hanle 'length' ranges start from start_idx
+    // One scanner worker, This scanner will handle 'length' ranges start from start_idx
     void scanner_worker(int start_idx, int length, std::promise<Status>& p_status);
 
     // Scan one range

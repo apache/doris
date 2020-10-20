@@ -163,7 +163,7 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
-    // initilize libcurl here to avoid concurrent initialization
+    // initialize libcurl here to avoid concurrent initialization
     auto curl_ret = curl_global_init(CURL_GLOBAL_ALL);
     if (curl_ret != 0) {
         LOG(FATAL) << "fail to initialize libcurl, curl_ret=" << curl_ret;

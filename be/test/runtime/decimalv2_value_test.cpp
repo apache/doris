@@ -147,7 +147,7 @@ TEST_F(DecimalV2ValueTest, int_to_decimal) {
     std::cout << "value8: " << value8.get_debug_info() << std::endl;
     ASSERT_EQ("11", value8.to_string(3));
 
-    // more than 9digit, fraction will be trancated to 999999999
+    // more than 9digit, fraction will be truncated to 999999999
     DecimalV2Value value9(1230123456789, 1230123456789);
     std::cout << "value9: " << value9.get_debug_info() << std::endl;
     ASSERT_EQ("1230123456789.999999999", value9.to_string(10));

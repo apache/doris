@@ -74,7 +74,7 @@ private:
                   current_row(NULL) {}
     };
     // _left_batch must be cleared before calling get_next().  used cache child(0)'s data
-    // _rigth_batch must be cleared before calling get_next().  used cache child(1)'s data
+    // _right_batch must be cleared before calling get_next().  used cache child(1)'s data
     // does not initialize all tuple ptrs in the row, only the ones that it
     // is responsible for.
     boost::scoped_ptr<ChildReaderContext> _left_child_ctx;

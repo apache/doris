@@ -113,7 +113,7 @@ public:
         insert_impl(row);
     }
 
-    // Insert row into the hash table. if the row is alread exist will not insert
+    // Insert row into the hash table. if the row is already exist will not insert
     void IR_ALWAYS_INLINE insert_unique(TupleRow* row) {
         if (find(row, false) == end()) {
             insert(row);
@@ -379,7 +379,7 @@ private:
     const int _num_build_tuples;
     // outer join || has null equal join should be true
     const bool _stores_nulls;
-    // true: the null-safe equal '<=>' is true. The row with null shoud be judged.
+    // true: the null-safe equal '<=>' is true. The row with null should be judged.
     // false: the equal '=' is false. The row with null should be filtered.
     const std::vector<bool> _finds_nulls;
 

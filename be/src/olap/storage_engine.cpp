@@ -488,7 +488,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
 }
 
 void StorageEngine::stop() {
-    // trigger the waitting threads
+    // trigger the waiting threads
     notify_listeners();
 
     std::lock_guard<std::mutex> l(_store_lock);

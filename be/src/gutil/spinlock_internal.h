@@ -52,7 +52,7 @@ struct SpinLockWaitTransition {
 
 // Wait until *w can transition from trans[i].from to trans[i].to for some i
 // satisfying 0<=i<n && trans[i].done, atomically make the transition,
-// then return the old value of *w.   Make any other atomic tranistions
+// then return the old value of *w.   Make any other atomic transitions
 // where !trans[i].done, but continue waiting.
 int32 SpinLockWait(volatile Atomic32 *w, int n,
                    const SpinLockWaitTransition trans[]);

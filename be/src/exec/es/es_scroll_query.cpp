@@ -68,7 +68,7 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     rapidjson::Document es_query_dsl;
     rapidjson::Document::AllocatorType &allocator = es_query_dsl.GetAllocator();
     es_query_dsl.SetObject();
-    // generate the filter caluse
+    // generate the filter clause
     rapidjson::Document scratch_document;
     rapidjson::Value query_node(rapidjson::kObjectType);
     query_node.SetObject();
@@ -128,7 +128,7 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
     rapidjson::Value field("_doc", allocator);
     sort_node.PushBack(field, allocator);
     es_query_dsl.AddMember("sort", sort_node, allocator);
-    // number of docuements returned
+    // number of documents returned
     es_query_dsl.AddMember("size", size, allocator);
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);

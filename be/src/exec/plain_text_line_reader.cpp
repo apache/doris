@@ -28,7 +28,7 @@
 // #define INPUT_CHUNK  (34)
 #define OUTPUT_CHUNK (8 * 1024 * 1024)
 // #define OUTPUT_CHUNK (32)
-// leave these 2 size small for debuging
+// leave these 2 size small for debugging
 
 namespace doris {
 
@@ -114,7 +114,7 @@ void PlainTextLineReader::extend_input_buf() {
 
         capacity = capacity + _input_buf_pos;
         if (capacity >= _more_input_bytes) {
-            // move the read remainings to the begining of the current input buf,
+            // move the read remaining to the beginning of the current input buf,
             memmove(_input_buf, _input_buf + _input_buf_pos, input_buf_read_remaining());
             _input_buf_limit -= _input_buf_pos;
             _input_buf_pos = 0;
@@ -155,7 +155,7 @@ void PlainTextLineReader::extend_output_buf() {
         // 2. try reuse buf
         capacity = capacity + _output_buf_pos;
         if (capacity >= target) {
-            // move the read remainings to the begining of the current output buf,
+            // move the read remaining to the beginning of the current output buf,
             memmove(_output_buf, _output_buf + _output_buf_pos, output_buf_read_remaining());
             _output_buf_limit -= _output_buf_pos;
             _output_buf_pos = 0;
@@ -256,7 +256,7 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
                     _output_buf_limit += read_len;
                     _stream_end = true;
                 } else {
-                    // only update inpub limit.
+                    // only update input limit.
                     // input pos is set at MARK step
                     _input_buf_limit += read_len;
                 }

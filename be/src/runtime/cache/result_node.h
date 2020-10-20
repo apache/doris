@@ -112,7 +112,7 @@ typedef boost::unordered_map<PartitionKey, PartitionRowBatch*> PartitionRowBatch
 
 /**
 * Cache the result of one SQL, include many partition rowsets.
-* Sql Cache: The partiton ID comes from the partition lastest updated.
+* Sql Cache: The partition ID comes from the partition last updated.
 * Partition Cache: The partition ID comes from the partition scanned by query.
 * The above two modes use the same cache structure.
 */

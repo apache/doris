@@ -217,7 +217,7 @@ Status OlapScanner::_init_return_columns() {
         int32_t index = _tablet->field_index(slot->col_name());
         if (index < 0) {
             std::stringstream ss;
-            ss << "field name is invalied. field="  << slot->col_name();
+            ss << "field name is invalid. field="  << slot->col_name();
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
@@ -285,7 +285,7 @@ Status OlapScanner::get_batch(
                 VLOG_ROW << "OlapScanner input row: " << Tuple::to_string(tuple, *_tuple_desc);
             }
 
-            // 3.4 Set tuple to RowBatch(not commited)
+            // 3.4 Set tuple to RowBatch(not committed)
             int row_idx = batch->add_row();
             TupleRow* row = batch->get_row(row_idx);
             row->set_tuple(_tuple_idx, tuple);

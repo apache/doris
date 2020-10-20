@@ -76,7 +76,7 @@ Status LoadPathMgr::allocate_dir(
         const std::string& label,
         std::string* prefix) {
     if (_path_vec.empty()) {
-        return Status::InternalError("No load path configed.");
+        return Status::InternalError("No load path configured.");
     }
     std::string path;
     auto size = _path_vec.size();

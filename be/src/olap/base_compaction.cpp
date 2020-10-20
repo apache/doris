@@ -62,7 +62,7 @@ OLAPStatus BaseCompaction::compact() {
 
 OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     _input_rowsets.clear();
-    _tablet->pick_candicate_rowsets_to_base_compaction(&_input_rowsets);
+    _tablet->pick_candidate_rowsets_to_base_compaction(&_input_rowsets);
     if (_input_rowsets.size() <= 1) {
         return OLAP_ERR_BE_NO_SUITABLE_VERSION;
     }

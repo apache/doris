@@ -87,7 +87,7 @@ Status SchemaColumnsScanner::start(RuntimeState *state) {
         RETURN_IF_ERROR(SchemaHelper::get_db_names(*(_param->ip),
                     _param->port, db_params, &_db_result)); 
     } else {
-        return Status::InternalError("IP or port dosn't exists");
+        return Status::InternalError("IP or port doesn't exists");
     }
 
     return Status::OK();
@@ -107,7 +107,7 @@ std::string SchemaColumnsScanner::to_mysql_data_type_string(TColumnDesc &desc) {
         case TPrimitiveType::BIGINT:
             return "bigint";
         case TPrimitiveType::LARGEINT:
-            return "bigint unsinged";
+            return "bigint unsigned";
         case TPrimitiveType::FLOAT:
             return "float";
         case TPrimitiveType::DOUBLE:
@@ -142,7 +142,7 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc &desc) {
         case TPrimitiveType::BIGINT:
             return "bigint(20)";
         case TPrimitiveType::LARGEINT:
-            return "bigint(20) unsinged";
+            return "bigint(20) unsigned";
         case TPrimitiveType::FLOAT:
             return "float";
         case TPrimitiveType::DOUBLE:
@@ -393,7 +393,7 @@ Status SchemaColumnsScanner::get_new_desc() {
         RETURN_IF_ERROR(SchemaHelper::describe_table(*(_param->ip),
                 _param->port, desc_params, &_desc_result)); 
     } else {
-        return Status::InternalError("IP or port dosn't exists");
+        return Status::InternalError("IP or port doesn't exists");
     }
     _column_index = 0;
 
@@ -421,7 +421,7 @@ Status SchemaColumnsScanner::get_new_table() {
         RETURN_IF_ERROR(SchemaHelper::get_table_names(*(_param->ip),
                 _param->port, table_params, &_table_result)); 
     } else {
-        return Status::InternalError("IP or port dosn't exists");
+        return Status::InternalError("IP or port doesn't exists");
     }
     _table_index = 0;
     return Status::OK();

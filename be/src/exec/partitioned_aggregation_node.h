@@ -68,7 +68,7 @@ class SlotDescriptor;
 ///    In the case where the aggregate function does not return a string (meaning the
 ///    size of all the slots is known when the row is constructed), this stream contains
 ///    all the memory for the result rows and the MemPool (2) is not used.
-/// 4) Unaggregated tuple stream. Stream to spill unaggregated rows.
+/// 4) Aggregated tuple stream. Stream to spill aggregated rows.
 ///    Rows in this stream always have child(0)'s layout.
 ///
 /// Buffering: Each stream and hash table needs to maintain at least one buffer for

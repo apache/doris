@@ -49,7 +49,7 @@ public:
             const TDescribeTableParams &desc_params,
             TDescribeTableResult *desc_result);
 
-    static Status show_varialbes(
+    static Status show_variables(
             const std::string& ip,
             const int32_t port,
             const TShowVariableRequest &var_params,

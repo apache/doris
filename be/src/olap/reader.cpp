@@ -415,7 +415,7 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
             return OLAP_SUCCESS;
         }
         cur_delete_flag = _next_delete_flag;
-        // the verion is in reverse order, the first row is the highest version,
+        // the version is in reverse order, the first row is the highest version,
         // in UNIQUE_KEY highest version is the final result, there is no need to
         // merge the lower versions
         direct_copy_row(row_cursor, *_next_key);
@@ -643,7 +643,7 @@ OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
                 _value_cids.push_back(i);
             }
         }
-        VLOG(3) << "return column is empty, using full column as defaut.";
+        VLOG(3) << "return column is empty, using full column as default.";
     } else if (read_params.reader_type == READER_CHECKSUM) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {

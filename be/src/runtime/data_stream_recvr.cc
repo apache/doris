@@ -222,7 +222,7 @@ void DataStreamRecvr::SenderQueue::add_batch(
     }
 
     // We always accept the batch regardless of buffer limit, to avoid rpc pipeline stall.
-    // If exceed buffer limit, we just do not respoinse ACK to client, so the client won't
+    // If exceed buffer limit, we just do not response ACK to client, so the client won't
     // send data until receive ACK.
     // Note that if this be needs to receive data from N BEs, the size of buffer
     // may reach as many as (buffer_size + n * buffer_size)

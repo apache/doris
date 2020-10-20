@@ -126,7 +126,7 @@ void LoadChannel::handle_mem_exceed_limit(bool force) {
         channel->reduce_mem_usage();
     } else {
         // should not happen, add log to observe
-        LOG(WARNING) << "fail to find suitable tablets-channel when memory execeed. "
+        LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "
                      << "load_id=" << _load_id;
     }
 }

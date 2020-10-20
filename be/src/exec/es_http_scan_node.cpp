@@ -385,7 +385,7 @@ Status EsHttpScanNode::scanner_scan(
             if (_runtime_state->is_cancelled()) {
                 return Status::Cancelled("Cancelled");
             }
-            // Queue size Must be samller than _max_buffered_batches
+            // Queue size Must be smaller than _max_buffered_batches
             _batch_queue.push_back(row_batch);
 
             // Notify reader to 
@@ -430,7 +430,7 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
     const TEsScanRange& es_scan_range = 
         _scan_ranges[start_idx].scan_range.es_scan_range;
 
-    // Collect the informations from scan range to perperties
+    // Collect the information from scan range to properties
     std::map<std::string, std::string> properties(_properties);
     properties[ESScanReader::KEY_INDEX] = es_scan_range.index;
     if (es_scan_range.__isset.type) {
