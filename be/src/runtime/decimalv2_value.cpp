@@ -297,7 +297,7 @@ std::string DecimalV2Value::to_string() const {
 
 // NOTE: only change abstract value, do not change sign
 void DecimalV2Value::to_max_decimal(int32_t precision, int32_t scale) {
-    bool is_negtive = (_value < 0);
+    bool is_negative = (_value < 0);
     static const int64_t INT_MAX_VALUE[PRECISION] = {
         9ll, 
         99ll, 
@@ -330,7 +330,7 @@ void DecimalV2Value::to_max_decimal(int32_t precision, int32_t scale) {
         999999999
     };
 
-    // precison > 0 && scale >= 0 && scale <= SCALE
+    // precision > 0 && scale >= 0 && scale <= SCALE
     if (precision <= 0 || scale < 0) return;
     if (scale > SCALE) scale = SCALE;
 
@@ -340,13 +340,13 @@ void DecimalV2Value::to_max_decimal(int32_t precision, int32_t scale) {
         precision = PRECISION - SCALE + scale;
     } else if (precision <= scale) {
         LOG(WARNING) << "Warning: error precision: " << precision << " or scale: " << scale;
-        precision = scale + 1; // corect error precision
+        precision = scale + 1; // correct error precision
     }
 
     int64_t int_value = INT_MAX_VALUE[precision - scale - 1];
     int64_t frac_value = scale == 0? 0 : FRAC_MAX_VALUE[scale - 1];
     _value = static_cast<int128_t>(int_value) * DecimalV2Value::ONE_BILLION + frac_value;
-    if (is_negtive) _value = -_value;
+    if (is_negative) _value = -_value;
 }
 
 std::size_t hash_value(DecimalV2Value const& value) {

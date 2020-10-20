@@ -31,7 +31,7 @@ public:
 
     virtual bool request_will_be_read_progressively() { return false; }
 
-    // This funciton will called when all headers are recept.
+    // This function will called when all headers are receipt.
     // return 0 if process successfully. otherwise return -1;
     // If return -1, on_header function should send_reply to HTTP client
     // and function wont send any reply any more.

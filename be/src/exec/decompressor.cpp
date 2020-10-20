@@ -131,7 +131,7 @@ Status GzipDecompressor::decompress(
             ret = inflateReset(&_z_strm);
             if (ret != Z_OK) {
                 std::stringstream ss;
-                ss << "Failed to inflateRset. return code: " << ret;
+                ss << "Failed to inflateReset. return code: " << ret;
                 return Status::InternalError(ss.str());
             }
         } else if (ret != Z_OK) {

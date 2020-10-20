@@ -51,7 +51,7 @@ private:
 };
 
 // Helper class than locks a mutex on construction
-// and unlocks the mutex on descontruction.
+// and unlocks the mutex on deconstruction.
 class MutexLock {
 public:
     // wait until obtain the lock

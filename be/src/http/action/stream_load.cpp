@@ -141,7 +141,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
         LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes="
             << ctx->body_bytes << ", receive_bytes=" << ctx->receive_bytes
             << ", id=" << ctx->id;
-        return Status::InternalError("receive body dont't equal with body bytes");
+        return Status::InternalError("receive body don't equal with body bytes");
     }
     if (!ctx->use_streaming) {
         // if we use non-streaming, we need to close file first,
@@ -156,7 +156,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
     // wait stream load finish
     RETURN_IF_ERROR(ctx->future.get());
 
-    // If put file succeess we need commit this load
+    // If put file success we need commit this load
     int64_t commit_and_publish_start_time = MonotonicNanos();
     RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
     ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;

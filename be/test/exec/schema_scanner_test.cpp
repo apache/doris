@@ -52,7 +52,7 @@ SchemaScanner::ColumnDesc s_test_columns[] = {
     { "is_null",  TYPE_VARCHAR, sizeof(StringValue), true },
 };
 
-char g_tuple_buf[10000];// enougth for tuple
+char g_tuple_buf[10000];// enough for tuple
 TEST_F(SchemaScannerTest, normal_use) {
     SchemaScanner scanner(s_test_columns, 
                           sizeof(s_test_columns) / sizeof(SchemaScanner::ColumnDesc));

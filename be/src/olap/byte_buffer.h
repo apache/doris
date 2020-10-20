@@ -42,9 +42,9 @@ public:
     // 新buffer的position为0, limit为capacity
     // 调用者获得新建的ByteBuffer的所有权,并需使用delete删除获得的StorageByteBuffer
     //
-    // TODO. 我认为这里create用法应该是直接返回ByteBuffer本身而不是?
-    // ??针，否则智能指针就无法发挥作用
-    //  目前内存的管理还是手动的。而且需要认为deleta。
+    // TODO. 我认为这里create用法应该是直接返回ByteBuffer本身而不是智能指
+    // 针，否则智能指针就无法发挥作用
+    //  目前内存的管理还是手动的。而且需要认为delete。
     static StorageByteBuffer* create(uint64_t capacity);
 
     // 通过引用另一个ByteBuffer的内存创建一个新的StorageByteBuffer

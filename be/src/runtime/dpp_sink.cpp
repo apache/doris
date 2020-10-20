@@ -158,8 +158,8 @@ public:
 
     // Prepare this translator, includes
     // 1. new sorter for sort data
-    // 2. new comparator for aggreage data with same key
-    // 3. new witer for write data later
+    // 2. new comparator for aggregate data with same key
+    // 3. new writer for write data later
     // 4. create value updaters
     Status prepare(RuntimeState* state);
 
@@ -191,8 +191,8 @@ private:
     // and put to object pool of 'state', so no need to delete it
     Status create_sorter(RuntimeState* state);
 
-    // Helper to create comparetor used to aggregate same rows
-    Status create_comparetor(RuntimeState* state);
+    // Helper to create comparator used to aggregate same rows
+    Status create_comparator(RuntimeState* state);
 
     // Create writer to write data
     // same with sorter, so don't worry about its lifecycle
@@ -295,7 +295,7 @@ Status Translator::create_sorter(RuntimeState* state) {
     return Status::OK();
 }
 
-Status Translator::create_comparetor(RuntimeState* state) {
+Status Translator::create_comparator(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::clone_if_not_exists(_rollup_schema.keys(), state, &_last_row_expr_ctxs));
     RETURN_IF_ERROR(Expr::clone_if_not_exists(_rollup_schema.keys(), state, &_cur_row_expr_ctxs));
     return Status::OK();
@@ -513,7 +513,7 @@ Status Translator::create_value_updaters() {
                 _value_updaters.push_back(update_min<DateTimeValue>);
                 break;
             case TAggregationType::SUM:
-                return Status::InternalError("Unsupport sum operation on date/datetime column.");
+                return Status::InternalError("Unsupported sum operation on date/datetime column.");
             default:
                 // replace
                 _value_updaters.push_back(fake_update);
@@ -527,7 +527,7 @@ Status Translator::create_value_updaters() {
             case TAggregationType::MAX:
             case TAggregationType::MIN:
             case TAggregationType::SUM:
-                return Status::InternalError("Unsupport max/min/sum operation on char/varchar column.");
+                return Status::InternalError("Unsupported max/min/sum operation on char/varchar column.");
             default:
                 // Only replace has meaning
                 _value_updaters.push_back(fake_update);
@@ -544,7 +544,7 @@ Status Translator::create_value_updaters() {
             case TAggregationType::MAX:
             case TAggregationType::MIN:
             case TAggregationType::SUM:
-                return Status::InternalError("Unsupport max/min/sum operation on hll column.");
+                return Status::InternalError("Unsupported max/min/sum operation on hll column.");
             default:
                  _value_updaters.push_back(fake_update);
                  break;
@@ -554,7 +554,7 @@ Status Translator::create_value_updaters() {
         default: {
             std::stringstream ss;
             ss << "Unsupported column type(" << _rollup_schema.values()[i]->root()->type() << ")";
-            // No operation, just pusb back a fake update
+            // No operation, just push back a fake update
             return Status::InternalError(ss.str());
             break;
         }
@@ -586,8 +586,8 @@ Status Translator::prepare(RuntimeState* state) {
     // 1. Create sorter
     RETURN_IF_ERROR(create_sorter(state));
 
-    // 2. Create comparetor
-    RETURN_IF_ERROR(create_comparetor(state));
+    // 2. Create comparator
+    RETURN_IF_ERROR(create_comparator(state));
 
     // 3. Create writer
     RETURN_IF_ERROR(create_writer(state));
@@ -688,8 +688,8 @@ void HllDppSinkMerge::update_hll_set(TupleRow* agg_row, TupleRow* row,
         }
     } else if (value->type == HLL_DATA_EXPLICIT) {
         value->hash_set.insert(row_resolver.get_explicit_value(0));
-        if (value->hash_set.size() > HLL_EXPLICLIT_INT64_NUM) {
-            value->type = HLL_DATA_SPRASE;
+        if (value->hash_set.size() > HLL_EXPLICIT_INT64_NUM) {
+            value->type = HLL_DATA_SPARSE;
             for (std::set<uint64_t>::iterator iter = value->hash_set.begin(); iter != value->hash_set.end(); iter++) {
                 uint64_t hash = *iter;
                 int idx = hash % REGISTERS_SIZE;
@@ -701,7 +701,7 @@ void HllDppSinkMerge::update_hll_set(TupleRow* agg_row, TupleRow* row,
                 }  
             }
         }   
-    } else if (value->type == HLL_DATA_SPRASE) {
+    } else if (value->type == HLL_DATA_SPARSE) {
         uint64_t hash = row_resolver.get_explicit_value(0);
         int idx = hash % REGISTERS_SIZE;
         uint8_t first_one_bit = __builtin_ctzl(hash >> HLL_COLUMN_PRECISION) + 1;
@@ -733,7 +733,7 @@ void HllDppSinkMerge::finalize_one_merge(TupleRow* agg_row, MemPool* pool,
                 memset(result, 0, set_len);
 				HllSetHelper::set_explicit(result, value->hash_set, set_len);
                 agg_row_sv->replace(result, set_len);
-            } else if (value->type == HLL_DATA_SPRASE) {
+            } else if (value->type == HLL_DATA_SPARSE) {
                  // full explicit set
                 if (value->index_to_value.size() * (sizeof(HllSetResolver::SparseIndexType) 
                        + sizeof(HllSetResolver::SparseValueType)) 
@@ -774,7 +774,7 @@ void HllDppSinkMerge::close() {
 // use batch to release data 
 Status Translator::process_one_row(TupleRow* row) {
     if (row == nullptr) {
-        // Something strange happend
+        // Something strange happened
         std::stringstream ss;
         ss << "row is nullptr.";
         LOG(ERROR) << ss.str();

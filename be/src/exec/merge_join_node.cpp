@@ -112,7 +112,7 @@ Status MergeJoinNode::prepare(RuntimeState* state) {
             break;
 
         default:
-            return Status::InternalError("unspport compare type.");
+            return Status::InternalError("unsupported compare type.");
             break;
         }
     }

@@ -140,7 +140,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     if(task.__isset.format) {
         ctx->format = task.format;
     }
-    // the routine load task'txn has alreay began in FE.
+    // the routine load task'txn has already began in FE.
     // so it need to rollback if encounter error.
     ctx->need_rollback = true;
     ctx->max_filter_ratio = 1.0;

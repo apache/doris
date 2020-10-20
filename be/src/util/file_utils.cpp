@@ -195,7 +195,7 @@ std::string FileUtils::path_of_fd(int fd) {
     return path;
 }
 
-Status FileUtils::split_pathes(const char* path, std::vector<std::string>* path_vec) {
+Status FileUtils::split_paths(const char* path, std::vector<std::string>* path_vec) {
     path_vec->clear();
     *path_vec = strings::Split(path, ";", strings::SkipWhitespace());
 

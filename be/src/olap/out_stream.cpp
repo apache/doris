@@ -236,7 +236,7 @@ OLAPStatus OutStream::_spill() {
 
             if (head_pos != 0) {
                 // 之前_compressed里有数据, 这种情况下先输出compressed,
-                // 此时_oversflow一定是空的
+                // 此时_overflow一定是空的
                 _output_compressed();
             }
 

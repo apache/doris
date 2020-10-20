@@ -168,7 +168,7 @@ Status convert_to_row_desc(
 
 // Convert RowBatch to an Arrow::Array
 // We should keep this function to keep compatible with arrow's type visitor
-// Now we inherit TypeVisitor to use default Visit implemention
+// Now we inherit TypeVisitor to use default Visit implementation
 class FromRowBatchConverter : public arrow::TypeVisitor {
 public:
     FromRowBatchConverter(const RowBatch& batch,
@@ -222,7 +222,7 @@ public:
                 case TYPE_HLL: {
                     const StringValue* string_val = (const StringValue*)(cell_ptr);
                     if (string_val->len == 0) {
-                        // 0x01 is a magic num, not usefull actually, just for present ""
+                        // 0x01 is a magic num, not useful actually, just for present ""
                         //char* tmp_val = reinterpret_cast<char*>(0x01);
                         ARROW_RETURN_NOT_OK(builder.Append(""));        
                     } else {

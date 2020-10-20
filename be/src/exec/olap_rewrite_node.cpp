@@ -124,10 +124,10 @@ bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple,
     for (int i = 0; i < _columns.size(); ++i) {
         void* src_value = _columns[i]->get_value(src_row);
         SlotDescriptor* slot_desc = _output_tuple_desc->slots()[i];
-        // support null for insert into statment
+        // support null for insert into statement
         if (!slot_desc->is_nullable()) {
             if (src_value == nullptr) {
-                //column in target table satify not null constraint
+                //column in target table satisfy not null constraint
                 (*ss) << "column(" << slot_desc->col_name() << ")'s value is null";
                 return false;
             }

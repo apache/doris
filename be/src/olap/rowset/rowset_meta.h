@@ -385,7 +385,7 @@ private:
             // ATTN(cmy): the num segments should be read from rowset meta pb.
             // But the previous code error caused this value not to be set in some cases.
             // So when init the rowset meta and find that the num_segments is 0(not set),
-            // we will try to calculate the num segmengts from AlphaRowsetExtraMetaPB,
+            // we will try to calculate the num segments from AlphaRowsetExtraMetaPB,
             // and then set the num_segments field.
             // This should only happen in some rowsets converted from old version.
             // and for all newly created rowsets, the num_segments field must be set.

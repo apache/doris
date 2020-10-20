@@ -95,7 +95,7 @@ Status StorageEngine::start_bg_threads() {
                                &tablet_checkpoint_thread));
         _tablet_checkpoint_threads.emplace_back(tablet_checkpoint_thread);
     }
-    LOG(INFO) << "tablet checkpint thread started";
+    LOG(INFO) << "tablet checkpoint thread started";
 
     // fd cache clean thread
     RETURN_IF_ERROR(
@@ -124,7 +124,7 @@ Status StorageEngine::start_bg_threads() {
         LOG(INFO) << "path scan/gc threads started. number:" << get_stores().size();
     }
 
-    LOG(INFO) << "all storage engine's backgroud threads are started.";
+    LOG(INFO) << "all storage engine's background threads are started.";
     return Status::OK();
 }
 

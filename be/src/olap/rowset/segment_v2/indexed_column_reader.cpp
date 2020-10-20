@@ -37,7 +37,7 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info, _meta.encoding(), &_encoding_info));
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
-    _validx_key_coder = get_key_coder(_type_info->type());
+    _value_key_coder = get_key_coder(_type_info->type());
 
     std::unique_ptr<fs::ReadableBlock> rblock;
     fs::BlockManager* block_mgr = fs::fs_util::block_manager();
@@ -159,7 +159,7 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
     if (_reader->_has_index_page) {
         // seek index to determine the data page to seek
         std::string encoded_key;
-        _reader->_validx_key_coder->full_encode_ascending(key, &encoded_key);
+        _reader->_value_key_coder->full_encode_ascending(key, &encoded_key);
         RETURN_IF_ERROR(_value_iter.seek_at_or_before(encoded_key));
         data_page_pp = _value_iter.current_page_pointer();
         _current_iter = &_value_iter;

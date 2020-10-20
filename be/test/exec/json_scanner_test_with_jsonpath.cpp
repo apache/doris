@@ -37,9 +37,9 @@
 
 namespace doris {
 
-class JsonSannerTest : public testing::Test {
+class JsonScannerTest : public testing::Test {
 public:
-    JsonSannerTest() : _runtime_state(TQueryGlobals()) {
+    JsonScannerTest() : _runtime_state(TQueryGlobals()) {
         init();
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
         _runtime_state._exec_env = ExecEnv::GetInstance();
@@ -70,12 +70,12 @@ private:
 
 #define TUPLE_ID_DST 0
 #define TUPLE_ID_SRC 1
-#define CLOMN_NUMBERS 4
+#define COLUMN_NUMBERS 4
 #define DST_TUPLE_SLOT_ID_START 1
 #define SRC_TUPLE_SLOT_ID_START 5
-int JsonSannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
-    const char *clomnNames[] = {"k1", "kind", "ip", "value"};
-    for (int i = 0; i < CLOMN_NUMBERS; i++)
+int JsonScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
+    const char *columnNames[] = {"k1", "kind", "ip", "value"};
+    for (int i = 0; i < COLUMN_NUMBERS; i++)
     {
         TSlotDescriptor slot_desc;
 
@@ -96,7 +96,7 @@ int JsonSannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_sl
         slot_desc.byteOffset = i*16+8;
         slot_desc.nullIndicatorByte = i/8;
         slot_desc.nullIndicatorBit = i%8;
-        slot_desc.colName = clomnNames[i];
+        slot_desc.colName = columnNames[i];
         slot_desc.slotIdx = i + 1;
         slot_desc.isMaterialized = true;
 
@@ -107,7 +107,7 @@ int JsonSannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_sl
         // TTupleDescriptor source
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = TUPLE_ID_SRC;
-        t_tuple_desc.byteSize = CLOMN_NUMBERS*16+8;
+        t_tuple_desc.byteSize = COLUMN_NUMBERS*16+8;
         t_tuple_desc.numNullBytes = 0;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
@@ -116,7 +116,7 @@ int JsonSannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_sl
     return next_slot_id;
 }
 
-int JsonSannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
+int JsonScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
     int32_t byteOffset = 8;
     {//k1
         TSlotDescriptor slot_desc;
@@ -238,7 +238,7 @@ int JsonSannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_sl
     return next_slot_id;
 }
 
-void JsonSannerTest::init_desc_table() {
+void JsonScannerTest::init_desc_table() {
     TDescriptorTable t_desc_table;
 
     // table descriptors
@@ -262,7 +262,7 @@ void JsonSannerTest::init_desc_table() {
     _runtime_state.set_desc_tbl(_desc_tbl);
 }
 
-void JsonSannerTest::create_expr_info() {
+void JsonScannerTest::create_expr_info() {
     TTypeDesc varchar_type;
     {
         TTypeNode node;
@@ -343,7 +343,7 @@ void JsonSannerTest::create_expr_info() {
     _params.__set_src_tuple_id(TUPLE_ID_SRC);
 }
 
-void JsonSannerTest::init() {
+void JsonScannerTest::init() {
 
     create_expr_info();
     init_desc_table();
@@ -359,7 +359,7 @@ void JsonSannerTest::init() {
     _tnode.__isset.broker_scan_node = true;
 }
 
-TEST_F(JsonSannerTest, normal) {
+TEST_F(JsonScannerTest, normal) {
     BrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     auto status = scan_node.prepare(&_runtime_state);
     ASSERT_TRUE(status.ok());

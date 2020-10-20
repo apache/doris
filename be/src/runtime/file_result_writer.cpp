@@ -87,7 +87,7 @@ Status FileResultWriter::_create_file_writer() {
             _parquet_writer = new ParquetWriterWrapper(_file_writer, _output_expr_ctxs);
             break;
         default:
-            return Status::InternalError(strings::Substitute("unsupport file format: $0", _file_opts->file_format));
+            return Status::InternalError(strings::Substitute("unsupported file format: $0", _file_opts->file_format));
     }
     LOG(INFO) << "create file for exporting query result. file name: " << file_name
             << ". query id: " << print_id(_state->query_id());

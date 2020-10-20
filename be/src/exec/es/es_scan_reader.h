@@ -61,7 +61,7 @@ private:
     std::string _type;
     // push down filter
     std::string _query;
-    // elaticsearch shards to fetch document
+    // Elasticsearch shards to fetch document
     std::string _shards;
     // distinguish the first scroll phase and the following scroll
     bool _is_first;
@@ -81,7 +81,7 @@ private:
     // Each call to the scroll API returns the next batch of results until there are no more results left to return
     std::string _next_scroll_url;
     
-    // _search_url used to exeucte just only one search request to Elasticsearch
+    // _search_url used to execute just only one search request to Elasticsearch
     // _search_url would go into effect when `limit` specified:
     // select * from es_table limit 10 -> /es_table/doc/_search?terminate_after=10
     std::string _search_url;
@@ -91,7 +91,7 @@ private:
     std::string _cached_response;
     // keep-alive for es scroll
     std::string _scroll_keep_alive;
-    // timeout for es http connetion
+    // timeout for es http connection
     int _http_timeout_ms;
 
     bool _exactly_once;

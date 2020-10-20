@@ -45,7 +45,7 @@ private:
         /// and whether the pattern has any constant substrings. If the pattern is not a
         /// constant argument, none of the following fields can be set because we cannot know
         /// the format of the pattern in the prepare function and must deal with each pattern
-        /// seperately.
+        /// separately.
         LikePredicateFunction function;
 
         /// Holds the string the StringValue points to and is set any time StringValue is

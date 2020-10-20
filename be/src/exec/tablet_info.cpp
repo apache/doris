@@ -300,7 +300,7 @@ Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, T
             *reinterpret_cast<int64_t*>(slot) = t_expr.int_literal.value;
             break;
         default:
-            DCHECK(false) << "unsupport int literal type, type=" << t_expr.type.types[0].type;
+            DCHECK(false) << "unsupported int literal type, type=" << t_expr.type.types[0].type;
             break;
         }
         break;

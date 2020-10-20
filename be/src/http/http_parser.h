@@ -56,7 +56,7 @@ public:
     //  PARSE_AGAIN     return this means that caller need to call this function with new data
     //                  from network
     //  PARSE_DONE      All of chunks readed
-    //  PARSE_ERROR     Error happend
+    //  PARSE_ERROR     Error happened
     static ParseState http_parse_chunked(const uint8_t** buf,
                                          const int64_t buf_len,
                                          HttpChunkParseCtx* ctx);

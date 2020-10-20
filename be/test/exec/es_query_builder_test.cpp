@@ -515,9 +515,9 @@ TEST_F(BooleanQueryBuilderTest, validate_compound_and) {
     std::string term_field_name = "content";
     ExtBinaryPredicate* term_ne_predicate = new ExtBinaryPredicate(TExprNodeType::BINARY_PRED, term_field_name, term_type_desc, TExprOpcode::NE, term_literal);
 
-    std::vector<ExtPredicate*> innner_or_content = {term_ne_predicate, in_predicate};
+    std::vector<ExtPredicate*> inner_or_content = {term_ne_predicate, in_predicate};
 
-    EsPredicate* innner_or_predicate = new EsPredicate(innner_or_content);
+    EsPredicate* inner_or_predicate = new EsPredicate(inner_or_content);
 
     char range_value_str[] = "a"; // k >= "a"
     int range_value_length = (int)strlen(range_value_str);
@@ -529,9 +529,9 @@ TEST_F(BooleanQueryBuilderTest, validate_compound_and) {
     std::vector<ExtPredicate*> range_predicates = {range_predicate};
     EsPredicate* left_inner_or_predicate = new EsPredicate(range_predicates);
 
-    std::vector<EsPredicate*> ourter_left_predicates_1 = {left_inner_or_predicate, innner_or_predicate};
+    std::vector<EsPredicate*> outer_left_predicates_1 = {left_inner_or_predicate, inner_or_predicate};
 
-    ExtCompPredicates* comp_predicate = new ExtCompPredicates(TExprOpcode::COMPOUND_AND, ourter_left_predicates_1);
+    ExtCompPredicates* comp_predicate = new ExtCompPredicates(TExprOpcode::COMPOUND_AND, outer_left_predicates_1);
 
     char like_value[] = "a%e%g_";
     int like_value_length = (int)strlen(like_value);

@@ -39,7 +39,7 @@ enum TransferStatus {
     INIT_HEAP = 2,
     BUILD_ROWBATCH = 3,
     MERGE = 4,
-    FININSH = 5,
+    FINISH = 5,
     ADD_ROWBATCH = 6,
     ERROR = 7
 };
@@ -292,7 +292,7 @@ private:
     // number of created olap scanners
     RuntimeProfile::Counter* _num_scanners = nullptr;
 
-    // number of segment filted by column stat when creating seg iterator
+    // number of segment filtered by column stat when creating seg iterator
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;

@@ -367,7 +367,7 @@ void DiskIoMgr::ScanRange::close() {
  *     // Profiles show that both the JNI array allocation and the memcpy adds much more
  *     // overhead for larger buffers, so limit the size of each read request.  128K was
  *     // chosen empirically by trying values between 4K and 8M and optimizing for lower CPU
- *     // utilization and higher S3 througput.
+ *     // utilization and higher S3 throughput.
  *     if (_disk_id == _io_mgr->RemoteS3DiskId()) {
  *         DCHECK(IsS3APath(file()));
  *         return 128 * 1024;

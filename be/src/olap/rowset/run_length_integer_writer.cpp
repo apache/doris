@@ -256,7 +256,7 @@ void RunLengthIntegerWriter::_prepare_patched_blob() {
             prev = i;
             gap_list[gap_idx++] = gap;
 
-            // extract the most significat bits that are over mask bits
+            // extract the most significant bits that are over mask bits
             int64_t patch = ((uint64_t)_base_reduced_literals[i]) >> _br_bits_95p;
             patch_list[patch_idx++] = patch;
 
@@ -572,7 +572,7 @@ OLAPStatus RunLengthIntegerWriter::_write_values() {
             break;
 
         default:
-            OLAP_LOG_WARNING("Unknow encoding [encoding=%d]", _encoding);
+            OLAP_LOG_WARNING("Unknown encoding [encoding=%d]", _encoding);
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 
@@ -668,7 +668,7 @@ OLAPStatus RunLengthIntegerWriter::write(int64_t value) {
                 }
             }
 
-            // after writing values re-intialize
+            // after writing values re-initialize
             if (_num_literals == 0) {
                 _init_literals(value);
             } else {
