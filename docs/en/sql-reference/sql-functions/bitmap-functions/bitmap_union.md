@@ -24,7 +24,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_union
+# bitmap_union function
+
 ## description
 
 Aggregate function, used to calculate the grouped bitmap union. Common usage scenarios such as: calculating PV, UV.

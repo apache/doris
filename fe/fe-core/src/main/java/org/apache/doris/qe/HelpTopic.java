@@ -96,4 +96,10 @@ public class HelpTopic implements HelpObjectIface {
             this.category = category;
         }
     }
+
+    @Override
+    public String toString() {
+        return "name: " + name + ", desc: " + description;
+    }
 }
+
