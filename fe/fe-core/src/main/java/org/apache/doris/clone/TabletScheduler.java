@@ -145,7 +145,7 @@ public class TabletScheduler extends MasterDaemon {
         this.invertedIndex = invertedIndex;
         this.colocateTableIndex = catalog.getColocateTableIndex();
         this.stat = stat;
-        this.rebalancer = new BeLoadRebalancer(statisticMap);
+        this.rebalancer = new BeLoadRebalancer(infoService, invertedIndex);
     }
 
     public TabletSchedulerStat getStat() {

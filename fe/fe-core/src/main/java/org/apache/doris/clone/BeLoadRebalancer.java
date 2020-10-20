@@ -17,14 +17,12 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.ColocateTableIndex;
-import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.*;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -49,8 +47,8 @@ import java.util.Set;
 public class BeLoadRebalancer extends Rebalancer {
     private static final Logger LOG = LogManager.getLogger(BeLoadRebalancer.class);
 
-    public BeLoadRebalancer(Map<String, ClusterLoadStatistic> statisticMap) {
-        super(statisticMap);
+    public BeLoadRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex) {
+        super(infoService, invertedIndex);
     }
 
     /*

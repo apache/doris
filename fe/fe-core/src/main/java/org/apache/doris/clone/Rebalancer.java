@@ -46,14 +46,15 @@ import java.util.Map;
 public abstract class Rebalancer {
     private static final Logger LOG = LogManager.getLogger(Rebalancer.class);
 
+    // When Rebalancer init, the statisticMap is empty so that it's no need to be an arg.
+    // Use updateLoadStatistic() to load stats only.
     protected Map<String, ClusterLoadStatistic> statisticMap;
     protected TabletInvertedIndex invertedIndex;
     protected SystemInfoService infoService;
 
-    public Rebalancer(Map<String, ClusterLoadStatistic> statisticMap) {
-        this.statisticMap = statisticMap;
-        this.infoService = Catalog.getCurrentSystemInfo();
-        this.invertedIndex = Catalog.getCurrentInvertedIndex();
+    public Rebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex) {
+        this.infoService = infoService;
+        this.invertedIndex = invertedIndex;
     }
 
     public List<TabletSchedCtx> selectAlternativeTablets() {
