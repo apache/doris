@@ -440,7 +440,8 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
     properties[ESScanReader::KEY_BATCH_SIZE] = std::to_string(_runtime_state->batch_size());
     properties[ESScanReader::KEY_HOST_PORT] = get_host_port(es_scan_range.es_hosts);
     // push down limit to Elasticsearch
-    if (limit() != -1 && limit() <= _runtime_state->batch_size()) {
+    // if predicate in _conjunct_ctxs can not be processed by Elasticsearch, we can not push down limit operator to Elasticsearch
+    if (limit() != -1 && limit() <= _runtime_state->batch_size() && _conjunct_ctxs.empty()) {
         properties[ESScanReader::KEY_TERMINATE_AFTER] = std::to_string(limit());
     }
 
