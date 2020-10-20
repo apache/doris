@@ -296,10 +296,10 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
     }
 
 // init conf fields
-bool init(const char* conf_file, const char* custom_conf_file, bool fillconfmap) {
+bool init(const char* conf_file, bool fillconfmap, bool must_exist) {
     Properties props;
     // load properties file
-    if (!props.load(conf_file) || !props.load(custom_conf_file, false)) {
+    if (!props.load(conf_file, must_exist)) {
         return false;
     }
     // fill full_conf_map ?
@@ -324,11 +324,6 @@ bool init(const char* conf_file, const char* custom_conf_file, bool fillconfmap)
     }
 
     return true;
-}
-
-// just for unit test
-bool init(const char* conf_file, bool fillconfmap) {
-    return init(conf_file, nullptr, fillconfmap);
 }
 
 #define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                    \

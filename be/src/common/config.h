@@ -22,6 +22,9 @@
 
 namespace doris {
 namespace config {
+    // Dir of custom config file
+    CONF_String(custom_config_dir, "${DORIS_HOME}/conf");
+
     // cluster id
     CONF_Int32(cluster_id, "-1");
     // port on which ImpalaInternalService is exported

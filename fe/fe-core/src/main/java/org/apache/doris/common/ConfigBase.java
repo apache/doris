@@ -55,14 +55,14 @@ public class ConfigBase {
     private static String customConfFile;
     public static Class<? extends ConfigBase> confClass;
 
-    public void init(String confFile, String customConfFile) throws Exception {
+    public void init(String confFile) throws Exception {
         confClass = this.getClass();
-
         this.confFile = confFile;
-        this.customConfFile = customConfFile;
-
         initConf(confFile);
+    }
 
+    public void initCustom(String customConfFile) throws Exception {
+        this.customConfFile = customConfFile;
         File file = new File(customConfFile);
         if (file.exists() && file.isFile()) {
             // customConfFile is introduced in version 0.14, for compatibility, check if it exist

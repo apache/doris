@@ -121,10 +121,17 @@ int main(int argc, char** argv) {
 
     // init config.
     // the config in be_custom.conf will overwrite the config in be.conf
+    // Must init custom config after init config, separately.
+    // Because the path of custom config file is defined in be.conf
     string conffile = string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    string custom_conffile = string(getenv("DORIS_HOME")) + "/conf/be_custom.conf";
-    if (!doris::config::init(conffile.c_str(), custom_conffile.c_str(), true)) {
+    if (!doris::config::init(conffile.c_str(), true, true)) {
         fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
+
+    string custom_conffile = config::custom_config_dir + "/be_custom.conf";
+    if (!doris::config::init(custom_conffile.c_str(), true, false)) {
+        fprintf(stderr, "error read custom config file. \n");
         return -1;
     }
 
