@@ -88,7 +88,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     // So we need to choose the longest continuous path from it.
     std::vector<Version> missing_versions;
     RETURN_NOT_OK(find_longest_consecutive_version(&candidate_rowsets, &missing_versions));
-    if (missing_versions.empty()) {
+    if (!missing_versions.empty()) {
         DCHECK(missing_versions.size() == 2);
         LOG(WARNING) << "There are missed versions among rowsets. "
             << "prev rowset verison=" << missing_versions[0]
@@ -160,4 +160,3 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
 }
 
 }  // namespace doris
-
