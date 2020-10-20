@@ -34,6 +34,8 @@ FE 的配置文件 `fe.conf` 通常存放在 FE 部署路径的 `conf/` 目录�
 
 FE 进程启动后，会先读取 `fe.conf` 中的配置项，之后再读取 `fe_custom.conf` 中的配置项。`fe_custom.conf` 中的配置项会覆盖 `fe.conf` 中相同的配置项。
 
+`fe_custom.conf` 文件的位置可以在 `fe.conf` 通过 `custom_config_dir` 配置项配置。 
+
 ## 查看配置项
 
 FE 的配置项有两种方式进行查看：
@@ -217,6 +219,12 @@ FE 的配置项有两种方式进行配置：
 ### `consistency_check_end_time`
 
 ### `consistency_check_start_time`
+
+### `custom_config_dir`
+
+配置 `fe_custom.conf` 文件的位置。默认为 `conf/` 目录下。
+
+在某些部署环境下，`conf/` 目录可能因为系统的版本升级被覆盖掉。这会导致用户在运行是持久化修改的配置项也被覆盖。这时，我们可以将 `fe_custom.conf` 存储在另一个指定的目录中，以防止配置文件被覆盖。
 
 ### `db_used_data_quota_update_interval_secs`
 

@@ -34,6 +34,8 @@ The FE configuration file `fe.conf` is usually stored in the `conf/` directory o
 
 After the FE process is started, it will read the configuration items in `fe.conf` first, and then read the configuration items in `fe_custom.conf`. The configuration items in `fe_custom.conf` will overwrite the same configuration items in `fe.conf`.
 
+The location of the `fe_custom.conf` file can be configured in `fe.conf` through the `custom_config_dir` configuration item.
+
 ## View configuration items
 
 There are two ways to view the configuration items of FE:
@@ -219,6 +221,12 @@ But at the same time, it will cause the submission of failed or failed execution
 ### `consistency_check_end_time`
 
 ### `consistency_check_start_time`
+
+### `custom_config_dir`
+
+Configure the location of the `fe_custom.conf` file. The default is in the `conf/` directory.
+
+In some deployment environments, the `conf/` directory may be overwritten due to system upgrades. This will cause the user modified configuration items to be overwritten. At this time, we can store `fe_custom.conf` in another specified directory to prevent the configuration file from being overwritten.
 
 ### `db_used_data_quota_update_interval_secs`
 

@@ -85,7 +85,7 @@ public class PaloFe {
             config.init(dorisHomeDir + "/conf/fe.conf");
             // Must init custom config after init config, separately.
             // Because the path of custom config file is defined in fe.conf
-            config.initCustom(Config.custom_config_dir + "fe_custom.conf");
+            config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
 
             // check it after Config is initialized, otherwise the config 'check_java_version' won't work.
             if (!JdkUtils.checkJavaVersion()) {

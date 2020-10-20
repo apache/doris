@@ -248,6 +248,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 一般情况下，配置在128m以内，配置过大会导致cumulative compaction写放大较多。
 
+### `custom_config_dir`
+
+配置 `be_custom.conf` 文件的位置。默认为 `conf/` 目录下。
+
+在某些部署环境下，`conf/` 目录可能因为系统的版本升级被覆盖掉。这会导致用户在运行是持久化修改的配置项也被覆盖。这时，我们可以将 `be_custom.conf` 存储在另一个指定的目录中，以防止配置文件被覆盖。
+
 ### `default_num_rows_per_column_file_block`
 
 ### `default_query_options`

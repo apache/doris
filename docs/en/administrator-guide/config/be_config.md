@@ -34,6 +34,8 @@ The BE configuration file `be.conf` is usually stored in the `conf/` directory o
 
 After the BE process is started, it will read the configuration items in `be.conf` first, and then read the configuration items in `be_custom.conf`. The configuration items in `be_custom.conf` will overwrite the same configuration items in `be.conf`.
 
+The location of the `be_custom.conf` file can be configured in `be.conf` through the `custom_config_dir` configuration item.
+
 ## View configuration items
 
 Users can view the current configuration items by visiting BE's web page:
@@ -251,6 +253,12 @@ Generally, the configuration is within 512m. If the configuration is too large, 
 * Default value: 64
 
 Generally, the configuration is within 128m. Over configuration will cause more cumulative compaction write amplification.
+
+### `custom_config_dir`
+
+Configure the location of the `be_custom.conf` file. The default is in the `conf/` directory.
+
+In some deployment environments, the `conf/` directory may be overwritten due to system upgrades. This will cause the user modified configuration items to be overwritten. At this time, we can store `be_custom.conf` in another specified directory to prevent the configuration file from being overwritten.
 
 ### `default_num_rows_per_column_file_block`
 

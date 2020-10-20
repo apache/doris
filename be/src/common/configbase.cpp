@@ -221,9 +221,19 @@ bool Properties::load(const char* filename, bool must_exist) {
 }
 
 template <typename T>
-bool Properties::get(const char* key, const char* defstr, T& retval) const {
+bool Properties::get_or_default(const char* key, const char* defstr, T& retval) const {
     const auto& it = file_conf_map.find(std::string(key));
-    std::string valstr = it != file_conf_map.end() ? it->second : std::string(defstr);
+    std::string valstr;
+    if (it == file_conf_map.end()) {
+        if (defstr == nullptr) {
+            // Not found in conf map, and no default value need to be set, just return
+            return true;
+        } else {
+            valstr = std::string(defstr);
+        }
+    } else {
+        valstr = it->second;
+    }
     trim(valstr);
     if (!replaceenv(valstr)) {
         return false;
@@ -281,22 +291,24 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
     return out;
 }
 
-#define SET_FIELD(FIELD, TYPE, FILL_CONFMAP)                                                       \
-    if (strcmp((FIELD).type, #TYPE) == 0) {                                                        \
-        if (!props.get((FIELD).name, (FIELD).defval, *reinterpret_cast<TYPE*>((FIELD).storage))) { \
-            std::cerr << "config field error: " << (FIELD).name << std::endl;                      \
-            return false;                                                                          \
-        }                                                                                          \
-        if (FILL_CONFMAP) {                                                                        \
-            std::ostringstream oss;                                                                \
-            oss << (*reinterpret_cast<TYPE*>((FIELD).storage));                                    \
-            (*full_conf_map)[(FIELD).name] = oss.str();                                            \
-        }                                                                                          \
-        continue;                                                                                  \
+#define SET_FIELD(FIELD, TYPE, FILL_CONFMAP, SET_TO_DEFAULT)                                                  \
+    if (strcmp((FIELD).type, #TYPE) == 0) {                                                                   \
+        if (!props.get_or_default(                                                                            \
+                (FIELD).name, ((SET_TO_DEFAULT) ? (FIELD).defval : nullptr),                                  \
+                *reinterpret_cast<TYPE*>((FIELD).storage))) {                                                 \
+            std::cerr << "config field error: " << (FIELD).name << std::endl;                                 \
+            return false;                                                                                     \
+        }                                                                                                     \
+        if (FILL_CONFMAP) {                                                                                   \
+            std::ostringstream oss;                                                                           \
+            oss << (*reinterpret_cast<TYPE*>((FIELD).storage));                                               \
+            (*full_conf_map)[(FIELD).name] = oss.str();                                                       \
+        }                                                                                                     \
+        continue;                                                                                             \
     }
 
 // init conf fields
-bool init(const char* conf_file, bool fillconfmap, bool must_exist) {
+bool init(const char* conf_file, bool fillconfmap, bool must_exist, bool set_to_default) {
     Properties props;
     // load properties file
     if (!props.load(conf_file, must_exist)) {
@@ -309,18 +321,18 @@ bool init(const char* conf_file, bool fillconfmap, bool must_exist) {
 
     // set conf fields
     for (const auto& it : *Register::_s_field_map) {
-        SET_FIELD(it.second, bool, fillconfmap);
-        SET_FIELD(it.second, int16_t, fillconfmap);
-        SET_FIELD(it.second, int32_t, fillconfmap);
-        SET_FIELD(it.second, int64_t, fillconfmap);
-        SET_FIELD(it.second, double, fillconfmap);
-        SET_FIELD(it.second, std::string, fillconfmap);
-        SET_FIELD(it.second, std::vector<bool>, fillconfmap);
-        SET_FIELD(it.second, std::vector<int16_t>, fillconfmap);
-        SET_FIELD(it.second, std::vector<int32_t>, fillconfmap);
-        SET_FIELD(it.second, std::vector<int64_t>, fillconfmap);
-        SET_FIELD(it.second, std::vector<double>, fillconfmap);
-        SET_FIELD(it.second, std::vector<std::string>, fillconfmap);
+        SET_FIELD(it.second, bool, fillconfmap, set_to_default);
+        SET_FIELD(it.second, int16_t, fillconfmap, set_to_default);
+        SET_FIELD(it.second, int32_t, fillconfmap, set_to_default);
+        SET_FIELD(it.second, int64_t, fillconfmap, set_to_default);
+        SET_FIELD(it.second, double, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::string, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::vector<bool>, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::vector<int16_t>, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::vector<int32_t>, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::vector<int64_t>, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::vector<double>, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::vector<std::string>, fillconfmap, set_to_default);
     }
 
     return true;
