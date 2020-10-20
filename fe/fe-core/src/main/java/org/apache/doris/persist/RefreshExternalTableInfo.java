@@ -17,11 +17,12 @@
 
 package org.apache.doris.persist;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.io.Text;
 
+import org.apache.doris.persist.gson.GsonUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,8 +34,11 @@ import java.util.List;
 public class RefreshExternalTableInfo implements Writable {
     public static final Logger LOG = LoggerFactory.getLogger(RefreshExternalTableInfo.class);
 
+    @SerializedName(value = "dbName")
     private String dbName;
+    @SerializedName(value = "tableName")
     private String tableName;
+    @SerializedName(value = "newSchema")
     private List<Column> newSchema;
 
     public RefreshExternalTableInfo() {
@@ -60,31 +64,16 @@ public class RefreshExternalTableInfo implements Writable {
         return newSchema;
     }
 
-
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, dbName);
-        Text.writeString(out, tableName);
-        out.writeInt(newSchema.size());
-
-        for (Column column : newSchema) {
-            column.write(out);
-        }
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public static RefreshExternalTableInfo read(DataInput in) throws IOException {
-        String dbName = Text.readString(in);
-        String tableName = Text.readString(in);
-
-        List<Column> newSchema = Lists.newArrayList();
-        int schemaSize = in.readInt();
-        for (int i = 0; i < schemaSize; i++) {
-            newSchema.add(Column.read(in));
-        }
-
-        return new RefreshExternalTableInfo(dbName, tableName, newSchema);
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, RefreshExternalTableInfo.class);
     }
-
 
     public boolean equals(Object obj) {
         if (this == obj) {
