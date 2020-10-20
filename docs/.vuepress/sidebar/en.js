@@ -312,7 +312,7 @@ module.exports = [
             directoryPath: "aggregate-functions/",
             children: [
               "avg",
-              "bitmap",
+              "bitmap_union",
               "count",
               "hll_union_agg",
               "max",
