@@ -1,6 +1,6 @@
 ---
 {
-    "title": "BITMAP",
+    "title": "BITMAP_UNION",
     "language": "en"
 }
 ---
@@ -25,7 +25,7 @@ under the License.
 -->
 
 
-# BITMAP
+# BITMAP_UNION
 
 ## Create table
 
