@@ -115,7 +115,7 @@ public:
         return _col_offsets[cid];
     }
 
-    // TODO(lingbin): What is the difference between colun_size() and index_size()
+    // TODO(lingbin): What is the difference between column_size() and index_size()
     size_t column_size(ColumnId cid) const {
         return _cols[cid]->size();
     }

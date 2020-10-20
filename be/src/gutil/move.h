@@ -118,7 +118,7 @@
 // It is tempting to want to use the RValue type in function parameters, but
 // excluding the limited usage here for the move constructor and move
 // operator=, doing so would mean that the function could take both r-values
-// and l-values equially which is unexpected.  See COMPARED To Boost.Move for
+// and l-values equally which is unexpected.  See COMPARED To Boost.Move for
 // more details.
 //
 // An alternate, and incorrect, implementation of the RValue class used by

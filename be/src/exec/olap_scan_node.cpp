@@ -368,11 +368,11 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
     RETURN_IF_ERROR(build_olap_filters());
 
     VLOG(1) << "BuildScanKey";
-    // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to serval `Sub ScanRange`
+    // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
     RETURN_IF_ERROR(build_scan_key());
 
     VLOG(1) << "StartScanThread";
-    // 6. Start multi thread to read serval `Sub Sub ScanRange`
+    // 6. Start multi thread to read several `Sub Sub ScanRange`
     RETURN_IF_ERROR(start_scan_thread(state));
 
     return Status::OK();
@@ -489,7 +489,7 @@ Status OlapScanNode::normalize_conjuncts() {
         }
 
         default: {
-            VLOG(2) << "Unsupport Normalize Slot [ColName="
+            VLOG(2) << "Unsupported Normalize Slot [ColName="
                     << slots[slot_idx]->col_name() << "]";
             break;
         }
@@ -916,9 +916,9 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
                         break;
                     }
                     default: {
-                        LOG(WARNING) << "Normalize filter fail, Unsupport Primitive type. [type="
+                        LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type="
                             << expr->type() << "]";
-                        return Status::InternalError("Normalize filter fail, Unsupport Primitive type");
+                        return Status::InternalError("Normalize filter fail, Unsupported Primitive type");
                     }
                 }
 
@@ -1064,9 +1064,9 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot, Colu
                 }
 
                 default: {
-                    LOG(WARNING) << "Normalize filter fail, Unsupport Primitive type. [type="
+                    LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type="
                                  << expr->type() << "]";
-                    return Status::InternalError("Normalize filter fail, Unsupport Primitive type");
+                    return Status::InternalError("Normalize filter fail, Unsupported Primitive type");
                 }
                 }
 
@@ -1175,7 +1175,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 
         RowBatchInterface* scan_batch = NULL;
         {
-            // 1 scanner idle task not empty, assign new sanner task
+            // 1 scanner idle task not empty, assign new scanner task
             std::unique_lock<std::mutex> l(_scan_batches_lock);
 
             // scanner_row_num = 16k
@@ -1198,7 +1198,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                 scan_batch = _scan_row_batches.front();
                 _scan_row_batches.pop_front();
 
-                // delete scan_batch if transfer thread should be stoped
+                // delete scan_batch if transfer thread should be stopped
                 // because scan_batch wouldn't be useful anymore
                 if (UNLIKELY(_transfer_done)) {
                     delete scan_batch;

@@ -47,7 +47,7 @@ TEST_F(EnvPosixTest, random_access) {
     ASSERT_TRUE(st.ok());
     st = wfile->pre_allocate(1024);
     ASSERT_TRUE(st.ok());
-    // wirte data
+    // write data
     Slice field1("123456789");
     st = wfile->append(field1);
     ASSERT_TRUE(st.ok());
@@ -110,7 +110,7 @@ TEST_F(EnvPosixTest, random_rw) {
     auto env = Env::Default();
     auto st = env->new_random_rw_file(fname, &wfile);
     ASSERT_TRUE(st.ok());
-    // wirte data
+    // write data
     Slice field1("123456789");
     st = wfile->write_at(0, field1);
     ASSERT_TRUE(st.ok());

@@ -102,7 +102,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
 
   // prepare txn will be always successful
   // if current tablet is under schema change, origin tablet is successful and
-  // new tablet is not sucessful, it maybe a fatal error because new tablet has
+  // new tablet is not successful, it maybe a fatal error because new tablet has
   // not load successfully
 
   // only when fe sends schema_change true, should consider to push related
@@ -446,7 +446,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
 
 #ifndef DORIS_WITH_LZO
             if (need_decompress) {
-                // if lzo is diabled, compressed data is not allowed here
+                // if lzo is disabled, compressed data is not allowed here
                 res = OLAP_ERR_LZO_DISABLED;
                 break;
             }

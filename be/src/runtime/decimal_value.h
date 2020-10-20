@@ -331,7 +331,7 @@ public:
     // @param from - value to convert. Doesn't have to be \0 terminated!
     //               will stop at the fist non-digit char(nor '.' 'e' 'E'),
     //               or reaches the length
-    // @param length - maximum lengnth
+    // @param length - maximum length
     // @return error number.
     //
     // E_DEC_OK/E_DEC_TRUNCATED/E_DEC_OVERFLOW/E_DEC_BAD_NUM/E_DEC_OOM

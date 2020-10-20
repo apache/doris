@@ -74,7 +74,7 @@ private:
     bool _find_largest_consumption_channel(std::shared_ptr<TabletsChannel>* channel);
 
     UniqueId _load_id;
-    // Tracks the total memory comsupted by current load job on this BE
+    // Tracks the total memory consumed by current load job on this BE
     std::shared_ptr<MemTracker> _mem_tracker;
 
     // lock protect the tablets channel map

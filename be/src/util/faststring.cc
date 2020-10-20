@@ -26,7 +26,7 @@ void faststring::GrowToAtLeast(size_t newcapacity) {
   // Not enough space, need to reserve more.
   // Don't reserve exactly enough space for the new string -- that makes it
   // too easy to write perf bugs where you get O(n^2) append.
-  // Instead, alwayhs expand by at least 50%.
+  // Instead, always expand by at least 50%.
 
   if (newcapacity < capacity_ * 3 / 2) {
     newcapacity = capacity_ *  3 / 2;

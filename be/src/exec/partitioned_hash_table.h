@@ -528,7 +528,7 @@ class PartitionedHashTable {
   };
 
   struct Bucket {
-    /// Whether this bucket contains a vaild entry, or it is empty.
+    /// Whether this bucket contains a valid entry, or it is empty.
     bool filled;
 
     /// Used for full outer and right {outer, anti, semi} joins. Indicates whether the
@@ -639,13 +639,13 @@ class PartitionedHashTable {
   /// Returns the number of bucket_with_duplicates
   int64_t num_duplicates_nodes() const { return num_duplicate_nodes_; }
 
-  /// Returns the number of probe opertions
+  /// Returns the number of probe operations
   int64_t num_probe() const { return num_probes_; }
 
-  /// Returns the number of failed probe opertions
+  /// Returns the number of failed probe operations
   int64_t num_failed_probe() const { return num_failed_probes_; }
 
-  /// Returns the number of travel_length of probe opertions
+  /// Returns the number of travel_length of probe operations
   int64_t travel_length() const { return travel_length_; }
 
   /// Returns the load factor (the number of non-empty buckets)
@@ -929,7 +929,7 @@ class PartitionedHashTable {
   /// Byte size of all buffers in data_pages_.
   int64_t total_data_page_size_;
 
-  /// Next duplicate node to insert. Vaild when node_remaining_current_page_ > 0.
+  /// Next duplicate node to insert. Valid when node_remaining_current_page_ > 0.
   DuplicateNode* next_node_;
 
   /// Number of nodes left in the current page.

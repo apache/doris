@@ -56,12 +56,12 @@ Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::
     }
     // check queue status before get result
     RETURN_IF_ERROR(queue->status());
-    bool sucess = queue->blocking_get(result);
-    if (sucess) {
+    bool success = queue->blocking_get(result);
+    if (success) {
         // sentinel nullptr indicates scan end
         if (*result == nullptr) {
             *eos = true;
-            // put sentinel for consistency, avoid repeated invoking fetch result when hava no rowbatch
+            // put sentinel for consistency, avoid repeated invoking fetch result when have no rowbatch
             if (queue != nullptr) {
                 queue->blocking_put(nullptr);
             }

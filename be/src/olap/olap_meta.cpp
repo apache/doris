@@ -73,7 +73,7 @@ OLAPStatus OlapMeta::init() {
     column_families.emplace_back(DEFAULT_COLUMN_FAMILY, ColumnFamilyOptions());
     column_families.emplace_back(DORIS_COLUMN_FAMILY, ColumnFamilyOptions());
 
-    // meta column family add prefix extrator to improve performance and ensure correctness
+    // meta column family add prefix extractor to improve performance and ensure correctness
     ColumnFamilyOptions meta_column_family;
     meta_column_family.prefix_extractor.reset(NewFixedPrefixTransform(PREFIX_LENGTH));
     column_families.emplace_back(META_COLUMN_FAMILY, meta_column_family);

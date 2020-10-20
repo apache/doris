@@ -38,8 +38,8 @@ namespace doris {
 class Cache;
 class LoadChannel;
 
-// LoadChannelMgr -> LoadChannel -> TabletsChannel -> DeltaWrtier
-// All dispached load data for this backend is routed from this class
+// LoadChannelMgr -> LoadChannel -> TabletsChannel -> DeltaWriter
+// All dispatched load data for this backend is routed from this class
 class LoadChannelMgr {
 public:
     LoadChannelMgr();
@@ -70,7 +70,7 @@ private:
     std::mutex _lock;
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
-    Cache* _lastest_success_channel = nullptr;
+    Cache* _last_success_channel = nullptr;
 
     // check the total load mem consumption of this Backend
     std::shared_ptr<MemTracker> _mem_tracker;

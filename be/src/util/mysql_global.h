@@ -39,7 +39,7 @@ typedef unsigned char uchar;
 #define MAX_MEDIUMINT_WIDTH     8       	/* Max width for a INT24 w.o. sign */
 #define MAX_INT_WIDTH           10      	/* Max width for a LONG w.o. sign */
 #define MAX_BIGINT_WIDTH        20      	/* Max width for a LONGLONG */
-#define MAX_CHAR_WIDTH          255			/* Max length for a CHAR colum */
+#define MAX_CHAR_WIDTH          255			/* Max length for a CHAR column */
 #define MAX_BLOB_WIDTH          16777216	/* Default width for blob */
 			
 #define MAX_DECPT_FOR_F_FORMAT	DBL_DIG

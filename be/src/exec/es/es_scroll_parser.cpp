@@ -86,7 +86,7 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
             ss << "Expected value of type: " \
                << type_to_string(type)  \
                << "; but found type: " << json_type_to_string(col.GetType()) \
-               << "; Docuemnt slice is : " << json_value_to_string(col); \
+               << "; Document slice is : " << json_value_to_string(col); \
             return Status::RuntimeError(ss.str()); \
         } \
     } while (false)
@@ -99,7 +99,7 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
             ss << "Expected value of type: " \
                << type_to_string(type)  \
                << "; but found type: " << json_type_to_string(col.GetType()) \
-               << "; Docuemnt source slice is : " << json_value_to_string(col); \
+               << "; Document source slice is : " << json_value_to_string(col); \
             return Status::RuntimeError(ss.str()); \
         } \
     } while (false)
@@ -123,7 +123,7 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
             ss << "Expected value of type: " \
                << type_to_string(type)  \
                << "; but found type: " << json_type_to_string(col.GetType()) \
-               << "; Docuemnt source slice is : " << json_value_to_string(col); \
+               << "; Document source slice is : " << json_value_to_string(col); \
             return Status::RuntimeError(ss.str()); \
         } \
     } while (false)
@@ -134,7 +134,7 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
         ss << "Expected value of type: " \
             << type_to_string(type)  \
             << "; but found type: " << json_type_to_string(col.GetType()) \
-            << "; Docuemnt slice is : " << json_value_to_string(col); \
+            << "; Document slice is : " << json_value_to_string(col); \
         return Status::RuntimeError(ss.str()); \
     } while (false)
 
@@ -219,7 +219,7 @@ Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) 
     }
 
     if (!exactly_once && !_document_node.HasMember(FIELD_SCROLL_ID)) {
-        LOG(WARNING) << "Document has not a scroll id field scroll reponse:" << scroll_result;
+        LOG(WARNING) << "Document has not a scroll id field scroll response:" << scroll_result;
         return Status::InternalError("Document has not a scroll id field");
     }
 
@@ -454,7 +454,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
                     RETURN_IF_ERROR(fill_date_slot_with_timestamp(slot, col, type));
                 } else if (col.IsArray() && pure_doc_value) {
-                    // this would happend just only when `enable_docvalue_scan = true`
+                    // this would happened just only when `enable_docvalue_scan = true`
                     // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
                     // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
                     // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
@@ -466,7 +466,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
                     RETURN_IF_ERROR(fill_date_slot_with_timestamp(slot, col[0], type));
                 } else {
-                    // this would happend just only when `enable_docvalue_scan = false`, and field has string format date from _source
+                    // this would happened just only when `enable_docvalue_scan = false`, and field has string format date from _source
                     RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
                     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
                     RETURN_IF_ERROR(fill_date_slot_with_strval(slot, col, type));

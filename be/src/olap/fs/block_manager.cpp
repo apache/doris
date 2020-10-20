@@ -45,7 +45,7 @@ namespace fs {
 // - users could always change this to "never", which slows down
 //   throughput but may improve write latency.
 //
-// TODO(lingbin): move it to conf later, to allow adjust dynamicaly.
+// TODO(lingbin): move it to conf later, to allow adjust dynamically.
 const std::string BlockManager::block_manager_preflush_control = "finalize";
 
 } // namespace fs

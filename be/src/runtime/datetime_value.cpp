@@ -226,7 +226,7 @@ bool DateTimeValue::from_date_str(const char* date_str, int len) {
 // ((YY_PART_YEAR - 1)##1231235959, YY_PART_YEAR##0101000000) invalid
 // ((YY_PART_YEAR)##1231235959, 99991231235959] two digits year datetime value 1970 ~ 1999
 // (999991231235959, ~) valid
-int64_t DateTimeValue::standardlize_timevalue(int64_t value) {
+int64_t DateTimeValue::standardize_timevalue(int64_t value) {
     _type = TIME_DATE;
     if (value <= 0) {
         return 0;
@@ -289,7 +289,7 @@ int64_t DateTimeValue::standardlize_timevalue(int64_t value) {
 
 bool DateTimeValue::from_date_int64(int64_t value) {
     _neg = false;
-    value = standardlize_timevalue(value);
+    value = standardize_timevalue(value);
     if (value <= 0) {
         return false;
     }
@@ -1070,7 +1070,7 @@ static int check_word(const char* lib[], const char* str, const char* end, const
     return pos;
 }
 
-// this method is exaclty same as fromDateFormatStr() in DateLiteral.java in FE
+// this method is exactly same as fromDateFormatStr() in DateLiteral.java in FE
 // change this method should also change that.
 bool DateTimeValue::from_date_format_str(
         const char* format, int format_len,

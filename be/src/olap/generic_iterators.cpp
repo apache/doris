@@ -118,7 +118,7 @@ public:
         : _iter(iter), _block(iter->schema(), 1024) {
     }
 
-    // Intialize this context and will prepare data for current_row()
+    // Initialize this context and will prepare data for current_row()
     Status init(const StorageReadOptions& opts);
 
     // Return current row which internal row index points to

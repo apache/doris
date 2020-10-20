@@ -45,7 +45,7 @@ IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& optio
           _mem_pool(_mem_tracker.get()),
           _num_values(0),
           _num_data_pages(0),
-          _validx_key_coder(nullptr),
+          _value_key_coder(nullptr),
           _compress_codec(nullptr) {
     _first_value.resize(_typeinfo->size());
 }
@@ -69,7 +69,7 @@ Status IndexedColumnWriter::init() {
     }
     if (_options.write_value_index) {
         _value_index_builder.reset(new IndexPageBuilder(_options.index_page_size, true));
-        _validx_key_coder = get_key_coder(_typeinfo->type());
+        _value_key_coder = get_key_coder(_typeinfo->type());
     }
 
     if (_options.compression != NO_COMPRESSION) {
@@ -123,7 +123,7 @@ Status IndexedColumnWriter::_finish_current_data_page() {
 
     if (_options.write_value_index) {
         std::string key;
-        _validx_key_coder->full_encode_ascending(_first_value.data(), &key);
+        _value_key_coder->full_encode_ascending(_first_value.data(), &key);
         // TODO short separate key optimize
         _value_index_builder->add(key, _last_data_page);
         // TODO record last key in short separate key optimize

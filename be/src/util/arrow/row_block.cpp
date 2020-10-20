@@ -145,7 +145,7 @@ Status convert_to_doris_schema(const arrow::Schema& schema,
 
 // Convert data in RowBlockV2 to an Arrow RecordBatch
 // We should keep this function to keep compatible with arrow's type visitor
-// Now we inherit TypeVisitor to use default Visit implemention
+// Now we inherit TypeVisitor to use default Visit implementation
 class FromRowBlockConverter : public arrow::TypeVisitor {
 public:
     FromRowBlockConverter(const RowBlockV2& block,

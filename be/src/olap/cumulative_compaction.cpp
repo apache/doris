@@ -77,7 +77,7 @@ OLAPStatus CumulativeCompaction::compact() {
 OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
 
-    _tablet->pick_candicate_rowsets_to_cumulative_compaction(
+    _tablet->pick_candidate_rowsets_to_cumulative_compaction(
             config::cumulative_compaction_skip_window_seconds, &candidate_rowsets);
 
     if (candidate_rowsets.empty()) {
@@ -99,7 +99,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         if (_last_delete_version.first != -1) {
             // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // plus 1 to skip the delete version.
-            // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doen't matter.
+            // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             _tablet->set_cumulative_layer_point(_last_delete_version.first + 1);
             return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
         }
@@ -129,7 +129,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
                     }
                 }
 
-                // all candicate rowsets are non-overlapping, increase the cumulative point
+                // all candidate rowsets are non-overlapping, increase the cumulative point
                 _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version() + 1);
             }
         } else {

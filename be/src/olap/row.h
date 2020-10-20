@@ -115,7 +115,7 @@ void init_row_with_others(DstRowType* dst, const SrcRowType& src, MemPool* mem_p
 }
 
 // Copy other row to destination directly. This function assume
-// that destination has enough space for source conetent.
+// that destination has enough space for source content.
 template<typename DstRowType, typename SrcRowType>
 void direct_copy_row(DstRowType* dst, const SrcRowType& src) {
     for (auto cid : dst->schema()->column_ids()) {
@@ -173,7 +173,7 @@ void agg_update_row_with_sequence(DstRowType* dst, const SrcRowType& src, uint32
 }
 
 // Do aggregate update source row to destination row.
-// This funcion will operate on given cids.
+// This function will operate on given cids.
 // TODO(zc): unify two versions of agg_update_row
 template<typename DstRowType, typename SrcRowType>
 void agg_update_row(const std::vector<uint32_t>& cids, DstRowType* dst, const SrcRowType& src) {

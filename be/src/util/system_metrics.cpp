@@ -338,7 +338,7 @@ void SystemMetrics::_update_disk_metrics() {
     // 12 - I/Os currently in progress
     // 13 - time spent doing I/Os (ms)
     // 14 - weighted time spent doing I/Os (ms)
-    // I think 1024 is enougth for device name
+    // I think 1024 is enough for device name
     int major = 0;
     int minor = 0;
     char device[1024];

@@ -30,7 +30,7 @@
                                 } \
                                 if (rc == SQL_ERROR) \
                                 { \
-                                    auto err_msg = std::string("Errro in") + std::string(op); \
+                                    auto err_msg = std::string("Error in") + std::string(op); \
                                     return Status::InternalError(err_msg.c_str()); \
                                 }  \
                             } \
@@ -105,12 +105,12 @@ Status ODBCScanner::query() {
     // Allocate a statement handle
     ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC, SQLAllocHandle(SQL_HANDLE_STMT, _dbc, &_stmt), "alloc statement");
 
-    // Translate utf8 string to utf16 to use unicode codeing
+    // Translate utf8 string to utf16 to use unicode code
     auto wquery = utf8_to_wstring(_sql_str);
     ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT, SQLExecDirectW(_stmt, (SQLWCHAR*)(wquery.c_str()), SQL_NTS), "exec direct");
 
     // How many columns are there */
-    ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT, SQLNumResultCols(_stmt, &_field_num), "count num colomn");
+    ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT, SQLNumResultCols(_stmt, &_field_num), "count num column");
 
     LOG(INFO) << "execute success:" << _sql_str <<  " column count:" << _field_num;
 
