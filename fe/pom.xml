@@ -94,8 +94,8 @@ under the License.
                 </repository>
                 <!-- for java-cup -->
                 <repository>
-                    <id>cloudera-thirdparty</id>
-                    <url>https://repository.cloudera.com/content/repositories/third-party/</url>
+                    <id>cloudera-public</id>
+                    <url>https://repository.cloudera.com/artifactory/public/</url>
                 </repository>
                 <!-- for bdb je -->
                 <repository>
@@ -111,8 +111,8 @@ under the License.
                 </pluginRepository>
                 <!-- for cup-maven-plugin -->
                 <pluginRepository>
-                    <id>cloudera-plugins</id>
-                    <url>https://repository.cloudera.com/content/groups/public/</url>
+                    <id>cloudera-public</id>
+                    <url>https://repository.cloudera.com/artifactory/public/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
