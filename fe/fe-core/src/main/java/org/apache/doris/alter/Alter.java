@@ -363,10 +363,7 @@ public class Alter {
 
         String oldTblName = origTable.getName();
         String newTblName = clause.getTblName();
-        Table newTbl = db.getTable(newTblName);
-        if (newTbl == null || newTbl.getType() != TableType.OLAP) {
-            throw new DdlException("Table " + newTblName + " does not exist or is not OLAP table");
-        }
+        Table newTbl = db.getTableOrThrowException(newTblName, TableType.OLAP);
         OlapTable olapNewTbl = (OlapTable) newTbl;
 
         boolean swapTable = clause.isSwapTable();
