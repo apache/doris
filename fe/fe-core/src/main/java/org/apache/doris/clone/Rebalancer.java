@@ -17,7 +17,6 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.system.SystemInfoService;
@@ -25,8 +24,6 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
@@ -45,8 +42,6 @@ import java.util.Map;
  * invalid when we createBalanceTask(), you should check the moves' validation.
  */
 public abstract class Rebalancer {
-    private static final Logger LOG = LogManager.getLogger(Rebalancer.class);
-
     // When Rebalancer init, the statisticMap is usually empty. So it's no need to be an arg.
     // Only use updateLoadStatistic() to load stats.
     protected Map<String, ClusterLoadStatistic> statisticMap = new HashMap<>();

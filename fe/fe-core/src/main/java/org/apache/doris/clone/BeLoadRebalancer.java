@@ -17,7 +17,11 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
