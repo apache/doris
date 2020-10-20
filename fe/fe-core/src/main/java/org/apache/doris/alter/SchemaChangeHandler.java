@@ -1770,22 +1770,8 @@ public class SchemaChangeHandler extends AlterHandler {
     public void updatePartitionsInMemoryMeta(Database db,
                                              String tableName,
                                              List<String> partitionNames,
-                                             Map<String, String> properties) throws DdlException {
-        OlapTable olapTable;
-        db.readLock();
-        try {
-            olapTable = (OlapTable)db.getTable(tableName);
-            for (String partitionName : partitionNames) {
-                Partition partition = olapTable.getPartition(partitionName);
-                if (partition == null) {
-                    throw new DdlException("Partition[" + partitionName + "] does not exist in " +
-                            "table[" + olapTable.getName() + "]");
-                }
-            }
-        } finally {
-            db.readUnlock();
-        }
-
+                                             Map<String, String> properties) throws DdlException, MetaNotFoundException {
+        OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableName, Table.TableType.OLAP);
         boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
         if (isInMemory == olapTable.isInMemory()) {
             return;

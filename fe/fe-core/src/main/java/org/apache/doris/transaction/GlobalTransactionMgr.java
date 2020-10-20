@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
@@ -27,6 +28,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -45,6 +47,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Transaction Manager
@@ -186,15 +189,13 @@ public class GlobalTransactionMgr implements Writable {
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
             TxnCommitAttachment txnCommitAttachment)
             throws UserException {
-        for (Table table : tableList) {
-            table.writeLock();
+        if (!MetaLockUtils.tryWriteLockTables(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+            throw new UserException("get tableList write lock timeout, tableList=(" + StringUtils.join(tableList, ",") + ")");
         }
         try {
             commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
-            for (int i = tableList.size() - 1; i >= 0; i--) {
-                tableList.get(i).writeUnlock();
-            }
+           MetaLockUtils.writeUnlockTables(tableList);
         }
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(db.getId());
         return dbTransactionMgr.publishTransaction(db, transactionId, timeoutMillis);

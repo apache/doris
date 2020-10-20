@@ -367,7 +367,7 @@ public class Database extends MetaObject implements Writable {
         return new ArrayList<>(idToTable.values());
     }
 
-    // tables must get read or write table in fixed order to escape potential dead lock
+    // tables must get read or write table in fixed order to avoid potential dead lock
     public List<Table> getTablesOnIdOrder() {
         return idToTable.values().stream()
                 .sorted(Comparator.comparing(Table::getId))

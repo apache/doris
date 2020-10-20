@@ -118,6 +118,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.QueryableReentrantLock;
@@ -246,6 +247,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -3089,19 +3091,20 @@ public class Catalog {
     public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
         try {
             Database db = Catalog.getCurrentCatalog().getDb(stmt.getExistedDbName());
+            Table table = db.getTable(stmt.getExistedTableName());
+            if (table == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, stmt.getExistedTableName());
+            }
+
             List<String> createTableStmt = Lists.newArrayList();
-            db.readLock();
+            table.readLock();
             try {
-                Table table = db.getTable(stmt.getExistedTableName());
-                if (table == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, stmt.getExistedTableName());
-                }
                 Catalog.getDdlStmt(stmt.getDbName(), table, createTableStmt, null, null, false, false);
                 if (createTableStmt.isEmpty()) {
                     ErrorReport.reportDdlException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
                 }
             } finally {
-                db.readUnlock();
+                table.readUnlock();
             }
             CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(createTableStmt.get(0), ConnectContext.get());
             parsedCreateTableStmt.setTableName(stmt.getTableName());
@@ -6331,23 +6334,24 @@ public class Catalog {
     public String dumpImage() {
         LOG.info("begin to dump meta data");
         String dumpFilePath;
-        Map<Long, Database> lockedDbMap = Maps.newTreeMap();
+        List<Database> databases = Lists.newArrayList();
+        List<List<Table>> tableLists = Lists.newArrayList();
         tryLock(true);
         try {
-            // sort all dbs
+            // sort all dbs to avoid potential dead lock
             for (long dbId : getDbIds()) {
                 Database db = getDb(dbId);
                 Preconditions.checkNotNull(db);
-                lockedDbMap.put(dbId, db);
+                databases.add(db);
             }
+            databases.sort(Comparator.comparing(Database::getId));
 
             // lock all dbs
-            for (Database db : lockedDbMap.values()) {
+            for (Database db : databases) {
                 db.readLock();
                 List<Table> tableList = db.getTablesOnIdOrder();
-                for (Table table : tableList) {
-                    table.readLock();
-                }
+                MetaLockUtils.readLockTables(tableList);
+                tableLists.add(tableList);
             }
             LOG.info("acquired all the dbs' read lock.");
 
@@ -6366,12 +6370,9 @@ public class Catalog {
         } finally {
             // unlock all
             load.readUnlock();
-            for (Database db : lockedDbMap.values()) {
-                List<Table> tableList = db.getTablesOnIdOrder();
-                for (int i = tableList.size() - 1; i >= 0; i--) {
-                    tableList.get(i).readUnlock();
-                }
-                db.readUnlock();
+            for (int i = databases.size() - 1; i >= 0; i--) {
+                MetaLockUtils.readUnlockTables(tableLists.get(i));
+                databases.get(i).readUnlock();
             }
             unlock();
         }
