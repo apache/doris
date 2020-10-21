@@ -425,7 +425,7 @@ Slice ShardedLRUCache::value_slice(Handle* handle) {
 }
 
 uint64_t ShardedLRUCache::new_id() {
-    return _last_id.fetch_add(1, std::memory_order_relaxed);;
+    return _last_id.fetch_add(1, std::memory_order_relaxed);
 }
 
 void ShardedLRUCache::prune() {
