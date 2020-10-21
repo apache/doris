@@ -359,15 +359,13 @@ public class Alter {
     // entry of processing replace table
     private void processReplaceTable(Database db, OlapTable origTable, List<AlterClause> alterClauses) throws UserException {
         ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
-        Preconditions.checkState(db.isWriteLockHeldByCurrentThread());
+        Preconditions.checkState(origTable.isWriteLockHeldByCurrentThread());
 
         String oldTblName = origTable.getName();
         String newTblName = clause.getTblName();
         Table newTbl = db.getTableOrThrowException(newTblName, TableType.OLAP);
         OlapTable olapNewTbl = (OlapTable) newTbl;
-
         boolean swapTable = clause.isSwapTable();
-
         // First, we need to check whether the table to be operated on can be renamed
         olapNewTbl.checkAndSetName(oldTblName, true);
         if (swapTable) {
