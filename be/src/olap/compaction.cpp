@@ -177,6 +177,33 @@ OLAPStatus Compaction::gc_unused_rowsets() {
     return OLAP_SUCCESS;
 }
 
+// Find the longest consecutive version path in "rowset", from begining.
+// Two versions before and after the missing version will be saved in missing_version,
+// if missing_version is not null.
+OLAPStatus Compaction::find_longest_consecutive_version(
+        vector<RowsetSharedPtr>* rowsets,
+        vector<Version>* missing_version) {
+    if (rowsets->empty()) {
+        return OLAP_SUCCESS;
+    }
+    RowsetSharedPtr prev_rowset = rowsets->front();
+    size_t i = 1;
+    for (; i < rowsets->size(); ++i) {
+        RowsetSharedPtr rowset = (*rowsets)[i];
+        if (rowset->start_version() != prev_rowset->end_version() + 1) {
+            if (missing_version != nullptr) {
+                missing_version->push_back(prev_rowset->version());
+                missing_version->push_back(rowset->version());
+            }
+            break;
+        }
+        prev_rowset = rowset;
+    }
+
+    rowsets->resize(i);
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus Compaction::check_version_continuity(const vector<RowsetSharedPtr>& rowsets) {
     RowsetSharedPtr prev_rowset = rowsets.front();
     for (size_t i = 1; i < rowsets.size(); ++i) {
