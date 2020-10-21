@@ -34,6 +34,11 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
           _data_dir(data_dir) {
     _gen_tablet_path();
 
+    std::stringstream ss;
+    ss << _tablet_meta->tablet_id() << "." << _tablet_meta->schema_hash() << "."
+       << _tablet_meta->tablet_uid().to_string();
+    _full_name = ss.str();
+
     _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
         strings::Substitute("Tablet.$0", tablet_id()),
         {{"tablet_id", std::to_string(tablet_id())}},
