@@ -268,7 +268,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         table.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
-
                 table.readLock();
                 try {
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,

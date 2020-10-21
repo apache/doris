@@ -2046,15 +2046,11 @@ public class Catalog {
                 checksum ^= entry.getKey();
                 db.readLock();
                 List<Table> tableList = db.getTablesOnIdOrder();
-                for (Table table : tableList) {
-                    table.readLock();
-                }
+                MetaLockUtils.readLockTables(tableList);
                 try {
                     db.write(dos);
                 } finally {
-                    for (int i = tableList.size() - 1; i >= 0; i--) {
-                        tableList.get(i).readUnlock();
-                    }
+                    MetaLockUtils.readUnlockTables(tableList);
                     db.readUnlock();
                 }
             }
@@ -4718,14 +4714,7 @@ public class Catalog {
                 LOG.warn("db {} does not exist while doing backend report", dbId);
                 continue;
             }
-            List<Table> tableList = null;
-            db.readLock();
-            try {
-                tableList = db.getTables();
-            } finally {
-                db.readUnlock();
-            }
-
+            List<Table> tableList = db.getTables();
             for (Table table : tableList) {
                 if (table.getType() != TableType.OLAP) {
                     continue;
@@ -6369,11 +6358,11 @@ public class Catalog {
             }
         } finally {
             // unlock all
-            load.readUnlock();
             for (int i = databases.size() - 1; i >= 0; i--) {
                 MetaLockUtils.readUnlockTables(tableLists.get(i));
                 databases.get(i).readUnlock();
             }
+            load.readUnlock();
             unlock();
         }
 

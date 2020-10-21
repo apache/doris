@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -106,11 +106,10 @@ public class WithClause implements ParseNode {
         for (View view: views_) view.getQueryStmt().reset();
     }
 
-    public void getDbs(Analyzer analyzer, Map<String, Database> dbs, Set<String> parentViewNameSet) throws AnalysisException {
+    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
         for (View view : views_) {
             QueryStmt stmt = view.getQueryStmt();
-            parentViewNameSet.add(view.getName());
-            stmt.getDbs(analyzer, dbs, parentViewNameSet);
+            stmt.getTables(analyzer, tableMap, parentViewNameSet);
         }
     }
 

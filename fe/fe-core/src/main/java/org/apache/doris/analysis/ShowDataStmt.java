@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -41,7 +42,6 @@ import com.google.common.base.Strings;
 
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
@@ -73,8 +73,7 @@ public class ShowDataStmt extends ShowStmt {
     public ShowDataStmt(String dbName, String tableName) {
         this.dbName = dbName;
         this.tableName = tableName;
-
-        this.totalRows = new LinkedList<List<String>>();
+        this.totalRows = Lists.newArrayList();
     }
 
     @Override

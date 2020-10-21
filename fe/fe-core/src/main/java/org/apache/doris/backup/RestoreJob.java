@@ -355,33 +355,28 @@ public class RestoreJob extends AbstractJob {
             return;
         }
 
-        db.readLock();
-        try {
-            for (IdChain idChain : fileMapping.getMapping().keySet()) {
-                OlapTable tbl = (OlapTable) db.getTable(idChain.getTblId());
-                if (tbl == null) {
-                    status = new Status(ErrCode.NOT_FOUND, "table " + idChain.getTblId() + " has been dropped");
+        for (IdChain idChain : fileMapping.getMapping().keySet()) {
+            OlapTable tbl = (OlapTable) db.getTable(idChain.getTblId());
+            if (tbl == null) {
+                status = new Status(ErrCode.NOT_FOUND, "table " + idChain.getTblId() + " has been dropped");
+                return;
+            }
+            tbl.readLock();
+            try {
+                Partition part = tbl.getPartition(idChain.getPartId());
+                if (part == null) {
+                    status = new Status(ErrCode.NOT_FOUND, "partition " + idChain.getPartId() + " has been dropped");
                     return;
                 }
-                tbl.readLock();
-                try {
-                    Partition part = tbl.getPartition(idChain.getPartId());
-                    if (part == null) {
-                        status = new Status(ErrCode.NOT_FOUND, "partition " + idChain.getPartId() + " has been dropped");
-                        return;
-                    }
 
-                    MaterializedIndex index = part.getIndex(idChain.getIdxId());
-                    if (index == null) {
-                        status = new Status(ErrCode.NOT_FOUND, "index " + idChain.getIdxId() + " has been dropped");
-                        return;
-                    }
-                } finally {
-                    tbl.readUnlock();
+                MaterializedIndex index = part.getIndex(idChain.getIdxId());
+                if (index == null) {
+                    status = new Status(ErrCode.NOT_FOUND, "index " + idChain.getIdxId() + " has been dropped");
+                    return;
                 }
+            } finally {
+                tbl.readUnlock();
             }
-        } finally {
-            db.readUnlock();
         }
     }
 

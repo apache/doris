@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
@@ -40,8 +41,8 @@ import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -54,6 +55,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.QueryPlannerProfile;
 import org.apache.doris.common.util.RuntimeProfile;
@@ -87,7 +89,6 @@ import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -399,26 +400,6 @@ public class StmtExecutor {
         ProfileManager.getInstance().pushProfile(profile);
     }
 
-    // Lock all database before analyze
-    private void lock(Map<String, Database> dbs) {
-        if (dbs == null) {
-            return;
-        }
-        for (Database db : dbs.values()) {
-            db.readLock();
-        }
-    }
-
-    // unLock all database after analyze
-    private void unLock(Map<String, Database> dbs) {
-        if (dbs == null) {
-            return;
-        }
-        for (Database db : dbs.values()) {
-            db.readUnlock();
-        }
-    }
-
     // Analyze one statement to structure in memory.
     public void analyze(TQueryOptions tQueryOptions) throws UserException {
         LOG.info("begin to analyze stmt: {}, forwarded stmt id: {}", context.getStmtId(), context.getForwardedStmtId());
@@ -472,12 +453,12 @@ public class StmtExecutor {
         if (parsedStmt instanceof QueryStmt
                 || parsedStmt instanceof InsertStmt
                 || parsedStmt instanceof CreateTableAsSelectStmt) {
-            Map<String, Database> dbs = Maps.newTreeMap();
+            Map<Long, Table> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;
             Set<String> parentViewNameSet = Sets.newHashSet();
             if (parsedStmt instanceof QueryStmt) {
                 queryStmt = (QueryStmt) parsedStmt;
-                queryStmt.getDbs(analyzer, dbs, parentViewNameSet);
+                queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
             } else {
                 InsertStmt insertStmt;
                 if (parsedStmt instanceof InsertStmt) {
@@ -485,10 +466,10 @@ public class StmtExecutor {
                 } else {
                     insertStmt = ((CreateTableAsSelectStmt) parsedStmt).getInsertStmt();
                 }
-                insertStmt.getDbs(analyzer, dbs, parentViewNameSet);
+                insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
             }
-
-            lock(dbs);
+            List<Table> tables = Lists.newArrayList(tableMap.values());
+            MetaLockUtils.readLockTables(tables);
             try {
                 analyzeAndGenerateQueryPlan(tQueryOptions);
             } catch (MVSelectFailedException e) {
@@ -505,7 +486,7 @@ public class StmtExecutor {
                 LOG.warn("Analyze failed because ", e);
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             } finally {
-                unLock(dbs);
+                MetaLockUtils.readUnlockTables(tables);
             }
         } else {
             try {

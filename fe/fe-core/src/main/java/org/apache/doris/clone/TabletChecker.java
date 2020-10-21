@@ -204,16 +204,8 @@ public class TabletChecker extends MasterDaemon {
                 continue;
             }
 
-            int availableBackendsNum = infoService.getClusterBackendIds(db.getClusterName(), true).size();
-            db.readLock();
-            List<Table> tableList = null;
-            List<Long> aliveBeIdsInCluster = null;
-            try {
-                aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
-                tableList = db.getTables();
-            } finally {
-                db.readUnlock();
-            }
+            List<Table> tableList = db.getTables();
+            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
 
             for (Table table : tableList) {
                 table.readLock();
@@ -342,35 +334,30 @@ public class TabletChecker extends MasterDaemon {
                 continue;
             }
 
-            db.readLock();
-            try {
-                Iterator<Map.Entry<Long, Set<PrioPart>>> jter = dbEntry.getValue().entrySet().iterator();
-                while (jter.hasNext()) {
-                    Map.Entry<Long, Set<PrioPart>> tblEntry = jter.next();
-                    long tblId = tblEntry.getKey();
-                    OlapTable tbl = (OlapTable) db.getTable(tblId);
-                    if (tbl == null) {
+            Iterator<Map.Entry<Long, Set<PrioPart>>> jter = dbEntry.getValue().entrySet().iterator();
+            while (jter.hasNext()) {
+                Map.Entry<Long, Set<PrioPart>> tblEntry = jter.next();
+                long tblId = tblEntry.getKey();
+                OlapTable tbl = (OlapTable) db.getTable(tblId);
+                if (tbl == null) {
+                    deletedPrios.add(Pair.create(dbId, tblId));
+                    continue;
+                }
+                tbl.readLock();
+                try {
+                    Set<PrioPart> parts = tblEntry.getValue();
+                    parts = parts.stream().filter(p -> (tbl.getPartition(p.partId) != null && !p.isTimeout())).collect(
+                            Collectors.toSet());
+                    if (parts.isEmpty()) {
                         deletedPrios.add(Pair.create(dbId, tblId));
-                        continue;
                     }
-                    tbl.readLock();
-                    try {
-                        Set<PrioPart> parts = tblEntry.getValue();
-                        parts = parts.stream().filter(p -> (tbl.getPartition(p.partId) != null && !p.isTimeout())).collect(
-                                Collectors.toSet());
-                        if (parts.isEmpty()) {
-                            deletedPrios.add(Pair.create(dbId, tblId));
-                        }
-                    } finally {
-                        tbl.readUnlock();
-                    }
+                } finally {
+                    tbl.readUnlock();
                 }
+            }
 
-                if (dbEntry.getValue().isEmpty()) {
-                    iter.remove();
-                }
-            } finally {
-                db.readUnlock();
+            if (dbEntry.getValue().isEmpty()) {
+                iter.remove();
             }
         }
         for (Pair<Long, Long> prio : deletedPrios) {
