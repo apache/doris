@@ -766,6 +766,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         VLOG(1) << "Found the best tablet for compaction. "
                   << "compaction_type=" << compaction_type_str
                   << ", tablet_id=" << best_tablet->tablet_id()
+                  << ", path=" << data_dir->path()
                   << ", highest_score=" << highest_score;
         // TODO(lingbin): Remove 'max' from metric name, it would be misunderstood as the
         // biggest in history(like peak), but it is really just the value at current moment.

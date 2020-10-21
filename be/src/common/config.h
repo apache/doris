@@ -292,10 +292,10 @@ namespace config {
     // rowset will be not given to base compaction. The unit is m byte.
     CONF_mInt64(cumulative_size_based_promotion_min_size_mbytes, "64");
     // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than 
-    // this size, size_based policy also does cumulative compaction. The unit is m byte.
+    // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
     CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
 
-    // cumulative compaction policy: max delta file's size unit:B
+    // cumulative compaction policy: min and max delta file's number
     CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
     CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
     CONF_mInt64(cumulative_compaction_budgeted_bytes, "104857600");
