@@ -1223,8 +1223,15 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("LIMIT 10"));
 
-        // ODBC table (Oracle)
+        // ODBC table (Oracle) not push down limit
         queryStr = "explain select * from odbc_oracle where k1 > 10 and abs(k1) > 10 limit 10";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        // abs is function, so Doris do not push down function except MySQL Database
+        // so should not push down limit operation
+        Assert.assertTrue(!explainString.contains("ROWNUM <= 10"));
+
+        // ODBC table (Oracle) push down limit
+        queryStr = "explain select * from odbc_oracle where k1 > 10 limit 10";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("ROWNUM <= 10"));
 
