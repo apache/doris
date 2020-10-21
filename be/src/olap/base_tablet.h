@@ -77,6 +77,8 @@ protected:
 
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity = nullptr;
+
+    std::string _full_name;
 public:
     IntCounter* query_scan_bytes;
     IntCounter* query_scan_rows;
@@ -110,10 +112,7 @@ inline int64_t BaseTablet::table_id() const {
 }
 
 inline const std::string BaseTablet::full_name() const {
-    std::stringstream ss;
-    ss << _tablet_meta->tablet_id() << "." << _tablet_meta->schema_hash() << "."
-       << _tablet_meta->tablet_uid().to_string();
-    return ss.str();
+    return _full_name;
 }
 
 inline int64_t BaseTablet::partition_id() const {

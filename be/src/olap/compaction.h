@@ -65,6 +65,7 @@ protected:
 
     OLAPStatus check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
     OLAPStatus check_correctness(const Merger::Statistics& stats);
+    OLAPStatus find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets, std::vector<Version>* missing_version);
 
 private:
     // get num rows from segment group meta of input rowsets.

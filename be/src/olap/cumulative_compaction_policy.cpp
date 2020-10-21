@@ -436,7 +436,6 @@ void CumulativeCompactionPolicy::pick_candidate_rowsets(int64_t skip_window_sec,
         }
     }
     std::sort(candidate_rowsets->begin(), candidate_rowsets->end(), Rowset::comparator);
-
 }
 
 std::unique_ptr<CumulativeCompactionPolicy> CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(std::string type) {
