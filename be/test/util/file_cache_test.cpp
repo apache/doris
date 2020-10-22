@@ -28,7 +28,7 @@ public:
     FileCacheTest() { }
 
     void SetUp() override {
-        _file_cache.reset(new FileCache<RandomAccessFile>("test cache", 10000));
+        _file_cache.reset(new FileCache<RandomAccessFile>("test_cache", 10000));
         _file_exist = "file_exist";
         std::unique_ptr<WritableFile> file;
         auto st = Env::Default()->new_writable_file(_file_exist, &file);
