@@ -170,9 +170,9 @@ Status StorageEngine::_open() {
 
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
 
-    _index_stream_lru_cache = new_lru_cache(config::index_stream_cache_capacity);
+    _index_stream_lru_cache = new_lru_cache("SegmentIndexCache", config::index_stream_cache_capacity);
 
-    _file_cache.reset(new_lru_cache(config::file_descriptor_cache_capacity));
+    _file_cache.reset(new_lru_cache("FileHandlerCache", config::file_descriptor_cache_capacity));
 
     auto dirs = get_stores<false>();
     load_data_dirs(dirs);
@@ -631,10 +631,6 @@ void StorageEngine::_perform_base_compaction(TabletSharedPtr best_tablet) {
         return;
     }
     best_tablet->set_last_base_compaction_failure_time(0);
-}
-
-void StorageEngine::get_cache_status(rapidjson::Document* document) const {
-    return _index_stream_lru_cache->get_cache_status(document);
 }
 
 OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
