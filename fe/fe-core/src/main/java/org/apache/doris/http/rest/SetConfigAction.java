@@ -17,6 +17,8 @@
 
 package org.apache.doris.http.rest;
 
+import io.netty.handler.codec.http.HttpMethod;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigBase.ConfField;
@@ -34,11 +36,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
-
-import io.netty.handler.codec.http.HttpMethod;
 
 /*
  * used to set fe config
@@ -47,6 +48,8 @@ import io.netty.handler.codec.http.HttpMethod;
  */
 public class SetConfigAction extends RestBaseAction {
     private static final Logger LOG = LogManager.getLogger(SetConfigAction.class);
+
+    private static final String PERSIST_PARAM = "persist";
 
     public SetConfigAction(ActionController controller) {
         super(controller);
@@ -61,11 +64,19 @@ public class SetConfigAction extends RestBaseAction {
     protected void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
+        boolean needPersist = false;
         Map<String, List<String>> configs = request.getAllParameters();
+        if (configs.containsKey(PERSIST_PARAM)) {
+            List<String> val = configs.remove(PERSIST_PARAM);
+            if (val.size() == 1 && val.get(0).equals("true")) {
+                needPersist = true;
+            }
+        }
+
         Map<String, String> setConfigs = Maps.newHashMap();
         Map<String, String> errConfigs = Maps.newHashMap();
 
-        LOG.debug("get config from url: {}", configs);
+        LOG.debug("get config from url: {}, need persist: {}", configs, needPersist);
 
         Field[] fields = ConfigBase.confClass.getFields();
         for (Field f : fields) {
@@ -100,15 +111,27 @@ public class SetConfigAction extends RestBaseAction {
             setConfigs.put(confKey, confVals.get(0));
         }
 
+        String persistMsg = "";
+        if (needPersist) {
+            try {
+                ConfigBase.persistConfig(setConfigs);
+                persistMsg = "ok";
+            } catch (IOException e) {
+                LOG.warn("failed to persist config", e);
+                persistMsg = e.getMessage();
+            }
+        }
+
         for (String key : configs.keySet()) {
             if (!setConfigs.containsKey(key)) {
                 errConfigs.put(key, configs.get(key).toString());
             }
         }
 
-        Map<String, Map<String, String>> resultMap = Maps.newHashMap();
+        Map<String, Object> resultMap = Maps.newHashMap();
         resultMap.put("set", setConfigs);
         resultMap.put("err", errConfigs);
+        resultMap.put("persist", persistMsg);
 
         // to json response
         String result = "";

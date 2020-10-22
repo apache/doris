@@ -21,6 +21,12 @@ import org.apache.doris.PaloFe;
 import org.apache.doris.http.HttpServer;
 
 public class Config extends ConfigBase {
+
+    /**
+     * Dir of custom config file
+     */
+    @ConfField
+    public static String custom_config_dir = PaloFe.DORIS_HOME_DIR + "/conf";
     
     /**
      * The max size of one sys log and audit log
