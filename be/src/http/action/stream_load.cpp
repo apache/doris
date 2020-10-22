@@ -208,25 +208,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
         LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
         return Status::InternalError("no valid Basic authorization");
     }
-    // check content length
-    ctx->body_bytes = 0;
-    size_t max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
-    if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-        ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
-        if (ctx->body_bytes > max_body_bytes) {
-            LOG(WARNING) << "body exceed max size." << ctx->brief();
 
-            std::stringstream ss;
-            ss << "body exceed max size: " << max_body_bytes << ", limit: " << max_body_bytes;
-            return Status::InternalError(ss.str());
-        }
-    } else {
-#ifndef BE_TEST
-        evhttp_connection_set_max_body_size(
-            evhttp_request_get_connection(http_req->get_evhttp_request()),
-            max_body_bytes);
-#endif
-    }
     // get format of this put
     if (http_req->header(HTTP_FORMAT_KEY).empty()) {
         ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
@@ -237,16 +219,34 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
             ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
             return Status::InternalError(ss.str());
         }
+    }
 
-        if (ctx->format == TFileFormatType::FORMAT_JSON) {
-            size_t max_body_bytes = config::streaming_load_max_batch_size_mb * 1024 * 1024;
-            if (ctx->body_bytes > max_body_bytes) {
-                std::stringstream ss;
-                ss << "The size of this batch exceed the max size [" << max_body_bytes
-                   << "]  of json type data " << " data [ " << ctx->body_bytes << " ]";
-                return Status::InternalError(ss.str());
-            }
+    // check content length
+    ctx->body_bytes = 0;
+    size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
+    size_t json_max_body_bytes = config::streaming_load_json_max_mb * 1024 * 1024;
+    if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+        ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        // json max body size
+        if ((ctx->format == TFileFormatType::FORMAT_JSON) && (ctx->body_bytes > json_max_body_bytes)) {
+            std::stringstream ss;
+            ss << "The size of this batch exceed the max size [" << json_max_body_bytes
+                << "]  of json type data " << " data [ " << ctx->body_bytes << " ]";
+            return Status::InternalError(ss.str());
+        } 
+        // csv max body size
+        else if (ctx->body_bytes > csv_max_body_bytes) {
+            LOG(WARNING) << "body exceed max size." << ctx->brief();
+            std::stringstream ss;
+            ss << "body exceed max size: " << csv_max_body_bytes << ", data: " << ctx->body_bytes;
+            return Status::InternalError(ss.str());
         }
+    } else {
+#ifndef BE_TEST
+        evhttp_connection_set_max_body_size(
+            evhttp_request_get_connection(http_req->get_evhttp_request()),
+            csv_max_body_bytes);
+#endif
     }
 
     if (!http_req->header(HTTP_TIMEOUT).empty()) {
