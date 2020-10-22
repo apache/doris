@@ -20,10 +20,7 @@ package org.apache.doris.rewrite;
 import java.util.List;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.CastExpr;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import com.google.common.collect.Lists;
 
@@ -58,12 +55,6 @@ public class ExprRewriter {
                 rewrittenExpr = applyRuleRepeatedly(rewrittenExpr, rule, analyzer);
             }
         } while (oldNumChanges != numChanges_);
-        if (expr instanceof BinaryPredicate) {
-            Expr valueExpr = ((BinaryPredicate) expr).getBinding();
-            if(valueExpr != null && valueExpr.getType() == Type.DATETIME && valueExpr instanceof CastExpr) {
-                throw new AnalysisException("invalid date type :" + valueExpr.toSql());
-            }
-        }
         return rewrittenExpr;
     }
 
