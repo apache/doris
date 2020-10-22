@@ -68,7 +68,7 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
         std::lock_guard<std::mutex> l(_lock);
         return _load_channels.size();
     });
-    _last_success_channel = new_lru_cache(1024);
+    _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
 }
 
 LoadChannelMgr::~LoadChannelMgr() {

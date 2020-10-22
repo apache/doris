@@ -27,7 +27,7 @@ void StoragePageCache::create_global_cache(size_t capacity) {
     _s_instance = &instance;
 }
 
-StoragePageCache::StoragePageCache(size_t capacity) : _cache(new_lru_cache(capacity)) {
+StoragePageCache::StoragePageCache(size_t capacity) : _cache(new_lru_cache("StoragePageCache", capacity)) {
 }
 
 bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle) {
