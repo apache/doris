@@ -29,24 +29,13 @@ SchemaScanner::ColumnDesc SchemaViewsScanner::_s_tbls_columns[] = {
     { "TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringValue), true},
     { "TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringValue), false},
     { "TABLE_NAME",   TYPE_VARCHAR, sizeof(StringValue), false},
-    { "TABLE_TYPE",   TYPE_VARCHAR, sizeof(StringValue), false},
-    { "ENGINE",       TYPE_VARCHAR, sizeof(StringValue), true},
-    { "VERSION",      TYPE_BIGINT, sizeof(int64_t), true},
-    { "ROW_FORMAT",   TYPE_VARCHAR, sizeof(StringValue), true},
-    { "TABLE_ROWS",   TYPE_BIGINT, sizeof(int64_t), true},
-    { "AVG_ROW_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
-    { "DATA_LENGTH",   TYPE_BIGINT, sizeof(int64_t), true},
-    { "MAX_DATA_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
-    { "INDEX_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
-    { "DATA_FREE", TYPE_BIGINT, sizeof(int64_t), true},
-    { "AUTO_INCREMENT", TYPE_BIGINT, sizeof(int64_t), true},
-    { "CREATE_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
-    { "UPDATE_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
-    { "CHECK_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
-    { "TABLE_COLLATION", TYPE_VARCHAR, sizeof(StringValue), true},
-    { "CHECKSUM", TYPE_BIGINT, sizeof(int64_t), true},
-    { "CREATE_OPTIONS", TYPE_VARCHAR, sizeof(StringValue), true},
-    { "TABLE_COMMENT", TYPE_VARCHAR, sizeof(StringValue), false},
+    { "VIEW_DEFINITION",   TYPE_VARCHAR, sizeof(StringValue), true},
+    { "CHECK_OPTION",       TYPE_VARCHAR, sizeof(StringValue), true},
+    { "IS_UPDATABLE",       TYPE_VARCHAR, sizeof(StringValue), true},
+    { "DEFINER",       TYPE_VARCHAR, sizeof(StringValue), true},
+    { "SECURITY_TYPE",       TYPE_VARCHAR, sizeof(StringValue), true},
+    { "CHARACTER_SET_CLIENT",       TYPE_VARCHAR, sizeof(StringValue), true},
+    { "COLLATION_CONNECTION",       TYPE_VARCHAR, sizeof(StringValue), true},
 };
 
 SchemaViewsScanner::SchemaViewsScanner()
@@ -116,124 +105,73 @@ Status SchemaViewsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         }
         memcpy(str_slot->ptr, src->c_str(), str_slot->len);
     }
-    // type
+    // definition
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* src = &tbl_status.type;
-        str_slot->len = src->length();
+        const std::string* ddl_sql = &tbl_status.ddl_sql;
+        str_slot->len = ddl_sql->length();
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
         if (NULL == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
+        memcpy(str_slot->ptr, ddl_sql->c_str(), str_slot->len);
     }
-    // engine
-    if (tbl_status.__isset.engine) {
+    // check_option
+    {
         void *slot = tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* src = &tbl_status.engine;
-        str_slot->len = src->length();
+        const std::string check_option = "NONE";
+        str_slot->len = check_option.length();
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
         if (NULL == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
-    } else {
-        tuple->set_null(_tuple_desc->slots()[4]->null_indicator_offset());
+        memcpy(str_slot->ptr, check_option.c_str(), str_slot->len);
     }
-    // version
+    // is_updatable
     {
-        tuple->set_null(_tuple_desc->slots()[5]->null_indicator_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[5]->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        const std::string is_updatable = "YES";
+        str_slot->len = is_updatable.length();
+        str_slot->ptr = (char *)pool->allocate(str_slot->len);
+        if (NULL == str_slot->ptr) {
+            return Status::InternalError("Allocate memcpy failed.");
+        }
+        memcpy(str_slot->ptr, is_updatable.c_str(), str_slot->len);
     }
-    // row_format
+    // definer
     {
-        tuple->set_null(_tuple_desc->slots()[6]->null_indicator_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[6]->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        const std::string definer = "root@%";
+        str_slot->len = definer.length();
+        str_slot->ptr = (char *)pool->allocate(str_slot->len);
+        if (NULL == str_slot->ptr) {
+            return Status::InternalError("Allocate memcpy failed.");
+        }
+        memcpy(str_slot->ptr, definer.c_str(), str_slot->len);
     }
-    // rows
+    // security_type
     {
-        tuple->set_null(_tuple_desc->slots()[7]->null_indicator_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        const std::string security_type = "DEFINER";
+        str_slot->len = security_type.length();
+        str_slot->ptr = (char *)pool->allocate(str_slot->len);
+        if (NULL == str_slot->ptr) {
+            return Status::InternalError("Allocate memcpy failed.");
+        }
+        memcpy(str_slot->ptr, security_type.c_str(), str_slot->len);
     }
-    // avg_row_length
+    // character_set_client
     {
         tuple->set_null(_tuple_desc->slots()[8]->null_indicator_offset());
     }
-    // data_length
+    // collation_connection
     {
         tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset());
-    }
-    // max_data_length
-    {
-        tuple->set_null(_tuple_desc->slots()[10]->null_indicator_offset());
-    }
-    // index_length
-    {
-        tuple->set_null(_tuple_desc->slots()[11]->null_indicator_offset());
-    }
-    // data_free
-    {
-        tuple->set_null(_tuple_desc->slots()[12]->null_indicator_offset());
-    }
-    // auto_increment
-    {
-        tuple->set_null(_tuple_desc->slots()[13]->null_indicator_offset());
-    }
-    // creation_time
-    if (tbl_status.__isset.create_time) {
-        int64_t create_time = tbl_status.create_time;
-        if (create_time <= 0) {
-            tuple->set_null(_tuple_desc->slots()[14]->null_indicator_offset());
-        } else {
-            tuple->set_not_null(_tuple_desc->slots()[14]->null_indicator_offset());
-            void *slot = tuple->get_slot(_tuple_desc->slots()[14]->tuple_offset());
-            DateTimeValue *time_slot = reinterpret_cast<DateTimeValue*>(slot);
-            time_slot->from_unixtime(create_time, TimezoneUtils::default_time_zone);
-        }
-
-    }
-    // update_time
-    {
-        tuple->set_null(_tuple_desc->slots()[15]->null_indicator_offset());
-    }
-    // check_time
-    if (tbl_status.__isset.last_check_time) {
-        int64_t check_time = tbl_status.last_check_time;
-        if (check_time <= 0) {
-            tuple->set_null(_tuple_desc->slots()[16]->null_indicator_offset());
-        } else {
-            tuple->set_not_null(_tuple_desc->slots()[16]->null_indicator_offset());
-            void *slot = tuple->get_slot(_tuple_desc->slots()[16]->tuple_offset());
-            DateTimeValue *time_slot = reinterpret_cast<DateTimeValue*>(slot);
-            time_slot->from_unixtime(check_time, TimezoneUtils::default_time_zone);
-        }
-    }
-    // collation
-    {
-        tuple->set_null(_tuple_desc->slots()[17]->null_indicator_offset());
-    }
-    // checksum
-    {
-        tuple->set_null(_tuple_desc->slots()[18]->null_indicator_offset());
-    }
-    // create_options
-    {
-        tuple->set_null(_tuple_desc->slots()[19]->null_indicator_offset());
-    }
-    // create_comment
-    {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[20]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* src = &tbl_status.comment;
-        str_slot->len = src->length();
-        if (str_slot->len == 0) {
-            str_slot->ptr = nullptr;
-        } else {
-            str_slot->ptr = (char *)pool->allocate(str_slot->len);
-            if (NULL == str_slot->ptr) {
-                return Status::InternalError("Allocate memcpy failed.");
-            }
-            memcpy(str_slot->ptr, src->c_str(), str_slot->len);
-        }
     }
     _table_index++;
     return Status::OK();
@@ -255,6 +193,7 @@ Status SchemaViewsScanner::get_new_table() {
             table_params.__set_user_ip(*(_param->user_ip));
         }
     }
+    table_params.__set_type("VIEW");
 
     if (NULL != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(SchemaHelper::list_table_status(*(_param->ip),

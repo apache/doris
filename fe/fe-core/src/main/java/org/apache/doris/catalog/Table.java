@@ -95,6 +95,8 @@ public class Table extends MetaObject implements Writable {
     // table(view)'s comment
     protected String comment = "";
 
+    protected String ddlSql = "";
+
     public Table(TableType type) {
         this.type = type;
         this.fullSchema = Lists.newArrayList();
@@ -143,6 +145,10 @@ public class Table extends MetaObject implements Writable {
 
     public List<Column> getFullSchema() {
         return fullSchema;
+    }
+
+    public String getDdlSql() {
+        return ddlSql;
     }
 
     // should override in subclass if necessary
