@@ -774,10 +774,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive txn rollback request. db: {}, tbl: {}, txn id: {}, reason: {}, backend: {}",
-                request.getDb(), request.getTbl(), request.getTxnId(), request.getReason(), clientAddr);
-        LOG.debug("txn rollback request: {}", request);
-
+        LOG.debug("receive txn rollback request: {}, backend: {}", request, clientAddr);
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
@@ -823,10 +820,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive stream load put request. db:{}, tbl: {}, txn id: {}, load id: {}, backend: {}",
-                 request.getDb(), request.getTbl(), request.getTxnId(), DebugUtil.printId(request.getLoadId()),
-                 clientAddr);
-        LOG.debug("stream load put request: {}", request);
+        LOG.debug("receive stream load put request: {}, backend: {}", request, clientAddr);
 
         TStreamLoadPutResult result = new TStreamLoadPutResult();
         TStatus status = new TStatus(TStatusCode.OK);
