@@ -26,12 +26,10 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 /**
- * Normalizes binary predicates of the form <expr> <op> <slot> so that the slot is
- * on the left hand side. Predicates where <slot> is wrapped in a cast (implicit or
- * explicit) are normalized, too.
- *
+ * Binary predicaate date rule try to convert date expression, if date is invalid, it will be
+ * convert into bool literal to avoid to scan all partitions
  * Examples:
- * 5 > id -> id < 5
+ * date = "2020-10-32" => FALSE
  */
 public class BinaryPredicatesDateRule implements ExprRewriteRule {
     public static ExprRewriteRule INSTANCE = new BinaryPredicatesDateRule();

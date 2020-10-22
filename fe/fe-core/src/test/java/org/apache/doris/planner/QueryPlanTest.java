@@ -389,13 +389,12 @@ public class QueryPlanTest {
                 "\"odbc_type\" = \"mysql\"\n" +
                 ");");
 
-        createTable("create table test.invalid_date (" +
+        createTable("create table test.tbl_date (" +
                 "`date` datetime NULL," +
                 "`day` date NULL," +
                 "`site_id` int(11) NULL )" +
                 " ENGINE=OLAP " +
                 "DUPLICATE KEY(`date`, `day`, `site_id`)" +
-                "PARTITION BY RANGE(`day`) ()" +
                 "DISTRIBUTED BY HASH(`site_id`) BUCKETS 10 " +
                 "PROPERTIES (\n" +
                 "\"replication_num\" = \"1\",\n" +
@@ -1337,62 +1336,62 @@ public class QueryPlanTest {
         FeConstants.runningUnitTest = true;
         connectContext.setDatabase("default_cluster:test");
         //valid date
-        String sql = "select day from invalid_date where day = '2020-10-30'";
+        String sql = "select day from tbl_date where day = '2020-10-30'";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
         //valid date
-        sql = "select day from invalid_date where day = 20201030";
+        sql = "select day from tbl_date where day = 20201030";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
         //invalid date
-        sql = "select day from invalid_date where day = '2020-10-32'";
+        sql = "select day from tbl_date where day = '2020-10-32'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("invalid date type"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid date
-        sql = "select day from invalid_date where day = 'hello'";
+        sql = "select day from tbl_date where day = 'hello'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("invalid date type"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid date
-        sql = "select day from invalid_date where day = 2020-10-30";
+        sql = "select day from tbl_date where day = 2020-10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         //invalid date
-        sql = "select day from invalid_date where day = 10-30";
+        sql = "select day from tbl_date where day = 10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("invalid date type"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
 
         //valid datetime
-        sql = "select day from invalid_date where date = '2020-10-30 12:12:30'";
+        sql = "select day from tbl_date where date = '2020-10-30 12:12:30'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
         //valid date
-        sql = "select day from invalid_date where day = 20201030";
+        sql = "select day from tbl_date where day = 20201030";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
         //valid date
-        sql = "select day from invalid_date where day = '2020-10-30'";
+        sql = "select day from tbl_date where day = '2020-10-30'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
         //invalid date
-        sql = "select day from invalid_date where day = '2020-10-32'";
+        sql = "select day from tbl_date where day = '2020-10-32'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("invalid date type"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid date
-        sql = "select day from invalid_date where day = 'hello'";
+        sql = "select day from tbl_date where day = 'hello'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("invalid date type"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid date
-        sql = "select day from invalid_date where day = 2020-10-30";
+        sql = "select day from tbl_date where day = 2020-10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("invalid date type"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid date
-        sql = "select day from invalid_date where day = 10-30";
+        sql = "select day from tbl_date where day = 10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("invalid date type"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid date
-        sql = "select day from invalid_date where day = '2020-10-12 12:23:76'";
+        sql = "select day from tbl_date where day = '2020-10-12 12:23:76'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("invalid date type"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
     }
 
     public void testLeadAndLagFunction() throws Exception {
