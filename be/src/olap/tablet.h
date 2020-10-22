@@ -89,7 +89,7 @@ public:
     inline double bloom_filter_fpp() const;
     inline size_t next_unique_id() const;
     inline size_t row_size() const;
-    inline size_t field_index(const string& field_name) const;
+    inline int32_t field_index(const string& field_name) const;
 
     // operation in rowsets
     OLAPStatus add_rowset(RowsetSharedPtr rowset, bool need_persist = true);
@@ -396,7 +396,7 @@ inline size_t Tablet::next_unique_id() const {
     return _schema.next_column_unique_id();
 }
 
-inline size_t Tablet::field_index(const string& field_name) const {
+inline int32_t Tablet::field_index(const string& field_name) const {
     return _schema.field_index(field_name);
 }
 
