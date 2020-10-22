@@ -33,7 +33,6 @@ import org.apache.doris.analysis.GroupByClause;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.InlineViewRef;
-import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.LiteralExpr;
@@ -54,13 +53,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -1365,14 +1362,6 @@ public class SingleNodePlanner {
         switch (tblRef.getTable().getType()) {
             case OLAP:
                 OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "OlapScanNode");
-                if (!Util.showHiddenColumns() && ((OlapTable) tblRef.getTable()).hasDeleteSign()) {
-                    SlotRef deleteSignSlot = new SlotRef(tblRef.getAliasAsName(), Column.DELETE_SIGN);
-                    deleteSignSlot.analyze(analyzer);
-                    deleteSignSlot.getDesc().setIsMaterialized(true);
-                    Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
-                    conjunct.analyze(analyzer);
-                    analyzer.registerConjunct(conjunct, tblRef.getDesc().getId());
-                }
 
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
                 scanNode = olapNode;
