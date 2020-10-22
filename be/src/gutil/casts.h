@@ -299,7 +299,7 @@ inline bool loose_enum_test(int e_val) {
   // Find the binary bounding negative of both e_min and e_max.
   b_min &= e_min;
 
-  // However, if e_min is postive, the result will be positive.
+  // However, if e_min is positive, the result will be positive.
   // Now clear all bits right of the most significant clear bit,
   // which is a negative saturation for negative numbers.
   // In the case of positive numbers, this is flush to zero.
@@ -315,13 +315,13 @@ inline bool loose_enum_test(int e_val) {
   // Find the unary bounding positive number of e_max.
   int b_max = e_max_sign ^ e_max;
 
-  // Find the binary bounding postive number of that
+  // Find the binary bounding positive number of that
   // and the unary bounding positive number of e_min.
   int e_min_sign = e_min >> (sizeof(e_val)*8 - 1);
   b_max |= e_min_sign ^ e_min;
 
   // Now set all bits right of the most significant set bit,
-  // which is a postive saturation for positive numbers.
+  // which is a positive saturation for positive numbers.
   b_max |= b_max >> 1;
   b_max |= b_max >> 2;
   b_max |= b_max >> 4;

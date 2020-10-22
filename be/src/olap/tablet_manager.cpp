@@ -315,8 +315,8 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
             // Create init version if this is not a restore mode replica and request.version is set
             // bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
             // if (!in_restore_mode && request.__isset.version) {
-            // create inital rowset before add it to storage engine could omit many locks
-            res = _create_inital_rowset_unlocked(request, tablet.get());
+            // create initial rowset before add it to storage engine could omit many locks
+            res = _create_initial_rowset_unlocked(request, tablet.get());
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to create initial version for tablet. res=" << res;
                 break;
@@ -326,7 +326,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
             if (request.__isset.base_tablet_id && request.base_tablet_id > 0) {
                 LOG(INFO) << "request for alter-tablet v2, do not add alter task to tablet";
                 // if this is a new alter tablet, has to set its state to not ready
-                // because schema change hanlder depends on it to check whether history data
+                // because schema change handler depends on it to check whether history data
                 // convert finished
                 tablet->set_tablet_state(TabletState::TABLET_NOTREADY);
             } else {
@@ -349,7 +349,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
                 tablet->set_creation_time(new_creation_time);
             }
         }
-        // Add tablet to StorageEngine will make it visiable to user
+        // Add tablet to StorageEngine will make it visible to user
         res = _add_tablet_unlocked(new_tablet_id, new_schema_hash, tablet, true, false);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to add tablet to StorageEngine. res=" << res;
@@ -405,7 +405,7 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
         last_dir = data_dir;
 
         TabletMetaSharedPtr tablet_meta;
-        // if create meta faild, do not need to clean dir, because it is only in memory
+        // if create meta failed, do not need to clean dir, because it is only in memory
         OLAPStatus res = _create_tablet_meta_unlocked(
                 request, data_dir, is_schema_change, base_tablet, &tablet_meta);
         if (res != OLAP_SUCCESS) {
@@ -461,7 +461,7 @@ OLAPStatus TabletManager::_drop_tablet_unlocked(
     LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
     DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
 
-    // Fetch tablet which need to be droped
+    // Fetch tablet which need to be dropped
     TabletSharedPtr to_drop_tablet = _get_tablet_unlocked(tablet_id, schema_hash);
     if (to_drop_tablet == nullptr) {
         LOG(WARNING) << "fail to drop tablet because it does not exist. "
@@ -766,6 +766,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         VLOG(1) << "Found the best tablet for compaction. "
                   << "compaction_type=" << compaction_type_str
                   << ", tablet_id=" << best_tablet->tablet_id()
+                  << ", path=" << data_dir->path()
                   << ", highest_score=" << highest_score;
         // TODO(lingbin): Remove 'max' from metric name, it would be misunderstood as the
         // biggest in history(like peak), but it is really just the value at current moment.
@@ -884,7 +885,7 @@ OLAPStatus TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_
         LOG(WARNING) << "fail to load tablet_meta. file_path=" << header_path;
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
     }
-    // has to change shard id here, because meta file maybe copyed from other source
+    // has to change shard id here, because meta file maybe copied from other source
     // its shard is different from local shard
     tablet_meta->set_shard_id(shard);
     string meta_binary;
@@ -1091,7 +1092,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
                 }
             }
 
-            // yield to avoid hoding _tablet_map_lock for too long
+            // yield to avoid holding _tablet_map_lock for too long
             if (clean_num >= 200) {
                 break;
             }
@@ -1249,7 +1250,7 @@ void TabletManager::_build_tablet_stat() {
     }
 }
 
-OLAPStatus TabletManager::_create_inital_rowset_unlocked(const TCreateTabletReq& request,
+OLAPStatus TabletManager::_create_initial_rowset_unlocked(const TCreateTabletReq& request,
                                                          Tablet* tablet) {
     OLAPStatus res = OLAP_SUCCESS;
     if (request.version < 1) {

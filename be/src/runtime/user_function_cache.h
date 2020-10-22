@@ -27,14 +27,14 @@ namespace doris {
 
 struct UserFunctionCacheEntry;
 
-// Used to cache a user function. Theses functions inlcude
-// UDF(User Definfed Function) and UDAF(User Defined Aggregate 
-// Function), and maybe inlucde UDTF(User Defined Table
+// Used to cache a user function. Theses functions include
+// UDF(User Defined Function) and UDAF(User Defined Aggregate
+// Function), and maybe include UDTF(User Defined Table
 // Function) in future. A user defined function may be splitted
 // into several functions, for example, UDAF is splitted into
 // InitFn, MergeFn, FinalizeFn...
 // In Doris, we call UDF/UDAF/UDTF UserFunction, and we call 
-// implement function Fucntion.
+// implement function Function.
 // An UserFunction have a function id, we can find library with 
 // this id. When we add user function into cache, we need to
 // download from URL and check its checksum. So if we find a function

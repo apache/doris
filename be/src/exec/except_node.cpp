@@ -49,7 +49,7 @@ Status ExceptNode::open(RuntimeState* state) {
     bool eos = false;
 
     for (int i = 1; i < _children.size(); ++i) {
-        // rebuid hash table, for first time will rebuild with the no duplicated _hash_tbl,
+        // rebuild hash table, for first time will rebuild with the no duplicated _hash_tbl,
         if (i > 1) {
             SCOPED_TIMER(_build_timer);
             std::unique_ptr<HashTable> temp_tbl(

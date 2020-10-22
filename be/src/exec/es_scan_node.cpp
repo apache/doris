@@ -400,7 +400,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
                                vector<TExtPredicate>& disjuncts) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
-            VLOG(1) << "get disjuncts fail: number of childs is not 2";
+            VLOG(1) << "get disjuncts fail: number of children is not 2";
             return false;
         }
         SlotRef* slotRef;

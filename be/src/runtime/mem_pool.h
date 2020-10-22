@@ -111,7 +111,7 @@ public:
         return allocate<false>(size, DEFAULT_ALIGNMENT);
     }
 
-    /// Same as Allocate() excpect add a check when return a nullptr
+    /// Same as Allocate() expect add a check when return a nullptr
     OLAPStatus allocate_safely(int64_t size, uint8_t*& ret) {
         return allocate_safely<false>(size, DEFAULT_ALIGNMENT, ret);
     }
@@ -153,7 +153,7 @@ public:
     void acquire_data(MemPool* src, bool keep_current);
 
     // Exchange all chunks with input source, including reserved chunks.
-    // This funciton will keep its own MemTracker, and upate it after exchange.
+    // This function will keep its own MemTracker, and update it after exchange.
     // Why we need this other than std::swap? Because swap will swap MemTracker too, which would
     // lead error. We only has MemTracker's pointer, which can be invalid after swap.
     void exchange_data(MemPool* other);

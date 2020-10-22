@@ -161,7 +161,7 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
         return OLAP_ERR_DELETE_INVALID_CONDITION;
     }
 
-    // 检查指定的列是不是key，是不是float或doulbe类型
+    // 检查指定的列是不是key，是不是float或double类型
     const TabletColumn& column = schema.column(field_index);
 
     if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS)
@@ -199,9 +199,9 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     try {
         // Condition string format, the format is (column_name)(op)(value) 
         // eg:  condition_str="c1 = 1597751948193618247  and length(source)<1;\n;\n"
-        //  group1:  (\w+) matchs "c1"
-        //  group2:  ((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS)) matchs  "="
-        //  group3:  ((?:[\s\S]+)?) matchs "1597751948193618247  and length(source)<1;\n;\n"
+        //  group1:  (\w+) matches "c1"
+        //  group2:  ((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS)) matches  "="
+        //  group3:  ((?:[\s\S]+)?) matches "1597751948193618247  and length(source)<1;\n;\n"
         const char* const CONDITION_STR_PATTERN =
                 R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*((?:[\s\S]+)?))";
         regex ex(CONDITION_STR_PATTERN);
@@ -230,7 +230,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
 OLAPStatus DeleteHandler::init(const TabletSchema& schema,
         const DelPredicateArray& delete_conditions, int32_t version) {
     if (_is_inited) {
-        OLAP_LOG_WARNING("reintialize delete handler.");
+        OLAP_LOG_WARNING("reinitialize delete handler.");
         return OLAP_ERR_INIT_FAILED;
 
     }

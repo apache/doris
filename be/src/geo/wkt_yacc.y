@@ -25,7 +25,7 @@
 class WktParseContext;
 void wkt_error(WktParseContext* ctx, const char* msg) {
 }
-/* forword declare this class for wkt_parse declaration in yacc.y.cpp */
+/* forward declare this class for wkt_parse declaration in yacc.y.cpp */
 %}
 
 %union {
@@ -38,7 +38,7 @@ void wkt_error(WktParseContext* ctx, const char* msg) {
 
 %code {
 /* we need yyscan_t in WktParseContext, so we include lex.h here,
- * and we shoud include this header after union define, because it
+ * and we should include this header after union define, because it
  * need YYSTYPE
  */
 #include "geo/wkt_lex.l.h"

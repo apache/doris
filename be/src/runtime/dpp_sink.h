@@ -36,9 +36,9 @@ class Translator;
 class RuntimeProfile;
 class CountDownLatch;
 
-// This class swallow data which is splited by partition and rollup.
+// This class swallow data which is split by partition and rollup.
 // Sort input data and then aggregate data contains same key,
-// then wirte new data into dpp writer for next push operation.
+// then write new data into dpp writer for next push operation.
 class DppSink {
 public:
     DppSink(const RowDescriptor& row_desc,

@@ -53,7 +53,7 @@ Status convert_to_row_desc(
     const arrow::Schema& schema,
     RowDescriptor** row_desc);
 
-// Converte a Doris RowBatch to an Arrow RecordBatch. A valid Arrow Schema
+// Convert a Doris RowBatch to an Arrow RecordBatch. A valid Arrow Schema
 // who should match RowBatch's schema is given. Memory used by result RecordBatch
 // will be allocated from input pool.
 Status convert_to_arrow_batch(

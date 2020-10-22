@@ -116,8 +116,8 @@ public:
                 num_nullables++;
             }
         }
-        int null_byetes = (num_nullables + 7) / 8;
-        int offset = null_byetes;
+        int null_bytes = (num_nullables + 7) / 8;
+        int offset = null_bytes;
         int null_offset = 0;
         for (int i = 0; i < _slot_descs.size(); ++i) {
             auto& slot_desc = _slot_descs[i];
@@ -142,7 +142,7 @@ public:
 
         _tuple_desc.id = _tuple_id;
         _tuple_desc.byteSize = offset;
-        _tuple_desc.numNullBytes = null_byetes;
+        _tuple_desc.numNullBytes = null_bytes;
         _tuple_desc.numNullSlots = _slot_descs.size();
 
         tb->add_slots(_slot_descs);

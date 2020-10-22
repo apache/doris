@@ -104,7 +104,7 @@ private:
 
     RuntimeState* _runtime_state;
     OlapScanNode* _parent;
-    const TupleDescriptor* _tuple_desc;      /**< tuple descripter */
+    const TupleDescriptor* _tuple_desc;      /**< tuple descriptor */
     RuntimeProfile* _profile;
     const std::vector<SlotDescriptor*>& _string_slots;
 

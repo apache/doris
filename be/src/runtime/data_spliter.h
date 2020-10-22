@@ -89,7 +89,7 @@ private:
     std::vector<ExprContext*> _partition_expr_ctxs;
 
     // map from range value to partition_id
-    // sorted in ascending orderi by range for binary search
+    // sorted in ascending order by range for binary search
     std::vector<PartitionInfo*> _partition_infos;
 
     // Information of rollup

@@ -170,7 +170,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
     }
 
     /*
-     * convert storage layout to memory layout for olap/ndex
+     * convert storage layout to memory layout for olap/index
      * In this procedure, string type(Varchar/Char) should be
      * converted with caution. Hyperloglog type will not be
      * key, it can not to be handled.
@@ -450,7 +450,7 @@ OLAPStatus MemIndex::get_row_block_position(
 
     if (pos.segment >= segment_count() || pos.offset >= _meta[pos.segment].count()) {
         OLAP_LOG_WARNING("fail to get RowBlockPosition from OLAPIndexOffset. "
-                         "[IndexOffse={segment=%u offset=%u} segment_count=%lu items_count=%lu]",
+                         "[IndexOffset={segment=%u offset=%u} segment_count=%lu items_count=%lu]",
                          pos.segment,
                          pos.offset,
                          segment_count(),

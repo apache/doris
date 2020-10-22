@@ -119,7 +119,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
           _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
           _memtable_flush_executor(nullptr),
-          _block_manager(nullptr),
           _default_rowset_type(ALPHA_ROWSET),
           _heartbeat_flags(nullptr) {
     if (_s_instance == nullptr) {
@@ -180,10 +179,6 @@ Status StorageEngine::_open() {
 
     _memtable_flush_executor.reset(new MemTableFlushExecutor());
     _memtable_flush_executor->init(dirs);
-
-    fs::BlockManagerOptions bm_opts;
-    bm_opts.read_only = false;
-    _block_manager.reset(new fs::FileBlockManager(Env::Default(), std::move(bm_opts)));
 
     _parse_default_rowset_type();
 
@@ -493,7 +488,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
 }
 
 void StorageEngine::stop() {
-    // trigger the waitting threads
+    // trigger the waiting threads
     notify_listeners();
 
     std::lock_guard<std::mutex> l(_store_lock);

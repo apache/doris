@@ -148,7 +148,7 @@ TEST_F(DorisMetricsTest, Normal) {
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("22", metric->to_string().c_str());
     }
-    //  comapction
+    //  compaction
     {
         DorisMetrics::instance()->base_compaction_deltas_total->increment(30);
         auto metric = server_entity->get_metric("base_compaction_deltas_total", "compaction_deltas_total");

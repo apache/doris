@@ -180,12 +180,12 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     if (init_system_metrics) {
         auto st = DiskInfo::get_disk_devices(paths, &disk_devices);
         if (!st.ok()) {
-            LOG(WARNING) << "get disk devices failed, stauts=" << st.get_error_msg();
+            LOG(WARNING) << "get disk devices failed, status=" << st.get_error_msg();
             return;
         }
         st = get_inet_interfaces(&network_interfaces);
         if (!st.ok()) {
-            LOG(WARNING) << "get inet interfaces failed, stauts=" << st.get_error_msg();
+            LOG(WARNING) << "get inet interfaces failed, status=" << st.get_error_msg();
             return;
         }
     }

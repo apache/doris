@@ -306,7 +306,7 @@ struct RowsetId {
         }
     }
 
-    // to compatiable with old version
+    // to compatible with old version
     void init(int64_t rowset_id) {
         init(1, rowset_id, 0, 0);
     }

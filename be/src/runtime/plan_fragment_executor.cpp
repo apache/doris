@@ -291,7 +291,7 @@ Status PlanFragmentExecutor::open_internal() {
         }
      
         SCOPED_TIMER(profile()->total_time_counter());
-        // Collect this plan and sub plan statisticss, and send to parent plan.
+        // Collect this plan and sub plan statistics, and send to parent plan.
         if (_collect_query_statistics_with_every_batch) {
             collect_query_statistics();
         }
@@ -561,9 +561,9 @@ void PlanFragmentExecutor::close() {
             // Compute the _local_time_percent before pretty_print the runtime_profile
             // Before add this operation, the print out like that:
             // UNION_NODE (id=0):(Active: 56.720us, non-child: 00.00%)
-            // After add thie operation, the print out like that:
+            // After add the operation, the print out like that:
             // UNION_NODE (id=0):(Active: 56.720us, non-child: 82.53%)
-            // We can easily know the exec node excute time without child time consumed.
+            // We can easily know the exec node execute time without child time consumed.
             _runtime_state->runtime_profile()->compute_time_in_profile();
             _runtime_state->runtime_profile()->pretty_print(&ss);
             LOG(INFO) << ss.str();

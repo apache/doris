@@ -62,18 +62,18 @@ public:
             rapidjson::Value outer_hits(rapidjson::kObjectType);
             outer_hits.AddMember("total", 10, allocator);
             rapidjson::Value inner_hits(rapidjson::kArrayType);
-            rapidjson::Value source_docuement(rapidjson::kObjectType);
-            source_docuement.AddMember("id", 1, allocator);
+            rapidjson::Value source_document(rapidjson::kObjectType);
+            source_document.AddMember("id", 1, allocator);
             rapidjson::Value value_node("1", allocator);
-            source_docuement.AddMember("value", value_node, allocator);
-            inner_hits.PushBack(source_docuement, allocator);
+            source_document.AddMember("value", value_node, allocator);
+            inner_hits.PushBack(source_document, allocator);
             outer_hits.AddMember("hits", inner_hits, allocator);
             search_result.AddMember("hits", outer_hits, allocator);
 
             rapidjson::StringBuffer buffer;  
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             search_result.Accept(writer);
-            //send DELETE scorll post request
+            //send DELETE scroll post request
             std::string search_result_json = buffer.GetString();
             HttpChannel::send_reply(req, search_result_json);
         } else {
@@ -117,7 +117,7 @@ public:
                     rapidjson::StringBuffer buffer;  
                     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
                     end_search_result.Accept(writer);
-                    //send DELETE scorll post request
+                    //send DELETE scroll post request
                     std::string end_search_result_json = buffer.GetString();
                     HttpChannel::send_reply(req, end_search_result_json);
                     return;
@@ -132,18 +132,18 @@ public:
                     rapidjson::Value outer_hits(rapidjson::kObjectType);
                     outer_hits.AddMember("total", 1, allocator);
                     rapidjson::Value inner_hits(rapidjson::kArrayType);
-                    rapidjson::Value source_docuement(rapidjson::kObjectType);
-                    source_docuement.AddMember("id", start, allocator);
+                    rapidjson::Value source_document(rapidjson::kObjectType);
+                    source_document.AddMember("id", start, allocator);
                     rapidjson::Value value_node(std::to_string(start).c_str(), allocator);
-                    source_docuement.AddMember("value", value_node, allocator);
-                    inner_hits.PushBack(source_docuement, allocator);
+                    source_document.AddMember("value", value_node, allocator);
+                    inner_hits.PushBack(source_document, allocator);
                     outer_hits.AddMember("hits", inner_hits, allocator);
                     search_result.AddMember("hits", outer_hits, allocator);
 
                     rapidjson::StringBuffer buffer;  
                     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
                     search_result.Accept(writer);
-                    //send DELETE scorll post request
+                    //send DELETE scroll post request
                     std::string search_result_json = buffer.GetString();
                     HttpChannel::send_reply(req, search_result_json);
                     return;

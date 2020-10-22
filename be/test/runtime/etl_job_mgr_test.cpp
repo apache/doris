@@ -205,7 +205,7 @@ TEST_F(EtlJobMgrTest, CancelJob) {
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
-TEST_F(EtlJobMgrTest, FinishUnknowJob) {
+TEST_F(EtlJobMgrTest, FinishUnknownJob) {
     EtlJobMgr mgr(&_exec_env);
     TUniqueId id;
     id.lo = 1;

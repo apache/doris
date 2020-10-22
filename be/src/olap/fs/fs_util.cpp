@@ -28,14 +28,6 @@ namespace fs {
 namespace fs_util {
 
 BlockManager* block_manager() {
-#ifdef BE_TEST
-    return block_mgr_for_ut();
-#else
-    return ExecEnv::GetInstance()->storage_engine()->block_manager();
-#endif
-}
-
-BlockManager* block_mgr_for_ut() {
     fs::BlockManagerOptions bm_opts;
     bm_opts.read_only = false;
     static FileBlockManager block_mgr(Env::Default(), std::move(bm_opts));

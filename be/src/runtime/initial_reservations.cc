@@ -50,7 +50,7 @@ Status InitialReservations::Init(
   DCHECK_EQ(0, initial_reservations_.GetReservation()) << "Already inited";
   if (!initial_reservations_.IncreaseReservation(query_min_reservation)) {
       std::stringstream ss;
-      ss  << "Minimum reservation unavaliable: " << query_min_reservation
+      ss  << "Minimum reservation unavailable: " << query_min_reservation
           << " query id:" << query_id; 
       return Status::MinimumReservationUnavailable(ss.str());
   }

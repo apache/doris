@@ -78,7 +78,7 @@ public:
     inline Version max_version() const;
     inline CumulativeCompactionPolicy* cumulative_compaction_policy();
 
-    // propreties encapsulated in TabletSchema
+    // properties encapsulated in TabletSchema
     inline KeysType keys_type() const;
     inline size_t num_columns() const;
     inline size_t num_null_columns() const;
@@ -106,7 +106,7 @@ public:
 
     OLAPStatus add_inc_rowset(const RowsetSharedPtr& rowset);
     void delete_expired_inc_rowsets();
-    /// Delete stale rowset by timing. This delete policy uses now() munis 
+    /// Delete stale rowset by timing. This delete policy uses now() minutes
     /// config::tablet_rowset_expired_stale_sweep_time_sec to compute the deadline of expired rowset 
     /// to delete.  When rowset is deleted, it will be added to StorageEngine unused map and record
     /// need to delete flag.
@@ -174,9 +174,9 @@ public:
     void calc_missed_versions_unlocked(int64_t spec_version,
                                        vector<Version>* missed_versions) const;
 
-    // This function to find max continous version from the beginning.
+    // This function to find max continuous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.
-    void max_continuous_version_from_begining(Version* version, VersionHash* v_hash);
+    void max_continuous_version_from_beginning(Version* version, VersionHash* v_hash);
 
     // operation for query
     OLAPStatus split_range(
@@ -208,9 +208,9 @@ public:
 
     TabletInfo get_tablet_info() const;
 
-    void pick_candicate_rowsets_to_cumulative_compaction(
+    void pick_candidate_rowsets_to_cumulative_compaction(
             int64_t skip_window_sec, std::vector<RowsetSharedPtr>* candidate_rowsets);
-    void pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
+    void pick_candidate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
 
     void calculate_cumulative_point();
     // TODO(ygl):
@@ -239,7 +239,7 @@ private:
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     bool _contains_rowset(const RowsetId rowset_id);
     OLAPStatus _contains_version(const Version& version);
-    void _max_continuous_version_from_begining_unlocked(Version* version,
+    void _max_continuous_version_from_beginning_unlocked(Version* version,
                                                         VersionHash* v_hash) const ;
     RowsetSharedPtr _rowset_with_largest_size();
     void _delete_inc_rowset_by_version(const Version& version, const VersionHash& version_hash);

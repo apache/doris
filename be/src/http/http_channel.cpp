@@ -44,12 +44,12 @@ void HttpChannel::send_basic_challenge(HttpRequest* req, const std::string& real
 }
 
 void HttpChannel::send_error(HttpRequest* request, HttpStatus status) {
-    evhttp_send_error(request->get_evhttp_request(), status, defalut_reason(status).c_str());
+    evhttp_send_error(request->get_evhttp_request(), status, default_reason(status).c_str());
 }
 
 void HttpChannel::send_reply(HttpRequest* request, HttpStatus status) {
     evhttp_send_reply(request->get_evhttp_request(), status,
-                      defalut_reason(status).c_str(), nullptr);
+                      default_reason(status).c_str(), nullptr);
 }
 
 void HttpChannel::send_reply(
@@ -62,7 +62,7 @@ void HttpChannel::send_reply(
     } else {
         evbuffer_add(evb, content.c_str(), content.size());
     }
-    evhttp_send_reply(request->get_evhttp_request(), status, defalut_reason(status).c_str(), evb);
+    evhttp_send_reply(request->get_evhttp_request(), status, default_reason(status).c_str(), evb);
     evbuffer_free(evb);
 }
 
@@ -71,7 +71,7 @@ void HttpChannel::send_file(HttpRequest* request, int fd, size_t off, size_t siz
     evbuffer_add_file(evb, fd, off, size);
     evhttp_send_reply(request->get_evhttp_request(),
                       HttpStatus::OK,
-                      defalut_reason(HttpStatus::OK).c_str(), evb);
+                      default_reason(HttpStatus::OK).c_str(), evb);
     evbuffer_free(evb);
 }
 

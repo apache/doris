@@ -376,19 +376,19 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         } else {
             ReadLock rdlock(ref_tablet->get_header_lock_ptr());
             // get latest version
-            const RowsetSharedPtr lastest_version = ref_tablet->rowset_with_max_version();
-            if (lastest_version == nullptr) {
+            const RowsetSharedPtr last_version = ref_tablet->rowset_with_max_version();
+            if (last_version == nullptr) {
                 LOG(WARNING) << "tablet has not any version. path="
                              << ref_tablet->full_name().c_str();
                 res = OLAP_ERR_VERSION_NOT_EXIST;
                 break;
             }
             // get snapshot version, use request.version if specified
-            int32_t version = lastest_version->end_version();
+            int32_t version = last_version->end_version();
             if (request.__isset.version) {
-                if (lastest_version->end_version() < request.version) {
+                if (last_version->end_version() < request.version) {
                     LOG(WARNING) << "invalid make snapshot request. "
-                                 << " version=" << lastest_version->end_version()
+                                 << " version=" << last_version->end_version()
                                  << " req_version=" << request.version;
                     res = OLAP_ERR_INPUT_PARAMETER_ERROR;
                     break;

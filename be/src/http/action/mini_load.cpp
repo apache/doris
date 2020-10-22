@@ -214,7 +214,7 @@ Status MiniLoadAction::_load(
                     << ") because: " << e.what();
             status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
-                LOG(WARNING) << "Client repoen failed. with address("
+                LOG(WARNING) << "Client reopen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
                 return status;
             }
@@ -226,7 +226,7 @@ Status MiniLoadAction::_load(
 
             status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
-                LOG(WARNING) << "Client repoen failed. with address("
+                LOG(WARNING) << "Client reopen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
                 return status;
             }
@@ -294,7 +294,7 @@ Status MiniLoadAction::check_auth(
                     << ") because: " << e.what();
             status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
-                LOG(WARNING) << "Client repoen failed. with address("
+                LOG(WARNING) << "Client reopen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
                 return status;
             }
@@ -306,7 +306,7 @@ Status MiniLoadAction::check_auth(
 
             status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
-                LOG(WARNING) << "Client repoen failed. with address("
+                LOG(WARNING) << "Client reopen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
                 return status;
             }
@@ -334,7 +334,7 @@ void MiniLoadAction::erase_handle(const LoadHandle& desc) {
 }
 
 int MiniLoadAction::on_header(HttpRequest* req) {
-    // check authorization first, make client know what happend
+    // check authorization first, make client know what happened
     if (req->header(HttpHeaders::AUTHORIZATION).empty()) {
         HttpChannel::send_basic_challenge(req, "mini_load");
         return -1;
@@ -551,7 +551,7 @@ void MiniLoadAction::handle(HttpRequest *http_req) {
 void MiniLoadAction::_handle(HttpRequest* http_req) {
     MiniLoadAsyncCtx* ctx = ((MiniLoadCtx*) http_req->handler_ctx())->mini_load_async_ctx;
     if (ctx == nullptr) {
-        // when ctx is nullptr, there must be error happend when on_chunk_data
+        // when ctx is nullptr, there must be error happened when on_chunk_data
         // and reply is sent, we just return with no operation
         LOG(WARNING) << "handler context is nullptr when MiniLoad callback execute, uri="
             << http_req->uri();
@@ -563,7 +563,7 @@ void MiniLoadAction::_handle(HttpRequest* http_req) {
             << ", body_bytes=" << ctx->body_bytes
             << ", bytes_written=" << ctx->bytes_written;
         HttpChannel::send_reply(http_req, HttpStatus::INTERNAL_SERVER_ERROR,
-                                "rececpt size not equal with body size");
+                                "receipt size not equal with body size");
         return;
     }
     auto st = _load(
@@ -700,7 +700,7 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
             std::map<std::string, std::string> hll_map;
             RETURN_IF_ERROR(StringParser::split_string_to_map(hll_value, ":", ",", &hll_map));
             if (hll_map.empty()) {
-                return Status::InvalidArgument("Hll value could not tranform to hll expr: " + hll_value);
+                return Status::InvalidArgument("Hll value could not transform to hll expr: " + hll_value);
             }
             for (auto& hll_element: hll_map) {
                 columns_value += "," + hll_element.first 
@@ -847,10 +847,10 @@ void MiniLoadAction::_new_handle(HttpRequest* req) {
 
 Status MiniLoadAction::_on_new_handle(StreamLoadContext* ctx) {
     if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
-        LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes="
+        LOG(WARNING) << "receive body don't equal with body bytes, body_bytes="
             << ctx->body_bytes << ", receive_bytes=" << ctx->receive_bytes
             << ", id=" << ctx->id;
-        return Status::InternalError("receive body dont't equal with body bytes");
+        return Status::InternalError("receive body don't equal with body bytes");
     }
     
     // wait stream load sink finish

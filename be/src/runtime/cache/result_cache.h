@@ -104,7 +104,7 @@ private:
     //Single thread updating and cleaning(only single be, Fe is not affected)
     mutable boost::shared_mutex _cache_mtx;
     ResultNodeMap _node_map;
-    //List of result nodes corresponding to SqlKey,last recently useed at the tail
+    //List of result nodes corresponding to SqlKey,last recently used at the tail
     ResultNodeList _node_list;
     size_t _cache_size;
     size_t _max_size;

@@ -27,13 +27,13 @@ namespace doris {
 class SetExecutorTest : public testing::Test {
 public:
     SetExecutorTest() :
-        _runtim_state("tmp") {
+        _runtime_state("tmp") {
     }
 
     virtual void SetUp() {
     }
 private:
-    RuntimeState _runtim_state;
+    RuntimeState _runtime_state;
 };
 
 TEST_F(SetExecutorTest, normal_case) {
@@ -84,7 +84,7 @@ TEST_F(SetExecutorTest, normal_case) {
     }
     SetExecutor executor(&doris_server, params);
     RowDescriptor row_desc;
-    Status status = executor.prepare((RuntimeState*)&_runtim_state, row_desc);
+    Status status = executor.prepare((RuntimeState*)&_runtime_state, row_desc);
     ASSERT_TRUE(status.ok());
     LOG(INFO) << executor.debug_string();
 }
@@ -107,7 +107,7 @@ TEST_F(SetExecutorTest, failed_case) {
     }
     SetExecutor executor(&doris_server, params);
     RowDescriptor row_desc;
-    Status status = executor.prepare((RuntimeState*)&_runtim_state, row_desc);
+    Status status = executor.prepare((RuntimeState*)&_runtime_state, row_desc);
     ASSERT_FALSE(status.ok());
     LOG(INFO) << executor.debug_string();
 }
