@@ -1423,7 +1423,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
     if (new_tablet->tablet_state() != TABLET_NOTREADY) {
         res = _validate_alter_result(new_tablet, request);
         LOG(INFO) << "tablet's state=" << new_tablet->tablet_state()
-                  << " the convert job alreay finished, check its version"
+                  << " the convert job already finished, check its version"
                   << " res=" << res;
         return res;
     }
@@ -1938,7 +1938,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         }
         res = sc_params.new_tablet->add_rowset(new_rowset, false);
         if (res == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
-            LOG(WARNING) << "version already exist, version revert occured. "
+            LOG(WARNING) << "version already exist, version revert occurred. "
                          << "tablet=" << sc_params.new_tablet->full_name() << ", version='"
                          << rs_reader->version().first << "-" << rs_reader->version().second;
             StorageEngine::instance()->add_unused_rowset(new_rowset);
@@ -2179,7 +2179,7 @@ OLAPStatus SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_table
                                                        const TAlterTabletReqV2& request) {
     Version max_continuous_version = {-1, 0};
     VersionHash max_continuous_version_hash = 0;
-    new_tablet->max_continuous_version_from_begining(&max_continuous_version,
+    new_tablet->max_continuous_version_from_beginning(&max_continuous_version,
                                                      &max_continuous_version_hash);
     LOG(INFO) << "find max continuous version of tablet=" << new_tablet->full_name()
               << ", start_version=" << max_continuous_version.first

@@ -445,9 +445,9 @@ void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple, c
  * handle input a simple json.
  * A json is a simple json only when user not specifying the json path.
  * For example:
- *  case 1. [{"colunm1":"value1", "colunm2":10}, {"colunm1":"
-", "colunm2":30}]
- *  case 2. {"colunm1":"value1", "colunm2":10}
+ *  case 1. [{"column1":"value1", "column2":10}, {"column1":"
+", "column2":30}]
+ *  case 2. {"column1":"value1", "column2":10}
  */
 Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof) {
     do {
@@ -570,9 +570,9 @@ Status JsonReader::_handle_nested_complex_json(Tuple* tuple, const std::vector<S
 /**
  * flat array for json. _json_doc should be an array
  * For example:
- *  [{"colunm1":"value1", "colunm2":10}, {"colunm1":"value2", "colunm2":30}]
+ *  [{"column1":"value1", "column2":10}, {"column1":"value2", "column2":30}]
  * Result:
- *      colunm1    colunm2
+ *      column1    column2
  *      ------------------
  *      value1     10
  *      value2     30

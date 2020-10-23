@@ -63,7 +63,7 @@ public:
     static Status remove_paths(const std::vector<std::string>& paths);
     
     // List all files in the specified directory without '.' and '..'.
-    // If you want retreive all files, you can use Env::iterate_dir.
+    // If you want retrieve all files, you can use Env::iterate_dir.
     // All valid files will be stored in given *files.
     static Status list_files(
         Env* env,
@@ -94,11 +94,11 @@ public:
     //  "" if this fd is invalid
     static std::string path_of_fd(int fd);
 
-    // split pathes in configue file to path
+    // split paths in configure file to path
     // for example 
     // "/home/disk1/;/home/disk2"
     // will split to ['/home/disk1', '/home/disk2']
-    static Status split_pathes(const char* path, std::vector<std::string>* path_vec);
+    static Status split_paths(const char* path, std::vector<std::string>* path_vec);
 
     // copy the file from src path to dest path, it will overwrite the existing files
     static Status copy_file(const std::string& src_path, const std::string& dest_path);

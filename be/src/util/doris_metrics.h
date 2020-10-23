@@ -192,7 +192,7 @@ public:
     MetricEntity* server_entity() { return _server_metric_entity.get(); }
 
 private:
-    // Don't allow constrctor
+    // Don't allow constructor
     DorisMetrics();
 
     void _update();

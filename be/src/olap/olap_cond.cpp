@@ -35,7 +35,7 @@ using std::vector;
 using doris::ColumnStatistics;
 
 //此文件主要用于对用户发送的查询条件和删除条件进行处理，逻辑上二者都可以分为三层
-//Condtiion->Condcolumn->Cond
+//Condition->Condcolumn->Cond
 //Condition表示用户发的单个条件
 //Condcolumn表示一列上所有条件的集合。
 //Conds表示一列上的单个条件.
@@ -158,8 +158,8 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
                 max_value_field = f.get();
             }
 
-            auto insert_reslut = operand_set.insert(f.get());
-            if (!insert_reslut.second) {
+            auto insert_result = operand_set.insert(f.get());
+            if (!insert_result.second) {
                 LOG(WARNING) << "Duplicate operand in in-predicate.[condition=" << operand << "]";
                 // Duplicated, let unique_ptr delete field
             } else {
@@ -527,28 +527,28 @@ int CondColumn::del_eval(const std::pair<WrapperField*, WrapperField*>& statisti
     /*
      * the relationship between cond A and B is A & B.
      * if all delete condition is satisfied, the data can be filtered.
-     * elseif any delete condition is not satifsified, the data can't be filtered.
+     * elseif any delete condition is not satisfied, the data can't be filtered.
      * else is the partial satisfied.
     */
     int ret = DEL_NOT_SATISFIED;
-    bool del_partial_statified = false;
-    bool del_not_statified = false; 
+    bool del_partial_satisfied = false;
+    bool del_not_satisfied = false; 
     for (auto& each_cond : _conds) {
         int del_ret = each_cond->del_eval(statistic);
         if (DEL_SATISFIED == del_ret) {
             continue;
         } else if (DEL_PARTIAL_SATISFIED == del_ret) {
-            del_partial_statified = true;
+            del_partial_satisfied = true;
         } else {
-            del_not_statified = true;
+            del_not_satisfied = true;
             break;
         }
     }
-    if (del_not_statified || _conds.empty()) {
+    if (del_not_satisfied || _conds.empty()) {
         // if the size of condcolumn vector is zero,
         // the delete condtion is not satisfied.
         ret = DEL_NOT_SATISFIED;
-    } else if (del_partial_statified) {
+    } else if (del_partial_satisfied) {
         ret = DEL_PARTIAL_SATISFIED;
     } else {
         ret = DEL_SATISFIED;
@@ -646,7 +646,7 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
     /*
      * the relationship between condcolumn A and B is A & B.
      * if any delete condition is not satisfied, the data can't be filtered.
-     * elseif all delete condition is satifsified, the data can be filtered.
+     * elseif all delete condition is satisfied, the data can be filtered.
      * else is the partial satisfied.
     */
     int ret = DEL_NOT_SATISFIED;

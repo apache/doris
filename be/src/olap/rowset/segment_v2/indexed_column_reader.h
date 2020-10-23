@@ -87,7 +87,7 @@ private:
     const TypeInfo* _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
     const BlockCompressionCodec* _compress_codec = nullptr;
-    const KeyCoder* _validx_key_coder = nullptr;
+    const KeyCoder* _value_key_coder = nullptr;
 };
 
 class IndexedColumnIterator {

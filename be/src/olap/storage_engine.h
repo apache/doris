@@ -84,9 +84,6 @@ public:
     void clear_transaction_task(const TTransactionId transaction_id,
                                 const std::vector<TPartitionId>& partition_ids);
 
-    // 获取cache的使用情况信息
-    void get_cache_status(rapidjson::Document* document) const;
-
     // Note: 这里只能reload原先已经存在的root path，即re-load启动时就登记的root path
     // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
     void load_data_dirs(const std::vector<DataDir*>& stores);
@@ -150,7 +147,6 @@ public:
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
-    fs::BlockManager* block_manager() { return _block_manager.get(); }
 
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
 
@@ -284,7 +280,6 @@ private:
     int32_t _effective_cluster_id;
     bool _is_all_cluster_id_exist;
 
-    Cache* _file_descriptor_lru_cache;
     Cache* _index_stream_lru_cache;
 
     // _file_cache is a lru_cache for file descriptors of files opened by doris,
@@ -335,8 +330,6 @@ private:
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
 
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
-
-    std::unique_ptr<fs::BlockManager> _block_manager;
 
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data

@@ -295,12 +295,12 @@ void EtlJobMgr::debug(std::stringstream& ss) {
     std::lock_guard<std::mutex> l(_lock);
 
     // Debug summary
-    ss << "we have " << _running_jobs.size() << " jobs Runnings\n";
+    ss << "we have " << _running_jobs.size() << " jobs Running\n";
     ss << "we have " << _failed_jobs.size() << " jobs Failed\n";
     ss << "we have " << _success_jobs.size() << " jobs Successful\n";
     // Debug running jobs
     for (auto& it : _running_jobs) {
-        ss << "runing jobs: " << it << "\n";
+        ss << "running jobs: " << it << "\n";
     }
     // Debug success jobs
     for (auto& it : _success_jobs) {

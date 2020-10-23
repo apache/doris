@@ -220,20 +220,20 @@ bool CaseExpr::any_val_eq(const TypeDescriptor& type, const AnyVal* v1, const An
         return THEN_TYPE::null(); \
     }
 
-#define CASE_COMPUTE_FN_WAPPER(TYPE, TYPE_NAME) \
+#define CASE_COMPUTE_FN_WRAPPER(TYPE, TYPE_NAME) \
     CASE_COMPUTE_FN(TYPE, TYPE_NAME)
 
-CASE_COMPUTE_FN_WAPPER(BooleanVal, boolean_val)
-CASE_COMPUTE_FN_WAPPER(TinyIntVal, tiny_int_val)
-CASE_COMPUTE_FN_WAPPER(SmallIntVal, small_int_val)
-CASE_COMPUTE_FN_WAPPER(IntVal, int_val)
-CASE_COMPUTE_FN_WAPPER(BigIntVal, big_int_val)
-CASE_COMPUTE_FN_WAPPER(FloatVal, float_val)
-CASE_COMPUTE_FN_WAPPER(DoubleVal, double_val)
-CASE_COMPUTE_FN_WAPPER(StringVal, string_val)
-CASE_COMPUTE_FN_WAPPER(DateTimeVal, datetime_val)
-CASE_COMPUTE_FN_WAPPER(DecimalVal, decimal_val)
-CASE_COMPUTE_FN_WAPPER(DecimalV2Val, decimalv2_val)
+CASE_COMPUTE_FN_WRAPPER(BooleanVal, boolean_val)
+CASE_COMPUTE_FN_WRAPPER(TinyIntVal, tiny_int_val)
+CASE_COMPUTE_FN_WRAPPER(SmallIntVal, small_int_val)
+CASE_COMPUTE_FN_WRAPPER(IntVal, int_val)
+CASE_COMPUTE_FN_WRAPPER(BigIntVal, big_int_val)
+CASE_COMPUTE_FN_WRAPPER(FloatVal, float_val)
+CASE_COMPUTE_FN_WRAPPER(DoubleVal, double_val)
+CASE_COMPUTE_FN_WRAPPER(StringVal, string_val)
+CASE_COMPUTE_FN_WRAPPER(DateTimeVal, datetime_val)
+CASE_COMPUTE_FN_WRAPPER(DecimalVal, decimal_val)
+CASE_COMPUTE_FN_WRAPPER(DecimalV2Val, decimalv2_val)
 
 
 }

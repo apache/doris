@@ -475,7 +475,7 @@ public:
 
         // The soft capacity limit for _ready_buffers. _ready_buffers can exceed
         // the limit temporarily as the capacity is adjusted dynamically.
-        // In that case, the capcity is only realized when the caller removes buffers
+        // In that case, the capacity is only realized when the caller removes buffers
         // from _ready_buffers.
         int _ready_buffers_capacity;
 
@@ -567,7 +567,7 @@ public:
     // unregister_context also cancels the reader/writer from the disk IoMgr.
     void unregister_context(RequestContext* context);
 
-    // This function cancels the context asychronously. All outstanding requests
+    // This function cancels the context asynchronously. All outstanding requests
     // are aborted and tracking structures cleaned up. This does not need to be
     // called if the context finishes normally.
     // This will also fail any outstanding get_next()/Read requests.

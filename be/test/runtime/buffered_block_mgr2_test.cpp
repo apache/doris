@@ -54,7 +54,7 @@ const static string SCRATCH_DIR = "/tmp/doris-scratch";
 // This suffix is appended to a tmp dir
 const static string SCRATCH_SUFFIX = "/doris-scratch";
 
-// Number of millieconds to wait to ensure write completes
+// Number of milliseconds to wait to ensure write completes
 const static int WRITE_WAIT_MILLIS = 500;
 
 // How often to check for write completion

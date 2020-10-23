@@ -119,9 +119,19 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
+    // init config.
+    // the config in be_custom.conf will overwrite the config in be.conf
+    // Must init custom config after init config, separately.
+    // Because the path of custom config file is defined in be.conf
     string conffile = string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), true)) {
+    if (!doris::config::init(conffile.c_str(), true, true, true)) {
         fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
+
+    string custom_conffile = doris::config::custom_config_dir + "/be_custom.conf";
+    if (!doris::config::init(custom_conffile.c_str(), true, false, false)) {
+        fprintf(stderr, "error read custom config file. \n");
         return -1;
     }
 
@@ -163,7 +173,7 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
-    // initilize libcurl here to avoid concurrent initialization
+    // initialize libcurl here to avoid concurrent initialization
     auto curl_ret = curl_global_init(CURL_GLOBAL_ALL);
     if (curl_ret != 0) {
         LOG(FATAL) << "fail to initialize libcurl, curl_ret=" << curl_ret;

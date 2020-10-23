@@ -120,8 +120,7 @@ public:
         init_rs_meta(ptr5, 10, 11);
         rs_metas->push_back(ptr5);
     }
-
-    void fetch_expried_row_rs_meta(std::vector<RowsetMetaSharedContainerPtr>* rs_metas) {
+    void fetch_expired_row_rs_meta(std::vector<RowsetMetaSharedContainerPtr>* rs_metas) {
 
         RowsetMetaSharedContainerPtr v2(new std::vector<RowsetMetaSharedPtr>());
         RowsetMetaSharedPtr ptr1(new RowsetMeta());
@@ -173,10 +172,10 @@ protected:
 TEST_F(TestTablet, delete_expired_stale_rowset) {
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
-    std::vector<RowsetMetaSharedContainerPtr> expried_rs_metas;
+    std::vector<RowsetMetaSharedContainerPtr> expired_rs_metas;
 
     init_all_rs_meta(&rs_metas);
-    fetch_expried_row_rs_meta(&expried_rs_metas);
+    fetch_expired_row_rs_meta(&expired_rs_metas);
 
     for (auto &rowset : rs_metas) {
         _tablet_meta->add_rs_meta(rowset);
@@ -185,7 +184,7 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
     _tablet->init();
 
-    for(auto ptr: expried_rs_metas) {
+    for(auto ptr: expired_rs_metas) {
         for (auto rs : *ptr) {
             _tablet->_timestamped_version_tracker.add_version(rs->version());
         }

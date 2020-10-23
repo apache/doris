@@ -99,7 +99,7 @@ TDataSink get_data_sink(TDescriptorTable* desc_tbl) {
     tsink.db_name = "testDb";
     tsink.table_name = "testTable";
 
-    // cosntruct schema
+    // construct schema
     TOlapTableSchemaParam& tschema = tsink.schema;
     tschema.db_id = 1;
     tschema.table_id = 2;
@@ -223,7 +223,7 @@ TDataSink get_decimal_sink(TDescriptorTable* desc_tbl) {
     tsink.db_name = "testDb";
     tsink.table_name = "testTable";
 
-    // cosntruct schema
+    // construct schema
     TOlapTableSchemaParam& tschema = tsink.schema;
     tschema.db_id = 1;
     tschema.table_id = 2;

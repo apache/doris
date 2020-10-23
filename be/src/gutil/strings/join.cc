@@ -10,7 +10,7 @@
 // ----------------------------------------------------------------------
 // JoinUsing()
 //    This merges a vector of string components with delim inserted
-//    as separaters between components.
+//    as separators between components.
 //    This is essentially the same as JoinUsingToBuffer except
 //    the return result is dynamically allocated using "new char[]".
 //    It is the caller's responsibility to "delete []" the
@@ -37,7 +37,7 @@ char* JoinUsing(const vector<const char*>& components,
 // ----------------------------------------------------------------------
 // JoinUsingToBuffer()
 //    This merges a vector of string components with delim inserted
-//    as separaters between components.
+//    as separators between components.
 //    User supplies the result buffer with specified buffer size.
 //    The result is also returned for convenience.
 //
@@ -84,7 +84,7 @@ char* JoinUsingToBuffer(const vector<const char*>& components,
 // ----------------------------------------------------------------------
 // JoinStrings()
 //    This merges a vector of string components with delim inserted
-//    as separaters between components.
+//    as separators between components.
 //    This is essentially the same as JoinUsingToBuffer except
 //    it uses strings instead of char *s.
 //
@@ -155,7 +155,7 @@ void JoinVectorKeysAndValues(const vector< pair<string, string>>& components,
 //    gratuitous spacing and quoting. 'output' must point to an empty string.
 //
 //    Example:
-//     [Google], [x], [Buchheit, Paul], [string with " quoite in it], [ space ]
+//     [Google], [x], [Buchheit, Paul], [string with " quote in it], [ space ]
 //     --->  [Google,x,"Buchheit, Paul","string with "" quote in it"," space "]
 // ----------------------------------------------------------------------
 void JoinCSVLineWithDelimiter(const vector<string>& cols, char delimiter,

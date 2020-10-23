@@ -201,7 +201,7 @@ TEST_F(ExportTaskMgrTest, CancelJob) {
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
-TEST_F(ExportTaskMgrTest, FinishUnknowJob) {
+TEST_F(ExportTaskMgrTest, FinishUnknownJob) {
     ExportTaskMgr mgr(&_exec_env);
     TUniqueId id;
     id.lo = 1;

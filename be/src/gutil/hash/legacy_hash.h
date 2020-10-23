@@ -32,7 +32,7 @@ static const uint64 MIX64 = GG_ULONGLONG(0x2b992ddfa23249d6);  // more of pi
 //    overloading) and return 32 or 16 bit quantities, respectively.
 //    The basic rule of our hashing is: always mix().  Thus, even for
 //    char outputs we cast to a uint32 and mix with two arbitrary numbers.
-//    HashTo32 never returns kIllegalHash32, and similary,
+//    HashTo32 never returns kIllegalHash32, and similarity,
 //    HashTo16 never returns kIllegalHash16.
 //
 // Note that these methods avoid returning certain reserved values, while

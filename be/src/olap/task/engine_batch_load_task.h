@@ -59,7 +59,7 @@ private:
     // but not actually deleted util delay_delete_time run out.
     //
     // @param [in] request specify tablet and delete conditions
-    // @param [out] tablet_info_vec return tablet lastest status, which
+    // @param [out] tablet_info_vec return tablet last status, which
     //              include version info, row count, data size, etc
     // @return OLAP_SUCCESS if submit delete_data success
     virtual OLAPStatus _delete_data(const TPushReq& request,

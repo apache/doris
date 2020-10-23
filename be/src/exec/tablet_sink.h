@@ -145,7 +145,7 @@ public:
     NodeChannel(OlapTableSink* parent, int64_t index_id, int64_t node_id, int32_t schema_hash);
     ~NodeChannel() noexcept;
 
-    // called before open, used to add tablet loacted in this backend
+    // called before open, used to add tablet located in this backend
     void add_tablet(const TTabletWithPartition& tablet) { _all_tablets.emplace_back(tablet); }
 
     Status init(RuntimeState* state);
@@ -214,7 +214,7 @@ private:
     // send finished means the consumer thread which send the rpc can exit
     std::atomic<bool> _send_finished{false};
 
-    // add batches finished means the last rpc has be responsed, used to check whether this channel can be closed
+    // add batches finished means the last rpc has be response, used to check whether this channel can be closed
     std::atomic<bool> _add_batches_finished{false};
 
     bool _eos_is_produced{false}; // only for restricting producer behaviors
@@ -278,7 +278,7 @@ private:
 
 // Write data to Olap Table.
 // When OlapTableSink::open() called, there will be a consumer thread running in the background.
-// When you call OlapTableSink::send(), you will be the productor who products pending batches.
+// When you call OlapTableSink::send(), you will be the producer who products pending batches.
 // Join the consumer thread in close().
 class OlapTableSink : public DataSink {
 public:
@@ -313,7 +313,7 @@ private:
 
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
-    // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the productor
+    // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
     void _send_batch_process();
 
 private:
@@ -330,7 +330,7 @@ private:
     int64_t _txn_id = -1;
     int64_t _db_id = -1;
     int64_t _table_id = -1;
-    int _num_repicas = -1;
+    int _num_replicas = -1;
     bool _need_gen_rollup = false;
     std::string _db_name;
     std::string _table_name;

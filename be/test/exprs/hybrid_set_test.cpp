@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/hybird_set.h"
+#include "exprs/hybrid_set.h"
 
 #include <string>
 #include <gtest/gtest.h>
@@ -25,16 +25,16 @@
 namespace doris {
 
 // mock
-class HybirdSetTest : public testing::Test {
+class HybridSetTest : public testing::Test {
 public:
-    HybirdSetTest() {
+    HybridSetTest() {
     }
 
 protected:
 };
 
-TEST_F(HybirdSetTest, bool) {
-    HybirdSetBase* set = HybirdSetBase::create_set(TYPE_BOOLEAN);
+TEST_F(HybridSetTest, bool) {
+    HybridSetBase* set = HybridSetBase::create_set(TYPE_BOOLEAN);
     bool a = true;
     set->insert(&a);
     a = false;
@@ -45,7 +45,7 @@ TEST_F(HybirdSetTest, bool) {
     set->insert(&a);
 
     ASSERT_EQ(2, set->size());
-    HybirdSetBase::IteratorBase* base = set->begin();
+    HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
         LOG(INFO) << (*(bool*)base->get_value());
@@ -58,8 +58,8 @@ TEST_F(HybirdSetTest, bool) {
     ASSERT_TRUE(set->find(&a));
 }
 
-TEST_F(HybirdSetTest, tinyint) {
-    HybirdSetBase* set = HybirdSetBase::create_set(TYPE_TINYINT);
+TEST_F(HybridSetTest, tinyint) {
+    HybridSetBase* set = HybridSetBase::create_set(TYPE_TINYINT);
     int8_t a = 0;
     set->insert(&a);
     a = 1;
@@ -75,7 +75,7 @@ TEST_F(HybirdSetTest, tinyint) {
 
     ASSERT_EQ(5, set->size());
 
-    HybirdSetBase::IteratorBase* base = set->begin();
+    HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
         LOG(INFO) << (*(int8_t*)base->get_value());
@@ -95,8 +95,8 @@ TEST_F(HybirdSetTest, tinyint) {
     a = 5;
     ASSERT_FALSE(set->find(&a));
 }
-TEST_F(HybirdSetTest, smallint) {
-    HybirdSetBase* set = HybirdSetBase::create_set(TYPE_SMALLINT);
+TEST_F(HybridSetTest, smallint) {
+    HybridSetBase* set = HybridSetBase::create_set(TYPE_SMALLINT);
     int16_t a = 0;
     set->insert(&a);
     a = 1;
@@ -111,7 +111,7 @@ TEST_F(HybirdSetTest, smallint) {
     set->insert(&a);
 
     ASSERT_EQ(5, set->size());
-    HybirdSetBase::IteratorBase* base = set->begin();
+    HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
         LOG(INFO) << (*(int16_t*)base->get_value());
@@ -131,8 +131,8 @@ TEST_F(HybirdSetTest, smallint) {
     a = 5;
     ASSERT_FALSE(set->find(&a));
 }
-TEST_F(HybirdSetTest, int) {
-    HybirdSetBase* set = HybirdSetBase::create_set(TYPE_INT);
+TEST_F(HybridSetTest, int) {
+    HybridSetBase* set = HybridSetBase::create_set(TYPE_INT);
     int32_t a = 0;
     set->insert(&a);
     a = 1;
@@ -147,7 +147,7 @@ TEST_F(HybirdSetTest, int) {
     set->insert(&a);
 
     ASSERT_EQ(5, set->size());
-    HybirdSetBase::IteratorBase* base = set->begin();
+    HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
         LOG(INFO) << (*(int32_t*)base->get_value());
@@ -167,8 +167,8 @@ TEST_F(HybirdSetTest, int) {
     a = 5;
     ASSERT_FALSE(set->find(&a));
 }
-TEST_F(HybirdSetTest, bigint) {
-    HybirdSetBase* set = HybirdSetBase::create_set(TYPE_BIGINT);
+TEST_F(HybridSetTest, bigint) {
+    HybridSetBase* set = HybridSetBase::create_set(TYPE_BIGINT);
     int64_t a = 0;
     set->insert(&a);
     a = 1;
@@ -183,7 +183,7 @@ TEST_F(HybirdSetTest, bigint) {
     set->insert(&a);
 
     ASSERT_EQ(5, set->size());
-    HybirdSetBase::IteratorBase* base = set->begin();
+    HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
         LOG(INFO) << (*(int64_t*)base->get_value());
@@ -203,8 +203,8 @@ TEST_F(HybirdSetTest, bigint) {
     a = 5;
     ASSERT_FALSE(set->find(&a));
 }
-TEST_F(HybirdSetTest, float) {
-    HybirdSetBase* set = HybirdSetBase::create_set(TYPE_FLOAT);
+TEST_F(HybridSetTest, float) {
+    HybridSetBase* set = HybridSetBase::create_set(TYPE_FLOAT);
     float a = 0;
     set->insert(&a);
     a = 1.1;
@@ -219,7 +219,7 @@ TEST_F(HybirdSetTest, float) {
     set->insert(&a);
 
     ASSERT_EQ(5, set->size());
-    HybirdSetBase::IteratorBase* base = set->begin();
+    HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
         LOG(INFO) << (*(float*)base->get_value());
@@ -239,8 +239,8 @@ TEST_F(HybirdSetTest, float) {
     a = 5.1;
     ASSERT_FALSE(set->find(&a));
 }
-TEST_F(HybirdSetTest, double) {
-    HybirdSetBase* set = HybirdSetBase::create_set(TYPE_DOUBLE);
+TEST_F(HybridSetTest, double) {
+    HybridSetBase* set = HybridSetBase::create_set(TYPE_DOUBLE);
     double a = 0;
     set->insert(&a);
     a = 1.1;
@@ -255,7 +255,7 @@ TEST_F(HybirdSetTest, double) {
     set->insert(&a);
 
     ASSERT_EQ(5, set->size());
-    HybirdSetBase::IteratorBase* base = set->begin();
+    HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
         LOG(INFO) << (*(double*)base->get_value());
@@ -275,8 +275,8 @@ TEST_F(HybirdSetTest, double) {
     a = 5.1;
     ASSERT_FALSE(set->find(&a));
 }
-TEST_F(HybirdSetTest, string) {
-    HybirdSetBase* set = HybirdSetBase::create_set(TYPE_VARCHAR);
+TEST_F(HybridSetTest, string) {
+    HybridSetBase* set = HybridSetBase::create_set(TYPE_VARCHAR);
     StringValue a;
 
     char buf[100];
@@ -298,7 +298,7 @@ TEST_F(HybirdSetTest, string) {
     set->insert(&a);
 
     ASSERT_EQ(5, set->size());
-    HybirdSetBase::IteratorBase* base = set->begin();
+    HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
         LOG(INFO) << ((StringValue*)base->get_value())->ptr;
@@ -325,10 +325,10 @@ TEST_F(HybirdSetTest, string) {
     b.len = 5;
     ASSERT_FALSE(set->find(&b));
 }
-TEST_F(HybirdSetTest, timestamp) {
+TEST_F(HybridSetTest, timestamp) {
     CpuInfo::init();
 
-    HybirdSetBase* set = HybirdSetBase::create_set(TYPE_DATETIME);
+    HybridSetBase* set = HybridSetBase::create_set(TYPE_DATETIME);
     char s1[] = "2012-01-20 01:10:01";
     char s2[] = "1990-10-20 10:10:10.123456  ";
     char s3[] = "  1990-10-20 10:10:10.123456";
@@ -346,7 +346,7 @@ TEST_F(HybirdSetTest, timestamp) {
     set->insert(&v2);
     set->insert(&v3);
 
-    HybirdSetBase::IteratorBase* base = set->begin();
+    HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
         LOG(INFO) << ((DateTimeValue*)base->get_value())->debug_string();

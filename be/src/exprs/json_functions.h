@@ -28,7 +28,7 @@ enum JsonFunctionType {
     JSON_FUN_DOUBLE,
     JSON_FUN_STRING,
 
-    JSON_FUN_UNKOWN //The last
+    JSON_FUN_UNKNOWN //The last
 };
 
 class Expr;

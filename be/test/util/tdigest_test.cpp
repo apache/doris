@@ -242,7 +242,7 @@ TEST_F(TDigestTest, Montonicity) {
     }
 }
 
-}  // namespace stesting
+}  // namespace testing
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

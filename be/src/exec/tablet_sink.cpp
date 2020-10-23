@@ -422,7 +422,7 @@ Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
 }
 
 bool IndexChannel::has_intolerable_failure() {
-    return _failed_channels.size() >= ((_parent->_num_repicas + 1) / 2);
+    return _failed_channels.size() >= ((_parent->_num_replicas + 1) / 2);
 }
 
 OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -451,7 +451,7 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
     _txn_id = table_sink.txn_id;
     _db_id = table_sink.db_id;
     _table_id = table_sink.table_id;
-    _num_repicas = table_sink.num_replicas;
+    _num_replicas = table_sink.num_replicas;
     _need_gen_rollup = table_sink.need_gen_rollup;
     _db_name = table_sink.db_name;
     _table_name = table_sink.table_name;
@@ -859,7 +859,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                     }
                 }
                 if (*dec_val > _max_decimal_val[i] || *dec_val < _min_decimal_val[i]) {
-                    ss << "decimal value is not valid for defination, column=" << desc->col_name()
+                    ss << "decimal value is not valid for definition, column=" << desc->col_name()
                        << ", value=" << dec_val->to_string()
                        << ", precision=" << desc->type().precision
                        << ", scale=" << desc->type().scale;
@@ -880,7 +880,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                     }
                 }
                 if (dec_val > _max_decimalv2_val[i] || dec_val < _min_decimalv2_val[i]) {
-                    ss << "decimal value is not valid for defination, column=" << desc->col_name()
+                    ss << "decimal value is not valid for definition, column=" << desc->col_name()
                        << ", value=" << dec_val.to_string()
                        << ", precision=" << desc->type().precision
                        << ", scale=" << desc->type().scale;

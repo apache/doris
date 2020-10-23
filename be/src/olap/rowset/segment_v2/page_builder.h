@@ -50,7 +50,7 @@ public:
     // than requested if the page is full.
     //
     // vals size should be decided according to the page build type
-    // TODO make sure vals is natually-aligned to its type so that impls can use aligned load
+    // TODO make sure vals is naturally-aligned to its type so that impls can use aligned load
     // instead of memcpy to copy values.
     virtual Status add(const uint8_t* vals, size_t* count) = 0;
 

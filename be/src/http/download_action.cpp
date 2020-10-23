@@ -130,7 +130,7 @@ void DownloadAction::handle(HttpRequest *req) {
         handle_normal(req, file_path);
     }
 
-    LOG(INFO) << "deal with download requesst finished! ";
+    LOG(INFO) << "deal with download request finished! ";
 }
 
 Status DownloadAction::check_token(HttpRequest *req) {

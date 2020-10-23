@@ -243,9 +243,9 @@ BooleanQueryBuilder::BooleanQueryBuilder(const std::vector<ExtPredicate*>& predi
                 break;
             }
             case TExprNodeType::IS_NULL_PRED: {
-                ExtIsNullPredicate* is_null_preidicate = (ExtIsNullPredicate *)predicate;
-                ExistsQueryBuilder* exists_query = new ExistsQueryBuilder(*is_null_preidicate);
-                if (is_null_preidicate->is_not_null) {
+                ExtIsNullPredicate* is_null_predicate = (ExtIsNullPredicate *)predicate;
+                ExistsQueryBuilder* exists_query = new ExistsQueryBuilder(*is_null_predicate);
+                if (is_null_predicate->is_not_null) {
                     _should_clauses.push_back(exists_query);
                 } else {
                     BooleanQueryBuilder* bool_query = new BooleanQueryBuilder();
