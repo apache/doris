@@ -30,8 +30,17 @@ under the License.
 
 This document mainly introduces the relevant configuration items of BE.
 
+The BE configuration file `be.conf` is usually stored in the `conf/` directory of the BE deployment path. In version 0.14, another configuration file `be_custom.conf` will be introduced. The configuration file is used to record the configuration items that are dynamically configured and persisted by the user during operation.
+
+After the BE process is started, it will read the configuration items in `be.conf` first, and then read the configuration items in `be_custom.conf`. The configuration items in `be_custom.conf` will overwrite the same configuration items in `be.conf`.
+
+The location of the `be_custom.conf` file can be configured in `be.conf` through the `custom_config_dir` configuration item.
+
 ## View configuration items
-(TODO)
+
+Users can view the current configuration items by visiting BE's web page:
+
+`http://be_host:be_webserver_port/varz`
 
 ## Set configuration items
 
@@ -39,42 +48,54 @@ There are two ways to configure BE configuration items:
 
 1. Static configuration
 
-         Add and set configuration items in the `conf/be.conf` file. The configuration items in `be.conf` will be read when BE starts. Configuration items not in `be.conf` will use default values.
+    Add and set configuration items in the `conf/be.conf` file. The configuration items in `be.conf` will be read when BE starts. Configuration items not in `be.conf` will use default values.
 
 2. Dynamic configuration
 
-         After BE starts, the configuration items can be dynamically set with the following commands.
+    After BE starts, the configuration items can be dynamically set with the following commands.
 
-         ```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'```
+    ```
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'
+    ```
 
-         **Configuration items modified in this way will become invalid after the BE process restarts. **
+    In version 0.13 and before, the configuration items modified in this way will become invalid after the BE process restarts. In 0.14 and later versions, the modified configuration can be persisted through the following command. The modified configuration items are stored in the `be_custom.conf` file.
+
+    ```
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persis=true'
+    ```
 
 ## Examples
 
 1. Modify `max_compaction_concurrency` statically
 
-         By adding in the `be.conf` file:
+     By adding in the `be.conf` file:
 
-         ```max_compaction_concurrency=5```
+     ```max_compaction_concurrency=5```
 
-         Then restart the BE process to take effect the configuration.
+     Then restart the BE process to take effect the configuration.
 
 2. Modify `streaming_load_max_mb` dynamically
 
-         After BE starts, the configuration item `streaming_load_max_mb` is dynamically set by the following command:
+    After BE starts, the configuration item `streaming_load_max_mb` is dynamically set by the following command:
 
-         ```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024```
+    ```
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024
+    ```
 
-         The return value is as follows, indicating that the setting is successful.
+    The return value is as follows, indicating that the setting is successful.
 
-         ```
-         {
-             "status": "OK",
-             "msg": ""
-         }
-         ```
+    ```
+    {
+        "status": "OK",
+        "msg": ""
+    }
+    ```
 
-         **The configuration will be invalid after BE restarted. **
+    The configuration will become invalid after the BE restarts. If you want to persist the modified results, use the following command:
+
+    ```
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024\&persist=true
+    ```
 
 ## Configurations
 
@@ -232,6 +253,12 @@ Generally, the configuration is within 512m. If the configuration is too large, 
 * Default value: 64
 
 Generally, the configuration is within 128m. Over configuration will cause more cumulative compaction write amplification.
+
+### `custom_config_dir`
+
+Configure the location of the `be_custom.conf` file. The default is in the `conf/` directory.
+
+In some deployment environments, the `conf/` directory may be overwritten due to system upgrades. This will cause the user modified configuration items to be overwritten. At this time, we can store `be_custom.conf` in another specified directory to prevent the configuration file from being overwritten.
 
 ### `default_num_rows_per_column_file_block`
 

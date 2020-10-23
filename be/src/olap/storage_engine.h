@@ -84,9 +84,6 @@ public:
     void clear_transaction_task(const TTransactionId transaction_id,
                                 const std::vector<TPartitionId>& partition_ids);
 
-    // 获取cache的使用情况信息
-    void get_cache_status(rapidjson::Document* document) const;
-
     // Note: 这里只能reload原先已经存在的root path，即re-load启动时就登记的root path
     // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
     void load_data_dirs(const std::vector<DataDir*>& stores);
@@ -283,7 +280,6 @@ private:
     int32_t _effective_cluster_id;
     bool _is_all_cluster_id_exist;
 
-    Cache* _file_descriptor_lru_cache;
     Cache* _index_stream_lru_cache;
 
     // _file_cache is a lru_cache for file descriptors of files opened by doris,
