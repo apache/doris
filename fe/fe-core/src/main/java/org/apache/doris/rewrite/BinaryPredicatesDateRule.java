@@ -26,8 +26,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 /**
- * Binary predicaate date rule try to convert date expression, if date is invalid, it will be
- * convert into bool literal to avoid to scan all partitions
+ * Binary predicate date rule try to convert date expression, if date is invalid, it will be
+ * converted into bool literal to avoid to scan all partitions
  * Examples:
  * date = "2020-10-32" => FALSE
  */
