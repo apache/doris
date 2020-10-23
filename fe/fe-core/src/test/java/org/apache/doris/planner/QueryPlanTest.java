@@ -388,6 +388,19 @@ public class QueryPlanTest {
                 "\"driver\" = \"Oracle Driver\",\n" +
                 "\"odbc_type\" = \"mysql\"\n" +
                 ");");
+
+        createTable("create table test.tbl_inpredicate_date (" +
+                "`date` datetime NULL," +
+                "`day` date NULL," +
+                "`site_id` int(11) NULL )" +
+                " ENGINE=OLAP " +
+                "DUPLICATE KEY(`date`, `day`, `site_id`)" +
+                "DISTRIBUTED BY HASH(`site_id`) BUCKETS 10 " +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ");");
     }
 
     @AfterClass
@@ -1337,6 +1350,58 @@ public class QueryPlanTest {
         queryStr = "explain select time, lag(query_time, 1, 2) over () as time2 from test.test1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("lag(`query_time`, 1, 2)"));
+    }
+
+    @Test
+    public void testInPredicateDateTime() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        //valid date
+        String sql = "select day from tbl_inpredicate_date where day in ('2020-10-30')";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00')"));
+        //valid date
+        sql = "select day from tbl_inpredicate_date where day in ('2020-10-30','2020-10-29')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00', '2020-10-29 00:00:00')"));
+
+        //invalid date
+        sql = "select day from tbl_inpredicate_date where day in ('2020-10-30','2020-10-32')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00')"));
+        //invalid date
+        sql = "select day from tbl_inpredicate_date where day in ('2020-10-36','2020-10-32')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
+
+        //valid datetime
+        sql = "select day from tbl_inpredicate_date where date in ('2020-10-30 12:12:30')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 12:12:30')"));
+        //valid datetime
+        sql = "select day from tbl_inpredicate_date where date in ('2020-10-30')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 00:00:00')"));
+
+        //invalid datetime
+        sql = "select day from tbl_inpredicate_date where date IN ('2020-10-32')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
+        //invalid datetime
+        sql = "select day from tbl_inpredicate_date where date IN ('hello')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
+        //invalid datetime
+        sql = "select day from tbl_inpredicate_date where date IN ('2020-10-12 12:23:76')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
+        //invalid datetime
+        sql = "select day from tbl_inpredicate_date where date in ('2020-10-30 12:12:12','2020-10-32 13:13:13')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 12:12:12')"));
+        //invalid datetime
+        sql = "select day from tbl_inpredicate_date where date in ('2020-10-36 12:12:12','2020-10-32 12:12:12')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
     }
 }
 
