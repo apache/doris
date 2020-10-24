@@ -280,15 +280,8 @@ public class OlapScanNode extends ScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        if (!Util.showHiddenColumns() && olapTable.hasDeleteSign()) {
-            SlotRef deleteSignSlot = new SlotRef(desc.getAliasAsName(), Column.DELETE_SIGN);
-            deleteSignSlot.analyze(analyzer);
-            deleteSignSlot.getDesc().setIsMaterialized(true);
-            Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
-            conjunct.analyze(analyzer);
-            conjuncts.add(conjunct);
-        }
 
+        filterDeletedRows(analyzer);
         computePartitionInfo();
     }
 
@@ -763,5 +756,16 @@ public class OlapScanNode extends ScanNode {
             expr = expr.getChild(0);
         }
         return expr instanceof SlotRef;
+    }
+
+    private void filterDeletedRows(Analyzer analyzer) throws AnalysisException{
+        if (!Util.showHiddenColumns() && olapTable.hasDeleteSign()) {
+            SlotRef deleteSignSlot = new SlotRef(desc.getAliasAsName(), Column.DELETE_SIGN);
+            deleteSignSlot.analyze(analyzer);
+            deleteSignSlot.getDesc().setIsMaterialized(true);
+            Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
+            conjunct.analyze(analyzer);
+            conjuncts.add(conjunct);
+        }
     }
 }
