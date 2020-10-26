@@ -96,18 +96,6 @@ public class Log4jConfig extends XmlConfiguration {
             "    <Logger name=\"audit\" level=\"ERROR\" additivity=\"false\">\n" +
             "      <AppenderRef ref=\"Auditfile\"/>\n" +
             "    </Logger>\n" +
-            "    <Logger name=\"org.apache.thrift\" level=\"DEBUG\"> \n" +
-            "      <AppenderRef ref=\"Sys\"/>\n" +
-            "    </Logger>\n" +
-            "    <Logger name=\"org.apache.thrift.transport\" level=\"DEBUG\"> \n" +
-            "      <AppenderRef ref=\"Sys\"/>\n" +
-            "    </Logger>\n" +
-            "    <Logger name=\"org.apache.doris.thrift\" level=\"DEBUG\"> \n" +
-            "      <AppenderRef ref=\"Sys\"/>\n" +
-            "    </Logger>\n" +
-            "    <Logger name=\"org.apache.doris.http\" level=\"DEBUG\"> \n" +
-            "      <AppenderRef ref=\"Sys\"/>\n" +
-            "    </Logger>\n" +
             "    <!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->\n" +
             "  </Loggers>\n" +
             "</Configuration>";
@@ -254,6 +242,6 @@ public class Log4jConfig extends XmlConfiguration {
         if (toReconfig) {
             reconfig();
         }
-        return new Tuple<String, String[], String[]>(sysLogLevel, verboseModules, auditModules);
+        return new Tuple<>(sysLogLevel, verboseModules, auditModules);
     }
 }
