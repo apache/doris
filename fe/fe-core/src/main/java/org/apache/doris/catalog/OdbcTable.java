@@ -60,6 +60,7 @@ public class OdbcTable extends Table {
         Map<String, TOdbcTableType> tempMap = new HashMap<>();
         tempMap.put("oracle", TOdbcTableType.ORACLE);
         tempMap.put("mysql", TOdbcTableType.MYSQL);
+        tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
@@ -257,6 +258,7 @@ public class OdbcTable extends Table {
                         getPasswd(),
                         "utf8");
                 break;
+            case POSTGRESQL:
             case MYSQL:
                 connectString = String.format("Driver=%s;Server=%s;Port=%s;DataBase=%s;Uid=%s;Pwd=%s;charset=%s",
                         getOdbcDriver(),
