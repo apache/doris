@@ -579,10 +579,10 @@ xxx
 第一次发布的话 KEYS 文件也需要拷贝过来。然后add到svn release 下。
 
 ```
+add 成功后就可以在下面网址上看到你发布的文件
+https://dist.apache.org/repos/dist/release/incubator/doris/0.xx.0-incubating/
 
-https://dist.apache.org/repos/dist/release/incubator/doris/0.9.0-incubating/
-
-最终能在 apache 官网看到：
+稍等一段时间后，能在 apache 官网看到：
 http://www.apache.org/dist/incubator/doris/0.9.0-incubating/
 
 ```

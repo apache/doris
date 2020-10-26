@@ -566,10 +566,10 @@ Copy the source package, signature file and hash file from the corresponding RC 
 KEYS files also need to be copied if they are first released. Then add to SVN release.
 
 ```
-
+After the add is successful, you can see the file you posted on the following URL
 https://dist.apache.org/repos/dist/release/incubator/doris/0.9.0-incubating/
 
-Eventually you can see it on apache's website:
+After waiting for a while, you can see on the official apache website:
 http://www.apache.org/dist/incubator/doris/0.9.0-incubating/
 
 ```
