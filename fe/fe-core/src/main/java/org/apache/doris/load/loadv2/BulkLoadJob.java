@@ -233,7 +233,12 @@ public abstract class BulkLoadJob extends LoadJob {
                 loadTask.updateRetryInfo();
                 idToTasks.put(loadTask.getSignature(), loadTask);
                 // load id will be added to loadStatistic when executing this task
-                Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
+                try {
+                    Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
+                } catch (Exception e) {
+                    unprotectedExecuteCancel(failMsg, true);
+                    logFinalOperation();
+                }
                 return;
             }
         } finally {
