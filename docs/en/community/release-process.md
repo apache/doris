@@ -36,13 +36,17 @@ The general process of publication is as follows:
 	2. cutting a release branch
 	3. clean up issues
 	4. merging necessary patch to release branch
-3. Running the voting process for a release
+3. Verify branch
+         1. QA stability test
+         2. Verify the correctness of the compiled image
+         3. Prepare Release Nodes
+4. Running the voting process for a release
 	1. singing a tag and upload it to [Apache dev svn repo](https://dist.apache.org/repos/dist/dev/incubator/doris)
 	2. calling votes from [Doris community](dev@doris.apache.org)
 	3. send result email to [Doris community](dev@doris.apache.org)
 	4. calling votes from [Incubator community](general@incubator.apache.org)
 	5. send result email to general@incubator.apache.org
-4. Finalizing and posting a release
+5. Finalizing and posting a release
 	1. Upload the signature package to [Apache release repo](https://dist.apache.org/repos/dist/release/incubator/doris) and generate relevant links
 	2. Prepare release note and send Announce mail to general@incubator.apache.org
 	3. Publish download links on Doris website and GitHub
@@ -286,6 +290,30 @@ Go through all the issues belonging to this version, close those that have been 
 ### Merge necessary patches
 
 During the release waiting process, there may be more important patch merging. If someone in the community says that there is an important bug to merge, then release manager needs to evaluate and merge the important patches into the release branch.
+
+## Verify branch
+
+### QA stability test
+
+Give the prepared branch to QA students for stability testing. If there is a problem that needs to be fixed during the testing process, if there is a problem that needs to be fixed during the testing process, after the problem is fixed, the PR that fixes the problem needs to be merged into the branch of the release version.
+
+After the entire branch is stable, the release can be prepared.
+
+### Verify the correctness of the compiled image
+
+1. Download the compiled image
+
+         ```
+         docker pull apachedoris/doris-dev:build-env-1.2
+         ```
+
+2. Use official documents to compile the new branch, see [Docker Development Mirror Compilation](http://doris.apache.org/master/zh-CN/installing/compilation.html)
+
+         After entering the mirror, the compilation may take about 3~4 hours, please be patient.
+
+         If the compilation fails due to the lack of some third-party libraries, the compilation image needs to be updated.
+
+3. Rebuild the image
 
 ## Running the voting process for a release
 

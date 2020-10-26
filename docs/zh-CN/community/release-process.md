@@ -46,7 +46,7 @@ Apache 的发布必须至少是 IPMC 成员，拥有 apache 邮箱的committer�
 	3. 投票通过后，在Doris社区发 Result 邮件
 	4. 在 [Incubator 社区](general@incubator.apache.org) 发起新一轮投票
 	5. 发 Result 邮件到 general@incubator.apache.org
-4. 完成工作
+5. 完成工作
 	1. 上传签名的软件包到 [Apache release repo](https://dist.apache.org/repos/dist/release/incubator/doris)，并生成相关链接
 	2. 发送 Announce 邮件到 general@incubator.apache.org
 	3. 在 Doris 官网和 github 发布下载链接
