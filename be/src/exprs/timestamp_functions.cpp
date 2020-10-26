@@ -120,6 +120,7 @@ IntVal TimestampFunctions::month(
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     return IntVal(ts_value.month());
 }
+
 IntVal TimestampFunctions::day_of_week(
         FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
@@ -138,10 +139,7 @@ IntVal TimestampFunctions::day_of_month(
         return IntVal::null();
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
-    if (ts_value.is_valid_date()) {
-        return IntVal(ts_value.day());
-    }
-    return IntVal::null();
+    return IntVal(ts_value.day());
 }
 
 IntVal TimestampFunctions::day_of_year(
@@ -685,7 +683,10 @@ DoubleVal TimestampFunctions::time_diff(
 
     const DateTimeValue& ts_value1 = DateTimeValue::from_datetime_val(ts_val1);
     const DateTimeValue& ts_value2 = DateTimeValue::from_datetime_val(ts_val2);
-    return DoubleVal(ts_value1.second_diff(ts_value2));
+    if (ts_value1.is_valid_date() && ts_value2.is_valid_date()) {
+        return DoubleVal(ts_value1.second_diff(ts_value2));
+    }
+    return DoubleVal::null();
 }
 
 IntVal TimestampFunctions::date_diff(
