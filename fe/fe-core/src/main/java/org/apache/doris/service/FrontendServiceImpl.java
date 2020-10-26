@@ -37,6 +37,7 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.MiniEtlTaskInfo;
