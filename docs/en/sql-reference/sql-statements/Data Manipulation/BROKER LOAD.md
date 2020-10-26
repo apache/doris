@@ -336,7 +336,8 @@ under the License.
     
     7. Load data into tables containing HLL columns, which can be columns in tables or columns in data
     
-        If there are three columns in the table (id, v1, v2, v3). The V1 and V2 columns are HLL columns. The imported source file has three columns. Then (column_list) declares that the first column is id, and the second and third columns are temporarily named k1, k2.
+        If there are 4 columns in the table are (id, v1, v2, v3). The v1 and v2 columns are hll columns. The imported source file has 3 columns, where the first column in the table = the first column in the source file, and the second and third columns in the table are the second and third columns in the source file, and the third column in the table is transformed. The four columns do not exist in the source file.
+        Then (column_list) declares that the first column is id, and the second and third columns are temporarily named k1, k2.
 
         In SET, the HLL column in the table must be specifically declared hll_hash. The V1 column in the table is equal to the hll_hash (k1) column in the original data.The v3 column in the table does not have a corresponding value in the original data, and empty_hll is used to supplement the default value.
 

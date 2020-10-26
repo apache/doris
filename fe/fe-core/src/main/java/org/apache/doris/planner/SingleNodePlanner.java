@@ -817,7 +817,7 @@ public class SingleNodePlanner {
                 selectFailed |= selectMaterializedView(unionOperand.getQueryStmt(), analyzer);
             }
         }
-        return selectFailed;c
+        return selectFailed;
     }
 
     /**
