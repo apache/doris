@@ -94,7 +94,7 @@ public class Table extends MetaObject implements Writable {
     protected boolean isTypeRead = false;
     // table(view)'s comment
     protected String comment = "";
-
+    // sql for creating this table, default is "";
     protected String ddlSql = "";
 
     public Table(TableType type) {
