@@ -1004,6 +1004,9 @@ public abstract class Type {
                 || t2ResultType == PrimitiveType.LARGEINT)) {
             return Type.LARGEINT;
         }
+        if (t1ResultType == PrimitiveType.VARCHAR && t1.isDateType()) {
+            return Type.VARCHAR;
+        }
         return Type.DOUBLE;
     }
 
