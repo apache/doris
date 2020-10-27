@@ -48,8 +48,9 @@ Apache 的发布必须至少是 IPMC 成员，拥有 apache 邮箱的committer�
 	5. 发 Result 邮件到 general@incubator.apache.org
 5. 完成工作
 	1. 上传签名的软件包到 [Apache release repo](https://dist.apache.org/repos/dist/release/incubator/doris)，并生成相关链接
-	2. 发送 Announce 邮件到 general@incubator.apache.org
-	3. 在 Doris 官网和 github 发布下载链接
+	2. 在 Doris 官网和 github 发布下载链接
+	3. 发送 Announce 邮件到 general@incubator.apache.org
+
 
 ## 准备环境
 
@@ -587,63 +588,6 @@ http://www.apache.org/dist/incubator/doris/0.9.0-incubating/
 
 ```
 
-### 发 Announce 邮件到 general@incubator.apache.org
-
-Title:
-
-```
-[ANNOUNCE] Apache Doris (incubating) 0.9.0 Release
-```
-
-发送邮件组：
-
-```
-general@incubator.apache.org <general@incubator.apache.org>
-dev@doris.apache.org <dev@doris.apache.org>
-```
-
-邮件正文：
-
-```
-Hi All,
-
-We are pleased to announce the release of Apache Doris 0.9.0-incubating.
-
-Apache Doris (incubating) is an MPP-based interactive SQL data warehousing for reporting and analysis.
-
-The release is available at:
-http://doris.apache.org/downloads.html
-
-Thanks to everyone who has contributed to this release, and the release note can be found here:
-https://github.com/apache/incubator-doris/releases
-
-Best Regards,
-
-On behalf of the Doris team,
-xxx
-
-----
-DISCLAIMER-WIP: 
-Apache Doris is an effort undergoing incubation at The Apache Software Foundation (ASF), 
-sponsored by the Apache Incubator. Incubation is required of all newly accepted projects 
-until a further review indicates that the infrastructure, communications, and decision 
-making process have stabilized in a manner consistent with other successful ASF projects. 
-While incubation status is not necessarily a reflection of the completeness or stability 
-of the code, it does indicate that the project has yet to be fully endorsed by the ASF.
-
-Some of the incubating project’s releases may not be fully compliant with ASF policy. For 
-example, releases may have incomplete or un-reviewed licensing conditions. What follows is 
-a list of known issues the project is currently aware of (note that this list, by definition, 
-is likely to be incomplete): 
-
- * Releases may have incomplete licensing conditions
-
-If you are planning to incorporate this work into your product/project, please be aware that
-you will need to conduct a thorough licensing review to determine the overall implications of 
-including this work. For the current status of this project through the Apache Incubator 
-visit: https://incubator.apache.org/projects/doris.html
-```
-
 ### 在 Doris 官网和 github 发布链接
 
 #### 创建下载链接
@@ -687,4 +631,62 @@ https://github.com/apache/incubator-doris/releases/tag/0.9.0-rc01
 ```
 http://doris.apache.org/downloads.html
 ```
+### 发 Announce 邮件到 general@incubator.apache.org
+
+Title:
+
+```
+[ANNOUNCE] Apache Doris (incubating) 0.9.0 Release
+```
+
+发送邮件组：
+
+```
+general@incubator.apache.org <general@incubator.apache.org>
+dev@doris.apache.org <dev@doris.apache.org>
+```
+
+邮件正文：
+
+```
+Hi All,
+
+We are pleased to announce the release of Apache Doris 0.9.0-incubating.
+
+Apache Doris (incubating) is an MPP-based interactive SQL data warehousing for reporting and analysis.
+
+The release is available at:
+http://doris.apache.org/master/zh-CN/downloads/downloads.html
+
+Thanks to everyone who has contributed to this release, and the release note can be found here:
+https://github.com/apache/incubator-doris/releases
+
+Best Regards,
+
+On behalf of the Doris team,
+xxx
+
+----
+DISCLAIMER-WIP: 
+Apache Doris is an effort undergoing incubation at The Apache Software Foundation (ASF), 
+sponsored by the Apache Incubator. Incubation is required of all newly accepted projects 
+until a further review indicates that the infrastructure, communications, and decision 
+making process have stabilized in a manner consistent with other successful ASF projects. 
+While incubation status is not necessarily a reflection of the completeness or stability 
+of the code, it does indicate that the project has yet to be fully endorsed by the ASF.
+
+Some of the incubating project’s releases may not be fully compliant with ASF policy. For 
+example, releases may have incomplete or un-reviewed licensing conditions. What follows is 
+a list of known issues the project is currently aware of (note that this list, by definition, 
+is likely to be incomplete): 
+
+ * Releases may have incomplete licensing conditions
+
+If you are planning to incorporate this work into your product/project, please be aware that
+you will need to conduct a thorough licensing review to determine the overall implications of 
+including this work. For the current status of this project through the Apache Incubator 
+visit: https://incubator.apache.org/projects/doris.html
+```
+
+
 
