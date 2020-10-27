@@ -1052,20 +1052,20 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _pick_missing_version_cumulative
     rowsets.push_back(_tablet->get_rowset_by_version({4, 4}));
     std::shared_ptr<MemTracker> mem_tracker(new MemTracker());
     CumulativeCompaction compaction(_tablet, "label", mem_tracker);
-    compaction.find_longest_consecutive_version(&rowsets);
+    compaction.find_longest_consecutive_version(&rowsets, nullptr);
     ASSERT_EQ(3, rowsets.size());
     ASSERT_EQ(2, rowsets[2]->end_version());
 
     // no miss version
     std::vector<RowsetSharedPtr> rowsets2;
     rowsets2.push_back(_tablet->get_rowset_by_version({0, 0}));
-    compaction.find_longest_consecutive_version(&rowsets2);
+    compaction.find_longest_consecutive_version(&rowsets2, nullptr);
     ASSERT_EQ(1, rowsets2.size());
     ASSERT_EQ(0, rowsets[0]->end_version());
 
     // no version
     std::vector<RowsetSharedPtr> rowsets3;
-    compaction.find_longest_consecutive_version(&rowsets3);
+    compaction.find_longest_consecutive_version(&rowsets3, nullptr);
     ASSERT_EQ(0, rowsets3.size());
 }
 }
