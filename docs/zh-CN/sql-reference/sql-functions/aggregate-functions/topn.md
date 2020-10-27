@@ -35,7 +35,7 @@ under the License.
 space_expand_rate参数是可选项，该值用来设置Space-Saving算法中使用的counter个数
 ```
 counter numbers = top_num * space_expand_rate
-````
+```
 space_expand_rate的值越大，结果越准确，默认值为50
 
 ## example

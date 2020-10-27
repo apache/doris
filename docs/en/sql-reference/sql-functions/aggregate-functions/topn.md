@@ -1,7 +1,7 @@
 ---
 {
     "title": "TOPN",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -36,7 +36,7 @@ frequent items and their occurrence times, which is an approximation
 The space_expand_rate parameter is optional and is used to set the number of counters used in the Space-Saving algorithm
 ```
 counter numbers = top_num * space_expand_rate
-````
+```
 The higher value of space_expand_rate, the more accurate result will be. The default value is 50
 
 ## example
