@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import com.google.common.base.Strings;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
@@ -40,13 +39,14 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.doris.load.loadv2.LoadTask;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -278,6 +278,10 @@ public class BrokerFileGroup implements Writable {
 
     public boolean hasSequenceCol() {
         return !Strings.isNullOrEmpty(sequenceCol);
+    }
+
+    public boolean isBinaryFileFormat() {
+        return fileFormat.toLowerCase().equals("parquet") || fileFormat.toLowerCase().equals("orc");
     }
 
     @Override
