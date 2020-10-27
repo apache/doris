@@ -243,15 +243,9 @@ public abstract class BulkLoadJob extends LoadJob {
                         try {
                             Thread.sleep(100);
                         } catch (InterruptedException ex) {
-                            LOG.warn("retry sublit task sleep failed. task_id:{}", id);
-                        }
-                        // retry task
-                        idToTasks.remove(loadTask.getSignature());
-                        if (loadTask instanceof LoadLoadingTask) {
-                            loadStatistic.removeLoad(((LoadLoadingTask) loadTask).getLoadId());
+                            LOG.warn("retry submit task sleep failed. task_id:{}", id);
                         }
                         loadTask.updateRetryInfo();
-                        idToTasks.put(loadTask.getSignature(), loadTask);
                         continue;
                     }
                 }
