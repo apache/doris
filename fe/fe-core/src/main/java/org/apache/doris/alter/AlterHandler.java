@@ -26,6 +26,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -379,6 +380,12 @@ public abstract class AlterHandler extends MasterDaemon {
      */
     public abstract void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws UserException;
+
+    /*
+     * entry function. handle alter ops for external table
+     */
+    public void processExternalTable(List<AlterClause> alterClauses, Database db, Table externalTable)
+            throws UserException {};
 
     /*
      * cancel alter ops

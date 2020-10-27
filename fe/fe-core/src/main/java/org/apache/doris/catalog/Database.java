@@ -305,6 +305,20 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
+    public void allterExternalTableSchemaWithLock(String tableName, List<Column> newSchema) throws DdlException{
+        writeLock();
+        try {
+            if (!nameToTable.containsKey(tableName)) {
+                throw new DdlException("Do not contain proper table " + tableName + " in refresh table");
+            } else {
+                Table table = nameToTable.get(tableName);
+                table.setNewFullSchema(newSchema);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public boolean createTable(Table table) {
         boolean result = true;
         String tableName = table.getName();

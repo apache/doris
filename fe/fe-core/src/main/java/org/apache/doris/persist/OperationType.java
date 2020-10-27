@@ -183,4 +183,7 @@ public class OperationType {
     // resource 276~290
     public static final short OP_CREATE_RESOURCE = 276;
     public static final short OP_DROP_RESOURCE = 277;
+
+    // alter external table
+    public static final short OP_ALTER_EXTERNAL_TABLE_SCHEMA = 280;
 }
