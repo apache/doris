@@ -462,6 +462,10 @@ public:
 
     void set_type(int type);
 
+    bool is_valid_date() const {
+        return !check_range() && !check_date() && _month > 0 && _day > 0;
+    }
+
 private:
     // Used to make sure sizeof DateTimeValue
     friend class UnusedClass;
@@ -502,7 +506,7 @@ private:
         return _neg ? -tmp : tmp;
     }
 
-    // Check whether value of field is valid.
+    // Return true if range or date is invalid
     bool check_range() const;
     bool check_date() const;
 
