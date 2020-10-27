@@ -299,6 +299,7 @@ public class SchemaTable extends Table {
                                         .column("COLLATION_CONNECTION", ScalarType.createVarchar(32))
                                         .build()))
                     .build();
+    // views column is from show create table views in mysql: 5.5.6
 
     public static class Builder {
         List<Column> columns;

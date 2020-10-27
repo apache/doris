@@ -121,6 +121,7 @@ Status SchemaViewsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        // This is from views in mysql
         const std::string check_option = "NONE";
         str_slot->len = check_option.length();
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
@@ -133,6 +134,7 @@ Status SchemaViewsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[5]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        // This is from views in mysql
         const std::string is_updatable = "YES";
         str_slot->len = is_updatable.length();
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
@@ -145,6 +147,7 @@ Status SchemaViewsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[6]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        // This is from views in mysql
         const std::string definer = "root@%";
         str_slot->len = definer.length();
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
@@ -157,6 +160,7 @@ Status SchemaViewsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        // This is from views in mysql
         const std::string security_type = "DEFINER";
         str_slot->len = security_type.length();
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
