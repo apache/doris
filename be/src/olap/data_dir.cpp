@@ -55,12 +55,12 @@ using strings::Substitute;
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_total_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_avail_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_data_used_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_state, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_compaction_score, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_compaction_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_total_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_avail_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_data_used_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_score, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
 
 static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
@@ -615,12 +615,12 @@ OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
         if (config::storage_strict_check_incompatible_old_format) {
             LOG(FATAL) << "There are incompatible old format metas, current version does not support "
                        << "and it may lead to data missing!!! "
-                       << "talbet_id = " << tablet_id << " schema_hash = " << schema_hash;
+                       << "tablet_id = " << tablet_id << " schema_hash = " << schema_hash;
         } else {
             LOG(WARNING)
                     << "There are incompatible old format metas, current version does not support "
                     << "and it may lead to data missing!!! "
-                    << "talbet_id = " << tablet_id << " schema_hash = " << schema_hash;
+                    << "tablet_id = " << tablet_id << " schema_hash = " << schema_hash;
         }
         return false;
     };

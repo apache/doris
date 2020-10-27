@@ -24,12 +24,17 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
 
+// CANCEL LOAD statement used to cancel load job.
+//
+// syntax:
+//      CANCEL LOAD [FROM db] WHERE load_label (= "xxx" | LIKE "xxx")
 public class CancelLoadStmt extends DdlStmt {
 
     private String dbName;
     private String label;
 
     private Expr whereClause;
+    private boolean isAccurateMatch;
 
     public String getDbName() {
         return dbName;
@@ -42,6 +47,11 @@ public class CancelLoadStmt extends DdlStmt {
     public CancelLoadStmt(String dbName, Expr whereClause) {
         this.dbName = dbName;
         this.whereClause = whereClause;
+        this.isAccurateMatch = false;
+    }
+
+    public boolean isAccurateMatch() {
+        return isAccurateMatch;
     }
 
     @Override
@@ -68,7 +78,14 @@ public class CancelLoadStmt extends DdlStmt {
 
             if (whereClause instanceof BinaryPredicate) {
                 BinaryPredicate binaryPredicate = (BinaryPredicate) whereClause;
+                isAccurateMatch = true;
                 if (binaryPredicate.getOp() != Operator.EQ) {
+                    valid = false;
+                    break;
+                }
+            } else if (whereClause instanceof LikePredicate) {
+                LikePredicate likePredicate = (LikePredicate) whereClause;
+                if (likePredicate.getOp() != LikePredicate.Operator.LIKE) {
                     valid = false;
                     break;
                 }
@@ -101,7 +118,8 @@ public class CancelLoadStmt extends DdlStmt {
         } while (false);
 
         if (!valid) {
-            throw new AnalysisException("Where clause should looks like: LABEL = \"your_load_label\"");
+            throw new AnalysisException("Where clause should looks like: LABEL = \"your_load_label\"," +
+                    " or LABEL LIKE \"matcher\"");
         }
     }
 
@@ -117,6 +135,11 @@ public class CancelLoadStmt extends DdlStmt {
             stringBuilder.append(" WHERE " + whereClause.toSql());
         }
         return stringBuilder.toString();
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
     }
 
 }

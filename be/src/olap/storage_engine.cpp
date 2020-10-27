@@ -84,8 +84,8 @@ using strings::Substitute;
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(unused_rowsets_count, MetricUnit::ROWSETS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(compaction_mem_current_consumption, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_mem_current_consumption, MetricUnit::BYTES);
 
 StorageEngine* StorageEngine::_s_instance = nullptr;
 
@@ -119,7 +119,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
           _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
           _memtable_flush_executor(nullptr),
-          _block_manager(nullptr),
           _default_rowset_type(ALPHA_ROWSET),
           _heartbeat_flags(nullptr) {
     if (_s_instance == nullptr) {
@@ -171,19 +170,15 @@ Status StorageEngine::_open() {
 
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
 
-    _index_stream_lru_cache = new_lru_cache(config::index_stream_cache_capacity);
+    _index_stream_lru_cache = new_lru_cache("SegmentIndexCache", config::index_stream_cache_capacity);
 
-    _file_cache.reset(new_lru_cache(config::file_descriptor_cache_capacity));
+    _file_cache.reset(new_lru_cache("FileHandlerCache", config::file_descriptor_cache_capacity));
 
     auto dirs = get_stores<false>();
     load_data_dirs(dirs);
 
     _memtable_flush_executor.reset(new MemTableFlushExecutor());
     _memtable_flush_executor->init(dirs);
-
-    fs::BlockManagerOptions bm_opts;
-    bm_opts.read_only = false;
-    _block_manager.reset(new fs::FileBlockManager(Env::Default(), std::move(bm_opts)));
 
     _parse_default_rowset_type();
 
@@ -493,7 +488,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
 }
 
 void StorageEngine::stop() {
-    // trigger the waitting threads
+    // trigger the waiting threads
     notify_listeners();
 
     std::lock_guard<std::mutex> l(_store_lock);
@@ -638,10 +633,6 @@ void StorageEngine::_perform_base_compaction(TabletSharedPtr best_tablet) {
     best_tablet->set_last_base_compaction_failure_time(0);
 }
 
-void StorageEngine::get_cache_status(rapidjson::Document* document) const {
-    return _index_stream_lru_cache->get_cache_status(document);
-}
-
 OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
     OLAPStatus res = OLAP_SUCCESS;
     LOG(INFO) << "start trash and snapshot sweep.";
@@ -725,7 +716,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
             return true;
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE && (!tablet->rowset_meta_is_useful(rowset_meta))) {
-            LOG(INFO) << "rowset meta is useless any more, remote it. rowset_id=" << rowset_meta->rowset_id();
+            LOG(INFO) << "rowset meta is not used any more, remove it. rowset_id=" << rowset_meta->rowset_id();
             invalid_rowset_metas.push_back(rowset_meta);
         }
         return true;

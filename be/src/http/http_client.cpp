@@ -38,7 +38,7 @@ Status HttpClient::init(const std::string& url) {
     if (_curl == nullptr) {
         _curl = curl_easy_init();
         if (_curl == nullptr) {
-            return Status::InternalError("fail to initalize curl");
+            return Status::InternalError("fail to initialize curl");
         }
     } else {
         curl_easy_reset(_curl);

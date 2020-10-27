@@ -282,6 +282,7 @@ public class SelectStmt extends QueryStmt {
             if (tblRef instanceof InlineViewRef) {
                 // Inline view reference
                 QueryStmt inlineStmt = ((InlineViewRef) tblRef).getViewStmt();
+                inlineStmt.withClause_ = this.withClause_;
                 inlineStmt.getDbs(analyzer, dbs);
             } else {
                 String dbName = tblRef.getName().getDb();

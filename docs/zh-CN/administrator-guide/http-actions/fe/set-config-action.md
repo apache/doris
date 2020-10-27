@@ -32,7 +32,7 @@ under the License.
 
 ## Description
 
-用于动态设置 FE 的参数。该命令等通过 `ADMIN SET FRONTEND CONFIG` 命令。但该命令仅会设置对应 FE 节点的配置。并且不会自动转发 `MasterOnly` 配置项给 Master FE 节点。
+用于动态设置 FE 的参数。该命令等同于通过 `ADMIN SET FRONTEND CONFIG` 命令。但该命令仅会设置对应 FE 节点的配置。并且不会自动转发 `MasterOnly` 配置项给 Master FE 节点。
     
 ## Path parameters
 
@@ -43,6 +43,10 @@ under the License.
 * `confkey1=confvalue1`
 
     指定要设置的配置名称，其值为要修改的配置值。
+    
+* `persist`
+
+    是否要将修改的配置持久化。默认为 false，即不持久化。如果为 true，这修改后的配置项会写入 `fe_custom.conf` 文件中，并在 FE 重启后仍会生效。
 
 ## Request body
 
@@ -86,6 +90,25 @@ under the License.
     			"max_broker_concurrency": "20"
     		},
     		"err": {}
+    	},
+    	"count": 0
+    }
+    ```
+
+2. 设置 `max_bytes_per_broker_scanner` 并持久化
+    ```
+    GET /api/_set_config?max_bytes_per_broker_scanner=21474836480&persist=true
+    
+    Response:
+    {
+    	"msg": "success",
+    	"code": 0,
+    	"data": {
+    		"set": {
+    			"max_bytes_per_broker_scanner": "21474836480"
+    		},
+    		"err": {},
+    		"persist": "ok"
     	},
     	"count": 0
     }

@@ -74,7 +74,7 @@ OLAPStatus OlapSnapshotConverter::to_olap_header(const TabletMetaPB& tablet_meta
             *delete_condition = pdelta->delete_condition();
         }
     }
-    // not add pending delta, it is usedless in clone or backup restore
+    // not add pending delta, it is useless in clone or backup restore
     for (auto& inc_rs_meta : tablet_meta_pb.inc_rs_metas()) {
         PDelta* pdelta = olap_header->add_incremental_delta();
         convert_to_pdelta(inc_rs_meta, pdelta);

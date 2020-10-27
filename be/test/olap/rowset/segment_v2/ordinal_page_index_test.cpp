@@ -25,6 +25,7 @@
 #include "common/logging.h"
 #include "env/env.h"
 #include "olap/fs/fs_util.h"
+#include "olap/page_cache.h"
 #include "util/file_utils.h"
 
 namespace doris {
@@ -61,7 +62,7 @@ TEST_F(OrdinalPageIndexTest, normal) {
     {
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions opts({ filename });
-        ASSERT_TRUE(fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock).ok());
+        ASSERT_TRUE(fs::fs_util::block_manager()->create_block(opts, &wblock).ok());
 
         ASSERT_TRUE(builder.finish(wblock.get(), &index_meta).ok());
         ASSERT_EQ(ORDINAL_INDEX, index_meta.type());
@@ -157,6 +158,7 @@ TEST_F(OrdinalPageIndexTest, one_data_page) {
 }
 
 int main(int argc, char** argv) {
+    doris::StoragePageCache::create_global_cache(1<<30);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

@@ -25,7 +25,7 @@ namespace doris {
 template <class FileType>
 FileCache<FileType>::FileCache(const std::string& cache_name, int max_open_files) :
         _cache_name(cache_name),
-        _cache(new_lru_cache(max_open_files)),
+        _cache(new_lru_cache(std::string("FileBlockManagerCache:") + cache_name, max_open_files)),
         _is_cache_own(true) { }
 
 template <class FileType>

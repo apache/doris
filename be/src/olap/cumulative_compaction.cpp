@@ -44,7 +44,7 @@ OLAPStatus CumulativeCompaction::compact() {
     // 1.calculate cumulative point
     _tablet->calculate_cumulative_point();
     TRACE("calculated cumulative point");
-    LOG(INFO) << "after calculate, current cumulative point is " << _tablet->cumulative_layer_point() 
+    VLOG(1) << "after calculate, current cumulative point is " << _tablet->cumulative_layer_point() 
         << ", tablet=" << _tablet->full_name() ;
 
     // 2. pick rowsets to compact
@@ -77,14 +77,25 @@ OLAPStatus CumulativeCompaction::compact() {
 OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
 
-    _tablet->pick_candicate_rowsets_to_cumulative_compaction(
+    _tablet->pick_candidate_rowsets_to_cumulative_compaction(
             config::cumulative_compaction_skip_window_seconds, &candidate_rowsets);
 
     if (candidate_rowsets.empty()) {
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
-    RETURN_NOT_OK(check_version_continuity(candidate_rowsets));
+    // candidate_rowsets may not be continuous. Because some rowset may not be selected
+    // because the protection time has not expired(config::cumulative_compaction_skip_window_seconds).
+    // So we need to choose the longest continuous path from it.
+    std::vector<Version> missing_versions;
+    RETURN_NOT_OK(find_longest_consecutive_version(&candidate_rowsets, &missing_versions));
+    if (!missing_versions.empty()) {
+        DCHECK(missing_versions.size() == 2);
+        LOG(WARNING) << "There are missed versions among rowsets. "
+            << "prev rowset verison=" << missing_versions[0]
+            << ", next rowset version=" << missing_versions[1]
+            << ", tablet=" << _tablet->full_name();
+    }
 
     size_t compaction_score = 0;
     int transient_size = _tablet->cumulative_compaction_policy()->pick_input_rowsets(
@@ -99,7 +110,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         if (_last_delete_version.first != -1) {
             // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // plus 1 to skip the delete version.
-            // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doen't matter.
+            // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             _tablet->set_cumulative_layer_point(_last_delete_version.first + 1);
             return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
         }
@@ -129,7 +140,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
                     }
                 }
 
-                // all candicate rowsets are non-overlapping, increase the cumulative point
+                // all candidate rowsets are non-overlapping, increase the cumulative point
                 _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version() + 1);
             }
         } else {
@@ -150,4 +161,3 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
 }
 
 }  // namespace doris
-

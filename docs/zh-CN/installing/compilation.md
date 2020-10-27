@@ -109,6 +109,12 @@ under the License.
     
     编译完成后，产出文件在 `output/` 目录中。
 
+## 常见问题
+
+1. `Could not transfer artifact net.sourceforge.czt.dev:cup-maven-plugin:pom:1.6-cdh from/to xxx`
+
+    如遇到上述错误，请参照 [PR #4769](https://github.com/apache/incubator-doris/pull/4769/files) 修改 `fe/pom.xml` 中 cloudera 相关的仓库配置。
+
 ## 特别声明
 
 自 0.13 版本开始，默认的编译产出中将取消对 [1] 和 [2] 两个第三方库的依赖。这两个第三方库为 [GNU General Public License V3](https://www.gnu.org/licenses/gpl-3.0.en.html) 协议。该协议与 [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) 协议不兼容，因此默认不出现在 Apache 发布版本中。

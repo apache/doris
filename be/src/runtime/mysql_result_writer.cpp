@@ -145,7 +145,7 @@ Status MysqlResultWriter::_add_one_row(TupleRow* row) {
 
             if (string_val->ptr == NULL) {
                 if (string_val->len == 0) {
-                    // 0x01 is a magic num, not usefull actually, just for present ""
+                    // 0x01 is a magic num, not useful actually, just for present ""
                     char* tmp_val = reinterpret_cast<char*>(0x01);
                     buf_ret = _row_buffer->push_string(tmp_val, string_val->len);
                 } else {

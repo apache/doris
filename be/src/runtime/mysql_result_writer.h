@@ -29,7 +29,7 @@ class MysqlRowBuffer;
 class BufferControlBlock;
 class RuntimeProfile;
 
-// convert the row batch to mysql protol row
+// convert the row batch to mysql protocol row
 class MysqlResultWriter final : public ResultWriter {
 public:
     MysqlResultWriter(BufferControlBlock* sinker,
@@ -55,7 +55,7 @@ private:
     MysqlRowBuffer* _row_buffer;
 
     RuntimeProfile* _parent_profile; // parent profile from result sink. not owned
-    // total time cost on append batch opertion
+    // total time cost on append batch operation
     RuntimeProfile::Counter* _append_row_batch_timer = nullptr;
     // tuple convert timer, child timer of _append_row_batch_timer
     RuntimeProfile::Counter* _convert_tuple_timer = nullptr;

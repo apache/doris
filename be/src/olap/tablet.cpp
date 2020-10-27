@@ -222,7 +222,7 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
     if (_contains_rowset(rowset->rowset_id())) {
         return OLAP_SUCCESS;
     }
-    // Otherwise, the version shoud be not contained in any existing rowset.
+    // Otherwise, the version should be not contained in any existing rowset.
     RETURN_NOT_OK(_contains_version(rowset->version()));
 
     RETURN_NOT_OK(_tablet_meta->add_rs_meta(rowset->rowset_meta()));
@@ -327,8 +327,10 @@ const RowsetSharedPtr Tablet::rowset_with_max_version() const {
     }
 
     auto iter = _rs_version_map.find(max_version);
-    DCHECK(_rs_version_map.find(max_version) != _rs_version_map.end())
-        << "invalid version:" << max_version;
+    if (iter == _rs_version_map.end()) {
+        DCHECK(false) << "invalid version:" << max_version;
+        return nullptr;
+    }
     return iter->second;
 }
 
@@ -473,18 +475,18 @@ void Tablet::delete_expired_stale_rowset() {
 
             // 2.1 check whether missed_versions and after_missed_versions are the same.
             // when they are the same, it means we can delete the path securely.
-            bool is_missng = missed_versions.size() != after_missed_versions.size();
+            bool is_missing = missed_versions.size() != after_missed_versions.size();
             
-            if (!is_missng) {
+            if (!is_missing) {
                 for (int ver_index = 0; ver_index < missed_versions.size(); ver_index++) {
                     if(missed_versions[ver_index] != after_missed_versions[ver_index]) {
-                        is_missng = true;
+                        is_missing = true;
                         break;
                     }
                 }
             }
 
-            if (is_missng) {
+            if (is_missing) {
                 LOG(WARNING) << "The consistent version check fails, there are bugs. "
                             << "Reconstruct the tracker to recover versions in tablet=" << tablet_id();
 
@@ -497,20 +499,20 @@ void Tablet::delete_expired_stale_rowset() {
                 calc_missed_versions_unlocked(lastest_delta->end_version(), &recover_missed_versions);
 
                 // 4.1 check whether missed_versions and recover_missed_versions are the same.
-                // when they are the same, it means we recover successlly.
-                bool is_recover_missng = missed_versions.size() != recover_missed_versions.size();
+                // when they are the same, it means we recover successfully.
+                bool is_recover_missing = missed_versions.size() != recover_missed_versions.size();
                 
-                if (!is_recover_missng) {
+                if (!is_recover_missing) {
                     for (int ver_index = 0; ver_index < missed_versions.size(); ver_index++) {
                         if(missed_versions[ver_index] != recover_missed_versions[ver_index]) {
-                            is_recover_missng = true;
+                            is_recover_missing = true;
                             break;
                         }
                     }
                 }
 
                 // 5. check recover fail, version is mission
-                if (is_recover_missng) {
+                if (is_recover_missing) {
                     if (!config::ignore_rowset_stale_unconsistent_delete) {
                         LOG(FATAL) << "rowset stale unconsistent delete. tablet= " << tablet_id();
                     } else {
@@ -836,13 +838,13 @@ void Tablet::calc_missed_versions_unlocked(int64_t spec_version,
     }
 }
 
-void Tablet::max_continuous_version_from_begining(Version* version,
+void Tablet::max_continuous_version_from_beginning(Version* version,
                                                   VersionHash* v_hash) {
     ReadLock rdlock(&_meta_lock);
-    _max_continuous_version_from_begining_unlocked(version, v_hash);
+    _max_continuous_version_from_beginning_unlocked(version, v_hash);
 }
 
-void Tablet::_max_continuous_version_from_begining_unlocked(Version* version,
+void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version,
                                                              VersionHash* v_hash) const {
     vector<pair<Version, VersionHash>> existing_versions;
     for (auto& rs : _tablet_meta->all_rs_metas()) {
@@ -1062,13 +1064,13 @@ TabletInfo Tablet::get_tablet_info() const {
     return TabletInfo(tablet_id(), schema_hash(), tablet_uid());
 }
 
-void Tablet::pick_candicate_rowsets_to_cumulative_compaction(
+void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
         int64_t skip_window_sec, std::vector<RowsetSharedPtr>* candidate_rowsets) {
     ReadLock rdlock(&_meta_lock);
-    _cumulative_compaction_policy->pick_candicate_rowsets(skip_window_sec, _rs_version_map, _cumulative_point, candidate_rowsets);
+    _cumulative_compaction_policy->pick_candidate_rowsets(skip_window_sec, _rs_version_map, _cumulative_point, candidate_rowsets);
 }
 
-void Tablet::pick_candicate_rowsets_to_base_compaction(vector<RowsetSharedPtr>* candidate_rowsets) {
+void Tablet::pick_candidate_rowsets_to_base_compaction(vector<RowsetSharedPtr>* candidate_rowsets) {
     ReadLock rdlock(&_meta_lock);
     for (auto& it : _rs_version_map) {
         if (it.first.first < _cumulative_point) {
@@ -1259,7 +1261,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->data_size = _tablet_meta->tablet_footprint();
     Version version = { -1, 0 };
     VersionHash v_hash = 0;
-    _max_continuous_version_from_begining_unlocked(&version, &v_hash);
+    _max_continuous_version_from_beginning_unlocked(&version, &v_hash);
     auto max_rowset = rowset_with_max_version();
     if (max_rowset != nullptr) {
         if (max_rowset->version() != version) {

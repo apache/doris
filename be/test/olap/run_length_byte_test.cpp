@@ -205,7 +205,7 @@ TEST(TestStream, UncompressInStream) {
     }
 }
 
-// the length after compress must be smaller than origal stream, then the compressor will be called. 
+// the length after compress must be smaller than original stream, then the compressor will be called.
 TEST(TestStream, CompressOutStream) {
     // write data
     OutStream *out_stream = 
@@ -255,7 +255,7 @@ TEST(TestStream, CompressOutStream2) {
 
     std::vector<uint64_t> offsets;
     offsets.push_back(0);
-    offsets.push_back(59); // if lzo, this shoudl be 57
+    offsets.push_back(59); // if lzo, this should be 57
     InStream *in_stream = 
             new (std::nothrow) InStream(&inputs, 
                                         offsets, 
@@ -772,7 +772,7 @@ TEST_F(TestRunLengthByte, ReadWriteMultiBytes) {
     
     _writer->flush();
 
-    // the stream contain head, contral byte and four byte literal
+    // the stream contain head, control byte and four byte literal
     ASSERT_EQ(_out_stream->get_stream_length(), sizeof(StreamHead) + 1 + 4);
 
     // read data
@@ -798,7 +798,7 @@ TEST_F(TestRunLengthByte, ReadWriteSameBytes) {
     
     _writer->flush();
 
-    // the stream contain head, contral byte(4-3) and one byte literal
+    // the stream contain head, control byte(4-3) and one byte literal
     ASSERT_EQ(_out_stream->get_stream_length(), sizeof(StreamHead) + 1 + 1);
 
     // read data

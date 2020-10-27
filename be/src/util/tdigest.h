@@ -280,7 +280,7 @@ public:
         VLOG(1) << "cdf value " << x;
         VLOG(1) << "processed size " << _processed.size();
         if (_processed.size() == 0) {
-            // no data to examin_e
+            // no data to examine
             VLOG(1) << "no processed values";
 
             return 0.0;

@@ -30,6 +30,12 @@ under the License.
 
 该文档主要介绍 FE 的相关配置项。
 
+FE 的配置文件 `fe.conf` 通常存放在 FE 部署路径的 `conf/` 目录下。 而在 0.14 版本中会引入另一个配置文件 `fe_custom.conf`。该配置文件用于记录用户在运行是动态配置并持久化的配置项。
+
+FE 进程启动后，会先读取 `fe.conf` 中的配置项，之后再读取 `fe_custom.conf` 中的配置项。`fe_custom.conf` 中的配置项会覆盖 `fe.conf` 中相同的配置项。
+
+`fe_custom.conf` 文件的位置可以在 `fe.conf` 通过 `custom_config_dir` 配置项配置。 
+
 ## 查看配置项
 
 FE 的配置项有两种方式进行查看：
@@ -61,7 +67,7 @@ FE 的配置项有两种方式进行配置：
 
     在 `conf/fe.conf` 文件中添加和设置配置项。`fe.conf` 中的配置项会在 FE 进程启动时被读取。没有在 `fe.conf` 中的配置项将使用默认值。
     
-2. 动态配置
+2. 通过 MySQL 协议动态配置
 
     FE 启动后，可以通过以下命令动态设置配置项。该命令需要管理员权限。
     
@@ -74,6 +80,12 @@ FE 的配置项有两种方式进行配置：
     **通过该方式修改的配置项将在 FE 进程重启后失效。**
     
     更多该命令的帮助，可以通过 `HELP ADMIN SET CONFIG;` 命令查看。
+    
+3. 通过 HTTP 协议动态配置
+
+    具体请参阅 [Set Config Action](../http-actions/fe/set-config-action.md)
+    
+    该方式也可以持久化修改后的配置项。配置项将持久化在 `fe_custom.conf` 文件中，在 FE 重启后仍会生效。
     
 ## 应用举例
 
@@ -207,6 +219,12 @@ FE 的配置项有两种方式进行配置：
 ### `consistency_check_end_time`
 
 ### `consistency_check_start_time`
+
+### `custom_config_dir`
+
+配置 `fe_custom.conf` 文件的位置。默认为 `conf/` 目录下。
+
+在某些部署环境下，`conf/` 目录可能因为系统的版本升级被覆盖掉。这会导致用户在运行是持久化修改的配置项也被覆盖。这时，我们可以将 `fe_custom.conf` 存储在另一个指定的目录中，以防止配置文件被覆盖。
 
 ### `db_used_data_quota_update_interval_secs`
 

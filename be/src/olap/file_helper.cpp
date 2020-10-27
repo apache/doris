@@ -47,7 +47,7 @@ FileHandler::FileHandler() :
     static std::once_flag once_flag;
     #ifdef BE_TEST
         std::call_once(once_flag, [] {
-            _s_fd_cache = new_lru_cache(config::file_descriptor_cache_capacity);
+            _s_fd_cache = new_lru_cache("FileHandlerCacheTest", config::file_descriptor_cache_capacity);
         });
     #else
         // storage engine may not be opened when doris try to read and write 

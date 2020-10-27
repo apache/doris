@@ -282,7 +282,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
         break;
     }
     default:
-        // unknown load type, should not happend
+        // unknown load type, should not happened
         return false;
     }
 

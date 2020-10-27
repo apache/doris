@@ -68,7 +68,7 @@ public class SingleNodePlannerTest {
             }
         };
         SingleNodePlanner singleNodePlanner = new SingleNodePlanner(plannerContext);
-        Deencapsulation.invoke(singleNodePlanner, "materializeBaseTableRefResultForCrossJoinOrCountStar",
+        Deencapsulation.invoke(singleNodePlanner, "materializeSlotForEmptyMaterializedTableRef",
                                baseTableRef, analyzer);
     }
 }

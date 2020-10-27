@@ -28,9 +28,6 @@ namespace fs_util {
 // method for each type(instead of a factory method which require same params)
 BlockManager* block_manager();
 
-// For UnitTest.
-BlockManager* block_mgr_for_ut();
-
 } // namespace fs_util
 } // namespace fs
 } // namespace doris

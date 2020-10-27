@@ -23,6 +23,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
@@ -48,6 +49,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.service.FrontendOptions;
@@ -278,6 +280,8 @@ public class OlapScanNode extends ScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
+
+        filterDeletedRows(analyzer);
         computePartitionInfo();
     }
 
@@ -752,5 +756,16 @@ public class OlapScanNode extends ScanNode {
             expr = expr.getChild(0);
         }
         return expr instanceof SlotRef;
+    }
+
+    private void filterDeletedRows(Analyzer analyzer) throws AnalysisException{
+        if (!Util.showHiddenColumns() && olapTable.hasDeleteSign()) {
+            SlotRef deleteSignSlot = new SlotRef(desc.getAliasAsName(), Column.DELETE_SIGN);
+            deleteSignSlot.analyze(analyzer);
+            deleteSignSlot.getDesc().setIsMaterialized(true);
+            Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
+            conjunct.analyze(analyzer);
+            conjuncts.add(conjunct);
+        }
     }
 }

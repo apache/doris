@@ -147,7 +147,7 @@ Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_l
             return status;
         }
 
-        // we do not re-try simplely, because broker server may already write data
+        // we do not re-try simply, because broker server may already write data
         try {
             client->pwrite(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {

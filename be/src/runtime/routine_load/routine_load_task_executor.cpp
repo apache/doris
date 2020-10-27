@@ -34,7 +34,7 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(routine_load_task_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(routine_load_task_count, MetricUnit::NOUNIT);
 
 RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
     : _exec_env(exec_env),
@@ -140,7 +140,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     if(task.__isset.format) {
         ctx->format = task.format;
     }
-    // the routine load task'txn has alreay began in FE.
+    // the routine load task'txn has already began in FE.
     // so it need to rollback if encounter error.
     ctx->need_rollback = true;
     ctx->max_filter_ratio = 1.0;

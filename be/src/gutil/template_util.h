@@ -103,7 +103,7 @@ template <class T> struct is_const<const T> : true_type {};
 template <class T> struct is_void : false_type {};
 template <> struct is_void<void> : true_type {};
 
-// if_ is a templatized conditional statement.
+// if_ is a templatize conditional statement.
 // if_<cond, A, B> is a compile time evaluation of cond.
 // if_<>::type contains A if cond is true, B otherwise.
 template<bool cond, typename A, typename B>

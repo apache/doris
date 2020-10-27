@@ -24,7 +24,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_union
+# bitmap_union function
+
 ## description
 
 聚合函数，用于计算分组后的 bitmap 并集。常见使用场景如：计算PV，UV。

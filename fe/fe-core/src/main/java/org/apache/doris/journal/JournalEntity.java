@@ -70,6 +70,7 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
@@ -173,6 +174,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_DROP_TABLE: {
                 data = new DropInfo();
                 ((DropInfo) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
+                data = RefreshExternalTableInfo.read(in);
                 isRead = true;
                 break;
             }

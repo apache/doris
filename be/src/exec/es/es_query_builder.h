@@ -90,7 +90,7 @@ private:
     std::string _field;
 };
 
-// no predicates: all doccument match
+// no predicates: all document match
 class MatchAllQueryBuilder : public QueryBuilder {
 
 public:
@@ -109,7 +109,7 @@ private:
     std::string _field;
 };
 
-// proccess bool compound query, and play the role of a bridge for transferring predicates to es native query
+// process bool compound query, and play the role of a bridge for transferring predicates to es native query
 class BooleanQueryBuilder : public QueryBuilder {
 
 public:

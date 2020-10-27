@@ -251,7 +251,7 @@ module.exports = [
               "to_days",
               "unix_timestamp",
               "utc_timestamp",
-              "workofyear",
+              "weekofyear",
               "year",
             ],
           },
@@ -312,7 +312,7 @@ module.exports = [
             directoryPath: "aggregate-functions/",
             children: [
               "avg",
-              "bitmap",
+              "bitmap_union",
               "count",
               "hll_union_agg",
               "max",

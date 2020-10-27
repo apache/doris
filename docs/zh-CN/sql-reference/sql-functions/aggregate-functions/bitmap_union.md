@@ -1,6 +1,6 @@
 ---
 {
-    "title": "BITMAP",
+    "title": "BITMAP_UNION",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# BITMAP
+# BITMAP_UNION
 
 ## Create table
 

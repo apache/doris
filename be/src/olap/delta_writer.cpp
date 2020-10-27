@@ -224,7 +224,7 @@ OLAPStatus DeltaWriter::close() {
         // which means this tablet has no data loaded, but at least one tablet
         // in same partition has data loaded.
         // so we have to also init this DeltaWriter, so that it can create a empty rowset
-        // for this tablet when being closd.
+        // for this tablet when being closed.
         RETURN_NOT_OK(init());
     }
 

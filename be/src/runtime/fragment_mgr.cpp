@@ -52,7 +52,7 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(plan_fragment_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(plan_fragment_count, MetricUnit::NOUNIT);
 
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
@@ -141,7 +141,7 @@ private:
     TUniqueId _query_id;
     // Id of this instance
     TUniqueId _fragment_instance_id;
-    // Used to reoprt to coordinator which backend is over
+    // Used to report to coordinator which backend is over
     int _backend_num;
     ExecEnv* _exec_env;
     TNetworkAddress _coord_addr;
@@ -525,7 +525,7 @@ void FragmentMgr::cancel_worker() {
         }
         for (auto& id : to_delete) {
             cancel(id, PPlanFragmentCancelReason::TIMEOUT);
-            LOG(INFO) << "FragmentMgr cancel worker going to cancel timouet fragment " << print_id(id);
+            LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout fragment " << print_id(id);
         }
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(1)));
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
