@@ -672,7 +672,7 @@ We are pleased to announce the release of Apache Doris 0.9.0-incubating.
 Apache Doris (incubating) is an MPP-based interactive SQL data warehousing for reporting and analysis.
 
 The release is available at:
-http://doris.apache.org/master/zh-CN/downloads/downloads.html
+http://doris.apache.org/master/en/downloads/downloads.html
 
 Thanks to everyone who has contributed to this release, and the release note can be found here:
 https://github.com/apache/incubator-doris/releases
