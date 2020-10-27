@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.base.Predicates;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -221,6 +222,16 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
 
     public void unsetLimit() {
         limit = -1;
+    }
+
+    protected List<TupleId> getAllScanTupleIds() {
+        List<TupleId> tupleIds = Lists.newArrayList();
+        List<ScanNode> scanNodes = Lists.newArrayList();
+        collectAll(Predicates.instanceOf(ScanNode.class), scanNodes);
+        for(ScanNode node: scanNodes) {
+            tupleIds.addAll(node.getTupleIds());
+        }
+        return tupleIds;
     }
 
     public ArrayList<TupleId> getTupleIds() {
