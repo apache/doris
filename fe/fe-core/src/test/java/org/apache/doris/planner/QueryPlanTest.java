@@ -388,19 +388,7 @@ public class QueryPlanTest {
                 "\"driver\" = \"Oracle Driver\",\n" +
                 "\"odbc_type\" = \"mysql\"\n" +
                 ");");
-
-        createTable("create table test.tbl_date (" +
-                "`date` datetime NULL," +
-                "`day` date NULL," +
-                "`site_id` int(11) NULL )" +
-                " ENGINE=OLAP " +
-                "DUPLICATE KEY(`date`, `day`, `site_id`)" +
-                "DISTRIBUTED BY HASH(`site_id`) BUCKETS 10 " +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ");");
+        
         createTable("create table test.tbl_int_date (" +
                 "`date` datetime NULL," +
                 "`day` date NULL," +
