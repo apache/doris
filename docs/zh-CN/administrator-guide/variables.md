@@ -53,7 +53,7 @@ SET forward_to_master = true;
 SET time_zone = "Asia/Shanghai";
 ```
 
-全局生效，通过 `SET GLOBALE var_name=xxx;` 设置。如：
+全局生效，通过 `SET GLOBAL var_name=xxx;` 设置。如：
 
 ```
 SET GLOBAL exec_mem_limit = 137438953472
