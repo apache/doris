@@ -120,13 +120,17 @@ IntVal TimestampFunctions::month(
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     return IntVal(ts_value.month());
 }
+
 IntVal TimestampFunctions::day_of_week(
         FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
-    return IntVal((ts_value.weekday() + 1 ) % 7 + 1);
+    if (ts_value.is_valid_date()) {
+        return IntVal((ts_value.weekday() + 1 ) % 7 + 1);
+    }
+    return IntVal::null();
 }
 
 IntVal TimestampFunctions::day_of_month(
@@ -144,7 +148,10 @@ IntVal TimestampFunctions::day_of_year(
         return IntVal::null();
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
-    return IntVal(ts_value.day_of_year());
+    if (ts_value.is_valid_date()) {
+        return IntVal(ts_value.day_of_year());
+    }
+    return IntVal::null();
 }
 
 IntVal TimestampFunctions::week_of_year(
@@ -153,7 +160,10 @@ IntVal TimestampFunctions::week_of_year(
         return IntVal::null();
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
-    return IntVal(ts_value.week(mysql_week_mode(3)));
+    if (ts_value.is_valid_date()) {
+        return IntVal(ts_value.week(mysql_week_mode(3)));
+    }
+    return IntVal::null();
 }
 
 IntVal TimestampFunctions::hour(
@@ -673,7 +683,10 @@ DoubleVal TimestampFunctions::time_diff(
 
     const DateTimeValue& ts_value1 = DateTimeValue::from_datetime_val(ts_val1);
     const DateTimeValue& ts_value2 = DateTimeValue::from_datetime_val(ts_val2);
-    return DoubleVal(ts_value1.second_diff(ts_value2));
+    if (ts_value1.is_valid_date() && ts_value2.is_valid_date()) {
+        return DoubleVal(ts_value1.second_diff(ts_value2));
+    }
+    return DoubleVal::null();
 }
 
 IntVal TimestampFunctions::date_diff(

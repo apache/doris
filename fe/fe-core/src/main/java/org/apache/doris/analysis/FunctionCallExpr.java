@@ -604,9 +604,8 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (fn.getFunctionName().getFunction().equals("time_diff")) {
+        if (fn.getFunctionName().getFunction().equals("timediff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
-            return;
         }
 
         if (isAggregateFunction()) {
