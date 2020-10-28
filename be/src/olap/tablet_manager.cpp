@@ -1455,11 +1455,14 @@ void TabletManager::_remove_tablet_from_partition(const Tablet& tablet) {
     }
 }
 
-void TabletManager::obtain_all_tablets(vector<TabletInfo> &tablets_info) {
+void TabletManager::obtain_specific_quantity_tablets(vector<TabletInfo> &tablets_info, int64_t num) {
     for (int32 i = 0; i < _tablet_map_lock_shard_size; i++) {
         ReadLock rdlock(&_tablet_map_lock_array[i]);
         for (const auto& item : _tablet_map_array[i]) {
             for (TabletSharedPtr tablet : item.second.table_arr) {
+                if (tablets_info.size() >= num) {
+                    return;
+                }
                 if (tablet == nullptr) {
                     continue;
                 }
