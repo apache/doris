@@ -42,7 +42,7 @@ Replace table `tbl1` with table `tbl2`.
 
 If the `swap` parameter is `true`, after replacement, the data in the table named `tbl1` is the data in the original `tbl2` table. The data in the table named `tbl2` is the data in the original table `tbl1`. That is, the data of the two tables are interchanged.
 
-If the `swap` parameter is `true`, after replacement, the data in the table named `tbl1` is the data in the original `tbl2` table. The table named `tbl2` is dropped.
+If the `swap` parameter is `false`, after replacement, the data in the table named `tbl1` is the data in the original `tbl2` table. The table named `tbl2` is dropped.
 
 ## Principle
 
