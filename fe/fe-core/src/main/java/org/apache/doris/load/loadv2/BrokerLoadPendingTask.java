@@ -27,10 +27,10 @@ import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -79,6 +79,7 @@ public class BrokerLoadPendingTask extends LoadTask {
                 }
                 boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
                 int fileNum = 0;
+                List<TBrokerFileStatus> filteredFileStatuses = Lists.newArrayList();
                 for (TBrokerFileStatus fstatus : fileStatuses) {
                     if (fstatus.getSize() == 0 && isBinaryFileFormat) {
                         // For parquet or orc file, if it is an empty file, ignore it.
@@ -88,14 +89,16 @@ public class BrokerLoadPendingTask extends LoadTask {
                                     .add("empty file", fstatus).build());
                         }
                     } else {
-                        groupFileSize += fstatus.getSize();
+                        groupFileSize += fstatus.size;
                         fileNum++;
+                        filteredFileStatuses.add(fstatus);
                         if (LOG.isDebugEnabled()) {
                             LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
                                     .add("file_status", fstatus).build());
                         }
                     }
                 }
+                fileStatusList.add(filteredFileStatuses);
                 tableTotalFileSize += groupFileSize;
                 tableTotalFileNum += fileNum;
                 LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
