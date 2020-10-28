@@ -507,6 +507,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `push_write_mbytes_per_sec`
 
++ 类型：int32
++ 描述：导入数据速度控制，默认最快每秒10MB。适用于所有的导入方式。
++ 单位：MB
++ 默认值：10
+
 ### `query_scratch_dirs`
 
 ### `read_size`
@@ -565,16 +570,16 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 ### `streaming_load_max_mb`
 
 * 类型：int64
-* 描述：用于限制一次 Stream load 导入中，允许的最大数据量。单位 MB。
+* 描述：用于限制数据格式为 csv 的一次 Stream load 导入中，允许的最大数据量。单位 MB。
 * 默认值： 10240
 * 可动态修改：是
 
 Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大的数据。
 
-### `streaming_load_max_batch_size_mb`
+### `streaming_load_json_max_mb`
 
 * 类型：int64
-* 描述：对于某些数据格式，如 JSON，用于限制一次 Stream load 导入中，允许的最大数据量。单位 MB。
+* 描述：用于限制数据格式为 json 的一次 Stream load 导入中，允许的最大数据量。单位 MB。
 * 默认值： 100
 * 可动态修改：是
 

@@ -512,6 +512,11 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `push_write_mbytes_per_sec`
 
++ Type: int32
++ Description: Load data speed control, the default is 10MB per second. Applicable to all load methods.
++ Unit: MB
++ Default value: 10
+
 ### `query_scratch_dirs`
 
 ### `read_size`
@@ -570,16 +575,16 @@ process will log fatal and exit. When config is false, process will only log war
 ### `streaming_load_max_mb`
 
 * Type: int64
-* Description: Used to limit the maximum amount of data allowed in one Stream load. The unit is MB.
+* Description: Used to limit the maximum amount of csv data allowed in one Stream load. The unit is MB.
 * Default value: 10240
 * Dynamically modify: yes
 
 Stream Load is generally suitable for loading data less than a few GB, not suitable for loading` too large data.
 
-### `streaming_load_max_batch_size_mb`
+### `streaming_load_json_max_mb`
 
 * Type: int64
-* Description: For some data formats, such as JSON, it is used to limit the maximum amount of data allowed in one Stream load. The unit is MB.
+* Description: it is used to limit the maximum amount of json data allowed in one Stream load. The unit is MB.
 * Default value: 100
 * Dynamically modify: yes
 
