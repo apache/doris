@@ -68,6 +68,8 @@ public class RangePartitionPruner implements PartitionPruner {
                 return Lists.newArrayList(rangeMap.subRangeMap(Range.closed(minKey, maxKey)).asMapOfRanges().values());
             } catch (IllegalArgumentException e) {
                 return Lists.newArrayList();
+            } catch (RuntimeException e) {
+                return Lists.newArrayList();
             }
         }
         // no filter in this column
