@@ -35,11 +35,11 @@ import java.util.Map;
  * 1. selectAlternativeTablets: selecting alternative tablets by one rebalance strategy,
  * and return them to tablet scheduler(maybe contains the concrete moves, or maybe not).
  * 2. createBalanceTask: given a tablet, try to create a clone task for this tablet.
- * 3. getCachedSrcBackendId: if the rebalance strategy wants to delete the replica of a specified be,
+ * 3. getSrcBackendId: if the rebalance strategy wants to delete the replica of a specified be,
  * override this func.
  * NOTICE:
  * It may have a long interval between selectAlternativeTablets() & createBalanceTask(). So the concrete moves may be
- * invalid when we createBalanceTask(), you should check the moves' validation.
+ * invalid when we generating a clone task in createBalanceTask(), you should check the moves' validation.
  */
 public abstract class Rebalancer {
     // When Rebalancer init, the statisticMap is usually empty. So it's no need to be an arg.
@@ -70,7 +70,7 @@ public abstract class Rebalancer {
     public abstract void createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots,
                                            AgentBatchTask batchTask) throws SchedException;
 
-    public Long getCachedSrcBackendId(Long tabletId) {
+    public Long getSrcBackendId(Long tabletId) {
         return -1L;
     }
 

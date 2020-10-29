@@ -693,7 +693,8 @@ public class TabletScheduler extends MasterDaemon {
      *  5. replica's last failed version > 0
      *  6. replica with lower version
      *  7. replica not in right cluster
-     *  8. replica in higher load backend
+     *  8. replica is the src replica of a rebalance task, we can try to get it from rebalancer
+     *  9. replica on higher load backend
      */
     private void handleRedundantReplica(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         stat.counterReplicaRedundantErr.incrementAndGet();
@@ -706,7 +707,7 @@ public class TabletScheduler extends MasterDaemon {
                 || deleteReplicaWithLowerVersion(tabletCtx, force)
                 || deleteReplicaOnSameHost(tabletCtx, force)
                 || deleteReplicaNotInCluster(tabletCtx, force)
-                || deleteSrcReplicaOfLB(tabletCtx, force)
+                || deleteReplicaChosenByRebalancer(tabletCtx, force)
                 || deleteReplicaOnHighLoadBackend(tabletCtx, force)) {
             // if we delete at least one redundant replica, we still throw a SchedException with status FINISHED
             // to remove this tablet from the pendingTablets(consider it as finished)
@@ -831,8 +832,8 @@ public class TabletScheduler extends MasterDaemon {
         return false;
     }
 
-    private boolean deleteSrcReplicaOfLB(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
-        Long id = rebalancer.getCachedSrcBackendId(tabletCtx.getTabletId());
+    private boolean deleteReplicaChosenByRebalancer(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
+        Long id = rebalancer.getSrcBackendId(tabletCtx.getTabletId());
         if (id == -1L) {
             return false;
         }
