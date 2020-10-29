@@ -68,7 +68,9 @@ The sequence_type is used to specify the type of the sequence column, which can 
 #### stream load
 
 The syntax of the stream load is to add the mapping of hidden columns corresponding to source_sequence in the 'function_column.sequence_col' field in the header, for example
-`curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/_stream_load`
+```
+curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/_stream_load
+```
 
 #### broker load
 
