@@ -26,9 +26,11 @@
 #include "common/object_pool.h"
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
+class BatchFragmentsCtx;
 class HdfsFsCache;
 class ExecNode;
 class RowDescriptor;
@@ -37,6 +39,7 @@ class DataSink;
 class DataStreamMgr;
 class RuntimeProfile;
 class RuntimeState;
+class TNetworkAddress;
 class TPlanExecRequest;
 class TPlanFragment;
 class TPlanFragmentExecParams;
@@ -91,6 +94,10 @@ public:
     // number of bytes this query can consume at runtime.
     // The query will be aborted (MEM_LIMIT_EXCEEDED) if it goes over that limit.
     Status prepare(const TExecPlanFragmentParams& request);
+
+    Status prepare(
+            const TExecPlanFragmentParams& request,
+            const BatchFragmentsCtx* batch_ctx);
 
     // Start execution. Call this prior to get_next().
     // If this fragment has a sink, open() will send all rows produced
@@ -268,6 +275,39 @@ private:
 
     void collect_query_statistics();
 
+};
+
+// Save the common components of a batch of fragments
+class BatchFragmentsCtx {
+    
+public:
+    BatchFragmentsCtx() {}
+
+    // Return true if _fragment_ids is empty
+    bool remove_fragment_id(const TUniqueId& fragment_id) {
+        std::lock_guard<SpinLock> l(_lock);
+        _fragment_ids.erase(fragment_id);
+        return _fragment_ids.empty();
+    }
+
+    void add_fragment_id(const TUniqueId& fragment_id) {
+        // No need to lock, because only one thread will call this
+        _fragment_ids.insert(fragment_id);
+    }
+
+public:
+    TUniqueId query_id;
+    DescriptorTbl* desc_tbl;
+    bool set_rsc_info = false;
+    std::string user;
+    std::string group;
+    TNetworkAddress coord_addr;
+    TQueryGlobals query_globals;
+    ObjectPool obj_pool;
+
+private:
+    SpinLock _lock; // lock to protect _fragment_ids
+    std::unordered_set<TUniqueId> _fragment_ids;
 };
 
 }

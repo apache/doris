@@ -68,6 +68,165 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
     DCHECK(!_report_thread_active);
 }
 
+Status PlanFragmentExecutor::prepare(
+        const TExecPlanFragmentParams& request,
+        const BatchFragmentsCtx* batch_ctx) {
+    const TPlanFragmentExecParams& params = request.params;
+    _query_id = params.query_id;
+
+    LOG(INFO) << "Prepare(): query_id=" << print_id(_query_id)
+               << " fragment_instance_id=" << print_id(params.fragment_instance_id)
+               << " backend_num=" << request.backend_num;
+    // VLOG(2) << "request:\n" << apache::thrift::ThriftDebugString(request);
+
+    _runtime_state.reset(new RuntimeState(
+            params, request.query_options, batch_ctx->query_globals, _exec_env));
+
+    RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
+    _runtime_state->set_be_number(request.backend_num);
+    if (request.__isset.import_label) {
+        _runtime_state->set_import_label(request.import_label);
+    }
+    if (request.__isset.db_name) {
+        _runtime_state->set_db_name(request.db_name);
+    }
+    if (request.__isset.load_job_id) {
+        _runtime_state->set_load_job_id(request.load_job_id);
+    }
+    if (request.__isset.load_error_hub_info) {
+        _runtime_state->set_load_error_hub_info(request.load_error_hub_info);
+    }
+
+    if (request.query_options.__isset.is_report_success) {
+        _is_report_success = request.query_options.is_report_success;
+    }
+
+    // Reserve one main thread from the pool
+    _runtime_state->resource_pool()->acquire_thread_token();
+    _has_thread_token = true;
+
+    _average_thread_tokens = profile()->add_sampling_counter(
+            "AverageThreadTokens",
+            boost::bind<int64_t>(boost::mem_fn(
+                    &ThreadResourceMgr::ResourcePool::num_threads),
+                    _runtime_state->resource_pool()));
+
+    // if (_exec_env->process_mem_tracker() != NULL) {
+    //     // we have a global limit
+    //     _runtime_state->mem_trackers()->push_back(_exec_env->process_mem_tracker());
+    // }
+
+    int64_t bytes_limit = request.query_options.mem_limit;
+    if (bytes_limit <= 0) {
+        // sometimes the request does not set the query mem limit, we use default one.
+        // TODO(cmy): we should not allow request without query mem limit.
+        bytes_limit = 2 * 1024 * 1024 * 1024L;
+    }
+
+    if (bytes_limit > _exec_env->process_mem_tracker()->limit()) {
+        LOG(WARNING) << "Query memory limit "
+            << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
+            << " exceeds process memory limit of "
+            << PrettyPrinter::print(_exec_env->process_mem_tracker()->limit(), TUnit::BYTES)
+            << ". Using process memory limit instead";
+        bytes_limit = _exec_env->process_mem_tracker()->limit();
+    }
+    // NOTE: this MemTracker only for olap
+    _mem_tracker = MemTracker::CreateTracker(bytes_limit, "fragment mem-limit", _exec_env->process_mem_tracker());
+    _runtime_state->set_fragment_mem_tracker(_mem_tracker);
+
+    LOG(INFO) << "Using query memory limit: "
+        << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
+
+    RETURN_IF_ERROR(_runtime_state->create_block_mgr());
+
+    // set up desc tbl
+    _runtime_state->set_desc_tbl(batch_ctx->desc_tbl);
+
+    // set up plan
+    DCHECK(request.__isset.fragment);
+    RETURN_IF_ERROR(
+            ExecNode::create_tree(_runtime_state.get(), obj_pool(), request.fragment.plan, *(batch_ctx->desc_tbl), &_plan));
+    _runtime_state->set_fragment_root_id(_plan->id());
+
+    if (params.__isset.debug_node_id) {
+        DCHECK(params.__isset.debug_action);
+        DCHECK(params.__isset.debug_phase);
+        ExecNode::set_debug_options(
+            params.debug_node_id, params.debug_phase,
+            params.debug_action, _plan);
+    }
+
+    // set #senders of exchange nodes before calling Prepare()
+    std::vector<ExecNode*> exch_nodes;
+    _plan->collect_nodes(TPlanNodeType::EXCHANGE_NODE, &exch_nodes);
+    BOOST_FOREACH(ExecNode * exch_node, exch_nodes) {
+        DCHECK_EQ(exch_node->type(), TPlanNodeType::EXCHANGE_NODE);
+        int num_senders = find_with_default(params.per_exch_num_senders, exch_node->id(), 0);
+        DCHECK_GT(num_senders, 0);
+        static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
+    }
+ 
+    RETURN_IF_ERROR(_plan->prepare(_runtime_state.get()));
+    // set scan ranges
+    std::vector<ExecNode*> scan_nodes;
+    std::vector<TScanRangeParams> no_scan_ranges;
+    _plan->collect_scan_nodes(&scan_nodes);
+    VLOG(1) << "scan_nodes.size()=" << scan_nodes.size();
+    VLOG(1) << "params.per_node_scan_ranges.size()=" << params.per_node_scan_ranges.size();
+
+    _plan->try_do_aggregate_serde_improve();
+
+    for (int i = 0; i < scan_nodes.size(); ++i) {
+        ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
+        const std::vector<TScanRangeParams>& scan_ranges =
+            find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
+        scan_node->set_scan_ranges(scan_ranges);
+        VLOG(1) << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
+    }
+
+    _runtime_state->set_per_fragment_instance_idx(params.sender_id);
+    _runtime_state->set_num_per_fragment_instances(params.num_senders);
+
+    // set up sink, if required
+    if (request.fragment.__isset.output_sink) {
+        RETURN_IF_ERROR(DataSink::create_data_sink(obj_pool(),
+                        request.fragment.output_sink, request.fragment.output_exprs, params,
+                        row_desc(), &_sink));
+        RETURN_IF_ERROR(_sink->prepare(runtime_state()));
+
+        RuntimeProfile* sink_profile = _sink->profile();
+
+        if (sink_profile != NULL) {
+            profile()->add_child(sink_profile, true, NULL);
+        }
+
+        _collect_query_statistics_with_every_batch = params.__isset.send_query_statistics_with_every_batch ?
+            params.send_query_statistics_with_every_batch : false;
+    } else {
+        // _sink is set to NULL
+        _sink.reset(NULL);
+    }
+
+    // set up profile counters
+    profile()->add_child(_plan->runtime_profile(), true, NULL);
+    _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
+
+    _row_batch.reset(new RowBatch(
+            _plan->row_desc(),
+            _runtime_state->batch_size(),
+            _runtime_state->instance_mem_tracker().get()));
+    // _row_batch->tuple_data_pool()->set_limits(*_runtime_state->mem_trackers());
+    VLOG(3) << "plan_root=\n" << _plan->debug_string();
+    _prepared = true;
+
+    _query_statistics.reset(new QueryStatistics());
+    if (_sink.get() != NULL) {
+        _sink->set_query_statistics(_query_statistics);
+    }
+    return Status::OK();
+}
+
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     const TPlanFragmentExecParams& params = request.params;
     _query_id = params.query_id;
@@ -167,7 +326,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         DCHECK_GT(num_senders, 0);
         static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
     }
-
  
     RETURN_IF_ERROR(_plan->prepare(_runtime_state.get()));
     // set scan ranges

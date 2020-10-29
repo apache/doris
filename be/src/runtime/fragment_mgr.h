@@ -38,12 +38,14 @@
 
 namespace doris {
 
+class BatchFragmentsCtx;
 class ExecEnv;
 class FragmentExecState;
-class TExecPlanFragmentParams;
-class TUniqueId;
 class PlanFragmentExecutor;
 class ThreadPool;
+class TExecPlanFragmentParams;
+class TExecPlanFragmentParamsList;
+class TUniqueId;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
@@ -78,9 +80,25 @@ public:
     // execute external query, all query info are packed in TScanOpenParams
     Status exec_external_plan_fragment(const TScanOpenParams& params, const TUniqueId& fragment_instance_id, std::vector<TScanColumnDesc>* selected_columns);
 
+    Status batch_exec_plan_fragments(const TExecPlanFragmentParamsList& t_requests);
+
 private:
     void exec_actual(std::shared_ptr<FragmentExecState> exec_state,
                      FinishCallback cb);
+
+    void _exec_actual_v2(
+        std::shared_ptr<FragmentExecState> exec_state,
+        std::shared_ptr<BatchFragmentsCtx> batchCtx,
+        FinishCallback cb);
+
+    Status _submit_plan_fragment(const TExecPlanFragmentParams& param,
+            std::shared_ptr<BatchFragmentsCtx> batch_state,
+            FinishCallback cb);
+
+    Status _prepare_batch_ctx(const TExecPlanFragmentParamsList& t_requests, std::shared_ptr<BatchFragmentsCtx> batch_ctx);
+
+    // Clean the BatchFragmentsCtx and FragmentExecState from _batch_ctx_map and _fragment_map if error happens
+    void _clean_ctx(const TExecPlanFragmentParamsList& t_requests);
 
     // This is input params
     ExecEnv* _exec_env;
@@ -89,6 +107,8 @@ private:
 
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
+    // query id -> BatchFragmentsCtx
+    std::unordered_map<TUniqueId, std::shared_ptr<BatchFragmentsCtx>> _batch_ctx_map;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _cancel_thread;
