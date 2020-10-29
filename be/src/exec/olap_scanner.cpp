@@ -34,11 +34,6 @@
 
 namespace doris {
 
-static const std::string SCANNER_THREAD_TOTAL_WALLCLOCK_TIME =
-    "ScannerThreadsTotalWallClockTime";
-static const std::string MATERIALIZE_TUPLE_TIMER =
-    "MaterializeTupleTime(*)";
-
 OlapScanner::OlapScanner(
         RuntimeState* runtime_state,
         OlapScanNode* parent,
