@@ -88,43 +88,44 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 void OlapScanNode::_init_counter(RuntimeState* state) {
-    ADD_TIMER(_runtime_profile, "ShowHintsTime");
+    ADD_TIMER(_scanner_profile, "ShowHintsTime_V1");
 
-    _reader_init_timer = ADD_TIMER(_runtime_profile, "ReaderInitTime");
-    _read_compressed_counter = ADD_COUNTER(_runtime_profile, "CompressedBytesRead", TUnit::BYTES);
-    _read_uncompressed_counter = ADD_COUNTER(_runtime_profile, "UncompressedBytesRead", TUnit::BYTES);
-    _block_load_timer = ADD_TIMER(_runtime_profile, "BlockLoadTime");
-    _block_load_counter = ADD_COUNTER(_runtime_profile, "BlocksLoad", TUnit::UNIT);
-    _block_fetch_timer = ADD_TIMER(_runtime_profile, "BlockFetchTime");
-    _raw_rows_counter = ADD_COUNTER(_runtime_profile, "RawRowsRead", TUnit::UNIT);
-    _block_convert_timer = ADD_TIMER(_runtime_profile, "BlockConvertTime");
-    _block_seek_timer = ADD_TIMER(_runtime_profile, "BlockSeekTime");
-    _block_seek_counter = ADD_COUNTER(_runtime_profile, "BlockSeekCount", TUnit::UNIT);
+    _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
+    _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
+    _read_uncompressed_counter = ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
+    _block_load_timer = ADD_TIMER(_segment_profile, "BlockLoadTime");
+    _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
+    _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
+    _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
+    _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
+    _block_seek_timer = ADD_TIMER(_segment_profile, "BlockSeekTime");
+    _block_seek_counter = ADD_COUNTER(_segment_profile, "BlockSeekCount", TUnit::UNIT);
 
-    _rows_vec_cond_counter = ADD_COUNTER(_runtime_profile, "RowsVectorPredFiltered", TUnit::UNIT);
-    _vec_cond_timer = ADD_TIMER(_runtime_profile, "VectorPredEvalTime");
+    _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
+    _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
 
-    _stats_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsStatsFiltered", TUnit::UNIT);
-    _bf_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
-    _del_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsDelFiltered", TUnit::UNIT);
-    _key_range_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsKeyRangeFiltered", TUnit::UNIT);
+    _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
+    _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
+    _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
+    _conditions_filtered_counter = ADD_COUNTER(_segment_profile, "RowsConditionsFiltered", TUnit::UNIT);
+    _key_range_filtered_counter = ADD_COUNTER(_segment_profile, "RowsKeyRangeFiltered", TUnit::UNIT);
 
-    _io_timer = ADD_TIMER(_runtime_profile, "IOTimer");
-    _decompressor_timer = ADD_TIMER(_runtime_profile, "DecompressorTimer");
-    _index_load_timer = ADD_TIMER(_runtime_profile, "IndexLoadTime");
+    _io_timer = ADD_TIMER(_segment_profile, "IOTimer");
+    _decompressor_timer = ADD_TIMER(_segment_profile, "DecompressorTimer");
+    _index_load_timer = ADD_TIMER(_segment_profile, "IndexLoadTime_V1");
 
-    _scan_timer = ADD_TIMER(_runtime_profile, "ScanTime");
+    _scan_timer = ADD_TIMER(_scanner_profile, "ScanTime");
 
-    _total_pages_num_counter = ADD_COUNTER(_runtime_profile, "TotalPagesNum", TUnit::UNIT);
-    _cached_pages_num_counter = ADD_COUNTER(_runtime_profile, "CachedPagesNum", TUnit::UNIT);
+    _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
+    _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);
 
-    _bitmap_index_filter_counter = ADD_COUNTER(_runtime_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
-    _bitmap_index_filter_timer = ADD_TIMER(_runtime_profile, "BitmapIndexFilterTimer");
+    _bitmap_index_filter_counter = ADD_COUNTER(_segment_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
+    _bitmap_index_filter_timer = ADD_TIMER(_segment_profile, "BitmapIndexFilterTimer");
 
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
 
-    _filtered_segment_counter = ADD_COUNTER(_runtime_profile, "NumSegmentFiltered", TUnit::UNIT);
-    _total_segment_counter = ADD_COUNTER(_runtime_profile, "NumSegmentTotal", TUnit::UNIT);
+    _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
+    _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
@@ -134,7 +135,7 @@ Status OlapScanNode::prepare(RuntimeState* state) {
     _tablet_counter =
         ADD_COUNTER(runtime_profile(), "TabletCount ", TUnit::UNIT);
     _rows_pushed_cond_filtered_counter =
-        ADD_COUNTER(_runtime_profile, "RowsPushedCondFiltered", TUnit::UNIT);
+        ADD_COUNTER(_scanner_profile, "RowsPushedCondFiltered", TUnit::UNIT);
     _init_counter(state);
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == NULL) {
@@ -567,7 +568,7 @@ static Status get_hints(
         return Status::InternalError(ss.str());
     }
 
-    RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime");
+    RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime_V1");
     std::vector<std::vector<OlapTuple>> ranges;
     bool have_valid_range = false;
     for (auto& key_range : scan_key_range) {
