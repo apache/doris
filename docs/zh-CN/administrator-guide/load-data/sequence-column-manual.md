@@ -130,7 +130,9 @@ PROPERTIES
 
 ## 使用示例
 下面以stream load 为例 展示下使用方式
-1. 创建支持sequence column的表，表结构如下：
+1. 创建支持sequence column的表
+
+表结构如下：
 ```
 MySQL > desc test_table;
 +-------------+--------------+------+-------+---------+---------+
@@ -145,6 +147,7 @@ MySQL > desc test_table;
 ```
 
 2. 正常导入数据：
+
 导入如下数据
 ```
 1       2020-02-22      1       2020-02-22      a
@@ -170,6 +173,7 @@ MySQL > select * from test_table;
 在这次导入中，因sequence column的值（也就是modify_date中的值）中'2020-03-05'为最大值，所以keyword列中最终保留了c。
 
 3. 替换顺序的保证
+
 上述步骤完成后，接着导入如下数据
 ```
 1       2020-02-22      1       2020-02-22      a

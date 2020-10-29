@@ -130,7 +130,9 @@ If you want to determine if a table supports sequence column, you can set the se
 
 ## Usage example
 Let's take the stream Load as an example to show how to use it
-1. Create a table that supports sequence column. The table structure is shown below
+1. Create a table that supports sequence column. 
+
+The table structure is shown below
 ```
 MySQL > desc test_table;
 +-------------+--------------+------+-------+---------+---------+
@@ -145,6 +147,7 @@ MySQL > desc test_table;
 ```
 
 2. Import data normally：
+
 Import the following data
 ```
 1       2020-02-22      1       2020-02-22      a
@@ -170,6 +173,7 @@ MySQL > select * from test_table;
 In this import, the c is eventually retained in the keyword column because the value of the sequence column (the value in modify_date) is the maximum value: '2020-03-05'.
 
 3. Guarantee of substitution order
+
 After the above steps are completed, import the following data
 ```
 1       2020-02-22      1       2020-02-22      a
