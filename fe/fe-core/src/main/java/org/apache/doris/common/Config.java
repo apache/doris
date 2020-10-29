@@ -1293,4 +1293,12 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String http_api_extra_base_path = "";
+
+    /*
+     * Used to enable the batch fragment execution feature.
+     * This is to avoid some error when using this new feature.
+     * Should be removed later.
+     */
+    @ConfField
+    public static boolean enable_batch_fragment_execution = true;
 }

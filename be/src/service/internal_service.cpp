@@ -90,6 +90,21 @@ void PInternalServiceImpl<T>::exec_plan_fragment(
 }
 
 template<typename T>
+void PInternalServiceImpl<T>::batch_exec_plan_fragments(
+        google::protobuf::RpcController* cntl_base,
+        const PExecPlanFragmentRequest* request,
+        PExecPlanFragmentResult* response,
+        google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+    auto st = _batch_exec_plan_fragments(cntl);
+    if (!st.ok()) {
+        LOG(WARNING) << "exec plan fragment failed, errmsg=" << st.get_error_msg();
+    }
+    st.to_protobuf(response->mutable_status());
+}
+
+template<typename T>
 void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcController* controller,
                                                       const PTabletWriterAddBatchRequest* request,
                                                       PTabletWriterAddBatchResult* response,
@@ -151,6 +166,20 @@ Status PInternalServiceImpl<T>::_exec_plan_fragment(brpc::Controller* cntl) {
     LOG(INFO) << "exec plan fragment, fragment_instance_id=" << print_id(t_request.params.fragment_instance_id)
         << ", coord=" << t_request.coord << ", backend=" << t_request.backend_num;
     return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
+}
+
+template<typename T>
+Status PInternalServiceImpl<T>::_batch_exec_plan_fragments(brpc::Controller* cntl) {
+    auto ser_request = cntl->request_attachment().to_string();
+    TExecPlanFragmentParamsList t_requests;
+    {
+        const uint8_t* buf = (const uint8_t*)ser_request.data();
+        uint32_t len = ser_request.size();
+        RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_requests));
+    }
+
+    RETURN_IF_ERROR(_exec_env->fragment_mgr()->batch_exec_plan_fragments(t_requests));
+    return Status::OK();
 }
 
 template<typename T>
