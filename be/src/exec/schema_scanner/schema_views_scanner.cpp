@@ -135,7 +135,7 @@ Status SchemaViewsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         void *slot = tuple->get_slot(_tuple_desc->slots()[5]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         // This is from views in mysql
-        const std::string is_updatable = "YES";
+        const std::string is_updatable = "NO";
         str_slot->len = is_updatable.length();
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
         if (NULL == str_slot->ptr) {
@@ -171,7 +171,16 @@ Status SchemaViewsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     }
     // character_set_client
     {
-        tuple->set_null(_tuple_desc->slots()[8]->null_indicator_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        // This is from views in mysql
+        const std::string encoding = "utf8";
+        str_slot->len = encoding.length();
+        str_slot->ptr = (char *)pool->allocate(str_slot->len);
+        if (NULL == str_slot->ptr) {
+            return Status::InternalError("Allocate memcpy failed.");
+        }
+        memcpy(str_slot->ptr, encoding.c_str(), str_slot->len);
     }
     // collation_connection
     {
