@@ -100,7 +100,7 @@ PROPERTIES (
 ---|---
 **hosts** | 外表数据库的IP地址
 **driver** | ODBC外表的Driver名，该名字需要和be/conf/odbcinst.ini中的Driver名一致。
-**odbc_type** | 外表数据库的类型，当前支持oracle与mysql
+**odbc_type** | 外表数据库的类型，当前支持oracle, mysql, postgresql
 **user** | 外表数据库的用户名
 **password** | 对应用户的密码信息
 
@@ -137,9 +137,9 @@ select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
 
 ## 类型匹配
 
-各个数据之间数据类型存在不同，这里列出了各个数据库中的类型和Doris之中数据类型匹配的情况。
+各个数据库之间数据类型存在不同，这里列出了各个数据库中的类型和Doris之中数据类型匹配的情况。
 
-### MySQL类型
+### MySQL
 
 |  MySQL  | Doris  |             替换方案              |
 | :------: | :----: | :-------------------------------: |
@@ -156,7 +156,23 @@ select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
 |   DATETIME  | DATETIME |  |
 |   DECIMAL  | DECIMAL |  |
 
-### Oracle类型                          
+### PostgreSQL
+
+|  PostgreSQL  | Doris  |             替换方案              |
+| :------: | :----: | :-------------------------------: |
+|  BOOLEAN  | BOOLEAN  |                         |
+|   CHAR   |  CHAR  |            当前仅支持UTF8编码            |
+| VARCHAR | VARCHAR |       当前仅支持UTF8编码       |
+|   DATE   |  DATE  |                                   |
+|  REAL   |  FLOAT  |                                   |
+|   SMALLINT  | SMALLINT |  |
+|   INT  | INT |  |
+|   BIGINT  | BIGINT |  |
+|   DOUBLE  | DOUBLE |  |
+|   TIMESTAMP  | DATETIME |  |
+|   DECIMAL  | DECIMAL |  |
+
+### Oracle                        
 
 |  Oracle  | Doris  |             替换方案              |
 | :------: | :----: | :-------------------------------: |
@@ -179,9 +195,9 @@ select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
 
     在接入ODBC外表之后，原先的访问MySQL外表的方式将被逐渐弃用。如果之前没有使用过MySQL外表，建议新接入的MySQL表直接使用ODBC的MySQL外表。
     
-2. 除了MySQL和Oracle，是否能够支持更多的数据库
+2. 除了MySQL,Oracle,PostgreSQL, 是否能够支持更多的数据库
 
-    目前Doris只适配了MySQL和Oracle，关于其他的数据库的适配工作正在规划之中，原则上来说任何支持ODBC访问的数据库都能通过ODBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+    目前Doris只适配了MySQL,Oracle,PostgreSQL，关于其他的数据库的适配工作正在规划之中，原则上来说任何支持ODBC访问的数据库都能通过ODBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 3. 什么场合适合通过外表访问
 
