@@ -555,6 +555,8 @@ public class MaterializedViewHandler extends AlterHandler {
                         throw new DdlException("Rollup should contains all keys if there is a REPLACE value");
                     }
                 }
+                // add hidden column to rollup table
+
                 if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasDeleteSign()) {
                     rollupSchema.add(new Column(olapTable.getDeleteSignColumn()));
                 }
