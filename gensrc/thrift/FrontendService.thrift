@@ -302,6 +302,7 @@ struct TGetTablesParams {
   3: optional string user   // deprecated
   4: optional string user_ip    // deprecated
   5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
+  6: optional string type
 }
 
 struct TTableStatus {
@@ -311,6 +312,7 @@ struct TTableStatus {
     4: optional string engine
     5: optional i64 last_check_time
     6: optional i64 create_time
+    7: optional string ddl_sql
 }
 
 struct TListTableStatusResult {
