@@ -66,7 +66,9 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
         _last_cumu_compaction_success_millis(0),
         _last_base_compaction_success_millis(0),
         _cumulative_point(K_INVALID_CUMULATIVE_POINT),
-        _cumulative_compaction_type(cumulative_compaction_type) {
+        _cumulative_compaction_type(cumulative_compaction_type),
+        _last_record_scan_count(0),
+        _last_record_scan_count_timestamp(time(nullptr)) {
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
@@ -1309,6 +1311,18 @@ void Tablet::generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_m
     TabletMetaPB tablet_meta_pb;
     _tablet_meta->to_meta_pb(&tablet_meta_pb);
     new_tablet_meta->init_from_pb(tablet_meta_pb);
+}
+
+double Tablet::calculate_scan_frequency() {
+    time_t now = time(nullptr);
+    int64_t current_count = query_scan_count->value();
+    double interval = difftime(now, _last_record_scan_count_timestamp);
+    double scan_frequency = (current_count - _last_record_scan_count) * 60 / interval;
+    if (interval >= config::tablet_scan_frequency_time_node_interval_second) {
+        _last_record_scan_count = current_count;
+        _last_record_scan_count_timestamp = now;
+    }
+    return scan_frequency;
 }
 
 }  // namespace doris
