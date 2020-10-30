@@ -35,7 +35,7 @@ import java.util.Map;
  * 1. selectAlternativeTablets: selecting alternative tablets by one rebalance strategy,
  * and return them to tablet scheduler(maybe contains the concrete moves, or maybe not).
  * 2. createBalanceTask: given a tablet, try to create a clone task for this tablet.
- * 3. getSrcBackendId: if the rebalance strategy wants to delete the replica of a specified be,
+ * 3. getSrcReplicaId: if the rebalance strategy wants to delete the src replica,
  * override this func.
  * NOTICE:
  * It may have a long interval between selectAlternativeTablets() & createBalanceTask(). So the concrete moves may be
@@ -70,7 +70,7 @@ public abstract class Rebalancer {
     public abstract void createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots,
                                            AgentBatchTask batchTask) throws SchedException;
 
-    public Long getSrcBackendId(Long tabletId) {
+    public Long getSrcReplicaId(Long tabletId) {
         return -1L;
     }
 
