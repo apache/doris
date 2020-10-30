@@ -98,6 +98,7 @@ struct OlapTablePartition {
     Tuple* end_key = nullptr;
     int64_t num_buckets = 0;
     std::vector<OlapTableIndexTablets> indexes;
+    std::map<int64_t, int32_t> index_id_to_num_buckets;
 
     std::string debug_string(TupleDescriptor* tuple_desc) const;
 };
@@ -153,6 +154,12 @@ public:
                      const OlapTablePartition** partitions,
                      uint32_t* dist_hash) const;
 
+    // return true if we found this tuple in partition
+    bool find_partition(Tuple* tuple,
+                     const OlapTablePartition** partitions) const;
+
+    uint32_t compute_index_dist_hash(Tuple* key, int64_t index_id) const;
+
     const std::vector<OlapTablePartition*>& get_partitions() const {
         return _partitions;
     }
@@ -187,6 +194,7 @@ private:
     std::vector<OlapTablePartition*> _partitions;
     std::unique_ptr<
         std::map<Tuple*, OlapTablePartition*, OlapTablePartKeyComparator>> _partitions_map;
+    std::unique_ptr<std::map<int64_t, std::vector<SlotDescriptor*>>> _index_id_to_distribute_map;
 };
 
 using TabletLocation = TTabletLocation;

@@ -647,8 +647,7 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
             continue;
         }
         const OlapTablePartition* partition = nullptr;
-        uint32_t dist_hash = 0;
-        if (!_partition->find_tablet(tuple, &partition, &dist_hash)) {
+        if (!_partition->find_partition(tuple, &partition)) {
             std::stringstream ss;
             ss << "no partition for this tuple. tuple="
                << Tuple::to_string(tuple, *_output_tuple_desc);
@@ -661,8 +660,14 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
             continue;
         }
         _partition_ids.emplace(partition->id);
-        uint32_t tablet_index = dist_hash % partition->num_buckets;
         for (int j = 0; j < partition->indexes.size(); ++j) {
+            uint32_t dist_hash = _partition->compute_index_dist_hash(tuple, partition->indexes[j].index_id);
+            uint64_t index_num_buckets = partition->num_buckets;
+            auto iter = partition->index_id_to_num_buckets.find(partition->indexes[j].index_id);
+            if (iter != partition->index_id_to_num_buckets.end()) {
+                index_num_buckets = iter->second;
+            }
+            uint32_t tablet_index = dist_hash % index_num_buckets;
             int64_t tablet_id = partition->indexes[j].tablets[tablet_index];
             RETURN_IF_ERROR(_channels[j]->add_row(tuple, tablet_id));
             _number_output_rows++;

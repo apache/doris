@@ -133,6 +133,9 @@ struct TOlapTablePartition {
 
     6: optional list<Exprs.TExprNode> start_keys
     7: optional list<Exprs.TExprNode> end_keys
+
+    // key = rollup index id, value = bucket num
+    8: optional map<i64, i32> bucket_num_map
 }
 
 struct TOlapTablePartitionParam {
@@ -151,6 +154,9 @@ struct TOlapTablePartitionParam {
     6: required list<TOlapTablePartition> partitions
 
     7: optional list<string> partition_columns
+
+    // key = rollup index id, value = distributed column name
+    8: optional map<i64, list<string>> distributed_columns_map
 }
 
 struct TOlapTableIndexSchema {

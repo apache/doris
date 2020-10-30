@@ -1241,30 +1241,34 @@ public class SchemaChangeHandler extends AlterHandler {
             }
 
             // 4. check distribution key:
-            DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-            if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                List<Column> distributionColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
-                for (Column distributionCol : distributionColumns) {
-                    boolean found = false;
-                    for (Column alterColumn : alterSchema) {
-                        if (alterColumn.nameEquals(distributionCol.getName(), true)) {
-                            // 3.1 distribution column cannot be modified
-                            if (!alterColumn.equals(distributionCol)) {
-                                throw new DdlException("Can not modify distribution column["
-                                        + distributionCol.getName() + "]. index["
-                                        + olapTable.getIndexNameById(alterIndexId) + "]");
+            List<DistributionInfo> distributionInfoList = new ArrayList<>();
+            distributionInfoList.addAll(olapTable.getIndexIdToDistributionInfo().values());
+            distributionInfoList.add(olapTable.getDefaultDistributionInfo());
+            for (DistributionInfo distributionInfo : distributionInfoList) {
+                if (distributionInfo.getType() == DistributionInfoType.HASH) {
+                    List<Column> distributionColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+                    for (Column distributionCol : distributionColumns) {
+                        boolean found = false;
+                        for (Column alterColumn : alterSchema) {
+                            if (alterColumn.nameEquals(distributionCol.getName(), true)) {
+                                // 3.1 distribution column cannot be modified
+                                if (!alterColumn.equals(distributionCol)) {
+                                    throw new DdlException("Can not modify distribution column["
+                                            + distributionCol.getName() + "]. index["
+                                            + olapTable.getIndexNameById(alterIndexId) + "]");
+                                }
+                                found = true;
+                                break;
                             }
-                            found = true;
-                            break;
-                        }
-                    } // end for alterColumns
+                        } // end for alterColumns
 
-                    if (!found && alterIndexId == olapTable.getBaseIndexId()) {
-                        // 2.2 distribution column cannot be deleted.
-                        throw new DdlException("Distribution column[" + distributionCol.getName()
-                                + "] cannot be dropped. index[" + olapTable.getIndexNameById(alterIndexId) + "]");
-                    }
-                } // end for distributionCols
+                        if (!found && alterIndexId == olapTable.getBaseIndexId()) {
+                            // 2.2 distribution column cannot be deleted.
+                            throw new DdlException("Distribution column[" + distributionCol.getName()
+                                    + "] cannot be dropped. index[" + olapTable.getIndexNameById(alterIndexId) + "]");
+                        }
+                    } // end for distributionCols
+                }
             }
 
             // 5. calc short key
@@ -1603,6 +1607,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 // And because there should be only one colocate property modification clause in stmt,
                 // so just return after finished handling.
                 if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
+                    if (olapTable.getIndexIdToDistributionInfo().size() != 0) {
+                        throw new DdlException("Currently not support set colocate properties for a table which has been specified rollup's distribution");
+                    }
                     String colocateGroup = properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
                     Catalog.getCurrentCatalog().modifyTableColocate(db, olapTable, colocateGroup, false, null);
                     return;
@@ -1616,6 +1623,9 @@ public class SchemaChangeHandler extends AlterHandler {
                     sendClearAlterTask(db, olapTable);
                     return;
                 } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+                    if (olapTable.getIndexIdToDistributionInfo().size() != 0) {
+                        throw new DdlException("Currently not support dynamic partition for a table which has been specified rollup's distribution");
+                    }
                     if (!olapTable.dynamicPartitionExists()) {
                         try {
                             DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo());
@@ -1747,6 +1757,11 @@ public class SchemaChangeHandler extends AlterHandler {
         boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
         if (isInMemory == olapTable.isInMemory()) {
             return;
+        }
+
+        boolean isSetColocateJoinProperty = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH));
+        if (isSetColocateJoinProperty && olapTable.getIndexIdToDistributionInfo().size() != 0) {
+            throw new DdlException("Currently not support specify rollup's distributed key for colocate join table");
         }
 
         for(Partition partition: partitions) {

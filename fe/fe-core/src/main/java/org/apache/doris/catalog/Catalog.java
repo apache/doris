@@ -3107,9 +3107,13 @@ public class Catalog {
     public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
         SingleRangePartitionDesc singlePartitionDesc = addPartitionClause.getSingeRangePartitionDesc();
         DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
+
+        Map<String, DistributionDesc> indexIdToDistributionDesc = addPartitionClause.getIndexNameToDistributionDesc();
+
         boolean isTempPartition = addPartitionClause.isTempPartition();
 
         DistributionInfo distributionInfo = null;
+        Map<Long, DistributionInfo> indexIdToDistributionInfo = null;
         OlapTable olapTable = null;
 
         Map<Long, MaterializedIndexMeta> indexIdToMeta;
@@ -3193,6 +3197,55 @@ public class Catalog {
                 distributionInfo = defaultDistributionInfo;
             }
 
+            // user specify rollup index's distribution
+            if (indexIdToDistributionDesc != null) {
+                if (olapTable.getColocateGroup() != null) {
+                    throw new DdlException("Currently not support specify rollup's distributed key for colocate join table");
+                }
+                Map<Long, DistributionInfo> originIndexIdToDistributionInfo = olapTable.getIndexIdToDistributionInfo();
+                if (originIndexIdToDistributionInfo.size() != 0) {
+                    for (Map.Entry<String, DistributionDesc> entry : indexIdToDistributionDesc.entrySet()) {
+                        String inputIndexName = entry.getKey();
+                        Long indexId = olapTable.getIndexIdByName(inputIndexName);
+                        if (indexId == null) {
+                            throw new DdlException("Cannot find rollup name:" + inputIndexName);
+                        }
+                        DistributionInfo originDistributionInfo = originIndexIdToDistributionInfo.get(indexId);
+                        // for now. we only support modify distribution's bucket num
+                        if (originDistributionInfo == null) {
+                            throw new DdlException("Cannot found current rollup " + inputIndexName + " in olap table's rollup distribution info");
+                        }
+                        DistributionInfo inputDistributionInfo = entry.getValue().toDistributionInfo(baseSchema);
+                        if (originDistributionInfo.getType() != inputDistributionInfo.getType()) {
+                            throw new DdlException("Cannot assign different distribution type for rollup " + inputIndexName + ". default is: "
+                                    + defaultDistributionInfo.getType());
+                        }
+                        if (inputDistributionInfo.getType() == DistributionInfoType.HASH) {
+                            HashDistributionInfo inputHashDistributionInfo = (HashDistributionInfo) inputDistributionInfo;
+                            List<Column> newDistributionCols = inputHashDistributionInfo.getDistributionColumns();
+                            List<Column> originDistributionCols = ((HashDistributionInfo)originDistributionInfo).getDistributionColumns();
+                            if (!newDistributionCols.equals(originDistributionCols)) {
+                                throw new DdlException("Cannot assign hash distribution with different distribution cols for rollup " + inputIndexName + ". "
+                                        + "default is: " + originDistributionCols);
+                            }
+                            if (inputHashDistributionInfo.getBucketNum() <= 0) {
+                                throw new DdlException("Cannot assign hash distribution buckets less than 1");
+                            }
+                        }
+                        if (indexIdToDistributionInfo == null) {
+                            indexIdToDistributionInfo = new HashMap<>();
+                            // new partition will keep all rollup distribution info copied from olap table
+                            for (Map.Entry<Long, DistributionInfo> distributionInfoEntry : olapTable.getIndexIdToDistributionInfo().entrySet()) {
+                                indexIdToDistributionInfo.put(distributionInfoEntry.getKey(), distributionInfoEntry.getValue());
+                            }
+                        }
+                        indexIdToDistributionInfo.put(indexId, inputDistributionInfo);
+                    }
+                }
+            } else {
+                indexIdToDistributionInfo = olapTable.getIndexIdToDistributionInfo();
+            }
+
             // check colocation
             if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
                 String fullGroupName = db.getId() + "_" + olapTable.getColocateGroup();
@@ -3234,8 +3287,8 @@ public class Catalog {
                     tabletIdSet, olapTable.getCopiedIndexes(),
                     singlePartitionDesc.isInMemory(),
                     olapTable.getStorageFormat(),
-                    singlePartitionDesc.getTabletType()
-                    );
+                    singlePartitionDesc.getTabletType(),
+                    indexIdToDistributionInfo);
 
             // check again
             db.writeLock();
@@ -3447,7 +3500,7 @@ public class Catalog {
     private Partition createPartitionWithIndices(String clusterName, long dbId, long tableId,
                                                  long baseIndexId, long partitionId, String partitionName,
                                                  Map<Long, MaterializedIndexMeta> indexIdToMeta,
-                                                 DistributionInfo distributionInfo,
+                                                 DistributionInfo defaultDistributionInfo,
                                                  TStorageMedium storageMedium,
                                                  short replicationNum,
                                                  Pair<Long, Long> versionInfo,
@@ -3457,13 +3510,14 @@ public class Catalog {
                                                  List<Index> indexes,
                                                  boolean isInMemory,
                                                  TStorageFormat storageFormat,
-                                                 TTabletType tabletType) throws DdlException {
+                                                 TTabletType tabletType,
+                                                 Map<Long, DistributionInfo> indexIdToDistributionInfoMap) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
 
         // create partition with base index
-        Partition partition = new Partition(partitionId, partitionName, baseIndex, distributionInfo);
+        Partition partition = new Partition(partitionId, partitionName, baseIndex, defaultDistributionInfo);
 
         // add to index map
         Map<Long, MaterializedIndex> indexMap = new HashMap<Long, MaterializedIndex>();
@@ -3494,7 +3548,12 @@ public class Catalog {
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
             TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, storageMedium);
-            createTablets(clusterName, index, ReplicaState.NORMAL, distributionInfo, version, versionHash,
+            DistributionInfo currentIndexDistributionInfo = indexIdToDistributionInfoMap == null ? null : indexIdToDistributionInfoMap.get(indexId);
+            // user not specify rollup's distribution, so use default
+            if (currentIndexDistributionInfo == null) {
+                currentIndexDistributionInfo = defaultDistributionInfo;
+            }
+            createTablets(clusterName, index, ReplicaState.NORMAL, currentIndexDistributionInfo, version, versionHash,
                     replicationNum, tabletMeta, tabletIdSet);
 
             boolean ok = false;
@@ -3567,6 +3626,9 @@ public class Catalog {
                 partition.createRollupIndex(index);
             }
         } // end for indexMap
+        if (indexIdToDistributionInfoMap != null && indexIdToDistributionInfoMap.size() > 0) {
+            partition.setIndexIdToDistributionInfo(indexIdToDistributionInfoMap);
+        }
         return partition;
     }
 
@@ -3612,6 +3674,13 @@ public class Catalog {
         DistributionDesc distributionDesc = stmt.getDistributionDesc();
         Preconditions.checkNotNull(distributionDesc);
         DistributionInfo distributionInfo = distributionDesc.toDistributionInfo(baseSchema);
+        Map<String, DistributionInfo> indexNameToDistributionInfo = new HashMap<>();
+        for (Map.Entry<String, DistributionDesc> entry : stmt.getIndexNameToDistributionDesc().entrySet()) {
+            indexNameToDistributionInfo.put(entry.getKey(), entry.getValue().toDistributionInfo(baseSchema));
+        }
+        if (indexNameToDistributionInfo.size() > 0 && DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(stmt.getProperties())) {
+            throw new DdlException("Currently not support dynamic partition for a table which has been specified rollup's distribution");
+        }
 
         // calc short key column count
         short shortKeyColumnCount = Catalog.calcShortKeyColumnCount(baseSchema, stmt.getProperties());
@@ -3702,6 +3771,9 @@ public class Catalog {
         try {
             String colocateGroup = PropertyAnalyzer.analyzeColocate(properties);
             if (colocateGroup != null) {
+                if (indexNameToDistributionInfo.size() != 0) {
+                    throw new DdlException("Currently not support specify rollup's distributed key for colocate join table");
+                }
                 if (Config.disable_colocate_join) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_FEATURE_DISABLED);
                 }
@@ -3758,6 +3830,10 @@ public class Catalog {
             short rollupShortKeyColumnCount = Catalog.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
             int rollupSchemaHash = Util.schemaHash(schemaVersion, rollupColumns, bfColumns, bfFpp);
             long rollupIndexId = getCurrentCatalog().getNextId();
+            DistributionInfo rollupDistributionInfo = indexNameToDistributionInfo.get(addRollupClause.getRollupName());
+            if (rollupDistributionInfo != null) {
+                olapTable.getIndexIdToDistributionInfo().put(rollupIndexId, rollupDistributionInfo);
+            }
             olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
                     rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
         }
@@ -3812,7 +3888,7 @@ public class Catalog {
                         partitionInfo.getReplicationNum(partitionId),
                         versionInfo, bfColumns, bfFpp,
                         tabletIdSet, olapTable.getCopiedIndexes(),
-                        isInMemory, storageFormat, tabletType);
+                        isInMemory, storageFormat, tabletType, olapTable.getIndexIdToDistributionInfo());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE) {
                 try {
@@ -3841,7 +3917,7 @@ public class Catalog {
                             versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(),
                             isInMemory, storageFormat,
-                            rangePartitionInfo.getTabletType(entry.getValue()));
+                            rangePartitionInfo.getTabletType(entry.getValue()), olapTable.getIndexIdToDistributionInfo());
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -6417,7 +6493,8 @@ public class Catalog {
                         copiedTbl.getCopiedIndexes(),
                         copiedTbl.isInMemory(),
                         copiedTbl.getStorageFormat(),
-                        copiedTbl.getPartitionInfo().getTabletType(oldPartitionId));
+                        copiedTbl.getPartitionInfo().getTabletType(oldPartitionId),
+                        copiedTbl.getIndexIdToDistributionInfo());
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {

@@ -38,6 +38,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -103,6 +104,9 @@ public class Partition extends MetaObject implements Writable {
     @SerializedName(value = "distributionInfo")
     private DistributionInfo distributionInfo;
 
+    @SerializedName(value = "indexIdToDistributionInfo")
+    private Map<Long, DistributionInfo> indexIdToDistributionInfo = new HashMap<>();
+
     private Partition() {
     }
 
@@ -143,6 +147,14 @@ public class Partition extends MetaObject implements Writable {
 
     public void setState(PartitionState state) {
         this.state = state;
+    }
+
+    public Map<Long, DistributionInfo> getIndexIdToDistributionInfo() {
+        return indexIdToDistributionInfo;
+    }
+
+    public void setIndexIdToDistributionInfo(Map<Long, DistributionInfo> indexIdToDistributionInfo) {
+        this.indexIdToDistributionInfo = indexIdToDistributionInfo;
     }
 
     /*
@@ -375,6 +387,13 @@ public class Partition extends MetaObject implements Writable {
 
         Text.writeString(out, distributionInfo.getType().name());
         distributionInfo.write(out);
+
+        out.writeInt(indexIdToDistributionInfo.size());
+        for (Map.Entry<Long, DistributionInfo> distributionInfoEntry : indexIdToDistributionInfo.entrySet()) {
+            out.writeLong(distributionInfoEntry.getKey());
+            Text.writeString(out, distributionInfoEntry.getValue().getType().name());
+            distributionInfoEntry.getValue().write(out);
+        }
     }
 
     @Override
@@ -432,6 +451,22 @@ public class Partition extends MetaObject implements Writable {
         } else {
             throw new IOException("invalid distribution type: " + distriType);
         }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_93) {
+            int indexDistributionCount = in.readInt();
+            for (int i = 0; i < indexDistributionCount; i++) {
+                Long indexId = in.readLong();
+                DistributionInfoType indexDistributionType = DistributionInfoType.valueOf(Text.readString(in));
+                if (indexDistributionType == DistributionInfoType.HASH) {
+                    indexIdToDistributionInfo.put(indexId, HashDistributionInfo.read(in));
+                } else if (distriType == DistributionInfoType.RANDOM) {
+                    indexIdToDistributionInfo.put(indexId, RandomDistributionInfo.read(in));
+                } else {
+                    throw new IOException("invalid distribution type: " + distriType);
+                }
+            }
+        }
+
     }
 
     @Override

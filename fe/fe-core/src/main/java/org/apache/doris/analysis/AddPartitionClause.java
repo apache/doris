@@ -27,6 +27,7 @@ public class AddPartitionClause extends AlterTableClause {
 
     private SingleRangePartitionDesc partitionDesc;
     private DistributionDesc distributionDesc;
+    private Map<String, DistributionDesc> indexNameToDistributionDesc;
     private Map<String, String> properties;
     // true if this is to add a temporary partition
     private boolean isTempPartition;
@@ -39,6 +40,10 @@ public class AddPartitionClause extends AlterTableClause {
         return distributionDesc;
     }
 
+    public Map<String, DistributionDesc> getIndexNameToDistributionDesc() {
+        return indexNameToDistributionDesc;
+    }
+
     public boolean isTempPartition() {
         return isTempPartition;
     }
@@ -47,6 +52,14 @@ public class AddPartitionClause extends AlterTableClause {
                               DistributionDesc distributionDesc,
                               Map<String, String> properties,
                               boolean isTempPartition) {
+        this(partitionDesc, distributionDesc, properties, isTempPartition, null);
+    }
+
+    public AddPartitionClause(SingleRangePartitionDesc partitionDesc,
+                              DistributionDesc distributionDesc,
+                              Map<String, String> properties,
+                              boolean isTempPartition,
+                              Map<String, DistributionDesc> indexNameToDistributionDesc) {
         super(AlterOpType.ADD_PARTITION);
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
@@ -54,6 +67,7 @@ public class AddPartitionClause extends AlterTableClause {
         this.isTempPartition = isTempPartition;
 
         this.needTableStable = false;
+        this.indexNameToDistributionDesc = indexNameToDistributionDesc;
     }
 
     @Override

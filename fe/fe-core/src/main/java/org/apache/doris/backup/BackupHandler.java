@@ -292,6 +292,9 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 if (olapTbl.existTempPartitions()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Do not support backup table with temp partitions");
                 }
+                if (olapTbl.getIndexIdToDistributionInfo().size() != 0) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Do not support backup table with user specified rollup distribution");
+                }
                 
                 PartitionNames partitionNames = tblRef.getPartitionNames();
                 if (partitionNames != null) {

@@ -412,6 +412,8 @@ nonterminal Integer opt_distribution_number;
 nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
 
+nonterminal Map<String, DistributionDesc> rollup_distribution_map, opt_rollup_distribution_map;
+
 nonterminal PartitionKeyDesc partition_key_desc;
 nonterminal PartitionKeyDesc fixed_partition_key_desc;
 nonterminal List<PartitionValue> partition_key_list;
@@ -805,9 +807,9 @@ opt_user ::=
     ;
 
 add_rollup_clause ::=
-    ident:rollupName LPAREN ident_list:cols RPAREN opt_dup_keys:dup_keys opt_from_rollup:baseRollup opt_properties:properties
+    ident:rollupName LPAREN ident_list:cols RPAREN opt_dup_keys:dup_keys opt_from_rollup:baseRollup opt_properties:properties opt_distribution:distribution
     {:
-        RESULT = new AddRollupClause(rollupName, cols, dup_keys, baseRollup, properties);
+        RESULT = new AddRollupClause(rollupName, cols, dup_keys, baseRollup, properties, distribution);
     :}
     ;
 
@@ -902,6 +904,27 @@ opt_dup_keys ::=
     :}
     ;
 
+rollup_distribution_map ::=
+    ident:rollup_name opt_distribution:distribution
+    {:
+        RESULT = Maps.newHashMap();
+        RESULT.put(rollup_name, distribution);
+    :}
+    |rollup_distribution_map:map COMMA ident:rollup_name opt_distribution:distribution
+    {:
+        map.put(rollup_name, distribution);
+        RESULT = map;
+    :};
+
+opt_rollup_distribution_map ::=
+    {:
+        RESULT = null;
+    :}
+    | KW_ROLLUP LPAREN rollup_distribution_map:map RPAREN
+    {:
+        RESULT = map;
+    :};
+
 alter_table_clause ::=
     KW_ADD KW_COLUMN column_definition:col opt_col_pos:col_pos opt_to_rollup:rollup opt_properties:properties
     {:
@@ -927,9 +950,9 @@ alter_table_clause ::=
     {:
         RESULT = new ModifyTablePropertiesClause(properties);
     :}
-    | KW_ADD opt_tmp:isTempPartition single_range_partition_desc:desc opt_distribution:distribution opt_properties:properties
+    | KW_ADD opt_tmp:isTempPartition single_range_partition_desc:desc opt_distribution:distribution opt_properties:properties opt_rollup_distribution_map:rollup_distribution_map
     {:
-        RESULT = new AddPartitionClause(desc, distribution, properties, isTempPartition);
+        RESULT = new AddPartitionClause(desc, distribution, properties, isTempPartition, rollup_distribution_map);
     :}
     | KW_DROP opt_tmp:isTempPartition KW_PARTITION opt_if_exists:ifExists ident:partitionName opt_force:force
     {:

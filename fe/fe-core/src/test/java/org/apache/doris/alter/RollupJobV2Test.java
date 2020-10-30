@@ -123,11 +123,11 @@ public class RollupJobV2Test {
         slaveTransMgr.setEditLog(slaveCatalog.getEditLog());
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         clause = new AddRollupClause(CatalogTestUtil.testRollupIndex2, Lists.newArrayList("k1", "v"), null,
-                CatalogTestUtil.testIndex1, null);
+                CatalogTestUtil.testIndex1, null, null);
         clause.analyze(analyzer);
 
         clause2 = new AddRollupClause(CatalogTestUtil.testRollupIndex3, Lists.newArrayList("k1", "v"), null,
-                CatalogTestUtil.testIndex1, null);
+                CatalogTestUtil.testIndex1, null, null);
         clause2.analyze(analyzer);
 
         FeConstants.runningUnitTest = true;

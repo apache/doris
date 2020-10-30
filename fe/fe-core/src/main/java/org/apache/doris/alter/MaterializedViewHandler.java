@@ -1147,6 +1147,10 @@ public class MaterializedViewHandler extends AlterHandler {
             throw new DdlException("Can not alter table when there are temp partitions in table");
         }
 
+        if (olapTable.getIndexIdToDistributionInfo().size() != 0) {
+            throw new DdlException("Currently not support add rollup for a table which has been specified rollup's distribution");
+        }
+
         Optional<AlterClause> alterClauseOptional = alterClauses.stream().findAny();
         if (alterClauseOptional.isPresent()) {
             if (alterClauseOptional.get() instanceof AddRollupClause) {

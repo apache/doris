@@ -66,6 +66,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -235,12 +236,21 @@ public class OlapTableSink extends DataSink {
                         }
                     }
 
+                    Map<Long, Integer> indexIdToBucketNumMap = new HashMap<>();
+                    Map<Long, List<String>> indexIdToDistributionMap = new HashMap<>();
                     for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                                 index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
                         tPartition.setNumBuckets(index.getTablets().size());
+                        DistributionInfo indexDistributionInfo = partition.getIndexIdToDistributionInfo().get(index.getId());
+                        if (indexDistributionInfo != null) {
+                            indexIdToBucketNumMap.put(index.getId(), index.getTablets().size());
+                            indexIdToDistributionMap.put(index.getId(), getDistColumns(indexDistributionInfo, table));
+                        }
                     }
+                    tPartition.setBucketNumMap(indexIdToBucketNumMap);
                     partitionParam.addToPartitions(tPartition);
+                    partitionParam.setDistributedColumnsMap(indexIdToDistributionMap);
 
                     DistributionInfo distInfo = partition.getDistributionInfo();
                     if (selectedDistInfo == null) {
@@ -264,15 +274,25 @@ public class OlapTableSink extends DataSink {
 
                 TOlapTablePartition tPartition = new TOlapTablePartition();
                 tPartition.setId(partition.getId());
+
+                Map<Long, Integer> indexIdToBucketNumMap = new HashMap<>();
+                Map<Long, List<String>> indexIdToDistributionMap = new HashMap<>();
                 // No lowerBound and upperBound for this range
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                             index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
                     tPartition.setNumBuckets(index.getTablets().size());
+                    DistributionInfo indexDistributionInfo = partition.getIndexIdToDistributionInfo().get(index.getId());
+                    if (indexDistributionInfo != null) {
+                        indexIdToBucketNumMap.put(index.getId(), index.getTablets().size());
+                        indexIdToDistributionMap.put(index.getId(), getDistColumns(indexDistributionInfo, table));
+                    }
                 }
+                tPartition.setBucketNumMap(indexIdToBucketNumMap);
                 partitionParam.addToPartitions(tPartition);
                 partitionParam.setDistributedColumns(
                         getDistColumns(partition.getDistributionInfo(), table));
+                partitionParam.setDistributedColumnsMap(indexIdToDistributionMap);
                 break;
             }
             default: {

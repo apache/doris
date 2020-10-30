@@ -196,6 +196,9 @@ Status OlapTablePartitionParam::init() {
             _distributed_slot_descs.emplace_back(it->second);
         }
     }
+    // currently doris not support modify distribution column, all partition and rollup has the same distribution column
+    // so we just need to init once
+    bool has_init_rollup_distribution = false;
     // initial partitions
     for (int i = 0; i < _t_param.partitions.size(); ++i) {
         const TOlapTablePartition& t_part = _t_param.partitions[i];
@@ -218,6 +221,7 @@ Status OlapTablePartitionParam::init() {
         }
 
         part->num_buckets = t_part.num_buckets;
+        part->index_id_to_num_buckets = t_part.bucket_num_map;
         auto num_indexes = _schema->indexes().size();
         if (t_part.indexes.size() != num_indexes) {
             std::stringstream ss;
@@ -232,6 +236,9 @@ Status OlapTablePartitionParam::init() {
                     return lhs.index_id < rhs.index_id;
                   });
         // check index
+        std::map<int64_t, std::vector<SlotDescriptor*>>* index_id_to_distribution =
+                has_init_rollup_distribution ? nullptr : new std::map<int64_t, std::vector<SlotDescriptor*>>();
+
         for (int j = 0; j < num_indexes; ++j) {
             if (part->indexes[j].index_id != _schema->indexes()[j]->index_id) {
                 std::stringstream ss;
@@ -240,6 +247,28 @@ Status OlapTablePartitionParam::init() {
                     << ", schema_index=" << _schema->indexes()[j]->index_id;
                 return Status::InternalError(ss.str());
             }
+            if (!has_init_rollup_distribution && _t_param.__isset.distributed_columns_map) {
+                vector<SlotDescriptor*>* rollup_distribution_columns = _obj_pool.add(new std::vector<SlotDescriptor*>());
+                auto iter = _t_param.distributed_columns_map.find(part->indexes[j].index_id);
+                if (iter != _t_param.distributed_columns_map.end()) {
+                    for (auto& col_name : iter->second) {
+                        auto slot_iter = slots_map.find(col_name);
+                        if (slot_iter == slots_map.end()) {
+                            std::stringstream ss;
+                            ss << "distributed column not found in rollup " << part->indexes[j].index_id << ", columns=" << col_name;
+                            return Status::InternalError(ss.str());
+                        }
+                        rollup_distribution_columns->emplace_back(slot_iter->second);
+                    }
+                }
+                if (rollup_distribution_columns->size() > 0) {
+                    index_id_to_distribution->emplace(part->indexes[j].index_id, *rollup_distribution_columns);
+                }
+            }
+        }
+        if (!has_init_rollup_distribution) {
+            _index_id_to_distribute_map.reset(index_id_to_distribution);
+            has_init_rollup_distribution = true;
         }
         _partitions.emplace_back(part);
         _partitions_map->emplace(part->end_key, part);
@@ -257,6 +286,19 @@ bool OlapTablePartitionParam::find_tablet(Tuple* tuple,
     if (_part_contains(it->second, tuple)) {
         *partition = it->second;
         *dist_hashes = _compute_dist_hash(tuple);
+        return true;
+    }
+    return false;
+}
+
+bool OlapTablePartitionParam::find_partition(Tuple* tuple,
+                                            const OlapTablePartition** partition) const {
+    auto it = _partitions_map->upper_bound(tuple);
+    if (it == _partitions_map->end()) {
+        return false;
+    }
+    if (_part_contains(it->second, tuple)) {
+        *partition = it->second;
         return true;
     }
     return false;
@@ -358,4 +400,28 @@ uint32_t OlapTablePartitionParam::_compute_dist_hash(Tuple* key) const {
     return hash_val;
 }
 
+uint32_t OlapTablePartitionParam::compute_index_dist_hash(Tuple* key, int64_t index_id) const {
+    uint32_t hash_val = 0;
+    auto iter = _index_id_to_distribute_map->find(index_id);
+    auto rollup_distributed_slot_descs = _distributed_slot_descs;
+
+    if (iter != _index_id_to_distribute_map->end()) {
+        rollup_distributed_slot_descs = iter->second;
+    }
+    for (auto slot_desc : rollup_distributed_slot_descs) {
+        void* slot = nullptr;
+        if (!key->is_null(slot_desc->null_indicator_offset())) {
+            slot = key->get_slot(slot_desc->tuple_offset());
+        }
+        if (slot != nullptr) {
+            hash_val = RawValue::zlib_crc32(slot, slot_desc->type(), hash_val);
+        } else {
+            //NULL is treat as 0 when hash
+            static const int INT_VALUE = 0;
+            static const TypeDescriptor INT_TYPE(TYPE_INT);
+            hash_val = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_val);
+            }
+        }
+        return hash_val;
+    }
 }

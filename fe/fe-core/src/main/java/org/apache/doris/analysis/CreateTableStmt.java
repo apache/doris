@@ -47,6 +47,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -67,6 +68,7 @@ public class CreateTableStmt extends DdlStmt {
     private KeysDesc keysDesc;
     private PartitionDesc partitionDesc;
     private DistributionDesc distributionDesc;
+    private Map<String, DistributionDesc> indexNameToDistributionDesc;
     private Map<String, String> properties;
     private Map<String, String> extProperties;
     private String engineName;
@@ -165,6 +167,14 @@ public class CreateTableStmt extends DdlStmt {
 
         this.tableSignature = -1;
         this.rollupAlterClauseList = rollupAlterClauseList == null ? new ArrayList<>() : rollupAlterClauseList;
+
+        this.indexNameToDistributionDesc = new HashMap<>();
+        for (AlterClause alterClause : rollupAlterClauseList) {
+            AddRollupClause addRollupClause = (AddRollupClause) alterClause;
+            if (addRollupClause.getDistributionDesc() != null) {
+                this.indexNameToDistributionDesc.put(addRollupClause.getRollupName(), addRollupClause.getDistributionDesc());
+            }
+        }
     }
 
     public void addColumnDef(ColumnDef columnDef) { columnDefs.add(columnDef); }
@@ -239,6 +249,14 @@ public class CreateTableStmt extends DdlStmt {
 
     public List<Index> getIndexes() {
         return indexes;
+    }
+
+    public Map<String, DistributionDesc> getIndexNameToDistributionDesc() {
+        return indexNameToDistributionDesc;
+    }
+
+    public void setIndexNameToDistributionDesc(Map<String, DistributionDesc> indexNameToDistributionDesc) {
+        this.indexNameToDistributionDesc = indexNameToDistributionDesc;
     }
 
     @Override

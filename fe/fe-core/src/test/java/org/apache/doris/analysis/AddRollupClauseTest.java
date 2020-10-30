@@ -36,7 +36,7 @@ public class AddRollupClauseTest {
     @Test
     public void testNormal() throws AnalysisException {
         AddRollupClause clause = new AddRollupClause("testRollup", Lists.newArrayList("col1", "col2"),
-                                                     null, "baseRollup", null);
+                                                     null, "baseRollup", null, null);
         clause.analyze(analyzer);
         Assert.assertEquals("ADD ROLLUP `testRollup` (`col1`, `col2`) FROM `baseRollup`", clause.toString());
         Assert.assertEquals("baseRollup", clause.getBaseRollupName());
@@ -44,11 +44,11 @@ public class AddRollupClauseTest {
         Assert.assertEquals("[col1, col2]", clause.getColumnNames().toString());
         Assert.assertNull(clause.getProperties());
 
-        clause = new AddRollupClause("testRollup", Lists.newArrayList("col1", "col2"), null, null, null);
+        clause = new AddRollupClause("testRollup", Lists.newArrayList("col1", "col2"), null, null, null, null);
         clause.analyze(analyzer);
         Assert.assertEquals("ADD ROLLUP `testRollup` (`col1`, `col2`)", clause.toString());
 
-        clause = new AddRollupClause("testRollup", Lists.newArrayList("col1", "col2"), null, null, null);
+        clause = new AddRollupClause("testRollup", Lists.newArrayList("col1", "col2"), null, null, null, null);
         clause.analyze(analyzer);
         Assert.assertEquals("ADD ROLLUP `testRollup` (`col1`, `col2`)",
                 clause.toString());
@@ -56,14 +56,14 @@ public class AddRollupClauseTest {
 
     @Test(expected = AnalysisException.class)
     public void testNoRollup() throws AnalysisException {
-        AddRollupClause clause = new AddRollupClause("", Lists.newArrayList("col1", "col2"), null, null, null);
+        AddRollupClause clause = new AddRollupClause("", Lists.newArrayList("col1", "col2"), null, null, null, null);
         clause.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
     public void testNoCol() throws AnalysisException {
-        AddRollupClause clause = new AddRollupClause("testRollup", null, null, null, null);
+        AddRollupClause clause = new AddRollupClause("testRollup", null, null, null, null, null);
         clause.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
@@ -71,14 +71,14 @@ public class AddRollupClauseTest {
     @Test(expected = AnalysisException.class)
     public void testDupCol() throws AnalysisException {
         AddRollupClause clause = new AddRollupClause("testRollup", 
-                                        Lists.newArrayList("col1", "col1"), null, null, null);
+                                        Lists.newArrayList("col1", "col1"), null, null, null, null);
         clause.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
     public void testInvalidCol() throws AnalysisException {
-        AddRollupClause clause = new AddRollupClause("testRollup", Lists.newArrayList("", "col1"), null, null, null);
+        AddRollupClause clause = new AddRollupClause("testRollup", Lists.newArrayList("", "col1"), null, null, null, null);
         clause.analyze(analyzer);
         Assert.fail("No exception throws.");
     }

@@ -39,6 +39,7 @@ public class AddRollupClause extends AlterTableClause {
     private List<String> columnNames;
     private String baseRollupName;
     private List<String> dupKeys;
+    private DistributionDesc distributionDesc;
 
     private Map<String, String> properties;
 
@@ -60,13 +61,19 @@ public class AddRollupClause extends AlterTableClause {
 
     public AddRollupClause(String rollupName, List<String> columnNames,
                            List<String> dupKeys, String baseRollupName,
-                           Map<String, String> properties) {
+                           Map<String, String> properties,
+                           DistributionDesc distributionDesc) {
         super(AlterOpType.ADD_ROLLUP);
         this.rollupName = rollupName;
         this.columnNames = columnNames;
         this.dupKeys = dupKeys;
         this.baseRollupName = baseRollupName;
         this.properties = properties;
+        this.distributionDesc = distributionDesc;
+    }
+
+    public DistributionDesc getDistributionDesc() {
+        return distributionDesc;
     }
 
     @Override

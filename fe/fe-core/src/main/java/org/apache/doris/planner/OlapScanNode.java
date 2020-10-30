@@ -515,7 +515,12 @@ public class OlapScanNode extends ScanNode {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
             final List<Tablet> tablets = Lists.newArrayList();
-            final Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
+            DistributionInfo tempDistributionInfo = partition.getIndexIdToDistributionInfo().get(selectedIndexId);
+            // if user not specified rollup's distribution, we use default distribution
+            if (tempDistributionInfo == null) {
+                tempDistributionInfo = partition.getDistributionInfo();
+            }
+            final Collection<Long> tabletIds = distributionPrune(selectedTable, tempDistributionInfo);
             LOG.debug("distribution prune tablets: {}", tabletIds);
 
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
@@ -688,6 +693,10 @@ public class OlapScanNode extends ScanNode {
     public TupleId getTupleId(){
         Preconditions.checkNotNull(desc);
         return desc.getId();
+    }
+
+    public long getSelectedIndexId() {
+        return this.selectedIndexId;
     }
 
 

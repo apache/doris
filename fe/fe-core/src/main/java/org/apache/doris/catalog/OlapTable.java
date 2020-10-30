@@ -115,6 +115,8 @@ public class OlapTable extends Table {
 
     private DistributionInfo defaultDistributionInfo;
 
+    private Map<Long, DistributionInfo> indexIdToDistributionInfo = new HashMap<>();
+
     // all info about temporary partitions are save in "tempPartitions"
     private TempPartitions tempPartitions = new TempPartitions();
 
@@ -632,6 +634,14 @@ public class OlapTable extends Table {
         return defaultDistributionInfo;
     }
 
+    public Map<Long, DistributionInfo> getIndexIdToDistributionInfo() {
+        return indexIdToDistributionInfo;
+    }
+
+    public void setIndexIdToDistributionInfo(Map<Long, DistributionInfo> indexIdToDistributionInfo) {
+        this.indexIdToDistributionInfo = indexIdToDistributionInfo;
+    }
+
     public Set<String> getDistributionColumnNames() {
         Set<String> distributionColumnNames = Sets.newHashSet();
         if (defaultDistributionInfo instanceof RandomDistributionInfo) {
@@ -1073,6 +1083,14 @@ public class OlapTable extends Table {
         }
 
         tempPartitions.write(out);
+
+        // rollup index distribution
+        out.writeInt(indexIdToDistributionInfo.size());
+        for (Map.Entry<Long, DistributionInfo> distributionInfoEntry : indexIdToDistributionInfo.entrySet()) {
+            out.writeLong(distributionInfoEntry.getKey());
+            Text.writeString(out, distributionInfoEntry.getValue().getType().name());
+            distributionInfoEntry.getValue().write(out);
+        }
     }
 
     @Override
@@ -1210,6 +1228,22 @@ public class OlapTable extends Table {
                     }
                 }
                 tempPartitions.unsetPartitionInfo();
+            }
+        }
+
+        // rollup distribution
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_93) {
+            int count = in.readInt();
+            for (int i = 0; i < count; i++) {
+                long indexId = in.readLong();
+                DistributionInfoType rollupDistributionType = DistributionInfoType.valueOf(Text.readString(in));
+                if (rollupDistributionType == DistributionInfoType.HASH) {
+                    indexIdToDistributionInfo.put(indexId, HashDistributionInfo.read(in));
+                } else if (rollupDistributionType == DistributionInfoType.RANDOM) {
+                    indexIdToDistributionInfo.put(indexId, RandomDistributionInfo.read(in));
+                } else {
+                    throw new IOException("invalid distribution type: " + distriType);
+                }
             }
         }
 
@@ -1647,7 +1681,7 @@ public class OlapTable extends Table {
     // For partitioned table:
     //   1. The table's partition columns need to be a subset of the table's hash columns.
     //   2. The table's distribute hash columns need to be a subset of the aggregate columns.
-    public boolean meetAggDistributionRequirements(AggregateInfo aggregateInfo) {
+    public boolean meetAggDistributionRequirements(AggregateInfo aggregateInfo, long selectedIndexId) {
         ArrayList<Expr> groupingExps = aggregateInfo.getGroupingExprs();
         if (groupingExps == null || groupingExps.isEmpty()) {
             return false;
@@ -1655,6 +1689,9 @@ public class OlapTable extends Table {
         List<Expr> partitionExps = aggregateInfo.getPartitionExprs() != null ?
                 aggregateInfo.getPartitionExprs() : groupingExps;
         DistributionInfo distribution = getDefaultDistributionInfo();
+        if (selectedIndexId != baseIndexId && indexIdToDistributionInfo.containsKey(selectedIndexId)) {
+            distribution = indexIdToDistributionInfo.get(selectedIndexId);
+        }
         if(distribution instanceof HashDistributionInfo) {
             List<Column> distributeColumns =
                     ((HashDistributionInfo)distribution).getDistributionColumns();
