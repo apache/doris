@@ -315,12 +315,9 @@ public class Config extends ConfigBase {
     @ConfField public static int mysql_nio_backlog_num = 1024;
 
     /**
-     * The connection timeout and socket timeout config between thrift server and client.
-     * 0 for keep-alive always;
-     * larger than 0 means the socket connection will keep for thrift_client_timeout_ms millisecond.
-     *
-     * if socket connection timeout, FE would send TCP RST command to BE,
-     * BE will retry to connect FE, retry delay can be config in BE's config key thrift_client_retry_interval_ms(default 1000ms).
+     * The connection timeout and socket timeout config for thrift server
+     * The default value for thrift_client_timeout_ms is set to be zero to prevent readtimeout
+     * 
      */
     @ConfField public static int thrift_client_timeout_ms = 0;
 
