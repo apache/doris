@@ -140,6 +140,11 @@ public class View extends Table {
         return inlineViewDef;
     }
 
+    @Override
+    public String getDdlSql() {
+        return inlineViewDef;
+    }
+
     /**
      * Initializes the originalViewDef, inlineViewDef, and queryStmt members
      * by parsing the expanded view definition SQL-string.

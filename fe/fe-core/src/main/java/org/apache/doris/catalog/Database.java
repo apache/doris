@@ -356,6 +356,16 @@ public class Database extends MetaObject implements Writable {
         return new ArrayList<Table>(idToTable.values());
     }
 
+    public List<Table> getViews() {
+        List<Table> views = new ArrayList<>();
+        for (Table table : idToTable.values()) {
+            if (table.getType() == TableType.VIEW) {
+                views.add(table);
+            }
+        }
+        return views;
+    }
+
     public Set<String> getTableNamesWithLock() {
         readLock();
         try {
