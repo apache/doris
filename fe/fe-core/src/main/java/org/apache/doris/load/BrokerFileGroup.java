@@ -41,12 +41,12 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadTask;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -281,6 +281,10 @@ public class BrokerFileGroup implements Writable {
     }
 
     public boolean isBinaryFileFormat() {
+        if (fileFormat == null) {
+            // null means default: csv
+            return false;
+        }
         return fileFormat.toLowerCase().equals("parquet") || fileFormat.toLowerCase().equals("orc");
     }
 
