@@ -88,7 +88,15 @@ result_cache_version 按SQL的签名、查询的表的分区ID、分区最新版
 1. SQL可以并行拆分，Q = Q1 ∪ Q2 ... ∪ Qn，R= R1 ∪ R2 ... ∪ Rn，Q为查询语句，R为结果集
 2. 拆分为只读分区和可更新分区，只读分区缓存，更新分区不缓存
 
-## 5 参数
+### 5 使用场景
+
+|缓存类型|使用场景|
+|--|--|
+|result_cache_ttl|主要解决高QPS，用户重复查询的场景|
+|result_cache_version|主要解决整张表长时间没有变更的场景|
+|partition_cache|主要解决历史分区不变更的场景|
+
+## 6 参数
 
 ###  fe
 
@@ -129,7 +137,7 @@ result_cache_version 按SQL的签名、查询的表的分区ID、分区最新版
 2. `cache_max_size_in_mb` `cache_elasticity_size_in_mb`
 - BE中缓存内存设置，有两个参数cache_max_size_in_mb和cache_elasticity_size_in_mb），内存超过cache_max_size_in_mb+cache_elasticity_size_in_mb会开始清理，并把内存控制到cache_max_size_in_mb以下。可以根据BE节点数量，节点内存大小，和缓存命中率来设置这两个参数。
 
-## 6 使用方法
+## 7 如何使用
 
 - use enable_result_cache_ttl
 ```

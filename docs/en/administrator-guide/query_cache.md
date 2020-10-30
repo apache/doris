@@ -87,7 +87,15 @@ If multiple tables are joined, the latest partition ID and the latest version nu
 1. SQL can be split in parallel，Q = Q1 ∪ Q2 ... ∪ Qn，R= R1 ∪ R2 ... ∪ Rn，Q is the query statement and R is the result set
 2. Split into read-only partition and updatable partition, read-only partition cache, update partition not cache
 
-## 5 parameter
+## 5 usage
+
+|cache type|usage|
+|--|--|
+|result_cache_ttl|Mainly solve the scenario of high QPS and repeated query by users|
+|result_cache_version|It mainly solves the scenario that the whole table has not changed for a long time|
+|partition_cache|It mainly solves the scenario that the historical partition does not change|
+
+## 6 parameter
 
 ###  fe
 
@@ -112,7 +120,7 @@ If multiple tables are joined, the latest partition ID and the latest version nu
 2. `cache_max_size_in_mb` `cache_elasticity_size_in_mb` 
 - The cache memory setting in backend has two parameters: cache_max_size_In_mb(256) and cache_elasticity_size_In_mb(128), memory exceeds cache_ max_ size_In_mb+cache_elasticity_size_In_mb will clean up and control the memory to cache_max_size_In_mb. These two parameters can be set according to the number of be nodes, the memory size of nodes, and cache hit rate.
 
-## usage method
+## 7 how to use
 
 - use enable_result_cache_ttl
 ```
