@@ -22,7 +22,6 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 /**
@@ -37,8 +36,13 @@ public class BinaryPredicatesDateRule implements ExprRewriteRule {
     @Override
     public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
         if (!(expr instanceof BinaryPredicate)) return expr;
+        Expr lchild = expr.getChild(0);
+        if (!lchild.getType().isDateType()) {
+            return expr;
+        }
         Expr valueExpr = expr.getChild(1);
-        if(valueExpr.getType() == Type.DATETIME && valueExpr instanceof CastExpr) {
+        if(valueExpr.getType().isDateType() && valueExpr.isConstant()
+                && valueExpr instanceof CastExpr) {
             return new BoolLiteral(false);
         }
         return expr;
