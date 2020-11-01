@@ -53,7 +53,7 @@ SET forward_to_master = true;
 SET time_zone = "Asia/Shanghai";
 ```
 
-For global-level, set by `SET GLOBALE var_name=xxx;`. Such as:
+For global-level, set by `SET GLOBAL var_name=xxx;`. Such as:
 
 ```
 SET GLOBAL exec_mem_limit = 137438953472

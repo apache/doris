@@ -71,6 +71,8 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -283,7 +285,8 @@ public class SingleNodePlanner {
 
         if (analyzer.hasEmptyResultSet()) {
             // Must clear the scanNodes, otherwise we will get NPE in Coordinator::computeScanRangeAssignment
-            scanNodes.clear();
+            Set<TupleId> scanTupleIds = new HashSet<>(root.getAllScanTupleIds());
+            scanNodes.removeIf(scanNode -> scanTupleIds.contains(scanNode.getTupleIds().get(0)));
             PlanNode node = createEmptyNode(stmt, analyzer);
             // Ensure result exprs will be substituted by right outputSmap
             node.setOutputSmap(root.outputSmap);

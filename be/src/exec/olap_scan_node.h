@@ -95,11 +95,11 @@ protected:
 
     typedef boost::variant<std::list<std::string>> string_list;
 
-    class ToOlapFilterVisitor : public boost::static_visitor<std::string> {
+    class ToOlapFilterVisitor : public boost::static_visitor<void> {
     public:
         template<class T, class P>
-        std::string operator()(T& v, P& v2) const {
-            return v.to_olap_filter(v2);
+        void operator()(T& v, P& v2) const {
+            v.to_olap_filter(v2);
         }
     };
 
@@ -159,7 +159,7 @@ protected:
 private:
     void _init_counter(RuntimeState* state);
 
-    void construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, std::string is_null_str);
+    void construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, const std::string& is_null_str);
 
     friend class OlapScanner;
 

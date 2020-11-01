@@ -316,10 +316,10 @@ public class Config extends ConfigBase {
 
     /**
      * The connection timeout and socket timeout config for thrift server
-     * The value for thrift_client_timeout_ms is set to be larger than zero to prevent
-     * some hang up problems in java.net.SocketInputStream.socketRead0
+     * The default value for thrift_client_timeout_ms is set to be zero to prevent readtimeout
+     * 
      */
-    @ConfField public static int thrift_client_timeout_ms = 30000;
+    @ConfField public static int thrift_client_timeout_ms = 0;
 
     /**
      * The backlog_num for thrift server

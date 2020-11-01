@@ -388,8 +388,8 @@ public class QueryPlanTest {
                 "\"driver\" = \"Oracle Driver\",\n" +
                 "\"odbc_type\" = \"mysql\"\n" +
                 ");");
-
-        createTable("create table test.tbl_date (" +
+        
+        createTable("create table test.tbl_int_date (" +
                 "`date` datetime NULL," +
                 "`day` date NULL," +
                 "`site_id` int(11) NULL )" +
@@ -1412,6 +1412,37 @@ public class QueryPlanTest {
         queryStr = "explain select time, lag(query_time, 1, 2) over () as time2 from test.test1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("lag(`query_time`, 1, 2)"));
+    }
+
+    @Test
+    public void testIntDateTime() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        //valid date
+        String sql = "select day from tbl_int_date where day in ('2020-10-30')";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00')"));
+        //valid date
+        sql = "select day from tbl_int_date where day in ('2020-10-30','2020-10-29')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00', '2020-10-29 00:00:00')"));
+
+        //valid datetime
+        sql = "select day from tbl_int_date where date in ('2020-10-30 12:12:30')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 12:12:30')"));
+        //valid datetime
+        sql = "select day from tbl_int_date where date in ('2020-10-30')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 00:00:00')"));
+
+        //int date
+        sql = "select day from tbl_int_date where day in (20201030)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00')"));
+        //int datetime
+        sql = "select day from tbl_int_date where date in (20201030)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 00:00:00')"));
     }
 }
 

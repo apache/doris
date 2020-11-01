@@ -104,7 +104,7 @@ Parameter | Description
 ---|---
 **hosts** | IP address of external database
 **driver** | The driver name of ODBC Driver, which needs to be/conf/odbcinst.ini. The driver names should be consistent.
-**type** | The type of external database, currently supports Oracle and MySQL
+**type** | The type of external database, currently supports Oracle, MySQL and PostgerSQL
 **user** | The user name of database
 **password** | password for the user
 
@@ -142,13 +142,13 @@ select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
 
 There are different data types among different database. Here, the types in each database and the data type matching in Doris are listed.
 
-### MySQL Type
+### MySQL 
 
 |  MySQL  | Doris  |             Alternation rules              |
 | :------: | :----: | :-------------------------------: |
 |  BOOLEAN  | BOOLEAN  |                         |
-|   CHAR   |  CHAR  |            Only utf8 encoding is supported           |
-| VARCHAR | VARCHAR |       Only utf8 encoding is supported      |
+|   CHAR   |  CHAR  |            Only UTF8 encoding is supported           |
+| VARCHAR | VARCHAR |       Only UTF8 encoding is supported      |
 |   DATE   |  DATE  |                                   |
 |  FLOAT   |  FLOAT  |                                   |
 |   TINYINT   | TINYINT |  |
@@ -160,7 +160,23 @@ There are different data types among different database. Here, the types in each
 |   DATETIME  | DATETIME |  |
 |   DECIMAL  | DECIMAL |  |
 
-### Oracle Type                          
+### PostgreSQL
+
+|  PostgreSQL  | Doris  |             Alternation rules              |
+| :------: | :----: | :-------------------------------: |
+|  BOOLEAN  | BOOLEAN  |                         |
+|   CHAR   |  CHAR  |            Only UTF8 encoding is supported            |
+| VARCHAR | VARCHAR |       Only UTF8 encoding is supported
+|   DATE   |  DATE  |                                   |
+|  REAL   |  FLOAT  |                                   |
+|   SMALLINT  | SMALLINT |  |
+|   INT  | INT |  |
+|   BIGINT  | BIGINT |  |
+|   DOUBLE  | DOUBLE |  |
+|   TIMESTAMP  | DATETIME |  |
+|   DECIMAL  | DECIMAL |  |
+
+### Oracle                          
 
 |  Oracle  | Doris  |            Alternation rules               |
 | :------: | :----: | :-------------------------------: |

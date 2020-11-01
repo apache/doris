@@ -572,6 +572,14 @@ current running txns on db xxx is xx, larger than limit xx
 
 ### `rewrite_count_distinct_to_bitmap_hll`
 
+该变量为 session variable，session 级别生效。
+
++ 类型：boolean
++ 描述：**仅对于 AGG 模型的表来说**，当变量为 true 时，用户查询时包含 count(distinct c1) 这类聚合函数时，如果 c1 列本身类型为 bitmap，则 count distnct 会改写为 bitmap_union_count(c1)。
+        当 c1 列本身类型为 hll，则 count distinct 会改写为 hll_union_agg(c1)
+        如果变量为 false，则不发生任何改写。
++ 默认值：true。
+
 ### `rpc_port`
 
 ### `schedule_slot_num_per_path`
