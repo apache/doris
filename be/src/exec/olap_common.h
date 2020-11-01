@@ -115,13 +115,13 @@ public:
         return _fixed_values.size();
     }
 
-    std::string to_olap_filter(std::list<TCondition> &filters) {
+    void to_olap_filter(std::list<TCondition> &filters) {
         if (is_fixed_value_range()) {
             TCondition condition;
             condition.__set_column_name(_column_name);
             condition.__set_condition_op("*=");
 
-            for (auto value : _fixed_values) {
+            for (const auto& value : _fixed_values) {
                 condition.condition_values.push_back(cast_to_string(value));
             }
 
@@ -151,8 +151,6 @@ public:
                 filters.push_back(high);
             }
         }
-
-        return "";
     }
 
     void clear() {
@@ -635,9 +633,9 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
     //for this case, we need to add null value to fixed values
     bool has_converted = false;
 
+    auto scan_keys_size = _begin_scan_keys.empty() ?  1 : _begin_scan_keys.size();
     if (range.is_fixed_value_range()) {
-        if ((_begin_scan_keys.empty() && range.get_fixed_value_size() > max_scan_key_num)
-                || range.get_fixed_value_size() * _begin_scan_keys.size() > max_scan_key_num) {
+        if (range.get_fixed_value_size() * scan_keys_size > max_scan_key_num) {
             if (range.is_range_value_convertible()) {
                 range.convert_to_range_value();
             } else {
@@ -646,23 +644,11 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
         }
     } else {
         if (range.is_fixed_value_convertible() && _is_convertible) {
-            if (_begin_scan_keys.empty()) {
-                if (range.get_convertible_fixed_value_size() < max_scan_key_num) {
-                    if (range.is_low_value_mininum() && range.is_high_value_maximum()) {
-                        has_converted = true;
-                    }
-
-                    range.convert_to_fixed_value();
+            if (range.get_convertible_fixed_value_size() * scan_keys_size < max_scan_key_num) {
+                if (range.is_low_value_mininum() && range.is_high_value_maximum()) {
+                    has_converted = true;
                 }
-            } else {
-                if (range.get_convertible_fixed_value_size() * _begin_scan_keys.size()
-                        < max_scan_key_num) {
-                    if (range.is_low_value_mininum() && range.is_high_value_maximum()) {
-                        has_converted = true;
-                    }
-
-                    range.convert_to_fixed_value();
-                }
+                range.convert_to_fixed_value();
             }
         }
     }

@@ -368,11 +368,11 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
     RETURN_IF_ERROR(build_olap_filters());
 
     VLOG(1) << "BuildScanKey";
-    // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
+    // 3. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
     RETURN_IF_ERROR(build_scan_key());
 
     VLOG(1) << "StartScanThread";
-    // 6. Start multi thread to read several `Sub Sub ScanRange`
+    // 4. Start multi thread to read several `Sub Sub ScanRange`
     RETURN_IF_ERROR(start_scan_thread(state));
 
     return Status::OK();
@@ -502,7 +502,7 @@ Status OlapScanNode::normalize_conjuncts() {
 Status OlapScanNode::build_olap_filters() {
     _olap_filter.clear();
 
-    for (auto iter : _column_value_ranges) {
+    for (auto& iter : _column_value_ranges) {
         ToOlapFilterVisitor visitor;
         boost::variant<std::list<TCondition>> filters;
         boost::apply_visitor(visitor, iter.second, filters);
@@ -512,7 +512,7 @@ Status OlapScanNode::build_olap_filters() {
             continue;
         }
 
-        for (auto filter : new_filters) {
+        for (const auto& filter : new_filters) {
            _olap_filter.push_back(filter);
         }
     }
@@ -526,13 +526,10 @@ Status OlapScanNode::build_scan_key() {
     DCHECK(column_types.size() == column_names.size());
 
     // 1. construct scan key except last olap engine short key
-    int column_index = 0;
     _scan_keys.set_is_convertible(limit() == -1);
 
-    for (; column_index < column_names.size() && !_scan_keys.has_range_value(); ++column_index) {
-        std::map<std::string, ColumnValueRangeType>::iterator column_range_iter
-            = _column_value_ranges.find(column_names[column_index]);
-
+    for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value(); ++column_index) {
+        auto column_range_iter = _column_value_ranges.find(column_names[column_index]);
         if (_column_value_ranges.end() == column_range_iter) {
             break;
         }
@@ -956,7 +953,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
     return Status::OK();
 }
 
-void OlapScanNode::construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, std::string is_null_str) {
+void OlapScanNode::construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, const std::string& is_null_str) {
     if (expr->node_type() != TExprNodeType::SLOT_REF) {
         return;
     }
