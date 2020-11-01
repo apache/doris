@@ -247,7 +247,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db != null) {
             db.readLock();
             try {
-                for (Table table : db.getTables()) {
+                List<Table> tables = null;
+                if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
+                    tables = db.getTables();
+                } else {
+                    switch (params.getType()) {
+                        case "VIEW":
+                            tables = db.getViews();
+                            break;
+                        default:
+                            tables = db.getTables();
+                    }
+                }
+                for (Table table : tables) {
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
                             table.getName(), PrivPredicate.SHOW)) {
                         continue;
@@ -263,6 +275,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     status.setComment(table.getComment());
                     status.setCreateTime(table.getCreateTime());
                     status.setLastCheckTime(table.getLastCheckTime());
+                    status.setDdlSql(table.getDdlSql());
 
                     tablesResult.add(status);
                 }

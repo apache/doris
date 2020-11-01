@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -143,24 +142,6 @@ public class AlterTableStmt extends DdlStmt {
                     clauses.add(addColumnClause);
                 }
             // add hidden column to rollup table
-            } else if (alterClause instanceof AddRollupClause && table.getKeysType() == KeysType.UNIQUE_KEYS
-                    && table.hasHiddenColumn()) {
-                if (table.getColumn(Column.DELETE_SIGN) != null) {
-                    if (!((AddRollupClause) alterClause).getColumnNames()
-                            .stream()
-                            .anyMatch(x -> x.equalsIgnoreCase(Column.DELETE_SIGN))) {
-                        ((AddRollupClause) alterClause).getColumnNames().add(Column.DELETE_SIGN);
-                    }
-                }
-                if (table.getColumn(Column.SEQUENCE_COL) != null) {
-                    if (!((AddRollupClause) alterClause).getColumnNames()
-                            .stream()
-                            .anyMatch(x -> x.equalsIgnoreCase(Column.SEQUENCE_COL))) {
-                        ((AddRollupClause) alterClause).getColumnNames().add(Column.SEQUENCE_COL);
-                    }
-                }
-                alterClause.analyze(analyzer);
-                clauses.add(alterClause);
             } else {
                 clauses.add(alterClause);
             }

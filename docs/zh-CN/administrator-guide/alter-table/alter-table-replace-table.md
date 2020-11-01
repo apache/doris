@@ -34,7 +34,7 @@ under the License.
 ## 语法说明
 
 ```
-ALTER TABLE [db.]tbl1 REPLACE WITH tbl2
+ALTER TABLE [db.]tbl1 REPLACE WITH TABLE tbl2
 [PROPERTIES('swap' = 'true')];
 ```
 
