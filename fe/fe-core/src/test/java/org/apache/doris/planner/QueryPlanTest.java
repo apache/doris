@@ -388,7 +388,7 @@ public class QueryPlanTest {
                 "\"driver\" = \"Oracle Driver\",\n" +
                 "\"odbc_type\" = \"mysql\"\n" +
                 ");");
-
+        
         createTable("create table test.tbl_int_date (" +
                 "`date` datetime NULL," +
                 "`day` date NULL," +
@@ -1382,6 +1382,7 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 00:00:00')"));
     }
 
+    @Test
     public void testCheckInvalidDate() throws Exception {
         FeConstants.runningUnitTest = true;
         connectContext.setDatabase("default_cluster:test");
