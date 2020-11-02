@@ -35,11 +35,12 @@ import java.util.Map;
  * 1. selectAlternativeTablets: selecting alternative tablets by one rebalance strategy,
  * and return them to tablet scheduler(maybe contains the concrete moves, or maybe not).
  * 2. createBalanceTask: given a tablet, try to create a clone task for this tablet.
- * 3. getSrcReplicaId: if the rebalance strategy wants to delete the src replica,
- * override this func.
+ * 3. getToDeleteReplicaId: if the rebalance strategy wants to delete the specified replica,
+ * override this func to let TabletScheduler know in handling redundant replica.
  * NOTICE:
- * It may have a long interval between selectAlternativeTablets() & createBalanceTask(). So the concrete moves may be
- * invalid when we generating a clone task in createBalanceTask(), you should check the moves' validation.
+ * 1. Adding the selected tablets by TabletScheduler may not succeed at all. And the move may be failed in some other places.
+ * So the thing you need to know is, Rebalancer cannot know when the move is failed.
+ * 2. If you want to make sure the move is succeed, you can assume that it's succeed when getToDeleteReplicaId called.
  */
 public abstract class Rebalancer {
     // When Rebalancer init, the statisticMap is usually empty. So it's no need to be an arg.
@@ -67,10 +68,23 @@ public abstract class Rebalancer {
     protected abstract List<TabletSchedCtx> selectAlternativeTabletsForCluster(
             String clusterName, ClusterLoadStatistic clusterStat, TStorageMedium medium);
 
-    public abstract void createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots,
-                                           AgentBatchTask batchTask) throws SchedException;
 
-    public Long getSrcReplicaId(Long tabletId) {
+    public void createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots,
+                                  AgentBatchTask batchTask) throws SchedException {
+        completePlan(tabletCtx, backendsWorkingSlots);
+        batchTask.addTask(tabletCtx.createCloneReplicaAndTask());
+    }
+
+    // Before createCloneReplicaAndTask, we need to complete the TabletSchedCtx.
+    // 1. If you generate {tabletId, srcReplica, destReplica} in selectAlternativeTablets(), it may be invalid at
+    // this point(it may have a long interval between selectAlternativeTablets & createBalanceTask).
+    // You should check the moves' validation.
+    // 2. If you want to generate {srcReplica, destReplica} here, just do it.
+    // 3. You should check the path slots of src & dest.
+    protected abstract void completePlan(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots)
+            throws SchedException;
+
+    public Long getToDeleteReplicaId(Long tabletId) {
         return -1L;
     }
 

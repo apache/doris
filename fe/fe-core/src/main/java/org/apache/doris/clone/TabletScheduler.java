@@ -833,7 +833,7 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     private boolean deleteReplicaChosenByRebalancer(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
-        Long id = rebalancer.getSrcReplicaId(tabletCtx.getTabletId());
+        Long id = rebalancer.getToDeleteReplicaId(tabletCtx.getTabletId());
         if (id == -1L) {
             return false;
         }

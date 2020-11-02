@@ -110,7 +110,8 @@ public class BeLoadRebalancer extends Rebalancer {
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,
         // so we need to traverse it from last to first
-        OUTER:for (int i = highBEs.size() - 1; i >= 0; i--) {
+        OUTER:
+        for (int i = highBEs.size() - 1; i >= 0; i--) {
             BackendLoadStatistic beStat = highBEs.get(i);
 
             // classify the paths.
@@ -185,7 +186,7 @@ public class BeLoadRebalancer extends Rebalancer {
 
         LOG.info("select alternative tablets for cluster: {}, medium: {}, num: {}, detail: {}",
                 clusterName, medium, alternativeTablets.size(),
-                alternativeTablets.stream().mapToLong(t -> t.getTabletId()).toArray());
+                alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
         return alternativeTablets;
     }
 
@@ -197,8 +198,7 @@ public class BeLoadRebalancer extends Rebalancer {
      * 3. Create a clone task.
      */
     @Override
-    public void createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots,
-                                  AgentBatchTask batchTask) throws SchedException {
+    public void completePlan(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
         ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster());
         if (clusterStat == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
@@ -260,7 +260,7 @@ public class BeLoadRebalancer extends Rebalancer {
         // Select a low load backend as destination.
         boolean setDest = false;
         for (BackendLoadStatistic beStat : lowBe) {
-            if (beStat.isAvailable() && !replicas.stream().anyMatch(r -> r.getBackendId() == beStat.getBeId())) {
+            if (beStat.isAvailable() && replicas.stream().noneMatch(r -> r.getBackendId() == beStat.getBeId())) {
                 // check if on same host.
                 Backend lowBackend = infoService.getBackend(beStat.getBeId());
                 if (lowBackend == null) {
@@ -313,8 +313,5 @@ public class BeLoadRebalancer extends Rebalancer {
         if (!setDest) {
             throw new SchedException(Status.SCHEDULE_FAILED, "unable to find low backend");
         }
-
-        // create clone task
-        batchTask.addTask(tabletCtx.createCloneReplicaAndTask());
     }
 }
