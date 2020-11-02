@@ -27,7 +27,6 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
