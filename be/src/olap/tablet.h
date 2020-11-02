@@ -164,8 +164,6 @@ public:
     // operation for compaction
     bool can_do_compaction();
     const uint32_t calc_compaction_score(CompactionType compaction_type) const;
-    const uint32_t calc_cumulative_compaction_score() const;
-    const uint32_t calc_base_compaction_score() const;
     static void compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
                                                   VersionHash* version_hash);
 
@@ -248,6 +246,9 @@ private:
     void _delete_stale_rowset_by_version(const Version& version);
     OLAPStatus _capture_consistent_rowsets_unlocked(const vector<Version>& version_path,
                                                     vector<RowsetSharedPtr>* rowsets) const;
+
+    const uint32_t _calc_cumulative_compaction_score() const;
+    const uint32_t _calc_base_compaction_score() const;
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;

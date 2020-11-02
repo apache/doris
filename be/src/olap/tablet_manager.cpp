@@ -747,12 +747,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
 
                 uint32_t table_score = 0;
                 {
-                    ReadLock rdlock(tablet_ptr->get_header_lock_ptr());
-                    if (compaction_type == CompactionType::BASE_COMPACTION) {
-                        table_score = tablet_ptr->calc_base_compaction_score();
-                    } else if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                        table_score = tablet_ptr->calc_cumulative_compaction_score();
-                    }
+                    table_score = tablet_ptr->calc_compaction_score(compaction_type);
                 }
                 if (table_score > highest_score) {
                     highest_score = table_score;
