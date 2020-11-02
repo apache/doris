@@ -20,25 +20,67 @@
 import React,{useState,useEffect} from 'react';
 import {AdHocAPI} from 'Src/api/api';
 import {getDbName} from 'Utils/utils';
-import {Row, Empty} from 'antd';
+import {Row, Empty, notification, Table} from 'antd';
 import {FlatBtn} from 'Components/flatbtn';
 import {useTranslation} from 'react-i18next';
 export function DataPrev(props: any) {
     let { t } = useTranslation();
     const {db_name,tbl_name} = getDbName();
     const [tableData,setTableData] = useState([]);
+    const [columns,setColumns] = useState([]);
     function toQuery(): void {
+        if (!tbl_name){
+            notification.error({message: t('selectWarning')});
+            return;
+        }
         AdHocAPI.doQuery({
             db_name,
             body:{stmt:`SELECT * FROM ${db_name}.${tbl_name} LIMIT 10`},
         }).then(res=>{
             if (res && res.msg === 'success') {
-                setTableData(res.data);
+                console.log(getColumns(res.data?.meta),2222)
+                setColumns(getColumns(res.data?.meta))
+                setTableData(getTabledata(res.data));
             }
         })
         .catch(()=>{
             setTableData([]);
         });
+    }
+    function getColumns(params: string[]) {
+        console.log(params,2222)
+        if(!params||params.length === 0){return [];}
+        
+        let arr = params.map(item=> {
+            return {
+                title: item.name,
+                dataIndex: item.name,
+                key: item.name,
+                width: 150,
+                render:(text, record, index)=>{return text === '\\N' ? '-' : text}
+            };
+        });
+        return arr;
+    }
+    function getTabledata(data){
+        let meta  = data.meta;
+        let source = data.data;
+        let res = [];
+        if(!source||source.length === 0){return [];}
+        let metaArr = meta.map(item=>item.name)
+        for (let i=0;i<source.length;i++) {
+            let node = source[i];
+            if(node.length !== meta.length){
+                return {}
+            }
+            let obj = {}
+            metaArr.map((item,idx)=>{
+                obj[item] = node[idx]
+            })
+            obj['key'] = i
+            res.push(obj)
+        }
+        return res;
     }
     useEffect(()=>{
         toQuery();
@@ -58,42 +100,16 @@ export function DataPrev(props: any) {
                     {t('refresh')}
                 </FlatBtn>
             </Row>
-            <div
-                className="ant-table ant-table-small ant-table-bordered"
-                style={{marginTop: 10}}
-            >
-                {tableData?.meta?.length
-                    ?<div className="ant-table-container" >
-                        <div className='ant-table-content'>
-                            <table style={{width: '100%'}}>
-                                <thead className="ant-table-thead">
-                                    <tr>
-                                        {tableData?.meta?.map(item => (
-                                            <th className="ant-table-cell" key={item.name}>
-                                                {item.name}
-                                            </th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody className="ant-table-tbody">
-                                    {tableData.data?.map((item,index) => (
-                                        <tr className="ant-table-row" key={index}>
-                                            {item.map((tdData,index) => (
-                                                <td
-                                                    className="ant-table-cell"
-                                                    key={tdData+index}
-                                                >
-                                                    {tdData == '\\N'?'-':tdData}
-                                                </td>
-                                            ))}
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE}/>}
-            </div>
-        </div>
+            <Table
+                bordered
+                columns={columns}
+                style={{maxWidth:' calc(100vw - 350px)'}}
+                // scroll={{ x:'500', y: '36vh'}}
+                scroll={{ x: 1500, y: 300 }}
+                dataSource={tableData}
+                size="small"
+            />
+           </div>
     );
 }
 

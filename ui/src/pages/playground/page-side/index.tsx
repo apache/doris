@@ -34,7 +34,8 @@ export function PageSide(props: any) {
         <div className={styles['side']} >
             <ResizableBox
                 width={sideBoxWidth}
-                height={800}
+                height={Infinity}
+                style={{'minHeight':'calc(100vh - 64px)','overflow':'hidden'}}
                 resizeHandles={['e']}
                 onResizeStart={onResize}
                 minConstraints={[300, 300]}

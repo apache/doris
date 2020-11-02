@@ -123,7 +123,7 @@ export function AdhocContentResult(props) {
                     ) : (
                         <TextWithIcon
                             icon={<CloseCircleFilled/>}
-                            text={"执行失败: "+runningQueryInfo.msg +' '+ runningQueryInfo.data}
+                            text={`${t('executionFailed')}: `+runningQueryInfo.msg +' '+ runningQueryInfo.data}
                             color="red"
                             style={{
                                 marginBottom: 10,
@@ -141,7 +141,7 @@ export function AdhocContentResult(props) {
                         </Row> */}
                         <Row justify="start">
                             <Col span={3}>{t('executionTime')}:</Col>
-                            <Col>{runningQueryInfo.data?.time + ' ms'}</Col>
+                            <Col>{(runningQueryInfo.data?.time?runningQueryInfo.data?.time:0) + ' ms'}</Col>
                         </Row>
                         {/* <Row justify="start">
                             <Col span={3}>{t('endTime')}:</Col>
