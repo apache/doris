@@ -30,14 +30,13 @@ const string ScanNode::_s_scanner_thread_total_wallclock_time =
     "ScannerThreadsTotalWallClockTime";
 
 Status ScanNode::prepare(RuntimeState* state) {
-    init_scan_profile();
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
     _bytes_read_counter =
-        ADD_COUNTER(_segment_profile, _s_bytes_read_counter, TUnit::BYTES);
+        ADD_COUNTER(runtime_profile(), _s_bytes_read_counter, TUnit::BYTES);
     //TODO: The _rows_read_counter == RowsReturned counter in exec node, there is no need to keep both of them
     _rows_read_counter =
-        ADD_COUNTER(_scanner_profile, _s_rows_read_counter, TUnit::UNIT);
+        ADD_COUNTER(runtime_profile(), _s_rows_read_counter, TUnit::UNIT);
 #ifndef BE_TEST
 #endif
     _materialize_tuple_timer = ADD_CHILD_TIMER(runtime_profile(), _s_materialize_tuple_timer,
@@ -46,14 +45,6 @@ Status ScanNode::prepare(RuntimeState* state) {
         ADD_COUNTER(runtime_profile(), _s_num_disks_accessed_counter, TUnit::UNIT);
 
     return Status::OK();
-}
-
-void ScanNode::init_scan_profile() {
-    _scanner_profile.reset(new RuntimeProfile("OlapScanner"));
-    runtime_profile()->add_child(_scanner_profile.get(), true, NULL);
-
-    _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
-    _scanner_profile->add_child(_segment_profile.get(), true, NULL);
 }
 
 }

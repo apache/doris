@@ -87,6 +87,15 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
+
+void OlapScanNode::init_scan_profile() {
+    _scanner_profile.reset(new RuntimeProfile("OlapScanner"));
+    runtime_profile()->add_child(_scanner_profile.get(), true, NULL);
+
+    _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
+    _scanner_profile->add_child(_segment_profile.get(), true, NULL);
+}
+
 void OlapScanNode::_init_counter(RuntimeState* state) {
     ADD_TIMER(_scanner_profile, "ShowHintsTime_V1");
 
@@ -129,6 +138,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
+    init_scan_profile();
     RETURN_IF_ERROR(ScanNode::prepare(state));
     // create scanner profile
     // create timer

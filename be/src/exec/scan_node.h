@@ -99,8 +99,6 @@ public:
     RuntimeProfile::Counter* materialize_tuple_timer() const {
         return _materialize_tuple_timer;
     }
-    // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator according to the calling relationship
-    void init_scan_profile();
 
     // names of ScanNode common counters
     static const std::string _s_bytes_read_counter;
@@ -116,9 +114,6 @@ protected:
     RuntimeProfile::Counter* _rows_read_counter;
     RuntimeProfile::Counter* _num_disks_accessed_counter;
     RuntimeProfile::Counter* _materialize_tuple_timer;  // time writing tuple slots
-
-    boost::scoped_ptr<RuntimeProfile> _scanner_profile;
-    boost::scoped_ptr<RuntimeProfile> _segment_profile;
 };
 
 }

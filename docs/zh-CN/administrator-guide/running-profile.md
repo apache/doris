@@ -153,9 +153,11 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
 
 ```
 OLAP_SCAN_NODE (id=0):(Active: 1.2ms, % non-child: 0.00%)
+  - BytesRead: 265.00 B                 # 从数据文件中读取到的数据量。假设读取到了是10个32位整型，则数据量为 10 * 4B = 40 Bytes。这个数据仅表示数据在内存中全展开的大小，并不代表实际的 IO 大小。 
   - NumDiskAccess: 1                    # 该 ScanNode 节点涉及到的磁盘数量。
   - NumScanners: 20                     # 该 ScanNode 生成的 Scanner 数量。
   - PeakMemoryUsage: 0.00               # 查询时内存使用的峰值，暂未使用
+  - RowsRead: 7                         # 从存储引擎返回到 Scanner 的行数，不包括经 Scanner 过滤的行数。
   - RowsReturned: 7                     # 从 ScanNode 返回给上层节点的行数。
   - RowsReturnedRate: 6.979K /sec       # RowsReturned/ActiveTime
   - TabletCount : 20                    # 该 ScanNode 涉及的 Tablet 数量。
@@ -165,7 +167,6 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms, % non-child: 0.00%)
     - ReaderInitTime: 5.475ms           # OlapScanner 初始化 Reader 的时间。V1 中包括组建 MergeHeap 的时间。V2 中包括生成各级 Iterator 并读取第一组Block的时间。
     - RowsDelFiltered: 0                # 包括根据 Tablet 中存在的 Delete 信息过滤掉的行数，以及 unique key 模型下对被标记的删除行过滤的行数。
     - RowsPushedCondFiltered: 0         # 根据传递下推的谓词过滤掉的条件，比如 Join 计算中从 BuildTable 传递给 ProbeTable 的条件。该数值不准确，因为如果过滤效果差，就不再过滤了。
-    - RowsRead: 7                       # 从存储引擎返回到 Scanner 的行数，不包括经 Scanner 过滤的行数。
     - ScanTime: 39.24us                 # 从 ScanNode 返回给上层节点的行数。
     - ShowHintsTime_V1: 0ns             # V2 中无意义。V1 中读取部分数据来进行 ScanRange 的切分。
     SegmentIterator:
@@ -174,7 +175,6 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms, % non-child: 0.00%)
       - BlockSeekCount: 12              # 读取 Segment 时进行 block seek 的次数。
       - BlockSeekTime: 222.556us        # 读取 Segment 时进行 block seek 的耗时。
       - BlocksLoad: 6                   # 读取 Block 的数量
-      - BytesRead: 265.00 B             # 从数据文件中读取到的数据量。假设读取到了是10个32位整型，则数据量为 10 * 4B = 40 Bytes。这个数据仅表示数据在内存中全展开的大小，并不代表实际的 IO 大小。
       - CachedPagesNum: 30              # 仅 V2 中，当开启 PageCache 后，命中 Cache 的 Page 数量。
       - CompressedBytesRead: 0.00       # V1 中，从文件中读取的解压前的数据大小。V2 中，读取到的没有命中 PageCache 的 Page 的压缩前的大小。
       - DecompressorTimer: 0ns          # 数据解压耗时。

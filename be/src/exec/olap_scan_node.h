@@ -158,6 +158,9 @@ protected:
 
 private:
     void _init_counter(RuntimeState* state);
+    // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator 
+    // according to the calling relationship
+    void init_scan_profile();
 
     void construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, std::string is_null_str);
 
@@ -253,6 +256,9 @@ private:
     // it will set as BE's config `max_pushdown_conditions_per_column`,
     // or be overwritten by value in TQueryOptions
     int32_t _max_pushdown_conditions_per_column = 1024;
+
+    boost::scoped_ptr<RuntimeProfile> _scanner_profile;
+    boost::scoped_ptr<RuntimeProfile> _segment_profile;
 
     // Counters
     RuntimeProfile::Counter* _io_timer = nullptr;
