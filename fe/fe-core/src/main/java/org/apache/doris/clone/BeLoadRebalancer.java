@@ -195,7 +195,6 @@ public class BeLoadRebalancer extends Rebalancer {
      * 1. Check if this tablet has replica on high load backend. If not, the balance will be cancelled.
      *    If yes, select a replica as source replica.
      * 2. Select a low load backend as destination. And tablet should not has replica on this backend.
-     * 3. Create a clone task.
      */
     @Override
     public void completePlan(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {

@@ -65,6 +65,8 @@ public abstract class Rebalancer {
         return alternativeTablets;
     }
 
+    // The return TabletSchedCtx should have the tablet id at least. {srcReplica, destBe} can be complete here or
+    // later(when createBalanceTask called).
     protected abstract List<TabletSchedCtx> selectAlternativeTabletsForCluster(
             String clusterName, ClusterLoadStatistic clusterStat, TStorageMedium medium);
 
@@ -76,10 +78,10 @@ public abstract class Rebalancer {
     }
 
     // Before createCloneReplicaAndTask, we need to complete the TabletSchedCtx.
-    // 1. If you generate {tabletId, srcReplica, destReplica} in selectAlternativeTablets(), it may be invalid at
+    // 1. If you generate {tabletId, srcReplica, destBe} in selectAlternativeTablets(), it may be invalid at
     // this point(it may have a long interval between selectAlternativeTablets & createBalanceTask).
     // You should check the moves' validation.
-    // 2. If you want to generate {srcReplica, destReplica} here, just do it.
+    // 2. If you want to generate {srcReplica, destBe} here, just do it.
     // 3. You should check the path slots of src & dest.
     protected abstract void completePlan(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots)
             throws SchedException;
