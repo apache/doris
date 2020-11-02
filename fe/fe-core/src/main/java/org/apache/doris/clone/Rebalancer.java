@@ -73,7 +73,7 @@ public abstract class Rebalancer {
 
     public void createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots,
                                   AgentBatchTask batchTask) throws SchedException {
-        completePlan(tabletCtx, backendsWorkingSlots);
+        completeSchedCtx(tabletCtx, backendsWorkingSlots);
         batchTask.addTask(tabletCtx.createCloneReplicaAndTask());
     }
 
@@ -83,7 +83,7 @@ public abstract class Rebalancer {
     // You should check the moves' validation.
     // 2. If you want to generate {srcReplica, destBe} here, just do it.
     // 3. You should check the path slots of src & dest.
-    protected abstract void completePlan(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots)
+    protected abstract void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots)
             throws SchedException;
 
     public Long getToDeleteReplicaId(Long tabletId) {
