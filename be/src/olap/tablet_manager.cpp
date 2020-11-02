@@ -745,10 +745,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                     }
                 }
 
-                uint32_t table_score = 0;
-                {
-                    table_score = tablet_ptr->calc_compaction_score(compaction_type);
-                }
+                uint32_t table_score = tablet_ptr->calc_compaction_score(compaction_type);
                 if (table_score > highest_score) {
                     highest_score = table_score;
                     best_tablet = tablet_ptr;
