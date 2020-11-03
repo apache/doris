@@ -107,6 +107,12 @@ You can try to compile Doris directly in your own Linux environment.
     $ sh build.sh
     ```
 	After compilation, the output file is in the `output/` directory.
+
+## FAQ
+
+1. `Could not transfer artifact net.sourceforge.czt.dev:cup-maven-plugin:pom:1.6-cdh from/to xxx`
+
+    If you encounter the above error, please refer to [PR #4769](https://github.com/apache/incubator-doris/pull/4769/files) to modify the cloudera-related repo configuration in `fe/pom.xml`.
 	
 ## Special statement
 

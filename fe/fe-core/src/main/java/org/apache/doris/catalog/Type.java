@@ -979,6 +979,10 @@ public abstract class Type {
 
         PrimitiveType t1ResultType = t1.getResultType().getPrimitiveType();
         PrimitiveType t2ResultType = t2.getResultType().getPrimitiveType();
+        if (canCompareDate(t1.getPrimitiveType(), t2.getPrimitiveType())) {
+            return Type.DATETIME;
+        }
+
         // Following logical is compatible with MySQL.
         if ((t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.VARCHAR)) {
             return Type.VARCHAR; 
@@ -1005,6 +1009,22 @@ public abstract class Type {
             return Type.LARGEINT;
         }
         return Type.DOUBLE;
+    }
+
+    public static boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {
+        if (t1.isDateType()) {
+            if (t2.isDateType() || t2.isStringType() || t2.isIntegerType()) {
+                return true;
+            }
+            return false;
+        } else if (t2.isDateType()) {
+            if (t1.isStringType() || t1.isIntegerType()) {
+                return true;
+            }
+            return false;
+        } else {
+            return false;
+        }
     }
 
     public Type getMaxResolutionType() {

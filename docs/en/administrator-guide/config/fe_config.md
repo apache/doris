@@ -578,6 +578,14 @@ See the description of `max_clone_task_timeout_sec`.
 
 ### `rewrite_count_distinct_to_bitmap_hll`
 
+This variable is a session variable, and the session level takes effect.
+
++ Type: boolean
++ Description: **Only for the table of the AGG model**, when the variable is true, when the user query contains aggregate functions such as count(distinct c1), if the type of the c1 column itself is bitmap, count distnct will be rewritten It is bitmap_union_count(c1).
+         When the type of the c1 column itself is hll, count distinct will be rewritten as hll_union_agg(c1)
+         If the variable is false, no overwriting occurs.
++ Default value: true.
+
 ### `rpc_port`
 
 ### `schedule_slot_num_per_path`

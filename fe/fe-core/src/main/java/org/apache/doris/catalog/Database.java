@@ -305,6 +305,20 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
+    public void allterExternalTableSchemaWithLock(String tableName, List<Column> newSchema) throws DdlException{
+        writeLock();
+        try {
+            if (!nameToTable.containsKey(tableName)) {
+                throw new DdlException("Do not contain proper table " + tableName + " in refresh table");
+            } else {
+                Table table = nameToTable.get(tableName);
+                table.setNewFullSchema(newSchema);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public boolean createTable(Table table) {
         boolean result = true;
         String tableName = table.getName();
@@ -340,6 +354,16 @@ public class Database extends MetaObject implements Writable {
 
     public List<Table> getTables() {
         return new ArrayList<Table>(idToTable.values());
+    }
+
+    public List<Table> getViews() {
+        List<Table> views = new ArrayList<>();
+        for (Table table : idToTable.values()) {
+            if (table.getType() == TableType.VIEW) {
+                views.add(table);
+            }
+        }
+        return views;
     }
 
     public Set<String> getTableNamesWithLock() {

@@ -40,6 +40,7 @@ import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.TableInfo;
@@ -232,6 +233,11 @@ public final class LocalJournalCursor implements JournalCursor {
             case OperationType.OP_DROP_TABLE: {
                 DropInfo info = new DropInfo();
                 info.readFields(in);
+                ret.setData(info);
+                break;
+            }
+            case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
+                RefreshExternalTableInfo info = RefreshExternalTableInfo.read(in);
                 ret.setData(info);
                 break;
             }

@@ -179,6 +179,7 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
@@ -4297,6 +4298,11 @@ public class Catalog {
         }
     }
 
+    public void replayAlterExteranlTableSchema(String dbName, String tableName, List<Column> newSchema) throws DdlException {
+        Database db = this.fullNameToDb.get(dbName);
+        db.allterExternalTableSchemaWithLock(tableName, newSchema);
+    }
+
     private void createTablets(String clusterName, MaterializedIndex index, ReplicaState replicaState,
                                DistributionInfo distributionInfo, long version, long versionHash, short replicationNum,
                                TabletMeta tabletMeta, Set<Long> tabletIdSet) throws DdlException {
@@ -5066,9 +5072,12 @@ public class Catalog {
     }
 
     // entry of rename table operation
-    public void renameTable(Database db, OlapTable table, TableRenameClause tableRenameClause) throws DdlException {
-        if (table.getState() != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
+    public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
+        if (table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
+            if ( olapTable.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table[" + olapTable.getName() + "] is under " + olapTable.getState());
+            }
         }
 
         String tableName = table.getName();
@@ -5082,14 +5091,21 @@ public class Catalog {
             throw new DdlException("Table name[" + newTableName + "] is already used");
         }
 
-        table.checkAndSetName(newTableName, false);
+        table.setName(newTableName);
 
-        db.dropTable(table.getName());
+        db.dropTable(tableName);
         db.createTable(table);
 
         TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
         editLog.logTableRename(tableInfo);
         LOG.info("rename table[{}] to {}", tableName, newTableName);
+    }
+
+    public void refreshExternalTableSchema(Database db, Table table, List<Column> newSchema) {
+        RefreshExternalTableInfo refreshExternalTableInfo = new RefreshExternalTableInfo(db.getFullName(),
+                table.getName(), newSchema);
+        editLog.logRefreshExternalTableSchema(refreshExternalTableInfo);
+        LOG.info("refresh db[{}] table[{}] for schema change", db.getFullName(), table.getName());
     }
 
     public void replayRenameTable(TableInfo tableInfo) throws DdlException {
@@ -5100,7 +5116,7 @@ public class Catalog {
         Database db = getDb(dbId);
         db.writeLock();
         try {
-            OlapTable table = (OlapTable) db.getTable(tableId);
+            Table table = db.getTable(tableId);
             String tableName = table.getName();
             db.dropTable(tableName);
             table.setName(newTableName);

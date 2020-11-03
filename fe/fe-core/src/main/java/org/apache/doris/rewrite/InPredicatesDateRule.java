@@ -21,7 +21,6 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.analysis.BoolLiteral;
 
@@ -37,7 +36,7 @@ public class InPredicatesDateRule implements ExprRewriteRule {
     public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
         if (!(expr instanceof InPredicate)) return expr;
         Expr lChild = expr.getChild(0);
-        if (lChild.getType() != Type.DATETIME) {
+        if (!lChild.getType().isDateType()) {
             return expr;
         }
         int i = 1;

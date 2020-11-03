@@ -68,7 +68,7 @@ public class Config extends ConfigBase {
     public static String sys_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
     @ConfField public static String sys_log_level = "INFO"; 
     @ConfField public static int sys_log_roll_num = 10;
-    @ConfField public static String[] sys_log_verbose_modules = {};
+    @ConfField public static String[] sys_log_verbose_modules = {"org.apache.thrift", "org.apache.doris.thrift", "org.apache.doris.http", "org.apache.doris.service.FrontendServiceImpl"};
     @ConfField public static String sys_log_roll_interval = "DAY";
     @ConfField public static String sys_log_delete_age = "7d";
     @Deprecated
@@ -316,10 +316,10 @@ public class Config extends ConfigBase {
 
     /**
      * The connection timeout and socket timeout config for thrift server
-     * The value for thrift_client_timeout_ms is set to be larger than zero to prevent
-     * some hang up problems in java.net.SocketInputStream.socketRead0
+     * The default value for thrift_client_timeout_ms is set to be zero to prevent readtimeout
+     * 
      */
-    @ConfField public static int thrift_client_timeout_ms = 30000;
+    @ConfField public static int thrift_client_timeout_ms = 0;
 
     /**
      * The backlog_num for thrift server

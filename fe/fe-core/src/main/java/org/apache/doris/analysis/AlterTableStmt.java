@@ -18,10 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -142,24 +142,6 @@ public class AlterTableStmt extends DdlStmt {
                     clauses.add(addColumnClause);
                 }
             // add hidden column to rollup table
-            } else if (alterClause instanceof AddRollupClause && table.getKeysType() == KeysType.UNIQUE_KEYS
-                    && table.hasHiddenColumn()) {
-                if (table.getColumn(Column.DELETE_SIGN) != null) {
-                    if (!((AddRollupClause) alterClause).getColumnNames()
-                            .stream()
-                            .anyMatch(x -> x.equalsIgnoreCase(Column.DELETE_SIGN))) {
-                        ((AddRollupClause) alterClause).getColumnNames().add(Column.DELETE_SIGN);
-                    }
-                }
-                if (table.getColumn(Column.SEQUENCE_COL) != null) {
-                    if (!((AddRollupClause) alterClause).getColumnNames()
-                            .stream()
-                            .anyMatch(x -> x.equalsIgnoreCase(Column.SEQUENCE_COL))) {
-                        ((AddRollupClause) alterClause).getColumnNames().add(Column.SEQUENCE_COL);
-                    }
-                }
-                alterClause.analyze(analyzer);
-                clauses.add(alterClause);
             } else {
                 clauses.add(alterClause);
             }
@@ -167,6 +149,23 @@ public class AlterTableStmt extends DdlStmt {
         ops = clauses;
     }
 
+    public void rewriteAlterClause(Table table) throws UserException {
+        List<AlterClause> clauses = new ArrayList<>();
+        for (AlterClause alterClause : ops) {
+            if (alterClause instanceof TableRenameClause ||
+                    alterClause instanceof AddColumnClause ||
+                    alterClause instanceof AddColumnsClause ||
+                    alterClause instanceof DropColumnClause ||
+                    alterClause instanceof ModifyColumnClause ||
+                    alterClause instanceof ReorderColumnsClause) {
+                clauses.add(alterClause);
+            } else {
+                throw new AnalysisException( table.getType().toString() + " [" + table.getName() + "] " +
+                          "do not support " + alterClause.getOpType().toString() + " clause now");
+            }
+        }
+        ops = clauses;
+    }
 
     @Override
     public String toSql() {

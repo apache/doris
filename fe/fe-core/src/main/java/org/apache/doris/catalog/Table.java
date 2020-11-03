@@ -94,6 +94,8 @@ public class Table extends MetaObject implements Writable {
     protected boolean isTypeRead = false;
     // table(view)'s comment
     protected String comment = "";
+    // sql for creating this table, default is "";
+    protected String ddlSql = "";
 
     public Table(TableType type) {
         this.type = type;
@@ -137,6 +139,10 @@ public class Table extends MetaObject implements Writable {
         return name;
     }
 
+    public void setName(String newName) {
+        name = newName;
+    }
+
     public TableType getType() {
         return type;
     }
@@ -145,10 +151,15 @@ public class Table extends MetaObject implements Writable {
         return fullSchema;
     }
 
+    public String getDdlSql() {
+        return ddlSql;
+    }
+
     // should override in subclass if necessary
     public List<Column> getBaseSchema() {
         return getBaseSchema(Util.showHiddenColumns());
     }
+
     public List<Column> getBaseSchema(boolean full) {
         if (full) {
             return fullSchema;
