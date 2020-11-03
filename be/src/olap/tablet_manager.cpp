@@ -1333,7 +1333,6 @@ OLAPStatus TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& r
         next_unique_id = request.tablet_schema.columns.size();
     } else {
         next_unique_id = base_tablet->next_unique_id();
-        size_t old_num_columns = base_tablet->num_columns();
         auto& new_columns = request.tablet_schema.columns;
         for (uint32_t new_col_idx = 0; new_col_idx < new_columns.size(); ++new_col_idx) {
             const TColumn& column = new_columns[new_col_idx];
@@ -1342,18 +1341,12 @@ OLAPStatus TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& r
             //    unique_id in old_tablet to be the column's ordinal number in new_tablet
             // 2. if column exists only in new_tablet, assign next_unique_id of old_tablet
             //    to the new column
-            size_t old_col_idx = 0;
-            for (old_col_idx = 0 ; old_col_idx < old_num_columns; ++old_col_idx) {
-                const string& old_name = base_tablet->tablet_schema().column(old_col_idx).name();
-                if (old_name == column.column_name) {
-                    uint32_t old_unique_id
-                            = base_tablet->tablet_schema().column(old_col_idx).unique_id();
-                    col_idx_to_unique_id[new_col_idx] = old_unique_id;
-                    break;
-                }
-            }
-            // Not exist in old tablet, it is a new added column
-            if (old_col_idx == old_num_columns) {
+            int32_t old_col_idx = base_tablet->field_index(column.column_name);
+            if (old_col_idx != -1) {
+                uint32_t old_unique_id = base_tablet->tablet_schema().column(old_col_idx).unique_id();
+                col_idx_to_unique_id[new_col_idx] = old_unique_id;
+            } else {
+                // Not exist in old tablet, it is a new added column
                 col_idx_to_unique_id[new_col_idx] = next_unique_id++;
             }
         }

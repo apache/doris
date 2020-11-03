@@ -51,27 +51,13 @@ public:
     std::string construct_sub_predicates(const TCondition& condition);
 
 private:
-
-    int32_t _get_field_index(const TabletSchema& schema, const std::string& field_name) const {
-        for (int i = 0; i < schema.num_columns(); i++) {
-            if (schema.column(i).name() == field_name) {
-                return i;
-            }
-        }
-        LOG(WARNING) << "invalid field name. name='" << field_name;
-        return -1;
-    }
-
     bool is_condition_value_valid(const TabletColumn& column, const TCondition& cond, const string& value);
 };
 
 // 表示一个删除条件
 struct DeleteConditions {
-    DeleteConditions() : filter_version(0), del_cond(NULL) {}
-    ~DeleteConditions() {}
-
-    int32_t filter_version; // 删除条件版本号
-    Conditions* del_cond;   // 删除条件
+    int32_t filter_version = 0; // 删除条件版本号
+    Conditions* del_cond = nullptr;   // 删除条件
 };
 
 // 这个类主要用于判定一条数据(RowCursor)是否符合删除条件。这个类的使用流程如下：
