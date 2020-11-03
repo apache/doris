@@ -137,11 +137,11 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             try {
                 LiteralExpr newKey = key1;
                 if (key1.getType() != destType) {
-                    newKey = (LiteralExpr) key1.castTo(destType);
+                    newKey = (LiteralExpr) key1.castTo(destType).getResultValue();
                 }
                 LiteralExpr newOtherKey = key2;
                 if (key2.getType() != destType) {
-                    newOtherKey = (LiteralExpr) key2.castTo(destType);
+                    newOtherKey = (LiteralExpr) key2.castTo(destType).getResultValue();
                 }
                 ret = newKey.compareLiteral(newOtherKey);
             } catch (AnalysisException e) {
