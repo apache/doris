@@ -165,6 +165,7 @@ public:
         _columns.clear();
     }
 
+    // TODO(yingchun): should do it in constructor
     void set_tablet_schema(const TabletSchema* schema) {
         _schema = schema;
     }
@@ -187,22 +188,12 @@ public:
     CondColumn* get_column(int32_t cid) const;
 
 private:
-    int32_t _get_field_index(const std::string& field_name) const {
-        for (int i = 0; i < _schema->num_columns(); i++) {
-            if (_schema->column(i).name() == field_name) {
-                return i;
-            }
-        }
-        LOG(WARNING) << "invalid field name. [name='" << field_name << "']";
-        return -1;
-    }
-
     bool _cond_column_is_key_or_duplicate(const CondColumn* cc) const {
         return cc->is_key() || _schema->keys_type() == KeysType::DUP_KEYS;
     }
 
 private:
-    const TabletSchema* _schema;
+    const TabletSchema* _schema = nullptr;
     CondColumns _columns;   // list of condition column
 };
 
