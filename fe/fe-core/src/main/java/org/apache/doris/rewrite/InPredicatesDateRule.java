@@ -41,7 +41,9 @@ public class InPredicatesDateRule implements ExprRewriteRule {
         }
         int i = 1;
         while (i < expr.getChildren().size()) {
-            if (expr.getChild(i) instanceof CastExpr) {
+            Expr child = expr.getChild(i);
+            if (child.isConstant() && child.getType().isDateType() &&
+                    (child instanceof CastExpr)) {
                 expr.removeNode(i);
             } else {
                 i++;
