@@ -73,7 +73,7 @@ public:
         MemPool pool(tracker.get());
         size_t size = 3;
         std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(size, true, get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR), &cvb);
+        ColumnVectorBatch::create(size, true, get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR), nullptr, &cvb);
         ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);
 
@@ -88,7 +88,7 @@ public:
         ASSERT_EQ ("Doris", value[2].to_string());
         
         std::unique_ptr<ColumnVectorBatch> cvb2;
-        ColumnVectorBatch::create(1, true, get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR), &cvb2);
+        ColumnVectorBatch::create(1, true, get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR), nullptr, &cvb2);
         ColumnBlock block2(cvb2.get(), &pool);
         ColumnBlockView column_block_view2(&block2);
 

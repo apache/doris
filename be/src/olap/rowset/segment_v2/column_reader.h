@@ -216,10 +216,15 @@ public:
     // then returns false.
     virtual Status seek_to_ordinal(ordinal_t ord) = 0;
 
+    Status next_batch(size_t* n, ColumnBlockView* dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
     // After one seek, we can call this function many times to read data
     // into ColumnBlockView. when read string type data, memory will allocated
     // from MemPool
-    virtual Status next_batch(size_t* n, ColumnBlockView* dst) = 0;
+    virtual Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) = 0;
 
     virtual ordinal_t get_current_ordinal() const = 0;
 
@@ -264,7 +269,7 @@ public:
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override;
+    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
@@ -320,7 +325,7 @@ public:
 
     Status init(const ColumnIteratorOptions& opts) override;
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override;
+    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     Status seek_to_first() override { return _offset_iterator->seek_to_first(); };
 
@@ -361,7 +366,7 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override;
+    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 

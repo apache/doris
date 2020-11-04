@@ -16,6 +16,7 @@
 // under the License.
 
 #include "column_vector.h"
+#include "olap/field.h"
 
 namespace doris {
 
@@ -32,6 +33,7 @@ Status ColumnVectorBatch::resize(size_t new_cap) {
 Status ColumnVectorBatch::create(size_t init_capacity,
         bool is_nullable,
         const TypeInfo* type_info,
+        Field* field,
         std::unique_ptr<ColumnVectorBatch>* column_vector_batch) {
     if (is_scalar_type(type_info->type())) {
         std::unique_ptr<ColumnVectorBatch> local;
@@ -96,7 +98,10 @@ Status ColumnVectorBatch::create(size_t init_capacity,
     } else {
         switch (type_info->type()) {
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-            std::unique_ptr<ColumnVectorBatch> local(new ArrayColumnVectorBatch(type_info, is_nullable, init_capacity));
+            if (field == nullptr) {
+                return Status::NotSupported("When create ArrayColumnVectorBatch, `Field` is indispensable");
+            }
+            std::unique_ptr<ColumnVectorBatch> local(new ArrayColumnVectorBatch(type_info, is_nullable, init_capacity, field));
             RETURN_IF_ERROR(local->resize(init_capacity));
             *column_vector_batch = std::move(local);
             return Status::OK();
@@ -124,11 +129,20 @@ Status ScalarColumnVectorBatch<ScalarType>::resize(size_t new_cap) {
     return Status::OK();
 }
 
-ArrayColumnVectorBatch::ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity)
-: ColumnVectorBatch(type_info, is_nullable), _data(0), _item_offsets(1) {
+ArrayColumnVectorBatch::ArrayColumnVectorBatch(
+        const TypeInfo* type_info,
+        bool is_nullable,
+        size_t init_capacity,
+        Field* field) : ColumnVectorBatch(type_info, is_nullable), _data(0), _item_offsets(1) {
     auto array_type_info = reinterpret_cast<const ArrayTypeInfo*>(type_info);
     _item_offsets[0] = 0;
-    ColumnVectorBatch::create(init_capacity * 2, true, array_type_info->item_type_info(), &_elements);
+    ColumnVectorBatch::create(
+            init_capacity * 2,
+            field->get_sub_field(0)->is_nullable(),
+            array_type_info->item_type_info(),
+            field->get_sub_field(0),
+            &_elements
+            );
 }
 
 ArrayColumnVectorBatch::~ArrayColumnVectorBatch() = default;
@@ -151,13 +165,14 @@ void ArrayColumnVectorBatch::put_item_ordinal(segment_v2::ordinal_t* ordinals, s
     }
 }
 
-void ArrayColumnVectorBatch::prepare_for_read(size_t start_idx, size_t end_idx) {
+void ArrayColumnVectorBatch::prepare_for_read(size_t start_idx, size_t end_idx, bool item_has_null) {
     for (size_t idx = start_idx; idx < end_idx; ++idx) {
         if (!is_null_at(idx)) {
             _data[idx] = Collection(
                     _elements->mutable_cell_ptr(_item_offsets[idx]),
                     _item_offsets[idx + 1] - _item_offsets[idx],
-                    const_cast<bool *>(&_elements->null_signs()[_item_offsets[idx]])
+                    item_has_null,
+                    _elements->is_nullable() ? const_cast<bool *>(&_elements->null_signs()[_item_offsets[idx]]) : nullptr
                     );
         }
     }

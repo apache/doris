@@ -205,6 +205,7 @@ Status BinaryDictPageDecoder::init() {
                 0,
                 false,
                 type_info,
+                nullptr,
                 &_batch));
         _data_page_decoder.reset(new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {

@@ -159,19 +159,28 @@ public:
         }
         size_t len = l_value->length;
 
-        for (size_t i = 0; i < len; ++i){
-            if (l_value->null_signs[i]) {
-                if (r_value->null_signs[i]) { // both are null
-                    continue;
-                } else { // left is null & right is not null
+        if (!l_value->may_has_null && !r_value->may_has_null) {
+            for (size_t i = 0; i < len; ++i){
+                if (!_item_type_info->equal((uint8_t*)(l_value->data) + i * _item_size,
+                                            (uint8_t*)(r_value->data) + i * _item_size)) {
                     return false;
                 }
-            } else if (r_value->null_signs[i]) { // left is not null & right is null
-                return false;
             }
-            if (!_item_type_info->equal((uint8_t*)(l_value->data) + i * _item_size,
-                                        (uint8_t*)(r_value->data) + i * _item_size)) {
-                return false;
+        } else {
+            for (size_t i = 0; i < len; ++i) {
+                if (l_value->null_signs[i]) {
+                    if (r_value->null_signs[i]) { // both are null
+                        continue;
+                    } else { // left is null & right is not null
+                        return false;
+                    }
+                } else if (r_value->null_signs[i]) { // left is not null & right is null
+                    return false;
+                }
+                if (!_item_type_info->equal((uint8_t*)(l_value->data) + i * _item_size,
+                                            (uint8_t*)(r_value->data) + i * _item_size)) {
+                    return false;
+                }
             }
         }
         return true;
@@ -184,22 +193,34 @@ public:
         size_t r_length = r_value->length;
         size_t cur = 0;
 
-        while (cur < l_length && cur < r_length) {
-            if (l_value->null_signs[cur]) {
-                if (!r_value->null_signs[cur]) { // left is null & right is not null
-                    return -1;
-                }
-            } else if (r_value->null_signs[cur]) { // left is not null & right is null
-                return 1;
-            } else { // both are not null
+        if (!l_value->may_has_null && !r_value->may_has_null) {
+            while (cur < l_length && cur < r_length) {
                 int result = _item_type_info->cmp((uint8_t*)(l_value->data) + cur * _item_size,
-                                                  (uint8_t*)(r_value->data) + cur * _item_size);
+                                                      (uint8_t*)(r_value->data) + cur * _item_size);
                 if (result != 0) {
                     return result;
                 }
+                ++cur;
             }
-            ++cur;
+        } else {
+            while (cur < l_length && cur < r_length) {
+                if (l_value->null_signs[cur]) {
+                    if (!r_value->null_signs[cur]) { // left is null & right is not null
+                        return -1;
+                    }
+                } else if (r_value->null_signs[cur]) { // left is not null & right is null
+                    return 1;
+                } else { // both are not null
+                    int result = _item_type_info->cmp((uint8_t*)(l_value->data) + cur * _item_size,
+                                                      (uint8_t*)(r_value->data) + cur * _item_size);
+                    if (result != 0) {
+                        return result;
+                    }
+                }
+                ++cur;
+            }
         }
+
         if (l_length < r_length) {
             return -1;
         } else if (l_length > r_length) {
@@ -220,16 +241,19 @@ public:
         dest_value->length = src_value->length;
 
         size_t item_size = src_value->length * _item_size;
-        size_t nulls_size = dest_value->length;
+        size_t nulls_size = src_value->may_has_null ? src_value->length : 0;
         dest_value->data = mem_pool->allocate(item_size + nulls_size);
-        dest_value->null_signs = reinterpret_cast<bool*>(dest_value->data) + item_size;
+        dest_value->may_has_null = src_value->may_has_null;
+        dest_value->null_signs = src_value->may_has_null ? reinterpret_cast<bool*>(dest_value->data) + item_size : nullptr;
 
         // copy null_signs
-        memory_copy(dest_value->null_signs, src_value->null_signs, sizeof(bool) * src_value->length);
+        if (src_value->may_has_null) {
+            memory_copy(dest_value->null_signs, src_value->null_signs, sizeof(bool) * src_value->length);
+        }
 
         // copy item
-        for (size_t i = 0; i < src_value->length; ++i) {
-            if (dest_value->null_signs[i]) continue;
+        for (uint32_t i = 0; i < src_value->length; ++i) {
+            if (dest_value->is_null_at(i)) continue;
             _item_type_info->deep_copy((uint8_t*)(dest_value->data) + i * _item_size, (uint8_t*)(src_value->data) + i * _item_size, mem_pool);
         }
     }
@@ -244,13 +268,15 @@ public:
         auto src_value = reinterpret_cast<const Collection*>(src);
 
         dest_value->length = src_value->length;
-
-        // direct copy null_signs
-        memory_copy(dest_value->null_signs, src_value->null_signs, src_value->length);
+        dest_value->may_has_null = src_value->may_has_null;
+        if (src_value->may_has_null) {
+            // direct copy null_signs
+            memory_copy(dest_value->null_signs, src_value->null_signs, src_value->length);
+        }
 
         // direct opy item
-        for (size_t i = 0; i < src_value->length; ++i) {
-            if (dest_value->null_signs[i]) continue;
+        for (uint32_t i = 0; i < src_value->length; ++i) {
+            if (dest_value->is_null_at(i)) continue;
             _item_type_info->direct_copy((uint8_t*)(dest_value->data) + i * _item_size, (uint8_t*)(src_value->data) + i * _item_size);
         }
     }

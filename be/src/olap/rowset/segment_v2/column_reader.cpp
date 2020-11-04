@@ -348,17 +348,17 @@ Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     RETURN_IF_ERROR(_offset_iterator->init(opts));
     RETURN_IF_ERROR(_item_iterator->init(opts));
     TypeInfo* bigint_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_BIGINT);
-    RETURN_IF_ERROR(ColumnVectorBatch::create(1024, true, bigint_type_info, &_offset_batch));
+    RETURN_IF_ERROR(ColumnVectorBatch::create(1024, _offset_iterator->is_nullable(), bigint_type_info, nullptr, &_offset_batch));
     return Status::OK();
 }
 
 // every invoke this method, _offset_batch will be cover, so this method is not thread safe.
-Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
+Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
     // 1. read n offsets into  _offset_batch;
     _offset_batch->resize(*n + 1);
     ColumnBlock ordinal_block(_offset_batch.get(), nullptr);
     ColumnBlockView ordinal_view(&ordinal_block);
-    RETURN_IF_ERROR(_offset_iterator->next_batch(n, &ordinal_view));
+    RETURN_IF_ERROR(_offset_iterator->next_batch(n, &ordinal_view, has_null));
 
     if (*n == 0) {
         return Status::OK();
@@ -399,6 +399,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
     collection_batch->put_item_ordinal(ordinals, start_offset, *n + 1);
 
     size_t size_to_read = ordinals[*n] - ordinals[0];
+    bool item_has_null = false;
     if (size_to_read > 0) {
         _item_iterator->seek_to_ordinal(ordinals[0]);
         ColumnVectorBatch* item_vector_batch = collection_batch->elements();
@@ -406,7 +407,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
         ColumnBlock item_block = ColumnBlock(item_vector_batch, dst->pool());
         ColumnBlockView item_view = ColumnBlockView(&item_block, collection_batch->item_offset(start_offset));
         size_t real_read = size_to_read;
-        RETURN_IF_ERROR(_item_iterator->next_batch(&real_read, &item_view));
+        RETURN_IF_ERROR(_item_iterator->next_batch(&real_read, &item_view, &item_has_null));
         DCHECK(size_to_read == real_read);
     }
 
@@ -419,7 +420,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
         dst->advance(*n);
     }
 
-    collection_batch->prepare_for_read(0, end_offset);
+    collection_batch->prepare_for_read(0, end_offset, item_has_null);
     return Status::OK();
 }
 
@@ -478,8 +479,9 @@ void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset
     page->offset_in_page = offset_in_page;
 }
 
-Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
+Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
     size_t remaining = *n;
+    *has_null = false;
     while (remaining > 0) {
         if (!_page->has_remaining()) {
             bool eos = false;
@@ -514,6 +516,8 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
                 if (!is_null) {
                     RETURN_IF_ERROR(_page->data_decoder->next_batch(&num_rows, dst));
                     DCHECK_EQ(this_run, num_rows);
+                } else {
+                    *has_null = true;
                 }
 
                 // set null bits
@@ -660,14 +664,16 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
-Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
+Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
     if (dst->is_nullable()) {
         dst->set_null_bits(*n, _is_default_value_null);
     }
 
     if (_is_default_value_null) {
+        *has_null = true;
         dst->advance(*n);
     } else {
+        *has_null = false;
         for (int i = 0; i < *n; ++i) {
             memcpy(dst->data(), _mem_value, _type_size);
             dst->advance(1);

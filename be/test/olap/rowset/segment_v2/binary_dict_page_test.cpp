@@ -85,7 +85,7 @@ public:
         TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(size, false, type_info, &cvb);
+        ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb);
         ColumnBlock column_block(cvb.get(), &pool);
         ColumnBlockView block_view(&column_block);
 
@@ -176,7 +176,7 @@ public:
             MemPool pool(tracker.get());
             TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(1, false, type_info, &cvb);
+            ColumnVectorBatch::create(1, false, type_info, nullptr, &cvb);
             ColumnBlock column_block(cvb.get(), &pool);
             ColumnBlockView block_view(&column_block);
             Slice* values = reinterpret_cast<Slice*>(column_block.data());

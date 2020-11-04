@@ -126,6 +126,7 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
         RETURN_IF_ERROR(ColumnVectorBatch::create(num_to_read,
                                   false,
                                   reader.type_info(),
+                                  nullptr,
                                   &cvb));
         ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);

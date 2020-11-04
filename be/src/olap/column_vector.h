@@ -136,6 +136,7 @@ public:
     static Status create(size_t init_capacity,
                          bool is_nullable,
                          const TypeInfo* type_info,
+                         Field* field,
                          std::unique_ptr<ColumnVectorBatch>* column_vector_batch);
 
 private:
@@ -170,7 +171,7 @@ private:
 
 class ArrayColumnVectorBatch : public ColumnVectorBatch {
 public:
-    explicit ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity);
+    explicit ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity, Field* field);
     ~ArrayColumnVectorBatch() override;
     Status resize(size_t new_cap) override;
 
@@ -203,7 +204,7 @@ public:
     void put_item_ordinal(segment_v2::ordinal_t* ordinals, size_t start_idx, size_t size);
 
     // Generate collection slots.
-    void prepare_for_read(size_t start_idx, size_t end_idx);
+    void prepare_for_read(size_t start_idx, size_t end_idx, bool item_has_null);
 
 private:
     DataBuffer<Collection> _data;

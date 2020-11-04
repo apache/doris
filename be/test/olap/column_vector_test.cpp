@@ -21,6 +21,7 @@
 #include "olap/column_vector.h"
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.cpp"
+#include "olap/field.h"
 
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
@@ -47,7 +48,7 @@ void test_read_write_scalar_column_vector(const TypeInfo* type_info, const uint8
 
     size_t init_size = data_size / 2;
     std::unique_ptr<ColumnVectorBatch> cvb;
-    ASSERT_TRUE(ColumnVectorBatch::create(init_size, true, type_info, &cvb).ok());
+    ASSERT_TRUE(ColumnVectorBatch::create(init_size, true, type_info, nullptr, &cvb).ok());
     memcpy(cvb->mutable_cell_ptr(0), src, init_size * TYPE_SIZE);
     cvb->set_null_bits(0, init_size, false);
     ASSERT_TRUE(cvb->resize(data_size).ok());
@@ -78,9 +79,14 @@ void test_read_write_list_column_vector(const ArrayTypeInfo* list_type_info,
     ItemType* src_item = (ItemType*)src_item_data;
     size_t ITEM_TYPE_SIZE  = sizeof(ItemType);
 
+    TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, 0);
+    list_column.add_sub_column(item_column);
+    Field* field = FieldFactory::create(list_column);
+
     size_t list_init_size = list_size / 2;
     std::unique_ptr<ColumnVectorBatch> cvb;
-    ASSERT_TRUE(ColumnVectorBatch::create(list_init_size, true, list_type_info, &cvb).ok());
+    ASSERT_TRUE(ColumnVectorBatch::create(list_init_size, true, list_type_info, field, &cvb).ok());
 
     ArrayColumnVectorBatch* list_cvb = reinterpret_cast<ArrayColumnVectorBatch*>(cvb.get());
     ColumnVectorBatch* item_cvb = list_cvb->elements();
@@ -92,7 +98,7 @@ void test_read_write_list_column_vector(const ArrayTypeInfo* list_type_info,
     ASSERT_TRUE(item_cvb->resize(first_write_item).ok());
     memcpy(item_cvb->mutable_cell_ptr(0), src_item, first_write_item * ITEM_TYPE_SIZE);
     item_cvb->set_null_bits(0, first_write_item, false);
-    list_cvb->prepare_for_read(0, list_init_size);
+    list_cvb->prepare_for_read(0, list_init_size, false);
 
     // second write
     ASSERT_TRUE(list_cvb->resize(list_size).ok());
@@ -105,11 +111,12 @@ void test_read_write_list_column_vector(const ArrayTypeInfo* list_type_info,
            src_item + first_write_item,
            second_write_item * ITEM_TYPE_SIZE);
     item_cvb->set_null_bits(first_write_item, second_write_item, false);
-    list_cvb->prepare_for_read(0, list_size);
+    list_cvb->prepare_for_read(0, list_size, false);
 
     for (size_t idx = 0; idx < list_size; ++idx) {
         ASSERT_TRUE(list_type_info->equal(&result[idx], list_cvb->cell_ptr(idx))) << "idx:" << idx;
     }
+    delete field;
 }
 
 TEST_F(ColumnVectorTest, scalar_column_vector_test) {

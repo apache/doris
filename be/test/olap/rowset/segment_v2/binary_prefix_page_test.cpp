@@ -77,7 +77,7 @@ class BinaryPrefixPageTest : public testing::Test {
         TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(size, false, type_info, &cvb);
+        ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb);
         ColumnBlock column_block(cvb.get(), &pool);
         ColumnBlockView block_view(&column_block);
 
@@ -90,7 +90,7 @@ class BinaryPrefixPageTest : public testing::Test {
         }
 
         std::unique_ptr<ColumnVectorBatch> cvb2;
-        ColumnVectorBatch::create(size, false, type_info, &cvb2);
+        ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb2);
         ColumnBlock column_block2(cvb2.get(), &pool);
         ColumnBlockView block_view2(&column_block2);
         ret = page_decoder->seek_to_position_in_page(15);

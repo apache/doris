@@ -40,7 +40,7 @@ public:
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
         std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(1, true, get_scalar_type_info(type), &cvb);
+        ColumnVectorBatch::create(1, true, get_scalar_type_info(type), nullptr, &cvb);
         ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);
 
@@ -79,7 +79,7 @@ public:
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
         std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(size, true, get_scalar_type_info(Type), &cvb);
+        ColumnVectorBatch::create(size, true, get_scalar_type_info(Type), nullptr, &cvb);
         ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);
         size_t size_to_fetch = size;

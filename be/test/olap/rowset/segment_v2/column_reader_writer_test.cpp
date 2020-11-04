@@ -149,7 +149,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, &cvb);
+            ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
@@ -182,7 +182,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, &cvb);
+            ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
@@ -220,6 +220,14 @@ template<FieldType item_type, EncodingTypePB item_encoding, EncodingTypePB array
 void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int num_rows, string test_name) {
     Collection* src = src_data;
     ColumnMetaPB meta;
+    TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
+    int32 item_length = 0;
+    if (item_type == OLAP_FIELD_TYPE_CHAR || item_type == OLAP_FIELD_TYPE_VARCHAR) {
+        item_length = 10;
+    }
+    TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, item_length);
+    list_column.add_sub_column(item_column);
+    Field* field = FieldFactory::create(list_column);
 
     // write data
     string fname = TEST_DIR + "/" + test_name;
@@ -228,14 +236,6 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
         fs::CreateBlockOptions opts({ fname });
         Status st = fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock);
         ASSERT_TRUE(st.ok()) << st.get_error_msg();
-
-        TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
-        int32 item_length = 0;
-        if (item_type == OLAP_FIELD_TYPE_CHAR || item_type == OLAP_FIELD_TYPE_VARCHAR) {
-            item_length = 10;
-        }
-        TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, item_length);
-        list_column.add_sub_column(item_column);
 
         ColumnWriterOptions writer_opts;
         writer_opts.meta = &meta;
@@ -280,6 +280,7 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
         ASSERT_TRUE(wblock->close().ok());
     }
     TypeInfo* type_info = get_type_info(&meta);
+
     // read and check
     {
         ColumnReaderOptions reader_opts;
@@ -308,7 +309,7 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
             MemTracker tracker;
             MemPool pool(&tracker);
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, &cvb);
+            ColumnVectorBatch::create(0, true, type_info, field, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
@@ -335,7 +336,7 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
             MemTracker tracker;
             MemPool pool(&tracker);
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, &cvb);
+            ColumnVectorBatch::create(0, true, type_info, field, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
@@ -360,6 +361,7 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
         }
         delete iter;
     }
+    delete field;
 }
 
 
@@ -444,14 +446,15 @@ void test_read_default_value(string value, void* result) {
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, &cvb);
+            ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
             int idx = 0;
             size_t rows_read = 1024;
             ColumnBlockView dst(&col);
-            st = iter.next_batch(&rows_read, &dst);
+            bool has_null;
+            st = iter.next_batch(&rows_read, &dst, &has_null);
             ASSERT_TRUE(st.ok());
             for (int j = 0; j < rows_read; ++j) {
                 if (type == OLAP_FIELD_TYPE_CHAR) {
@@ -472,7 +475,7 @@ void test_read_default_value(string value, void* result) {
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, &cvb);
+            ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
@@ -483,7 +486,8 @@ void test_read_default_value(string value, void* result) {
                 int idx = rowid;
                 size_t rows_read = 1024;
                 ColumnBlockView dst(&col);
-                st = iter.next_batch(&rows_read, &dst);
+                bool has_null;
+                st = iter.next_batch(&rows_read, &dst, &has_null);
                 ASSERT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
                     if (type == OLAP_FIELD_TYPE_CHAR) {

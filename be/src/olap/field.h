@@ -40,6 +40,7 @@ namespace doris {
 // User can use this class to access or deal with column data in memory.
 class Field {
 public:
+    explicit Field() = default;
     explicit Field(const TabletColumn& column)
         : _type_info(get_type_info(&column)),
         _key_coder(get_key_coder(column.type())),
@@ -96,7 +97,9 @@ public:
     }
 
     virtual Field* clone() const {
-        return new Field(*this);
+        auto* local = new Field();
+        this->clone(local);
+        return local;
     }
 
     // Test if these two cell is equal with each other
@@ -257,6 +260,12 @@ public:
     Status decode_ascending(Slice* encoded_key, uint8_t* cell_ptr, MemPool* pool) const {
         return _key_coder->decode_ascending(encoded_key, _index_size, cell_ptr, pool);
     }
+    void add_sub_field(std::unique_ptr<Field> sub_field) {
+        _sub_fields.emplace_back(std::move(sub_field));
+    }
+    Field* get_sub_field(int i) {
+        return _sub_fields[i].get();
+    }
 private:
     // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
     const TypeInfo* _type_info;
@@ -264,6 +273,7 @@ private:
     std::string _name;
     uint16_t _index_size;
     bool _is_nullable;
+    std::vector<std::unique_ptr<Field>> _sub_fields;
 
 protected:
     const AggregateInfo* _agg_info;
@@ -277,7 +287,20 @@ protected:
         slice->size = _length;
         slice->data = (char*)pool->allocate(slice->size);
         return type_value;
-    };
+    }
+
+    void clone(Field* other) const {
+        other->_type_info = this->_type_info;
+        other->_key_coder = this->_key_coder;
+        other->_name = this->_name;
+        other->_index_size = this->_index_size;
+        other->_is_nullable = this->_is_nullable;
+        other->_sub_fields.clear();
+        for (const auto & f : _sub_fields) {
+            Field* item = f->clone();
+            other->add_sub_field(std::unique_ptr<Field>(item));
+        }
+    }
 };
 
 template<typename LhsCellType, typename RhsCellType>
@@ -364,6 +387,7 @@ uint32_t Field::hash_code(const CellType& cell, uint32_t seed) const {
 
 class CharField: public Field {
 public:
+    explicit CharField() : Field() {}
     explicit CharField(const TabletColumn& column) : Field(column) {
     }
 
@@ -395,7 +419,9 @@ public:
     }
 
     CharField* clone() const override {
-        return new CharField(*this);
+        auto* local = new CharField();
+        Field::clone(local);
+        return local;
     }
 
     char* allocate_value(MemPool* pool) const override {
@@ -411,6 +437,7 @@ public:
 
 class VarcharField: public Field {
 public:
+    explicit VarcharField() :Field() {}
     explicit VarcharField(const TabletColumn& column) : Field(column) {
     }
 
@@ -428,7 +455,9 @@ public:
     }
 
     VarcharField* clone() const override {
-        return new VarcharField(*this);
+        auto* local = new VarcharField();
+        Field::clone(local);
+        return local;
     }
 
     char* allocate_value(MemPool* pool) const override {
@@ -444,6 +473,7 @@ public:
 
 class BitmapAggField: public Field {
 public:
+    explicit BitmapAggField() : Field() {}
     explicit BitmapAggField(const TabletColumn& column) : Field(column) {
     }
 
@@ -459,12 +489,15 @@ public:
     }
 
     BitmapAggField* clone() const override {
-        return new BitmapAggField(*this);
+        auto* local = new BitmapAggField();
+        Field::clone(local);
+        return local;
     }
 };
 
 class HllAggField: public Field {
 public:
+    explicit HllAggField() : Field() {}
     explicit HllAggField(const TabletColumn& column) : Field(column) {
     }
 
@@ -480,7 +513,9 @@ public:
     }
 
     HllAggField* clone() const override {
-        return new HllAggField(*this);
+        auto* local = new HllAggField();
+        Field::clone(local);
+        return local;
     }
 };
 
@@ -494,6 +529,12 @@ public:
                     return new CharField(column);
                 case OLAP_FIELD_TYPE_VARCHAR:
                     return new VarcharField(column);
+                case OLAP_FIELD_TYPE_ARRAY: {
+                    std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
+                    auto* local = new Field(column);
+                    local->add_sub_field(std::move(item_field));
+                    return local;
+                }
                 default:
                     return new Field(column);
             }
@@ -512,6 +553,12 @@ public:
                         return new CharField(column);
                     case OLAP_FIELD_TYPE_VARCHAR:
                         return new VarcharField(column);
+                    case OLAP_FIELD_TYPE_ARRAY: {
+                        std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
+                        auto* local = new Field(column);
+                        local->add_sub_field(std::move(item_field));
+                        return local;
+                    }
                     default:
                         return new Field(column);
                 }
