@@ -69,6 +69,7 @@ ScalarTypeInfoResolver::ScalarTypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_UNSIGNED_INT>();
     add_mapping<OLAP_FIELD_TYPE_BOOL>();
     add_mapping<OLAP_FIELD_TYPE_BIGINT>();
+    add_mapping<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>();
     add_mapping<OLAP_FIELD_TYPE_LARGEINT>();
     add_mapping<OLAP_FIELD_TYPE_FLOAT>();
     add_mapping<OLAP_FIELD_TYPE_DOUBLE>();

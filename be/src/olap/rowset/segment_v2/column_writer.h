@@ -140,7 +140,7 @@ public:
 // Because some columns would be stored in a file, we should wait
 // until all columns has been finished, and then data can be written
 // to file
-class ScalarColumnWriter : public ColumnWriter {
+class ScalarColumnWriter final : public ColumnWriter {
 public:
     ScalarColumnWriter(const ColumnWriterOptions& opts,
                            std::unique_ptr<Field> field,
@@ -237,7 +237,7 @@ private:
     FlushPageCallback* _new_page_callback = nullptr;
 };
 
-class ArrayColumnWriter : public ColumnWriter, public FlushPageCallback {
+class ArrayColumnWriter final : public ColumnWriter, public FlushPageCallback {
 public:
     explicit ArrayColumnWriter(const ColumnWriterOptions& opts,
                       std::unique_ptr<Field> field,

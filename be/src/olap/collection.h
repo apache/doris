@@ -23,20 +23,19 @@ namespace doris {
 
 // cpp type for ARRAY
 struct Collection {
-    size_t length;
-    // null bitmap
-    bool* null_signs;
     // child column data
     void* data;
+    uint32_t length;
+    // null bitmap
+    bool* null_signs;
 
-    Collection(): length(0), null_signs(nullptr), data(nullptr) {}
+    Collection(): data(nullptr), length(0), null_signs(nullptr) {}
 
-    explicit Collection(size_t length) : length(length), null_signs(nullptr), data(nullptr) {}
+    explicit Collection(uint32_t length) : data(nullptr), length(length), null_signs(nullptr) {}
 
-    Collection(void* data, size_t length ) : length(length), null_signs(nullptr), data(data) {}
+    Collection(void* data, size_t length) : data(data), length(length), null_signs(nullptr) {}
 
-    Collection(void* data, size_t length, bool* null_signs)
-    : length(length), null_signs(null_signs), data(data) {}
+    Collection(void* data, size_t length, bool* null_signs) : data(data), length(length), null_signs(null_signs) {}
 
     bool operator==(const Collection& y) const;
     bool operator!=(const Collection& value) const;

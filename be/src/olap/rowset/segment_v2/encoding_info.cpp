@@ -83,11 +83,11 @@ struct TypeEncodingTraits<type, BIT_SHUFFLE, CppType,
 template<>
 struct TypeEncodingTraits<OLAP_FIELD_TYPE_ARRAY, BIT_SHUFFLE, Collection> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new BitshufflePageBuilder<OLAP_FIELD_TYPE_BIGINT>(opts);
+        *builder = new BitshufflePageBuilder<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>(opts);
         return Status::OK();
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) {
-        *decoder = new BitShufflePageDecoder<OLAP_FIELD_TYPE_BIGINT>(data, opts);
+        *decoder = new BitShufflePageDecoder<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>(data, opts);
         return Status::OK();
     }
 };
@@ -223,6 +223,7 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_BIGINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
 
+    _add_map<OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_ARRAY, BIT_SHUFFLE>();
 
     _add_map<OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>();

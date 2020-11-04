@@ -78,7 +78,7 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts,
                            const ColumnMetaPB& meta,
                            uint64_t num_rows,
                            const std::string& file_name)
-        :_meta(meta), _opts(opts),_num_rows(num_rows), _file_name(file_name) {
+        :_meta(meta), _opts(opts), _num_rows(num_rows), _file_name(file_name) {
 }
 
 ColumnReader::~ColumnReader() = default;

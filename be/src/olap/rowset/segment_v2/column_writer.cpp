@@ -111,7 +111,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts,
                 std::unique_ptr<ColumnWriter> item_writer;
                 RETURN_IF_ERROR(ColumnWriter::create(item_options, &item_column, _wblock, &item_writer));
 
-                std::unique_ptr<Field> bigint_field(FieldFactory::create_by_type(FieldType::OLAP_FIELD_TYPE_BIGINT));
+                std::unique_ptr<Field> bigint_field(FieldFactory::create_by_type(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT));
 
                 ScalarColumnWriter* offset_writer = new ScalarColumnWriter(opts, std::move(bigint_field), _wblock);
 

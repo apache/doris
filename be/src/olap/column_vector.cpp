@@ -180,66 +180,18 @@ DataBuffer<T>::~DataBuffer() {
 
 template <class T>
 void DataBuffer<T>::resize(size_t new_size) {
-    reserve(new_size);
-    if (current_size  > new_size) {
-        for(uint64_t i=current_size; i > new_size; --i) {
-            (buf + i - 1)->~T();
-        }
-    } else if (new_size > current_size) {
-        for(uint64_t i=current_size; i < new_size; ++i) {
-            new (buf + i) T();
-        }
-    }
-    current_size = new_size;
-}
-
-template <class T>
-void DataBuffer<T>::reserve(size_t new_capacity) {
-    if (new_capacity > current_capacity || !buf) {
+    if (new_size > current_capacity || !buf) {
         if (buf) {
             T* buf_old = buf;
-            buf = reinterpret_cast<T*>(std::malloc(sizeof(T) * new_capacity));
+            buf = reinterpret_cast<T*>(std::malloc(sizeof(T) * new_size));
             memcpy(buf, buf_old, sizeof(T) * current_size);
             std::free(buf_old);
         } else {
-            buf = reinterpret_cast<T*>(std::malloc(sizeof(T) * new_capacity));
+            buf = reinterpret_cast<T*>(std::malloc(sizeof(T) * new_size));
         }
-        current_capacity = new_capacity;
+        current_capacity = new_size;
     }
+    current_size = new_size;
 }
-//
-//template <>
-//void DataBuffer<decimal12_t>::reserve(size_t new_capacity) {
-//    if (new_capacity > current_capacity || !buf) {
-//        if (buf) {
-//            decimal12_t* buf_old = buf;
-//            buf = new decimal12_t[new_capacity];
-//            for (size_t i = 0; i < current_capacity; ++i) {
-//                buf[i] = buf_old[i];
-//            }
-//            SAFE_DELETE_ARRAY(buf_old);
-//        } else {
-//            buf = new decimal12_t[new_capacity];
-//        }
-//        current_capacity = new_capacity;
-//    }
-//}
-//
-//template <>
-//void DataBuffer<uint24_t>::reserve(size_t new_capacity) {
-//    if (new_capacity > current_capacity || !buf) {
-//        if (buf) {
-//            uint24_t* buf_old = buf;
-//            buf = new uint24_t[new_capacity];
-//            for (size_t i = 0; i < current_capacity; ++i) {
-//                buf[i] = buf_old[i];
-//            }
-//            SAFE_DELETE_ARRAY(buf_old);
-//        } else {
-//            buf = new uint24_t[new_capacity];
-//        }
-//        current_capacity = new_capacity;
-//    }
-//}
 
 } // namespace doris

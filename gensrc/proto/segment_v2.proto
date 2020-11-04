@@ -153,10 +153,9 @@ message ColumnMetaPB {
     optional PagePointerPB dict_page = 9;
 
     repeated ColumnMetaPB children_columns = 10;
-    repeated string children_column_names = 11;
 
     // required by array/struct/map reader to create child reader. 
-    optional uint64 num_rows = 12;
+    optional uint64 num_rows = 11;
 }
 
 message SegmentFooterPB {

@@ -255,7 +255,7 @@ protected:
 
 // This iterator is used to read column data from file
 // for scalar type
-class FileColumnIterator : public ColumnIterator {
+class FileColumnIterator final : public ColumnIterator {
 public:
     explicit FileColumnIterator(ColumnReader* reader);
     ~FileColumnIterator() override;
@@ -312,7 +312,7 @@ private:
     std::unordered_set<uint32_t> _delete_partial_statisfied_pages;
 };
 
-class ArrayFileColumnIterator : public ColumnIterator {
+class ArrayFileColumnIterator final : public ColumnIterator {
 public:
     explicit ArrayFileColumnIterator(FileColumnIterator* offset_iterator, ColumnIterator* item_iterator);
 

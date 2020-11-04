@@ -60,7 +60,6 @@ public:
         return buf[i];
     }
 
-    void reserve(size_t _size);
     void resize(size_t _size);
 };
 
