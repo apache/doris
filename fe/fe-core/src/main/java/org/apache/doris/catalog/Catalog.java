@@ -5107,6 +5107,8 @@ public class Catalog {
 
     // entry of rename table operation
     public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
+        Preconditions.checkState(db.isWriteLockHeldByCurrentThread());
+        Preconditions.checkState(table.isWriteLockHeldByCurrentThread());
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
             if ( olapTable.getState() != OlapTableState.NORMAL) {
@@ -6732,46 +6734,31 @@ public class Catalog {
     /*
      * The entry of replacing partitions with temp partitions.
      */
-    public void replaceTempPartition(Database db, String tableName, ReplacePartitionClause clause) throws DdlException {
+    public void replaceTempPartition(Database db, OlapTable olapTable, ReplacePartitionClause clause) throws DdlException {
+        Preconditions.checkState(olapTable.isWriteLockHeldByCurrentThread());
         List<String> partitionNames = clause.getPartitionNames();
         List<String> tempPartitionNames = clause.getTempPartitionNames();
         boolean isStrictRange = clause.isStrictRange();
         boolean useTempPartitionName = clause.useTempPartitionName();
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-        }
-
-        if (table.getType() != TableType.OLAP) {
-            throw new DdlException("Table[" + tableName + "] is not OLAP table");
-        }
-
-        OlapTable olapTable = (OlapTable) table;
-        olapTable.writeLock();
-        try {
-            // check partition exist
-            for (String partName : partitionNames) {
-                if (!olapTable.checkPartitionNameExist(partName, false)) {
-                    throw new DdlException("Partition[" + partName + "] does not exist");
-                }
+        // check partition exist
+        for (String partName : partitionNames) {
+            if (!olapTable.checkPartitionNameExist(partName, false)) {
+                throw new DdlException("Partition[" + partName + "] does not exist");
             }
-            for (String partName : tempPartitionNames) {
-                if (!olapTable.checkPartitionNameExist(partName, true)) {
-                    throw new DdlException("Temp partition[" + partName + "] does not exist");
-                }
-            }
-
-            olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
-
-            // write log
-            ReplacePartitionOperationLog info = new ReplacePartitionOperationLog(db.getId(), olapTable.getId(),
-                    partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
-            editLog.logReplaceTempPartition(info);
-            LOG.info("finished to replace partitions {} with temp partitions {} from table: {}",
-                    clause.getPartitionNames(), clause.getTempPartitionNames(), tableName);
-        } finally {
-            olapTable.writeUnlock();
         }
+        for (String partName : tempPartitionNames) {
+            if (!olapTable.checkPartitionNameExist(partName, true)) {
+                throw new DdlException("Temp partition[" + partName + "] does not exist");
+            }
+        }
+        olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
+
+        // write log
+        ReplacePartitionOperationLog info = new ReplacePartitionOperationLog(db.getId(), olapTable.getId(),
+                partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
+        editLog.logReplaceTempPartition(info);
+        LOG.info("finished to replace partitions {} with temp partitions {} from table: {}",
+                clause.getPartitionNames(), clause.getTempPartitionNames(), olapTable.getName());
     }
 
     public void replayReplaceTempPartition(ReplacePartitionOperationLog replaceTempPartitionLog) {

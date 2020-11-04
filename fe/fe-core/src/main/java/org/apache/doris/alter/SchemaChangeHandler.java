@@ -1586,7 +1586,7 @@ public class SchemaChangeHandler extends AlterHandler {
     @Override
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws UserException {
-
+        Preconditions.checkState(olapTable.isWriteLockHeldByCurrentThread());
         // index id -> index schema
         Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
         for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {

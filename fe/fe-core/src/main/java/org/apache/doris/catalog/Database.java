@@ -154,6 +154,10 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
+    public boolean isWriteLockHeldByCurrentThread() {
+        return this.rwLock.writeLock().isHeldByCurrentThread();
+    }
+
     public long getId() {
         return id;
     }
