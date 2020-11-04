@@ -81,17 +81,17 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.commons.collections.map.HashedMap;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.collections.map.HashedMap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -1461,6 +1461,13 @@ public class Coordinator {
         // cache the bucketShuffleFragmentIds
         private Set<Integer> bucketShuffleFragmentIds = new HashSet<>();
 
+        private Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds;
+
+        // TODO(cmy): Should refactor this Controller to unify bucket shuffle join and colocate join
+        public BucketShuffleJoinController(Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds) {
+            this.fragmentIdToScanNodeIds = fragmentIdToScanNodeIds;
+        }
+
         // check whether the node fragment is bucket shuffle join fragment
         private boolean isBucketShuffleJoin(int fragmentId, PlanNode node) {
             if (ConnectContext.get() != null) {
@@ -1625,13 +1632,13 @@ public class Coordinator {
         }
     }
 
-    private BucketShuffleJoinController bucketShuffleJoinController = new BucketShuffleJoinController();
 
     private BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
     private Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentIdToSeqToAddressMap = Maps.newHashMap();
     // cache the fragment id to its scan node ids. Used for colocate join.
     private Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = Maps.newHashMap();
     private Set<Integer> colocateFragmentIds = new HashSet<>();
+    private BucketShuffleJoinController bucketShuffleJoinController = new BucketShuffleJoinController(fragmentIdToScanNodeIds);
 
     // record backend execute state
     // TODO(zhaochun): add profile information and others
