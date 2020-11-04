@@ -158,7 +158,12 @@ public class RollupJobV2Test {
         alterClauses.add(clause2);
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
-        materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        olapTable.writeLock();
+        try {
+            materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        } finally {
+            olapTable.writeUnlock();
+        }
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
 
         materializedViewHandler.runAfterCatalogReady();
@@ -178,7 +183,12 @@ public class RollupJobV2Test {
         alterClauses.add(clause);
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
-        materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        olapTable.writeLock();
+        try {
+            materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        } finally {
+            olapTable.writeUnlock();
+        }
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         Assert.assertEquals(OlapTableState.ROLLUP, olapTable.getState());
@@ -198,7 +208,12 @@ public class RollupJobV2Test {
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
-        materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        olapTable.writeLock();
+        try {
+            materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        } finally {
+            olapTable.writeUnlock();
+        }
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         RollupJobV2 rollupJob = (RollupJobV2) alterJobsV2.values().stream().findAny().get();
@@ -302,7 +317,12 @@ public class RollupJobV2Test {
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
-        materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        olapTable.writeLock();
+        try {
+            materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        } finally {
+            olapTable.writeUnlock();
+        }
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         RollupJobV2 rollupJob = (RollupJobV2) alterJobsV2.values().stream().findAny().get();
