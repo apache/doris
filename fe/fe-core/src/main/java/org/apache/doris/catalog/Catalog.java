@@ -4308,7 +4308,16 @@ public class Catalog {
 
     public void replayAlterExteranlTableSchema(String dbName, String tableName, List<Column> newSchema) throws DdlException {
         Database db = this.fullNameToDb.get(dbName);
-        db.allterExternalTableSchemaWithLock(tableName, newSchema);
+        Table table = db.getTable(tableName);
+        if (table == null) {
+            throw new DdlException("Do not contain proper table " + tableName + " in refresh table");
+        }
+        table.writeLock();
+        try {
+            table.setNewFullSchema(newSchema);
+        } finally {
+            table.writeUnlock();
+        }
     }
 
     private void createTablets(String clusterName, MaterializedIndex index, ReplicaState replicaState,

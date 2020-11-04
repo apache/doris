@@ -22,6 +22,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
@@ -35,6 +36,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
@@ -184,26 +186,17 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     private void createLoadingTask(Database db, BrokerPendingTaskAttachment attachment) throws UserException {
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
         // divide job into broker loading task by table
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
         this.jobProfile = new RuntimeProfile("BrokerLoadJob " + id + ". " + label);
-        db.readLock();
+        MetaLockUtils.readLockTables(tableList);
         try {
             for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry : fileGroupAggInfo.getAggKeyToFileGroups().entrySet()) {
                 FileGroupAggKey aggKey = entry.getKey();
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
                 OlapTable table = (OlapTable) db.getTable(tableId);
-                if (table == null) {
-                    LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                            .add("database_id", dbId)
-                            .add("table_id", tableId)
-                            .add("error_msg", "Failed to divide job into loading task when table not found")
-                            .build());
-                    throw new MetaNotFoundException("Failed to divide job into loading task when table "
-                            + tableId + " not found");
-                }
-
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), execMemLimit,
@@ -226,11 +219,9 @@ public class BrokerLoadJob extends BulkLoadJob {
                 }
                 txnState.addTableIndexes(table);
             }
-
         } finally {
-            db.readUnlock();
+           MetaLockUtils.readUnlockTables(tableList);
         }
-
         // Submit task outside the database lock, cause it may take a while if task queue is full.
         for (LoadTask loadTask : newLoadingTasks) {
             Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().submit(loadTask);
@@ -282,8 +273,10 @@ public class BrokerLoadJob extends BulkLoadJob {
             return;
         }
         Database db = null;
+        List<Table> tableList = null;
         try {
             db = getDb();
+            tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
         } catch (MetaNotFoundException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("database_id", dbId)
@@ -292,27 +285,25 @@ public class BrokerLoadJob extends BulkLoadJob {
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
             return;
         }
-        db.writeLock();
+        MetaLockUtils.writeLockTables(tableList);
         try {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("txn_id", transactionId)
                     .add("msg", "Load job try to commit txn")
                     .build());
             MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
-//            Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
-//                    dbId, transactionId, commitInfos,
-//                    new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
-//                            finishTimestamp, state, failMsg));
-            throw new UserException("");
+            Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
+                    dbId, tableList, transactionId, commitInfos,
+                    new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
+                            finishTimestamp, state, failMsg));
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("database_id", dbId)
                     .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
                     .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
-            return;
         } finally {
-            db.writeUnlock();
+            MetaLockUtils.writeUnlockTables(tableList);
         }
     }
 
