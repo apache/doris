@@ -108,6 +108,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final long DEFAULT_MAX_BATCH_ROWS = 200000;
     public static final long DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
     public static final long DEFAULT_EXEC_MEM_LIMIT = 2 * 1024 * 1024 * 1024L;
+    public static final long DEFAULT_WINDOW_INTERVAL_SEC = -1;
     public static final boolean DEFAULT_STRICT_MODE = false; // default is false
 
     protected static final String STAR_STRING = "*";
@@ -184,6 +185,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected long maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
 
     protected String sequenceCol;
+    protected long windowIntervalSec = DEFAULT_WINDOW_INTERVAL_SEC;
 
     /**
      * RoutineLoad support json data.
@@ -295,6 +297,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
         if (stmt.getExecMemLimit() != -1) {
             this.execMemLimit = stmt.getExecMemLimit();
+        }
+        if (stmt.getWindowIntervalSec() > 0) {
+            this.windowIntervalSec = stmt.getWindowIntervalSec();
         }
         jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
@@ -534,6 +539,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return maxBatchSizeBytes;
     }
 
+    public long getWindowIntervalSec() {
+        return windowIntervalSec;
+    }
+
     public String getFormat() {
         String value = jobProperties.get(PROPS_FORMAT);
         if (value == null) {
@@ -765,6 +774,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             throw new MetaNotFoundException("db " + dbId + " does not exist");
         }
         planner = new StreamLoadPlanner(db, (OlapTable) db.getTable(this.tableId), this);
+        planner.setWindowIntervalSec(windowIntervalSec);
     }
 
     public TExecPlanFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
@@ -1343,6 +1353,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         jobProperties.put("execMemLimit", String.valueOf(execMemLimit));
         jobProperties.put("mergeType", mergeType.toString());
         jobProperties.put("deleteCondition", deleteCondition == null ? STAR_STRING : deleteCondition.toSql());
+        jobProperties.put("windowIntervalSec", String.valueOf(windowIntervalSec));
         jobProperties.putAll(this.jobProperties);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);
@@ -1397,6 +1408,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         out.writeLong(maxBatchIntervalS);
         out.writeLong(maxBatchRows);
         out.writeLong(maxBatchSizeBytes);
+        out.writeLong(windowIntervalSec);
         progress.write(out);
 
         out.writeLong(createTimestamp);
@@ -1443,6 +1455,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         maxBatchIntervalS = in.readLong();
         maxBatchRows = in.readLong();
         maxBatchSizeBytes = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_93) {
+            windowIntervalSec = in.readLong();
+        }
 
         switch (dataSourceType) {
             case KAFKA: {
@@ -1540,6 +1555,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY)) {
             this.maxBatchSizeBytes = Long.valueOf(
                     jobProperties.remove(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.WINDOW_INTERVAL_SEC_PROPERTY)) {
+            this.windowIntervalSec = Long.valueOf(
+                    jobProperties.remove(CreateRoutineLoadStmt.WINDOW_INTERVAL_SEC_PROPERTY));
         }
     }
 }

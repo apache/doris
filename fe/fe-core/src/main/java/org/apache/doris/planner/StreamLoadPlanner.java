@@ -22,13 +22,18 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.RangePartitionInfo;
+import com.google.common.collect.Range;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -55,6 +60,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -75,10 +81,13 @@ public class StreamLoadPlanner {
     private Analyzer analyzer;
     private DescriptorTable descTable;
 
+    private long windowIntervalSec;
+
     public StreamLoadPlanner(Database db, OlapTable destTable, LoadTaskInfo taskInfo) {
         this.db = db;
         this.destTable = destTable;
         this.taskInfo = taskInfo;
+        this.windowIntervalSec = -1;
     }
 
     private void resetAnalyzer() {
@@ -89,6 +98,13 @@ public class StreamLoadPlanner {
         descTable = analyzer.getDescTbl();
     }
 
+    public void setWindowIntervalSec(long windowIntervalSec) {
+        this.windowIntervalSec = windowIntervalSec;
+    }
+
+    public long getWindowIntervalSec() {
+        return windowIntervalSec;
+    }
     // can only be called after "plan()", or it will return null
     public OlapTable getDestTable() {
         return destTable;
@@ -198,7 +214,6 @@ public class StreamLoadPlanner {
     // if no partition specified, return all partitions
     private List<Long> getAllPartitionIds() throws DdlException {
         List<Long> partitionIds = Lists.newArrayList();
-
         PartitionNames partitionNames = taskInfo.getPartitions();
         if (partitionNames != null) {
             for (String partName : partitionNames.getPartitionNames()) {
@@ -207,6 +222,44 @@ public class StreamLoadPlanner {
                     ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_PARTITION, partName, destTable.getName());
                 }
                 partitionIds.add(part.getId());
+            }
+        } else if (windowIntervalSec > 0) {
+            if (destTable.getPartitionInfo().getType().equals(PartitionType.RANGE)) {
+                RangePartitionInfo partitionInfo = (RangePartitionInfo) destTable.getPartitionInfo();
+                if (partitionInfo.getPartitionColumns().size() != 1) {
+                    for (Partition partition : destTable.getPartitions()) {
+                        partitionIds.add(partition.getId());
+                    }
+                } else {
+                    Date upperDate = new Date();
+                    Date lowerDate = new Date(upperDate.getTime() - windowIntervalSec*1000);
+                    PartitionValue lowerValue = new PartitionValue(DATE_FORMAT.format(lowerDate));
+                    PartitionValue upperValue = new PartitionValue(DATE_FORMAT.format(upperDate));
+                    Range<PartitionKey> partitionKeyRange;
+                    try {
+                        PartitionKey lowerBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerValue), partitionInfo.getPartitionColumns());
+                        PartitionKey upperBound = PartitionKey.createPartitionKey(Collections.singletonList(upperValue), partitionInfo.getPartitionColumns());
+                        partitionKeyRange = Range.closedOpen(lowerBound, upperBound);
+                        for (Map.Entry<Long, Range<PartitionKey>> entry : partitionInfo.getIdToRange(false).entrySet()) {
+                            Range<PartitionKey> range = entry.getValue();
+                            try {
+                                if (!range.intersection(partitionKeyRange).isEmpty()) {
+                                    partitionIds.add(entry.getKey());
+                                }
+                            } catch (Exception e) {
+                                // do nothing
+                            }
+                        }
+                    } catch (AnalysisException e) {
+                        // keys.size is always equal to column.size, cannot reach this exception
+                        LOG.warn("Keys size is not equal to column size. Error={}, db: {}, table: {}", e.getMessage(),
+                                db.getFullName(), destTable.getName());
+                    }
+                }
+            } else {
+                for (Partition partition : destTable.getPartitions()) {
+                    partitionIds.add(partition.getId());
+                }
             }
         } else {
             for (Partition partition : destTable.getPartitions()) {

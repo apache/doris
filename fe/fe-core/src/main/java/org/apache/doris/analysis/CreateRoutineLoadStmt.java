@@ -102,6 +102,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String JSONPATHS = "jsonpaths";
     public static final String JSONROOT = "json_root";
 
+    // window
+    public static final String WINDOW_INTERVAL_SEC_PROPERTY = "window_interval_sec";
+
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
     public static final String KAFKA_TOPIC_PROPERTY = "kafka_topic";
@@ -123,6 +126,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(JSONPATHS)
             .add(STRIP_OUTER_ARRAY)
             .add(JSONROOT)
+            .add(WINDOW_INTERVAL_SEC_PROPERTY)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .add(EXEC_MEM_LIMIT_PROPERTY)
@@ -152,6 +156,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long maxBatchIntervalS = -1;
     private long maxBatchRows = -1;
     private long maxBatchSizeBytes = -1;
+    private long windowIntervalSec = -1;
     private boolean strictMode = true;
     private long execMemLimit = 2 * 1024 * 1024 * 1024L;
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
@@ -182,6 +187,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> { return v >= 200000; };
     public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> { return v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024; };
     public static final Predicate<Long>  EXEC_MEM_LIMIT_PRED = (v) -> { return v >= 0L; };
+    public static final Predicate<Long> MAX_WINDOW_INTERVAL_PRED = (v) -> { return v >= 0; };
 
     public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
                                  Map<String, String> jobProperties, String typeName,
@@ -237,6 +243,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public long getExecMemLimit() {
         return execMemLimit;
+    }
+
+    public long getWindowIntervalSec() {
+        return windowIntervalSec;
     }
 
     public boolean isStrictMode() {
@@ -411,6 +421,11 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         maxBatchSizeBytes = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_SIZE_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
                 MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
+
+        windowIntervalSec = Util.getLongPropertyOrDefault(jobProperties.get(WINDOW_INTERVAL_SEC_PROPERTY),
+                RoutineLoadJob.DEFAULT_WINDOW_INTERVAL_SEC, MAX_WINDOW_INTERVAL_PRED,
+                WINDOW_INTERVAL_SEC_PROPERTY + " should >= 0");
+
 
         strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
                                                       RoutineLoadJob.DEFAULT_STRICT_MODE,

@@ -48,6 +48,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             .add(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY)
+            .add(CreateRoutineLoadStmt.WINDOW_INTERVAL_SEC_PROPERTY)
             .add(CreateRoutineLoadStmt.JSONPATHS)
             .add(CreateRoutineLoadStmt.JSONROOT)
             .add(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)
@@ -156,6 +157,15 @@ public class AlterRoutineLoadStmt extends DdlStmt {
                     CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
             analyzedJobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY,
                     String.valueOf(maxBatchSizeBytes));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.WINDOW_INTERVAL_SEC_PROPERTY)) {
+            long windowIntervalSec =  Util.getLongPropertyOrDefault(
+                    jobProperties.get(CreateRoutineLoadStmt.WINDOW_INTERVAL_SEC_PROPERTY),
+                    -1, CreateRoutineLoadStmt.MAX_WINDOW_INTERVAL_PRED,
+                    CreateRoutineLoadStmt.WINDOW_INTERVAL_SEC_PROPERTY + " should >= 0");
+            analyzedJobProperties.put(CreateRoutineLoadStmt.WINDOW_INTERVAL_SEC_PROPERTY,
+                    String.valueOf(windowIntervalSec));
         }
 
         if (jobProperties.containsKey(LoadStmt.STRICT_MODE)) {

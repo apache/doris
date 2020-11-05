@@ -70,6 +70,8 @@ public abstract class RoutineLoadTaskInfo {
 
     protected long timeoutMs = -1;
 
+    protected long windowIntervalSec = -1;
+
     // this status will be set when corresponding transaction's status is changed.
     // so that user or other logic can know the status of the corresponding txn.
     protected TransactionStatus txnStatus = TransactionStatus.UNKNOWN;
@@ -155,6 +157,14 @@ public abstract class RoutineLoadTaskInfo {
             return true;
         }
         return false;
+    }
+
+    public void setWindowIntervalSec(long windowIntervalSec) {
+        this.windowIntervalSec = windowIntervalSec;
+    }
+
+    public long getWindowIntervalSec() {
+        return this.windowIntervalSec;
     }
 
     abstract TRoutineLoadTask createRoutineLoadTask() throws UserException;
