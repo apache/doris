@@ -355,8 +355,10 @@ public class SparkLoadJobTest {
                 result = filePathToSize;
                 catalog.getDb(dbId);
                 result = db;
-                db.getTable(tableId);
-                result = table;
+                db.getTablesOnIdOrderOrThrowException((List<Long>) any);
+                result = Lists.newArrayList(table);
+                table.getId();
+                result = tableId;
                 table.getPartition(partitionId);
                 result = partition;
                 table.getPartitionInfo();
