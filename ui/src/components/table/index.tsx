@@ -50,7 +50,6 @@ export default function SortFilterTable(props: any) {
                 <FilterFilled/>
             </Popover>:''}
             <Table
-                rowKey={allTableData?.column_names?.[0]}
                 columns={localColumns}
                 dataSource={tableData}
                 scroll={{x:true}}

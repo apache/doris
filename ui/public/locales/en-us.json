@@ -47,5 +47,7 @@
     "tips":"Tips",
     "fileSizeWarning": "File size cannot exceed 100M",
     "selectWarning": "Please select a table",
-    "executionTime": "Execution Time"
+    "executionTime": "Execution Time",
+    "search":"Search",
+    "executionFailed":"Execution failed"
 }
