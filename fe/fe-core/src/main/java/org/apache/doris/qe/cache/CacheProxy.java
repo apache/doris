@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe.cache;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.PCacheParam;
@@ -29,6 +28,9 @@ import org.apache.doris.proto.PUniqueId;
 import org.apache.doris.proto.PUpdateCacheRequest;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TResultBatch;
+
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -133,12 +135,10 @@ public abstract class CacheProxy {
         public int value_count;
         public int row_count;
         public int data_size;
-        private String sqlStr;
         private List<CacheValue> valueList;
 
         public UpdateCacheRequest(String sqlStr) {
-            this.sqlStr = sqlStr;
-            this.sql_key = getMd5(this.sqlStr);
+            this.sql_key = getMd5(sqlStr);
             this.valueList = Lists.newArrayList();
             value_count = 0;
             row_count = 0;
@@ -176,12 +176,10 @@ public abstract class CacheProxy {
 
 
     public static class FetchCacheRequest extends PFetchCacheRequest {
-        private String sqlStr;
         private List<CacheParam> paramList;
 
         public FetchCacheRequest(String sqlStr) {
-            this.sqlStr = sqlStr;
-            this.sql_key = getMd5(this.sqlStr);
+            this.sql_key = getMd5(sqlStr);
             this.paramList = Lists.newArrayList();
         }
 
