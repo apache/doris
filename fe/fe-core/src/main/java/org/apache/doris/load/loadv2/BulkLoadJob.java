@@ -58,6 +58,7 @@ import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * parent class of BrokerLoadJob and SparkLoadJob from load stmt
@@ -235,7 +236,7 @@ public abstract class BulkLoadJob extends LoadJob {
                 // load id will be added to loadStatistic when executing this task
                 try {
                     Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
-                } catch (Exception e) {
+                } catch (RejectedExecutionException e) {
                     unprotectedExecuteCancel(failMsg, true);
                     logFinalOperation();
                     return;
