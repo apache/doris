@@ -2044,15 +2044,7 @@ public class Catalog {
             // Don't write information_schema db meta
             if (!InfoSchemaDb.isInfoSchemaDb(dbName)) {
                 checksum ^= entry.getKey();
-                db.readLock();
-                List<Table> tableList = db.getTablesOnIdOrder();
-                MetaLockUtils.readLockTables(tableList);
-                try {
-                    db.write(dos);
-                } finally {
-                    MetaLockUtils.readUnlockTables(tableList);
-                    db.readUnlock();
-                }
+                db.write(dos);
             }
         }
         return checksum;
@@ -6347,16 +6339,17 @@ public class Catalog {
             databases.sort(Comparator.comparing(Database::getId));
 
             // lock all dbs
+            MetaLockUtils.readLockDatabases(databases);
+            LOG.info("acquired all the dbs' read lock.");
+            // lock all tables
             for (Database db : databases) {
-                db.readLock();
                 List<Table> tableList = db.getTablesOnIdOrder();
                 MetaLockUtils.readLockTables(tableList);
                 tableLists.add(tableList);
             }
-            LOG.info("acquired all the dbs' read lock.");
+            LOG.info("acquired all the tables' read lock.");
 
             load.readLock();
-
             LOG.info("acquired all jobs' read lock.");
             long journalId = getMaxJournalId();
             File dumpFile = new File(Config.meta_dir, "image." + journalId);
@@ -6369,11 +6362,11 @@ public class Catalog {
             }
         } finally {
             // unlock all
+            load.readUnlock();
             for (int i = databases.size() - 1; i >= 0; i--) {
                 MetaLockUtils.readUnlockTables(tableLists.get(i));
-                databases.get(i).readUnlock();
             }
-            load.readUnlock();
+            MetaLockUtils.readUnlockDatabases(databases);
             unlock();
         }
 

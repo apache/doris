@@ -31,65 +31,16 @@ public class MetaLockUtils {
         }
     }
 
-    public static boolean tryReadLockDatabases(List<Database> databaseList, long timeout, TimeUnit unit) {
-        for (int i = 0; i < databaseList.size(); i++) {
-            if (!databaseList.get(i).tryReadLock(timeout, unit)) {
-                for (int j = i - 1; j >= 0; j--) {
-                    databaseList.get(j).readUnlock();
-                }
-                return false;
-            }
-        }
-        return true;
-    }
-
     public static void readUnlockDatabases(List<Database> databaseList) {
         for (int i = databaseList.size() - 1; i >= 0; i--) {
             databaseList.get(i).readUnlock();
         }
     }
 
-    public static void writeLockDatabases(List<Database> databaseList) {
-        for (Database database : databaseList) {
-            database.writeLock();
-        }
-    }
-
-    public static boolean tryWriteLockDatabases(List<Database> databaseList, long timeout, TimeUnit unit) {
-        for (int i = 0; i < databaseList.size(); i++) {
-            if (!databaseList.get(i).tryWriteLock(timeout, unit)) {
-                for (int j = i - 1; j >= 0; j--) {
-                    databaseList.get(j).writeUnlock();
-                }
-                return false;
-            }
-        }
-        return true;
-    }
-
-    public static void writeUnlockDatabases(List<Database> databaseList) {
-        for (int i = databaseList.size() - 1; i >= 0; i--) {
-            databaseList.get(i).writeUnlock();
-        }
-    }
-
-
     public static void readLockTables(List<Table> tableList) {
         for (Table table : tableList) {
             table.readLock();
         }
-    }
-
-    public static boolean tryReadLockTables(List<Table> tableList, long timeout, TimeUnit unit) {
-        for (int i = 0; i < tableList.size(); i++) {
-            if (!tableList.get(i).tryReadLock(timeout, unit)) {
-                for (int j = i - 1; j >= 0; j--) {
-                    tableList.get(j).readUnlock();
-                }
-                return false;
-            }
-        }
-        return true;
     }
 
     public static void readUnlockTables(List<Table> tableList) {
