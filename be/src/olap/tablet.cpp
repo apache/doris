@@ -751,22 +751,24 @@ bool Tablet::can_do_compaction() {
 }
 
 const uint32_t Tablet::calc_compaction_score(CompactionType compaction_type) const {
+    // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
+    ReadLock rdlock(&_meta_lock);
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-        return calc_cumulative_compaction_score();
+        return _calc_cumulative_compaction_score();
     } else {
         DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
-        return calc_base_compaction_score();
+        return _calc_base_compaction_score();
     }
 }
 
-const uint32_t Tablet::calc_cumulative_compaction_score() const {
+const uint32_t Tablet::_calc_cumulative_compaction_score() const {
     uint32_t score = 0;
     _cumulative_compaction_policy->calc_cumulative_compaction_score(
             _tablet_meta->all_rs_metas(), cumulative_layer_point(), &score);
     return score;
 }
 
-const uint32_t Tablet::calc_base_compaction_score() const {
+const uint32_t Tablet::_calc_base_compaction_score() const {
     uint32_t score = 0;
     const int64_t point = cumulative_layer_point();
     bool base_rowset_exist = false;
