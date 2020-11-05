@@ -83,7 +83,7 @@ public:
     virtual std::string print_agent_status(AgentStatus status);
 
     // Execute shell cmd
-    virtual bool exec_cmd(const std::string& command, std::string* errmsg);
+    virtual bool exec_cmd(const std::string& command, std::string* errmsg, bool redirect_stderr = true);
 
     // Write a map to file by json format
     virtual bool write_json_to_file(
