@@ -113,6 +113,8 @@ public class BaseViewStmt extends DdlStmt {
         // format view def string
         if (cols == null) {
             try (ToSqlContext toSqlContext = ToSqlContext.getOrNewThreadLocalContext()) {
+                // after being analyzed, the toSql() of SlotRef will output like "<slot 10> col as col",
+                // we don't need the slot id info, so using ToSqlContext to remove it.
                 toSqlContext.setNeedSlotRefId(false);
                 inlineViewDef = viewDefStmt.toSql();
             }
@@ -124,6 +126,8 @@ public class BaseViewStmt extends DdlStmt {
         cloneStmt.substituteSelectList(tmpAnalyzer, colNames);
 
         try (ToSqlContext toSqlContext = ToSqlContext.getOrNewThreadLocalContext()) {
+            // after being analyzed, the toSql() of SlotRef will output like "<slot 10> col as col",
+            // we don't need the slot id info, so using ToSqlContext to remove it.
             toSqlContext.setNeedSlotRefId(false);
             inlineViewDef = cloneStmt.toSql();
         }

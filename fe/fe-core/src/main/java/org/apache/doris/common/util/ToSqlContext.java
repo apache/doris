@@ -20,11 +20,20 @@ package org.apache.doris.common.util;
 import java.io.Closeable;
 
 /*
- * MetaContext saved the current meta version.
- * And we need to create a thread local meta context for all threads which are about to reading meta.
+ * This class is used to control the behavior of certain toSql() methods. The usage is as follows:
+ *
+ * try (ToSqlContext toSqlContext =ToSqlContext.getOrNewThreadLocalContext()) {
+ *     toSqlContext.setNeedSlotRefId(false); // set some property
+ *     inlineViewDef = viewDefStmt.toSql(); // call some toSql() methods
+ * }
+ *
+ * This class implements "Closable" interface, and it should be closed right after being used.
+ * To prevent it from affecting other following logic.
+ *
  */
 public class ToSqlContext implements Closeable {
 
+    // Used to control whether to output the slotId in the toSql() method of SlotRef.
     private boolean needSlotRefId;
 
     private static ThreadLocal<ToSqlContext> threadLocalInfo = new ThreadLocal<ToSqlContext>();
