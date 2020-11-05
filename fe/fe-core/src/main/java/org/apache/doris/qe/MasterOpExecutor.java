@@ -61,11 +61,11 @@ public class MasterOpExecutor {
     
     // Send request to Master
     private void forward() throws Exception {
+        if (!ctx.getCatalog().isReady()) {
+            throw new Exception("Node catalog is not ready, please wait for a while.");
+        }
         String masterHost = ctx.getCatalog().getMasterIp();
         int masterRpcPort = ctx.getCatalog().getMasterRpcPort();
-        if (masterHost == "" || masterRpcPort == 0) {
-            throw new Exception("Node is not ready.");
-        }
         TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
 
         FrontendService.Client client = null;
