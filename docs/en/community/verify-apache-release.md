@@ -74,7 +74,7 @@ Given your source dir is apache-doris-a.b.c-incubating-src, you can check with f
 It will output a file list which don't include ASF license header, and these files used other licenses.
 
 ``` shell
-/usr/java/jdk/bin/java  -jar apache-rat-0.13/apache-rat-0.13.jar -a -d apache-doris-a.b.c-incubating-src -E apache-doris-a.b.c-incubating-src/.rat-excudes 
+/usr/java/jdk/bin/java  -jar apache-rat-0.13/apache-rat-0.13.jar -a -d apache-doris-a.b.c-incubating-src -E apache-doris-a.b.c-incubating-src/.rat-excludes 
 ```
 
 ## 4. Verify building
