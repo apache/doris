@@ -233,27 +233,13 @@ public abstract class BulkLoadJob extends LoadJob {
                 loadTask.updateRetryInfo();
                 idToTasks.put(loadTask.getSignature(), loadTask);
                 // load id will be added to loadStatistic when executing this task
-                boolean retrySuccessFlag = false;
-                while (loadTask.getRetryTime() > 0) {
-                    try {
-                        Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
-                        retrySuccessFlag = true;
-                        break;
-                    } catch (Exception e) {
-                        try {
-                            Thread.sleep(100);
-                        } catch (InterruptedException ex) {
-                            LOG.warn("retry submit task sleep failed. task_id:{}", id);
-                        }
-                        loadTask.updateRetryInfo();
-                        continue;
-                    }
-                }
-                if (!retrySuccessFlag) {
+                try {
+                    Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
+                } catch (Exception e) {
                     unprotectedExecuteCancel(failMsg, true);
                     logFinalOperation();
+                    return;
                 }
-                return;
             }
         } finally {
             writeUnlock();
