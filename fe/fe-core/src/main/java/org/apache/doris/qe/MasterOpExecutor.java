@@ -63,6 +63,9 @@ public class MasterOpExecutor {
     private void forward() throws Exception {
         String masterHost = ctx.getCatalog().getMasterIp();
         int masterRpcPort = ctx.getCatalog().getMasterRpcPort();
+        if (masterHost == "" || masterRpcPort == 0) {
+            throw new Exception("Node is not ready.");
+        }
         TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
 
         FrontendService.Client client = null;
