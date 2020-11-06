@@ -170,7 +170,7 @@ public class SlotRef extends Expr {
         } else if (label != null) {
             return label + sb.toString();
         } else if (desc.getSourceExprs() != null) {
-            if (ToSqlContext.get() != null && ToSqlContext.get().isNeedSlotRefId()) {
+            if (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId()) {
                 if (desc.getId().asInt() != 1) {
                     sb.append("<slot " + desc.getId().asInt() + ">");
                 }
