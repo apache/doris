@@ -333,6 +333,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         if (decimalDigits != null) {
                             desc.setColumnScale(decimalDigits);
                         }
+                        desc.setIsAllowNull(column.isAllowNull());
                         final TColumnDef colDef = new TColumnDef(desc);
                         final String comment = column.getComment();
                         if(comment != null) {
