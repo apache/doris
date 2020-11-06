@@ -53,7 +53,7 @@ OLAPStatus CumulativeCompaction::compact() {
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
 
     // 3. do cumulative compaction, merge rowsets
-    int64_t permits = _tablet->calc_cumulative_compaction_score();
+    int64_t permits = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION);
     RETURN_NOT_OK(do_compaction(permits));
     TRACE("compaction finished");
 

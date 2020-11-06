@@ -37,9 +37,9 @@ Apache 的发布必须至少是 IPMC 成员，拥有 apache 邮箱的committer�
 	3. 清理 issue
 	4. 将必要的 Patch 合并到发布的分支
 3. 验证分支
-        1. QA 稳定性测试
-        2. 验证编译镜像正确性
-        3. 准备 Release Nodes
+	1. QA 稳定性测试
+	2. 验证编译镜像正确性
+	3. 准备 Release Nodes
 4. 社区发布投票流程
 	1. 将 tag 打包，签名并上传到[Apache Dev svn 仓库](https://dist.apache.org/repos/dist/dev/incubator/doris)
 	2. 在 [Doris 社区](dev@doris.apache.org)发起投票

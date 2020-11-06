@@ -86,7 +86,7 @@ export default function QueryProfile(params: any) {
                     :<Table
                         isSort={true}
                         isFilter={true}
-                        isInner={true}
+                        isInner={'/QueryProfile'}
                         allTableData={allTableData}
                     />
             }
