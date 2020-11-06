@@ -86,6 +86,7 @@ export function ContentStructure(props: any) {
                     bordered
                     rowKey='Field'
                     columns={columns}
+                    scroll={{ y: '36vh' }}
                     loading={{
                         spinning: getTableInfoRequest.loading,
                         delay: TABLE_DELAY,

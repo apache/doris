@@ -579,10 +579,10 @@ bool CondColumn::eval(const segment_v2::BloomFilter* bf) const {
 }
 
 OLAPStatus Conditions::append_condition(const TCondition& tcond) {
-    int32_t index = _get_field_index(tcond.column_name);
+    DCHECK(_schema != nullptr);
+    int32_t index = _schema->field_index(tcond.column_name);
     if (index < 0) {
-        LOG(WARNING) << "fail to get field index, name is invalid. index=" << index
-                     << ", field_name=" << tcond.column_name;
+        LOG(WARNING) << "fail to get field index, field name=" << tcond.column_name;
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 

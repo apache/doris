@@ -47,5 +47,7 @@
     "tips": "提示",
     "fileSizeWarning": "文件大小不能超过100m",
     "selectWarning": "请选择表",
-    "executionTime": "执行时间"
+    "executionTime": "执行时间",
+    "search":"查询",
+    "executionFailed": "执行失败"
 }

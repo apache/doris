@@ -347,7 +347,7 @@ namespace config {
     // Some data formats, such as JSON, cannot be streamed.
     // Therefore, it is necessary to limit the maximum number of
     // such data when using stream load to prevent excessive memory consumption.
-    CONF_mInt64(streaming_load_max_batch_size_mb, "100");
+    CONF_mInt64(streaming_load_json_max_mb, "100");
     // the alive time of a TabletsChannel.
     // If the channel does not receive any data till this time,
     // the channel will be removed.

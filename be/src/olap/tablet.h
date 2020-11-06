@@ -89,7 +89,7 @@ public:
     inline double bloom_filter_fpp() const;
     inline size_t next_unique_id() const;
     inline size_t row_size() const;
-    inline size_t field_index(const string& field_name) const;
+    inline int32_t field_index(const string& field_name) const;
 
     // operation in rowsets
     OLAPStatus add_rowset(RowsetSharedPtr rowset, bool need_persist = true);
@@ -164,8 +164,6 @@ public:
     // operation for compaction
     bool can_do_compaction();
     const uint32_t calc_compaction_score(CompactionType compaction_type) const;
-    const uint32_t calc_cumulative_compaction_score() const;
-    const uint32_t calc_base_compaction_score() const;
     static void compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
                                                   VersionHash* version_hash);
 
@@ -248,6 +246,9 @@ private:
     void _delete_stale_rowset_by_version(const Version& version);
     OLAPStatus _capture_consistent_rowsets_unlocked(const vector<Version>& version_path,
                                                     vector<RowsetSharedPtr>* rowsets) const;
+
+    const uint32_t _calc_cumulative_compaction_score() const;
+    const uint32_t _calc_base_compaction_score() const;
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
@@ -396,7 +397,7 @@ inline size_t Tablet::next_unique_id() const {
     return _schema.next_column_unique_id();
 }
 
-inline size_t Tablet::field_index(const string& field_name) const {
+inline int32_t Tablet::field_index(const string& field_name) const {
     return _schema.field_index(field_name);
 }
 

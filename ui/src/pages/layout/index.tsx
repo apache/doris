@@ -91,7 +91,7 @@ function Layouts(props: any) {
     );
     return (
         <Layout>
-            <Header style={{position: 'fixed', zIndex: 1, width: '100%'}}>
+            <Header style={{position: 'fixed', zIndex: 99, width: '100%'}}>
                 <div className={styles['logo']} onClick={()=>{history.replace('/home');setCurrent('')}}></div>
                 <span className='userSet'>
                     <Button style={{'color':'#000'}} type="text" size='small' onClick={changeLanguage}>{localStorage.getItem('I18N_LANGUAGE') === 'zh-CN' ? 'English' : '中文'}</Button>

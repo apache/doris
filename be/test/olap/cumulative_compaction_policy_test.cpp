@@ -212,7 +212,7 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score)
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
     _tablet->init();
 
-    const uint32_t score = _tablet->calc_cumulative_compaction_score();
+    const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION);
     
     ASSERT_EQ(15, score);
 }
@@ -675,7 +675,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    const uint32_t score = _tablet->calc_cumulative_compaction_score();
+    const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION);
 
     ASSERT_EQ(15, score);
 }
@@ -692,7 +692,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
     _tablet->calculate_cumulative_point();
-    const uint32_t score = _tablet->calc_cumulative_compaction_score();
+    const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION);
 
     ASSERT_EQ(7, score);
 }
