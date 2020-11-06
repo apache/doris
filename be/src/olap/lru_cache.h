@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include <gtest/gtest_prod.h>
 #include <rapidjson/document.h>
 
 #include "olap/olap_common.h"
@@ -231,9 +232,10 @@ namespace doris {
     typedef struct LRUHandle {
         void* value;
         void (*deleter)(const CacheKey&, void* value);
-        LRUHandle* next_hash;  // next entry in hash table
-        LRUHandle* next;       // next entry in lru list
-        LRUHandle* prev;       // previous entry in lru list
+        LRUHandle* next_hash = nullptr;  // next entry in hash table
+        LRUHandle* prev_hash = nullptr;  // previous entry in hash table
+        LRUHandle* next = nullptr;       // next entry in lru list
+        LRUHandle* prev = nullptr;       // previous entry in lru list
         size_t charge;
         size_t key_length;
         bool in_cache;      // Whether entry is in the cache.
@@ -271,17 +273,22 @@ namespace doris {
                 _resize();
             }
 
-            ~HandleTable() {
-                delete[] _list;
-            }
+            ~HandleTable();
 
             LRUHandle* lookup(const CacheKey& key, uint32_t hash);
 
             LRUHandle* insert(LRUHandle* h);
 
+            // Remove element from hash table by "key" and "hash".
             LRUHandle* remove(const CacheKey& key, uint32_t hash);
 
+            // Remove element from hash table by "h", it would be faster
+            // than the function above.
+            void remove(const LRUHandle* h);
+
         private:
+            FRIEND_TEST(CacheTest, HandleTableTest);
+
             // The tablet consists of an array of buckets where each bucket is
             // a linked list of cache entries that hash into the bucket.
             uint32_t _length;
@@ -292,6 +299,10 @@ namespace doris {
             // matches key/hash.  If there is no such cache entry, return a
             // pointer to the trailing slot in the corresponding linked list.
             LRUHandle** _find_pointer(const CacheKey& key, uint32_t hash);
+
+            // Insert "handle" after "head".
+            void _head_insert(LRUHandle* head, LRUHandle* handle);
+
             void _resize();
     };
 
@@ -336,15 +347,15 @@ namespace doris {
             void _lru_remove(LRUHandle* e);
             void _lru_append(LRUHandle* list, LRUHandle* e);
             bool _unref(LRUHandle* e);
-            void _evict_from_lru(size_t charge, std::vector<LRUHandle*>* deleted);
+            void _evict_from_lru(size_t charge, LRUHandle** to_remove_head);
             void _evict_one_entry(LRUHandle* e);
 
             // Initialized before use.
-            size_t _capacity;
+            size_t _capacity = 0;
 
             // _mutex protects the following state.
             Mutex _mutex;
-            size_t _usage;
+            size_t _usage = 0;
 
             // Dummy head of LRU list.
             // lru.prev is newest entry, lru.next is oldest entry.
@@ -353,8 +364,8 @@ namespace doris {
 
             HandleTable _table;
 
-            uint64_t _lookup_count;    // cache查找总次数
-            uint64_t _hit_count;       // 命中cache的总次数
+            uint64_t _lookup_count = 0;    // cache查找总次数
+            uint64_t _hit_count = 0;       // 命中cache的总次数
     };
 
     static const int kNumShardBits = 4;
@@ -378,6 +389,8 @@ namespace doris {
             Slice value_slice(Handle* handle) override;
             virtual uint64_t new_id();
             virtual void prune();
+
+        private:
             void update_cache_metrics() const;
 
         private:
