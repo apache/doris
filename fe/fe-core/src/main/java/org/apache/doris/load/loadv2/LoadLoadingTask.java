@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.LoadException;
@@ -83,9 +84,10 @@ public class LoadLoadingTask extends LoadTask {
         this.timeoutS = timeoutS;
     }
 
-    public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
+    public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList, int fileNum, UserIdentity userInfo) throws UserException {
         this.loadId = loadId;
-        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups, strictMode, timezone, this.timeoutS);
+        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table,
+                brokerDesc, fileGroups, strictMode, timezone, this.timeoutS, userInfo);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 

@@ -186,7 +186,8 @@ public class BrokerLoadJob extends BulkLoadJob {
                         strictMode, transactionId, this, timezone, timeoutSecond);
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-                task.init(loadId, attachment.getFileStatusByTable(aggKey), attachment.getFileNumByTable(aggKey));
+                task.init(loadId, attachment.getFileStatusByTable(aggKey),
+                        attachment.getFileNumByTable(aggKey), this.getOriginStmt().getUserInfo());
                 idToTasks.put(task.getSignature(), task);
                 // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.
                 // use newLoadingTasks to save new created loading tasks and submit them later.

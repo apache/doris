@@ -1049,6 +1049,7 @@ public class StmtExecutor {
 
     private void handleDdlStmt() {
         try {
+            parsedStmt.getOrigStmt().setUserInfo(context.getCurrentUserIdentity());
             DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt);
             context.getState().setOk();
         } catch (QueryStateException e) {
