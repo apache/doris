@@ -27,10 +27,10 @@ import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -78,7 +78,6 @@ public class BrokerLoadPendingTask extends LoadTask {
                     BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
                 }
                 boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
-                int fileNum = 0;
                 List<TBrokerFileStatus> filteredFileStatuses = Lists.newArrayList();
                 for (TBrokerFileStatus fstatus : fileStatuses) {
                     if (fstatus.getSize() == 0 && isBinaryFileFormat) {
@@ -90,7 +89,6 @@ public class BrokerLoadPendingTask extends LoadTask {
                         }
                     } else {
                         groupFileSize += fstatus.size;
-                        fileNum++;
                         filteredFileStatuses.add(fstatus);
                         if (LOG.isDebugEnabled()) {
                             LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
@@ -100,9 +98,10 @@ public class BrokerLoadPendingTask extends LoadTask {
                 }
                 fileStatusList.add(filteredFileStatuses);
                 tableTotalFileSize += groupFileSize;
-                tableTotalFileNum += fileNum;
+                tableTotalFileNum += filteredFileStatuses.size();
                 LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
-                        fileNum, groupNum, entry.getKey(), groupFileSize, callback.getCallbackId(), BrokerUtil.getAddress(brokerDesc));
+                        filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
+                        callback.getCallbackId(), BrokerUtil.getAddress(brokerDesc));
                 groupNum++;
             }
 
