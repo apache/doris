@@ -748,7 +748,7 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
 void Reader::_init_conditions_param(const ReaderParams& read_params) {
     _conditions.set_tablet_schema(&_tablet->tablet_schema());
     for (const auto& condition : read_params.conditions) {
-        _conditions.append_condition(condition);
+        DCHECK_EQ(OLAP_SUCCESS, _conditions.append_condition(condition));
         ColumnPredicate* predicate = _parse_to_predicate(condition);
         if (predicate != nullptr) {
             _col_predicates.push_back(predicate);
@@ -854,7 +854,10 @@ COMPARISON_PREDICATE_CONDITION_VALUE(ge, GreaterEqualPredicate)
 
 ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
     // TODO: not equal and not in predicate is not pushed down
-    int index = _tablet->field_index(condition.column_name);
+    int32_t index = _tablet->field_index(condition.column_name);
+    if (index < 0) {
+        return nullptr;
+    }
     const TabletColumn& column = _tablet->tablet_schema().column(index);
     if (column.aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
         return nullptr;

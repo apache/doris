@@ -37,9 +37,9 @@ The general process of publication is as follows:
 	3. clean up issues
 	4. merging necessary patch to release branch
 3. Verify branch
-         1. QA stability test
-         2. Verify the correctness of the compiled image
-         3. Prepare Release Nodes
+	1. QA stability test
+	2. Verify the correctness of the compiled image
+	3. Prepare Release Nodes
 4. Running the voting process for a release
 	1. singing a tag and upload it to [Apache dev svn repo](https://dist.apache.org/repos/dist/dev/incubator/doris)
 	2. calling votes from [Doris community](dev@doris.apache.org)

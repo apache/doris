@@ -206,7 +206,7 @@ export function AdHocContent(props: any) {
                 <Route
                     path={`${match.path}/${AdhocContentRouteKeyEnum.Structure}/:table`}
                     render={props => (
-                        <div style={{display:'flex',height:'300px'}}>
+                        <div style={{display:'flex',height:'53vh'}}>
                             <div style={{flex:3}}>
                                 <ContentStructure
                                     queryTable={tableName =>
