@@ -1018,7 +1018,7 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
         } else {
             LOG(INFO) << "finish report task. master host: "
                 << _master_info.network_address.hostname
-                << "port: " << _master_info.network_address.port;
+                << " port: " << _master_info.network_address.port;
         }
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(config::report_task_interval_seconds)));
 }
