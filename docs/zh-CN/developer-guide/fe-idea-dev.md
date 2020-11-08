@@ -38,8 +38,7 @@ JDK1.8+, IntelliJ IDEA
 
     1. 安装 thrift 0.9.3 版本。
 
-        MacOS: `brew install https://gist.githubusercontent.com/chrislusf/8b4e7c19551ba220232f037b43c0eaf3/raw/01465b867b8ef9af7c7c3fa830c83666c825122d/thrift.rb`
-
+        MacOS: `brew install thrift@0.9`
         Windows: `http://archive.apache.org/dist/thrift/0.9.3/thrift-0.9.3.exe`
 
 4. 如果是Mac 或者 Linux 环境 可以通过 如下命令生成自动生成代码：
