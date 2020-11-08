@@ -332,4 +332,11 @@ public abstract class BulkLoadJob extends LoadJob {
         }
     }
 
+    public OriginStatement getOriginStmt() {
+        return originStmt;
+    }
+
+    public void setOriginStmt(OriginStatement originStmt) {
+        this.originStmt = originStmt;
+    }
 }
