@@ -35,6 +35,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * LoadScheduler will schedule the pending LoadJob which belongs to LoadManager.
@@ -99,6 +100,12 @@ public class LoadJobScheduler extends MasterDaemon {
                                  .build(), e);
                 needScheduleJobs.put(loadJob);
                 return;
+            } catch (RejectedExecutionException e) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
+                        .add("error_msg", "Failed to submit etl job. Job queue is full.")
+                        .build(), e);
+                loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage()),
+                        true, true);
             }
         }
     }
