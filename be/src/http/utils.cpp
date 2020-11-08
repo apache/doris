@@ -89,7 +89,7 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
 // Do a simple decision, only deal a few type
 std::string get_content_type(const std::string& file_name) {
     std::string file_ext = path_util::file_extension(file_name);
-    LOG(INFO) << "file_name: " << file_name << "; file extension: [" << file_ext << "]";
+    VLOG(10) << "file_name: " << file_name << "; file extension: [" << file_ext << "]";
     if (file_ext == std::string(".html")
         || file_ext == std::string(".htm")) {
         return std::string("text/html; charset=utf-8");
