@@ -89,10 +89,7 @@ public class ConnectScheduler {
         if(context instanceof NConnectContext){
             return true;
         }
-        if (executor.submit(new LoopHandler(context)) == null) {
-            LOG.warn("Submit one thread failed.");
-            return false;
-        }
+        executor.submit(new LoopHandler(context));
         return true;
     }
 
