@@ -21,11 +21,7 @@ import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
 
-import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.analysis.ResourceDesc;
+import org.apache.doris.analysis.*;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -217,7 +213,7 @@ public class SparkLoadJobTest {
         };
 
         ResourceDesc resourceDesc = new ResourceDesc(resourceName, Maps.newHashMap());
-        SparkLoadJob job = new SparkLoadJob(dbId, label, resourceDesc, new OriginStatement(originStmt, 0));
+        SparkLoadJob job = new SparkLoadJob(dbId, label, resourceDesc, new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
         job.execute();
 
         // check transaction id and id to tasks
@@ -228,7 +224,7 @@ public class SparkLoadJobTest {
     @Test
     public void testOnPendingTaskFinished(@Mocked Catalog catalog, @Injectable String originStmt) throws MetaNotFoundException {
         ResourceDesc resourceDesc = new ResourceDesc(resourceName, Maps.newHashMap());
-        SparkLoadJob job = new SparkLoadJob(dbId, label, resourceDesc, new OriginStatement(originStmt, 0));
+        SparkLoadJob job = new SparkLoadJob(dbId, label, resourceDesc, new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
         SparkPendingTaskAttachment attachment = new SparkPendingTaskAttachment(pendingTaskId);
         attachment.setAppId(appId);
         attachment.setOutputPath(etlOutputPath);
@@ -247,7 +243,7 @@ public class SparkLoadJobTest {
         sparkConfigs.put("spark.master", "yarn");
         sparkConfigs.put("spark.submit.deployMode", "cluster");
         sparkConfigs.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
-        SparkLoadJob job = new SparkLoadJob(dbId, label, null, new OriginStatement(originStmt, 0));
+        SparkLoadJob job = new SparkLoadJob(dbId, label, null, new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
         job.state = JobState.ETL;
         job.maxFilterRatio = 0.15;
         job.transactionId = transactionId;
