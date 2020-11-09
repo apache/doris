@@ -119,13 +119,7 @@ public class MigrationAction extends RestBaseAction {
                 olapTable.readUnlock();
             }
         } else {
-            List<Table> tableList = null;
-            db.readLock();
-            try {
-                tableList = db.getTables();
-            } finally {
-                db.readUnlock();
-            }
+            List<Table> tableList = db.getTables();
 
             // get all olap table
             for (Table table : tableList) {

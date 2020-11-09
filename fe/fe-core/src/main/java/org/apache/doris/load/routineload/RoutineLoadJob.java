@@ -408,12 +408,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (database == null) {
             throw new MetaNotFoundException("Database " + dbId + "has been deleted");
         }
-        database.readLock();
-        try {
-            return database.getFullName();
-        } finally {
-            database.readUnlock();
-        }
+
+        return database.getFullName();
     }
 
     public long getTableId() {
@@ -1267,11 +1263,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public List<String> getShowInfo() {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        Table tbl = null;
-        if (db != null) {
-            db.readLock();
-            tbl = db.getTable(tableId);
-        }
+        Table tbl = (db == null) ? null : db.getTable(tableId);
 
         readLock();
         try {

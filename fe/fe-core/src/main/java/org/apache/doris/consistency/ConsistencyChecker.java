@@ -260,14 +260,7 @@ public class ConsistencyChecker extends MasterDaemon {
         try {
             while ((chosenOne = dbQueue.poll()) != null) {
                 Database db = (Database) chosenOne;
-                List<Table> tables = null;
-                db.readLock();
-                try {
-                    tables = db.getTables();
-                } finally {
-                    db.readUnlock();
-                }
-
+                List<Table> tables = db.getTables();
                 // sort tables
                 Queue<MetaObject> tableQueue = new PriorityQueue<>(Math.max(tables.size(), 1), COMPARATOR);
                 for (Table table : tables) {

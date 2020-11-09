@@ -86,14 +86,7 @@ public class TablesProcDir implements ProcDirInterface {
 
         // get info
         List<List<Comparable>> tableInfos = new ArrayList<List<Comparable>>();
-        List<Table> tableList = null;
-        db.readLock();
-        try {
-            tableList = db.getTables();
-        } finally {
-            db.readUnlock();
-        }
-
+        List<Table> tableList = db.getTables();
         for (Table table : tableList) {
             List<Comparable> tableInfo = new ArrayList<Comparable>();
             int partitionNum = 1;

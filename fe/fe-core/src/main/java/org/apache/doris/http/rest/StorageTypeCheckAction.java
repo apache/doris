@@ -67,13 +67,7 @@ public class StorageTypeCheckAction extends RestBaseAction {
         }
 
         JSONObject root = new JSONObject();
-        List<Table> tableList = null;
-        db.readLock();
-        try {
-            tableList = db.getTables();
-        } finally {
-            db.readUnlock();
-        }
+        List<Table> tableList = db.getTables();
 
         for (Table tbl : tableList) {
             if (tbl.getType() != TableType.OLAP) {

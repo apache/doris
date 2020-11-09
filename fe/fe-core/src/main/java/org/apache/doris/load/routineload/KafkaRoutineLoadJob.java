@@ -346,15 +346,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, stmt.getDBName());
         }
 
-        long tableId = -1L;
-        db.readLock();
-        try {
-            checkMeta(db, stmt.getTableName(), stmt.getRoutineLoadDesc());
-            Table table = db.getTable(stmt.getTableName());
-            tableId = table.getId();
-        } finally {
-            db.readUnlock();
-        }
+        checkMeta(db, stmt.getTableName(), stmt.getRoutineLoadDesc());
+        Table table = db.getTable(stmt.getTableName());
+        long tableId = table.getId();
 
         // init kafka routine load job
         long id = Catalog.getCurrentCatalog().getNextId();

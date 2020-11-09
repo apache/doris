@@ -38,9 +38,12 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.SparkResource;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.FailMsg;
@@ -133,13 +136,18 @@ public class SparkLoadPendingTask extends LoadTask {
         }
 
         Map<Long, EtlTable> tables = Maps.newHashMap();
-        db.readLock();
+        Map<Long, Set<Long>> tableIdToPartitionIds = Maps.newHashMap();
+        Set<Long> allPartitionsTableIds = Sets.newHashSet();
+        prepareTablePartitionInfos(db, tableIdToPartitionIds, allPartitionsTableIds);
+        List<Table> tableList = null;
         try {
-            Map<Long, Set<Long>> tableIdToPartitionIds = Maps.newHashMap();
-            Set<Long> allPartitionsTableIds = Sets.newHashSet();
-            prepareTablePartitionInfos(db, tableIdToPartitionIds, allPartitionsTableIds);
+            tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(allPartitionsTableIds));
+        } catch (MetaNotFoundException e) {
+            throw new LoadException(e.getMessage());
+        }
 
-
+        MetaLockUtils.readLockTables(tableList);
+        try {
             for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry : aggKeyToBrokerFileGroups.entrySet()) {
                 FileGroupAggKey aggKey = entry.getKey();
                 long tableId = aggKey.getTableId();
@@ -176,7 +184,7 @@ public class SparkLoadPendingTask extends LoadTask {
                 }
             }
         } finally {
-            db.readUnlock();
+            MetaLockUtils.readUnlockTables(tableList);
         }
 
         String outputFilePattern = EtlJobConfig.getOutputFilePattern(loadLabel, FilePatternVersion.V1);
@@ -199,25 +207,29 @@ public class SparkLoadPendingTask extends LoadTask {
             if (table == null) {
                 throw new LoadException("table does not exist. id: " + tableId);
             }
-
-            Set<Long> partitionIds = null;
-            if (tableIdToPartitionIds.containsKey(tableId)) {
-                partitionIds = tableIdToPartitionIds.get(tableId);
-            } else {
-                partitionIds = Sets.newHashSet();
-                tableIdToPartitionIds.put(tableId, partitionIds);
-            }
-
-            Set<Long> groupPartitionIds = aggKey.getPartitionIds();
-            // if not assign partition, use all partitions
-            if (groupPartitionIds == null || groupPartitionIds.isEmpty()) {
-                for (Partition partition : table.getPartitions()) {
-                    partitionIds.add(partition.getId());
+            table.readLock();
+            try {
+                Set<Long> partitionIds = null;
+                if (tableIdToPartitionIds.containsKey(tableId)) {
+                    partitionIds = tableIdToPartitionIds.get(tableId);
+                } else {
+                    partitionIds = Sets.newHashSet();
+                    tableIdToPartitionIds.put(tableId, partitionIds);
                 }
 
-                allPartitionsTableIds.add(tableId);
-            } else {
-                partitionIds.addAll(groupPartitionIds);
+                Set<Long> groupPartitionIds = aggKey.getPartitionIds();
+                // if not assign partition, use all partitions
+                if (groupPartitionIds == null || groupPartitionIds.isEmpty()) {
+                    for (Partition partition : table.getPartitions()) {
+                        partitionIds.add(partition.getId());
+                    }
+
+                    allPartitionsTableIds.add(tableId);
+                } else {
+                    partitionIds.addAll(groupPartitionIds);
+                }
+            } finally {
+                table.readUnlock();
             }
         }
     }

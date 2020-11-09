@@ -86,14 +86,7 @@ public class TabletStatMgr extends MasterDaemon {
             if (db == null) {
                 continue;
             }
-            List<Table> tableList = null;
-            db.readLock();
-            try {
-                tableList = db.getTables();
-            } finally {
-                db.readUnlock();
-            }
-
+            List<Table> tableList = db.getTables();
             for (Table table : tableList) {
                 if (table.getType() != TableType.OLAP) {
                     continue;
