@@ -139,6 +139,14 @@ The detailed syntax for creating a routine load task can be connected to Doris a
 
     The parameters in the above example are also the default parameters for these configurations.
 
+* window\_interval\_sec
+
+    `window_interval_sec` is used to control the receive window. The window is [now - window_interval_sec, now + 120s] and the partition will not receive data if the range doesn't have intersection with the window. Sometimes we don't hope to change early data because we think the data is stable and immutable and it shouldn't be modified by some dirty data.
+
+    We assume that `window_interval_sec` is 7200 and now is '2020-11-07 23:59:50', the receive window is [now - 7200s, now + 120s] = [2020-11-07 21:59:50, 2020-11-08 00:01:50]. If partition unit is DAY, partition [2020-11-07, 2020-11-08] and [2020-11-08, 2020-11-09] have intersection with the window. If partition unit is HOUR, partition [2020-11-07 21, 2020-11-07 22], [2020-11-07 22, 2020-11-07 23], [2020-11-07 23, 2020-11-08 00], [2020-11-08 00, 2020-11-08 01] have intersection with the window while any other partitions will not receive data from routine load task. Because the max number of `max_batch_interval` is 60, we set 120s window offset to allow partition 2020-11-08 can receive data in batch [2020-11-07 23:59:50, 2020-11-08 00:00:50]. 
+    
+    It only support DATE or DATETIME single range partition such as PARTITION BY RANGE(__time) which type of __time is DATE or DATETIME. It will not work on any other cases.
+
 * max\_error\_number
 
     `max_error_number` is used to control the error rate. When the error rate is too high, the job will automatically pause. Because the entire job is stream-oriented, and because of the borderless nature of the data stream, we can't calculate the error rate with an error ratio like other load tasks. So here is a new way of calculating to calculate the proportion of errors in the data stream.
