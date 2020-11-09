@@ -920,9 +920,6 @@ public class SchemaChangeJob extends AlterJob {
     @Override
     public void replayInitJob(Database db) {
         OlapTable olapTable = (OlapTable) db.getTable(tableId);
-        if (olapTable == null) {
-            return;
-        }
         olapTable.writeLock();
         try {
             // change the state of table/partition and replica, then add object to related List and Set
@@ -965,9 +962,6 @@ public class SchemaChangeJob extends AlterJob {
     @Override
     public void replayFinishing(Database db) {
         OlapTable olapTable = (OlapTable) db.getTable(tableId);
-        if (olapTable == null) {
-            return;
-        }
         olapTable.writeLock();
         try {
             // set the status to normal
