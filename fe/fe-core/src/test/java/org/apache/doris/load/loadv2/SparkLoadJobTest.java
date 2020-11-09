@@ -21,7 +21,12 @@ import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
 
-import org.apache.doris.analysis.*;
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.DataDescription;
+import org.apache.doris.analysis.LabelName;
+import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.ResourceDesc;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
