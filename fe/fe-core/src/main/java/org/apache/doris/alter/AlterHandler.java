@@ -410,11 +410,7 @@ public abstract class AlterHandler extends MasterDaemon {
             throw new MetaNotFoundException("database " + task.getDbId() + " does not exist");
         }
 
-        OlapTable tbl = (OlapTable) db.getTable(task.getTableId());
-        if (tbl == null) {
-            throw new MetaNotFoundException("tbl " + task.getTableId() + " does not exist");
-        }
-
+        OlapTable tbl = (OlapTable) db.getTableOrThrowException(task.getTableId(), Table.TableType.OLAP);
         tbl.writeLock();
         try {
             Partition partition = tbl.getPartition(task.getPartitionId());
