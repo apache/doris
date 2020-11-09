@@ -96,6 +96,9 @@ public:
     RuntimeProfile::Counter* rows_read_counter() const {
         return _rows_read_counter;
     }
+    RuntimeProfile::Counter* total_throughput_counter() const {
+        return _total_throughput_counter;
+    }
     RuntimeProfile::Counter* materialize_tuple_timer() const {
         return _materialize_tuple_timer;
     }
@@ -103,6 +106,7 @@ public:
     // names of ScanNode common counters
     static const std::string _s_bytes_read_counter;
     static const std::string _s_rows_read_counter;
+    static const std::string _s_total_throughput_counter;
     static const std::string _s_num_disks_accessed_counter;
     static const std::string _s_materialize_tuple_timer;
     static const std::string _s_scanner_thread_counters_prefix;
@@ -112,6 +116,8 @@ protected:
     RuntimeProfile::Counter* _bytes_read_counter; // # bytes read from the scanner
     // # rows/tuples read from the scanner (including those discarded by eval_conjucts())
     RuntimeProfile::Counter* _rows_read_counter;
+    // Wall based aggregate read throughput [bytes/sec]
+    RuntimeProfile::Counter* _total_throughput_counter;
     RuntimeProfile::Counter* _num_disks_accessed_counter;
     RuntimeProfile::Counter* _materialize_tuple_timer;  // time writing tuple slots
 };
