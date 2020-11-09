@@ -3414,9 +3414,6 @@ public class Catalog {
     public void replayDropPartition(DropPartitionInfo info) {
         Database db = this.getDb(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
-        if (olapTable == null) {
-            return;
-        }
         olapTable.writeLock();
         try {
             if (info.isTempPartition()) {
@@ -4301,9 +4298,6 @@ public class Catalog {
     public void replayAlterExteranlTableSchema(String dbName, String tableName, List<Column> newSchema) throws DdlException {
         Database db = this.fullNameToDb.get(dbName);
         Table table = db.getTable(tableName);
-        if (table == null) {
-            throw new DdlException("Do not contain proper table " + tableName + " in refresh table");
-        }
         table.writeLock();
         try {
             table.setNewFullSchema(newSchema);
@@ -4474,18 +4468,12 @@ public class Catalog {
     public void replayDropTable(Database db, long tableId, boolean isForceDrop) {
         Table table = db.getTable(tableId);
         // delete from db meta
-        if (table == null) {
-            return;
-        }
         db.writeLock();
+        table.writeLock();
         try {
-            table.writeLock();
-            try {
-                unprotectDropTable(db, table, isForceDrop);
-            } finally {
-                table.writeUnlock();
-            }
+            unprotectDropTable(db, table, isForceDrop);
         } finally {
+            table.writeUnlock();
             db.writeUnlock();
         }
     }
@@ -4545,9 +4533,6 @@ public class Catalog {
     public void replayAddReplica(ReplicaPersistInfo info) {
         Database db = getDb(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
-        if (olapTable == null) {
-            return;
-        }
         olapTable.writeLock();
         try {
             unprotectAddReplica(info);
@@ -4559,9 +4544,6 @@ public class Catalog {
     public void replayUpdateReplica(ReplicaPersistInfo info) {
         Database db = getDb(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
-        if (olapTable == null) {
-            return;
-        }
         olapTable.writeLock();
         try {
             unprotectUpdateReplica(info);
@@ -4582,9 +4564,6 @@ public class Catalog {
     public void replayDeleteReplica(ReplicaPersistInfo info) {
         Database db = getDb(info.getDbId());
         OlapTable tbl = (OlapTable) db.getTable(info.getTableId());
-        if (tbl == null) {
-            return;
-        }
         tbl.writeLock();
         try {
             unprotectDeleteReplica(info);
