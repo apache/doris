@@ -328,19 +328,6 @@ public class Database extends MetaObject implements Writable {
         return result;
     }
 
-    public void dropTableWithLock(String tableName) {
-        writeLock();
-        try {
-            Table table = this.nameToTable.get(tableName);
-            if (table != null) {
-                this.nameToTable.remove(tableName);
-                this.idToTable.remove(table.getId());
-            }
-        } finally {
-            writeUnlock();
-        }
-    }
-
     public void dropTable(String tableName) {
         Table table = this.nameToTable.get(tableName);
         if (table != null) {
