@@ -124,15 +124,6 @@ public class Database extends MetaObject implements Writable {
         this.rwLock.readLock().lock();
     }
 
-    public boolean tryReadLock(long timeout, TimeUnit unit) {
-        try {
-            return this.rwLock.readLock().tryLock(timeout, unit);
-        } catch (InterruptedException e) {
-            LOG.warn("failed to try read lock at db[" + id + "]", e);
-            return false;
-        }
-    }
-
     public void readUnlock() {
         this.rwLock.readLock().unlock();
     }

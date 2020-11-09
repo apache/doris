@@ -1210,7 +1210,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
 
         // check table belong to database
-        database.readLock();
         Table table = database.getTable(tableId);
         if (table == null) {
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id).add("db_id", dbId)

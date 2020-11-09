@@ -456,27 +456,22 @@ public class ShowExecutor {
         Database db = ctx.getCatalog().getDb(showTableStmt.getDb());
         if (db != null) {
             Map<String, String> tableMap = Maps.newTreeMap();
-            db.readLock();
-            try {
-                PatternMatcher matcher = null;
-                if (showTableStmt.getPattern() != null) {
-                    matcher = PatternMatcher.createMysqlPattern(showTableStmt.getPattern(),
-                                                                CaseSensibility.TABLE.getCaseSensibility());
+            PatternMatcher matcher = null;
+            if (showTableStmt.getPattern() != null) {
+                matcher = PatternMatcher.createMysqlPattern(showTableStmt.getPattern(),
+                        CaseSensibility.TABLE.getCaseSensibility());
+            }
+            for (Table tbl : db.getTables()) {
+                if (matcher != null && !matcher.match(tbl.getName())) {
+                    continue;
                 }
-                for (Table tbl : db.getTables()) {
-                    if (matcher != null && !matcher.match(tbl.getName())) {
-                        continue;
-                    }
-                    // check tbl privs
-                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                            db.getFullName(), tbl.getName(),
-                                                                            PrivPredicate.SHOW)) {
-                        continue;
-                    }
-                    tableMap.put(tbl.getName(), tbl.getMysqlType());
+                // check tbl privs
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                        db.getFullName(), tbl.getName(),
+                        PrivPredicate.SHOW)) {
+                    continue;
                 }
-            } finally {
-                db.readUnlock();
+                tableMap.put(tbl.getName(), tbl.getMysqlType());
             }
 
             for (Map.Entry<String, String> entry : tableMap.entrySet()) {
@@ -498,39 +493,34 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
         Database db = ctx.getCatalog().getDb(showStmt.getDb());
         if (db != null) {
-            db.readLock();
-            try {
-                PatternMatcher matcher = null;
-                if (showStmt.getPattern() != null) {
-                    matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
-                                                                CaseSensibility.TABLE.getCaseSensibility());
+            PatternMatcher matcher = null;
+            if (showStmt.getPattern() != null) {
+                matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
+                        CaseSensibility.TABLE.getCaseSensibility());
+            }
+            for (Table table : db.getTables()) {
+                if (matcher != null && !matcher.match(table.getName())) {
+                    continue;
                 }
-                for (Table table : db.getTables()) {
-                    if (matcher != null && !matcher.match(table.getName())) {
-                        continue;
-                    }
 
-                    // check tbl privs
-                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                            db.getFullName(), table.getName(),
-                                                                            PrivPredicate.SHOW)) {
-                        continue;
-                    }
-
-                    List<String> row = Lists.newArrayList();
-                    // Name
-                    row.add(table.getName());
-                    // Engine
-                    row.add(table.getEngine());
-                    // version, ra
-                    for (int i = 0; i < 15; ++i) {
-                        row.add(null);
-                    }
-                    row.add(table.getComment());
-                    rows.add(row);
+                // check tbl privs
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                        db.getFullName(), table.getName(),
+                        PrivPredicate.SHOW)) {
+                    continue;
                 }
-            } finally {
-                db.readUnlock();
+
+                List<String> row = Lists.newArrayList();
+                // Name
+                row.add(table.getName());
+                // Engine
+                row.add(table.getEngine());
+                // version, ra
+                for (int i = 0; i < 15; ++i) {
+                    row.add(null);
+                }
+                row.add(table.getComment());
+                rows.add(row);
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -1536,14 +1526,7 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
         Database db = ctx.getCatalog().getDb(showDynamicPartitionStmt.getDb());
         if (db != null) {
-            List<Table> tableList = null;
-            db.readLock();
-            try {
-                tableList = db.getTables();
-            } finally {
-                db.readUnlock();
-            }
-
+            List<Table> tableList = db.getTables();
             for (Table tbl : tableList) {
                 if (!(tbl instanceof OlapTable)) {
                     continue;
