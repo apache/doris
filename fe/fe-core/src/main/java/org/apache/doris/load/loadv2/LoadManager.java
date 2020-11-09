@@ -45,6 +45,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -702,6 +703,8 @@ public class LoadManager implements Writable{
         }
     }
 
+    @Deprecated
+    // Deprecated in version 0.12
     // This method is only for bug fix. And should be call after image and edit log are replayed.
     public void fixLoadJobMetaBugs(GlobalTransactionMgr txnMgr) {
         for (LoadJob job : idToLoadJob.values()) {
@@ -738,11 +741,11 @@ public class LoadManager implements Writable{
              * replay process. This results in that when the FE restarts, these load jobs
              * that should have been completed are re-entered into the pending state,
              * resulting in repeated submission load tasks.
-             * 
+             *
              * Those wrong images are unrecoverable, so that we have to cancel all load jobs
              * in PENDING or LOADING state when restarting FE, to avoid submit jobs
              * repeatedly.
-             * 
+             *
              * This code can be remove when upgrading from 0.11.x to future version.
              */
             if (job.getState() == JobState.LOADING || job.getState() == JobState.PENDING) {
@@ -773,7 +776,7 @@ public class LoadManager implements Writable{
                     // it would be failed if FE restart.
                     job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, "fe restart"), false, false);
                     LOG.info("transfer mini load job {} state from {} to CANCELLED, because transaction status is unknown"
-                            + ". label: {}, db: {}",
+                                    + ". label: {}, db: {}",
                             job.getId(), prevState, job.getLabel(), job.getDbId());
                 } else {
                     // txn is not found. here are 2 cases:
@@ -784,7 +787,7 @@ public class LoadManager implements Writable{
                     //    removed by expiration). 
                     // Without affecting the first case of job, we set the job finish time to be the same as the create time. 
                     // In this way, the second type of job will be automatically cleared after running removeOldLoadJob();
-                    
+
                     // use CancelType.UNKNOWN, so that we can set finish time to be the same as the create time
                     job.cancelJobWithoutCheck(new FailMsg(CancelType.TXN_UNKNOWN, "transaction status is unknown"), false, false);
                     LOG.info("finish load job {} from {} to CANCELLED, because transaction status is unknown. label: {}, db: {}, create: {}",

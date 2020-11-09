@@ -537,7 +537,8 @@ public class Catalog {
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
 
-        this.loadTaskScheduler = new MasterTaskExecutor("load_task_scheduler", Config.async_load_task_pool_size, !isCheckpointCatalog);
+        this.loadTaskScheduler = new MasterTaskExecutor("load_task_scheduler", Config.async_load_task_pool_size,
+                Config.desired_max_waiting_jobs, !isCheckpointCatalog);
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
         this.loadTimeoutChecker = new LoadTimeoutChecker(loadManager);
@@ -1238,9 +1239,6 @@ public class Catalog {
                 }
             }
         }
-
-        LOG.info("start to fix meta data bug");
-        loadManager.fixLoadJobMetaBugs(globalTransactionMgr);
     }
 
     // start all daemon threads only running on Master
