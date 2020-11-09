@@ -450,7 +450,7 @@ Doris 会自动命中这个 ROLLUP 表。
 
 而前缀索引，即在排序的基础上，实现的一种根据给定前缀列，快速查询数据的索引方式。
 
-我们将一行数据的前 **36 个字节** 作为这行数据的前缀索引。当遇到 VARCHAR 类型时，前缀索引会直接截断。我们举例说明：
+我们将一行数据的前 **32 个字节** 作为这行数据的前缀索引。当遇到 VARCHAR 类型时，前缀索引会直接截断。我们举例说明：
 
 1. 以下表结构的前缀索引为 user_id(8Byte) + age(4Bytes) + message(prefix 20 Bytes)。
 
@@ -462,7 +462,7 @@ Doris 会自动命中这个 ROLLUP 表。
 |max\_dwell\_time|DATETIME|
 |min\_dwell\_time|DATETIME|
 
-2. 以下表结构的前缀索引为 user_name(20 Bytes)。即使没有达到 36 个字节，因为遇到 VARCHAR，所以直接截断，不再往后继续。
+2. 以下表结构的前缀索引为 user_name(20 Bytes)。即使没有达到 32 个字节，因为遇到 VARCHAR，所以直接截断，不再往后继续。
 
 |ColumnName|Type|
 |---|---|
