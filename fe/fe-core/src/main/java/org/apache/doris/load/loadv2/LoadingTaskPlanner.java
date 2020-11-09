@@ -67,7 +67,7 @@ public class LoadingTaskPlanner {
     private final List<BrokerFileGroup> fileGroups;
     private final boolean strictMode;
     private final long timeoutS;    // timeout of load job, in second
-
+    private UserIdentity userInfo;
     // Something useful
     // ConnectContext here is just a dummy object to avoid some NPE problem, like ctx.getDatabase()
     private Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), new ConnectContext());
@@ -92,6 +92,7 @@ public class LoadingTaskPlanner {
         this.strictMode = strictMode;
         this.analyzer.setTimezone(timezone);
         this.timeoutS = timeoutS;
+        this.userInfo = userInfo;
         if (Catalog.getCurrentCatalog().getAuth().checkDbPriv(userInfo,
                 Catalog.getCurrentCatalog().getDb(dbId).getFullName(), PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);

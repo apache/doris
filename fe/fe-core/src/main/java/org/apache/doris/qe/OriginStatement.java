@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -40,7 +39,6 @@ public class OriginStatement implements Writable {
     // the idx of the specified statement in "originStmt", start from 0.
     @SerializedName(value = "idx")
     public final int idx;
-    public UserIdentity userInfo;
 
     public OriginStatement(String originStmt, int idx) {
         this.originStmt = originStmt;
@@ -56,13 +54,5 @@ public class OriginStatement implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-    }
-
-    public UserIdentity getUserInfo() {
-        return userInfo;
-    }
-
-    public void setUserInfo(UserIdentity userInfo) {
-        this.userInfo = userInfo;
     }
 }

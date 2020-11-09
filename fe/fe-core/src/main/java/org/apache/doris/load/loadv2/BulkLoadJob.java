@@ -22,6 +22,7 @@ import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -72,6 +73,8 @@ public abstract class BulkLoadJob extends LoadJob {
     // the expr of columns will be reanalyze when the log is replayed
     private OriginStatement originStmt;
 
+    private UserIdentity userInfo;
+
     // include broker desc and data desc
     protected BrokerFileGroupAggInfo fileGroupAggInfo = new BrokerFileGroupAggInfo();
     protected List<TabletCommitInfo> commitInfos = Lists.newArrayList();
@@ -85,10 +88,11 @@ public abstract class BulkLoadJob extends LoadJob {
         super();
     }
 
-    public BulkLoadJob(long dbId, String label, OriginStatement originStmt) throws MetaNotFoundException {
+    public BulkLoadJob(long dbId, String label, OriginStatement originStmt, UserIdentity userInfo) throws MetaNotFoundException {
         super(dbId, label);
         this.originStmt = originStmt;
         this.authorizationInfo = gatherAuthInfo();
+        this.userInfo = userInfo;
 
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
@@ -112,11 +116,11 @@ public abstract class BulkLoadJob extends LoadJob {
             switch (stmt.getEtlJobType()) {
                 case BROKER:
                     bulkLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                    stmt.getBrokerDesc(), stmt.getOrigStmt());
+                                                    stmt.getBrokerDesc(), stmt.getOrigStmt(), stmt.getUserInfo());
                     break;
                 case SPARK:
                     bulkLoadJob = new SparkLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                   stmt.getResourceDesc(), stmt.getOrigStmt());
+                                                   stmt.getResourceDesc(), stmt.getOrigStmt(), stmt.getUserInfo());
                     break;
                 case MINI:
                 case DELETE:
@@ -290,6 +294,7 @@ public abstract class BulkLoadJob extends LoadJob {
         super.write(out);
         brokerDesc.write(out);
         originStmt.write(out);
+        userInfo.write(out);
 
         out.writeInt(sessionVariables.size());
         for (Map.Entry<String, String> entry : sessionVariables.entrySet()) {
@@ -318,7 +323,7 @@ public abstract class BulkLoadJob extends LoadJob {
         // The origin stmt does not be analyzed in here.
         // The reason is that it will thrown MetaNotFoundException when the tableId could not be found by tableName.
         // The origin stmt will be analyzed after the replay is completed.
-
+        userInfo = UserIdentity.read(in);
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
             int size = in.readInt();
             for (int i = 0; i < size; i++) {
@@ -338,5 +343,13 @@ public abstract class BulkLoadJob extends LoadJob {
 
     public void setOriginStmt(OriginStatement originStmt) {
         this.originStmt = originStmt;
+    }
+
+    public UserIdentity getUserInfo() {
+        return userInfo;
+    }
+
+    public void setUserInfo(UserIdentity userInfo) {
+        this.userInfo = userInfo;
     }
 }
