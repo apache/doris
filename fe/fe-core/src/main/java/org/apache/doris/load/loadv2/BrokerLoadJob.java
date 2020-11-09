@@ -93,7 +93,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected void unprotectedExecuteJob() {
         LoadTask task = new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc);
         idToTasks.put(task.getSignature(), task);
-        Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
+        Catalog.getCurrentCatalog().getPendingLoadTaskScheduler().submit(task);
     }
 
     /**
@@ -215,7 +215,7 @@ public class BrokerLoadJob extends BulkLoadJob {
 
         // Submit task outside the database lock, cause it may take a while if task queue is full.
         for (LoadTask loadTask : newLoadingTasks) {
-            Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
+            Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().submit(loadTask);
         }
     }
 

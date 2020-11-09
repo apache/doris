@@ -61,6 +61,7 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -209,7 +210,7 @@ public class SparkLoadJobTest {
                 pendingTask.init();
                 pendingTask.getSignature();
                 result = pendingTaskId;
-                catalog.getLoadTaskScheduler();
+                catalog.getPendingLoadTaskScheduler();
                 result = executor;
                 executor.submit((SparkLoadPendingTask) any);
                 result = true;

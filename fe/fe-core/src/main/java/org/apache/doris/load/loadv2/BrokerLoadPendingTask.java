@@ -45,7 +45,7 @@ public class BrokerLoadPendingTask extends LoadTask {
     public BrokerLoadPendingTask(BrokerLoadJob loadTaskCallback,
             Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
             BrokerDesc brokerDesc) {
-        super(loadTaskCallback);
+        super(loadTaskCallback, TaskType.PENDING);
         this.retryTime = 3;
         this.attachment = new BrokerPendingTaskAttachment(signature);
         this.aggKeyToBrokerFileGroups = aggKeyToBrokerFileGroups;
@@ -57,6 +57,12 @@ public class BrokerLoadPendingTask extends LoadTask {
     void executeTask() throws UserException {
         LOG.info("begin to execute broker pending task. job: {}", callback.getCallbackId());
         getAllFileStatus();
+
+        try {
+            Thread.sleep(60000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
     }
 
     private void getAllFileStatus() throws UserException {

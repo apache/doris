@@ -387,7 +387,9 @@ public class Catalog {
 
     private TabletChecker tabletChecker;
 
-    private MasterTaskExecutor loadTaskScheduler;
+    // Thread pools for pending and loading task, separately
+    private MasterTaskExecutor pendingLoadTaskScheduler;
+    private MasterTaskExecutor loadingLoadTaskScheduler;
 
     private LoadJobScheduler loadJobScheduler;
 
@@ -537,7 +539,9 @@ public class Catalog {
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
 
-        this.loadTaskScheduler = new MasterTaskExecutor("load_task_scheduler", Config.async_load_task_pool_size,
+        this.pendingLoadTaskScheduler = new MasterTaskExecutor("pending_load_task_scheduler", Config.async_load_task_pool_size,
+                Config.desired_max_waiting_jobs, !isCheckpointCatalog);
+        this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading_load_task_scheduler", Config.async_load_task_pool_size,
                 Config.desired_max_waiting_jobs, !isCheckpointCatalog);
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
@@ -1260,7 +1264,8 @@ public class Catalog {
         LoadChecker.init(Config.load_checker_interval_second * 1000L);
         LoadChecker.startAll();
         // New load scheduler
-        loadTaskScheduler.start();
+        pendingLoadTaskScheduler.start();
+        loadingLoadTaskScheduler.start();
         loadManager.prepareJobs();
         loadJobScheduler.start();
         loadTimeoutChecker.start();
@@ -4820,8 +4825,12 @@ public class Catalog {
         return loadManager;
     }
 
-    public MasterTaskExecutor getLoadTaskScheduler() {
-        return loadTaskScheduler;
+    public MasterTaskExecutor getPendingLoadTaskScheduler() {
+        return pendingLoadTaskScheduler;
+    }
+
+    public MasterTaskExecutor getLoadingLoadTaskScheduler() {
+        return loadingLoadTaskScheduler;
     }
 
     public RoutineLoadManager getRoutineLoadManager() {
