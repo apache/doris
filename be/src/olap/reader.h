@@ -74,32 +74,9 @@ struct ReaderParams {
     RuntimeProfile* profile = nullptr;
     RuntimeState* runtime_state = nullptr;
 
-    void check_validation() const {
-        if (UNLIKELY(version.first == -1)) {
-            LOG(FATAL) << "version is not set. tablet=" << tablet->full_name();
-        }
-    }
+    void check_validation() const;
 
-    std::string to_string() {
-        std::stringstream ss;
-        ss << "tablet=" << tablet->full_name() << " reader_type=" << reader_type
-           << " aggregation=" << aggregation << " version=" << version << " range=" << range
-           << " end_range=" << end_range;
-
-        for (auto& key : start_key) {
-            ss << " keys=" << key;
-        }
-
-        for (auto& key : end_key) {
-            ss << " end_keys=" << key;
-        }
-
-        for (auto& condition : conditions) {
-            ss << " conditions=" << apache::thrift::ThriftDebugString(condition);
-        }
-
-        return ss.str();
-    }
+    std::string to_string();
 };
 
 class Reader {
@@ -130,30 +107,9 @@ public:
 
 private:
     struct KeysParam {
-        ~KeysParam() {
-            for (auto start_key : start_keys) {
-                SAFE_DELETE(start_key);
-            }
+        ~KeysParam();
 
-            for (auto end_key : end_keys) {
-                SAFE_DELETE(end_key);
-            }
-        }
-
-        std::string to_string() const {
-            std::stringstream ss;
-            ss << "range=" << range << " end_range=" << end_range;
-
-            for (auto start_key : start_keys) {
-                ss << " keys=" << start_key->to_string();
-            }
-
-            for (auto end_key : end_keys) {
-                ss << " end_keys=" << end_key->to_string();
-            }
-
-            return ss.str();
-        }
+        std::string to_string() const;
 
         std::string range;
         std::string end_range;
