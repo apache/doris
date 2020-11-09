@@ -231,7 +231,8 @@ public class StreamLoadPlanner {
                         partitionIds.add(partition.getId());
                     }
                 } else {
-                    Date upperDate = new Date();
+                    Date now = new Date();
+                    Date upperDate = new Date(now.getTime() + 60*1000*2);
                     Date lowerDate = new Date(upperDate.getTime() - windowIntervalSec*1000);
                     PartitionValue lowerValue = new PartitionValue(DATE_FORMAT.format(lowerDate));
                     PartitionValue upperValue = new PartitionValue(DATE_FORMAT.format(upperDate));
