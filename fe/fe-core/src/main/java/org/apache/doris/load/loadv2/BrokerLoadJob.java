@@ -53,6 +53,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * There are 3 steps in BrokerLoadJob: BrokerPendingTask, LoadLoadingTask, CommitAndPublishTxn.
@@ -155,6 +156,13 @@ public class BrokerLoadJob extends BulkLoadJob {
                              .add("database_id", dbId)
                              .add("error_msg", "Failed to divide job into loading task.")
                              .build(), e);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
+            return;
+        } catch (RejectedExecutionException e) {
+            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                    .add("database_id", dbId)
+                    .add("error_msg", "the task queque is full.")
+                    .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
             return;
         }
