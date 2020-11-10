@@ -83,6 +83,7 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -196,7 +197,7 @@ public class SparkLoadJob extends BulkLoadJob {
                                                  sparkResource, brokerDesc);
         task.init();
         idToTasks.put(task.getSignature(), task);
-        Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
+        Catalog.getCurrentCatalog().getPendingLoadTaskScheduler().submit(task);
     }
 
     @Override
