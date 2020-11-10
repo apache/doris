@@ -17,9 +17,10 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.common.ThreadPoolManager;
+
 import com.google.common.collect.Maps;
 
-import org.apache.doris.common.ThreadPoolManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,6 +42,12 @@ public class MasterTaskExecutor {
 
     public MasterTaskExecutor(String name, int threadNum, boolean needRegisterMetric) {
         executor = ThreadPoolManager.newDaemonFixedThreadPool(threadNum, threadNum * 2, name + "_pool", needRegisterMetric);
+        runningTasks = Maps.newHashMap();
+        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "_scheduler_thread_pool", needRegisterMetric);
+    }
+
+    public MasterTaskExecutor(String name, int threadNum, int queueSize, boolean needRegisterMetric) {
+        executor = ThreadPoolManager.newDaemonFixedThreadPool(threadNum, queueSize, name + "_pool", needRegisterMetric);
         runningTasks = Maps.newHashMap();
         scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "_scheduler_thread_pool", needRegisterMetric);
     }

@@ -57,6 +57,7 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.FilePatternVersion;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.SourceType;
 import org.apache.doris.transaction.TransactionState;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -88,7 +89,7 @@ public class SparkLoadPendingTask extends LoadTask {
     public SparkLoadPendingTask(SparkLoadJob loadTaskCallback,
                                 Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
                                 SparkResource resource, BrokerDesc brokerDesc) {
-        super(loadTaskCallback);
+        super(loadTaskCallback, TaskType.PENDING);
         this.retryTime = 3;
         this.attachment = new SparkPendingTaskAttachment(signature);
         this.aggKeyToBrokerFileGroups = aggKeyToBrokerFileGroups;
