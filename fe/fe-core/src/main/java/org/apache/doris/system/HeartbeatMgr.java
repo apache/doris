@@ -242,10 +242,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     if (tBackendInfo.isSetVersion()) {
                         version = tBackendInfo.getVersion();
                     }
-                    long beStartTime = System.currentTimeMillis();
-                    if (tBackendInfo.isSetBeStartTime()) {
-                        beStartTime = tBackendInfo.getBeStartTime();
-                    }
+                    long beStartTime = tBackendInfo.isSetBeStartTime() ? tBackendInfo.getBeStartTime() : System.currentTimeMillis();
                     // backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
                     return new BackendHbResponse(backendId, bePort, httpPort, brpcPort, System.currentTimeMillis(), beStartTime, version);
                 } else {
