@@ -4747,7 +4747,7 @@ public class Catalog {
                 // use try lock to avoid blocking a long time.
                 // if block too long, backend report rpc will timeout.
                 if (!olapTable.tryWriteLock(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                    LOG.warn("try get db {} writelock but failed when checking backend storage medium", dbId);
+                    LOG.warn("try get table {} writelock but failed when checking backend storage medium", table.getName());
                     continue;
                 }
                 Preconditions.checkState(olapTable.isWriteLockHeldByCurrentThread());
