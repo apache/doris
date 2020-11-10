@@ -61,6 +61,9 @@ public class MasterOpExecutor {
     
     // Send request to Master
     private void forward() throws Exception {
+        if (!ctx.getCatalog().isReady()) {
+            throw new Exception("Node catalog is not ready, please wait for a while.");
+        }
         String masterHost = ctx.getCatalog().getMasterIp();
         int masterRpcPort = ctx.getCatalog().getMasterRpcPort();
         TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
