@@ -17,8 +17,19 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.*;
+import org.apache.doris.analysis.AccessTestUtil;
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.DdlStmt;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.KillStmt;
+import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.SetStmt;
+import org.apache.doris.analysis.ShowAuthorStmt;
+import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
