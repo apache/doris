@@ -50,13 +50,13 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.Charset;
 import java.util.Collections;
@@ -64,6 +64,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 // Broker scan node
 public class BrokerScanNode extends LoadScanNode {
@@ -285,10 +286,17 @@ public class BrokerScanNode extends LoadScanNode {
             fileStatusesList = Lists.newArrayList();
             filesAdded = 0;
             for (BrokerFileGroup fileGroup : fileGroups) {
+                boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
                 List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
                 for (String path : fileGroup.getFilePaths()) {
                     BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
                 }
+
+                // only get non-empty file or non-binary file
+                fileStatuses = fileStatuses.stream().filter(f -> {
+                    return f.getSize() > 0 || !isBinaryFileFormat;
+                }).collect(Collectors.toList());
+
                 fileStatusesList.add(fileStatuses);
                 filesAdded += fileStatuses.size();
                 for (TBrokerFileStatus fstatus : fileStatuses) {
