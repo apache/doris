@@ -611,6 +611,7 @@ OLAPStatus EngineCloneTask::_finish_clone(Tablet* tablet, const string& clone_di
     // clone and compaction operation should be performed sequentially
     tablet->obtain_base_compaction_lock();
     tablet->obtain_cumulative_lock();
+    tablet->set_clone_occurred(true);
 
     tablet->obtain_push_lock();
     tablet->obtain_header_wrlock();

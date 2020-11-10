@@ -169,6 +169,11 @@ public:
 
     void stop();
 
+    void create_cumulative_compaction(TabletSharedPtr best_tablet,
+                                      std::shared_ptr<CumulativeCompaction>& cumulative_compaction);
+    void create_base_compaction(TabletSharedPtr best_tablet,
+                                std::shared_ptr<BaseCompaction>& base_compaction);
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -222,8 +227,7 @@ private:
     void _parse_default_rowset_type();
 
     void _start_clean_fd_cache();
-    void _perform_cumulative_compaction(TabletSharedPtr best_tablet);
-    void _perform_base_compaction(TabletSharedPtr best_tablet);
+
     // 清理trash和snapshot文件，返回清理后的磁盘使用量
     OLAPStatus _start_trash_sweep(double* usage);
     // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，

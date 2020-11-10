@@ -50,6 +50,9 @@ public:
 
     virtual OLAPStatus compact() = 0;
 
+    virtual OLAPStatus prepare_compact() = 0;
+    virtual OLAPStatus execute_compact() = 0;
+
 protected:
     virtual OLAPStatus pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
@@ -68,6 +71,7 @@ protected:
     OLAPStatus check_correctness(const Merger::Statistics& stats);
     OLAPStatus find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
                                                 std::vector<Version>* missing_version);
+    int64_t get_compaction_permits();
 
 private:
     // get num rows from segment group meta of input rowsets.
