@@ -70,11 +70,6 @@ public:
                  const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     RuntimeState(
-        const TExecPlanFragmentParams& fragment_params,
-        const TQueryOptions& query_options,
-        const TQueryGlobals& query_globals, ExecEnv* exec_env);
-
-    RuntimeState(
         const TPlanFragmentExecParams& fragment_exec_params,
         const TQueryOptions& query_options,
         const TQueryGlobals& query_globals, ExecEnv* exec_env);
