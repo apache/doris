@@ -40,8 +40,8 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -52,6 +52,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * There are 3 steps in BrokerLoadJob: BrokerPendingTask, LoadLoadingTask, CommitAndPublishTxn.
@@ -92,7 +93,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected void unprotectedExecuteJob() {
         LoadTask task = new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc);
         idToTasks.put(task.getSignature(), task);
-        Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
+        Catalog.getCurrentCatalog().getPendingLoadTaskScheduler().submit(task);
     }
 
     /**
@@ -155,6 +156,13 @@ public class BrokerLoadJob extends BulkLoadJob {
                              .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
             return;
+        } catch (RejectedExecutionException e) {
+            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                    .add("database_id", dbId)
+                    .add("error_msg", "the task queque is full.")
+                    .build(), e);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
+            return;
         }
 
         loadStartTimestamp = System.currentTimeMillis();
@@ -162,9 +170,9 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     private void createLoadingTask(Database db, BrokerPendingTaskAttachment attachment) throws UserException {
         // divide job into broker loading task by table
+        List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
         db.readLock();
         try {
-            List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
             for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry : fileGroupAggInfo.getAggKeyToFileGroups().entrySet()) {
                 FileGroupAggKey aggKey = entry.getKey();
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
@@ -200,12 +208,14 @@ public class BrokerLoadJob extends BulkLoadJob {
                 }
                 txnState.addTableIndexes(table);
             }
-            // submit all tasks together
-            for (LoadTask loadTask : newLoadingTasks) {
-                Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
-            }
+
         } finally {
             db.readUnlock();
+        }
+
+        // Submit task outside the database lock, cause it may take a while if task queue is full.
+        for (LoadTask loadTask : newLoadingTasks) {
+            Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().submit(loadTask);
         }
     }
 

@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
@@ -43,13 +44,13 @@ import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -58,6 +59,7 @@ import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * parent class of BrokerLoadJob and SparkLoadJob from load stmt
@@ -233,8 +235,20 @@ public abstract class BulkLoadJob extends LoadJob {
                 loadTask.updateRetryInfo();
                 idToTasks.put(loadTask.getSignature(), loadTask);
                 // load id will be added to loadStatistic when executing this task
-                Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
-                return;
+                try {
+                    if (loadTask.getTaskType() == LoadTask.TaskType.PENDING) {
+                        Catalog.getCurrentCatalog().getPendingLoadTaskScheduler().submit(loadTask);
+                    } else if (loadTask.getTaskType() == LoadTask.TaskType.LOADING) {
+                        Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().submit(loadTask);
+                    } else {
+                        throw new LoadException(String.format("Unknown load task type: %s. task id: %d, job id, %d",
+                                loadTask.getTaskType(), loadTask.getSignature(), id));
+                    }
+                } catch (RejectedExecutionException | LoadException e) {
+                    unprotectedExecuteCancel(failMsg, true);
+                    logFinalOperation();
+                    return;
+                }
             }
         } finally {
             writeUnlock();

@@ -27,10 +27,10 @@ import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -45,7 +45,7 @@ public class BrokerLoadPendingTask extends LoadTask {
     public BrokerLoadPendingTask(BrokerLoadJob loadTaskCallback,
             Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
             BrokerDesc brokerDesc) {
-        super(loadTaskCallback);
+        super(loadTaskCallback, TaskType.PENDING);
         this.retryTime = 3;
         this.attachment = new BrokerPendingTaskAttachment(signature);
         this.aggKeyToBrokerFileGroups = aggKeyToBrokerFileGroups;
@@ -77,18 +77,31 @@ public class BrokerLoadPendingTask extends LoadTask {
                 for (String path : fileGroup.getFilePaths()) {
                     BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
                 }
-                fileStatusList.add(fileStatuses);
+                boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
+                List<TBrokerFileStatus> filteredFileStatuses = Lists.newArrayList();
                 for (TBrokerFileStatus fstatus : fileStatuses) {
-                    groupFileSize += fstatus.getSize();
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                                .add("file_status", fstatus).build());
+                    if (fstatus.getSize() == 0 && isBinaryFileFormat) {
+                        // For parquet or orc file, if it is an empty file, ignore it.
+                        // Because we can not read an empty parquet or orc file.
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                                    .add("empty file", fstatus).build());
+                        }
+                    } else {
+                        groupFileSize += fstatus.size;
+                        filteredFileStatuses.add(fstatus);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                                    .add("file_status", fstatus).build());
+                        }
                     }
                 }
+                fileStatusList.add(filteredFileStatuses);
                 tableTotalFileSize += groupFileSize;
-                tableTotalFileNum += fileStatuses.size();
+                tableTotalFileNum += filteredFileStatuses.size();
                 LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
-                        fileStatuses.size(), groupNum, entry.getKey(), groupFileSize, callback.getCallbackId(), BrokerUtil.getAddress(brokerDesc));
+                        filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
+                        callback.getCallbackId(), BrokerUtil.getAddress(brokerDesc));
                 groupNum++;
             }
 
