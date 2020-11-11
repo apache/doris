@@ -220,7 +220,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
         size_t pre_size = _row_bitmap.cardinality();
         _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
-        _opts.stats->rows_del_filtered += (pre_size - _row_bitmap.cardinality());
+        _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
     }
 
     // TODO(hkp): calculate filter rate to decide whether to
