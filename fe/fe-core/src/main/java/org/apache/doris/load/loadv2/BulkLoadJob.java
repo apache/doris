@@ -329,7 +329,12 @@ public abstract class BulkLoadJob extends LoadJob {
         // The origin stmt does not be analyzed in here.
         // The reason is that it will thrown MetaNotFoundException when the tableId could not be found by tableName.
         // The origin stmt will be analyzed after the replay is completed.
-        userInfo = UserIdentity.read(in);
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_93) {
+            userInfo = UserIdentity.read(in);
+        } else {
+            userInfo = new UserIdentity("","");
+        }
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
             int size = in.readInt();
             for (int i = 0; i < size; i++) {
