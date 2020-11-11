@@ -92,7 +92,8 @@ EvHttpServer::~EvHttpServer() {
 
 void EvHttpServer::start() {
     // bind to 
-    CHECK(_bind().ok());
+    auto s = _bind();
+    CHECK(s.ok()) << s.to_string();
     ThreadPoolBuilder("EvHttpServer")
             .set_min_threads(_num_workers)
             .set_max_threads(_num_workers)
