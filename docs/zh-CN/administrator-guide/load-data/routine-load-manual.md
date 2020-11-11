@@ -105,7 +105,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
     再举例，假设用户需要导入只包含 `k1` 一列的表，列类型为 `int`。并且需要将源文件中的对应列进行处理：将负数转换为正数，而将正数乘以 100。这个功能可以通过 `case when` 函数实现，正确写法应如下：
 
-    `COLUMNS (xx, case when xx < 0 than cast(-xx as varchar) else cast((xx + '100') as varchar) end)`
+    `COLUMNS (xx, k1 = case when xx < 0 then cast(-xx as varchar) else cast((xx + '100') as varchar) end)`
 
     注意这里我们需要将 `case when` 中所有的参数都最终转换为 varchar，才能得到期望的结果。
 
