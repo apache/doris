@@ -5087,9 +5087,9 @@ public class Catalog {
             }
         }
 
-        String tableName = table.getName();
+        String oldTableName = table.getName();
         String newTableName = tableRenameClause.getNewTableName();
-        if (tableName.equals(newTableName)) {
+        if (oldTableName.equals(newTableName)) {
             throw new DdlException("Same table name");
         }
 
@@ -5098,14 +5098,19 @@ public class Catalog {
             throw new DdlException("Table name[" + newTableName + "] is already used");
         }
 
-        table.setName(newTableName);
+        if (table.getType() == TableType.OLAP) {
+            // olap table should also check if any rollup has same name as "newTableName"
+            ((OlapTable) table).checkAndSetName(newTableName, false);
+        } else {
+            table.setName(newTableName);
+        }
 
-        db.dropTable(tableName);
+        db.dropTable(oldTableName);
         db.createTable(table);
 
         TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
         editLog.logTableRename(tableInfo);
-        LOG.info("rename table[{}] to {}", tableName, newTableName);
+        LOG.info("rename table[{}] to {}", oldTableName, newTableName);
     }
 
     public void refreshExternalTableSchema(Database db, Table table, List<Column> newSchema) {
