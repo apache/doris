@@ -185,7 +185,7 @@ Status ScalarColumnWriter::init() {
 
     PageBuilder* page_builder = nullptr;
 
-    RETURN_IF_ERROR(EncodingInfo::get(get_filed()->type_info(), _opts.meta->encoding(), &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(get_field()->type_info(), _opts.meta->encoding(), &_encoding_info));
     _opts.meta->set_encoding(_encoding_info->encoding());
     // create page builder
     PageBuilderOptions opts;
@@ -194,7 +194,7 @@ Status ScalarColumnWriter::init() {
     if (page_builder == nullptr) {
         return Status::NotSupported(
                 Substitute("Failed to create page builder for type $0 and encoding $1",
-                           get_filed()->type(), _opts.meta->encoding()));
+                           get_field()->type(), _opts.meta->encoding()));
     }
     // should store more concrete encoding type instead of DEFAULT_ENCODING
     // because the default encoding of a data type can be changed in the future
@@ -207,14 +207,14 @@ Status ScalarColumnWriter::init() {
         _null_bitmap_builder.reset(new NullBitmapBuilder());
     }
     if (_opts.need_zone_map) {
-        _zone_map_index_builder.reset(new ZoneMapIndexWriter(get_filed()));
+        _zone_map_index_builder.reset(new ZoneMapIndexWriter(get_field()));
     }
     if (_opts.need_bitmap_index) {
-        RETURN_IF_ERROR(BitmapIndexWriter::create(get_filed()->type_info(), &_bitmap_index_builder));
+        RETURN_IF_ERROR(BitmapIndexWriter::create(get_field()->type_info(), &_bitmap_index_builder));
     }
     if (_opts.need_bloom_filter) {
         RETURN_IF_ERROR(BloomFilterIndexWriter::create(BloomFilterOptions(),
-                get_filed()->type_info(), &_bloom_filter_index_builder));
+                get_field()->type_info(), &_bloom_filter_index_builder));
     }
     return Status::OK();
 }
@@ -255,7 +255,7 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         bool is_page_full = (num_written < remaining);
         remaining -= num_written;
         _next_rowid += num_written;
-        *ptr += get_filed()->size() * num_written;
+        *ptr += get_field()->size() * num_written;
         // we must write null bits after write data, because we don't
         // know how many rows can be written into current page
         if (is_nullable()) {
@@ -447,14 +447,13 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         ordinal_t next_item_ordinal = _item_writer->get_next_rowid();
         ordinal_t* next_item_ordinal_ptr = &next_item_ordinal;
         RETURN_IF_ERROR(_offset_writer->append_data((const uint8_t**)&next_item_ordinal_ptr, num_written));
-        DCHECK(num_written == 1);
 
         // write child item.
         if(_item_writer->is_nullable()) {
             auto* item_data_ptr = col_cursor->data;
             for (size_t i = 0; i < col_cursor->length; ++i) {
                 RETURN_IF_ERROR(_item_writer->append(col_cursor->null_signs[i], item_data_ptr));
-                item_data_ptr = (uint8_t*)item_data_ptr + _item_writer->get_filed()->size();
+                item_data_ptr = (uint8_t*)item_data_ptr + _item_writer->get_field()->size();
             }
         } else {
             RETURN_IF_ERROR(_item_writer->append_not_nulls(col_cursor->data, col_cursor->length));

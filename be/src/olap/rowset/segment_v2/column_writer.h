@@ -124,7 +124,7 @@ public:
 
     bool is_nullable() const { return _is_nullable; }
 
-    Field* get_filed() const { return _field.get(); }
+    Field* get_field() const { return _field.get(); }
 
 private:
     std::unique_ptr<Field> _field;
