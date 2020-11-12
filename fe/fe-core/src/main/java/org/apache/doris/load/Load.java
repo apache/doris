@@ -3024,6 +3024,15 @@ public class Load {
             // the transaction may already be aborted due to timeout by transaction manager.
             // just print a log and continue to cancel the job.
             LOG.info("transaction not found when try to abort it: {}", e.getTransactionId());
+        } catch (AnalysisException e) {
+            // This is because the database has been dropped, so dbTransactionMgr can not be found.
+            // In this case, just continue to cancel the load.
+            if (!e.getMessage().contains("does not exist")) {
+                if (failedMsg != null) {
+                    failedMsg.add("Abort transaction failed: " + e.getMessage());
+                }
+                return false;
+            }
         } catch (Exception e) {
             LOG.info("errors while abort transaction", e);
             if (failedMsg != null) {
