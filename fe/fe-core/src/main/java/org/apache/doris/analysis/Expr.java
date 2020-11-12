@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.HashMap;
 
 /**
  * Root of the expr node hierarchy.
@@ -488,7 +489,35 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         if (l1.size() != l2.size()) {
             return false;
         }
-        return l1.containsAll(l2) && l2.containsAll(l1);
+        Map cMap1 = toCountMap(l1);
+        Map cMap2 = toCountMap(l2);
+        if (cMap1.size() != cMap2.size()) {
+            return false;
+        }
+        Iterator it = cMap1.keySet().iterator();
+        while (it.hasNext()) {
+            C obj = (C) it.next();
+            Integer count1 = (Integer) cMap1.get(obj);
+            Integer count2 = (Integer) cMap2.get(obj);
+            if (count2 == null || count1 != count2) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static <C extends Expr> HashMap<C, Integer> toCountMap(List<C> list) {
+        HashMap countMap = new HashMap<C,Integer>();
+        for (int i = 0; i < list.size(); i++) {
+            C obj = list.get(i);
+            Integer count = (Integer) countMap.get(obj);
+            if (count == null) {
+                countMap.put(obj, 1);
+            } else {
+                countMap.put(obj, count+1);
+            }
+        }
+        return countMap;
     }
 
     public void analyzeNoThrow(Analyzer analyzer) {
