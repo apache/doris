@@ -1977,6 +1977,7 @@ public class Coordinator {
                 paramsList.setParamsList(tRequests);
                 pRequest.setRequest(paramsList);
 
+                LOG.debug("send fragment to backend: {}, query: {}", backend.getHost(), DebugUtil.printId(queryId));
                 return BackendServiceProxy.getInstance().batchExecPlanFragmentsAsync(
                         new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), pRequest);
             } catch (RpcException e) {
