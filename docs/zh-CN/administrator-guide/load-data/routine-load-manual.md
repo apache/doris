@@ -105,7 +105,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
     再举例，假设用户需要导入只包含 `k1` 一列的表，列类型为 `int`。并且需要将源文件中的对应列进行处理：将负数转换为正数，而将正数乘以 100。这个功能可以通过 `case when` 函数实现，正确写法应如下：
 
-    `COLUMNS (xx, case when xx < 0 than cast(-xx as varchar) else cast((xx + '100') as varchar) end)`
+    `COLUMNS (xx, k1 = case when xx < 0 then cast(-xx as varchar) else cast((xx + '100') as varchar) end)`
 
     注意这里我们需要将 `case when` 中所有的参数都最终转换为 varchar，才能得到期望的结果。
 
@@ -151,7 +151,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
 * data\_source\_properties
 
-    `data_source_properties` 中可以指定消费具体的 Kakfa partition。如果不指定，则默认消费所订阅的 topic 的所有 partition。
+    `data_source_properties` 中可以指定消费具体的 Kafka partition。如果不指定，则默认消费所订阅的 topic 的所有 partition。
 
     注意，当显式的指定了 partition，则导入作业不会再动态的检测 Kafka partition 的变化。如果没有指定，则会根据 kafka partition 的变化，动态调整需要消费的 partition。
 

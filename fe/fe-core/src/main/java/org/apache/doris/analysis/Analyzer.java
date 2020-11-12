@@ -86,7 +86,7 @@ public class Analyzer {
     private ExprSubstitutionMap changeResSmap = new ExprSubstitutionMap();
 
     // NOTE: Alias of table is case sensitive
-    // UniqueAlias used to check wheather the table ref or the alias is unique
+    // UniqueAlias used to check whether the table ref or the alias is unique
     // table/view used db.table, inline use alias
     private final Set<String> uniqueTableAliasSet_ = Sets.newHashSet();
     private final Multimap<String, TupleDescriptor> tupleByAlias = ArrayListMultimap.create();
@@ -111,7 +111,7 @@ public class Analyzer {
     // all conjuncts of the Where clause
     private final Set<ExprId> whereClauseConjuncts = Sets.newHashSet();
     // map from tuple id to list of Exprs referencing tuple
-    // which buffer can reuse in vectorized proccess
+    // which buffer can reuse in vectorized process
     private final Map<TupleId, List<Expr>> bufferReuseExprs = Maps.newHashMap();
     // map from tuple id to the current output column index
     private final Map<TupleId, Integer> currentOutputColumn = Maps.newHashMap();
@@ -655,7 +655,7 @@ public class Analyzer {
         // find table all name
         for (TupleDescriptor desc : tupleByAlias.get(tblName.toString())) {
             //result = desc;
-            if (!isVisible(desc.getId())) {
+            if (!colName.equalsIgnoreCase(Column.DELETE_SIGN) && !isVisible(desc.getId())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_ILLEGAL_COLUMN_REFERENCE_ERROR, 
                         Joiner.on(".").join(tblName.getTbl(),colName));
             }
@@ -836,7 +836,7 @@ public class Analyzer {
      */
     private void registerConjunct(Expr e) {
         // this conjunct would already have an id assigned if it is being re-registered
-        // in a subqery analyzer
+        // in a subquery analyzer
 
         e.setId(globalState.conjunctIdGenerator.getNextId());
         globalState.conjuncts.put(e.getId(), e);

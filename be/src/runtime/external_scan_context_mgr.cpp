@@ -28,13 +28,16 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(active_scan_context_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(active_scan_context_count, MetricUnit::NOUNIT);
 
-ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env) : _exec_env(exec_env), _is_stop(false) {
+ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env) : _exec_env(exec_env), _stop_background_threads_latch(1) {
     // start the reaper thread for gc the expired context
-    _keep_alive_reaper.reset(
-            new std::thread(
-                    std::bind<void>(std::mem_fn(&ExternalScanContextMgr::gc_expired_context), this)));
+    CHECK(Thread::create("ExternalScanContextMgr", "gc_expired_context",
+                         [this]() {
+                             this->gc_expired_context();
+                         },
+                         &_keep_alive_reaper).ok());
+
     REGISTER_HOOK_METRIC(active_scan_context_count, [this]() {
         std::lock_guard<std::mutex> l(_lock);
         return _active_contexts.size();
@@ -43,8 +46,10 @@ ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env) : _exec_env(ex
 
 ExternalScanContextMgr::~ExternalScanContextMgr() {
     DEREGISTER_HOOK_METRIC(active_scan_context_count);
-    _is_stop = true;
-    _keep_alive_reaper->join();
+    _stop_background_threads_latch.count_down();
+    if (_keep_alive_reaper) {
+        _keep_alive_reaper->join();
+    }
 }
 
 Status ExternalScanContextMgr::create_scan_context(std::shared_ptr<ScanContext>* p_context) {
@@ -101,8 +106,7 @@ Status ExternalScanContextMgr::clear_scan_context(const std::string& context_id)
 
 void ExternalScanContextMgr::gc_expired_context() {
 #ifndef BE_TEST
-    while (!_is_stop) {
-        std::this_thread::sleep_for(std::chrono::seconds(doris::config::scan_context_gc_interval_min * 60));
+    while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(doris::config::scan_context_gc_interval_min * 60))) {
         time_t current_time = time(NULL);
         std::vector<std::shared_ptr<ScanContext>> expired_contexts;
         {

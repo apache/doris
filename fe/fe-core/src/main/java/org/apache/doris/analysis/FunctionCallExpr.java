@@ -334,10 +334,13 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException(fnName.getFunction() + " only used in analytic function");
             } else {
                 if (children.size() > 2) {
-                    if (!getChild(2).isConstant()) {
+                    if (!getChild(1).isConstant() || !getChild(2).isConstant()) {
                         throw new AnalysisException(
-                                "The default parameter (parameter 3) of LAG must be a constant: "
-                                        + this.toSql());
+                                "The default parameter (parameter 2 or parameter 3) of LEAD/LAG must be a constant: " + this.toSql());
+                    }
+                    uncheckedCastChild(Type.BIGINT, 1);
+                    if (!getChild(2).type.matchesType(getChild(0).type) && !getChild(2).type.matchesType(Type.NULL)) {
+                        uncheckedCastChild(getChild(0).type, 2);
                     }
                 }
                 return;
@@ -601,9 +604,8 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (fn.getFunctionName().getFunction().equals("time_diff")) {
+        if (fn.getFunctionName().getFunction().equals("timediff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
-            return;
         }
 
         if (isAggregateFunction()) {

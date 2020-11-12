@@ -11,9 +11,11 @@
 #include <string>
 #include <vector>
 
+#include <gtest/gtest_prod.h>
 #include <rapidjson/document.h>
 
 #include "olap/olap_common.h"
+#include "util/metrics.h"
 #include "util/mutex.h"
 #include "util/slice.h"
 
@@ -46,9 +48,9 @@ namespace doris {
     class Cache;
     class CacheKey;
 
-    // Create a new cache with a fixed size capacity.  This implementation
+    // Create a new cache with a specified name and a fixed size capacity.  This implementation
     // of Cache uses a least-recently-used eviction policy.
-    extern Cache* new_lru_cache(size_t capacity);
+    extern Cache* new_lru_cache(const std::string& name, size_t capacity);
 
     class CacheKey {
         public:
@@ -221,11 +223,6 @@ namespace doris {
             // leveldb may change prune() to a pure abstract method.
             virtual void prune() {}
 
-            // 获取运行统计项，包括内存占用
-            virtual size_t get_memory_usage() = 0;
-            // cache命中率统计
-            virtual void get_cache_status(rapidjson::Document* document) = 0;
-
         private:
             DISALLOW_COPY_AND_ASSIGN(Cache);
     };
@@ -235,9 +232,10 @@ namespace doris {
     typedef struct LRUHandle {
         void* value;
         void (*deleter)(const CacheKey&, void* value);
-        LRUHandle* next_hash;
-        LRUHandle* next;
-        LRUHandle* prev;
+        LRUHandle* next_hash = nullptr;  // next entry in hash table
+        LRUHandle* prev_hash = nullptr;  // previous entry in hash table
+        LRUHandle* next = nullptr;       // next entry in lru list
+        LRUHandle* prev = nullptr;       // previous entry in lru list
         size_t charge;
         size_t key_length;
         bool in_cache;      // Whether entry is in the cache.
@@ -275,17 +273,22 @@ namespace doris {
                 _resize();
             }
 
-            ~HandleTable() {
-                delete[] _list;
-            }
+            ~HandleTable();
 
             LRUHandle* lookup(const CacheKey& key, uint32_t hash);
 
             LRUHandle* insert(LRUHandle* h);
 
+            // Remove element from hash table by "key" and "hash".
             LRUHandle* remove(const CacheKey& key, uint32_t hash);
 
+            // Remove element from hash table by "h", it would be faster
+            // than the function above.
+            void remove(const LRUHandle* h);
+
         private:
+            FRIEND_TEST(CacheTest, HandleTableTest);
+
             // The tablet consists of an array of buckets where each bucket is
             // a linked list of cache entries that hash into the bucket.
             uint32_t _length;
@@ -296,7 +299,11 @@ namespace doris {
             // matches key/hash.  If there is no such cache entry, return a
             // pointer to the trailing slot in the corresponding linked list.
             LRUHandle** _find_pointer(const CacheKey& key, uint32_t hash);
-            bool _resize();
+
+            // Insert "handle" after "head".
+            void _head_insert(LRUHandle* head, LRUHandle* handle);
+
+            void _resize();
     };
 
     // A single shard of sharded cache.
@@ -323,16 +330,16 @@ namespace doris {
             void erase(const CacheKey& key, uint32_t hash);
             int prune();
 
-            uint64_t get_lookup_count() {
+            uint64_t get_lookup_count() const {
                 return _lookup_count;
             }
-            uint64_t get_hit_count() {
+            uint64_t get_hit_count() const {
                 return _hit_count;
             }
-            size_t get_usage() {
+            size_t get_usage() const {
                 return _usage;
             }
-            size_t get_capacity() {
+            size_t get_capacity() const {
                 return _capacity;
             }
 
@@ -340,16 +347,15 @@ namespace doris {
             void _lru_remove(LRUHandle* e);
             void _lru_append(LRUHandle* list, LRUHandle* e);
             bool _unref(LRUHandle* e);
-            void _evict_from_lru(size_t charge, std::vector<LRUHandle*>* deleted);
+            void _evict_from_lru(size_t charge, LRUHandle** to_remove_head);
             void _evict_one_entry(LRUHandle* e);
 
             // Initialized before use.
-            size_t _capacity;
+            size_t _capacity = 0;
 
             // _mutex protects the following state.
             Mutex _mutex;
-            size_t _usage;
-            uint64_t _last_id;
+            size_t _usage = 0;
 
             // Dummy head of LRU list.
             // lru.prev is newest entry, lru.next is oldest entry.
@@ -358,8 +364,8 @@ namespace doris {
 
             HandleTable _table;
 
-            uint64_t _lookup_count;    // cache查找总次数
-            uint64_t _hit_count;       // 命中cache的总次数
+            uint64_t _lookup_count = 0;    // cache查找总次数
+            uint64_t _hit_count = 0;       // 命中cache的总次数
     };
 
     static const int kNumShardBits = 4;
@@ -367,9 +373,9 @@ namespace doris {
 
     class ShardedLRUCache : public Cache {
         public:
-            explicit ShardedLRUCache(size_t capacity);
+            explicit ShardedLRUCache(const std::string& name, size_t total_capacity);
             // TODO(fdy): 析构时清除所有cache元素
-            virtual ~ShardedLRUCache() {}
+            virtual ~ShardedLRUCache();
             virtual Handle* insert(
                     const CacheKey& key,
                     void* value,
@@ -383,16 +389,25 @@ namespace doris {
             Slice value_slice(Handle* handle) override;
             virtual uint64_t new_id();
             virtual void prune();
-            virtual size_t get_memory_usage();
-            virtual void get_cache_status(rapidjson::Document* document);
+
+        private:
+            void update_cache_metrics() const;
 
         private:
             static inline uint32_t _hash_slice(const CacheKey& s);
             static uint32_t _shard(uint32_t hash);
 
+            std::string _name;
             LRUCache _shards[kNumShards];
-            Mutex _id_mutex;
-            uint64_t _last_id;
+            std::atomic<uint64_t> _last_id;
+
+            std::shared_ptr<MetricEntity> _entity = nullptr;
+            IntGauge* capacity = nullptr;
+            IntGauge* usage = nullptr;
+            DoubleGauge* usage_ratio = nullptr;
+            IntAtomicCounter* lookup_count = nullptr;
+            IntAtomicCounter* hit_count = nullptr;
+            DoubleGauge* hit_ratio = nullptr;
     };
 
 }  // namespace doris

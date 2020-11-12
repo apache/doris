@@ -17,11 +17,19 @@
 #include "olap/olap_index.h"
 #include "olap/row_block.h"
 #include "olap/utils.h"
+#include "util/doris_metrics.h"
 
 using std::string;
 using std::stringstream;
 
 namespace doris {
+
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(usage, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(usage_ratio, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lookup_count, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(hit_count, MetricUnit::OPERATIONS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(hit_ratio, MetricUnit::NOUNIT);
 
 uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
     // Similar to murmur hash
@@ -65,26 +73,30 @@ uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
 Cache::~Cache() {
 }
 
+HandleTable::~HandleTable() {
+    for (uint32_t i = 0; i < _length; i++) {
+        delete _list[i];
+    }
+    delete[] _list;
+}
+
 // LRU cache implementation
 LRUHandle* HandleTable::lookup(const CacheKey& key, uint32_t hash) {
     return *_find_pointer(key, hash);
 }
 
 LRUHandle* HandleTable::insert(LRUHandle* h) {
-    LRUHandle** ptr = _find_pointer(h->key(), h->hash);
-    LRUHandle* old = *ptr;
-    h->next_hash = (old == NULL ? NULL : old->next_hash);
-    *ptr = h;
+    LRUHandle* old = remove(h->key(), h->hash);
+    LRUHandle* head = _list[h->hash & (_length - 1)];
+
+    _head_insert(head, h);
+    ++_elems;
 
     if (old == NULL) {
-        ++_elems;
-
         if (_elems > _length) {
             // Since each cache entry is fairly large, we aim for a small
             // average linked list length (<= 1).
-            if (!_resize()) {
-                return NULL;
-            }
+            _resize();
         }
     }
 
@@ -95,17 +107,24 @@ LRUHandle* HandleTable::remove(const CacheKey& key, uint32_t hash) {
     LRUHandle** ptr = _find_pointer(key, hash);
     LRUHandle* result = *ptr;
 
-    if (result != NULL) {
-        *ptr = result->next_hash;
-        --_elems;
-    }
+    remove(result);
 
     return result;
 }
 
-LRUHandle** HandleTable::_find_pointer(const CacheKey& key, uint32_t hash) {
-    LRUHandle** ptr = &_list[hash & (_length - 1)];
+void HandleTable::remove(const LRUHandle* h) {
+    if (h != nullptr) {
+        if (h->next_hash != nullptr) {
+            h->next_hash->prev_hash = h->prev_hash;
+        }
+        DCHECK(h->prev_hash != nullptr);
+        h->prev_hash->next_hash = h->next_hash;
+        --_elems;
+    }
+}
 
+LRUHandle** HandleTable::_find_pointer(const CacheKey& key, uint32_t hash) {
+    LRUHandle** ptr = &(_list[hash & (_length - 1)]->next_hash);
     while (*ptr != NULL &&
             ((*ptr)->hash != hash || key != (*ptr)->key())) {
         ptr = &(*ptr)->next_hash;
@@ -114,57 +133,56 @@ LRUHandle** HandleTable::_find_pointer(const CacheKey& key, uint32_t hash) {
     return ptr;
 }
 
-bool HandleTable::_resize() {
-    uint32_t new_length = 4;
+void HandleTable::_head_insert(LRUHandle* head, LRUHandle* handle) {
+    handle->next_hash = head->next_hash;
+    if (handle->next_hash != nullptr) {
+        handle->next_hash->prev_hash = handle;
+    }
+    handle->prev_hash = head;
+    head->next_hash = handle;
+}
 
-    while (new_length < _elems) {
+void HandleTable::_resize() {
+    uint32_t new_length = 16;
+    while (new_length < _elems * 1.5) {
         new_length *= 2;
     }
 
     LRUHandle** new_list = new(std::nothrow) LRUHandle*[new_length];
-
-    if (NULL == new_list) {
-        LOG(FATAL) << "failed to malloc new hash list. new_length=" << new_length;
-        return false;
+    memset(new_list, 0, sizeof(new_list[0]) * new_length);
+    for (uint32_t i = 0; i < new_length; i++) {
+        // The first node in the linked-list is a dummy node used for
+        // inserting new node mainly.
+        new_list[i] = new LRUHandle();
     }
 
-    memset(new_list, 0, sizeof(new_list[0]) * new_length);
     uint32_t count = 0;
-
     for (uint32_t i = 0; i < _length; i++) {
-        LRUHandle* h = _list[i];
-
+        LRUHandle* h = _list[i]->next_hash;
         while (h != NULL) {
             LRUHandle* next = h->next_hash;
-            CacheKey key = h->key();
             uint32_t hash = h->hash;
-            LRUHandle** ptr = &new_list[hash & (new_length - 1)];
-            h->next_hash = *ptr;
-            *ptr = h;
+            LRUHandle* head = new_list[hash & (new_length - 1)];
+            _head_insert(head, h);
             h = next;
             count++;
         }
     }
 
-    if (_elems != count) {
-        delete [] new_list;
-        LOG(FATAL) << "_elems not match new count. elems=" << _elems
-                   << ", count=" << count;
-        return false;
+    DCHECK_EQ(_elems, count);
+    for (uint32_t i = 0; i < _length; i++) {
+        delete _list[i];
     }
-
     delete [] _list;
     _list = new_list;
     _length = new_length;
-    return true;
 }
 
-LRUCache::LRUCache() : _usage(0), _last_id(0), _lookup_count(0),
-    _hit_count(0) {
-        // Make empty circular linked list
-        _lru.next = &_lru;
-        _lru.prev = &_lru;
-    }
+LRUCache::LRUCache() {
+    // Make empty circular linked list
+    _lru.next = &_lru;
+    _lru.prev = &_lru;
+}
 
 LRUCache::~LRUCache() {
     prune();
@@ -222,7 +240,7 @@ void LRUCache::release(Cache::Handle* handle) {
             // only exists in cache
             if (_usage > _capacity) {
                 // take this opportunity and remove the item
-                _table.remove(e->key(), e->hash);
+                _table.remove(e);
                 e->in_cache = false;
                 _unref(e);
                 _usage -= e->charge;
@@ -240,7 +258,7 @@ void LRUCache::release(Cache::Handle* handle) {
     }
 }
 
-void LRUCache::_evict_from_lru(size_t charge, std::vector<LRUHandle*>* deleted) {
+void LRUCache::_evict_from_lru(size_t charge, LRUHandle** to_remove_head) {
     LRUHandle* cur = &_lru;
     // 1. evict normal cache entries
     while (_usage + charge > _capacity && cur->next != &_lru) {
@@ -250,14 +268,16 @@ void LRUCache::_evict_from_lru(size_t charge, std::vector<LRUHandle*>* deleted) 
             continue;
         }
         _evict_one_entry(old);
-        deleted->push_back(old);
+        old->next = *to_remove_head;
+        *to_remove_head = old;
     }
     // 2. evict durable cache entries if need
     while (_usage + charge > _capacity && _lru.next != &_lru) {
         LRUHandle* old = _lru.next;
         DCHECK(old->priority == CachePriority::DURABLE);
         _evict_one_entry(old);
-        deleted->push_back(old);
+        old->next = *to_remove_head;
+        *to_remove_head = old;
     }
 }
 
@@ -265,7 +285,7 @@ void LRUCache::_evict_one_entry(LRUHandle* e) {
     DCHECK(e->in_cache);
     DCHECK(e->refs == 1); // LRU list contains elements which may be evicted
     _lru_remove(e);
-    _table.remove(e->key(), e->hash);
+    _table.remove(e);
     e->in_cache = false;
     _unref(e);
     _usage -= e->charge;
@@ -288,13 +308,13 @@ Cache::Handle* LRUCache::insert(
     e->in_cache = true;
     e->priority = priority;
     memcpy(e->key_data, key.data(), key.size());
-    std::vector<LRUHandle*> last_ref_list;
+    LRUHandle* to_remove_head = nullptr;
     {
         MutexLock l(&_mutex);
 
         // Free the space following strict LRU policy until enough space
         // is freed or the lru list is empty
-        _evict_from_lru(charge, &last_ref_list);
+        _evict_from_lru(charge, &to_remove_head);
 
         // insert into the cache
         // note that the cache might get larger than its capacity if not enough
@@ -308,15 +328,18 @@ Cache::Handle* LRUCache::insert(
                 // old is on LRU because it's in cache and its reference count
                 // was just 1 (Unref returned 0)
                 _lru_remove(old);
-                last_ref_list.push_back(old);
+                old->next = to_remove_head;
+                to_remove_head = old;
             }
         }
     }
 
     // we free the entries here outside of mutex for
     // performance reasons
-    for (auto entry : last_ref_list) {
-        entry->free();
+    while (to_remove_head != nullptr) {
+        LRUHandle* next = to_remove_head->next;
+        to_remove_head->free();
+        to_remove_head = next;
     }
 
     return reinterpret_cast<Cache::Handle*>(e);
@@ -347,7 +370,7 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash) {
 }
 
 int LRUCache::prune() {
-    std::vector<LRUHandle*> last_ref_list;
+    LRUHandle* to_remove_head = nullptr;
     {
         MutexLock l(&_mutex);
         while (_lru.next != &_lru) {
@@ -355,17 +378,22 @@ int LRUCache::prune() {
             DCHECK(old->in_cache);
             DCHECK(old->refs == 1);  // LRU list contains elements which may be evicted
             _lru_remove(old);
-            _table.remove(old->key(), old->hash);
+            _table.remove(old);
             old->in_cache = false;
             _unref(old);
             _usage -= old->charge;
-            last_ref_list.push_back(old);
+            old->next = to_remove_head;
+            to_remove_head = old;
         }
     }
-    for (auto entry : last_ref_list) {
-        entry->free();
+    int pruned_count = 0;
+    while (to_remove_head != nullptr) {
+        ++pruned_count;
+        LRUHandle* next = to_remove_head->next;
+        to_remove_head->free();
+        to_remove_head = next;
     }
-    return last_ref_list.size();
+    return pruned_count;
 }
 
 inline uint32_t ShardedLRUCache::_hash_slice(const CacheKey& s) {
@@ -376,14 +404,28 @@ uint32_t ShardedLRUCache::_shard(uint32_t hash) {
     return hash >> (32 - kNumShardBits);
 }
 
-ShardedLRUCache::ShardedLRUCache(size_t capacity)
-    : _last_id(0) {
-        const size_t per_shard = (capacity + (kNumShards - 1)) / kNumShards;
-
-        for (int s = 0; s < kNumShards; s++) {
-            _shards[s].set_capacity(per_shard);
-        }
+ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity)
+    : _name(name), _last_id(1) {
+    const size_t per_shard = (total_capacity + (kNumShards - 1)) / kNumShards;
+    for (int s = 0; s < kNumShards; s++) {
+        _shards[s].set_capacity(per_shard);
     }
+
+    _entity = DorisMetrics::instance()->metric_registry()
+        ->register_entity(std::string("lru_cache:") + name, {{"name", name}});
+    _entity->register_hook(name, std::bind(&ShardedLRUCache::update_cache_metrics, this));
+    INT_GAUGE_METRIC_REGISTER(_entity, capacity);
+    INT_GAUGE_METRIC_REGISTER(_entity, usage);
+    INT_DOUBLE_METRIC_REGISTER(_entity, usage_ratio);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, lookup_count);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, hit_count);
+    INT_DOUBLE_METRIC_REGISTER(_entity, hit_ratio);
+}
+
+ShardedLRUCache::~ShardedLRUCache() {
+    _entity->deregister_hook(_name);
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
+}
 
 Cache::Handle* ShardedLRUCache::insert(
         const CacheKey& key,
@@ -420,8 +462,7 @@ Slice ShardedLRUCache::value_slice(Handle* handle) {
 }
 
 uint64_t ShardedLRUCache::new_id() {
-    MutexLock l(&_id_mutex);
-    return ++(_last_id);
+    return _last_id.fetch_add(1, std::memory_order_relaxed);
 }
 
 void ShardedLRUCache::prune() {
@@ -432,51 +473,28 @@ void ShardedLRUCache::prune() {
     VLOG(7) << "Successfully prune cache, clean " << num_prune << " entries.";
 }
 
-size_t ShardedLRUCache::get_memory_usage() {
+void ShardedLRUCache::update_cache_metrics() const {
+    size_t total_capacity = 0;
     size_t total_usage = 0;
-    for (int s = 0; s < kNumShards; s++) {
-        total_usage += _shards[s].get_usage();
-    }
-    return total_usage;
-}
-
-void ShardedLRUCache::get_cache_status(rapidjson::Document* document) {
-    size_t shard_count = sizeof(_shards) / sizeof(LRUCache);
-
-    for (uint32_t i = 0; i < shard_count; ++i) {
-        size_t capacity = _shards[i].get_capacity();
-        size_t usage = _shards[i].get_usage();
-        rapidjson::Value shard_info(rapidjson::kObjectType);
-        shard_info.AddMember("capacity", static_cast<double>(capacity), document->GetAllocator());
-        shard_info.AddMember("usage", static_cast<double>(usage), document->GetAllocator());
-
-        float usage_ratio = 0.0f;
-
-        if (0 != capacity) {
-            usage_ratio = static_cast<float>(usage) / static_cast<float>(capacity);
-        }
-
-        shard_info.AddMember("usage_ratio", usage_ratio, document->GetAllocator());
-
-        size_t lookup_count = _shards[i].get_lookup_count();
-        size_t hit_count = _shards[i].get_hit_count();
-        shard_info.AddMember("lookup_count", static_cast<double>(lookup_count), document->GetAllocator());
-        shard_info.AddMember("hit_count", static_cast<double>(hit_count), document->GetAllocator());
-
-        float hit_ratio = 0.0f;
-
-        if (0 != lookup_count) {
-            hit_ratio = static_cast<float>(hit_count) / static_cast<float>(lookup_count);
-        }
-
-        shard_info.AddMember("hit_ratio", hit_ratio, document->GetAllocator());
-        document->PushBack(shard_info, document->GetAllocator());
+    size_t total_lookup_count = 0;
+    size_t total_hit_count = 0;
+    for (int i = 0; i < kNumShards; i++) {
+        total_capacity += _shards[i].get_capacity();
+        total_usage += _shards[i].get_usage();
+        total_lookup_count += _shards[i].get_lookup_count();
+        total_hit_count += _shards[i].get_hit_count();
     }
 
+    capacity->set_value(total_capacity);
+    usage->set_value(total_usage);
+    lookup_count->set_value(total_lookup_count);
+    hit_count->set_value(total_hit_count);
+    usage_ratio->set_value(total_capacity == 0 ? 0 : (total_usage / total_capacity));
+    hit_ratio->set_value(total_lookup_count == 0 ? 0 : (total_hit_count / total_lookup_count));
 }
 
-Cache* new_lru_cache(size_t capacity) {
-    return new ShardedLRUCache(capacity);
+Cache* new_lru_cache(const std::string& name, size_t capacity) {
+    return new ShardedLRUCache(name, capacity);
 }
 
 }  // namespace doris

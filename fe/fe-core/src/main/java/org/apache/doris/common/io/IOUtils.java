@@ -61,7 +61,7 @@ public class IOUtils {
      * Copies from one stream to another.
      * 
      * @param in
-     *            InputStrem to read from
+     *            InputStream to read from
      * @param out
      *            OutputStream to write to
      * @param buffSize
@@ -119,7 +119,7 @@ public class IOUtils {
      * Copies from one stream to another.
      * 
      * @param in
-     *            InputStrem to read from
+     *            InputStream to read from
      * @param out
      *            OutputStream to write to
      * @param buffSize
@@ -175,7 +175,7 @@ public class IOUtils {
         while (toRead > 0) {
             int ret = in.read(buf, tmpOff, toRead);
             if (ret < 0) {
-                throw new IOException("Premeture EOF from inputStream");
+                throw new IOException("Premature EOF from inputStream");
             }
             toRead -= ret;
             tmpOff += ret;
@@ -198,7 +198,7 @@ public class IOUtils {
         while (tmpLen > 0) {
             long ret = in.skip(tmpLen);
             if (ret < 0) {
-                throw new IOException("Premeture EOF from inputStream");
+                throw new IOException("Premature EOF from inputStream");
             }
             tmpLen -= ret;
         }

@@ -193,7 +193,11 @@ Status KafkaDataConsumer::group_consume(
         consumer_watch.stop();
         switch (msg->err()) {
             case RdKafka::ERR_NO_ERROR:
-                if (!queue->blocking_put(msg.get())) {
+                if (msg->len() == 0) {
+                    // ignore msg with length 0.
+                    // put empty msg into queue will cause the load process shutting down.
+                    break;
+                } else if (!queue->blocking_put(msg.get())) {
                     // queue is shutdown
                     done = true;
                 } else {
@@ -203,7 +207,7 @@ Status KafkaDataConsumer::group_consume(
                 ++received_rows;
                 break;
             case RdKafka::ERR__TIMED_OUT:
-                // leave the status as OK, because this may happend
+                // leave the status as OK, because this may happened
                 // if there is no data in kafka.
                 LOG(INFO) << "kafka consume timeout: " << _id;
                 break;
@@ -219,7 +223,7 @@ Status KafkaDataConsumer::group_consume(
         if (done) { break; }
     }
 
-    LOG(INFO) << "kafka conumer done: " << _id << ", grp: " << _grp_id
+    LOG(INFO) << "kafka consumer done: " << _id << ", grp: " << _grp_id
             << ". cancelled: " << _cancelled
             << ", left time(ms): " << left_time
             << ", total cost(ms): " << watch.elapsed_time() / 1000 / 1000

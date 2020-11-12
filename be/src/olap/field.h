@@ -81,9 +81,9 @@ public:
     // todo(kks): Unify AggregateInfo::init method and Field::agg_init method
 
     // This function will initialize destination with source.
-    // This functionn differs copy functionn in that if this field
-    // contain aggregate information, this functionn will initialize
-    // destination in aggregate format, and update with srouce content.
+    // This function differs copy function in that if this field
+    // contain aggregate information, this function will initialize
+    // destination in aggregate format, and update with source content.
     virtual void agg_init(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool, ObjectPool* agg_pool) const {
         direct_copy(dst, src);
     }
@@ -121,7 +121,7 @@ public:
     // Only compare column content, without considering NULL condition.
     // RETURNS:
     //      0 means equal,
-    //      -1 means left less than rigth,
+    //      -1 means left less than right,
     //      1 means left bigger than right
     int compare(const void* left, const void* right) const {
         return _type_info->cmp(left, right);
@@ -134,7 +134,7 @@ public:
     // Only compare column content, without considering NULL condition.
     // RETURNS:
     //      0 means equal,
-    //      -1 means left less than rigth,
+    //      -1 means left less than right,
     //      1 means left bigger than right
     template<typename LhsCellType, typename RhsCellType>
     int compare_cell(const LhsCellType& lhs,
@@ -168,7 +168,7 @@ public:
 
     // deep copy source cell' content to destination cell.
     // For string type, this will allocate data form pool,
-    // and copy srouce's conetent.
+    // and copy source's content.
     template<typename DstCellType, typename SrcCellType>
     void copy_object(DstCellType* dst, const SrcCellType& src, MemPool* pool) const {
         bool is_null = src.is_null();
@@ -181,7 +181,7 @@ public:
 
     // deep copy source cell' content to destination cell.
     // For string type, this will allocate data form pool,
-    // and copy srouce's conetent.
+    // and copy source's content.
     template<typename DstCellType, typename SrcCellType>
     void deep_copy(DstCellType* dst,
                    const SrcCellType& src,
@@ -210,7 +210,7 @@ public:
         return _type_info->convert_from(dest, src, src_type, mem_pool);
     }
 
-    // Copy srouce content to destination in index format.
+    // Copy source content to destination in index format.
     template<typename DstCellType, typename SrcCellType>
     void to_index(DstCellType* dst, const SrcCellType& src) const;
 
@@ -327,9 +327,9 @@ int Field::index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const {
             // so calculate the min of the three size as new compare_size
             compare_size = std::min(std::min(compare_size, (int)l_slice->size), (int)r_slice->size);
 
-            // This functionn is used to compare prefix index.
+            // This function is used to compare prefix index.
             // Only the fixed length of prefix index should be compared.
-            // If r_slice->size > l_slice->size, igonre the extra parts directly.
+            // If r_slice->size > l_slice->size, ignore the extra parts directly.
             res = strncmp(l_slice->data, r_slice->data, compare_size);
             if (res == 0 && compare_size != (_index_size - OLAP_STRING_MAX_BYTES)) {
                 if (l_slice->size < r_slice->size) {

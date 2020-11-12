@@ -109,7 +109,7 @@ public:
         return execute();
     }
 
-    // helper function to download a file, you can call this function to downlaod
+    // helper function to download a file, you can call this function to download
     // a file to local_path 
     Status download(const std::string& local_path);
 

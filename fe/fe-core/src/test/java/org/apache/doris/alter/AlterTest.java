@@ -24,9 +24,13 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
@@ -34,12 +38,12 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import com.google.common.collect.Lists;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import com.google.common.collect.Lists;
 
 import java.io.File;
 import java.util.List;
@@ -124,6 +128,40 @@ public class AlterTest {
                 "    'storage_medium' = 'SSD',\n" +
                 "    'storage_cooldown_time' = '9999-12-31 00:00:00'\n" +
                 ");");
+
+        createTable("CREATE TABLE test.tbl5\n" +
+                "(\n" +
+                "    k1 date,\n" +
+                "    k2 int,\n" +
+                "    v1 int \n" +
+                ") ENGINE=OLAP\n" +
+                "UNIQUE KEY (k1,k2)\n" +
+                "PARTITION BY RANGE(k1)\n" +
+                "(\n" +
+                "    PARTITION p1 values less than('2020-02-01'),\n" +
+                "    PARTITION p2 values less than('2020-03-01')\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
+                "PROPERTIES('replication_num' = '1');");
+
+        Config.enable_odbc_table = true;
+        createTable("create external table test.odbc_table\n" +
+                "(  `k1` bigint(20) COMMENT \"\",\n" +
+                "  `k2` datetime COMMENT \"\",\n" +
+                "  `k3` varchar(20) COMMENT \"\",\n" +
+                "  `k4` varchar(100) COMMENT \"\",\n" +
+                "  `k5` float COMMENT \"\"\n" +
+                ")ENGINE=ODBC\n" +
+                "PROPERTIES (\n" +
+                "\"host\" = \"127.0.0.1\",\n" +
+                "\"port\" = \"3306\",\n" +
+                "\"user\" = \"root\",\n" +
+                "\"password\" = \"123\",\n" +
+                "\"database\" = \"db1\",\n" +
+                "\"table\" = \"tbl1\",\n" +
+                "\"driver\" = \"Oracle Driver\",\n" +
+                "\"odbc_type\" = \"oracle\"\n" +
+                ");");
     }
 
     @AfterClass
@@ -159,6 +197,15 @@ public class AlterTest {
         } catch (Exception e) {
             Assert.assertEquals(msg, e.getMessage());
         }
+    }
+
+    @Test
+    public void alterTableWithEnableFeature() throws Exception {
+        String stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"int\") ";
+        alterTable(stmt, false);
+
+        stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"double\") ";
+        alterTable(stmt, true);
     }
 
     @Test
@@ -428,5 +475,171 @@ public class AlterTest {
         alterTable(alterStmt5, false);
         String alterStmt6 = "alter table test." + tableName + " set (\"dynamic_partition.buckets\" = \"5\");";
         alterTable(alterStmt6, false);
+    }
+
+    @Test
+    public void testReplaceTable() throws Exception {
+        String stmt1 = "CREATE TABLE test.replace1\n" +
+                "(\n" +
+                "    k1 int, k2 int, k3 int sum\n" +
+                ")\n" +
+                "AGGREGATE KEY(k1, k2)\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
+                "rollup (\n" +
+                "r1(k1),\n" +
+                "r2(k2, k3)\n" +
+                ")\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+
+        String stmt2 = "CREATE TABLE test.r1\n" +
+                "(\n" +
+                "    k1 int, k2 int\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 11\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String stmt3 = "CREATE TABLE test.replace2\n" +
+                "(\n" +
+                "    k1 int, k2 int\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 11\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String stmt4 = "CREATE TABLE test.replace3\n" +
+                "(\n" +
+                "    k1 int, k2 int, k3 int sum\n" +
+                ")\n" +
+                "PARTITION BY RANGE(k1)\n" +
+                "(\n" +
+                "\tPARTITION p1 values less than(\"100\"),\n" +
+                "\tPARTITION p2 values less than(\"200\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 1\n" +
+                "rollup (\n" +
+                "r3(k1),\n" +
+                "r4(k2, k3)\n" +
+                ")\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+        createTable(stmt1);
+        createTable(stmt2);
+        createTable(stmt3);
+        createTable(stmt4);
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+
+        // name conflict
+        String replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE r1";
+        alterTable(replaceStmt, true);
+
+        // replace1 with replace2
+        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace2";
+        OlapTable replace1 = (OlapTable) db.getTable("replace1");
+        OlapTable replace2 = (OlapTable) db.getTable("replace2");
+        Assert.assertEquals(3, replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(1, replace2.getPartition("replace2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+
+        alterTable(replaceStmt, false);
+
+        replace1 = (OlapTable) db.getTable("replace1");
+        replace2 = (OlapTable) db.getTable("replace2");
+        Assert.assertEquals(1, replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(3, replace2.getPartition("replace2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals("replace1", replace1.getIndexNameById(replace1.getBaseIndexId()));
+        Assert.assertEquals("replace2", replace2.getIndexNameById(replace2.getBaseIndexId()));
+
+        // replace with no swap
+        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace2 properties('swap' = 'false')";
+        alterTable(replaceStmt, false);
+        replace1 = (OlapTable) db.getTable("replace1");
+        replace2 = (OlapTable) db.getTable("replace2");
+        Assert.assertNull(replace2);
+        Assert.assertEquals(3, replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals("replace1", replace1.getIndexNameById(replace1.getBaseIndexId()));
+
+        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace3 properties('swap' = 'true')";
+        alterTable(replaceStmt, false);
+        replace1 = (OlapTable) db.getTable("replace1");
+        OlapTable replace3 = (OlapTable) db.getTable("replace3");
+        Assert.assertEquals(3, replace1.getPartition("p1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(3, replace1.getPartition("p2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertNotNull(replace1.getIndexIdByName("r3"));
+        Assert.assertNotNull(replace1.getIndexIdByName("r4"));
+
+        Assert.assertEquals(3, replace3.getPartition("replace3").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertNotNull(replace3.getIndexIdByName("r1"));
+        Assert.assertNotNull(replace3.getIndexIdByName("r2"));
+    }
+
+    public void testExternalTableAlterOperations() throws Exception {
+        // external table do not support partition operation
+        String stmt = "alter table test.odbc_table add partition p3 values less than('2020-04-01'), add partition p4 values less than('2020-05-01')";
+        alterTable(stmt, true);
+
+        // external table do not support rollup
+        stmt = "alter table test.odbc_table add rollup r1 (k1)";
+        alterTable(stmt, true);
+
+        // external table support add column
+        stmt = "alter table test.odbc_table add column k6 INT KEY after k1, add column k7 TINYINT KEY after k6";
+        alterTable(stmt, false);
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        Table odbc_table = db.getTable("odbc_table");
+        Assert.assertEquals(odbc_table.getBaseSchema().size(), 7);
+        Assert.assertEquals(odbc_table.getBaseSchema().get(1).getDataType(), PrimitiveType.INT);
+        Assert.assertEquals(odbc_table.getBaseSchema().get(2).getDataType(), PrimitiveType.TINYINT);
+
+        // external table support drop column
+        stmt = "alter table test.odbc_table drop column k7";
+        alterTable(stmt, false);
+        db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        odbc_table = db.getTable("odbc_table");
+        Assert.assertEquals(odbc_table.getBaseSchema().size(), 6);
+
+        // external table support modify column
+        stmt = "alter table test.odbc_table modify column k6 bigint after k5";
+        alterTable(stmt, false);
+        db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        odbc_table = db.getTable("odbc_table");
+        Assert.assertEquals(odbc_table.getBaseSchema().size(), 6);
+        Assert.assertEquals(odbc_table.getBaseSchema().get(5).getDataType(), PrimitiveType.BIGINT);
+
+        // external table support reorder column
+        db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        odbc_table = db.getTable("odbc_table");
+        Assert.assertTrue(odbc_table.getBaseSchema().stream().
+                map(column -> column.getName()).
+                reduce("", (totalName, columnName) -> totalName + columnName).equals("k1k2k3k4k5k6"));
+        stmt = "alter table test.odbc_table order by (k6, k5, k4, k3, k2, k1)";
+        alterTable(stmt, false);
+        Assert.assertTrue(odbc_table.getBaseSchema().stream().
+                map(column -> column.getName()).
+                reduce("", (totalName, columnName) -> totalName + columnName).equals("k6k5k4k3k2k1"));
+
+        // external table support drop column
+        stmt = "alter table test.odbc_table drop column k6";
+        alterTable(stmt, false);
+        stmt = "alter table test.odbc_table drop column k5";
+        alterTable(stmt, false);
+        stmt = "alter table test.odbc_table drop column k4";
+        alterTable(stmt, false);
+        stmt = "alter table test.odbc_table drop column k3";
+        alterTable(stmt, false);
+        stmt = "alter table test.odbc_table drop column k2";
+        alterTable(stmt, false);
+        // do not allow drop last column
+        Assert.assertEquals(odbc_table.getBaseSchema().size(), 1);
+        stmt = "alter table test.odbc_table drop column k1";
+        alterTable(stmt, true);
+        Assert.assertEquals(odbc_table.getBaseSchema().size(), 1);
+
+        // external table support rename operation
+        stmt = "alter table test.odbc_table rename oracle_table";
+        alterTable(stmt, false);
+        db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        odbc_table = db.getTable("oracle_table");
+        Assert.assertTrue(odbc_table != null);
+        odbc_table = db.getTable("odbc_table");
+        Assert.assertTrue(odbc_table == null);
     }
 }

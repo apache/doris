@@ -53,7 +53,7 @@ public class CreateDbStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testAnnlyzeWithException() throws UserException, AnalysisException {
+    public void testAnalyzeWithException() throws UserException, AnalysisException {
         CreateDbStmt stmt = new CreateDbStmt(false, "");
         stmt.analyze(analyzer);
         Assert.fail("no exception");

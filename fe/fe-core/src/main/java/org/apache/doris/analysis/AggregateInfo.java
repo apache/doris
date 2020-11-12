@@ -184,9 +184,9 @@ public final class AggregateInfo extends AggregateInfoBase {
 
         // aggregation algorithm includes two kinds:one stage aggregation, tow stage aggregation.
         // for case:
-        // 1: if aggExprs don't hava distinct or hava multi distinct , create aggregate info for
+        // 1: if aggExprs don't have distinct or have multi distinct , create aggregate info for
         // one stage aggregation. 
-        // 2: if aggExprs hava one distinct , create aggregate info for two stage aggregation
+        // 2: if aggExprs have one distinct , create aggregate info for two stage aggregation
         boolean isMultiDistinct = result.estimateIfContainsMultiDistinct(distinctAggExprs);
         if (distinctAggExprs.isEmpty() 
                || isMultiDistinct) {
@@ -662,8 +662,13 @@ public final class AggregateInfo extends AggregateInfoBase {
         exprs.addAll(aggregateExprs_);
         for (int i = 0; i < exprs.size(); ++i) {
             Expr expr = exprs.get(i);
-            outputTupleSmap_.put(expr.clone(),
-                    new SlotRef(outputTupleDesc_.getSlots().get(i)));
+            if (expr.isImplicitCast()) {
+                outputTupleSmap_.put(expr.getChild(0).clone(),
+                        new SlotRef(outputTupleDesc_.getSlots().get(i)));
+            } else {
+                outputTupleSmap_.put(expr.clone(),
+                        new SlotRef(outputTupleDesc_.getSlots().get(i)));
+            }
             if (!requiresIntermediateTuple()) continue;
 
             intermediateTupleSmap_.put(expr.clone(),

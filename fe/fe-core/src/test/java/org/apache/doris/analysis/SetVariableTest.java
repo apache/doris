@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
@@ -50,6 +51,14 @@ public class SetVariableTest {
         stmtExecutor.execute();
         Assert.assertEquals("STRICT_TRANS_TABLES",
                 SqlModeHelper.decode(connectContext.getSessionVariable().getSqlMode()));
+
+        String selectStr = "explain select @@sql_mode;";
+        connectContext.getState().reset();
+        stmtExecutor = new StmtExecutor(connectContext, selectStr);
+        stmtExecutor.execute();
+        Expr expr = stmtExecutor.getParsedStmt().getResultExprs().get(0);
+        Assert.assertTrue(expr instanceof SlotRef);
+        Assert.assertTrue(expr.getType() == Type.BIGINT);
     }
 
     @Test

@@ -280,7 +280,7 @@ public class PaloAuth implements Writable {
             return true;
         }
 
-        LOG.debug("failed to get wanted privs: {}, ganted: {}", wanted, savedPrivs);
+        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
         return false;
     }
 
@@ -313,7 +313,7 @@ public class PaloAuth implements Writable {
             return true;
         }
 
-        LOG.debug("failed to get wanted privs: {}, ganted: {}", wanted, savedPrivs);
+        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
         return false;
     }
 
@@ -351,7 +351,7 @@ public class PaloAuth implements Writable {
             return true;
         }
 
-        LOG.debug("failed to get wanted privs: {}, ganted: {}", wanted, savedPrivs);
+        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
         return false;
     }
 
@@ -729,13 +729,13 @@ public class PaloAuth implements Writable {
                                      privs);
                     break;
                 case DATABASE:
-                    grantDbPrivs(userIdent, tblPattern.getQuolifiedDb(),
+                    grantDbPrivs(userIdent, tblPattern.getQualifiedDb(),
                                  false /* err on exist */,
                                  false /* err on non exist */,
                                  privs);
                     break;
                 case TABLE:
-                    grantTblPrivs(userIdent, tblPattern.getQuolifiedDb(),
+                    grantTblPrivs(userIdent, tblPattern.getQualifiedDb(),
                                   tblPattern.getTbl(),
                                   false /* err on exist */,
                                   false /* err on non exist */,
@@ -807,7 +807,7 @@ public class PaloAuth implements Writable {
                                true /* err on non exist */, true /* is replay */);
             }
         } catch (DdlException e) {
-            LOG.error("should not happend", e);
+            LOG.error("should not happened", e);
         }
     }
 
@@ -874,10 +874,10 @@ public class PaloAuth implements Writable {
                     revokeGlobalPrivs(userIdent, privs, errOnNonExist);
                     break;
                 case DATABASE:
-                    revokeDbPrivs(userIdent, tblPattern.getQuolifiedDb(), privs, errOnNonExist);
+                    revokeDbPrivs(userIdent, tblPattern.getQualifiedDb(), privs, errOnNonExist);
                     break;
                 case TABLE:
-                    revokeTblPrivs(userIdent, tblPattern.getQuolifiedDb(), tblPattern.getTbl(), privs,
+                    revokeTblPrivs(userIdent, tblPattern.getQualifiedDb(), tblPattern.getTbl(), privs,
                                    errOnNonExist);
                     break;
                 default:
@@ -916,7 +916,7 @@ public class PaloAuth implements Writable {
             setPasswordInternal(info.getUserIdent(), info.getPasswd(), null, true /* err on non exist */,
                                 false /* set by resolver */, true);
         } catch (DdlException e) {
-            LOG.error("should not happend", e);
+            LOG.error("should not happened", e);
         }
     }
 
@@ -963,7 +963,7 @@ public class PaloAuth implements Writable {
         try {
             createRoleInternal(info.getRole(), true);
         } catch (DdlException e) {
-            LOG.error("should not happend", e);
+            LOG.error("should not happened", e);
         }
     }
 
@@ -992,7 +992,7 @@ public class PaloAuth implements Writable {
         try {
             dropRoleInternal(info.getRole(), true);
         } catch (DdlException e) {
-            LOG.error("should not happend", e);
+            LOG.error("should not happened", e);
         }
     }
 
@@ -1063,7 +1063,7 @@ public class PaloAuth implements Writable {
             // 1. delete all previously set entries
             userPrivTable.clearEntriesSetByResolver();
             // 2. add new entries
-            propertyMgr.addUserPrivEntriesByResovledIPs(resolvedIPsMap);
+            propertyMgr.addUserPrivEntriesByResolvedIPs(resolvedIPsMap);
         } finally {
             writeUnlock();
         }
@@ -1276,7 +1276,7 @@ public class PaloAuth implements Writable {
             adminUser.setIsAnalyzed();
             createUserInternal(adminUser, PaloRole.ADMIN_ROLE, new byte[0], true /* is replay */);
         } catch (DdlException e) {
-            LOG.error("should not happend", e);
+            LOG.error("should not happened", e);
         }
     }
 

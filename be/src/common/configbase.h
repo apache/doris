@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -109,22 +110,38 @@ public:
 // configuration properties load from config file.
 class Properties {
 public:
-    bool load(const char* filename);
+    // load conf from file, if must_exist is true and file does not exist, return false
+    bool load(const char* filename, bool must_exist = true);
     template <typename T>
-    bool get(const char* key, const char* defstr, T& retval) const;
+
+    // Find the config value by key from `file_conf_map`.
+    // If found, set `retval` to the config value,
+    // or set `retval` to `defstr`
+    bool get_or_default(const char* key, const char* defstr, T& retval) const;
+
+    void set(const std::string& key, const std::string& val);
+
+    // dump props to conf file
+    bool dump(const std::string& conffile);
 
 private:
     std::map<std::string, std::string> file_conf_map;
 };
 
-extern Properties props;
-
 // full configurations.
 extern std::map<std::string, std::string>* full_conf_map;
 
-bool init(const char* filename, bool fillconfmap = false);
+extern std::mutex custom_conf_lock;
 
-Status set_config(const std::string& field, const std::string& value);
+// Init the config from `conf_file`.
+// If fillconfmap is true, the updated config will also update the `full_conf_map`.
+// If must_exist is true and `conf_file` does not exist, this function will return false.
+// If set_to_default is true, the config value will be set to default value if not found in `conf_file`.
+bool init(const char* conf_file, bool fillconfmap = false, bool must_exist = true, bool set_to_default = true);
+
+Status set_config(const std::string& field, const std::string& value, bool need_persist = false);
+
+bool persist_config(const std::string& field, const std::string& value);
 
 } // namespace config
 } // namespace doris

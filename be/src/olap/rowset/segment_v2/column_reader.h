@@ -314,7 +314,7 @@ private:
     ordinal_t _current_ordinal = 0;
 
     // page indexes those are DEL_PARTIAL_SATISFIED
-    std::unordered_set<uint32_t> _delete_partial_statisfied_pages;
+    std::unordered_set<uint32_t> _delete_partial_satisfied_pages;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {

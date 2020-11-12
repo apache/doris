@@ -60,6 +60,10 @@ DeltaWriter::~DeltaWriter() {
     if (_flush_token != nullptr) {
         // cancel and wait all memtables in flush queue to be finished
         _flush_token->cancel();
+
+        const FlushStatistic& stat = _flush_token->get_stats();
+        _tablet->flush_bytes->increment(stat.flush_size_bytes);
+        _tablet->flush_count->increment(stat.flush_count);
     }
 
     if (_tablet != nullptr) {
@@ -92,8 +96,16 @@ OLAPStatus DeltaWriter::init() {
     TabletManager* tablet_mgr = _storage_engine->tablet_manager();
     _tablet = tablet_mgr->get_tablet(_req.tablet_id, _req.schema_hash);
     if (_tablet == nullptr) {
-        LOG(WARNING) << "fail to find tablet . tablet_id=" << _req.tablet_id
+        LOG(WARNING) << "fail to find tablet. tablet_id=" << _req.tablet_id
                      << ", schema_hash=" << _req.schema_hash;
+        return OLAP_ERR_TABLE_NOT_FOUND;
+    }
+
+    // check tablet version number
+    if (_tablet->version_count() > config::max_tablet_version_num) {
+        LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
+            << ", exceed limit: " << config::max_tablet_version_num
+            << ". tablet: " << _tablet->full_name();
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
@@ -212,7 +224,7 @@ OLAPStatus DeltaWriter::close() {
         // which means this tablet has no data loaded, but at least one tablet
         // in same partition has data loaded.
         // so we have to also init this DeltaWriter, so that it can create a empty rowset
-        // for this tablet when being closd.
+        // for this tablet when being closed.
         RETURN_NOT_OK(init());
     }
 

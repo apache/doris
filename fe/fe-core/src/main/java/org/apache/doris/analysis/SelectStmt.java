@@ -22,10 +22,10 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.View;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ColumnAliasGenerator;
@@ -282,6 +282,7 @@ public class SelectStmt extends QueryStmt {
             if (tblRef instanceof InlineViewRef) {
                 // Inline view reference
                 QueryStmt inlineStmt = ((InlineViewRef) tblRef).getViewStmt();
+                inlineStmt.withClause_ = this.withClause_;
                 inlineStmt.getDbs(analyzer, dbs);
             } else {
                 String dbName = tblRef.getName().getDb();
@@ -289,6 +290,9 @@ public class SelectStmt extends QueryStmt {
                     dbName = analyzer.getDefaultDb();
                 } else {
                     dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), tblRef.getName().getDb());
+                }
+                if(withClause_ != null && isViewTableRef(tblRef)){
+                    continue;
                 }
                 if (Strings.isNullOrEmpty(dbName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
@@ -312,6 +316,16 @@ public class SelectStmt extends QueryStmt {
                 dbs.put(dbName, db);
             }
         }
+    }
+
+    private boolean isViewTableRef(TableRef tblRef) {
+        List<View> views = withClause_.getViews();
+        for(View view : views){
+            if(view.getName().equals(tblRef.getName().toString())){
+                return true;
+            }
+        }
+        return false;
     }
 
     // Column alias generator used during query rewriting.
@@ -340,7 +354,6 @@ public class SelectStmt extends QueryStmt {
             return;
         }
         super.analyze(analyzer);
-
         fromClause_.setNeedToSql(needToSql);
         fromClause_.analyze(analyzer);
 
@@ -531,21 +544,6 @@ public class SelectStmt extends QueryStmt {
                 whereClause = new BoolLiteral(false);
             } else {
                 whereClause = new BoolLiteral(true);
-            }
-        }
-        // filter deleted data by and DELETE_SIGN column = 0, DELETE_SIGN is a hidden column
-        // that indicates whether the row is delete
-        for (TableRef tableRef : fromClause_.getTableRefs()) {
-            if (!isForbiddenMVRewrite() && tableRef instanceof BaseTableRef && tableRef.getTable() instanceof OlapTable
-                    && ((OlapTable) tableRef.getTable()).getKeysType() == KeysType.UNIQUE_KEYS
-                    && ((OlapTable) tableRef.getTable()).hasDeleteSign()) {
-                BinaryPredicate filterDeleteExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                        new SlotRef(tableRef.getName(), Column.DELETE_SIGN), new IntLiteral(0));
-                if (whereClause == null) {
-                    whereClause = filterDeleteExpr;
-                } else {
-                    whereClause = new CompoundPredicate(CompoundPredicate.Operator.AND, filterDeleteExpr, whereClause);
-                }
             }
         }
         Expr deDuplicatedWhere = deduplicateOrs(whereClause);
@@ -975,7 +973,7 @@ public class SelectStmt extends QueryStmt {
      * refs for each column to selectListExprs.
      */
     private void expandStar(TableName tblName, TupleDescriptor desc) {
-        for (Column col : desc.getTable().getBaseSchema(false)) {
+        for (Column col : desc.getTable().getBaseSchema()) {
             resultExprs.add(new SlotRef(tblName, col.getName()));
             colLabels.add(col.getName());
         }

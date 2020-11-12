@@ -111,11 +111,14 @@ bool operator!=(const TabletColumn& a, const TabletColumn& b);
 
 class TabletSchema {
 public:
+    // TODO(yingchun): better to make constructor as private to avoid
+    // manually init members incorrectly, and define a new function like
+    // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema)
     TabletSchema() = default;
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb);
     size_t row_size() const;
-    size_t field_index(const std::string& field_name) const;
+    int32_t field_index(const std::string& field_name) const;
     const TabletColumn& column(size_t ordinal) const;
     const std::vector<TabletColumn>& columns() const;
     inline size_t num_columns() const { return _num_columns; }
@@ -131,14 +134,20 @@ public:
     inline void set_is_in_memory(bool is_in_memory) { _is_in_memory = is_in_memory; }
     inline int32_t delete_sign_idx() const { return _delete_sign_idx; }
     inline void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
+    inline bool has_sequence_col() const { return  _sequence_col_idx != -1; }
+    inline int32_t sequence_col_idx() const { return _sequence_col_idx; }
 
 private:
+    // Only for unit test
+    void init_field_index_for_test();
+
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
 private:
     KeysType _keys_type = DUP_KEYS;
     std::vector<TabletColumn> _cols;
+    std::unordered_map<std::string, int32_t> _field_name_to_index;
     size_t _num_columns = 0;
     size_t _num_key_columns = 0;
     size_t _num_null_columns = 0;
@@ -151,6 +160,7 @@ private:
     double _bf_fpp = 0;
     bool _is_in_memory = false;
     int32_t _delete_sign_idx = -1;
+    int32_t _sequence_col_idx = -1;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

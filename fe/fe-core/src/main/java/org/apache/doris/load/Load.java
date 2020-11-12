@@ -107,7 +107,6 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -133,6 +132,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 public class Load {
     private static final Logger LOG = LogManager.getLogger(Load.class);
@@ -544,7 +544,7 @@ public class Load {
                 db.readUnlock();
             }
             job.setMiniEtlTasks(idToEtlTask);
-            job.setPrority(TPriority.HIGH);
+            job.setPriority(TPriority.HIGH);
 
             if (job.getTimeoutSecond() == 0) {
                 // set default timeout
@@ -589,7 +589,7 @@ public class Load {
                 // check and set cluster info
                 dppConfig.check();
                 job.setClusterInfo(cluster, dppConfig);
-                job.setPrority(dppConfig.getPriority());
+                job.setPriority(dppConfig.getPriority());
             } catch (LoadException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -604,7 +604,7 @@ public class Load {
                 job.setTimeoutSecond(Config.broker_load_default_timeout_second);
             }
         } else if (etlJobType == EtlJobType.INSERT) {
-            job.setPrority(TPriority.HIGH);
+            job.setPriority(TPriority.HIGH);
             if (job.getTimeoutSecond() == 0) {
                 // set default timeout
                 job.setTimeoutSecond(Config.insert_load_default_timeout_second);
@@ -718,7 +718,7 @@ public class Load {
             if (dataDescription.isNegative()) {
                 for (Column column : baseSchema) {
                     if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
-                        throw new DdlException("Column is not SUM AggreateType. column:" + column.getName());
+                        throw new DdlException("Column is not SUM AggregateType. column:" + column.getName());
                     }
                 }
             }
@@ -735,7 +735,7 @@ public class Load {
             // check mapping column exist in table
             // check function
             // convert mapping column and func arg columns to schema format
-            
+
             // When doing schema change, there may have some 'shadow' columns, with prefix '__doris_shadow_' in
             // their names. These columns are invisible to user, but we need to generate data for these columns.
             // So we add column mappings for these column.
@@ -750,7 +750,7 @@ public class Load {
                         if (mappingExpr != null) {
                             /*
                              * eg:
-                             * (A, C) SET (B = func(xx)) 
+                             * (A, C) SET (B = func(xx))
                              * ->
                              * (A, C) SET (B = func(xx), __doris_shadow_B = func(xxx))
                              */
@@ -779,10 +779,10 @@ public class Load {
                          */
                         // do nothing
                     }
-                    
+
                 }
             }
-            
+
             LOG.debug("after add shadow column. parsedColumnExprList: {}, columnToHadoopFunction: {}",
                     parsedColumnExprList, columnToHadoopFunction);
 
@@ -974,6 +974,11 @@ public class Load {
         // We make a copy of the columnExprs so that our subsequent changes
         // to the columnExprs will not affect the original columnExprs.
         List<ImportColumnDesc> copiedColumnExprs = Lists.newArrayList(columnExprs);
+        // check whether the OlapTable has sequenceCol
+        boolean hasSequenceCol = false;
+        if (tbl instanceof OlapTable && ((OlapTable)tbl).hasSequenceCol()) {
+            hasSequenceCol = true;
+        }
 
         // If user does not specify the file field names, generate it by using base schema of table.
         // So that the following process can be unified
@@ -981,6 +986,10 @@ public class Load {
         if (!specifyFileFieldNames) {
             List<Column> columns = tbl.getBaseSchema(false);
             for (Column column : columns) {
+                // columnExprs has sequence column, don't need to generate the sequence column
+                if (hasSequenceCol && column.isSequenceColumn()) {
+                    continue;
+                }
                 ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
                 LOG.debug("add base column {} to stream load task", column.getName());
                 copiedColumnExprs.add(columnDesc);
@@ -1129,7 +1138,7 @@ public class Load {
      * The hadoop function includes: replace_value, strftime, time_format, alignment_timestamp, default_value, now.
      * It rewrites those function with real function name and param.
      * For the other function, the expr only go through this function and the origin expr is returned.
-     * 
+     *
      * @param columnName
      * @param originExpr
      * @return
@@ -1158,7 +1167,7 @@ public class Load {
                  * We will convert this based on different cases:
                  * case 1: k1 = replace_value(null, anyval);
                  *     to: k1 = if (k1 is not null, k1, anyval);
-                 * 
+                 *
                  * case 2: k1 = replace_value(anyval1, anyval2);
                  *     to: k1 = if (k1 is not null, if(k1 != anyval1, k1, anyval2), null);
                  */
@@ -1231,7 +1240,7 @@ public class Load {
                 /*
                  * change to:
                  * UNIX_TIMESTAMP(DATE_FORMAT(FROM_UNIXTIME(ts), "%Y-01-01 00:00:00"));
-                 * 
+                 *
                  */
 
                 // FROM_UNIXTIME
@@ -1545,7 +1554,7 @@ public class Load {
         return false;
     }
 
-    public boolean isLabelExist(String dbName, String label) throws DdlException {
+    public boolean isLabelExist(String dbName, String labelValue, boolean isAccurateMatch) throws DdlException {
         // get load job and check state
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
@@ -1557,8 +1566,19 @@ public class Load {
             if (labelToLoadJobs == null) {
                 return false;
             }
-            List<LoadJob> loadJobs = labelToLoadJobs.get(label);
-            if (loadJobs == null) {
+            List<LoadJob> loadJobs = Lists.newArrayList();
+            if (isAccurateMatch) {
+                if (labelToLoadJobs.containsKey(labelValue)) {
+                    loadJobs.addAll(labelToLoadJobs.get(labelValue));
+                }
+            } else {
+                for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
+                    if (entry.getKey().contains(labelValue)) {
+                        loadJobs.addAll(entry.getValue());
+                    }
+                }
+            }
+            if (loadJobs.isEmpty()) {
                 return false;
             }
             if (loadJobs.stream().filter(entity -> entity.getState() != JobState.CANCELLED).count() == 0) {
@@ -1568,6 +1588,93 @@ public class Load {
         } finally {
             readUnlock();
         }
+    }
+
+    public boolean cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException {
+        // get params
+        String dbName = stmt.getDbName();
+        String label = stmt.getLabel();
+
+        // get load job and check state
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
+        if (db == null) {
+            throw new DdlException("Db does not exist. name: " + dbName);
+        }
+        // List of load jobs waiting to be cancelled
+        List<LoadJob> loadJobs = Lists.newArrayList();
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(db.getId());
+            if (labelToLoadJobs == null) {
+                throw new DdlException("Load job does not exist");
+            }
+
+            // get jobs by label
+            List<LoadJob> matchLoadJobs = Lists.newArrayList();
+            if (isAccurateMatch) {
+                if (labelToLoadJobs.containsKey(label)) {
+                    matchLoadJobs.addAll(labelToLoadJobs.get(label));
+                }
+            } else {
+                for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
+                    if (entry.getKey().contains(label)) {
+                        matchLoadJobs.addAll(entry.getValue());
+                    }
+                }
+            }
+
+            if (matchLoadJobs.isEmpty()) {
+                throw new DdlException("Load job does not exist");
+            }
+
+            // check state here
+            List<LoadJob> uncompletedLoadJob = matchLoadJobs.stream().filter(job -> {
+                JobState state = job.getState();
+                return state != JobState.CANCELLED && state != JobState.QUORUM_FINISHED && state != JobState.FINISHED;
+            }).collect(Collectors.toList());
+            if (uncompletedLoadJob.isEmpty()) {
+                throw new DdlException("There is no uncompleted job which label " +
+                        (isAccurateMatch ? "is " : "like ") + stmt.getLabel());
+            }
+            loadJobs.addAll(uncompletedLoadJob);
+        } finally {
+            readUnlock();
+        }
+
+        // check auth here, cause we need table info
+        Set<String> tableNames = Sets.newHashSet();
+        for (LoadJob loadJob : loadJobs) {
+            tableNames.addAll(loadJob.getTableNames());
+        }
+
+        if (tableNames.isEmpty()) {
+            if (Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
+                    PrivPredicate.LOAD)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CANCEL LOAD");
+            }
+        } else {
+            for (String tblName : tableNames) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
+                        PrivPredicate.LOAD)) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
+                            ConnectContext.get().getQualifiedUser(),
+                            ConnectContext.get().getRemoteIP(), tblName);
+                }
+            }
+        }
+
+        // cancel job
+        for (LoadJob loadJob : loadJobs) {
+            List<String> failedMsg = Lists.newArrayList();
+            boolean ok = cancelLoadJob(loadJob, CancelType.USER_CANCEL, "user cancel", failedMsg);
+            if (!ok) {
+                throw new DdlException("Cancel load job [" + loadJob.getId() + "] fail, " +
+                        "label=[" + loadJob.getLabel() + "] failed msg=" +
+                        (failedMsg.isEmpty() ? "Unknown reason" : failedMsg.get(0)));
+            }
+        }
+
+        return true;
     }
 
     public boolean cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
@@ -1609,16 +1716,16 @@ public class Load {
         if (tableNames.isEmpty()) {
             // forward compatibility
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-                                                                   PrivPredicate.LOAD)) {
+                    PrivPredicate.LOAD)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CANCEL LOAD");
             }
         } else {
             for (String tblName : tableNames) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
-                                                                        PrivPredicate.LOAD)) {
+                        PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
-                                                   ConnectContext.get().getQualifiedUser(),
-                                                   ConnectContext.get().getRemoteIP(), tblName);
+                            ConnectContext.get().getQualifiedUser(),
+                            ConnectContext.get().getRemoteIP(), tblName);
                 }
             }
         }
@@ -2011,6 +2118,8 @@ public class Load {
                 jobInfo.add(TimeUtils.longToTimeString(loadJob.getLoadFinishTimeMs()));
                 // tracking url
                 jobInfo.add(status.getTrackingUrl());
+                // job detail(not used for hadoop load, just return an empty string)
+                jobInfo.add("");
 
                 loadJobInfos.add(jobInfo);
             } // end for loadJobs
@@ -2194,7 +2303,7 @@ public class Load {
             }
             properties.remove("name");
 
-            if (!Catalog.getCurrentCatalog().getBrokerMgr().contaisnBroker(brokerName)) {
+            if (!Catalog.getCurrentCatalog().getBrokerMgr().containsBroker(brokerName)) {
                 throw new DdlException("broker does not exist: " + brokerName);
             }
 
@@ -2646,7 +2755,7 @@ public class Load {
                     }
                 }
 
-                // delete all dirs releated to job label, use "" instead of job.getEtlOutputDir()
+                // delete all dirs related to job label, use "" instead of job.getEtlOutputDir()
                 // hdfs://host:port/outputPath/dbId/loadLabel/
                 DppConfig dppConfig = job.getHadoopDppConfig();
                 String outputPath = DppScheduler.getEtlOutputPath(dppConfig.getFsDefaultName(),
@@ -2915,10 +3024,19 @@ public class Load {
             // the transaction may already be aborted due to timeout by transaction manager.
             // just print a log and continue to cancel the job.
             LOG.info("transaction not found when try to abort it: {}", e.getTransactionId());
+        } catch (AnalysisException e) {
+            // This is because the database has been dropped, so dbTransactionMgr can not be found.
+            // In this case, just continue to cancel the load.
+            if (!e.getMessage().contains("does not exist")) {
+                if (failedMsg != null) {
+                    failedMsg.add("Abort transaction failed: " + e.getMessage());
+                }
+                return false;
+            }
         } catch (Exception e) {
             LOG.info("errors while abort transaction", e);
             if (failedMsg != null) {
-                failedMsg.add("Abort tranaction failed: " + e.getMessage());
+                failedMsg.add("Abort transaction failed: " + e.getMessage());
             }
             return false;
         }
@@ -3646,7 +3764,7 @@ public class Load {
         }
     }
 
-    public LoadJob getLastestFinishedLoadJob(long dbId) {
+    public LoadJob getLastFinishedLoadJob(long dbId) {
         LoadJob job = null;
         readLock();
         try {
@@ -3670,7 +3788,7 @@ public class Load {
         return job;
     }
 
-    public DeleteInfo getLastestFinishedDeleteInfo(long dbId) {
+    public DeleteInfo getLastFinishedDeleteInfo(long dbId) {
         DeleteInfo deleteInfo = null;
         readLock();
         try {

@@ -120,13 +120,17 @@ IntVal TimestampFunctions::month(
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     return IntVal(ts_value.month());
 }
+
 IntVal TimestampFunctions::day_of_week(
         FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
-    return IntVal((ts_value.weekday() + 1 ) % 7 + 1);
+    if (ts_value.is_valid_date()) {
+        return IntVal((ts_value.weekday() + 1 ) % 7 + 1);
+    }
+    return IntVal::null();
 }
 
 IntVal TimestampFunctions::day_of_month(
@@ -144,7 +148,10 @@ IntVal TimestampFunctions::day_of_year(
         return IntVal::null();
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
-    return IntVal(ts_value.day_of_year());
+    if (ts_value.is_valid_date()) {
+        return IntVal(ts_value.day_of_year());
+    }
+    return IntVal::null();
 }
 
 IntVal TimestampFunctions::week_of_year(
@@ -153,7 +160,10 @@ IntVal TimestampFunctions::week_of_year(
         return IntVal::null();
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
-    return IntVal(ts_value.week(mysql_week_mode(3)));
+    if (ts_value.is_valid_date()) {
+        return IntVal(ts_value.week(mysql_week_mode(3)));
+    }
+    return IntVal::null();
 }
 
 IntVal TimestampFunctions::hour(
@@ -398,36 +408,36 @@ BigIntVal TimestampFunctions::timestamp_diff(FunctionContext* ctx, const DateTim
     switch (unit) {
         case YEAR: {
             int year = (ts_value2.year() - ts_value1.year());
-            if (year >= 0) {
+            if (year > 0) {
                 year -= (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) < 0;
-            } else {
+            } else if (year < 0) {
                 year += (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) > 0;
             }
             return year;
         }
         case MONTH: {
             int month = (ts_value2.year() - ts_value1.year()) * 12 + (ts_value2.month() - ts_value1.month());
-            if (month >= 0) {
+            if (month > 0) {
                 month -= (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) < 0;
-            } else {
+            } else if (month < 0) {
                 month += (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) > 0;
             }
             return month;
         }
         case WEEK: {
             int day = ts_value2.daynr() - ts_value1.daynr();
-            if (day >= 0) {
+            if (day > 0) {
                 day -= ts_value2.time_part_diff(ts_value1) < 0;
-            } else {
+            } else if (day < 0) {
                 day += ts_value2.time_part_diff(ts_value1) > 0;
             }
             return day / 7;
         }
         case DAY: {
             int day = ts_value2.daynr() - ts_value1.daynr();
-            if (day >= 0) {
+            if (day > 0) {
                 day -= ts_value2.time_part_diff(ts_value1) < 0;
-            } else {
+            } else if (day < 0) {
                 day += ts_value2.time_part_diff(ts_value1) > 0;
             }
             return day;
@@ -496,6 +506,119 @@ void TimestampFunctions::format_close(
     }
 }
 
+DateTimeVal from_olap_datetime(uint64_t datetime) {
+    DateTimeValue ts_value;
+    if (!ts_value.from_olap_datetime(datetime)) {
+        return DateTimeVal::null();
+    }
+
+    DateTimeVal ts_val;
+    ts_value.to_datetime_val(&ts_val);
+    return ts_val;
+}
+
+#define _TR_4(TYPE, type, UNIT, unit) \
+    DateTimeVal TimestampFunctions::unit##_##type( \
+            FunctionContext* ctx, const DateTimeVal& ts_val, \
+            const IntVal& period, const DateTimeVal& origin) { \
+        return time_round<UNIT, TYPE>(ctx, ts_val, period, origin); \
+    } \
+    DateTimeVal TimestampFunctions::unit##_##type( \
+            FunctionContext* ctx, const DateTimeVal& ts_val, const DateTimeVal& origin) { \
+        return time_round<UNIT, TYPE>(ctx, ts_val, IntVal(1), origin); \
+    }
+
+#define _TR_5(TYPE, type, UNIT, unit, ORIGIN) \
+    DateTimeVal TimestampFunctions::unit##_##type( \
+            FunctionContext* ctx, const DateTimeVal& ts_val) { \
+        return time_round<UNIT, TYPE>(ctx, ts_val, IntVal(1), ORIGIN); \
+    } \
+    DateTimeVal TimestampFunctions::unit##_##type( \
+            FunctionContext* ctx, const DateTimeVal& ts_val, const IntVal& period) { \
+        return time_round<UNIT, TYPE>(ctx, ts_val, period, ORIGIN); \
+    }
+
+#define FLOOR 0
+#define CEIL  1
+
+static const DateTimeVal FIRST_DAY    = from_olap_datetime(19700101000000);
+static const DateTimeVal FIRST_SUNDAY = from_olap_datetime(19700104000000);
+
+#define TIME_ROUND(UNIT, unit, ORIGIN) \
+    _TR_4(FLOOR, floor, UNIT, unit)         _TR_4(CEIL, ceil, UNIT, unit) \
+    _TR_5(FLOOR, floor, UNIT, unit, ORIGIN) _TR_5(CEIL, ceil, UNIT, unit, ORIGIN)
+
+TIME_ROUND(YEAR, year, FIRST_DAY)
+TIME_ROUND(MONTH, month, FIRST_DAY)
+TIME_ROUND(WEEK, week, FIRST_SUNDAY)
+TIME_ROUND(DAY, day, FIRST_DAY)
+TIME_ROUND(HOUR, hour, FIRST_DAY)
+TIME_ROUND(MINUTE, minute, FIRST_DAY)
+TIME_ROUND(SECOND, second, FIRST_DAY)
+
+template <TimeUnit unit, bool type>
+DateTimeVal TimestampFunctions::time_round(
+        FunctionContext* ctx, const DateTimeVal& ts_val,
+        const IntVal& period, const DateTimeVal& origin) {
+    if (ts_val.is_null || period.is_null || period.val < 1 || origin.is_null) {
+        return DateTimeVal::null();
+    }
+
+    DateTimeValue ts1 = DateTimeValue::from_datetime_val(origin);
+    DateTimeValue ts2 = DateTimeValue::from_datetime_val(ts_val);
+    int64_t diff;
+    switch (unit) {
+        case YEAR: {
+            int year = (ts2.year() - ts1.year());
+            diff = year - (ts2.to_int64() % 10000000000 < ts1.to_int64() % 10000000000);
+            break;
+        }
+        case MONTH: {
+            int month = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
+            diff =  month - (ts2.to_int64() % 100000000 < ts1.to_int64() % 100000000);
+            break;
+        }
+        case WEEK: {
+            int week = ts2.daynr() / 7 - ts1.daynr() / 7;
+            diff = week - (ts2.daynr() % 7 < ts1.daynr() % 7 + (ts2.time_part_diff(ts1) < 0));
+            break;
+        }
+        case DAY: {
+            int day = ts2.daynr() - ts1.daynr();
+            diff = day - (ts2.time_part_diff(ts1) < 0);
+            break;
+        }
+        case HOUR: {
+            int hour = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
+            diff = hour - ((ts2.minute() * 60 + ts2.second()) < (ts1.minute() * 60 - ts1.second()));
+            break;
+        }
+        case MINUTE: {
+            int minute = (ts2.daynr() - ts1.daynr()) * 24 * 60 +
+                         (ts2.hour() - ts1.hour()) * 60 + (ts2.minute() - ts1.minute());
+            diff = minute - (ts2.second() < ts1.second());
+            break;
+        }
+        case SECOND: {
+            diff = ts2.second_diff(ts1);
+            break;
+        }
+        default:
+            return DateTimeVal::null();
+    }
+    int64_t count = period.val;
+    int64_t step = diff - (diff % count + count) % count + (type == FLOOR ? 0 : count);
+    bool is_neg = step < 0;
+
+    TimeInterval interval(unit, is_neg ? -step : step, is_neg);
+    if (!ts1.date_add_interval(interval, unit)) {
+        return DateTimeVal::null();
+    }
+    DateTimeVal new_ts_val;
+    ts1.to_datetime_val(&new_ts_val);
+    return new_ts_val;
+}
+
 StringVal TimestampFunctions::date_format(
         FunctionContext* ctx, const DateTimeVal& ts_val, const StringVal& format) {
     if (ts_val.is_null || format.is_null) {
@@ -560,7 +683,10 @@ DoubleVal TimestampFunctions::time_diff(
 
     const DateTimeValue& ts_value1 = DateTimeValue::from_datetime_val(ts_val1);
     const DateTimeValue& ts_value2 = DateTimeValue::from_datetime_val(ts_val2);
-    return DoubleVal(ts_value1.second_diff(ts_value2));
+    if (ts_value1.is_valid_date() && ts_value2.is_valid_date()) {
+        return DoubleVal(ts_value1.second_diff(ts_value2));
+    }
+    return DoubleVal::null();
 }
 
 IntVal TimestampFunctions::date_diff(

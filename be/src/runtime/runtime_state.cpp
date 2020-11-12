@@ -475,8 +475,12 @@ void RuntimeState::export_load_error(const std::string& err_msg) {
         if (_load_error_hub_info == nullptr) {
             return;
         }
-        LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(),
+        Status st = LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(),
                 _error_log_file_path, &_error_hub);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to create load error hub: " << st.get_error_msg();
+            return;
+        }
     }
 
     if (_error_row_number <= HUB_MAX_ERROR_NUM) {

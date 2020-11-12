@@ -128,6 +128,10 @@ public:
 
     std::set<TabletInfo> tablet_set() { return _tablet_set; }
 
+    void disks_compaction_score_increment(int64_t delta);
+
+    void disks_compaction_num_increment(int64_t delta);
+
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
@@ -141,6 +145,10 @@ private:
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
     OLAPStatus _clean_unfinished_converting_data();
     OLAPStatus _convert_old_tablet();
+    // Check whether has old format (hdr_ start) in olap. When doris updating to current version, 
+    // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true, 
+    // process will log fatal.
+    OLAPStatus _check_incompatible_old_format_tablet();
 
     void _process_garbage_path(const std::string& path);
 
@@ -192,11 +200,13 @@ private:
     // used in convert process
     bool _convert_old_data_success;
 
-    MetricEntity* _data_dir_metric_entity;
-    IntGauge disks_total_capacity;
-    IntGauge disks_avail_capacity;
-    IntGauge disks_data_used_capacity;
-    IntGauge disks_state;
+    std::shared_ptr<MetricEntity> _data_dir_metric_entity;
+    IntGauge* disks_total_capacity;
+    IntGauge* disks_avail_capacity;
+    IntGauge* disks_data_used_capacity;
+    IntGauge* disks_state;
+    IntGauge* disks_compaction_score;
+    IntGauge* disks_compaction_num;
 };
 
 } // namespace doris

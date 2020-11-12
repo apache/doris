@@ -18,7 +18,12 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.MaterializedViewHandler;
+import org.apache.doris.analysis.AggregateInfo;
+import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -119,6 +124,9 @@ public class OlapTable extends Table {
 
     private String colocateGroup;
 
+    private boolean hasSequenceCol;
+    private Type sequenceType;
+
     private TableIndexes indexes;
     
     // In former implementation, base index id is same as table id.
@@ -143,6 +151,8 @@ public class OlapTable extends Table {
         this.indexes = null;
       
         this.tableProperty = null;
+
+        this.hasSequenceCol = false;
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
@@ -221,6 +231,18 @@ public class OlapTable extends Table {
         return indexMap;
     }
 
+    public void checkAndSetName(String newName, boolean onlyCheck) throws DdlException {
+        // check if rollup has same name
+        for (String idxName : getIndexNameToId().keySet()) {
+            if (idxName.equals(newName)) {
+                throw new DdlException("New name conflicts with rollup index name: " + idxName);
+            }
+        }
+        if (!onlyCheck) {
+            setName(newName);
+        }
+    }
+
     public void setName(String newName) {
         // change name in indexNameToId
         long baseIndexId = indexNameToId.remove(this.name);
@@ -239,15 +261,6 @@ public class OlapTable extends Table {
                 nameToPartition.put(newName, partition);
                 break;
             }
-        }
-    }
-
-    @Override
-    public List<Column> getBaseSchema(boolean full) {
-        if (full) {
-            return getSchemaByIndexId(baseIndexId);
-        } else {
-            return getSchemaByIndexId(baseIndexId).stream().filter(column -> column.isVisible()).collect(Collectors.toList());
         }
     }
 
@@ -513,15 +526,20 @@ public class OlapTable extends Table {
 
     // schema
     public Map<Long, List<Column>> getIndexIdToSchema() {
+        return getIndexIdToSchema(Util.showHiddenColumns());
+    }
+
+    // schema
+    public Map<Long, List<Column>> getIndexIdToSchema(boolean full) {
         Map<Long, List<Column>> result = Maps.newHashMap();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
-            result.put(entry.getKey(), entry.getValue().getSchema());
+            result.put(entry.getKey(), entry.getValue().getSchema(full));
         }
         return result;
     }
 
     public List<Column> getSchemaByIndexId(Long indexId) {
-        return indexIdToMeta.get(indexId).getSchema();
+        return getSchemaByIndexId(indexId, Util.showHiddenColumns());
     }
 
     public List<Column> getSchemaByIndexId(Long indexId, boolean full) {
@@ -550,7 +568,7 @@ public class OlapTable extends Table {
     }
 
     public Column getDeleteSignColumn() {
-        for (Column column : getBaseSchema()) {
+        for (Column column : getBaseSchema(true)) {
             if (column.isDeleteSignColumn()) {
                 return column;
             }
@@ -634,7 +652,7 @@ public class OlapTable extends Table {
                 partition.setName(newPartitionName);
                 nameToPartition.clear();
                 nameToPartition.put(newPartitionName, partition);
-                LOG.info("rename patition {} in table {}", newPartitionName, name);
+                LOG.info("rename partition {} in table {}", newPartitionName, name);
                 break;
             }
         } else {
@@ -794,6 +812,46 @@ public class OlapTable extends Table {
     public void setBloomFilterInfo(Set<String> bfColumns, double bfFpp) {
         this.bfColumns = bfColumns;
         this.bfFpp = bfFpp;
+    }
+
+    public void setSequenceInfo(Type type) {
+        this.hasSequenceCol = true;
+        this.sequenceType = type;
+
+        // sequence column is value column with REPLACE aggregate type
+        Column sequenceCol = ColumnDef.newSequenceColumnDef(type, AggregateType.REPLACE).toColumn();
+        // add sequence column at last
+        fullSchema.add(sequenceCol);
+        nameToColumn.put(Column.SEQUENCE_COL, sequenceCol);
+        for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
+            List<Column> schema = indexMeta.getSchema();
+            schema.add(sequenceCol);
+        }
+    }
+
+    public Column getSequenceCol() {
+        for (Column column : getBaseSchema(true)) {
+            if (column.isSequenceColumn()) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    public Boolean hasSequenceCol() {
+        return getSequenceCol() != null;
+    }
+
+    public boolean hasHiddenColumn() {
+        return getBaseSchema().stream().anyMatch(column -> !column.isVisible());
+    }
+
+    public Type getSequenceType() {
+        if (getSequenceCol() == null) {
+            return null;
+        } else {
+            return getSequenceCol().getType();
+        }
     }
 
     public void setIndexes(List<Index> indexes) {
@@ -1363,6 +1421,11 @@ public class OlapTable extends Table {
         return getSchemaByIndexId(baseIndexId);
     }
 
+    @Override
+    public List<Column> getBaseSchema(boolean full) {
+        return getSchemaByIndexId(baseIndexId, full);
+    }
+
     public Column getBaseColumn(String columnName) {
         for (Column column : getBaseSchema()) {
             if (column.getName().equalsIgnoreCase(columnName)){
@@ -1576,5 +1639,41 @@ public class OlapTable extends Table {
             return TStorageFormat.DEFAULT;
         }
         return tableProperty.getStorageFormat();
+    }
+
+    // For non partitioned table:
+    //   The table's distribute hash columns need to be a subset of the aggregate columns.
+    //
+    // For partitioned table:
+    //   1. The table's partition columns need to be a subset of the table's hash columns.
+    //   2. The table's distribute hash columns need to be a subset of the aggregate columns.
+    public boolean meetAggDistributionRequirements(AggregateInfo aggregateInfo) {
+        ArrayList<Expr> groupingExps = aggregateInfo.getGroupingExprs();
+        if (groupingExps == null || groupingExps.isEmpty()) {
+            return false;
+        }
+        List<Expr> partitionExps = aggregateInfo.getPartitionExprs() != null ?
+                aggregateInfo.getPartitionExprs() : groupingExps;
+        DistributionInfo distribution = getDefaultDistributionInfo();
+        if(distribution instanceof HashDistributionInfo) {
+            List<Column> distributeColumns =
+                    ((HashDistributionInfo)distribution).getDistributionColumns();
+            PartitionInfo partitionInfo = getPartitionInfo();
+            if (partitionInfo instanceof RangePartitionInfo) {
+                List<Column> rangeColumns = ((RangePartitionInfo)partitionInfo).getPartitionColumns();
+                if (!distributeColumns.containsAll(rangeColumns)) {
+                    return false;
+                }
+            }
+            List<SlotRef> partitionSlots =
+                    partitionExps.stream().map(Expr::unwrapSlotRef).collect(Collectors.toList());
+            if (partitionSlots.contains(null)) {
+                return false;
+            }
+            List<Column> hashColumns = partitionSlots.stream()
+                    .map(SlotRef::getDesc).map(SlotDescriptor::getColumn).collect(Collectors.toList());
+            return hashColumns.containsAll(distributeColumns);
+        }
+        return false;
     }
 }

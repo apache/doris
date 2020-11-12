@@ -57,13 +57,13 @@ enum TimeUnit {
 };
 
 struct TimeInterval {
-    int32_t year;
-    int32_t month;
-    int32_t day;
-    int32_t hour;
-    int32_t minute;
-    int32_t second;
-    int32_t microsecond;
+    int64_t year;
+    int64_t month;
+    int64_t day;
+    int64_t hour;
+    int64_t minute;
+    int64_t second;
+    int64_t microsecond;
     bool is_neg;
 
     TimeInterval() :
@@ -71,7 +71,7 @@ struct TimeInterval {
             hour(0), minute(0), second(0), microsecond(0), is_neg(false) {
     }
 
-    TimeInterval(TimeUnit unit, int count, bool is_neg_param) :
+    TimeInterval(TimeUnit unit, int64_t count, bool is_neg_param) :
             year(0), month(0), day(0), 
             hour(0), minute(0), second(0), microsecond(0), is_neg(is_neg_param) {
         switch (unit) {
@@ -462,6 +462,10 @@ public:
 
     void set_type(int type);
 
+    bool is_valid_date() const {
+        return !check_range() && !check_date() && _month > 0 && _day > 0;
+    }
+
 private:
     // Used to make sure sizeof DateTimeValue
     friend class UnusedClass;
@@ -488,7 +492,7 @@ private:
         return (time << 24) + second_part;
     }
 
-    // To compatitable with MySQL
+    // To compatible with MySQL
     int64_t to_int64_datetime_packed() const {
         int64_t ymd = ((_year * 13 + _month) << 5) | _day;
         int64_t hms = (_hour << 12) | (_minute << 6) | _second;
@@ -502,12 +506,12 @@ private:
         return _neg ? -tmp : tmp;
     }
 
-    // Check wether value of field is valid.
+    // Return true if range or date is invalid
     bool check_range() const;
     bool check_date() const;
 
     // Used to construct from int value
-    int64_t standardlize_timevalue(int64_t value);
+    int64_t standardize_timevalue(int64_t value);
 
     // Used to convert to a string.
     char* append_date_string(char *to) const;

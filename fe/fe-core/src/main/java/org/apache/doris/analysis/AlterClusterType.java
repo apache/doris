@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 public enum AlterClusterType {
 
-    ALTER_CLUSTER_PROPERTIES("delete_whiltList");
+    ALTER_CLUSTER_PROPERTIES("delete_whiteList");
 
     private String type;
 

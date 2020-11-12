@@ -39,8 +39,8 @@ struct ScannerCounter {
         num_rows_unselected(0) {
     }
 
-    int64_t num_rows_filtered;  // unqualified rows (unmatch the dest schema, or no partition)
-    int64_t num_rows_unselected; // rows filterd by predicates
+    int64_t num_rows_filtered;  // unqualified rows (unmatched the dest schema, or no partition)
+    int64_t num_rows_unselected; // rows filtered by predicates
 };
 
 class BaseScanner {

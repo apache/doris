@@ -34,11 +34,6 @@
 
 namespace doris {
 
-static const std::string SCANNER_THREAD_TOTAL_WALLCLOCK_TIME =
-    "ScannerThreadsTotalWallClockTime";
-static const std::string MATERIALIZE_TUPLE_TIMER =
-    "MaterializeTupleTime(*)";
-
 OlapScanner::OlapScanner(
         RuntimeState* runtime_state,
         OlapScanNode* parent,
@@ -217,13 +212,27 @@ Status OlapScanner::_init_return_columns() {
         int32_t index = _tablet->field_index(slot->col_name());
         if (index < 0) {
             std::stringstream ss;
-            ss << "field name is invalied. field="  << slot->col_name();
+            ss << "field name is invalid. field="  << slot->col_name();
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);
         _query_slots.push_back(slot);
     }
+    // expand the sequence column
+    if (_tablet->tablet_schema().has_sequence_col()) {
+        bool has_replace_col = false;
+        for (auto col : _return_columns) {
+            if (_tablet->tablet_schema().column(col).aggregation() == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
+                has_replace_col = true;
+                break;
+            }
+        }
+        if (has_replace_col) {
+            _return_columns.push_back(_tablet->tablet_schema().sequence_col_idx());
+        }
+    }
+
     if (_return_columns.empty()) {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
     }
@@ -254,7 +263,9 @@ Status OlapScanner::get_batch(
             auto res = _reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(), batch->agg_object_pool(), eof);
             if (res != OLAP_SUCCESS) {
                 std::stringstream ss;
-                ss << "Internal Error: read storage fail. res=" << res;
+                ss << "Internal Error: read storage fail. res=" << res
+                    << ", tablet=" << _tablet->full_name()
+                    << ", backend=" << BackendOptions::get_localhost();
                 return Status::InternalError(ss.str());
             }
             // If we reach end of this scanner, break
@@ -269,7 +280,7 @@ Status OlapScanner::get_batch(
                 VLOG_ROW << "OlapScanner input row: " << Tuple::to_string(tuple, *_tuple_desc);
             }
 
-            // 3.4 Set tuple to RowBatch(not commited)
+            // 3.4 Set tuple to RowBatch(not committed)
             int row_idx = batch->add_row();
             TupleRow* row = batch->get_row(row_idx);
             row->set_tuple(_tuple_idx, tuple);
@@ -465,6 +476,8 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_stats_filtered_counter, _reader->stats().rows_stats_filtered);
     COUNTER_UPDATE(_parent->_bf_filtered_counter, _reader->stats().rows_bf_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, _reader->stats().rows_del_filtered);
+    COUNTER_UPDATE(_parent->_conditions_filtered_counter, _reader->stats().rows_conditions_filtered);
+    
     COUNTER_UPDATE(_parent->_key_range_filtered_counter, _reader->stats().rows_key_range_filtered);
 
     COUNTER_UPDATE(_parent->_index_load_timer, _reader->stats().index_load_ns);
@@ -479,8 +492,11 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_filtered_segment_counter, _reader->stats().filtered_segment_number);
     COUNTER_UPDATE(_parent->_total_segment_counter, _reader->stats().total_segment_number);
 
-    DorisMetrics::instance()->query_scan_bytes.increment(_compressed_bytes_read);
-    DorisMetrics::instance()->query_scan_rows.increment(_raw_rows_read);
+    DorisMetrics::instance()->query_scan_bytes->increment(_compressed_bytes_read);
+    DorisMetrics::instance()->query_scan_rows->increment(_raw_rows_read);
+
+    _tablet->query_scan_bytes->increment(_compressed_bytes_read);
+    _tablet->query_scan_rows->increment(_raw_rows_read);
 
     _has_update_counter = true;
 }

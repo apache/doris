@@ -87,54 +87,65 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
+
+void OlapScanNode::init_scan_profile() {
+    _scanner_profile.reset(new RuntimeProfile("OlapScanner"));
+    runtime_profile()->add_child(_scanner_profile.get(), true, NULL);
+
+    _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
+    _scanner_profile->add_child(_segment_profile.get(), true, NULL);
+}
+
 void OlapScanNode::_init_counter(RuntimeState* state) {
-    ADD_TIMER(_runtime_profile, "ShowHintsTime");
+    ADD_TIMER(_scanner_profile, "ShowHintsTime_V1");
 
-    _reader_init_timer = ADD_TIMER(_runtime_profile, "ReaderInitTime");
-    _read_compressed_counter = ADD_COUNTER(_runtime_profile, "CompressedBytesRead", TUnit::BYTES);
-    _read_uncompressed_counter = ADD_COUNTER(_runtime_profile, "UncompressedBytesRead", TUnit::BYTES);
-    _block_load_timer = ADD_TIMER(_runtime_profile, "BlockLoadTime");
-    _block_load_counter = ADD_COUNTER(_runtime_profile, "BlocksLoad", TUnit::UNIT);
-    _block_fetch_timer = ADD_TIMER(_runtime_profile, "BlockFetchTime");
-    _raw_rows_counter = ADD_COUNTER(_runtime_profile, "RawRowsRead", TUnit::UNIT);
-    _block_convert_timer = ADD_TIMER(_runtime_profile, "BlockConvertTime");
-    _block_seek_timer = ADD_TIMER(_runtime_profile, "BlockSeekTime");
-    _block_seek_counter = ADD_COUNTER(_runtime_profile, "BlockSeekCount", TUnit::UNIT);
+    _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
+    _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
+    _read_uncompressed_counter = ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
+    _block_load_timer = ADD_TIMER(_segment_profile, "BlockLoadTime");
+    _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
+    _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
+    _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
+    _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
+    _block_seek_timer = ADD_TIMER(_segment_profile, "BlockSeekTime");
+    _block_seek_counter = ADD_COUNTER(_segment_profile, "BlockSeekCount", TUnit::UNIT);
 
-    _rows_vec_cond_counter = ADD_COUNTER(_runtime_profile, "RowsVectorPredFiltered", TUnit::UNIT);
-    _vec_cond_timer = ADD_TIMER(_runtime_profile, "VectorPredEvalTime");
+    _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
+    _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
 
-    _stats_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsStatsFiltered", TUnit::UNIT);
-    _bf_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
-    _del_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsDelFiltered", TUnit::UNIT);
-    _key_range_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsKeyRangeFiltered", TUnit::UNIT);
+    _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
+    _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
+    _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
+    _conditions_filtered_counter = ADD_COUNTER(_segment_profile, "RowsConditionsFiltered", TUnit::UNIT);
+    _key_range_filtered_counter = ADD_COUNTER(_segment_profile, "RowsKeyRangeFiltered", TUnit::UNIT);
 
-    _io_timer = ADD_TIMER(_runtime_profile, "IOTimer");
-    _decompressor_timer = ADD_TIMER(_runtime_profile, "DecompressorTimer");
-    _index_load_timer = ADD_TIMER(_runtime_profile, "IndexLoadTime");
+    _io_timer = ADD_TIMER(_segment_profile, "IOTimer");
+    _decompressor_timer = ADD_TIMER(_segment_profile, "DecompressorTimer");
+    _index_load_timer = ADD_TIMER(_segment_profile, "IndexLoadTime_V1");
 
-    _scan_timer = ADD_TIMER(_runtime_profile, "ScanTime");
+    _scan_timer = ADD_TIMER(_scanner_profile, "ScanTime");
 
-    _total_pages_num_counter = ADD_COUNTER(_runtime_profile, "TotalPagesNum", TUnit::UNIT);
-    _cached_pages_num_counter = ADD_COUNTER(_runtime_profile, "CachedPagesNum", TUnit::UNIT);
+    _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
+    _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);
 
-    _bitmap_index_filter_counter = ADD_COUNTER(_runtime_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
-    _bitmap_index_filter_timer = ADD_TIMER(_runtime_profile, "BitmapIndexFilterTimer");
+    _bitmap_index_filter_counter = ADD_COUNTER(_segment_profile, "RowsBitmapIndexFiltered", TUnit::UNIT);
+    _bitmap_index_filter_timer = ADD_TIMER(_segment_profile, "BitmapIndexFilterTimer");
 
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
 
-    _filtered_segment_counter = ADD_COUNTER(_runtime_profile, "NumSegmentFiltered", TUnit::UNIT);
-    _total_segment_counter = ADD_COUNTER(_runtime_profile, "NumSegmentTotal", TUnit::UNIT);
+    _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
+    _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
+    init_scan_profile();
     RETURN_IF_ERROR(ScanNode::prepare(state));
     // create scanner profile
     // create timer
     _tablet_counter =
         ADD_COUNTER(runtime_profile(), "TabletCount ", TUnit::UNIT);
     _rows_pushed_cond_filtered_counter =
-        ADD_COUNTER(_runtime_profile, "RowsPushedCondFiltered", TUnit::UNIT);
+        ADD_COUNTER(_scanner_profile, "RowsPushedCondFiltered", TUnit::UNIT);
     _init_counter(state);
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == NULL) {
@@ -368,11 +379,11 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
     RETURN_IF_ERROR(build_olap_filters());
 
     VLOG(1) << "BuildScanKey";
-    // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to serval `Sub ScanRange`
+    // 3. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
     RETURN_IF_ERROR(build_scan_key());
 
     VLOG(1) << "StartScanThread";
-    // 6. Start multi thread to read serval `Sub Sub ScanRange`
+    // 4. Start multi thread to read several `Sub Sub ScanRange`
     RETURN_IF_ERROR(start_scan_thread(state));
 
     return Status::OK();
@@ -489,7 +500,7 @@ Status OlapScanNode::normalize_conjuncts() {
         }
 
         default: {
-            VLOG(2) << "Unsupport Normalize Slot [ColName="
+            VLOG(2) << "Unsupported Normalize Slot [ColName="
                     << slots[slot_idx]->col_name() << "]";
             break;
         }
@@ -502,7 +513,7 @@ Status OlapScanNode::normalize_conjuncts() {
 Status OlapScanNode::build_olap_filters() {
     _olap_filter.clear();
 
-    for (auto iter : _column_value_ranges) {
+    for (auto& iter : _column_value_ranges) {
         ToOlapFilterVisitor visitor;
         boost::variant<std::list<TCondition>> filters;
         boost::apply_visitor(visitor, iter.second, filters);
@@ -512,7 +523,7 @@ Status OlapScanNode::build_olap_filters() {
             continue;
         }
 
-        for (auto filter : new_filters) {
+        for (const auto& filter : new_filters) {
            _olap_filter.push_back(filter);
         }
     }
@@ -526,13 +537,10 @@ Status OlapScanNode::build_scan_key() {
     DCHECK(column_types.size() == column_names.size());
 
     // 1. construct scan key except last olap engine short key
-    int column_index = 0;
     _scan_keys.set_is_convertible(limit() == -1);
 
-    for (; column_index < column_names.size() && !_scan_keys.has_range_value(); ++column_index) {
-        std::map<std::string, ColumnValueRangeType>::iterator column_range_iter
-            = _column_value_ranges.find(column_names[column_index]);
-
+    for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value(); ++column_index) {
+        auto column_range_iter = _column_value_ranges.find(column_names[column_index]);
         if (_column_value_ranges.end() == column_range_iter) {
             break;
         }
@@ -567,7 +575,7 @@ static Status get_hints(
         return Status::InternalError(ss.str());
     }
 
-    RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime");
+    RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime_V1");
     std::vector<std::vector<OlapTuple>> ranges;
     bool have_valid_range = false;
     for (auto& key_range : scan_key_range) {
@@ -773,7 +781,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
             }
 
             VLOG(1) << slot->col_name() << " fixed_values add num: "
-                    << pred->hybird_set()->size();
+                    << pred->hybrid_set()->size();
 
             // if there are too many elements in InPredicate, exceed the limit,
             // we will not push any condition of this column to storage engine.
@@ -781,16 +789,16 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
             // slow down the query process.
             // ATTN: This is just an experience value. You may need to try
             // different thresholds to improve performance.
-            if (pred->hybird_set()->size() > _max_pushdown_conditions_per_column) {
-                VLOG(3) << "Predicate value num " << pred->hybird_set()->size()
-                        << " excede limit " << _max_pushdown_conditions_per_column;
+            if (pred->hybrid_set()->size() > _max_pushdown_conditions_per_column) {
+                VLOG(3) << "Predicate value num " << pred->hybrid_set()->size()
+                        << " exceed limit " << _max_pushdown_conditions_per_column;
                 continue;
             }
 
             // begin to push InPredicate value into ColumnValueRange
-            HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
+            HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
             while (iter->has_next()) {
-                // column in (NULL,...) counldn't push down to StorageEngine
+                // column in (NULL,...) couldn't push down to StorageEngine
                 // so that discard whole ColumnValueRange
                 if (NULL == iter->get_value()) {
                     range->clear();
@@ -916,9 +924,9 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
                         break;
                     }
                     default: {
-                        LOG(WARNING) << "Normalize filter fail, Unsupport Primitive type. [type="
+                        LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type="
                             << expr->type() << "]";
-                        return Status::InternalError("Normalize filter fail, Unsupport Primitive type");
+                        return Status::InternalError("Normalize filter fail, Unsupported Primitive type");
                     }
                 }
 
@@ -956,7 +964,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
     return Status::OK();
 }
 
-void OlapScanNode::construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, std::string is_null_str) {
+void OlapScanNode::construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, const std::string& is_null_str) {
     if (expr->node_type() != TExprNodeType::SLOT_REF) {
         return;
     }
@@ -1064,9 +1072,9 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot, Colu
                 }
 
                 default: {
-                    LOG(WARNING) << "Normalize filter fail, Unsupport Primitive type. [type="
+                    LOG(WARNING) << "Normalize filter fail, Unsupported Primitive type. [type="
                                  << expr->type() << "]";
-                    return Status::InternalError("Normalize filter fail, Unsupport Primitive type");
+                    return Status::InternalError("Normalize filter fail, Unsupported Primitive type");
                 }
                 }
 
@@ -1175,7 +1183,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 
         RowBatchInterface* scan_batch = NULL;
         {
-            // 1 scanner idle task not empty, assign new sanner task
+            // 1 scanner idle task not empty, assign new scanner task
             std::unique_lock<std::mutex> l(_scan_batches_lock);
 
             // scanner_row_num = 16k
@@ -1198,7 +1206,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                 scan_batch = _scan_row_batches.front();
                 _scan_row_batches.pop_front();
 
-                // delete scan_batch if transfer thread should be stoped
+                // delete scan_batch if transfer thread should be stopped
                 // because scan_batch wouldn't be useful anymore
                 if (UNLIKELY(_transfer_done)) {
                     delete scan_batch;

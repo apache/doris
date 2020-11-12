@@ -94,7 +94,7 @@ private:
     // A NULL ptr for first_left_child_row indicates the left child eos.
     virtual void init_get_next(TupleRow* first_left_child_row) = 0;
 
-    // We parallelize building the build-side with Open'ing the
+    // We parallelize building the build-side with Opening the
     // left child. If, for example, the left child is another
     // join node, it can start to build its own build-side at the
     // same time.

@@ -76,7 +76,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
     {
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions opts({ fname });
-        Status st = fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock);
+        Status st = fs::fs_util::block_manager()->create_block(opts, &wblock);
         ASSERT_TRUE(st.ok()) << st.get_error_msg();
 
         ColumnWriterOptions writer_opts;
@@ -131,7 +131,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         st = reader->new_iterator(&iter);
         ASSERT_TRUE(st.ok());
         std::unique_ptr<fs::ReadableBlock> rblock;
-        fs::BlockManager* block_manager = fs::fs_util::block_mgr_for_ut();
+        fs::BlockManager* block_manager = fs::fs_util::block_manager();
         block_manager->open_block(fname, &rblock);
         
         ASSERT_TRUE(st.ok());
@@ -653,6 +653,7 @@ TEST_F(ColumnReaderWriterTest, test_default_value) {
 } // namespace doris
 
 int main(int argc, char** argv) {
+    doris::StoragePageCache::create_global_cache(1<<30);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

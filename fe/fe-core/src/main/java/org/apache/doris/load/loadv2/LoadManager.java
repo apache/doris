@@ -45,6 +45,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -150,7 +151,7 @@ public class LoadManager implements Writable{
             createLoadJob(loadJob);
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
-            LOG.info("deplicate request for mini load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
+            LOG.info("duplicate request for mini load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
             return e.getTxnId();
         } catch (UserException e) {
             if (loadJob != null) {
@@ -282,6 +283,62 @@ public class LoadManager implements Writable{
         addLoadJob(loadJob);
         // persistent
         Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+    }
+
+    public void cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException {
+        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDbName());
+        if (db == null) {
+            throw new DdlException("Db does not exist. name: " + stmt.getDbName());
+        }
+
+        // List of load jobs waiting to be cancelled
+        List<LoadJob> loadJobs = Lists.newArrayList();
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
+            if (labelToLoadJobs == null) {
+                throw new DdlException("Load job does not exist");
+            }
+
+            // get jobs by label
+            List<LoadJob> matchLoadJobs = Lists.newArrayList();
+            if (isAccurateMatch) {
+                if (labelToLoadJobs.containsKey(stmt.getLabel())) {
+                    matchLoadJobs.addAll(labelToLoadJobs.get(stmt.getLabel()));
+                }
+            } else {
+                for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
+                    if (entry.getKey().contains(stmt.getLabel())) {
+                        matchLoadJobs.addAll(entry.getValue());
+                    }
+                }
+            }
+
+            if (matchLoadJobs.isEmpty()) {
+                throw new DdlException("Load job does not exist");
+            }
+
+            // check state here
+            List<LoadJob> uncompletedLoadJob = matchLoadJobs.stream().filter(entity -> !entity.isTxnDone())
+                    .collect(Collectors.toList());
+            if (uncompletedLoadJob.isEmpty()) {
+                throw new DdlException("There is no uncompleted job which label " +
+                        (isAccurateMatch ? "is " : "like ") + stmt.getLabel());
+            }
+
+            loadJobs.addAll(uncompletedLoadJob);
+        } finally {
+            readUnlock();
+        }
+
+        for (LoadJob loadJob : loadJobs) {
+            try {
+                loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
+            } catch (DdlException e) {
+                throw new DdlException("Cancel load job [" + loadJob.getId() + "] fail, " +
+                        "label=[" + loadJob.getLabel() + "] failed msg=" + e.getMessage());
+            }
+        }
     }
 
     public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
@@ -638,14 +695,16 @@ public class LoadManager implements Writable{
         }
     }
 
-    public void updateJobPrgress(Long jobId, Long beId, TUniqueId loadId, TUniqueId fragmentId,
-            long scannedRows, boolean isDone) {
+    public void updateJobProgress(Long jobId, Long beId, TUniqueId loadId, TUniqueId fragmentId,
+                                  long scannedRows, boolean isDone) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
-            job.updateProgess(beId, loadId, fragmentId, scannedRows, isDone);
+            job.updateProgress(beId, loadId, fragmentId, scannedRows, isDone);
         }
     }
 
+    @Deprecated
+    // Deprecated in version 0.12
     // This method is only for bug fix. And should be call after image and edit log are replayed.
     public void fixLoadJobMetaBugs(GlobalTransactionMgr txnMgr) {
         for (LoadJob job : idToLoadJob.values()) {
@@ -682,11 +741,11 @@ public class LoadManager implements Writable{
              * replay process. This results in that when the FE restarts, these load jobs
              * that should have been completed are re-entered into the pending state,
              * resulting in repeated submission load tasks.
-             * 
+             *
              * Those wrong images are unrecoverable, so that we have to cancel all load jobs
              * in PENDING or LOADING state when restarting FE, to avoid submit jobs
              * repeatedly.
-             * 
+             *
              * This code can be remove when upgrading from 0.11.x to future version.
              */
             if (job.getState() == JobState.LOADING || job.getState() == JobState.PENDING) {
@@ -717,7 +776,7 @@ public class LoadManager implements Writable{
                     // it would be failed if FE restart.
                     job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, "fe restart"), false, false);
                     LOG.info("transfer mini load job {} state from {} to CANCELLED, because transaction status is unknown"
-                            + ". label: {}, db: {}",
+                                    + ". label: {}, db: {}",
                             job.getId(), prevState, job.getLabel(), job.getDbId());
                 } else {
                     // txn is not found. here are 2 cases:
@@ -728,7 +787,7 @@ public class LoadManager implements Writable{
                     //    removed by expiration). 
                     // Without affecting the first case of job, we set the job finish time to be the same as the create time. 
                     // In this way, the second type of job will be automatically cleared after running removeOldLoadJob();
-                    
+
                     // use CancelType.UNKNOWN, so that we can set finish time to be the same as the create time
                     job.cancelJobWithoutCheck(new FailMsg(CancelType.TXN_UNKNOWN, "transaction status is unknown"), false, false);
                     LOG.info("finish load job {} from {} to CANCELLED, because transaction status is unknown. label: {}, db: {}, create: {}",

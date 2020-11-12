@@ -32,7 +32,7 @@ InPredicate::InPredicate(const TExprNode& node) :
     _is_not_in(node.in_predicate.is_not_in),
     _is_prepare(false),
     _null_in_set(false),
-    _hybird_set() {
+    _hybrid_set() {
 }
 
 InPredicate::~InPredicate() {
@@ -42,8 +42,8 @@ Status InPredicate::prepare(RuntimeState* state, const TypeDescriptor& type) {
     if (_is_prepare) {
         return Status::OK();
     }
-    _hybird_set.reset(HybirdSetBase::create_set(type.type));
-    if (NULL == _hybird_set.get()) {
+    _hybrid_set.reset(HybridSetBase::create_set(type.type));
+    if (NULL == _hybrid_set.get()) {
         return Status::InternalError("Unknown column type.");
     }
     _is_prepare = true;
@@ -73,7 +73,7 @@ Status InPredicate::open(
             _null_in_set = true;
             continue;
         }
-        _hybird_set->insert(value);
+        _hybrid_set->insert(value);
     }
     return Status::OK();
 }
@@ -89,8 +89,8 @@ Status InPredicate::prepare(
     if (_children.size() < 1) {
         return Status::InternalError("no Function operator in.");
     }
-    _hybird_set.reset(HybirdSetBase::create_set(_children[0]->type().type));
-    if (NULL == _hybird_set.get()) {
+    _hybrid_set.reset(HybridSetBase::create_set(_children[0]->type().type));
+    if (NULL == _hybrid_set.get()) {
         return Status::InternalError("Unknown column type.");
     }
 
@@ -103,7 +103,7 @@ void InPredicate::insert(void* value) {
     if (NULL == value) {
         _null_in_set = true;
     } else {
-        _hybird_set->insert(value);
+        _hybrid_set->insert(value);
     }
 }
 
@@ -129,7 +129,7 @@ BooleanVal InPredicate::get_boolean_val(ExprContext* ctx, TupleRow* row) {
         return BooleanVal::null();
     }
     // if find in const set, return true
-    if (_hybird_set->find(lhs_slot)) {
+    if (_hybrid_set->find(lhs_slot)) {
         return BooleanVal(!_is_not_in);
     }
     if (_null_in_set) {

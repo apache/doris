@@ -23,9 +23,11 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -48,13 +50,13 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.Charset;
 import java.util.Collections;
@@ -62,6 +64,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 // Broker scan node
 public class BrokerScanNode extends LoadScanNode {
@@ -194,10 +197,10 @@ public class BrokerScanNode extends LoadScanNode {
         params.setLineDelimiter(fileGroup.getLineDelimiter().getBytes(Charset.forName("UTF-8"))[0]);
         params.setStrictMode(strictMode);
         params.setProperties(brokerDesc.getProperties());
-        initColumns(context);
-        initWhereExpr(fileGroup.getWhereExpr(), analyzer);
         deleteCondition = fileGroup.getDeleteCondition();
         mergeType = fileGroup.getMergeType();
+        initColumns(context);
+        initWhereExpr(fileGroup.getWhereExpr(), analyzer);
     }
 
     /**
@@ -224,6 +227,11 @@ public class BrokerScanNode extends LoadScanNode {
                 columnExprs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
             } else if (mergeType == LoadTask.MergeType.DELETE) {
                 columnExprs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
+            }
+            // add columnExpr for sequence column
+            if (context.fileGroup.hasSequenceCol()) {
+                columnExprs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                        new SlotRef(null, context.fileGroup.getSequenceCol())));
             }
         }
 
@@ -278,10 +286,17 @@ public class BrokerScanNode extends LoadScanNode {
             fileStatusesList = Lists.newArrayList();
             filesAdded = 0;
             for (BrokerFileGroup fileGroup : fileGroups) {
+                boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
                 List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
                 for (String path : fileGroup.getFilePaths()) {
                     BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
                 }
+
+                // only get non-empty file or non-binary file
+                fileStatuses = fileStatuses.stream().filter(f -> {
+                    return f.getSize() > 0 || !isBinaryFileFormat;
+                }).collect(Collectors.toList());
+
                 fileStatusesList.add(fileStatuses);
                 filesAdded += fileStatuses.size();
                 for (TBrokerFileStatus fstatus : fileStatuses) {

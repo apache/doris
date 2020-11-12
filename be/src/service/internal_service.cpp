@@ -19,6 +19,7 @@
 
 #include "common/config.h"
 #include "gen_cpp/BackendService.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/exec_env.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/fragment_mgr.h"
@@ -165,10 +166,10 @@ void PInternalServiceImpl<T>::cancel_plan_fragment(
 
     Status st;
     if (request->has_cancel_reason())  {
-        LOG(INFO) << "cancel framgent, fragment_instance_id=" << print_id(tid) << ", reason: " << request->cancel_reason();
+        LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid) << ", reason: " << request->cancel_reason();
         st = _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
     } else {
-        LOG(INFO) << "cancel framgent, fragment_instance_id=" << print_id(tid);
+        LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
         st = _exec_env->fragment_mgr()->cancel(tid);
     }
     if (!st.ok()) {
@@ -222,6 +223,32 @@ void PInternalServiceImpl<T>::get_info(
     Status::OK().to_protobuf(response->mutable_status());
 }
 
+template<typename T>
+void PInternalServiceImpl<T>::update_cache(google::protobuf::RpcController* controller,
+        const PUpdateCacheRequest* request,
+        PCacheResponse* response,
+        google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    _exec_env->result_cache()->update(request, response);
+}
+
+template<typename T>
+void PInternalServiceImpl<T>::fetch_cache(google::protobuf::RpcController* controller,
+        const PFetchCacheRequest* request,
+        PFetchCacheResult* result,
+        google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+   _exec_env->result_cache()->fetch(request, result);
+}
+
+template<typename T>
+void PInternalServiceImpl<T>::clear_cache(google::protobuf::RpcController* controller,
+        const PClearCacheRequest* request,
+        PCacheResponse* response,
+        google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    _exec_env->result_cache()->clear(request, response);
+}
 
 template class PInternalServiceImpl<PBackendService>;
 template class PInternalServiceImpl<palo::PInternalService>;

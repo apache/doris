@@ -207,7 +207,9 @@ public class CastExpr extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        Preconditions.checkState(!isImplicit);
+        if (isImplicit) {
+            return;
+        }
         // When cast target type is string and it's length is default -1, the result length
         // of cast is decided by child.
         if (targetTypeDef.getType().isScalarType()) {
@@ -289,7 +291,7 @@ public class CastExpr extends Expr {
         } else if (type.isStringType()) {
             return new StringLiteral(value.getStringValue());
         } else if (type.isDateType()) {
-            return new DateLiteral(value.getStringValue(), type);
+            return new StringLiteral(value.getStringValue()).convertToDate(type);
         } else if (type.isBoolean()) {
             return new BoolLiteral(value.getStringValue());
         }

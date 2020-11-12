@@ -130,8 +130,12 @@ Status HttpService::start() {
     UpdateConfigAction* update_config_action = new UpdateConfigAction();
     _ev_http_server->register_handler(HttpMethod::POST, "/api/update_config", update_config_action);
 
-    RETURN_IF_ERROR(_ev_http_server->start());
+    _ev_http_server->start();
     return Status::OK();
+}
+
+void HttpService::stop() {
+    _ev_http_server->stop();
 }
 
 }

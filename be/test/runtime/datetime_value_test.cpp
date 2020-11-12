@@ -236,11 +236,11 @@ TEST_F(DateTimeValueTest, check_date) {
     ASSERT_TRUE(value.from_date_int64(19880201));
 
     value._month = 0;
-    ASSERT_TRUE(value.check_date());
+    ASSERT_FALSE(value.check_date());
     value._month = 2;
 
     value._day = 0;
-    ASSERT_TRUE(value.check_date());
+    ASSERT_FALSE(value.check_date());
     value._year = 1987;
     value._day = 29;
     ASSERT_TRUE(value.check_date());
@@ -521,7 +521,7 @@ TEST_F(DateTimeValueTest, from_date_format_str) {
     value.to_string(str);
     ASSERT_STREQ("2015-01-05 12:34:56", str);
 
-    //  hour
+    // hour
     format_str = "%Y-%m-%d %H %i %s";
     value_str = "88-2-1 03 4 5";
     ASSERT_TRUE(value.from_date_format_str(
@@ -1185,6 +1185,7 @@ TEST_F(DateTimeValueTest, from_int_value) {
 // Construct from int value invalid
 TEST_F(DateTimeValueTest, from_int_value_invalid) {
     DateTimeValue value;
+    char str[MAX_DTVALUE_STR_LEN];
     // minus value
     ASSERT_FALSE(value.from_date_int64(-1231));
     // [0, 101)
@@ -1198,7 +1199,10 @@ TEST_F(DateTimeValueTest, from_int_value_invalid) {
     // 100-12-31
     ASSERT_FALSE(value.from_date_int64(1232));
     // 99 00:00:00
-    ASSERT_FALSE(value.from_date_int64(99000000));
+    ASSERT_TRUE(value.from_date_int64(99000000));
+    value.to_string(str);
+    ASSERT_STREQ("9900-00-00", str);
+
     // 9999-99-99 99:99:99 + 1
     ASSERT_FALSE(value.from_date_int64(99999999999999L + 1));
 }
@@ -1360,7 +1364,7 @@ TEST_F(DateTimeValueTest, to_int64) {
     }
 }
 
-TEST_F(DateTimeValueTest, operatro_minus) {
+TEST_F(DateTimeValueTest, operator_minus) {
     {
         DateTimeValue v1;
         ASSERT_TRUE(v1.from_date_int64(19880201));

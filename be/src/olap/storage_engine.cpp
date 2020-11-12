@@ -34,6 +34,7 @@
 #include <rapidjson/document.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "agent/task_worker_pool.h"
 #include "env/env.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
@@ -83,8 +84,8 @@ using strings::Substitute;
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(unused_rowsets_count, MetricUnit::ROWSETS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(compaction_mem_current_consumption, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_mem_current_consumption, MetricUnit::BYTES);
 
 StorageEngine* StorageEngine::_s_instance = nullptr;
 
@@ -113,11 +114,11 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _index_stream_lru_cache(NULL),
           _file_cache(nullptr),
           _compaction_mem_tracker(MemTracker::CreateTracker(-1, "compaction mem tracker(unlimited)")),
+          _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
           _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
           _memtable_flush_executor(nullptr),
-          _block_manager(nullptr),
           _default_rowset_type(ALPHA_ROWSET),
           _heartbeat_flags(nullptr) {
     if (_s_instance == nullptr) {
@@ -138,6 +139,7 @@ StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     DEREGISTER_HOOK_METRIC(compaction_mem_current_consumption);
     _clear();
+    _compaction_thread_pool->shutdown();
 }
 
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
@@ -168,19 +170,15 @@ Status StorageEngine::_open() {
 
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
 
-    _index_stream_lru_cache = new_lru_cache(config::index_stream_cache_capacity);
+    _index_stream_lru_cache = new_lru_cache("SegmentIndexCache", config::index_stream_cache_capacity);
 
-    _file_cache.reset(new_lru_cache(config::file_descriptor_cache_capacity));
+    _file_cache.reset(new_lru_cache("FileHandlerCache", config::file_descriptor_cache_capacity));
 
     auto dirs = get_stores<false>();
     load_data_dirs(dirs);
 
     _memtable_flush_executor.reset(new MemTableFlushExecutor());
     _memtable_flush_executor->init(dirs);
-
-    fs::BlockManagerOptions bm_opts;
-    bm_opts.read_only = false;
-    _block_manager.reset(new fs::FileBlockManager(Env::Default(), std::move(bm_opts)));
 
     _parse_default_rowset_type();
 
@@ -349,7 +347,7 @@ void StorageEngine::_start_disk_stat_monitor() {
     // If some tablets were dropped, we should notify disk_state_worker_thread and
     // tablet_worker_thread (see TaskWorkerPool) to make them report to FE ASAP.
     if (some_tablets_were_dropped) {
-        trigger_report();
+        notify_listeners();
     }
 }
 
@@ -378,7 +376,7 @@ Status StorageEngine::_check_all_root_path_cluster_id() {
         if (tmp_cluster_id == -1) {
             _is_all_cluster_id_exist = false;
         } else if (tmp_cluster_id == cluster_id) {
-            // both hava right cluster id, do nothing
+            // both have right cluster id, do nothing
         } else if (cluster_id == -1) {
             cluster_id = tmp_cluster_id;
         } else {
@@ -489,19 +487,52 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
     return !tablet_info_vec.empty();
 }
 
+void StorageEngine::stop() {
+    // trigger the waiting threads
+    notify_listeners();
+
+    std::lock_guard<std::mutex> l(_store_lock);
+    for (auto& store_pair : _store_map) {
+        store_pair.second->stop_bg_worker();
+    }
+
+    _stop_background_threads_latch.count_down();
+#define THREAD_JOIN(thread) \
+        if (thread) {       \
+            thread->join(); \
+        }
+
+    THREAD_JOIN(_unused_rowset_monitor_thread);
+    THREAD_JOIN(_garbage_sweeper_thread);
+    THREAD_JOIN(_disk_stat_monitor_thread);
+    THREAD_JOIN(_fd_cache_clean_thread);
+#undef THREAD_JOIN
+
+#define THREADS_JOIN(threads)            \
+    for (const auto thread : threads) {  \
+        if (thread) {                    \
+            thread->join();              \
+        }                                \
+    }
+
+    THREADS_JOIN(_base_compaction_threads);
+    THREADS_JOIN(_cumulative_compaction_threads);
+    THREADS_JOIN(_path_gc_threads);
+    THREADS_JOIN(_path_scan_threads);
+    THREADS_JOIN(_tablet_checkpoint_threads);
+#undef THREADS_JOIN
+}
+
 void StorageEngine::_clear() {
     SAFE_DELETE(_index_stream_lru_cache);
     _file_cache.reset();
 
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& store_pair : _store_map) {
-        store_pair.second->stop_bg_worker();
         delete store_pair.second;
         store_pair.second = nullptr;
     }
     _store_map.clear();
-
-    _stop_bg_worker = true;
 }
 
 void StorageEngine::clear_transaction_task(const TTransactionId transaction_id) {
@@ -543,7 +574,7 @@ void StorageEngine::_start_clean_fd_cache() {
     VLOG(10) << "end clean file descritpor cache";
 }
 
-void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
+void StorageEngine::_perform_cumulative_compaction(TabletSharedPtr best_tablet) {
     scoped_refptr<Trace> trace(new Trace);
     MonotonicStopWatch watch;
     watch.start();
@@ -554,23 +585,17 @@ void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
     });
     ADOPT_TRACE(trace.get());
     TRACE("start to perform cumulative compaction");
-    TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(
-            CompactionType::CUMULATIVE_COMPACTION, data_dir);
-    if (best_tablet == nullptr) {
-        return;
-    }
-    TRACE("found best tablet $0", best_tablet->get_tablet_info().tablet_id);
 
-    DorisMetrics::instance()->cumulative_compaction_request_total.increment(1);
+    DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
 
     std::string tracker_label = "cumulative compaction " + std::to_string(syscall(__NR_gettid));
     CumulativeCompaction cumulative_compaction(best_tablet, tracker_label, _compaction_mem_tracker);
 
     OLAPStatus res = cumulative_compaction.compact();
     if (res != OLAP_SUCCESS) {
-        best_tablet->set_last_cumu_compaction_failure_time(UnixMillis());
         if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
-            DorisMetrics::instance()->cumulative_compaction_request_failed.increment(1);
+            best_tablet->set_last_cumu_compaction_failure_time(UnixMillis());
+            DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
             LOG(WARNING) << "failed to do cumulative compaction. res=" << res
                         << ", table=" << best_tablet->full_name();
         }
@@ -579,7 +604,7 @@ void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
     best_tablet->set_last_cumu_compaction_failure_time(0);
 }
 
-void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
+void StorageEngine::_perform_base_compaction(TabletSharedPtr best_tablet) {
     scoped_refptr<Trace> trace(new Trace);
     MonotonicStopWatch watch;
     watch.start();
@@ -590,14 +615,8 @@ void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
     });
     ADOPT_TRACE(trace.get());
     TRACE("start to perform base compaction");
-    TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(
-            CompactionType::BASE_COMPACTION, data_dir);
-    if (best_tablet == nullptr) {
-        return;
-    }
-    TRACE("found best tablet $0", best_tablet->get_tablet_info().tablet_id);
 
-    DorisMetrics::instance()->base_compaction_request_total.increment(1);
+    DorisMetrics::instance()->base_compaction_request_total->increment(1);
 
     std::string tracker_label = "base compaction " + std::to_string(syscall(__NR_gettid));
     BaseCompaction base_compaction(best_tablet, tracker_label, _compaction_mem_tracker);
@@ -605,17 +624,13 @@ void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
     if (res != OLAP_SUCCESS) {
         best_tablet->set_last_base_compaction_failure_time(UnixMillis());
         if (res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
-            DorisMetrics::instance()->base_compaction_request_failed.increment(1);
+            DorisMetrics::instance()->base_compaction_request_failed->increment(1);
             LOG(WARNING) << "failed to init base compaction. res=" << res
                         << ", table=" << best_tablet->full_name();
         }
         return;
     }
     best_tablet->set_last_base_compaction_failure_time(0);
-}
-
-void StorageEngine::get_cache_status(rapidjson::Document* document) const {
-    return _index_stream_lru_cache->get_cache_status(document);
 }
 
 OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
@@ -701,7 +716,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
             return true;
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE && (!tablet->rowset_meta_is_useful(rowset_meta))) {
-            LOG(INFO) << "rowset meta is useless any more, remote it. rowset_id=" << rowset_meta->rowset_id();
+            LOG(INFO) << "rowset meta is not used any more, remove it. rowset_id=" << rowset_meta->rowset_id();
             invalid_rowset_metas.push_back(rowset_meta);
         }
         return true;
@@ -927,6 +942,24 @@ OLAPStatus StorageEngine::load_header(
 
     LOG(INFO) << "success to process load headers.";
     return res;
+}
+
+void StorageEngine::register_report_listener(TaskWorkerPool* listener) {
+    std::lock_guard<std::mutex> l(_report_mtx);
+    CHECK(_report_listeners.find(listener) == _report_listeners.end());
+    _report_listeners.insert(listener);
+}
+
+void StorageEngine::deregister_report_listener(TaskWorkerPool* listener) {
+    std::lock_guard<std::mutex> l(_report_mtx);
+    _report_listeners.erase(listener);
+}
+
+void StorageEngine::notify_listeners() {
+    std::lock_guard<std::mutex> l(_report_mtx);
+    for (auto& listener : _report_listeners) {
+        listener->notify_thread();
+    }
 }
 
 OLAPStatus StorageEngine::execute_task(EngineTask* task) {

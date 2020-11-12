@@ -22,6 +22,9 @@
 
 namespace doris {
 namespace config {
+    // Dir of custom config file
+    CONF_String(custom_config_dir, "${DORIS_HOME}/conf");
+
     // cluster id
     CONF_Int32(cluster_id, "-1");
     // port on which ImpalaInternalService is exported
@@ -201,8 +204,8 @@ namespace config {
     CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
     // (Advanced) Maximum size of per-query receive-side buffer
     CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
-    // insert sort threadhold for sorter
-    // CONF_Int32(insertion_threadhold, "16");
+    // insert sort threshold for sorter
+    // CONF_Int32(insertion_threshold, "16");
     // the block_size every block allocate for sorter
     CONF_Int32(sorter_block_size, "8388608");
     // push_write_mbytes_per_sec
@@ -223,6 +226,12 @@ namespace config {
     CONF_mInt32(disk_stat_monitor_interval, "5");
     CONF_mInt32(unused_rowset_monitor_interval, "30");
     CONF_String(storage_root_path, "${DORIS_HOME}/storage");
+
+    // Config is used to check incompatible old format hdr_ format
+    // whether doris uses strict way. When config is true, process will log fatal
+    // and exit. When config is false, process will only log warning.
+    CONF_Bool(storage_strict_check_incompatible_old_format, "true");
+
     // BE process will exit if the percentage of error disk reach this value.
     CONF_mInt32(max_percentage_of_error_disk, "0");
     // CONF_Int32(default_num_rows_per_data_block, "1024");
@@ -250,7 +259,7 @@ namespace config {
     CONF_Int64(index_stream_cache_capacity, "10737418240");
     // CONF_Int64(max_packed_row_block_size, "20971520");
 
-    // Cache for stoage page size
+    // Cache for storage page size
     CONF_String(storage_page_cache_limit, "20G");
     // whether to disable page cache feature in storage
     CONF_Bool(disable_storage_page_cache, "false");
@@ -258,12 +267,12 @@ namespace config {
     // be policy
     // whether disable automatic compaction task
     CONF_mBool(disable_auto_compaction, "false");
+    // check the configuration of auto compaction in seconds when auto compaction disabled
+    CONF_mInt32(check_auto_compaction_interval_seconds, "5");
 
     // CONF_Int64(base_compaction_start_hour, "20");
     // CONF_Int64(base_compaction_end_hour, "7");
-    CONF_mInt32(base_compaction_check_interval_seconds, "60");
     CONF_mInt64(base_compaction_num_cumulative_deltas, "5");
-    CONF_Int32(base_compaction_num_threads_per_disk, "1");
     CONF_mDouble(base_cumulative_delta_ratio, "0.3");
     CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
     CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
@@ -273,7 +282,7 @@ namespace config {
     // num_based policy, the original version of cumulative compaction, cumulative version compaction once.
     // size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring 
     // lower write amplification, trading off read amplification and space amplification.
-    CONF_String(cumulative_compaction_policy, "num_based");
+    CONF_String(cumulative_compaction_policy, "size_based");
 
     // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size, 
     // this rowset will be given to base compaction, unit is m byte.
@@ -286,14 +295,12 @@ namespace config {
     // rowset will be not given to base compaction. The unit is m byte.
     CONF_mInt64(cumulative_size_based_promotion_min_size_mbytes, "64");
     // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than 
-    // this size, size_based policy also does cumulative compaction. The unit is m byte.
+    // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
     CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
 
-    // cumulative compaction policy: max delta file's size unit:B
-    CONF_mInt32(cumulative_compaction_check_interval_seconds, "10");
+    // cumulative compaction policy: min and max delta file's number
     CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
     CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
-    CONF_Int32(cumulative_compaction_num_threads_per_disk, "1");
     CONF_mInt64(cumulative_compaction_budgeted_bytes, "104857600");
     // CONF_Int32(cumulative_compaction_write_mbytes_per_sec, "100");
     // cumulative compaction skips recently published deltas in order to prevent
@@ -304,13 +311,19 @@ namespace config {
     // if compaction of a tablet failed, this tablet should not be chosen to
     // compaction until this interval passes.
     CONF_mInt64(min_compaction_failure_interval_sec, "600"); // 10 min
-    // Too many compaction tasks may run out of memory.
-    // This config is to limit the max concurrency of running compaction tasks.
-    // -1 means no limit, and the max concurrency will be:
-    //      C = (cumulative_compaction_num_threads_per_disk + base_compaction_num_threads_per_disk) * dir_num
-    // set it to larger than C will be set to equal to C.
-    // This config can be set to 0, which means to forbid any compaction, for some special cases.
-    CONF_Int32(max_compaction_concurrency, "-1");
+
+    // This config can be set to limit thread number in compaction thread pool.
+    CONF_mInt32(min_compaction_threads, "10");
+    CONF_mInt32(max_compaction_threads, "10");
+
+    // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
+    CONF_mInt64(total_permits_for_compaction_score, "10000");
+
+    // Compaction task number per disk.
+    CONF_mInt32(compaction_task_num_per_disk, "2");
+
+    // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
+    CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
 
     // Threshold to logging compaction trace, in seconds.
     CONF_mInt32(base_compaction_trace_threshold, "10");
@@ -334,7 +347,7 @@ namespace config {
     // Some data formats, such as JSON, cannot be streamed.
     // Therefore, it is necessary to limit the maximum number of
     // such data when using stream load to prevent excessive memory consumption.
-    CONF_mInt64(streaming_load_max_batch_size_mb, "100");
+    CONF_mInt64(streaming_load_json_max_mb, "100");
     // the alive time of a TabletsChannel.
     // If the channel does not receive any data till this time,
     // the channel will be removed.
@@ -342,7 +355,7 @@ namespace config {
     // the timeout of a rpc to open the tablet writer in remote BE.
     // short operation time, can set a short timeout
     CONF_Int32(tablet_writer_open_rpc_timeout_sec, "60");
-    // Deprecated, use query_timeout instread
+    // Deprecated, use query_timeout instead
     // the timeout of a rpc to process one batch in tablet writer.
     // you may need to increase this timeout if using larger 'streaming_load_max_mb',
     // or encounter 'tablet writer write failed' error when loading.
@@ -359,7 +372,7 @@ namespace config {
     // CONF_Bool(cast, "true");
 
     // Spill to disk when query
-    // Writable scratch directories, splitted by ";"
+    // Writable scratch directories, split by ";"
     CONF_String(query_scratch_dirs, "${DORIS_HOME}");
 
     // Control the number of disks on the machine.  If 0, this comes from the system settings.
@@ -384,12 +397,12 @@ namespace config {
     // you can do it as root via "sysctl -w vm.max_map_count=262144" or
     // "echo 262144 > /proc/sys/vm/max_map_count"
     // NOTE: When this is set to true, you must set chunk_reserved_bytes_limit
-    // to a relative large number or the performace is very very bad.
+    // to a relative large number or the performance is very very bad.
     CONF_Bool(use_mmap_allocate_chunk, "false");
 
     // Chunk Allocator's reserved bytes limit,
     // Default value is 2GB, increase this variable can improve performance, but will
-    // aquire more free memory which can not be used by other modules
+    // acquire more free memory which can not be used by other modules
     CONF_Int64(chunk_reserved_bytes_limit, "2147483648");
 
     // The probing algorithm of partitioned hash table.
@@ -447,7 +460,7 @@ namespace config {
     // Sleep time in seconds between memory maintenance iterations
     CONF_mInt64(memory_maintenance_sleep_time_s, "10");
 
-    // Aligement
+    // Alignment
     CONF_Int32(memory_max_alignment, "16");
 
     // write buffer size before flush
@@ -456,7 +469,7 @@ namespace config {
     // following 2 configs limit the memory consumption of load process on a Backend.
     // eg: memory limit to 80% of mem limit config but up to 100GB(default)
     // NOTICE(cmy): set these default values very large because we don't want to
-    // impact the load performace when user upgrading Doris.
+    // impact the load performance when user upgrading Doris.
     // user should set these configs properly if necessary.
     CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
     CONF_Int32(load_process_max_memory_limit_percent, "80");    // 80%
@@ -470,7 +483,7 @@ namespace config {
     // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
     CONF_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 
-    // sync tablet_meta when modifing meta
+    // sync tablet_meta when modifying meta
     CONF_mBool(sync_tablet_meta, "false");
 
     // default thrift rpc timeout ms
@@ -494,7 +507,7 @@ namespace config {
     // CONF_Bool(auto_recover_index_loading_failure, "false");
 
     // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
-    // default is 20, batch_size's defualt value is 1024 means 20 * 1024 rows will be cached
+    // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
     CONF_mInt32(max_memory_sink_batch_count, "20");
 
     // This configuration is used for the context gc thread schedule period
@@ -570,6 +583,21 @@ namespace config {
 
     // Soft memory limit as a fraction of hard memory limit.
     CONF_Double(soft_mem_limit_frac, "0.9");
+    
+    // Set max cache's size of query results, the unit is M byte
+    CONF_Int32(query_cache_max_size_mb, "256"); 
+
+    // Cache memory is pruned when reach query_cache_max_size_mb + query_cache_elasticity_size_mb
+    CONF_Int32(query_cache_elasticity_size_mb, "128");
+
+    // Maximum number of cache partitions corresponding to a SQL
+    CONF_Int32(query_cache_max_partition_count, "1024");
+
+    // Maximum number of version of a tablet. If the version num of a tablet exceed limit,
+    // the load process will reject new incoming load job of this tablet.
+    // This is to avoid too many version num.
+    CONF_mInt32(max_tablet_version_num, "500");
+    
 } // namespace config
 
 } // namespace doris

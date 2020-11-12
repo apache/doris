@@ -769,18 +769,14 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bo
 
     RowBlockInfo row_block_info(0U, num_rows);
     row_block_info.null_supported = null_supported;
-    OLAPStatus res = OLAP_SUCCESS;
-
-    if ((res = (*row_block)->init(row_block_info)) != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to init row block.";
-        SAFE_DELETE(*row_block);
-        return res;
-    }
+    (*row_block)->init(row_block_info);
 
     _memory_allocated += row_block_size;
-    VLOG(3) << "RowBlockAllocator::allocate() this=" << this << ", num_rows=" << num_rows
-            << ", m_memory_allocated=" << _memory_allocated << ", row_block_addr=" << *row_block;
-    return res;
+    VLOG(3) << "RowBlockAllocator::allocate() this=" << this
+            << ", num_rows=" << num_rows
+            << ", m_memory_allocated=" << _memory_allocated
+            << ", row_block_addr=" << *row_block;
+    return OLAP_SUCCESS;
 }
 
 void RowBlockAllocator::release(RowBlock* row_block) {
@@ -1023,8 +1019,8 @@ OLAPStatus SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader, Ro
 
         // 将ref改为new。这一步按道理来说确实需要等大的块，但理论上和writer无关。
         uint64_t filtered_rows = 0;
-        if ((res = _row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second,
-                new_row_block, &filtered_rows)) != OLAP_SUCCESS) {
+        res = _row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second, new_row_block, &filtered_rows);
+        if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to change data in row block.";
             goto DIRECTLY_PROCESS_ERR;
         }
@@ -1197,10 +1193,9 @@ OLAPStatus SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
         }
 
         uint64_t filtered_rows = 0;
-        if (!_row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second,
-                                                 new_row_block, &filtered_rows)) {
+        res = _row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second, new_row_block, &filtered_rows);
+        if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to change data in row block.";
-            res = OLAP_ERR_ALTER_STATUS_ERR;
             goto SORTING_PROCESS_ERR;
         }
         add_filtered_rows(filtered_rows);
@@ -1428,7 +1423,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
     if (new_tablet->tablet_state() != TABLET_NOTREADY) {
         res = _validate_alter_result(new_tablet, request);
         LOG(INFO) << "tablet's state=" << new_tablet->tablet_state()
-                  << " the convert job alreay finished, check its version"
+                  << " the convert job already finished, check its version"
                   << " res=" << res;
         return res;
     }
@@ -1767,9 +1762,8 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
     vector<Version> span_versions;
     RETURN_NOT_OK(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
                                                            &span_versions));
-    for (uint32_t i = 0; i < span_versions.size(); i++) {
-        versions_to_be_changed->push_back(span_versions[i]);
-    }
+    versions_to_be_changed->insert(versions_to_be_changed->end(),
+                                   span_versions.begin(), span_versions.end());
 
     return OLAP_SUCCESS;
 }
@@ -1944,7 +1938,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         }
         res = sc_params.new_tablet->add_rowset(new_rowset, false);
         if (res == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
-            LOG(WARNING) << "version already exist, version revert occured. "
+            LOG(WARNING) << "version already exist, version revert occurred. "
                          << "tablet=" << sc_params.new_tablet->full_name() << ", version='"
                          << rs_reader->version().first << "-" << rs_reader->version().second;
             StorageEngine::instance()->add_unused_rowset(new_rowset);
@@ -2091,14 +2085,37 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
         }
     }
 
+    const TabletSchema& ref_tablet_schema = base_tablet->tablet_schema();
+    const TabletSchema& new_tablet_schema = new_tablet->tablet_schema();
+    if (ref_tablet_schema.keys_type() != new_tablet_schema.keys_type()) {
+        // only when base table is dup and mv is agg
+        // the rollup job must be reagg.
+        *sc_sorting = true;
+        return OLAP_SUCCESS; 
+    }
+
+    // If the sort of key has not been changed but the new keys num is less then base's,
+    // the new table should be re agg.
+    // So we also need to set  sc_sorting = true.
+    // A, B, C are keys(sort keys), D is value
+    // followings need resort:
+    //      old keys:    A   B   C   D
+    //      new keys:    A   B
+    if (new_tablet_schema.keys_type() != KeysType::DUP_KEYS
+            && new_tablet->num_key_columns() < base_tablet->num_key_columns()) {
+        // this is a table with aggregate key type, and num of key columns in new schema
+        // is less, which means the data in new tablet should be more aggregated.
+        // so we use sorting schema change to sort and merge the data.
+        *sc_sorting = true;
+        return OLAP_SUCCESS;
+    }
+
     if (base_tablet->num_short_key_columns() != new_tablet->num_short_key_columns()) {
         // the number of short_keys changed, can't do linked schema change
         *sc_directly = true;
         return OLAP_SUCCESS;
     }
 
-    const TabletSchema& ref_tablet_schema = base_tablet->tablet_schema();
-    const TabletSchema& new_tablet_schema = new_tablet->tablet_schema();
     for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
         ColumnMapping* column_mapping = rb_changer->get_mutable_column_mapping(i);
         if (column_mapping->ref_column < 0) {
@@ -2162,7 +2179,7 @@ OLAPStatus SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_table
                                                        const TAlterTabletReqV2& request) {
     Version max_continuous_version = {-1, 0};
     VersionHash max_continuous_version_hash = 0;
-    new_tablet->max_continuous_version_from_begining(&max_continuous_version,
+    new_tablet->max_continuous_version_from_beginning(&max_continuous_version,
                                                      &max_continuous_version_hash);
     LOG(INFO) << "find max continuous version of tablet=" << new_tablet->full_name()
               << ", start_version=" << max_continuous_version.first

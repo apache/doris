@@ -26,7 +26,7 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(result_buffer_block_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(result_buffer_block_count, MetricUnit::NOUNIT);
 
 //std::size_t hash_value(const TUniqueId& fragment_id) {
 //    uint32_t value = RawValue::get_hash_value(&fragment_id.lo, TypeDescriptor(TYPE_BIGINT), 0);
@@ -35,7 +35,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(result_buffer_block_count, MetricUnit::NOUNIT
 //}
 
 ResultBufferMgr::ResultBufferMgr()
-    : _is_stop(false) {
+    : _stop_background_threads_latch(1) {
     // Each BufferControlBlock has a limited queue size of 1024, it's not needed to count the
     // actual size of all BufferControlBlock.
     REGISTER_HOOK_METRIC(result_buffer_block_count, [this]() {
@@ -46,14 +46,16 @@ ResultBufferMgr::ResultBufferMgr()
 
 ResultBufferMgr::~ResultBufferMgr() {
     DEREGISTER_HOOK_METRIC(result_buffer_block_count);
-    _is_stop = true;
-    _cancel_thread->join();
+    _stop_background_threads_latch.count_down();
+    if (_clean_thread) {
+        _clean_thread->join();
+    }
 }
 
 Status ResultBufferMgr::init() {
-    _cancel_thread.reset(
-            new boost::thread(
-                    boost::bind<void>(boost::mem_fn(&ResultBufferMgr::cancel_thread), this)));
+    RETURN_IF_ERROR(Thread::create("ResultBufferMgr", "cancel_timeout_result",
+                                   [this]() { this->cancel_thread(); },
+                                   &_clean_thread));
     return Status::OK();
 }
 
@@ -144,7 +146,7 @@ Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& quer
 void ResultBufferMgr::cancel_thread() {
     LOG(INFO) << "result buffer manager cancel thread begin.";
 
-    while (!_is_stop) {
+    do {
         // get query
         std::vector<TUniqueId> query_to_cancel;
         time_t now_time = time(NULL);
@@ -165,9 +167,7 @@ void ResultBufferMgr::cancel_thread() {
         for (int i = 0; i < query_to_cancel.size(); ++i) {
             cancel(query_to_cancel[i]);
         }
-
-        sleep(1);
-    }
+    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(1)));
 
     LOG(INFO) << "result buffer manager cancel thread finish.";
 }

@@ -327,6 +327,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("serializable", new Integer(SqlParserSymbols.KW_SERIALIZABLE));
         keywordMap.put("session", new Integer(SqlParserSymbols.KW_SESSION));
         keywordMap.put("set", new Integer(SqlParserSymbols.KW_SET));
+        keywordMap.put("set_var", new Integer(SqlParserSymbols.KW_SET_VAR));
         keywordMap.put("sets", new Integer(SqlParserSymbols.KW_SETS));
         keywordMap.put("show", new Integer(SqlParserSymbols.KW_SHOW));
         keywordMap.put("signed", new Integer(SqlParserSymbols.KW_SIGNED));

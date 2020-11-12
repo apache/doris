@@ -52,6 +52,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MysqlTable;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -70,6 +71,8 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -282,7 +285,8 @@ public class SingleNodePlanner {
 
         if (analyzer.hasEmptyResultSet()) {
             // Must clear the scanNodes, otherwise we will get NPE in Coordinator::computeScanRangeAssignment
-            scanNodes.clear();
+            Set<TupleId> scanTupleIds = new HashSet<>(root.getAllScanTupleIds());
+            scanNodes.removeIf(scanNode -> scanTupleIds.contains(scanNode.getTupleIds().get(0)));
             PlanNode node = createEmptyNode(stmt, analyzer);
             // Ensure result exprs will be substituted by right outputSmap
             node.setOutputSmap(root.outputSmap);
@@ -1361,8 +1365,12 @@ public class SingleNodePlanner {
         switch (tblRef.getTable().getType()) {
             case OLAP:
                 OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "OlapScanNode");
+
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
                 scanNode = olapNode;
+                break;
+            case ODBC:
+                scanNode = new OdbcScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), (OdbcTable) tblRef.getTable());
                 break;
             case MYSQL:
                 scanNode = new MysqlScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), (MysqlTable) tblRef.getTable());
@@ -1406,6 +1414,11 @@ public class SingleNodePlanner {
 
                                 SlotRef leftSlot = eqJoinPredicate.getChild(0).unwrapSlotRef();
                                 SlotRef rightSlot = eqJoinPredicate.getChild(1).unwrapSlotRef();
+
+                                // ensure the type is match
+                                if (!leftSlot.getDesc().getType().matchesType(rightSlot.getDesc().getType())) {
+                                    continue;
+                                }
 
                                 // example: t1.id = t2.id and t1.id = 1  => t2.id =1
                                 if (otherSlot.isBound(leftSlot.getSlotId()) && rightSlot.isBound(tupleId)) {
@@ -1868,7 +1881,7 @@ public class SingleNodePlanner {
      */
     private void materializeTableResultForCrossJoinOrCountStar(TableRef tblRef, Analyzer analyzer) {
         if (tblRef instanceof BaseTableRef) {
-            materializeBaseTableRefResultForCrossJoinOrCountStar((BaseTableRef) tblRef, analyzer);
+            materializeSlotForEmptyMaterializedTableRef((BaseTableRef) tblRef, analyzer);
         } else if (tblRef instanceof InlineViewRef) {
             materializeInlineViewResultExprForCrossJoinOrCountStar((InlineViewRef) tblRef, analyzer);
         } else {
@@ -1877,13 +1890,23 @@ public class SingleNodePlanner {
     }
 
     /**
-     * materialize BaseTableRef result' exprs for Cross Join or Count Star
+     * When materialized table ref is a empty tbl ref, the planner should add a mini column for this tuple.
+     * There are two situation:
+     * 1. The tbl ref is empty, such as select a from (select 'c1' a from test) t;
+     * Inner tuple: tuple 0 without slot
+     * 2. The materialized slot in tbl ref is empty, such as select a from (select 'c1' a, k1 from test) t;
+     * Inner tuple: tuple 0 with a not materialized slot k1
+     * In the above two cases, it is necessary to add a mini column to the inner tuple
+     * to ensure that the number of rows in the inner query result is the number of rows in the table.
      *
+     * After this function, the inner tuple is following:
+     * case1. tuple 0: slot<k1> materialized true (new slot)
+     * case2. tuple 0: slot<k1> materialized true (changed)
      * @param tblRef
      * @param analyzer
      */
-    private void materializeBaseTableRefResultForCrossJoinOrCountStar(BaseTableRef tblRef, Analyzer analyzer) {
-        if (tblRef.getDesc().getSlots().isEmpty()) {
+    private void materializeSlotForEmptyMaterializedTableRef(BaseTableRef tblRef, Analyzer analyzer) {
+        if (tblRef.getDesc().getMaterializedSlots().isEmpty()) {
             Column minimuColumn = null;
             for (Column col : tblRef.getTable().getBaseSchema()) {
                 if (minimuColumn == null || col.getDataType().getSlotSize() < minimuColumn

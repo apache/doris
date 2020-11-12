@@ -30,6 +30,7 @@
 
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
+#include "util/filesystem_util.h"
 
 namespace doris {
 namespace config {
@@ -37,7 +38,7 @@ namespace config {
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::string>* full_conf_map = nullptr;
 
-Properties props;
+std::mutex custom_conf_lock;
 
 // trim string
 std::string& trim(std::string& s) {
@@ -171,7 +172,7 @@ bool strtox(const std::string& valstr, std::string& retval) {
 }
 
 // load conf file
-bool Properties::load(const char* filename) {
+bool Properties::load(const char* filename, bool must_exist) {
     // if filename is null, use the empty props
     if (filename == nullptr) {
         return true;
@@ -180,8 +181,11 @@ bool Properties::load(const char* filename) {
     // open the conf file
     std::ifstream input(filename);
     if (!input.is_open()) {
-        std::cerr << "config::load() failed to open the file:" << filename << std::endl;
-        return false;
+        if (must_exist) {
+            std::cerr << "config::load() failed to open the file:" << filename << std::endl;
+            return false;
+        }
+        return true;
     }
 
     // load properties
@@ -217,14 +221,52 @@ bool Properties::load(const char* filename) {
 }
 
 template <typename T>
-bool Properties::get(const char* key, const char* defstr, T& retval) const {
+bool Properties::get_or_default(const char* key, const char* defstr, T& retval) const {
     const auto& it = file_conf_map.find(std::string(key));
-    std::string valstr = it != file_conf_map.end() ? it->second : std::string(defstr);
+    std::string valstr;
+    if (it == file_conf_map.end()) {
+        if (defstr == nullptr) {
+            // Not found in conf map, and no default value need to be set, just return
+            return true;
+        } else {
+            valstr = std::string(defstr);
+        }
+    } else {
+        valstr = it->second;
+    }
     trim(valstr);
     if (!replaceenv(valstr)) {
         return false;
     }
     return strtox(valstr, retval);
+}
+
+void Properties::set(const std::string& key, const std::string& val) {
+    file_conf_map.emplace(key, val);
+}
+
+bool Properties::dump(const std::string& conffile) {
+    std::vector<std::string> files = { conffile };
+    Status st = FileSystemUtil::remove_paths(files); 
+    if (!st.ok()) {
+        return false;
+    }
+    st = FileSystemUtil::create_file(conffile);
+    if (!st.ok()) {
+        return false;
+    }
+
+    std::ofstream out(conffile);
+    out << "# THIS IS AN AUTO GENERATED CONFIG FILE.\n";
+    out << "# You can modify this file manually, and the configurations in this file\n";
+    out << "# will overwrite the configurations in be.conf\n";
+    out << "\n";
+    
+    for (auto const& iter : file_conf_map) {
+        out << iter.first << " = " << iter.second << "\n";
+    }
+    out.close();
+    return true;
 }
 
 template <typename T>
@@ -249,24 +291,27 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
     return out;
 }
 
-#define SET_FIELD(FIELD, TYPE, FILL_CONFMAP)                                                       \
-    if (strcmp((FIELD).type, #TYPE) == 0) {                                                        \
-        if (!props.get((FIELD).name, (FIELD).defval, *reinterpret_cast<TYPE*>((FIELD).storage))) { \
-            std::cerr << "config field error: " << (FIELD).name << std::endl;                      \
-            return false;                                                                          \
-        }                                                                                          \
-        if (FILL_CONFMAP) {                                                                        \
-            std::ostringstream oss;                                                                \
-            oss << (*reinterpret_cast<TYPE*>((FIELD).storage));                                    \
-            (*full_conf_map)[(FIELD).name] = oss.str();                                            \
-        }                                                                                          \
-        continue;                                                                                  \
+#define SET_FIELD(FIELD, TYPE, FILL_CONFMAP, SET_TO_DEFAULT)                                                  \
+    if (strcmp((FIELD).type, #TYPE) == 0) {                                                                   \
+        if (!props.get_or_default(                                                                            \
+                (FIELD).name, ((SET_TO_DEFAULT) ? (FIELD).defval : nullptr),                                  \
+                *reinterpret_cast<TYPE*>((FIELD).storage))) {                                                 \
+            std::cerr << "config field error: " << (FIELD).name << std::endl;                                 \
+            return false;                                                                                     \
+        }                                                                                                     \
+        if (FILL_CONFMAP) {                                                                                   \
+            std::ostringstream oss;                                                                           \
+            oss << (*reinterpret_cast<TYPE*>((FIELD).storage));                                               \
+            (*full_conf_map)[(FIELD).name] = oss.str();                                                       \
+        }                                                                                                     \
+        continue;                                                                                             \
     }
 
 // init conf fields
-bool init(const char* filename, bool fillconfmap) {
+bool init(const char* conf_file, bool fillconfmap, bool must_exist, bool set_to_default) {
+    Properties props;
     // load properties file
-    if (!props.load(filename)) {
+    if (!props.load(conf_file, must_exist)) {
         return false;
     }
     // fill full_conf_map ?
@@ -276,24 +321,24 @@ bool init(const char* filename, bool fillconfmap) {
 
     // set conf fields
     for (const auto& it : *Register::_s_field_map) {
-        SET_FIELD(it.second, bool, fillconfmap);
-        SET_FIELD(it.second, int16_t, fillconfmap);
-        SET_FIELD(it.second, int32_t, fillconfmap);
-        SET_FIELD(it.second, int64_t, fillconfmap);
-        SET_FIELD(it.second, double, fillconfmap);
-        SET_FIELD(it.second, std::string, fillconfmap);
-        SET_FIELD(it.second, std::vector<bool>, fillconfmap);
-        SET_FIELD(it.second, std::vector<int16_t>, fillconfmap);
-        SET_FIELD(it.second, std::vector<int32_t>, fillconfmap);
-        SET_FIELD(it.second, std::vector<int64_t>, fillconfmap);
-        SET_FIELD(it.second, std::vector<double>, fillconfmap);
-        SET_FIELD(it.second, std::vector<std::string>, fillconfmap);
+        SET_FIELD(it.second, bool, fillconfmap, set_to_default);
+        SET_FIELD(it.second, int16_t, fillconfmap, set_to_default);
+        SET_FIELD(it.second, int32_t, fillconfmap, set_to_default);
+        SET_FIELD(it.second, int64_t, fillconfmap, set_to_default);
+        SET_FIELD(it.second, double, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::string, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::vector<bool>, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::vector<int16_t>, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::vector<int32_t>, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::vector<int64_t>, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::vector<double>, fillconfmap, set_to_default);
+        SET_FIELD(it.second, std::vector<std::string>, fillconfmap, set_to_default);
     }
 
     return true;
 }
 
-#define UPDATE_FIELD(FIELD, VALUE, TYPE)                                             \
+#define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                    \
     if (strcmp((FIELD).type, #TYPE) == 0) {                                          \
         if (!update((VALUE), *reinterpret_cast<TYPE*>((FIELD).storage))) {           \
             return Status::InvalidArgument(                                          \
@@ -304,10 +349,37 @@ bool init(const char* filename, bool fillconfmap) {
             oss << (*reinterpret_cast<TYPE*>((FIELD).storage));                      \
             (*full_conf_map)[(FIELD).name] = oss.str();                              \
         }                                                                            \
+        if (PERSIST) {                                                               \
+            persist_config(std::string(FIELD.name), VALUE);                          \
+        }                                                                            \
         return Status::OK();                                                         \
     }
 
-Status set_config(const std::string& field, const std::string& value) {
+
+// write config to be_custom.conf
+// the caller need to make sure that the given config is valid
+bool persist_config(const std::string& field, const std::string& value) {
+    // lock to make sure only one thread can modify the be_custom.conf
+    std::lock_guard<std::mutex> l(custom_conf_lock); 
+
+    static const string conffile = string(getenv("DORIS_HOME")) + "/conf/be_custom.conf";
+    Status st = FileSystemUtil::create_file(conffile);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to create or open be_custom.conf. " << st.get_error_msg();
+        return false;
+    }
+
+    Properties tmp_props;
+    if (!tmp_props.load(conffile.c_str())) {
+        LOG(WARNING) << "failed to load " << conffile;
+        return false;
+    }
+
+    tmp_props.set(field, value);
+    return tmp_props.dump(conffile);
+}
+
+Status set_config(const std::string& field, const std::string& value, bool need_persist) {
     auto it = Register::_s_field_map->find(field);
     if (it == Register::_s_field_map->end()) {
         return Status::NotFound(strings::Substitute("'$0' is not found", field));
@@ -317,11 +389,11 @@ Status set_config(const std::string& field, const std::string& value) {
         return Status::NotSupported(strings::Substitute("'$0' is not support to modify", field));
     }
 
-    UPDATE_FIELD(it->second, value, bool);
-    UPDATE_FIELD(it->second, value, int16_t);
-    UPDATE_FIELD(it->second, value, int32_t);
-    UPDATE_FIELD(it->second, value, int64_t);
-    UPDATE_FIELD(it->second, value, double);
+    UPDATE_FIELD(it->second, value, bool, need_persist);
+    UPDATE_FIELD(it->second, value, int16_t, need_persist);
+    UPDATE_FIELD(it->second, value, int32_t, need_persist);
+    UPDATE_FIELD(it->second, value, int64_t, need_persist);
+    UPDATE_FIELD(it->second, value, double, need_persist);
 
     // The other types are not thread safe to change dynamically.
     return Status::NotSupported(strings::Substitute(

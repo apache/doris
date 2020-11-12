@@ -30,14 +30,72 @@ under the License.
 
 This document mainly introduces the relevant configuration items of BE.
 
+The BE configuration file `be.conf` is usually stored in the `conf/` directory of the BE deployment path. In version 0.14, another configuration file `be_custom.conf` will be introduced. The configuration file is used to record the configuration items that are dynamically configured and persisted by the user during operation.
+
+After the BE process is started, it will read the configuration items in `be.conf` first, and then read the configuration items in `be_custom.conf`. The configuration items in `be_custom.conf` will overwrite the same configuration items in `be.conf`.
+
+The location of the `be_custom.conf` file can be configured in `be.conf` through the `custom_config_dir` configuration item.
+
 ## View configuration items
-(TODO)
+
+Users can view the current configuration items by visiting BE's web page:
+
+`http://be_host:be_webserver_port/varz`
 
 ## Set configuration items
-(TODO)
+
+There are two ways to configure BE configuration items:
+
+1. Static configuration
+
+    Add and set configuration items in the `conf/be.conf` file. The configuration items in `be.conf` will be read when BE starts. Configuration items not in `be.conf` will use default values.
+
+2. Dynamic configuration
+
+    After BE starts, the configuration items can be dynamically set with the following commands.
+
+    ```
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'
+    ```
+
+    In version 0.13 and before, the configuration items modified in this way will become invalid after the BE process restarts. In 0.14 and later versions, the modified configuration can be persisted through the following command. The modified configuration items are stored in the `be_custom.conf` file.
+
+    ```
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persis=true'
+    ```
 
 ## Examples
-(TODO)
+
+1. Modify `max_compaction_concurrency` statically
+
+     By adding in the `be.conf` file:
+
+     ```max_compaction_concurrency=5```
+
+     Then restart the BE process to take effect the configuration.
+
+2. Modify `streaming_load_max_mb` dynamically
+
+    After BE starts, the configuration item `streaming_load_max_mb` is dynamically set by the following command:
+
+    ```
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024
+    ```
+
+    The return value is as follows, indicating that the setting is successful.
+
+    ```
+    {
+        "status": "OK",
+        "msg": ""
+    }
+    ```
+
+    The configuration will become invalid after the BE restarts. If you want to persist the modified results, use the following command:
+
+    ```
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024\&persist=true
+    ```
 
 ## Configurations
 
@@ -162,7 +220,7 @@ Similar to `base_compaction_trace_threshold`.
 * Description: Configure the merge policy of the cumulative compaction stage. Currently, two merge policy have been implemented, num_based and size_based.
 * Default value: size_based
 
-In detail, ordinary is the initial version of the cumulative compaction merge policy. After a cumulative compaction, the base compaction process is directly performed. The size_based policy is an optimized version of the ordinary strategy. Versions are merged only when the disk volume of the rowset is of the same order of magnitude. After the compaction, the output rowset which satifies the conditions is promoted to the base compaction stage. In the case of a large number of small batch imports: reduce the write magnification of base compact, trade-off between read magnification and space magnification, and reducing file version data.
+In detail, ordinary is the initial version of the cumulative compaction merge policy. After a cumulative compaction, the base compaction process is directly performed. The size_based policy is an optimized version of the ordinary strategy. Versions are merged only when the disk volume of the rowset is of the same order of magnitude. After the compaction, the output rowset which satisfies the conditions is promoted to the base compaction stage. In the case of a large number of small batch imports: reduce the write magnification of base compact, trade-off between read magnification and space magnification, and reducing file version data.
 
 ### `cumulative_size_based_promotion_size_mbytes`
 
@@ -195,6 +253,12 @@ Generally, the configuration is within 512m. If the configuration is too large, 
 * Default value: 64
 
 Generally, the configuration is within 128m. Over configuration will cause more cumulative compaction write amplification.
+
+### `custom_config_dir`
+
+Configure the location of the `be_custom.conf` file. The default is in the `conf/` directory.
+
+In some deployment environments, the `conf/` directory may be overwritten due to system upgrades. This will cause the user modified configuration items to be overwritten. At this time, we can store `be_custom.conf` in another specified directory to prevent the configuration file from being overwritten.
 
 ### `default_num_rows_per_column_file_block`
 
@@ -300,7 +364,7 @@ The default value is `false`.
 * Default: false
 
 The merged expired rowset version path will be deleted after half an hour. In abnormal situations, deleting these versions will result in the problem that the consistent path of the query cannot be constructed. When the configuration is false, the program check is strict and the program will directly report an error and exit.
-When configured as true, the program will run normally and ignore this error. In general, ignoring this error will not affect the query, only when the merged version is dispathed by fe, -230 error will appear.
+When configured as true, the program will run normally and ignore this error. In general, ignoring this error will not affect the query, only when the merged version is dispatched by fe, -230 error will appear.
 
 ### inc_rowset_expired_sec
 
@@ -373,6 +437,12 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `max_tablet_num_per_shard`
 
+### `max_tablet_version_num`
+
+* Type: int
+* Description: Limit the number of versions of a single tablet. It is used to prevent a large number of version accumulation problems caused by too frequent import or untimely compaction. When the limit is exceeded, the import task will be rejected.
+* Default value: 500
+
 ### `mem_limit`
 
 ### `memory_limitation_per_thread_for_schema_change`
@@ -384,6 +454,11 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `min_buffer_size`
 
 ### `min_compaction_failure_interval_sec`
+
+* Type: int32
+* Description: During the cumulative compaction process, when the selected tablet fails to be merged successfully, it will wait for a period of time before it may be selected again. The waiting period is the value of this configuration.
+* Default value: 600
+* Unit: seconds
 
 ### `min_cumulative_compaction_num_singleton_deltas`
 
@@ -437,6 +512,11 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `push_write_mbytes_per_sec`
 
++ Type: int32
++ Description: Load data speed control, the default is 10MB per second. Applicable to all load methods.
++ Unit: MB
++ Default value: 10
+
 ### `query_scratch_dirs`
 
 ### `read_size`
@@ -483,19 +563,28 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `storage_root_path`
 
+### `storage_strict_check_incompatible_old_format`
+* Type: bool
+* Description: Used to check incompatible old format strictly
+* Default value: true
+* Dynamically modify: false
+
+This config is used to check incompatible old format hdr_ format whether doris uses strict way. When config is true, 
+process will log fatal and exit. When config is false, process will only log warning.
+
 ### `streaming_load_max_mb`
 
 * Type: int64
-* Description: Used to limit the maximum amount of data allowed in one Stream load. The unit is MB.
+* Description: Used to limit the maximum amount of csv data allowed in one Stream load. The unit is MB.
 * Default value: 10240
 * Dynamically modify: yes
 
 Stream Load is generally suitable for loading data less than a few GB, not suitable for loading` too large data.
 
-### `streaming_load_max_batch_size_mb`
+### `streaming_load_json_max_mb`
 
 * Type: int64
-* Description: For some data formats, such as JSON, it is used to limit the maximum amount of data allowed in one Stream load. The unit is MB.
+* Description: it is used to limit the maximum amount of json data allowed in one Stream load. The unit is MB.
 * Default value: 100
 * Dynamically modify: yes
 

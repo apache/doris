@@ -158,7 +158,7 @@ public class ExportStmt extends StatementBase {
             throw new AnalysisException("broker is not provided");
         }
 
-        if (!analyzer.getCatalog().getBrokerMgr().contaisnBroker(brokerDesc.getName())) {
+        if (!analyzer.getCatalog().getBrokerMgr().containsBroker(brokerDesc.getName())) {
             throw new AnalysisException("broker " + brokerDesc.getName() + " does not exist");
         }
 
@@ -193,6 +193,7 @@ public class ExportStmt extends StatementBase {
             Table.TableType tblType = table.getType();
             switch (tblType) {
                 case MYSQL:
+                case ODBC:
                 case OLAP:
                     break;
                 case BROKER:

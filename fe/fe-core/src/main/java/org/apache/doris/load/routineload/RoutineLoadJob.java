@@ -26,9 +26,11 @@ import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -181,6 +183,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected long maxBatchRows = DEFAULT_MAX_BATCH_ROWS;
     protected long maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
 
+    protected String sequenceCol;
+
     /**
      * RoutineLoad support json data.
      * Require Params:
@@ -324,10 +328,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     private void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
         if (routineLoadDesc != null) {
+            columnDescs = Lists.newArrayList();
             if (routineLoadDesc.getColumnsInfo() != null) {
                 ImportColumnsStmt columnsStmt = routineLoadDesc.getColumnsInfo();
                 if (columnsStmt.getColumns() != null || columnsStmt.getColumns().size() != 0) {
-                    columnDescs = Lists.newArrayList();
                     for (ImportColumnDesc columnDesc : columnsStmt.getColumns()) {
                         columnDescs.add(columnDesc);
                     }
@@ -342,14 +346,19 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             if (routineLoadDesc.getPartitionNames() != null) {
                 partitions = routineLoadDesc.getPartitionNames();
             }
-            mergeType = routineLoadDesc.getMergeType();
             if (routineLoadDesc.getDeleteCondition() != null) {
                 deleteCondition = routineLoadDesc.getDeleteCondition();
             }
+            mergeType = routineLoadDesc.getMergeType();
             if (mergeType == LoadTask.MergeType.MERGE) {
                 columnDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
             } else if (mergeType == LoadTask.MergeType.DELETE) {
                 columnDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
+            }
+            if (routineLoadDesc.hasSequenceCol()) {
+                sequenceCol = routineLoadDesc.getSequenceColName();
+                // add expr for sequence column
+                columnDescs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, sequenceCol)));
             }
         }
     }
@@ -564,6 +573,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             return "";
         }
         return value;
+    }
+
+    public String getSequenceCol() {
+        return sequenceCol;
+    }
+
+    public boolean hasSequenceCol() {
+        return !Strings.isNullOrEmpty(sequenceCol);
     }
 
     public int getSizeOfRoutineLoadTaskInfoList() {
@@ -1395,7 +1412,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         out.writeLong(totalTaskExcutionTimeMs);
         out.writeLong(committedTaskNum);
         out.writeLong(abortedTaskNum);
-
         origStmt.write(out);
         out.writeInt(jobProperties.size());
         for (Map.Entry<String, String> entry : jobProperties.entrySet()) {
@@ -1451,7 +1467,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         totalTaskExcutionTimeMs = in.readLong();
         committedTaskNum = in.readLong();
         abortedTaskNum = in.readLong();
-
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_76) {
             String stmt = Text.readString(in);
             origStmt = new OriginStatement(stmt, 0);

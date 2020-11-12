@@ -124,7 +124,7 @@ public:
 
         if (_data.size < PLAIN_PAGE_HEADER_SIZE) {
             std::stringstream ss;
-            ss << "file corrupton: not enough bytes for header in PlainPageDecoder ."
+            ss << "file corruption: not enough bytes for header in PlainPageDecoder ."
                   "invalid data size:" << _data.size << ", header size:" << PLAIN_PAGE_HEADER_SIZE;
             return Status::InternalError(ss.str());
         }
@@ -133,7 +133,7 @@ public:
 
         if (_data.size != PLAIN_PAGE_HEADER_SIZE + _num_elems * SIZE_OF_TYPE) {
             std::stringstream ss;
-            ss << "file corrupton: unexpected data size.";
+            ss << "file corruption: unexpected data size.";
             return Status::InternalError(ss.str());
         }
 

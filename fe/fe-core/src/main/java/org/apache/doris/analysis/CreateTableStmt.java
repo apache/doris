@@ -83,6 +83,7 @@ public class CreateTableStmt extends DdlStmt {
     static {
         engineNames = Sets.newHashSet();
         engineNames.add("olap");
+        engineNames.add("odbc");
         engineNames.add("mysql");
         engineNames.add("broker");
         engineNames.add("elasticsearch");
@@ -255,7 +256,7 @@ public class CreateTableStmt extends DdlStmt {
 
         // TODO(wyb): spark-load
         if (engineName.equals("hive") && !Config.enable_spark_load) {
-            throw new AnalysisException("Spark Load from hive table is comming soon");
+            throw new AnalysisException("Spark Load from hive table is coming soon");
         }
         // analyze key desc
         if (!(engineName.equals("mysql") || engineName.equals("broker") || engineName.equals("hive"))) {
@@ -336,7 +337,9 @@ public class CreateTableStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
         // add a hidden column as delete flag for unique table
-        if (keysDesc != null && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+        if (Config.enable_batch_delete_by_default
+                && keysDesc != null
+                && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
             columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
         }
         int rowLengthBytes = 0;
@@ -349,7 +352,6 @@ public class CreateTableStmt extends DdlStmt {
             if (columnDef.getType().isHllType()) {
                 hasHll = true;
             }
-
 
             if (columnDef.getAggregateType() == AggregateType.BITMAP_UNION) {
                 hasBitmap = columnDef.getType().isBitmapType();
@@ -457,7 +459,7 @@ public class CreateTableStmt extends DdlStmt {
             throw new AnalysisException("Unknown engine name: " + engineName);
         }
 
-        if (engineName.equals("mysql") || engineName.equals("broker") 
+        if (engineName.equals("mysql") || engineName.equals("odbc") || engineName.equals("broker")
                 || engineName.equals("elasticsearch") || engineName.equals("hive")) {
             if (!isExternal) {
                 // this is for compatibility
@@ -559,9 +561,6 @@ public class CreateTableStmt extends DdlStmt {
 
     @Override
     public boolean needAuditEncryption() {
-        if (!engineName.equals("olap")) {
-            return true;
-        }
-        return false;
+        return !engineName.equals("olap");
     }
 }

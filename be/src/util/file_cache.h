@@ -140,7 +140,7 @@ private:
     std::shared_ptr<Cache> _cache;
 
     // Indicates weather _cache is only owned by this,
-    // gernerally, _cache can be shared by other, in 
+    // generally, _cache can be shared by other, in
     // this case, _is_cache_own is set to false.
     bool _is_cache_own = false;
 

@@ -126,8 +126,13 @@ OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
 }
 
 // TODO support beta rowset
-OLAPStatus SnapshotManager::convert_rowset_ids(const string& clone_dir, int64_t tablet_id,
-    const int32_t& schema_hash) {
+// For now, alpha and beta rowset meta have same fields, so we can just use
+// AlphaRowsetMeta here.
+OLAPStatus SnapshotManager::convert_rowset_ids(
+        const string& clone_dir,
+        int64_t tablet_id,
+        const int32_t& schema_hash) {
+
     OLAPStatus res = OLAP_SUCCESS;
     // check clone dir existed
     if (!FileUtils::check_exist(clone_dir)) {
@@ -198,6 +203,11 @@ OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb, co
         TabletSchema& tablet_schema, const RowsetId& rowset_id, RowsetMetaPB* new_rs_meta_pb) {
     OLAPStatus res = OLAP_SUCCESS;
     // TODO use factory to obtain RowsetMeta when SnapshotManager::convert_rowset_ids supports beta rowset
+    // TODO(cmy): now we only has AlphaRowsetMeta, and no BetaRowsetMeta.
+    //            AlphaRowsetMeta only add some functions about segment group, and no addition fields.
+    //            So we can use AlphaRowsetMeta here even if this is a beta rowset.
+    //            And the `rowset_type` field indicates the real type of rowset, so that the correct rowset
+    //            can be created.
     RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
     alpha_rowset_meta->init_from_pb(rs_meta_pb);
     RowsetSharedPtr org_rowset;
@@ -271,6 +281,8 @@ OLAPStatus SnapshotManager::_calc_snapshot_id_path(
     return res;
 }
 
+// location: /path/to/data/DATA_PREFIX/shard_id
+// return: /path/to/data/DATA_PREFIX/shard_id/tablet_id/schema_hash
 string SnapshotManager::get_schema_hash_full_path(
         const TabletSharedPtr& ref_tablet,
         const string& location) const {
@@ -376,19 +388,19 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         } else {
             ReadLock rdlock(ref_tablet->get_header_lock_ptr());
             // get latest version
-            const RowsetSharedPtr lastest_version = ref_tablet->rowset_with_max_version();
-            if (lastest_version == nullptr) {
+            const RowsetSharedPtr last_version = ref_tablet->rowset_with_max_version();
+            if (last_version == nullptr) {
                 LOG(WARNING) << "tablet has not any version. path="
                              << ref_tablet->full_name().c_str();
                 res = OLAP_ERR_VERSION_NOT_EXIST;
                 break;
             }
             // get snapshot version, use request.version if specified
-            int32_t version = lastest_version->end_version();
+            int32_t version = last_version->end_version();
             if (request.__isset.version) {
-                if (lastest_version->end_version() < request.version) {
+                if (last_version->end_version() < request.version) {
                     LOG(WARNING) << "invalid make snapshot request. "
-                                 << " version=" << lastest_version->end_version()
+                                 << " version=" << last_version->end_version()
                                  << " req_version=" << request.version;
                     res = OLAP_ERR_INPUT_PARAMETER_ERROR;
                     break;
@@ -476,7 +488,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                         // A need to clone 900 from B, but B's last version is 901, and 901 is not a visible version
                         // and 901 will be reverted
                         // since 900 is not the last version in B, 900 maybe compacted with other versions
-                        // if A only get 900, then A's last version will be a comulative delta
+                        // if A only get 900, then A's last version will be a cumulative delta
                         // many codes in be assumes that the last version is a single delta
                         // both clone and backup restore depend on this logic
                         // TODO (yiguolei) fix it in the future

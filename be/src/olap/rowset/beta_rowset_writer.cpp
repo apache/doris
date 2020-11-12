@@ -92,7 +92,7 @@ OLAPStatus BetaRowsetWriter::_add_row(const RowType& row) {
     if (PREDICT_FALSE(_segment_writer == nullptr)) {
         RETURN_NOT_OK(_create_segment_writer());
     }
-    // TODO update rowset's zonemap
+    // TODO update rowset zonemap
     auto s = _segment_writer->append_row(row);
     if (PREDICT_FALSE(!s.ok())) {
         LOG(WARNING) << "failed to append row: " << s.to_string();
@@ -142,7 +142,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         wblock->close();
     }
     // When building a rowset, we must ensure that the current _segment_writer has been
-    // flushed, that is, the current _segment_wirter is nullptr
+    // flushed, that is, the current _segment_writer is nullptr
     DCHECK(_segment_writer == nullptr) << "segment must be null when build rowset";
     _rowset_meta->set_num_rows(_num_rows_written);
     _rowset_meta->set_total_disk_size(_total_data_size);

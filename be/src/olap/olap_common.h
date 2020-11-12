@@ -260,6 +260,7 @@ struct OlapReaderStatistics {
     int64_t rows_stats_filtered = 0;
     int64_t rows_bf_filtered = 0;
     int64_t rows_del_filtered = 0;
+    int64_t rows_conditions_filtered = 0;
 
     int64_t index_load_ns = 0;
 
@@ -306,7 +307,7 @@ struct RowsetId {
         }
     }
 
-    // to compatiable with old version
+    // to compatible with old version
     void init(int64_t rowset_id) {
         init(1, rowset_id, 0, 0);
     }

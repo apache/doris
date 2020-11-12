@@ -35,6 +35,7 @@
 #include "runtime/load_channel_mgr.h"
 #include "runtime/tmp_file_mgr.h"
 #include "runtime/bufferpool/reservation_tracker.h"
+#include "runtime/cache/result_cache.h"
 #include "util/metrics.h"
 #include "util/network_util.h"
 #include "util/parse_util.h"
@@ -65,11 +66,15 @@
 
 namespace doris {
 
-Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
+Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {    
     return env->_init(store_paths);
 }
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
+    //Only init once before be destroyed
+    if (_is_init) {
+        return Status::OK();
+    }
     _store_paths = store_paths;
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
     _stream_mgr = new DataStreamMgr();
@@ -89,6 +94,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         config::etl_thread_pool_queue_size);
     _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);
     _fragment_mgr = new FragmentMgr(this);
+    _result_cache = new ResultCache(config::query_cache_max_size_mb, config::query_cache_elasticity_size_mb);
     _master_info = new TMasterInfo();
     _etl_job_mgr = new EtlJobMgr(this);
     _load_path_mgr = new LoadPathMgr(this);
@@ -122,6 +128,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker->limit()));
     _heartbeat_flags = new HeartbeatFlags();
+    _is_init = true;
     return Status::OK();
 }
 
@@ -206,38 +213,43 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size,
     _buffer_reservation->InitRootTracker(nullptr, capacity);
 }
 
-void ExecEnv::_destory() {
-    delete _brpc_stub_cache;
-    delete _load_stream_mgr;
-    delete _load_channel_mgr;
-    delete _broker_mgr;
-    delete _bfd_parser;
-    delete _tmp_file_mgr;
-    delete _disk_io_mgr;
-    delete _load_path_mgr;
-    delete _etl_job_mgr;
-    delete _master_info;
-    delete _fragment_mgr;
-    delete _cgroups_mgr;
-    delete _etl_thread_pool;
-    delete _thread_pool;
-    delete _thread_mgr;
-    delete _pool_mem_trackers;
-    delete _broker_client_cache;
-    delete _extdatasource_client_cache;
-    delete _frontend_client_cache;
-    delete _backend_client_cache;
-    delete _result_mgr;
-    delete _result_queue_mgr;
-    delete _stream_mgr;
-    delete _stream_load_executor;
-    delete _routine_load_task_executor;
-    delete _external_scan_context_mgr;
-    delete _heartbeat_flags;
+void ExecEnv::_destroy() {
+    //Only destroy once after init
+    if (!_is_init) {
+        return;
+    }
+    SAFE_DELETE(_brpc_stub_cache);
+    SAFE_DELETE(_load_stream_mgr);
+    SAFE_DELETE(_load_channel_mgr);
+    SAFE_DELETE(_broker_mgr);
+    SAFE_DELETE(_bfd_parser);
+    SAFE_DELETE(_tmp_file_mgr);
+    SAFE_DELETE(_disk_io_mgr);
+    SAFE_DELETE(_load_path_mgr);
+    SAFE_DELETE(_etl_job_mgr);
+    SAFE_DELETE(_master_info);
+    SAFE_DELETE(_fragment_mgr);
+    SAFE_DELETE(_cgroups_mgr);
+    SAFE_DELETE(_etl_thread_pool);
+    SAFE_DELETE(_thread_pool);
+    SAFE_DELETE(_thread_mgr);
+    SAFE_DELETE(_pool_mem_trackers);
+    SAFE_DELETE(_broker_client_cache);
+    SAFE_DELETE(_extdatasource_client_cache);
+    SAFE_DELETE(_frontend_client_cache);
+    SAFE_DELETE(_backend_client_cache);
+    SAFE_DELETE(_result_mgr);
+    SAFE_DELETE(_result_queue_mgr);
+    SAFE_DELETE(_stream_mgr);
+    SAFE_DELETE(_stream_load_executor);
+    SAFE_DELETE(_routine_load_task_executor);
+    SAFE_DELETE(_external_scan_context_mgr);
+    SAFE_DELETE(_heartbeat_flags);
+    _is_init = false;
 }
 
 void ExecEnv::destroy(ExecEnv* env) {
-    env->_destory();
+    env->_destroy();
 }
 
 }

@@ -34,7 +34,7 @@ SET PASSWORD [FOR user_identity] =
 
 The SET PASSWORD command can be used to modify a user's login password. If the [FOR user_identity] field does not exist, modify the password of the current user.
 
-Note that the user_identity here must match exactly the user_identity specified when creating a user using CREATE USER, otherwise the user will be reported as non-existent. If user_identity is not specified, the current user is'username'@'ip', which may not match any user_identity. The current user can be viewed through SHOW GRANTS.
+Note that the user_identity here must match exactly the user_identity specified when creating a user using CREATE USER, otherwise the user will be reported as non-existent. If user_identity is not specified, the current user is 'username'@'ip', which may not match any user_identity. The current user can be viewed through SHOW GRANTS.
 
 PASSWORD () input is a plaintext password, and direct use of strings, you need to pass the encrypted password.
 If you change the password of other users, you need to have administrator privileges.

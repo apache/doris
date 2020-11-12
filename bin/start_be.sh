@@ -47,6 +47,12 @@ export UDF_RUNTIME_DIR=${DORIS_HOME}/lib/udf-runtime
 export LOG_DIR=${DORIS_HOME}/log
 export PID_DIR=`cd "$curdir"; pwd`
 
+# set odbc conf path
+export ODBCSYSINI=$DORIS_HOME/conf
+
+# support utf8 for oracle database
+export NLS_LANG=AMERICAN_AMERICA.AL32UTF8
+
 while read line; do
     envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`
     envline=`eval "echo $envline"`

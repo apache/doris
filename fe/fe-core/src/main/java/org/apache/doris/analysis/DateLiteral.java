@@ -22,12 +22,15 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,7 +44,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.time.Year;
 import java.util.Date;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.TimeZone;
 import java.util.regex.Pattern;
@@ -54,7 +60,10 @@ public class DateLiteral extends LiteralExpr {
     private static final DateLiteral MIN_DATETIME = new DateLiteral(0000, 1, 1, 0, 0, 0);
     private static final DateLiteral MAX_DATETIME = new DateLiteral(9999, 12, 31, 23, 59, 59);
     public static final DateLiteral UNIX_EPOCH_TIME = new DateLiteral(1970, 01, 01, 00, 00, 00);
-    
+
+    private static final int DATEKEY_LENGTH = 8;
+    private static final int MAX_MICROSECOND = 999999;
+
     private static DateTimeFormatter DATE_TIME_FORMATTER = null;
     private static DateTimeFormatter DATE_FORMATTER = null;
     /* 
@@ -65,21 +74,76 @@ public class DateLiteral extends LiteralExpr {
      * */
     private static DateTimeFormatter DATE_TIME_FORMATTER_TWO_DIGIT = null;
     private static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = null;
+    /*
+     *  The datekey type is widely used in data warehouses
+     *  For example, 20121229 means '2012-12-29'
+     *  and data in the form of 'yyyymmdd' is generally called the datekey type.
+     */
+    private static DateTimeFormatter DATEKEY_FORMATTER = null;
+
+    private static Map<String, Integer> MONTH_NAME_DICT = Maps.newHashMap();
+    private static Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
+    private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
+    private static Map<String, Integer> WEEK_DAY_ABBR_NAME_DICT = Maps.newHashMap();
+    private static List<Integer> DAYS_IN_MONTH = Lists.newArrayList(0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31);
 
     static {
         try {
             DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter();
             DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter();
+            DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter();
             DATE_TIME_FORMATTER_TWO_DIGIT = formatBuilder("%y-%m-%d %H:%i:%s").toFormatter();
             DATE_FORMATTER_TWO_DIGIT = formatBuilder("%y-%m-%d").toFormatter();
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
             System.exit(-1);
         }
+
+        MONTH_NAME_DICT.put("january", 1);
+        MONTH_NAME_DICT.put("february", 2);
+        MONTH_NAME_DICT.put("march", 3);
+        MONTH_NAME_DICT.put("april", 4);
+        MONTH_NAME_DICT.put("may", 5);
+        MONTH_NAME_DICT.put("june", 6);
+        MONTH_NAME_DICT.put("july", 7);
+        MONTH_NAME_DICT.put("august", 8);
+        MONTH_NAME_DICT.put("september", 9);
+        MONTH_NAME_DICT.put("october", 10);
+        MONTH_NAME_DICT.put("november", 11);
+        MONTH_NAME_DICT.put("december", 12);
+
+        MONTH_ABBR_NAME_DICT.put("jan", 1);
+        MONTH_ABBR_NAME_DICT.put("feb", 2);
+        MONTH_ABBR_NAME_DICT.put("mar", 3);
+        MONTH_ABBR_NAME_DICT.put("apr", 4);
+        MONTH_ABBR_NAME_DICT.put("may", 5);
+        MONTH_ABBR_NAME_DICT.put("jun", 6);
+        MONTH_ABBR_NAME_DICT.put("jul", 7);
+        MONTH_ABBR_NAME_DICT.put("aug", 8);
+        MONTH_ABBR_NAME_DICT.put("sep", 9);
+        MONTH_ABBR_NAME_DICT.put("oct", 10);
+        MONTH_ABBR_NAME_DICT.put("nov", 11);
+        MONTH_ABBR_NAME_DICT.put("dec", 12);
+
+        WEEK_DAY_NAME_DICT.put("monday", 0);
+        WEEK_DAY_NAME_DICT.put("tuesday", 1);
+        WEEK_DAY_NAME_DICT.put("wednesday", 2);
+        WEEK_DAY_NAME_DICT.put("thursday", 3);
+        WEEK_DAY_NAME_DICT.put("friday", 4);
+        WEEK_DAY_NAME_DICT.put("saturday", 5);
+        WEEK_DAY_NAME_DICT.put("sunday", 6);
+
+        MONTH_ABBR_NAME_DICT.put("mon", 0);
+        MONTH_ABBR_NAME_DICT.put("tue", 1);
+        MONTH_ABBR_NAME_DICT.put("wed", 2);
+        MONTH_ABBR_NAME_DICT.put("thu", 3);
+        MONTH_ABBR_NAME_DICT.put("fri", 4);
+        MONTH_ABBR_NAME_DICT.put("sat", 5);
+        MONTH_ABBR_NAME_DICT.put("sun", 6);
     }
 
     //Regex used to determine if the TIME field exists int date_format
-    private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsT]+.*$");
+    private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsTp]+.*$");
     //Date Literal persist type in meta
     private enum  DateLiteralType {
         DATETIME(0),
@@ -93,9 +157,9 @@ public class DateLiteral extends LiteralExpr {
         public int value() {
             return value;
         }
-    }    
+    }
 
-    private DateLiteral() {
+    public DateLiteral() {
         super();
     }
 
@@ -195,6 +259,8 @@ public class DateLiteral extends LiteralExpr {
             if (type.equals(Type.DATE)) {
                 if (s.split("-")[0].length() == 2) {
                     dateTime = DATE_FORMATTER_TWO_DIGIT.parseLocalDateTime(s);
+                } else if(s.length() == DATEKEY_LENGTH) {
+                    dateTime = DATEKEY_FORMATTER.parseLocalDateTime(s);
                 } else {
                     dateTime = DATE_FORMATTER.parseLocalDateTime(s);
                 }
@@ -423,7 +489,8 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public static DateLiteral dateParser(String date, String pattern) throws AnalysisException {
-        LocalDateTime dateTime = formatBuilder(pattern).toFormatter().parseLocalDateTime(date);
+        DateTimeFormatter formatter = formatBuilder(pattern).toFormatter();
+        LocalDateTime dateTime = formatter.parseLocalDateTime(date);
         DateLiteral dateLiteral = new DateLiteral(
                 dateTime.getYear(),
                 dateTime.getMonthOfYear(),
@@ -631,5 +698,459 @@ public class DateLiteral extends LiteralExpr {
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(unixTimestamp(TimeZone.getDefault()));
+    }
+
+    // parse the date string value in 'value' by 'format' pattern.
+    // return the next position to parse if hasSubVal is true.
+    // throw InvalidFormatException if encounter errors.
+    // this method is exaclty same as from_date_format_str() in be/src/runtime/datetime_value.cpp
+    // change this method should also change that.
+    public int fromDateFormatStr(String format, String value, boolean hasSubVal) throws InvalidFormatException {
+        int fp = 0; // pointer to the current format string
+        int fend = format.length(); // end of format string
+        int vp = 0; // pointer to the date string value
+        int vend = value.length(); // end of date string value
+
+        boolean datePartUsed = false;
+        boolean timePartUsed = false;
+
+        int dayPart = 0;
+        long weekday = -1;
+        long yearday = -1;
+        long weekNum = -1;
+
+        boolean strictWeekNumber = false;
+        boolean sundayFirst = false;
+        boolean strictWeekNumberYearType = false;
+        long strictWeekNumberYear = -1;
+        boolean usaTime = false;
+
+        char f;
+        while (fp < fend && vp < vend) {
+            // Skip space character
+            while (vp < vend && Character.isSpaceChar(value.charAt(vp))) {
+                vp++;
+            }
+            if (vp >= vend) {
+                break;
+            }
+
+            // Check switch
+            f = format.charAt(fp);
+            if (f == '%' && fp + 1 < fend) {
+                int tmp = 0;
+                long intValue = 0;
+                fp++;
+                f = format.charAt(fp);
+                fp++;
+                switch (f) {
+                    // Year
+                    case 'y':
+                        // Year, numeric (two digits)
+                        tmp = vp + Math.min(2, vend - vp);
+                        intValue = strToLong(value.substring(vp, tmp));
+                        intValue += intValue >= 70 ? 1900 : 2000;
+                        this.year = intValue;
+                        vp = tmp;
+                        datePartUsed = true;
+                        break;
+                    case 'Y':
+                        // Year, numeric, four digits
+                        tmp = vp + Math.min(4, vend - vp);
+                        intValue = strToLong(value.substring(vp, tmp));
+                        if (tmp - vp <= 2) {
+                            intValue += intValue >= 70 ? 1900 : 2000;
+                        }
+                        this.year = intValue;
+                        vp = tmp;
+                        datePartUsed = true;
+                        break;
+                    // Month
+                    case 'm':
+                    case 'c':
+                        tmp = vp + Math.min(2, vend - vp);
+                        intValue = strToLong(value.substring(vp, tmp));
+                        this.month = intValue;
+                        vp = tmp;
+                        datePartUsed = true;
+                        break;
+                    case 'M': {
+                        int nextPos = findWord(value, vp);
+                        intValue = checkWord(MONTH_NAME_DICT, value.substring(vp, nextPos));
+                        this.month = intValue;
+                        vp = nextPos;
+                        break;
+                    }
+                    case 'b': {
+                        int nextPos = findWord(value, vp);
+                        intValue = checkWord(MONTH_ABBR_NAME_DICT, value.substring(vp, nextPos));
+                        this.month = intValue;
+                        vp = nextPos;
+                        break;
+                    }
+                    // Day
+                    case 'd':
+                    case 'e':
+                        tmp = vp + Math.min(2, vend - vp);
+                        intValue = strToLong(value.substring(vp, tmp));
+                        this.day = intValue;
+                        vp = tmp;
+                        datePartUsed = true;
+                        break;
+                    case 'D':
+                        tmp = vp + Math.min(2, vend - vp);
+                        intValue = strToLong(value.substring(vp, tmp));
+                        this.day = intValue;
+                        vp = tmp + Math.min(2, vend - tmp);
+                        datePartUsed = true;
+                        break;
+                    // Hour
+                    case 'h':
+                    case 'I':
+                    case 'l':
+                        usaTime = true;
+                        // Fall through
+                    case 'k':
+                    case 'H':
+                        tmp = findNumber(value, vp, 2);
+                        intValue = strToLong(value.substring(vp, tmp));
+                        this.hour = intValue;
+                        vp = tmp;
+                        timePartUsed = true;
+                        break;
+                    // Minute
+                    case 'i':
+                        tmp = vp + Math.min(2, vend - vp);
+                        intValue = strToLong(value.substring(vp, tmp));
+                        this.minute = intValue;
+                        vp = tmp;
+                        timePartUsed = true;
+                        break;
+                    // Second
+                    case 's':
+                    case 'S':
+                        tmp = vp + Math.min(2, vend - vp);
+                        intValue = strToLong(value.substring(vp, tmp));
+                        this.second = intValue;
+                        vp = tmp;
+                        timePartUsed = true;
+                        break;
+                    // Micro second
+                    case 'f':
+                        // micro second is not supported, so just eat it and go one.
+                        tmp = vp + Math.min(6, vend - vp);
+                        vp = tmp;
+                        break;
+                    // AM/PM
+                    case 'p':
+                        if ((vend - vp) < 2 || Character.toUpperCase(value.charAt(vp + 1)) != 'M' || !usaTime) {
+                            throw new InvalidFormatException("Invalid %p format");
+                        }
+                        if (Character.toUpperCase(value.charAt(vp)) == 'P') {
+                            // PM
+                            dayPart = 12;
+                        }
+                        timePartUsed = true;
+                        vp += 2;
+                        break;
+                    // Weekday
+                    case 'W': {
+                        int nextPos = findWord(value, vp);
+                        intValue = checkWord(WEEK_DAY_NAME_DICT, value.substring(vp, nextPos));
+                        intValue++;
+                        weekday = intValue;
+                        datePartUsed = true;
+                        break;
+                    }
+                    case 'a': {
+                        int nextPos = findWord(value, vp);
+                        intValue = checkWord(WEEK_DAY_NAME_DICT, value.substring(vp, nextPos));
+                        intValue++;
+                        weekday = intValue;
+                        datePartUsed = true;
+                        break;
+                    }
+                    case 'w':
+                        tmp = vp + Math.min(1, vend - vp);
+                        intValue = strToLong(value.substring(vp, tmp));
+                        if (intValue >= 7) {
+                            throw new InvalidFormatException("invalid day of week: " + intValue);
+                        }
+                        if (intValue == 0) {
+                            intValue = 7;
+                        }
+                        weekday = intValue;
+                        vp = tmp;
+                        datePartUsed = true;
+                        break;
+                    case 'j':
+                        tmp = vp + Math.min(3, vend - vp);
+                        intValue = strToLong(value.substring(vp, tmp));
+                        yearday = intValue;
+                        vp = tmp;
+                        datePartUsed = true;
+                        break;
+                    case 'u':
+                    case 'v':
+                    case 'U':
+                    case 'V':
+                        sundayFirst = (format.charAt(fp - 1) == 'U' || format.charAt(fp - 1) == 'V');
+                        // Used to check if there is %x or %X
+                        strictWeekNumber = (format.charAt(fp - 1) == 'V' || format.charAt(fp - 1) == 'v');
+                        tmp = vp + Math.min(2, vend - vp);
+                        intValue = Long.valueOf(value.substring(vp, tmp));
+                        weekNum = intValue;
+                        if (weekNum > 53 || (strictWeekNumber && weekNum == 0)) {
+                            throw new InvalidFormatException("invalid num of week: " + weekNum);
+                        }
+                        vp = tmp;
+                        datePartUsed = true;
+                        break;
+                    // strict week number, must be used with %V or %v
+                    case 'x':
+                    case 'X':
+                        strictWeekNumberYearType = (format.charAt(fp - 1) == 'X');
+                        tmp = vp + Math.min(4, vend - vp);
+                        intValue = Long.valueOf(value.substring(vp, tmp));
+                        strictWeekNumberYear = intValue;
+                        vp = tmp;
+                        datePartUsed = true;
+                        break;
+                    case 'r':
+                        tmp = fromDateFormatStr("%I:%i:%S %p", value.substring(vp, vend), true);
+                        vp = tmp;
+                        timePartUsed = true;
+                        break;
+                    case 'T':
+                        tmp = fromDateFormatStr("%H:%i:%S", value.substring(vp, vend), true);
+                        vp = tmp;
+                        timePartUsed = true;
+                        break;
+                    case '.':
+                        while (vp < vend && Character.toString(value.charAt(vp)).matches("\\p{Punct}")) {
+                            vp++;
+                        }
+                        break;
+                    case '@':
+                        while (vp < vend && Character.isLetter(value.charAt(vp))) {
+                            vp++;
+                        }
+                        break;
+                    case '#':
+                        while (vp < vend && Character.isDigit(value.charAt(vp))) {
+                            vp++;
+                        }
+                        break;
+                    case '%': // %%, escape the %
+                        if ('%' != value.charAt(vp)) {
+                            throw new InvalidFormatException("invalid char after %: " + value.charAt(vp));
+                        }
+                        vp++;
+                        break;
+                    default:
+                        throw new InvalidFormatException("Invalid format pattern: " + f);
+                }
+            } else if (format.charAt(fp) != ' ') {
+                if (format.charAt(fp) != value.charAt(vp)) {
+                    throw new InvalidFormatException("Invalid char: " + value.charAt(vp) + ", expected: " + format.charAt(fp));
+                }
+                fp++;
+                vp++;
+            } else {
+                fp++;
+            }
+        }
+
+        // continue to iterate pattern if has
+        // to find out if it has time part.
+        while (fp < fend) {
+            f = format.charAt(fp);
+            if (f == '%' && fp + 1 < fend) {
+                fp++;
+                f = format.charAt(fp);
+                fp++;
+                switch (f) {
+                    case 'H':
+                    case 'h':
+                    case 'I':
+                    case 'i':
+                    case 'k':
+                    case 'l':
+                    case 'r':
+                    case 's':
+                    case 'S':
+                    case 'p':
+                    case 'T':
+                        timePartUsed = true;
+                        break;
+                    default:
+                        break;
+                }
+            } else {
+                fp++;
+            }
+        }
+
+        if (usaTime) {
+            if (this.hour > 12 || this.hour < 1) {
+                throw new InvalidFormatException("Invalid hour: " + hour);
+            }
+            this.hour = (this.hour % 12) + dayPart;
+        }
+
+        if (hasSubVal) {
+            return vp;
+        }
+
+        // Year day
+        if (yearday > 0) {
+            long days = calcDaynr(this.year, 1, 1) + yearday - 1;
+            getDateFromDaynr(days);
+        }
+
+        // weekday
+        if (weekNum >= 0 && weekday > 0) {
+            // Check
+            if ((strictWeekNumber && (strictWeekNumberYear < 0
+                    || strictWeekNumberYearType != sundayFirst))
+                    || (!strictWeekNumber && strictWeekNumberYear >= 0)) {
+                throw new InvalidFormatException("invalid week number");
+            }
+            long days = calcDaynr(strictWeekNumber ? strictWeekNumberYear : this.year, 1, 1);
+
+            long weekday_b = calcWeekday(days, sundayFirst);
+
+            if (sundayFirst) {
+                days += ((weekday_b == 0) ? 0 : 7) - weekday_b + (weekNum - 1) * 7 + weekday % 7;
+            } else {
+                days += ((weekday_b <= 3) ? 0 : 7) - weekday_b + (weekNum - 1) * 7 + weekday - 1;
+            }
+            getDateFromDaynr(days);
+        }
+
+        // Compute timestamp type
+        if (datePartUsed) {
+            if (timePartUsed) {
+                this.type = Type.DATETIME;
+            } else {
+                this.type = Type.DATE;
+            }
+        }
+
+        if (checkRange() || checkDate()) {
+            throw new InvalidFormatException("Invalid format");
+        }
+        return 0;
+    }
+
+    private boolean checkRange() {
+        return year > MAX_DATETIME.year || month > MAX_DATETIME.month || day > MAX_DATETIME.day
+                || hour > MAX_DATETIME.hour || minute > MAX_DATETIME.minute || second > MAX_DATETIME.second
+                || microsecond > MAX_MICROSECOND;
+    }
+    private boolean checkDate() {
+        if (month != 0 && day > DAYS_IN_MONTH.get((int)month)){
+            if (month == 2 && day == 29 && Year.isLeap(year)) {
+                return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private long strToLong(String l) throws InvalidFormatException {
+        try {
+            long y = Long.valueOf(l);
+            if (y < 0) {
+                throw new InvalidFormatException("Invalid format: negative number.");
+            }
+            return y;
+        } catch (NumberFormatException e) {
+            throw new InvalidFormatException(e.getMessage());
+        }
+    }
+
+    // calculate the number of days from year 0000-00-00 to year-month-day
+    private long calcDaynr(long year, long month, long day) {
+        long delsum = 0;
+        long y = year;
+
+        if (year == 0 && month == 0) {
+            return 0;
+        }
+
+        /* Cast to int to be able to handle month == 0 */
+        delsum = 365 * y + 31 * (month - 1) + day;
+        if (month <= 2) {
+            // No leap year
+            y--;
+        } else {
+            // This is great!!!
+            // 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+            // 0, 0, 3, 3, 4, 4, 5, 5, 5,  6,  7,  8
+            delsum -= (month * 4 + 23) / 10;
+        }
+        // Every 400 year has 97 leap year, 100, 200, 300 are not leap year.
+        return delsum + y / 4 - y / 100 + y / 400;
+    }
+
+    private long calcWeekday(long dayNr, boolean isSundayFirstDay) {
+        return (dayNr + 5L + (isSundayFirstDay ? 1L : 0L)) % 7;
+    }
+
+    private void getDateFromDaynr(long daynr) throws InvalidFormatException {
+        if (daynr <= 0 || daynr > 3652424) {
+            throw new InvalidFormatException("Invalid days to year: " + daynr);
+        }
+        this.year = daynr / 365;
+        long daysBeforeYear = 0;
+        while (daynr < (daysBeforeYear = calcDaynr(this.year, 1, 1))) {
+            this.year--;
+        }
+        long daysOfYear = daynr - daysBeforeYear + 1;
+        int leapDay = 0;
+        if (Year.isLeap(this.year)) {
+            if (daysOfYear > 31 + 28) {
+                daysOfYear--;
+                if (daysOfYear == 31 + 28) {
+                    leapDay = 1;
+                }
+            }
+        }
+        this.month = 1;
+        while (daysOfYear > DAYS_IN_MONTH.get((int) this.month)) {
+            daysOfYear -= DAYS_IN_MONTH.get((int) this.month);
+            this.month++;
+        }
+        this.day = daysOfYear + leapDay;
+    }
+
+    // find a word start from 'start' from value.
+    private int findWord(String value, int start) {
+        int p = start;
+        while (p < value.length() && Character.isLetter(value.charAt(p))) {
+            p++;
+        }
+        return p;
+    }
+
+    // find a number start from 'start' from value.
+    private int findNumber(String value, int start, int maxLen) {
+        int p = start;
+        int left = maxLen;
+        while (p < value.length() && Character.isDigit(value.charAt(p)) && left > 0) {
+            p++;
+            left--;
+        }
+        return p;
+    }
+
+    // check if the given value exist in dict, return dict value.
+    private int checkWord(Map<String, Integer> dict, String value) throws InvalidFormatException {
+        Integer i = dict.get(value.toLowerCase());
+        if (i != null) {
+            return i;
+        }
+        throw new InvalidFormatException("'" + value + "' is invalid");
     }
 }

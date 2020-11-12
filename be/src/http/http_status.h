@@ -67,7 +67,7 @@ enum HttpStatus {
 
 std::string to_code(const HttpStatus& status);
 
-std::string defalut_reason(const HttpStatus& status);
+std::string default_reason(const HttpStatus& status);
 
 }
 

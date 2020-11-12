@@ -1,6 +1,6 @@
 ---
 {
-    "title": "FE 开发环境搭建 - Intellj IDEA",
+    "title": "FE 开发环境搭建 - IntelliJ IDEA",
     "language": "zh-CN"
 }
 ---
@@ -24,22 +24,21 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 使用 Intellj IDEA 搭建 FE 开发环境
+# 使用 IntelliJ IDEA 搭建 FE 开发环境
 
 ## 1.环境准备
 
-JDK1.8+  , Intellj IDEA
+JDK1.8+, IntelliJ IDEA
 
 1. 从 https://github.com/apache/incubator-doris.git 下载源码到本地
 
-2. 使用Intellj IDEA 打开代码根目录
+2. 使用IntelliJ IDEA 打开代码根目录
 
 3. 如果仅进行fe开发而没有编译过thirdparty，则需要安装thrift，并将thrift 复制或者连接到 `thirdparty/installed/bin` 目录下
 
     1. 安装 thrift 0.9.3 版本。
 
-        MacOS: `brew install https://gist.githubusercontent.com/chrislusf/8b4e7c19551ba220232f037b43c0eaf3/raw/01465b867b8ef9af7c7c3fa830c83666c825122d/thrift.rb`
-
+        MacOS: `brew install thrift@0.9`
         Windows: `http://archive.apache.org/dist/thrift/0.9.3/thrift-0.9.3.exe`
 
 4. 如果是Mac 或者 Linux 环境 可以通过 如下命令生成自动生成代码：

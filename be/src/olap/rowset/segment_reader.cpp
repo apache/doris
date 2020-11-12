@@ -198,13 +198,13 @@ OLAPStatus SegmentReader::init(bool is_using_cache) {
     OLAPStatus res = OLAP_SUCCESS;
     res = _load_segment_file();
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to load sgment file. ");
+        OLAP_LOG_WARNING("fail to load segment file. ");
         return res;
     }
     // 文件头
     res = _set_segment_info();
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to set sgment info. ");
+        OLAP_LOG_WARNING("fail to set segment info. ");
         return res;
     }
 
@@ -625,7 +625,7 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
         FieldType type = _get_field_type_by_index(table_column_id);
 
         char* stream_buffer = NULL;
-        char key_buf[OLAP_LRU_CACHE_MAX_KEY_LENTH];
+        char key_buf[OLAP_LRU_CACHE_MAX_KEY_LENGTH];
         CacheKey key = _construct_index_stream_key(key_buf,
                        sizeof(key_buf),
                        _file_handler.file_name(),

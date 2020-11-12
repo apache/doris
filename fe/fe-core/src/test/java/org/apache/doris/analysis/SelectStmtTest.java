@@ -18,7 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -30,6 +34,9 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import java.util.UUID;
+
+import mockit.Mock;
+import mockit.MockUp;
 
 public class SelectStmtTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
@@ -45,6 +52,7 @@ public class SelectStmtTest {
 
     @BeforeClass
     public static void setUp() throws Exception {
+        Config.enable_batch_delete_by_default = true;
         UtFrameUtils.createMinDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
@@ -64,11 +72,58 @@ public class SelectStmtTest {
                 "\"storage_type\" = \"COLUMN\",\n" +
                 "\"replication_num\" = \"1\"\n" +
                 ");";
+        String createDatePartitionTableStr = "CREATE TABLE db1.date_partition_table (\n" +
+                "  `dt` date NOT NULL COMMENT \"\",\n" +
+                "  `poi_id` bigint(20) NULL COMMENT \"poi_id\",\n" +
+                "  `uv1` bitmap BITMAP_UNION NOT NULL COMMENT \"\",\n" +
+                "  `uv2` bitmap BITMAP_UNION NOT NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`dt`)\n" +
+                "(    PARTITION `p201701` VALUES LESS THAN (\"2020-09-08\"),\n" +
+                "    PARTITION `p201702` VALUES LESS THAN (\"2020-09-09\"),\n" +
+                "    PARTITION `p201703` VALUES LESS THAN (\"2020-09-10\"))\n" +
+                "DISTRIBUTED BY HASH(`poi_id`) BUCKETS 20\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"DEFAULT\"\n" +
+                ");";
+        String tbl1 = "CREATE TABLE db1.table1 (\n" +
+                "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
+                "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
+                "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n" +
+                "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "UNIQUE KEY(`siteid`, `citycode`, `username`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`siteid`) BUCKETS 10\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")";
+        String tbl2 = "CREATE TABLE db1.table2 (\n" +
+                "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
+                "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
+                "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n" +
+                "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "UNIQUE KEY(`siteid`, `citycode`, `username`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`siteid`) BUCKETS 10\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")";
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase("db1").useDatabase("db1");
         dorisAssert.withTable(createTblStmtStr)
                    .withTable(createBaseAllStmtStr)
-                   .withTable(createPratitionTableStr);
+                   .withTable(createPratitionTableStr)
+                   .withTable(createDatePartitionTableStr)
+                   .withTable(tbl1)
+                   .withTable(tbl2);
     }
 
     @Test
@@ -380,20 +435,114 @@ public class SelectStmtTest {
     }
 
     @Test
-    public void testVarcharToLongSupport() throws Exception {
-        String sql = "select count(*)\n" +
-                "from db1.partition_table\n" +
-                "where datekey='20200730'";
+    public void testRandFunction() throws Exception {
+        String sql = "select rand(db1.tbl1.k1) from db1.tbl1;";
+        try {
+            dorisAssert.query(sql).explainQuery();
+            Assert.fail("The param of rand function must be literal");
+        } catch (AnalysisException e) {
+            System.out.println(e.getMessage());
+        }
+        sql = "select rand(1234) from db1.tbl1;";
+        dorisAssert.query(sql).explainQuery();
+        sql = "select rand() from db1.tbl1;";
+        dorisAssert.query(sql).explainQuery();
+    }
+
+    @Test
+    public void testImplicitConvertSupport() throws Exception {
+        String sql1 = "select count(*) from db1.partition_table where datekey='20200730'";
         Assert.assertTrue(dorisAssert
-                .query(sql)
+                .query(sql1)
                 .explainQuery()
                 .contains("`datekey` = 20200730"));
-        sql = "select count(*)\n" +
-                "from db1.partition_table\n" +
-                "where '20200730'=datekey";
+        String sql2 = "select count(*) from db1.partition_table where '20200730'=datekey";
         Assert.assertTrue(dorisAssert
-                .query(sql)
+                .query(sql2)
                 .explainQuery()
                 .contains("`datekey` = 20200730"));
+        String sql3= "select count() from db1.date_partition_table where dt=20200908";
+        Assert.assertTrue(dorisAssert
+                .query(sql3)
+                .explainQuery()
+                .contains("`dt` = '2020-09-08 00:00:00'"));
+        String sql4= "select count() from db1.date_partition_table where dt='2020-09-08'";
+        Assert.assertTrue(dorisAssert
+                .query(sql4)
+                .explainQuery()
+                .contains("`dt` = '2020-09-08 00:00:00'"));
+    }
+
+    @Test
+    public void testDeleteSign() throws Exception {
+        String sql1 = "SELECT * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        String explain = dorisAssert.query(sql1).explainQuery();
+        Assert.assertTrue(explain
+                .contains("PREDICATES: `default_cluster:db1.table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        Assert.assertTrue(explain
+                .contains("PREDICATES: `default_cluster:db1.table2`.`__DORIS_DELETE_SIGN__` = 0"));
+        Assert.assertFalse(explain.contains("other predicates:"));
+        String sql2 = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        explain = dorisAssert.query(sql2).explainQuery();
+        Assert.assertTrue(explain
+                .contains("PREDICATES: `default_cluster:db1.table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        Assert.assertTrue(explain
+                .contains("PREDICATES: `default_cluster:db1.table2`.`__DORIS_DELETE_SIGN__` = 0"));
+        Assert.assertFalse(explain.contains("other predicates:"));
+        String sql3 = "SELECT * FROM db1.table1";
+        Assert.assertTrue(dorisAssert.query(sql3).explainQuery()
+                .contains("PREDICATES: `default_cluster:db1.table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql4 = " SELECT * FROM db1.table1 table2";
+        Assert.assertTrue(dorisAssert.query(sql4).explainQuery()
+                .contains("PREDICATES: `table2`.`__DORIS_DELETE_SIGN__` = 0"));
+        new MockUp<Util>() {
+            @Mock
+            public boolean showHiddenColumns() {
+                return true;
+            }
+        };
+        String sql5 = "SELECT * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        Assert.assertFalse(dorisAssert.query(sql5).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql6 = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        Assert.assertFalse(dorisAssert.query(sql6).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql7 = "SELECT * FROM db1.table1";
+        Assert.assertFalse(dorisAssert.query(sql7).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+        String sql8 = " SELECT * FROM db1.table1 table2";
+        Assert.assertFalse(dorisAssert.query(sql8).explainQuery().contains("`table2`.`__DORIS_DELETE_SIGN__` = 0"));
+    }
+
+    @Test
+    public void testSelectHintSetVar() throws Exception {
+        String sql = "SELECT sleep(3);";
+        Planner planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
+        Assert.assertEquals(VariableMgr.getDefaultSessionVariable().getQueryTimeoutS(),
+                planner.getPlannerContext().getQueryOptions().query_timeout);
+
+        sql = "SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);";
+        planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
+        Assert.assertEquals(1, planner.getPlannerContext().getQueryOptions().query_timeout);
+
+        sql = "select * from db1.partition_table where datekey=20200726";
+        planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
+        Assert.assertEquals(VariableMgr.getDefaultSessionVariable().getMaxExecMemByte(),
+                planner.getPlannerContext().getQueryOptions().mem_limit);
+
+        sql = "select /*+ SET_VAR(exec_mem_limit = 8589934592) */ poi_id, count(*) from db1.partition_table " +
+                "where datekey=20200726 group by 1";
+        planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
+        Assert.assertEquals(8589934592L, planner.getPlannerContext().getQueryOptions().mem_limit);
+    }
+
+    @Test
+    public void testWithWithoutDatabase() throws Exception {
+        String sql = "with tmp as (select count(*) from db1.table1) select * from tmp;";
+        dorisAssert.withoutUseDatabase();
+        dorisAssert.query(sql).explainQuery();
+
+        sql = "with tmp as (select * from db1.table1) " +
+                "select a.siteid, b.citycode, a.siteid from (select siteid, citycode from tmp) a " +
+                "left join (select siteid, citycode from tmp) b on a.siteid = b.siteid;";
+        dorisAssert.withoutUseDatabase();
+        dorisAssert.query(sql).explainQuery();
     }
 }

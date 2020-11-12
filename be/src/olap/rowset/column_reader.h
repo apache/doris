@@ -54,7 +54,7 @@ inline ReadOnlyFileStream* extract_stream(uint32_t column_unique_id,
 
 // Unique id -> PositionProvider
 typedef std::unordered_map<uint32_t, PositionProvider> UniqueIdPositionProviderMap;
-// Unqiue id -> ColumnEncodingMessage
+// Unique id -> ColumnEncodingMessage
 typedef std::map<uint32_t, ColumnEncodingMessage> UniqueIdEncodingMap;
 
 // Integer和String的读取器。
@@ -240,7 +240,7 @@ protected:
     bool* _is_null;
     uint32_t _column_id;        // column在schema内的id
     uint32_t _column_unique_id; // column的唯一id
-    BitFieldReader* _present_reader;   // NULLable的字段的NULL值
+    BitFieldReader* _present_reader;   // NULLabel的字段的NULL值
     std::vector<ColumnReader*> _sub_readers;
     OlapReaderStatistics* _stats = nullptr;
 };

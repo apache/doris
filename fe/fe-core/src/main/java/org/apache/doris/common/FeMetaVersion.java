@@ -30,7 +30,7 @@ public final class FeMetaVersion {
     public static final int VERSION_12 = 12;
     // jira 2245 load priority
     public static final int VERSION_15 = 15;
-    // jira 1635 dynamice fe
+    // jira 1635 dynamic fe
     public static final int VERSION_16 = 16;
     // jira 1988 backup and restore
     public static final int VERSION_17 = 17;
@@ -77,7 +77,7 @@ public final class FeMetaVersion {
     // added collation_server to variables (palo-3059)
     public static final int VERSION_37 = 37;
 
-    // paralle exec param and batch size
+    // parallel exec param and batch size
     public static final int VERSION_38 = 38;
 
     // schema change support row to column
@@ -192,6 +192,10 @@ public final class FeMetaVersion {
     public static final int VERSION_89 = 89;
     // for global variable persist
     public static final int VERSION_90 = 90;
+    // sparkLoadAppHandle
+    public static final int VERSION_91 = 91;
+    // for mysql external table support resource
+    public static final int VERSION_92 = 92;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_90;
+    public static final int VERSION_CURRENT = VERSION_92;
 }

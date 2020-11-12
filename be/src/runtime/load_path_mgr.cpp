@@ -37,7 +37,14 @@ static const uint32_t MAX_SHARD_NUM = 1024;
 static const std::string SHARD_PREFIX = "__shard_";
 
 LoadPathMgr::LoadPathMgr(ExecEnv* exec_env) : _exec_env(exec_env),
-        _idx(0), _next_shard(0), _error_path_next_shard(0) { }
+        _idx(0), _next_shard(0), _error_path_next_shard(0), _stop_background_threads_latch(1) { }
+
+LoadPathMgr::~LoadPathMgr() {
+    _stop_background_threads_latch.count_down();
+    if (_clean_thread) {
+        _clean_thread->join();
+    }
+}
 
 Status LoadPathMgr::init() {
     _path_vec.clear();
@@ -53,18 +60,15 @@ Status LoadPathMgr::init() {
 
     _idx = 0;
     _reserved_hours = std::max(config::load_data_reserve_hours, 1L);
-    pthread_create(&_cleaner_id, nullptr, LoadPathMgr::cleaner, this);
+    RETURN_IF_ERROR(
+        Thread::create("LoadPathMgr", "clean_expired_temp_path",
+                       [this]() {
+                           // TODO(zc): add this thread to cgroup for control resource it use
+                           while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(3600))) {
+                               this->clean();
+                           }},
+                       &_clean_thread));
     return Status::OK();
-}
-
-void* LoadPathMgr::cleaner(void* param) {
-    // TODO(zc): add this thread to cgroup for control resource it use
-    LoadPathMgr* mgr = (LoadPathMgr*)param;
-    while (true) {
-        sleep(3600); // clean every one hour
-        mgr->clean();
-    }
-    return nullptr;
 }
 
 Status LoadPathMgr::allocate_dir(
@@ -72,7 +76,7 @@ Status LoadPathMgr::allocate_dir(
         const std::string& label,
         std::string* prefix) {
     if (_path_vec.empty()) {
-        return Status::InternalError("No load path configed.");
+        return Status::InternalError("No load path configured.");
     }
     std::string path;
     auto size = _path_vec.size();

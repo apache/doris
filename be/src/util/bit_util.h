@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UITL_BIT_UTIL_H
-#define DORIS_BE_SRC_COMMON_UITL_BIT_UTIL_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_BIT_UTIL_H
+#define DORIS_BE_SRC_COMMON_UTIL_BIT_UTIL_H
 
 #include <endian.h>
 

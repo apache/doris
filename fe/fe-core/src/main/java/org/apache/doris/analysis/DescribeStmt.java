@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
@@ -191,6 +192,18 @@ public class DescribeStmt extends ShowStmt {
                             totalRows.add(EMPTY_ROW);
                         }
                     } // end for indices
+                } else if (table.getType() == TableType.ODBC) {
+                    isOlapTable = false;
+                    OdbcTable odbcTable = (OdbcTable) table;
+                    List<String> row = Arrays.asList(odbcTable.getHost(),
+                            odbcTable.getPort(),
+                            odbcTable.getUserName(),
+                            odbcTable.getPasswd(),
+                            odbcTable.getOdbcDatabaseName(),
+                            odbcTable.getOdbcTableName(),
+                            odbcTable.getOdbcDriver(),
+                            odbcTable.getOdbcTableTypeName());
+                    totalRows.add(row);
                 } else if (table.getType() == TableType.MYSQL) {
                     isOlapTable = false;
                     MysqlTable mysqlTable = (MysqlTable) table;

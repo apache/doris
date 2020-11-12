@@ -84,16 +84,19 @@ set(EXEC_FILES
     schema_scanner/schema_charsets_scanner.cpp
     schema_scanner/schema_collations_scanner.cpp
     schema_scanner/schema_helper.cpp
+    schema_scanner/schema_views_scanner.cpp
     partitioned_hash_table.cc
     partitioned_hash_table_ir.cc
     partitioned_aggregation_node.cc
     partitioned_aggregation_node_ir.cc
+    odbc_scan_node.cpp
     local_file_writer.cpp
     broker_writer.cpp
     parquet_scanner.cpp
     parquet_reader.cpp
     parquet_writer.cpp
     orc_scanner.cpp
+    odbc_scanner.cpp
     json_scanner.cpp
     assert_num_rows_node.cpp
 )
@@ -108,7 +111,7 @@ endif()
 
 if (WITH_LZO)
     set(EXEC_FILES ${EXEC_FILES}
-        lzo_decompressor.cpp 
+        lzo_decompressor.cpp
     )
 endif()
 

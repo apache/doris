@@ -176,7 +176,7 @@ private:
 typedef struct _FixedFileHeader {
     // 整个文件的长度
     uint32_t file_length;
-    // 文件除了FileHeader之外的内容的checkcum
+    // 文件除了FileHeader之外的内容的checksum
     uint32_t checksum;
     // Protobuf部分的长度
     uint32_t protobuf_length;
@@ -189,7 +189,7 @@ typedef struct _FixedFileHeaderV2 {
     uint32_t version;
     // 整个文件的长度
     uint64_t file_length;
-    // 文件除了FileHeader之外的内容的checkcum
+    // 文件除了FileHeader之外的内容的checksum
     uint32_t checksum;
     // Protobuf部分的长度
     uint64_t protobuf_length;

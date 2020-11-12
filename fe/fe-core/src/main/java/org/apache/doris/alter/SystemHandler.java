@@ -59,7 +59,7 @@ import java.util.List;
 
 /*
  * SystemHandler is for
- * 1. add/drop/decommisson backends
+ * 1. add/drop/decommission backends
  * 2. add/drop frontends
  * 3. add/drop/modify brokers
  */
@@ -264,13 +264,13 @@ public class SystemHandler extends AlterHandler {
     @Override
     public void replayInitJob(AlterJob alterJob, Catalog catalog) {
         DecommissionBackendJob decommissionBackendJob = (DecommissionBackendJob) alterJob;
-        LOG.debug("replay init decommision backend job: {}", decommissionBackendJob.getBackendIdsString());
+        LOG.debug("replay init decommission backend job: {}", decommissionBackendJob.getBackendIdsString());
         addAlterJob(alterJob);
     }
 
     @Override
     public void replayFinish(AlterJob alterJob, Catalog catalog) {
-        LOG.debug("replay finish decommision backend job: {}",
+        LOG.debug("replay finish decommission backend job: {}",
                 ((DecommissionBackendJob) alterJob).getBackendIdsString());
         removeAlterJob(alterJob.getTableId());
         alterJob.setState(JobState.FINISHED);

@@ -103,7 +103,7 @@ private:
     // TODO(cmy): I simply use a stringstrteam to buffer the data, to avoid calling
     // file writer's write() for every single row.
     // But this cannot solve the problem of a row of data that is too large.
-    // For exampel: bitmap_to_string() may return large volumn of data.
+    // For example: bitmap_to_string() may return large volumn of data.
     // And the speed is relative low, in my test, is about 6.5MB/s.
     std::stringstream _plain_text_outstream;
     static const size_t OUTSTREAM_BUFFER_SIZE_BYTES;
@@ -114,7 +114,7 @@ private:
     int _file_idx = 0;
 
     RuntimeProfile* _parent_profile;    // profile from result sink, not owned
-    // total time cost on append batch opertion
+    // total time cost on append batch operation
     RuntimeProfile::Counter* _append_row_batch_timer = nullptr;
     // tuple convert timer, child timer of _append_row_batch_timer
     RuntimeProfile::Counter* _convert_tuple_timer = nullptr;

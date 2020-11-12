@@ -56,10 +56,12 @@ Note: For different versions of Oris, you need to download the corresponding mir
 
 	`$ docker run -it apachedoris/doris-dev:build-env`
 
-	If you want to compile the local Doris source code, you can mount the path:
+    It is recommended to run the container by mounting the local Doris source directory, so that the compiled binary file will be stored in the host machine and will not disappear because the container exits.
+
+     At the same time, it is recommended to mount the maven `.m2` directory in the mirror to the host directory at the same time to prevent repeated downloading of maven's dependent libraries each time the compilation is started.
 
     ```
-    $ docker run -it -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env
+    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env
     ```
 
 3. Download source code
@@ -82,7 +84,7 @@ Note: For different versions of Oris, you need to download the corresponding mir
 
 ### Self-compiling Development Environment Mirror
 
-You can also create a Doris development environment mirror yourself, referring specifically to the `docker/README.md'file.
+You can also create a Doris development environment mirror yourself, referring specifically to the `docker/README.md` file.
 
 
 ## Direct Compilation (CentOS/Ubuntu)
@@ -105,6 +107,12 @@ You can try to compile Doris directly in your own Linux environment.
     $ sh build.sh
     ```
 	After compilation, the output file is in the `output/` directory.
+
+## FAQ
+
+1. `Could not transfer artifact net.sourceforge.czt.dev:cup-maven-plugin:pom:1.6-cdh from/to xxx`
+
+    If you encounter the above error, please refer to [PR #4769](https://github.com/apache/incubator-doris/pull/4769/files) to modify the cloudera-related repo configuration in `fe/pom.xml`.
 	
 ## Special statement
 

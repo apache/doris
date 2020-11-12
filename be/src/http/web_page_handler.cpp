@@ -80,8 +80,7 @@ void WebPageHandler::register_page(const std::string& path, const string& alias,
 }
 
 void WebPageHandler::handle(HttpRequest* req) {
-    LOG(INFO) << req->debug_string();
-
+    VLOG(10) << req->debug_string();
     PathHandler* handler = nullptr;
     {
         boost::mutex::scoped_lock lock(_map_lock);
@@ -127,7 +126,7 @@ static const std::string kMainTemplate = R"(
     <meta charset='utf-8'/>
     <link href='/Bootstrap-3.3.7/css/bootstrap.min.css' rel='stylesheet' media='screen' />
     <link href='/Bootstrap-3.3.7/css/bootstrap-table.min.css' rel='stylesheet' media='screen' />
-    <script src='/jQuery-3.3.1/jquery-3.3.1.min.js' defer></script>
+    <script src='/jQuery-3.3.1/jquery-3.3.1.min.js'></script>
     <script src='/Bootstrap-3.3.7/js/bootstrap.min.js' defer></script>
     <script src='/Bootstrap-3.3.7/js/bootstrap-table.min.js' defer></script>
     <script src='/doris.js' defer></script>

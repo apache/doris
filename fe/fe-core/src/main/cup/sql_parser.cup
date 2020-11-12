@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -255,7 +256,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
     KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESOURCES, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROUTINE, KW_ROW, KW_ROWS,
-    KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SHOW, KW_SIGNED,
+    KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SET_VAR, KW_SHOW, KW_SIGNED,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STOP, KW_STORAGE, KW_STRING,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
@@ -287,7 +288,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, enter_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
-    import_columns_stmt, import_delete_on_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt;
+    import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt;
 
 nonterminal ImportColumnDesc import_column_desc;
 nonterminal List<ImportColumnDesc> import_column_descs;
@@ -344,6 +345,7 @@ nonterminal FunctionName function_name;
 nonterminal Expr where_clause;
 nonterminal Expr delete_on_clause;
 nonterminal Expr where_clause_without_null;
+nonterminal String sequence_col_clause;
 nonterminal Predicate predicate, between_predicate, comparison_predicate,
   compound_predicate, in_predicate, like_predicate, exists_predicate;
 nonterminal ArrayList<Expr> opt_partition_by_clause;
@@ -379,6 +381,7 @@ nonterminal InlineViewRef inline_view_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
 nonterminal ArrayList<String> opt_sort_hints;
+nonterminal HashMap<String, String> opt_select_hints;
 nonterminal Expr sign_chain_expr;
 nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
@@ -397,7 +400,7 @@ nonterminal SetVar option_value, option_value_follow_option_type, option_value_n
 nonterminal List<SetVar> option_value_list, option_value_list_continued, start_option_value_list,
         start_option_value_list_following_option_type, user_property_list;
 
-nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_properties, opt_ext_properties;
+nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_properties, opt_ext_properties, opt_enable_feature_properties;
 nonterminal ColumnDef column_definition;
 nonterminal IndexDef index_definition;
 nonterminal ArrayList<ColumnDef> column_definition_list;
@@ -535,6 +538,10 @@ stmts ::=
     {:
         RESULT = Lists.newArrayList(stmt);
     :}
+    | import_sequence_stmt:stmt
+    {:
+        RESULT = Lists.newArrayList(stmt);
+    :}
     ;
 
 import_columns_stmt ::=
@@ -578,6 +585,13 @@ import_delete_on_stmt ::=
     KW_DELETE KW_ON expr:expr
     {:
         RESULT = new ImportDeleteOnStmt(expr);
+    :}
+    ;
+
+import_sequence_stmt ::=
+    KW_ORDER KW_BY ident:s
+    {:
+        RESULT = new ImportSequenceStmt(s);
     :}
     ;
 
@@ -917,7 +931,7 @@ alter_table_clause ::=
     {:
         RESULT = new AddPartitionClause(desc, distribution, properties, isTempPartition);
     :}
-    | KW_DROP opt_tmp:isTempPartition KW_PARTITION opt_force:force opt_if_exists:ifExists ident:partitionName
+    | KW_DROP opt_tmp:isTempPartition KW_PARTITION opt_if_exists:ifExists ident:partitionName opt_force:force
     {:
         RESULT = new DropPartitionClause(ifExists, partitionName, isTempPartition, force ? force : isTempPartition);
     :}
@@ -938,6 +952,10 @@ alter_table_clause ::=
     | KW_REPLACE opt_partition_names:partitions KW_WITH opt_partition_names:tempPartitions opt_properties:properties
     {:
         RESULT = new ReplacePartitionClause(partitions, tempPartitions, properties);
+    :}
+    | KW_REPLACE KW_WITH KW_TABLE ident:tblName opt_properties:properties
+    {:
+        RESULT = new ReplaceTableClause(tblName, properties);
     :}
     | KW_RENAME ident:newTableName
     {:
@@ -963,9 +981,19 @@ alter_table_clause ::=
     {:
         RESULT = new DropIndexClause(indexName, null, true);
     :}
-    | KW_ENABLE KW_FEATURE STRING_LITERAL:featureName
+    | KW_ENABLE KW_FEATURE STRING_LITERAL:featureName opt_enable_feature_properties:properties
     {:
-        RESULT = new EnableFeatureClause(featureName);
+        RESULT = new EnableFeatureClause(featureName, properties);
+    :}
+    ;
+
+opt_enable_feature_properties ::=
+    {:
+    RESULT = null;
+    :}
+    | KW_WITH KW_PROPERTIES LPAREN key_value_map:map RPAREN
+    {:
+    RESULT = map;
     :}
     ;
 
@@ -1073,11 +1101,15 @@ create_stmt ::=
     :}*/
     /* Function */
     | KW_CREATE opt_aggregate:isAggregate KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN
-            KW_RETURNS type_def:retrunType opt_intermediate_type:intermediateType opt_properties:properties
+            KW_RETURNS type_def:returnType opt_intermediate_type:intermediateType opt_properties:properties
     {:
-        RESULT = new CreateFunctionStmt(isAggregate, functionName, args, retrunType, intermediateType, properties);
+        RESULT = new CreateFunctionStmt(isAggregate, functionName, args, returnType, intermediateType, properties);
     :}
     /* Table */
+    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name
+    {:
+        RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name);
+    :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns RPAREN opt_engine:engineName
             opt_keys:keys
@@ -1345,9 +1377,10 @@ data_desc ::=
     opt_col_mapping_list:colMappingList
     where_clause:whereExpr
     delete_on_clause:deleteExpr
+    sequence_col_clause:sequenceColName
     {:
         RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat,
-        columnsFromPath, isNeg, colMappingList, whereExpr, mergeType, deleteExpr);
+        columnsFromPath, isNeg, colMappingList, whereExpr, mergeType, deleteExpr, sequenceColName);
     :}
     | opt_merge_type:mergeType KW_DATA KW_FROM KW_TABLE ident:srcTableName
     opt_negative:isNeg
@@ -1543,6 +1576,10 @@ load_property ::=
     {:
         RESULT = deletePredicate;
     :}
+    | import_sequence_stmt:sequenceColumn
+    {:
+        RESULT = sequenceColumn;
+    :}
     | partition_names:partitionNames
     {:
         RESULT = partitionNames;
@@ -1672,7 +1709,7 @@ revoke_stmt ::=
 // Drop statement
 drop_stmt ::=
     /* Database */
-    KW_DROP KW_DATABASE opt_force:force opt_if_exists:ifExists ident:db
+    KW_DROP KW_DATABASE opt_if_exists:ifExists ident:db opt_force:force
     {:
         RESULT = new DropDbStmt(ifExists, db, force);
     :}
@@ -1691,7 +1728,7 @@ drop_stmt ::=
         RESULT = new DropFunctionStmt(functionName, args);
     :}
     /* Table */
-    | KW_DROP KW_TABLE opt_force:force opt_if_exists:ifExists table_name:name
+    | KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
     {:
         RESULT = new DropTableStmt(ifExists, name, force);
     :}
@@ -1839,10 +1876,10 @@ opt_keys ::=
         RESULT = null;
     :}
     /* primary_keys */
-    | KW_PRIMARY KW_KEY LPAREN ident_list:keys RPAREN
-    {:
-        RESULT = new KeysDesc(KeysType.PRIMARY_KEYS, keys);
-    :}
+    // | KW_PRIMARY KW_KEY LPAREN ident_list:keys RPAREN
+    // {:
+    //     RESULT = new KeysDesc(KeysType.PRIMARY_KEYS, keys);
+    // :}
     /* dup_keys */
     | KW_DUPLICATE KW_KEY LPAREN ident_list:keys RPAREN
     {:
@@ -2354,9 +2391,9 @@ show_param ::=
     {:
         RESULT = new ShowBrokerStmt();
     :}
-    | KW_RESOURCES
+    | KW_RESOURCES opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
-        RESULT = new ShowResourcesStmt();
+        RESULT = new ShowResourcesStmt(parser.where, orderByClause, limitClause);
     :}
     | KW_BACKENDS
     {:
@@ -3281,18 +3318,34 @@ expr_or_default ::=
     ;
 
 select_clause ::=
-    KW_SELECT select_list:l
+    KW_SELECT opt_select_hints:hints select_list:l
     {:
+        l.setOptHints(hints);
         RESULT = l;
     :}
-    | KW_SELECT KW_ALL select_list:l
+    | KW_SELECT opt_select_hints:hints KW_ALL select_list:l
     {:
+        l.setOptHints(hints);
         RESULT = l;
     :}
-    | KW_SELECT KW_DISTINCT select_list:l
+    | KW_SELECT opt_select_hints:hints KW_DISTINCT select_list:l
     {:
+        l.setOptHints(hints);
         l.setIsDistinct(true);
         RESULT = l;
+    :}
+    ;
+
+opt_select_hints ::=
+    COMMENTED_PLAN_HINT_START KW_SET_VAR LPAREN ident_or_text:k EQUAL literal:v RPAREN COMMENTED_PLAN_HINT_END
+    {:
+        HashMap<String, String> map = new HashMap<String, String>();
+        map.put(k, v.getStringValue());
+        RESULT = map;
+    :}
+    | /* empty */
+    {:
+        RESULT = null;
     :}
     ;
 
@@ -3667,6 +3720,13 @@ delete_on_clause ::=
   | KW_DELETE KW_ON expr:e
   {: RESULT = e; :}
   ;
+
+sequence_col_clause ::=
+/* empty */
+{: RESULT = null; :}
+| KW_ORDER KW_BY ident:s
+{: RESULT = s; :}
+;
 
 where_clause_without_null ::=
   KW_WHERE expr:e

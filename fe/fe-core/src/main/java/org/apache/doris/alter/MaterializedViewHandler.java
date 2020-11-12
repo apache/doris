@@ -342,7 +342,7 @@ public class MaterializedViewHandler extends AlterHandler {
         if (mvName.equals(newStorageFormatIndexName)) {
             mvJob.setStorageFormat(TStorageFormat.V2);
         } else {
-            // use base table's storage foramt as the mv's format
+            // use base table's storage format as the mv's format
             mvJob.setStorageFormat(olapTable.getStorageFormat());
         }
 
@@ -478,6 +478,9 @@ public class MaterializedViewHandler extends AlterHandler {
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasDeleteSign()) {
             newMVColumns.add(new Column(olapTable.getDeleteSignColumn()));
         }
+        if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
+            newMVColumns.add(new Column(olapTable.getSequenceCol()));
+        }
         return newMVColumns;
     }
 
@@ -506,6 +509,7 @@ public class MaterializedViewHandler extends AlterHandler {
         // a. all columns should exist in base rollup schema
         // b. value after key
         // c. if rollup contains REPLACE column, all keys on base index should be included.
+        // d. if base index has sequence column for unique_keys, rollup should add the sequence column
         List<Column> rollupSchema = new ArrayList<Column>();
         // check (a)(b)
         boolean meetValue = false;
@@ -513,7 +517,7 @@ public class MaterializedViewHandler extends AlterHandler {
         boolean meetReplaceValue = false;
         KeysType keysType = olapTable.getKeysType();
         Map<String, Column> baseColumnNameToColumn = Maps.newHashMap();
-        for (Column column : olapTable.getSchemaByIndexId(baseIndexId)) {
+        for (Column column : olapTable.getSchemaByIndexId(baseIndexId, true)) {
             baseColumnNameToColumn.put(column.getName(), column);
         }
         if (keysType.isAggregationFamily()) {
@@ -550,6 +554,14 @@ public class MaterializedViewHandler extends AlterHandler {
                     } else {
                         throw new DdlException("Rollup should contains all keys if there is a REPLACE value");
                     }
+                }
+                // add hidden column to rollup table
+
+                if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasDeleteSign()) {
+                    rollupSchema.add(new Column(olapTable.getDeleteSignColumn()));
+                }
+                if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
+                    rollupSchema.add(new Column(olapTable.getSequenceCol()));
                 }
             }
         } else if (KeysType.DUP_KEYS == keysType) {

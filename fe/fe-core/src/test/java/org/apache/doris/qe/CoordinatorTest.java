@@ -17,42 +17,48 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
 import mockit.Mocked;
+
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeConstants;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.planner.DataPartition;
-import org.apache.doris.planner.ExchangeNode;
+import org.apache.doris.planner.EmptySetNode;
+import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
-import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TScanRange;
+import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableMap;
 
 import org.junit.Assert;
-import org.junit.BeforeClass;
+import org.junit.Test;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class CoordinatorTest extends Coordinator {
     static Planner planner = new Planner();
@@ -67,10 +73,7 @@ public class CoordinatorTest extends Coordinator {
     @Mocked
     static FrontendOptions frontendOptions;
     static Analyzer analyzer = new Analyzer(catalog, null);
-    static Backend backendA;
-    static Backend backendB;
-    static Backend backendC;
-    static Backend backendD;
+
 
     public CoordinatorTest() {
         super(context, analyzer, planner);
@@ -78,386 +81,311 @@ public class CoordinatorTest extends Coordinator {
 
     private static Coordinator coor;
 
-    @BeforeClass
-    public static void beforeTest() throws IllegalAccessException, IllegalArgumentException,
-            InvocationTargetException, NoSuchFieldException,
-            SecurityException, NoSuchMethodException {
-        coor = new Coordinator(context, analyzer, planner);
-        new Expectations() {
-            {
-                editLog.logAddBackend((Backend) any);
-                minTimes = 0;
+    @Test
+    public void testComputeColocateJoinInstanceParam()  {
+        Coordinator coordinator = new Coordinator(context, analyzer, planner);
 
-                editLog.logDropBackend((Backend) any);
-                minTimes = 0;
+        PlanFragmentId planFragmentId = new PlanFragmentId(1);
+        int scanNodeId = 1;
+        Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
+        fragmentIdToScanNodeIds.put(planFragmentId, new HashSet<>());
+        fragmentIdToScanNodeIds.get(planFragmentId).add(scanNodeId);
+        Deencapsulation.setField(coordinator, "fragmentIdToScanNodeIds", fragmentIdToScanNodeIds);
 
-                editLog.logBackendStateChange((Backend) any);
-                minTimes = 0;
+        // 1. set fragmentToBucketSeqToAddress in coordinator
+        Map<Integer, TNetworkAddress> bucketSeqToAddress = new HashMap<>();
+        TNetworkAddress address = new TNetworkAddress();
+        for (int i = 0; i < 3; i++) {
+            bucketSeqToAddress.put(i, address);
+        }
+        Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentToBucketSeqToAddress = new HashMap<>();
+        fragmentToBucketSeqToAddress.put(planFragmentId, bucketSeqToAddress);
+        Deencapsulation.setField(coordinator, "fragmentIdToSeqToAddressMap", fragmentToBucketSeqToAddress);
 
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
+        // 2. set bucketSeqToScanRange in coordinator
+        BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
+        Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
+        ScanRangeMap.put(scanNodeId, new ArrayList<>());
+        for (int i = 0; i < 3; i++) {
+            bucketSeqToScanRange.put(i, ScanRangeMap);
+        }
+        Deencapsulation.setField(coordinator, "bucketSeqToScanRange", bucketSeqToScanRange);
 
-        new Expectations(catalog) {
-            {
-                Catalog.getCurrentCatalog();
-                minTimes = 0;
-                result = catalog;
+        FragmentExecParams params = new FragmentExecParams(null);
+        Deencapsulation.invoke(coordinator, "computeColocateJoinInstanceParam", planFragmentId, 1, params);
+        Assert.assertEquals(1, params.instanceExecParams.size());
 
-                Catalog.getCurrentCatalogJournalVersion();
-                minTimes = 0;
-                result = FeConstants.meta_version;
-            }
-        };
+        params = new FragmentExecParams(null);
+        Deencapsulation.invoke(coordinator, "computeColocateJoinInstanceParam", planFragmentId, 2, params);
+        Assert.assertEquals(2, params.instanceExecParams.size());
 
-        new Expectations(frontendOptions) {
-            {
-                FrontendOptions.getLocalHostAddress();
-                minTimes = 0;
-                result = "127.0.0.1";
-            }
-        };
+        params = new FragmentExecParams(null);
+        Deencapsulation.invoke(coordinator, "computeColocateJoinInstanceParam", planFragmentId, 3, params);
+        Assert.assertEquals(3, params.instanceExecParams.size());
 
-        FeConstants.heartbeat_interval_second = Integer.MAX_VALUE;
-        backendA = new Backend(0, "machineA", 0);
-        backendA.updateOnce(10000, 0, 0);
-        backendB = new Backend(1, "machineB", 0);
-        backendB.updateOnce(10000, 0, 0);
-        backendC = new Backend(2, "machineC", 0);
-        backendC.updateOnce(10000, 0, 0);
-        backendD = new Backend(3, "machineD", 0);
-        backendD.updateOnce(10000, 0, 0);
-
-        // private 方法赋值
-        Field field = coor.getClass().getDeclaredField("idToBackend");
-        field.setAccessible(true);
-        Map<Long, Backend> backendMap = new HashMap<Long, Backend>();
-        backendMap.put(Long.valueOf(0), backendA);
-        backendMap.put(Long.valueOf(1), backendB);
-        ImmutableMap<Long, Backend> idToBackendAB = ImmutableMap.copyOf(backendMap);
-        field.set(coor, idToBackendAB);
+        params = new FragmentExecParams(null);
+        Deencapsulation.invoke(coordinator, "computeColocateJoinInstanceParam", planFragmentId, 5, params);
+        Assert.assertEquals(3, params.instanceExecParams.size());
     }
 
-    static void invokeFunction(String functionName) throws IllegalAccessException,
-            IllegalArgumentException, InvocationTargetException, NoSuchFieldException,
-            SecurityException, NoSuchMethodException {
-        Method method = coor.getClass().getDeclaredMethod(functionName);
-        method.setAccessible(true);
-        method.invoke(coor);
+    @Test
+    public void testIsBucketShuffleJoin()  {
+        PlanFragmentId planFragmentId = new PlanFragmentId(1);
+        int scanNodeId = 1;
+        // The "fragmentIdToScanNodeIds" we created here is useless in this test.
+        // It is only for creating the BucketShuffleJoinController.
+        // So the fragment id and scan node id in it is meaningless.
+        Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
+        fragmentIdToScanNodeIds.put(planFragmentId, new HashSet<>());
+        fragmentIdToScanNodeIds.get(planFragmentId).add(scanNodeId);
+        Coordinator.BucketShuffleJoinController bucketShuffleJoinController
+                = new Coordinator.BucketShuffleJoinController(fragmentIdToScanNodeIds);
+
+        PlanNodeId testPlanNodeId = new PlanNodeId(-1);
+        TupleId testTupleId = new TupleId(-1);
+        ArrayList<TupleId> tupleIdArrayList = new ArrayList<>();
+        tupleIdArrayList.add(testTupleId);
+
+        ArrayList<Expr> testJoinexprs = new ArrayList<>();
+        BinaryPredicate binaryPredicate = new BinaryPredicate();
+        testJoinexprs.add(binaryPredicate);
+
+        HashJoinNode hashJoinNode = new HashJoinNode(testPlanNodeId, new EmptySetNode(testPlanNodeId, tupleIdArrayList),
+                new EmptySetNode(testPlanNodeId, tupleIdArrayList), new TableRef(), testJoinexprs, new ArrayList<>());
+        hashJoinNode.setFragment(new PlanFragment(new PlanFragmentId(-1), hashJoinNode,
+                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs)));
+
+        // hash join node is not bucket shuffle join
+        Assert.assertEquals(false,
+                Deencapsulation.invoke(bucketShuffleJoinController, "isBucketShuffleJoin", -1, hashJoinNode));
+
+        // the fragment id is different from hash join node
+        hashJoinNode.setFragment(new PlanFragment(new PlanFragmentId(-2), hashJoinNode,
+                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs)));
+        hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
+        Assert.assertEquals(false,
+                Deencapsulation.invoke(bucketShuffleJoinController, "isBucketShuffleJoin", -1, hashJoinNode));
+
+        hashJoinNode.setFragment(new PlanFragment(new PlanFragmentId(-1), hashJoinNode,
+                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs)));
+        Assert.assertEquals(true,
+                Deencapsulation.invoke(bucketShuffleJoinController, "isBucketShuffleJoin", -1, hashJoinNode));
+
+        // the fragment id is in cache, so not do check node again
+        Assert.assertEquals(true,
+                Deencapsulation.invoke(bucketShuffleJoinController, "isBucketShuffleJoin", -1));
+
     }
 
-    static Object getField(Object object, String fieldName) throws NoSuchFieldException,
-            SecurityException, IllegalArgumentException, IllegalAccessException {
-        Field field = object.getClass().getDeclaredField(fieldName);
-        field.setAccessible(true);
-        Object after = field.get(object);
-        return after;
+    @Test
+    public void testComputeScanRangeAssignmentByBucketq()  {
+        PlanFragmentId planFragmentId = new PlanFragmentId(1);
+        int scanNodeId = 1;
+        Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
+        fragmentIdToScanNodeIds.put(planFragmentId, new HashSet<>());
+        fragmentIdToScanNodeIds.get(planFragmentId).add(scanNodeId);
+        Coordinator.BucketShuffleJoinController bucketShuffleJoinController
+                = new Coordinator.BucketShuffleJoinController(fragmentIdToScanNodeIds);
+
+        // init olap scan node of bucket shuffle join
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(-1));
+        OlapTable olapTable = new OlapTable();
+        HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(66, new ArrayList<>());
+        Deencapsulation.setField(olapTable, "defaultDistributionInfo", hashDistributionInfo);
+        tupleDescriptor.setTable(olapTable);
+
+        OlapScanNode olapScanNode = new OlapScanNode(new PlanNodeId(scanNodeId), tupleDescriptor, "test");
+        ArrayListMultimap<Integer, TScanRangeLocations> bucketseq2localtion = ArrayListMultimap.create();
+
+        // each olaptable bucket have the same TScanRangeLocations, be id is {0, 1, 2}
+        TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();
+        TScanRangeLocation tScanRangeLocation0 = new TScanRangeLocation();
+        tScanRangeLocation0.backend_id = 0;
+        TScanRangeLocation tScanRangeLocation1 = new TScanRangeLocation();
+        tScanRangeLocation1.backend_id = 1;
+        TScanRangeLocation tScanRangeLocation2 = new TScanRangeLocation();
+        tScanRangeLocation2.backend_id = 2;
+
+        tScanRangeLocations.locations = new ArrayList<>();
+        tScanRangeLocations.locations.add(tScanRangeLocation0);
+        tScanRangeLocations.locations.add(tScanRangeLocation1);
+        tScanRangeLocations.locations.add(tScanRangeLocation2);
+        for (int i = 0; i < 66; i++) {
+            bucketseq2localtion.put(i, tScanRangeLocations);
+        }
+
+        Deencapsulation.setField(olapScanNode, "bucketSeq2locations", bucketseq2localtion);
+        olapScanNode.setFragment(new PlanFragment(planFragmentId, olapScanNode,
+                new DataPartition(TPartitionType.UNPARTITIONED)));
+
+        // init all backend
+        Backend backend0 = new Backend();
+        backend0.setAlive(true);
+        Backend backend1 = new Backend();
+        backend1.setAlive(true);
+        Backend backend2 = new Backend();
+        backend2.setAlive(true);
+
+        // init all be network address
+        TNetworkAddress be0 = new TNetworkAddress("0.0.0.0", 1000);
+        TNetworkAddress be1 = new TNetworkAddress("0.0.0.1", 2000);
+        TNetworkAddress be2 = new TNetworkAddress("0.0.0.2", 3000);
+
+        HashMap<Long, Backend> idToBackend = new HashMap<>();
+        idToBackend.put(0l, backend0);
+        idToBackend.put(1l, backend1);
+        idToBackend.put(2l, backend2);
+
+        Map<TNetworkAddress, Long> addressToBackendID = new HashMap<>();
+        addressToBackendID.put(be0, 0l);
+        addressToBackendID.put(be1, 1l);
+        addressToBackendID.put(be2, 2l);
+
+        Deencapsulation.invoke(bucketShuffleJoinController, "computeScanRangeAssignmentByBucket",
+                olapScanNode, ImmutableMap.copyOf(idToBackend), addressToBackendID);
+
+        Assert.assertEquals(java.util.Optional.of(66).get(),
+                Deencapsulation.invoke(bucketShuffleJoinController, "getFragmentBucketNum", new PlanFragmentId(1)));
+
+        Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBuckendIdBucketCountMap =
+                Deencapsulation.getField(bucketShuffleJoinController, "fragmentIdToBuckendIdBucketCountMap");
+
+        long targetBeCount = fragmentIdToBuckendIdBucketCountMap.values().
+                stream().flatMap(buckend2BucketCountMap -> buckend2BucketCountMap.values().stream())
+                .filter(count -> count == 22).count();
+        Assert.assertEquals(targetBeCount, 3);
     }
 
-    /*
-     * 场景1：扫描2个scanRange，每个scanRange都分布在两台机器上（MachineA，machineB）
-     * 返回结果： 根据调度策略，machineA和machineB各扫描1个scanRange
-     *
-     * 场景2：扫描3个scanRange，每个scanRange都分布在两台机器上（MachineA，machineB）
-     * 返回结果： 根据调度策略，machineA扫描2个scanRange，machineB扫描1个scanRange
-     *
-     * 场景3：扫描3个scanRange，每个scanRange分布在不同的两台机器上（分别分布在（MachineA，machineB），（MachineA，machineC）
-     *      （MachineC，machineB）上。
-     * 返回结果：根据调度策略，machineA，machineB，machineC分布扫描1个scanRange
-     */
-    // TODO(lingbin): PALO-2051.
-    // Comment out these code temporatily.
-    // @Test
-    public void testComputeScanRangeAssignment() throws IllegalAccessException,
-            IllegalArgumentException, InvocationTargetException, NoSuchFieldException,
-            SecurityException, NoSuchMethodException {
-        Method method = coor.getClass().getDeclaredMethod(
-                "computeScanRangeAssignment",
-                PlanNodeId.class,
-                List.class,
-                Coordinator.FragmentScanRangeAssignment.class);
-        method.setAccessible(true);
-        int planNodeId = 2;
-        // 输出参数
-        FragmentScanRangeAssignment assignment = coor.new FragmentScanRangeAssignment();
-        // 输入参数
-        List<TScanRangeLocations> locations = new ArrayList<TScanRangeLocations>();
+    @Test
+    public void testComputeScanRangeAssignmentByBucket()  {
+        PlanFragmentId planFragmentId = new PlanFragmentId(1);
+        int scanNodeId = 1;
+        Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
+        fragmentIdToScanNodeIds.put(planFragmentId, new HashSet<>());
+        fragmentIdToScanNodeIds.get(planFragmentId).add(scanNodeId);
+        Coordinator.BucketShuffleJoinController bucketShuffleJoinController
+                = new Coordinator.BucketShuffleJoinController(fragmentIdToScanNodeIds);
 
-        TScanRangeLocations scanRangeLocationsA = new TScanRangeLocations();
-        List<TScanRangeLocation> listLocationsA = new ArrayList<TScanRangeLocation>();
-        listLocationsA.add((new TScanRangeLocation())
-                .setServer(new TNetworkAddress("machineA", 10000)).setBackendId(0));
-        listLocationsA.add((new TScanRangeLocation())
-                .setServer(new TNetworkAddress("machineB", 10000)).setBackendId(1));
-        scanRangeLocationsA.setLocations(listLocationsA).setScanRange(new TScanRange());
+        // init olap scan node of bucket shuffle join
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(-1));
+        OlapTable olapTable = new OlapTable();
+        HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(66, new ArrayList<>());
+        Deencapsulation.setField(olapTable, "defaultDistributionInfo", hashDistributionInfo);
+        tupleDescriptor.setTable(olapTable);
 
-        TScanRangeLocations scanRangeLocationsB = new TScanRangeLocations();
-        List<TScanRangeLocation> listLocationsB = new ArrayList<TScanRangeLocation>();
-        listLocationsB.add((new TScanRangeLocation())
-                .setServer(new TNetworkAddress("machineB", 10000)).setBackendId(1));
-        listLocationsB.add((new TScanRangeLocation())
-                .setServer(new TNetworkAddress("machineC", 10000)).setBackendId(2));
-        scanRangeLocationsB.setLocations(listLocationsB).setScanRange(new TScanRange());
+        OlapScanNode olapScanNode = new OlapScanNode(new PlanNodeId(scanNodeId), tupleDescriptor, "test");
+        ArrayListMultimap<Integer, TScanRangeLocations> bucketseq2localtion = ArrayListMultimap.create();
 
-        TScanRangeLocations scanRangeLocationsC = new TScanRangeLocations();
-        List<TScanRangeLocation> listLocationsC = new ArrayList<TScanRangeLocation>();
-        listLocationsC.add((new TScanRangeLocation())
-                .setServer(new TNetworkAddress("machineC", 10000)).setBackendId(2));
-        listLocationsC.add((new TScanRangeLocation())
-                .setServer(new TNetworkAddress("machineA", 10000)).setBackendId(0));
-        scanRangeLocationsC.setLocations(listLocationsC).setScanRange(new TScanRange());
+        // each olaptable bucket have the same TScanRangeLocations, be id is {0, 1, 2}
+        TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();
+        TScanRangeLocation tScanRangeLocation0 = new TScanRangeLocation();
+        tScanRangeLocation0.backend_id = 0;
+        TScanRangeLocation tScanRangeLocation1 = new TScanRangeLocation();
+        tScanRangeLocation1.backend_id = 1;
+        TScanRangeLocation tScanRangeLocation2 = new TScanRangeLocation();
+        tScanRangeLocation2.backend_id = 2;
 
-        // 场景1： 2个scanRange
-        {
-            assignment.clear();
-            locations.clear();
-            locations.add(scanRangeLocationsA);
-            locations.add(scanRangeLocationsA);
-            // 调用函数
-            method.invoke(
-                    coor,
-                    new PlanNodeId(planNodeId),
-                    locations,
-                    assignment);
-            // 判断返回值
-            Assert.assertEquals(assignment.get(new TNetworkAddress("machineA", 10000))
-                    .get(planNodeId).size(), 1);
-            Assert.assertEquals(assignment.get(new TNetworkAddress("machineB", 10000))
-                    .get(planNodeId).size(), 1);
+        tScanRangeLocations.locations = new ArrayList<>();
+        tScanRangeLocations.locations.add(tScanRangeLocation0);
+        tScanRangeLocations.locations.add(tScanRangeLocation1);
+        tScanRangeLocations.locations.add(tScanRangeLocation2);
+        for (int i = 0; i < 66; i++) {
+            bucketseq2localtion.put(i, tScanRangeLocations);
         }
-        // 场景2： 3个scanRange，每个scan_range都分布在两台机器上（A和B）
-        {
-            assignment.clear();
-            locations.clear();
-            locations.add(scanRangeLocationsA);
-            locations.add(scanRangeLocationsA);
-            locations.add(scanRangeLocationsA);
 
-            // 调用函数
-            method.invoke(
-                    coor,
-                    new PlanNodeId(planNodeId),
-                    locations,
-                    assignment);
-            // 判断返回值
-            Assert.assertEquals(assignment.get(new TNetworkAddress("machineA", 10000))
-                    .get(planNodeId).size(), 2);
-            Assert.assertEquals(assignment.get(new TNetworkAddress("machineB", 10000))
-                    .get(planNodeId).size(), 1);
-        }
-        // 场景3： 3个scanRange，scan_range分别分布在（A，B）（A，C）（C,B）上
-        {
-            Field field = coor.getClass().getDeclaredField("idToBackend");
-            field.setAccessible(true);
-            Map<Long, Backend> backendMap = new HashMap<Long, Backend>();
-            backendMap.put(Long.valueOf(0), backendA);
-            backendMap.put(Long.valueOf(1), backendB);
-            backendMap.put(Long.valueOf(2), backendC);
-            ImmutableMap<Long, Backend> idToBackendAB = ImmutableMap.copyOf(backendMap);
-            field.set(coor, idToBackendAB);
+        Deencapsulation.setField(olapScanNode, "bucketSeq2locations", bucketseq2localtion);
+        olapScanNode.setFragment(new PlanFragment(planFragmentId, olapScanNode,
+                new DataPartition(TPartitionType.UNPARTITIONED)));
 
-            assignment.clear();
-            locations.clear();
-            locations.add(scanRangeLocationsA);
-            locations.add(scanRangeLocationsB);
-            locations.add(scanRangeLocationsC);
-            // 调用函数
-            method.invoke(
-                    coor,
-                    new PlanNodeId(planNodeId),
-                    locations,
-                    assignment);
-            // 判断返回值
-            Assert.assertEquals(assignment.get(new TNetworkAddress("machineA", 10000))
-                    .get(planNodeId).size(), 1);
-            Assert.assertEquals(assignment.get(new TNetworkAddress("machineB", 10000))
-                    .get(planNodeId).size(), 1);
-            Assert.assertEquals(assignment.get(new TNetworkAddress("machineC", 10000))
-                    .get(planNodeId).size(), 1);
-        }
-    }
-    /*
-     * 场景1：扫描UNPARTITIONED的fragment
-     * 返回结果： fragment执行参数的host列表为随机分配fragment
-     *
-     * 场景2：fragment的最左节点为ScanNode
-     * 返回结果：fragment执行参数的host列表为ScanNode的host列表
-     *
-     * 场景3：fragment的最左节点为非ScanNode
-     * 返回结果：fragment执行参数的host列表为来源fragment的执行参数的host列表
-     */
-    // TODO(lingbin): PALO-2051.
-    // Comment out these code temporatily.
-    // @Test
-    public void testcomputeFragmentHosts() throws NoSuchMethodException, SecurityException,
-            IllegalAccessException, IllegalArgumentException,
-            InvocationTargetException, NoSuchFieldException {
-        Method method = coor.getClass().getDeclaredMethod(
-                "computeFragmentHosts");
-        method.setAccessible(true);
-        // 场景1：UNPARTITIONED
-        {
-            PlanFragment fragment = new PlanFragment(new PlanFragmentId(1),
-                    new OlapScanNode(new PlanNodeId(1), new TupleDescriptor(new TupleId(10)), "null scanNode"),
-                    DataPartition.UNPARTITIONED );
-            List<PlanFragment> privateFragments =
-                    (ArrayList<PlanFragment>) getField(coor, "fragments");
-            Map<PlanFragmentId, FragmentExecParams> privateFragmentExecParams =
-                    (HashMap<PlanFragmentId, FragmentExecParams>) getField(
-                            coor, "fragmentExecParams");
-            privateFragments.clear();
-            privateFragments.add(fragment);
-            privateFragmentExecParams.put(new PlanFragmentId(1), new FragmentExecParams(fragment));
 
-            // 调用函数
-            method.invoke(coor);
-            // 判断返回值
-            // Assert.assertEquals(privateFragmentExecParams.get(new PlanFragmentId(1))
-            // .hosts.get(0).hostname, "machineA");
-            // Assert.assertEquals(privateFragmentExecParams.get(new PlanFragmentId(1))
-            // .hosts.get(0).port, 10000);
-        }
-        // 场景2： ScanNode
-        {
-            PlanFragment fragment = new PlanFragment(new PlanFragmentId(1),
-                    new OlapScanNode(new PlanNodeId(1), new TupleDescriptor(new TupleId(10)), "null scanNode"),
-                    DataPartition.RANDOM );
-            List<PlanFragment> privateFragments =
-                    (ArrayList<PlanFragment>) getField(coor, "fragments");
-            Map<PlanFragmentId, FragmentExecParams> privateFragmentExecParams =
-                    (HashMap<PlanFragmentId, FragmentExecParams>) getField(
-                            coor, "fragmentExecParams");
-            Map<PlanFragmentId, FragmentScanRangeAssignment> privateScanRangeAssignment =
-                    (HashMap<PlanFragmentId, FragmentScanRangeAssignment>) getField(
-                            coor, "scanRangeAssignment");
-            FragmentScanRangeAssignment assignment = new FragmentScanRangeAssignment();
-            assignment.put(new TNetworkAddress("machineC", 10000), null);
-            assignment.put(new TNetworkAddress("machineD", 10000), null);
+        // init all backend
+        Backend backend0 = new Backend();
+        backend0.setAlive(true);
+        Backend backend1 = new Backend();
+        backend1.setAlive(true);
+        Backend backend2 = new Backend();
+        backend2.setAlive(true);
 
-            privateScanRangeAssignment.put(new PlanFragmentId(1), assignment);
+        // init all be network address
+        TNetworkAddress be0 = new TNetworkAddress("0.0.0.0", 1000);
+        TNetworkAddress be1 = new TNetworkAddress("0.0.0.1", 2000);
+        TNetworkAddress be2 = new TNetworkAddress("0.0.0.2", 3000);
 
-            privateFragments.clear();
-            privateFragments.add(fragment);
-            privateFragmentExecParams.put(new PlanFragmentId(1), new FragmentExecParams(fragment));
+        HashMap<Long, Backend> idToBackend = new HashMap<>();
+        idToBackend.put(0l, backend0);
+        idToBackend.put(1l, backend1);
+        idToBackend.put(2l, backend2);
 
-            // 调用函数
-            method.invoke(coor);
-            // 判断返回值
-            // Assert.assertEquals(2, privateFragmentExecParams.get(new PlanFragmentId(1))
-            // .hosts.size());
-            // String hostname1 = privateFragmentExecParams.get(new PlanFragmentId(1))
-            // .hosts.get(0).hostname;
-            // String hostname2 = privateFragmentExecParams.get(new PlanFragmentId(1))
-            // .hosts.get(1).hostname;
-            // Assert.assertTrue(hostname1.equals("machineC") || hostname1.equals("machineD"));
-            // Assert.assertTrue(hostname2.equals("machineC") || hostname1.equals("machineD"));
-            // Assert.assertFalse(hostname1.equals(hostname2));
-        }
-        // 场景3： 非ScanNode
-        {
-             /*     fragmentFather(UNPARITIONED) fragmentID=0
-              *     exchangeNode
-              *
-              *     fragmentSon(RANDOM) fragmentID=1
-              *     olapScannode
-              * */
+        Map<TNetworkAddress, Long> addressToBackendID = new HashMap<>();
+        addressToBackendID.put(be0, 0l);
+        addressToBackendID.put(be1, 1l);
+        addressToBackendID.put(be2, 2l);
 
-            Field field = coor.getClass().getDeclaredField("idToBackend");
-            field.setAccessible(true);
-            Map<Long, Backend> backendMap = new HashMap<Long, Backend>();
-            backendMap.put(Long.valueOf(0), backendA);
-            backendMap.put(Long.valueOf(1), backendB);
-            backendMap.put(Long.valueOf(2), backendC);
-            backendMap.put(Long.valueOf(3), backendD);
-            ImmutableMap<Long, Backend> idToBackendAB = ImmutableMap.copyOf(backendMap);
-            field.set(coor, idToBackendAB);
+        Deencapsulation.invoke(bucketShuffleJoinController, "computeScanRangeAssignmentByBucket",
+                olapScanNode, ImmutableMap.copyOf(idToBackend), addressToBackendID);
 
-            PlanNode olapNode = new OlapScanNode(new PlanNodeId(1), new TupleDescriptor(new TupleId(10)),
-                    "null scanNode");
-            PlanFragment fragmentFather = new PlanFragment(new PlanFragmentId(0),
-                    new ExchangeNode(new PlanNodeId(10), olapNode,  false),
-                    DataPartition.UNPARTITIONED);
-            PlanFragment fragmentSon = new PlanFragment(new PlanFragmentId(1),
-                    olapNode,
-                    DataPartition.RANDOM );
-            // fragmentSon.setDestination(fragmentFather, new PlanNodeId(10));
+        Assert.assertEquals(java.util.Optional.of(66).get(),
+                Deencapsulation.invoke(bucketShuffleJoinController, "getFragmentBucketNum", new PlanFragmentId(1)));
 
-            List<PlanFragment> privateFragments = (ArrayList<PlanFragment>) getField(
-                    coor, "fragments");
-            Map<PlanFragmentId, FragmentExecParams> privateFragmentExecParams =
-                    (HashMap<PlanFragmentId, FragmentExecParams>) getField(
-                            coor, "fragmentExecParams");
-            Map<PlanFragmentId, FragmentScanRangeAssignment> privateScanRangeAssignment =
-                    (HashMap<PlanFragmentId, FragmentScanRangeAssignment>) getField(
-                            coor, "scanRangeAssignment");
+        Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBuckendIdBucketCountMap =
+                Deencapsulation.getField(bucketShuffleJoinController, "fragmentIdToBuckendIdBucketCountMap");
 
-            FragmentScanRangeAssignment assignment = new FragmentScanRangeAssignment();
-            assignment.put(new TNetworkAddress("machineC", 10000), null);
-            assignment.put(new TNetworkAddress("machineD", 10000), null);
-            privateScanRangeAssignment.put(new PlanFragmentId(1), assignment);
-
-            privateFragments.clear();
-            privateFragments.add(fragmentFather);
-            privateFragments.add(fragmentSon);
-
-            privateFragmentExecParams.put(new PlanFragmentId(1),
-                    new FragmentExecParams(fragmentSon));
-            privateFragmentExecParams.put(new PlanFragmentId(0),
-                    new FragmentExecParams(fragmentFather));
-
-            // 调用函数
-            method.invoke(coor);
-            // 判断返回值
-            // Assert.assertEquals(privateFragmentExecParams.get(new PlanFragmentId(0))
-            // .hosts.get(0).hostname, "machineB");
-            // Assert.assertEquals(privateFragmentExecParams.get(new PlanFragmentId(0))
-            // .hosts.get(0).port, 10000);
-            // Assert.assertEquals(2, privateFragmentExecParams.get(new PlanFragmentId(1))
-            // .hosts.size());
-            // String hostname1 = privateFragmentExecParams.get(new PlanFragmentId(1))
-            // .hosts.get(0).hostname;
-            // String hostname2 = privateFragmentExecParams.get(new PlanFragmentId(1))
-            // .hosts.get(1).hostname;
-            // Assert.assertTrue(hostname1.equals("machineC") || hostname1.equals("machineD"));
-            // Assert.assertTrue(hostname2.equals("machineC") || hostname2.equals("machineD"));
-            // Assert.assertFalse(hostname1.equals(hostname2));
-        }
+        long targetBeCount = fragmentIdToBuckendIdBucketCountMap.values()
+                .stream()
+                .flatMap(buckend2BucketCountMap -> buckend2BucketCountMap.values().stream())
+                .filter(count -> count == 22).count();
+        Assert.assertEquals(targetBeCount, 3);
     }
 
-    /*
-    public void testNetworkException() throws TException, NoSuchFieldException,
-            SecurityException, IllegalArgumentException, IllegalAccessException,
-            NoSuchMethodException, InvocationTargetException {
-        Map<PlanFragmentId, FragmentExecParams> privateFragmentExecParams =
-                (HashMap<PlanFragmentId, FragmentExecParams>) getField(
-                        coor, "fragmentExecParams");
-        ConcurrentMap<TUniqueId, BackendExecState> privateBackendExecStateMap =
-                (ConcurrentMap<TUniqueId, BackendExecState>) getField(coor, "backendExecStateMap");
-        TQueryOptions privateQueryOptions = (TQueryOptions) getField(coor, "queryOptions");
-        // 设置超时时间为2s，尽快返回连接超时
-        privateQueryOptions.setQueryTimeout(2);
-        // Configure.qe_query_timeout_s  = 2;
+    @Test
+    public void testComputeBucketShuffleJoinInstanceParam()  {
+        PlanFragmentId planFragmentId = new PlanFragmentId(1);
+        int scanNodeId = 1;
 
-        privateFragmentExecParams.clear();
-        privateFragmentExecParams.put(new PlanFragmentId(23), new FragmentExecParams(null));
-        // privateFragmentExecParams.get(new PlanFragmentId(23)).hosts.add(
-        // new TNetworkAddress("machine", 10000));
-        privateBackendExecStateMap.put(new TUniqueId(11, 12), coor.new BackendExecState(
-                new PlanFragmentId(23), 0, 0, new TExecPlanFragmentParams(),
-                new HashMap<TNetworkAddress, Long>()));
-        // 调用函数
-        boolean isException = false;
-        try {
-            privateBackendExecStateMap.get(new TUniqueId(11, 12)).execRemoteFragment();
-        } catch (org.apache.thrift.transport.TTransportException e) {
-            isException = true;
-        } catch (Exception e) {
-            isException = false;
+        // set fragment id to scan node ids map
+        Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
+        fragmentIdToScanNodeIds.put(planFragmentId, new HashSet<>());
+        fragmentIdToScanNodeIds.get(planFragmentId).add(scanNodeId);
+        Coordinator.BucketShuffleJoinController bucketShuffleJoinController
+                = new Coordinator.BucketShuffleJoinController(fragmentIdToScanNodeIds);
+
+        // 1. set fragmentToBucketSeqToAddress in bucketShuffleJoinController
+        Map<Integer, TNetworkAddress> bucketSeqToAddress = new HashMap<>();
+        TNetworkAddress address = new TNetworkAddress();
+        for (int i = 0; i < 3; i++) {
+            bucketSeqToAddress.put(i, address);
         }
-        Assert.assertTrue("need get the TTransportException", isException);
+        Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentToBucketSeqToAddress = new HashMap<>();
+        fragmentToBucketSeqToAddress.put(planFragmentId, bucketSeqToAddress);
+        Deencapsulation.setField(bucketShuffleJoinController, "fragmentIdToSeqToAddressMap", fragmentToBucketSeqToAddress);
+
+        // 2. set bucketSeqToScanRange in bucketShuffleJoinController
+        Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = new HashMap<>();
+        BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
+        Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
+        ScanRangeMap.put(scanNodeId, new ArrayList<>());
+        for (int i = 0; i < 3; i++) {
+            bucketSeqToScanRange.put(i, ScanRangeMap);
+        }
+        fragmentIdBucketSeqToScanRangeMap.put(planFragmentId, bucketSeqToScanRange);
+        Deencapsulation.setField(bucketShuffleJoinController, "fragmentIdBucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
+
+
+        FragmentExecParams params = new FragmentExecParams(null);
+        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 1, params);
+        Assert.assertEquals(1, params.instanceExecParams.size());
+
+        params = new FragmentExecParams(null);
+        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 2, params);
+        Assert.assertEquals(2, params.instanceExecParams.size());
+
+        params = new FragmentExecParams(null);
+        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 3, params);
+        Assert.assertEquals(3, params.instanceExecParams.size());
+
+        params = new FragmentExecParams(null);
+        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 5, params);
+        Assert.assertEquals(3, params.instanceExecParams.size());
     }
-    */
 }
 

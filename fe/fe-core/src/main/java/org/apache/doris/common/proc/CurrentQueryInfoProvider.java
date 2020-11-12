@@ -224,7 +224,7 @@ public class CurrentQueryInfoProvider {
                 futures.add(Pair.create(request, BackendServiceProxy.getInstance().
                         triggerProfileReportAsync(address, pbRequest)));
             } catch (RpcException e) {
-                throw new AnalysisException("Sending request fails for query's execution informations.");
+                throw new AnalysisException("Sending request fails for query's execution information.");
             }
         }
         return futures;
@@ -266,7 +266,7 @@ public class CurrentQueryInfoProvider {
                     .toString());
         }
         if (backend.getBrpcPort() < 0) {
-            throw new AnalysisException("BRPC port is't exist.");
+            throw new AnalysisException("BRPC port isn't exist.");
         }
         return new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
     }

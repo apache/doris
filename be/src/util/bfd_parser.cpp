@@ -172,7 +172,7 @@ int BfdParser::open_bfd() {
         return -1;
     }
     if (bfd_check_format(_abfd, bfd_archive)) {
-        LOG(WARNING) << "bfd_check_format for archive fialed because errmsg=" 
+        LOG(WARNING) << "bfd_check_format for archive failed because errmsg="
             << bfd_errmsg(bfd_get_error());
         return -1;
     }

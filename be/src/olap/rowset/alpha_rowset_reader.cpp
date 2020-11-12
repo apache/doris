@@ -217,7 +217,7 @@ OLAPStatus AlphaRowsetReader::_update_merge_ctx_and_build_merge_heap(AlphaMergeC
 
 OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset_v2(RowCursor** row) {
     // if _merge_heap is not empty, return the row at top, and insert a new row
-    // from conresponding merge_ctx
+    // from corresponding merge_ctx
     if (!_merge_heap.empty()) {
         AlphaMergeContext* merge_ctx = _merge_heap.top();
         *row = merge_ctx->row_cursor.get();
@@ -359,8 +359,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
             if (new_column_data->rowset_pruning_filter()) {
                 _stats->rows_stats_filtered += new_column_data->num_rows();
                 VLOG(3) << "filter segment group in query in condition. version="
-                        << new_column_data->version().first
-                        << "-" << new_column_data->version().second;
+                        << new_column_data->version();
                 continue;
             }
         }
@@ -369,15 +368,15 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
         if (ret == DEL_SATISFIED) {
             _stats->rows_del_filtered += new_column_data->num_rows();
             VLOG(3) << "filter segment group in delete predicate:"
-                    << new_column_data->version().first << ", " << new_column_data->version().second;
+                    << new_column_data->version();
             continue;
         } else if (ret == DEL_PARTIAL_SATISFIED) {
             VLOG(3) << "filter segment group partially in delete predicate:"
-                    << new_column_data->version().first << ", " << new_column_data->version().second;
+                    << new_column_data->version();
             new_column_data->set_delete_status(DEL_PARTIAL_SATISFIED);
         } else {
             VLOG(3) << "not filter segment group in delete predicate:"
-                    << new_column_data->version().first << ", " << new_column_data->version().second;
+                    << new_column_data->version();
             new_column_data->set_delete_status(DEL_NOT_SATISFIED);
         }
         AlphaMergeContext merge_ctx;
@@ -386,7 +385,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
     }
 
     if (!_is_segments_overlapping && _merge_ctxs.size() > 1) {
-        LOG(WARNING) << "invalid column_datas for cumulative rowset. column_datas size:"
+        LOG(WARNING) << "invalid column_data for cumulative rowset. column_data size:"
                      << _merge_ctxs.size();
         return OLAP_ERR_READER_READING_ERROR;
     }

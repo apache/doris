@@ -17,10 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.AnalysisException;
+
 import org.junit.Assert;
 import org.junit.Test;
-
-import org.apache.doris.common.AnalysisException;
 
 public class ColumnSeparatorTest {
     @Test
@@ -42,6 +42,16 @@ public class ColumnSeparatorTest {
         separator.analyze();
         Assert.assertEquals("'\\x0001'", separator.toSql());
         Assert.assertEquals("\0\1", separator.getColumnSeparator());
+
+        separator = new ColumnSeparator("|");
+        separator.analyze();
+        Assert.assertEquals("'|'", separator.toSql());
+        Assert.assertEquals("|", separator.getColumnSeparator());
+
+        separator = new ColumnSeparator("\\|");
+        separator.analyze();
+        Assert.assertEquals("'\\|'", separator.toSql());
+        Assert.assertEquals("\\|", separator.getColumnSeparator());
     }
 
     @Test(expected = AnalysisException.class)

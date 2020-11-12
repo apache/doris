@@ -118,6 +118,15 @@ public class ColumnDef {
                 new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
     }
 
+    public static ColumnDef newSequenceColumnDef(Type type) {
+        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, null, true, DefaultValue.NULL_DEFAULT_VALUE,
+                "sequence column hidden column", false);
+    }
+
+    public static ColumnDef newSequenceColumnDef(Type type, AggregateType aggregateType) {
+        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, aggregateType, true, DefaultValue.NULL_DEFAULT_VALUE,
+                "sequence column hidden column", false);
+    }
 
     public boolean isAllowNull() { return isAllowNull; }
     public String getDefaultValue() { return defaultValue.value; }
@@ -198,7 +207,7 @@ public class ColumnDef {
         }
 
         // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.
-        // If defalut value is not set, we set it NULL
+        // If default value is not set, we set it NULL
         if (aggregateType == AggregateType.REPLACE_IF_NOT_NULL) {
             isAllowNull = true;
             if (!defaultValue.isSet) {

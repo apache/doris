@@ -39,7 +39,7 @@ enum TransferStatus {
     INIT_HEAP = 2,
     BUILD_ROWBATCH = 3,
     MERGE = 4,
-    FININSH = 5,
+    FINISH = 5,
     ADD_ROWBATCH = 6,
     ERROR = 7
 };
@@ -95,11 +95,11 @@ protected:
 
     typedef boost::variant<std::list<std::string>> string_list;
 
-    class ToOlapFilterVisitor : public boost::static_visitor<std::string> {
+    class ToOlapFilterVisitor : public boost::static_visitor<void> {
     public:
         template<class T, class P>
-        std::string operator()(T& v, P& v2) const {
-            return v.to_olap_filter(v2);
+        void operator()(T& v, P& v2) const {
+            v.to_olap_filter(v2);
         }
     };
 
@@ -158,8 +158,11 @@ protected:
 
 private:
     void _init_counter(RuntimeState* state);
+    // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator 
+    // according to the calling relationship
+    void init_scan_profile();
 
-    void construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, std::string is_null_str);
+    void construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, const std::string& is_null_str);
 
     friend class OlapScanner;
 
@@ -254,6 +257,9 @@ private:
     // or be overwritten by value in TQueryOptions
     int32_t _max_pushdown_conditions_per_column = 1024;
 
+    std::unique_ptr<RuntimeProfile> _scanner_profile;
+    std::unique_ptr<RuntimeProfile> _segment_profile;
+
     // Counters
     RuntimeProfile::Counter* _io_timer = nullptr;
     RuntimeProfile::Counter* _read_compressed_counter = nullptr;
@@ -267,6 +273,7 @@ private:
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _conditions_filtered_counter = nullptr;
     RuntimeProfile::Counter* _key_range_filtered_counter = nullptr;
 
     RuntimeProfile::Counter* _block_seek_timer = nullptr;
@@ -292,7 +299,7 @@ private:
     // number of created olap scanners
     RuntimeProfile::Counter* _num_scanners = nullptr;
 
-    // number of segment filted by column stat when creating seg iterator
+    // number of segment filtered by column stat when creating seg iterator
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;

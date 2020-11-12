@@ -72,7 +72,7 @@ public:
             }
         }
 
-        // Return true if insert sucess.
+        // Return true if insert success.
         bool insert(const std::vector<std::string> path, int index, const T& value) {
             if (index >= path.size()) {
                 return false;

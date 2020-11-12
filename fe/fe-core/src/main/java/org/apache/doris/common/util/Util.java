@@ -20,7 +20,9 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
@@ -54,6 +56,8 @@ public class Util {
     private static final long DEFAULT_EXEC_CMD_TIMEOUT_MS = 600000L;
 
     private static final String[] ORDINAL_SUFFIX = new String[] { "th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th" };
+
+    private static final List<String> REGEX_ESCAPES = Lists.newArrayList("\\", "$", "(", ")", "*", "+", ".", "[", "]", "?", "^", "{", "}", "|");
 
     static {
         TYPE_STRING_MAP.put(PrimitiveType.TINYINT, "tinyint(4)");
@@ -476,6 +480,18 @@ public class Util {
         conn.setConnectTimeout(connectTimeoutMs);
         conn.setReadTimeout(readTimeoutMs);
         return conn.getInputStream();
+    }
+
+    public static boolean showHiddenColumns() {
+        return ConnectContext.get() != null && ConnectContext.get().getSessionVariable().showHiddenColumns();
+    }
+
+    public static String escapeSingleRegex(String s) {
+        Preconditions.checkArgument(s.length() == 1);
+        if (REGEX_ESCAPES.contains(s)) {
+            return "\\" + s;
+        }
+        return s;
     }
 }
 

@@ -40,6 +40,7 @@ public final class GlobalVariable {
     public static final String SYSTEM_TIME_ZONE = "system_time_zone";
     public static final String QUERY_CACHE_SIZE = "query_cache_size";
     public static final String DEFAULT_ROWSET_TYPE = "default_rowset_type";
+    public static final String PERFORMANCE_SCHEMA = "performance_schema";
 
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version " + Version.DORIS_BUILD_VERSION;
@@ -73,6 +74,10 @@ public final class GlobalVariable {
 
     @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE, flag = VariableMgr.GLOBAL)
     public volatile static String defaultRowsetType = "alpha";
+
+    // add performance schema to support MYSQL JDBC 8.0.16 or later versions.
+    @VariableMgr.VarAttr(name = PERFORMANCE_SCHEMA, flag = VariableMgr.READ_ONLY)
+    public static String performanceSchema = "OFF";
 
     // Don't allow create instance.
     private GlobalVariable() {

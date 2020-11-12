@@ -48,6 +48,7 @@ import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -121,6 +122,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.QueryableReentrantLock;
 import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
@@ -177,6 +179,7 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
@@ -384,7 +387,9 @@ public class Catalog {
 
     private TabletChecker tabletChecker;
 
-    private MasterTaskExecutor loadTaskScheduler;
+    // Thread pools for pending and loading task, separately
+    private MasterTaskExecutor pendingLoadTaskScheduler;
+    private MasterTaskExecutor loadingLoadTaskScheduler;
 
     private LoadJobScheduler loadJobScheduler;
 
@@ -534,7 +539,10 @@ public class Catalog {
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
 
-        this.loadTaskScheduler = new MasterTaskExecutor("load_task_scheduler", Config.async_load_task_pool_size, !isCheckpointCatalog);
+        this.pendingLoadTaskScheduler = new MasterTaskExecutor("pending_load_task_scheduler", Config.async_load_task_pool_size,
+                Config.desired_max_waiting_jobs, !isCheckpointCatalog);
+        this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading_load_task_scheduler", Config.async_load_task_pool_size,
+                Config.desired_max_waiting_jobs, !isCheckpointCatalog);
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
         this.loadTimeoutChecker = new LoadTimeoutChecker(loadManager);
@@ -1235,9 +1243,6 @@ public class Catalog {
                 }
             }
         }
-
-        LOG.info("start to fix meta data bug");
-        loadManager.fixLoadJobMetaBugs(globalTransactionMgr);
     }
 
     // start all daemon threads only running on Master
@@ -1259,7 +1264,8 @@ public class Catalog {
         LoadChecker.init(Config.load_checker_interval_second * 1000L);
         LoadChecker.startAll();
         // New load scheduler
-        loadTaskScheduler.start();
+        pendingLoadTaskScheduler.start();
+        loadingLoadTaskScheduler.start();
         loadManager.prepareJobs();
         loadJobScheduler.start();
         loadTimeoutChecker.start();
@@ -2274,6 +2280,7 @@ public class Catalog {
 
     public void createReplayer() {
         replayer = new Daemon("replayer", REPLAY_INTERVAL_MS) {
+            @Override
             protected void runOneCycle() {
                 boolean err = false;
                 boolean hasLog = false;
@@ -2995,7 +3002,25 @@ public class Catalog {
         LOG.info("replay rename database {} to {}", dbName, newDbName);
     }
 
-    public void createTable(CreateTableStmt stmt) throws DdlException {
+    /**
+     * Following is the step to create an olap table:
+     * 1. create columns
+     * 2. create partition info
+     * 3. create distribution info
+     * 4. set table id and base index id
+     * 5. set bloom filter columns
+     * 6. set and build TableProperty includes:
+     *     6.1. dynamicProperty
+     *     6.2. replicationNum
+     *     6.3. inMemory
+     *     6.4. storageFormat
+     * 7. set index meta
+     * 8. check colocation properties
+     * 9. create tablet in BE
+     * 10. add this table to FE's meta
+     * 11. add this table to ColocateGroup if necessary
+     */
+     public void createTable(CreateTableStmt stmt) throws DdlException {
         String engineName = stmt.getEngineName();
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
@@ -3032,6 +3057,13 @@ public class Catalog {
         if (engineName.equals("olap")) {
             createOlapTable(db, stmt);
             return;
+        } else if (engineName.equals("odbc")) {
+            if (Config.enable_odbc_table) {
+                createOdbcTable(db, stmt);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
+            }
         } else if (engineName.equals("mysql")) {
             createMysqlTable(db, stmt);
             return;
@@ -3048,7 +3080,31 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
         Preconditions.checkState(false);
-        return;
+    }
+
+    public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
+        try {
+            Database db = Catalog.getCurrentCatalog().getDb(stmt.getExistedDbName());
+            List<String> createTableStmt = Lists.newArrayList();
+            db.readLock();
+            try {
+                Table table = db.getTable(stmt.getExistedTableName());
+                if (table == null) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, stmt.getExistedTableName());
+                }
+                Catalog.getDdlStmt(stmt.getDbName(), table, createTableStmt, null, null, false, false);
+                if (createTableStmt.isEmpty()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
+                }
+            } finally {
+                db.readUnlock();
+            }
+            CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(createTableStmt.get(0), ConnectContext.get());
+            parsedCreateTableStmt.setTableName(stmt.getTableName());
+            createTable(parsedCreateTableStmt);
+        } catch (UserException e) {
+            throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: " + e.getMessage());
+        }
     }
 
     public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
@@ -3357,7 +3413,7 @@ public class Catalog {
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition, clause.isForceDrop());
         editLog.logDropPartition(info);
 
-        LOG.info("succeed in droping partition[{}], is temp : {}, is force : {}", partitionName, isTempPartition, clause.isForceDrop());
+        LOG.info("succeed in dropping partition[{}], is temp : {}, is force : {}", partitionName, isTempPartition, clause.isForceDrop());
     }
 
     public void replayDropPartition(DropPartitionInfo info) {
@@ -3709,6 +3765,17 @@ public class Catalog {
                     rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
         }
 
+        // analyse sequence column
+        Type sequenceColType = null;
+        try {
+            sequenceColType = PropertyAnalyzer.analyzeSequenceType(properties, olapTable.getKeysType());
+            if (sequenceColType != null) {
+                olapTable.setSequenceInfo(sequenceColType);
+            }
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
         // analyze version info
         Pair<Long, Long> versionInfo = null;
         try {
@@ -3781,7 +3848,7 @@ public class Catalog {
                     olapTable.addPartition(partition);
                 }
             } else {
-                throw new DdlException("Unsupport partition method: " + partitionInfo.getType().name());
+                throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
             }
 
             if (!db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists())) {
@@ -3824,6 +3891,21 @@ public class Catalog {
         MysqlTable mysqlTable = new MysqlTable(tableId, tableName, columns, stmt.getProperties());
         mysqlTable.setComment(stmt.getComment());
         if (!db.createTableWithLock(mysqlTable, false, stmt.isSetIfNotExists())) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
+        }
+        LOG.info("successfully create table[{}-{}]", tableName, tableId);
+        return;
+    }
+
+    private void createOdbcTable(Database db, CreateTableStmt stmt) throws DdlException {
+        String tableName = stmt.getTableName();
+
+        List<Column> columns = stmt.getColumns();
+
+        long tableId = Catalog.getCurrentCatalog().getNextId();
+        OdbcTable odbcTable = new OdbcTable(tableId, tableName, columns, stmt.getProperties());
+        odbcTable.setComment(stmt.getComment());
+        if (!db.createTableWithLock(odbcTable, false, stmt.isSetIfNotExists())) {
             ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
         }
         LOG.info("successfully create table[{}-{}]", tableName, tableId);
@@ -3893,6 +3975,11 @@ public class Catalog {
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
+         getDdlStmt(null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition, hidePassword);
+    }
+
+    public static void getDdlStmt(String dbName, Table table, List<String> createTableStmt, List<String> addPartitionStmt,
+                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3907,20 +3994,27 @@ public class Catalog {
 
         // 1.2 other table type
         sb.append("CREATE ");
-        if (table.getType() == TableType.MYSQL || table.getType() == TableType.ELASTICSEARCH
+        if (table.getType() == TableType.ODBC || table.getType() == TableType.MYSQL || table.getType() == TableType.ELASTICSEARCH
                 || table.getType() == TableType.BROKER || table.getType() == TableType.HIVE) {
             sb.append("EXTERNAL ");
         }
         sb.append("TABLE ");
+        if (!Strings.isNullOrEmpty(dbName)) {
+            sb.append("`").append(dbName).append("`.");
+        }
         sb.append("`").append(table.getName()).append("` (\n");
         int idx = 0;
-        for (Column column : table.getBaseSchema(false)) {
+        for (Column column : table.getBaseSchema()) {
             if (idx++ != 0) {
                 sb.append(",\n");
             }
             // There MUST BE 2 space in front of each column description line
-            // sqlalchemy requires this to parse SHOW CREATE TAEBL stmt.
-            sb.append("  ").append(column.toSql());
+            // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
+            if (table.getType() == TableType.OLAP) {
+                sb.append("  ").append(column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS));
+            } else {
+                sb.append("  ").append(column.toSql());
+            }
         }
         if (table.getType() == TableType.OLAP) {
             OlapTable olapTable = (OlapTable) table;
@@ -4022,12 +4116,36 @@ public class Catalog {
             }
             // properties
             sb.append("\nPROPERTIES (\n");
-            sb.append("\"host\" = \"").append(mysqlTable.getHost()).append("\",\n");
-            sb.append("\"port\" = \"").append(mysqlTable.getPort()).append("\",\n");
-            sb.append("\"user\" = \"").append(mysqlTable.getUserName()).append("\",\n");
-            sb.append("\"password\" = \"").append(hidePassword ? "" : mysqlTable.getPasswd()).append("\",\n");
+            if (mysqlTable.getOdbcCatalogResourceName() == null) {
+                sb.append("\"host\" = \"").append(mysqlTable.getHost()).append("\",\n");
+                sb.append("\"port\" = \"").append(mysqlTable.getPort()).append("\",\n");
+                sb.append("\"user\" = \"").append(mysqlTable.getUserName()).append("\",\n");
+                sb.append("\"password\" = \"").append(hidePassword ? "" : mysqlTable.getPasswd()).append("\",\n");
+            } else {
+                sb.append("\"odbc_catalog_resource\" = \"").append(mysqlTable.getOdbcCatalogResourceName()).append("\",\n");
+            }
             sb.append("\"database\" = \"").append(mysqlTable.getMysqlDatabaseName()).append("\",\n");
             sb.append("\"table\" = \"").append(mysqlTable.getMysqlTableName()).append("\"\n");
+            sb.append(")");
+        } else if (table.getType() == TableType.ODBC) {
+            OdbcTable odbcTable = (OdbcTable) table;
+            if (!Strings.isNullOrEmpty(table.getComment())) {
+                sb.append("\nCOMMENT \"").append(table.getComment()).append("\"");
+            }
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            if (odbcTable.getOdbcCatalogResourceName() == null) {
+                sb.append("\"host\" = \"").append(odbcTable.getHost()).append("\",\n");
+                sb.append("\"port\" = \"").append(odbcTable.getPort()).append("\",\n");
+                sb.append("\"user\" = \"").append(odbcTable.getUserName()).append("\",\n");
+                sb.append("\"password\" = \"").append(hidePassword ? "" : odbcTable.getPasswd()).append("\",\n");
+                sb.append("\"driver\" = \"").append(odbcTable.getOdbcDriver()).append("\",\n");
+                sb.append("\"odbc_type\" = \"").append(odbcTable.getOdbcTableTypeName()).append("\",\n");
+            } else {
+                sb.append("\"odbc_catalog_resource\" = \"").append(odbcTable.getOdbcCatalogResourceName()).append("\",\n");
+            }
+            sb.append("\"database\" = \"").append(odbcTable.getOdbcDatabaseName()).append("\",\n");
+            sb.append("\"table\" = \"").append(odbcTable.getOdbcTableName()).append("\"\n");
             sb.append(")");
         } else if (table.getType() == TableType.BROKER) {
             BrokerTable brokerTable = (BrokerTable) table;
@@ -4181,6 +4299,11 @@ public class Catalog {
                 DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(dbId, olapTable);
             }
         }
+    }
+
+    public void replayAlterExteranlTableSchema(String dbName, String tableName, List<Column> newSchema) throws DdlException {
+        Database db = this.fullNameToDb.get(dbName);
+        db.allterExternalTableSchemaWithLock(tableName, newSchema);
     }
 
     private void createTablets(String clusterName, MaterializedIndex index, ReplicaState replicaState,
@@ -4536,7 +4659,7 @@ public class Catalog {
         return editLog;
     }
 
-    // Get the next available, need't lock because of nextId is atomic.
+    // Get the next available, needn't lock because of nextId is atomic.
     public long getNextId() {
         long id = idGenerator.getNextId();
         return id;
@@ -4620,7 +4743,7 @@ public class Catalog {
             // use try lock to avoid blocking a long time.
             // if block too long, backend report rpc will timeout.
             if (!db.tryWriteLock(Database.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                LOG.warn("try get db {} writelock but failed when hecking backend storage medium", dbId);
+                LOG.warn("try get db {} writelock but failed when checking backend storage medium", dbId);
                 continue;
             }
             Preconditions.checkState(db.isWriteLockHeldByCurrentThread());
@@ -4702,8 +4825,12 @@ public class Catalog {
         return loadManager;
     }
 
-    public MasterTaskExecutor getLoadTaskScheduler() {
-        return loadTaskScheduler;
+    public MasterTaskExecutor getPendingLoadTaskScheduler() {
+        return pendingLoadTaskScheduler;
+    }
+
+    public MasterTaskExecutor getLoadingLoadTaskScheduler() {
+        return loadingLoadTaskScheduler;
     }
 
     public RoutineLoadManager getRoutineLoadManager() {
@@ -4923,7 +5050,7 @@ public class Catalog {
     }
 
     /*
-     * used for handling CacnelAlterStmt (for client is the CANCEL ALTER
+     * used for handling CancelAlterStmt (for client is the CANCEL ALTER
      * command). including SchemaChangeHandler and RollupHandler
      */
     public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
@@ -4951,14 +5078,18 @@ public class Catalog {
         getBackupHandler().cancel(stmt);
     }
 
-    public void renameTable(Database db, OlapTable table, TableRenameClause tableRenameClause) throws DdlException {
-        if (table.getState() != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
+    // entry of rename table operation
+    public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
+        if (table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
+            if ( olapTable.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table[" + olapTable.getName() + "] is under " + olapTable.getState());
+            }
         }
 
-        String tableName = table.getName();
+        String oldTableName = table.getName();
         String newTableName = tableRenameClause.getNewTableName();
-        if (tableName.equals(newTableName)) {
+        if (oldTableName.equals(newTableName)) {
             throw new DdlException("Same table name");
         }
 
@@ -4967,21 +5098,26 @@ public class Catalog {
             throw new DdlException("Table name[" + newTableName + "] is already used");
         }
 
-        // check if rollup has same name
-        for (String idxName : table.getIndexNameToId().keySet()) {
-            if (idxName.equals(newTableName)) {
-                throw new DdlException("New name conflicts with rollup index name: " + idxName);
-            }
+        if (table.getType() == TableType.OLAP) {
+            // olap table should also check if any rollup has same name as "newTableName"
+            ((OlapTable) table).checkAndSetName(newTableName, false);
+        } else {
+            table.setName(newTableName);
         }
 
-        table.setName(newTableName);
-
-        db.dropTable(tableName);
+        db.dropTable(oldTableName);
         db.createTable(table);
 
         TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
         editLog.logTableRename(tableInfo);
-        LOG.info("rename table[{}] to {}", tableName, newTableName);
+        LOG.info("rename table[{}] to {}", oldTableName, newTableName);
+    }
+
+    public void refreshExternalTableSchema(Database db, Table table, List<Column> newSchema) {
+        RefreshExternalTableInfo refreshExternalTableInfo = new RefreshExternalTableInfo(db.getFullName(),
+                table.getName(), newSchema);
+        editLog.logRefreshExternalTableSchema(refreshExternalTableInfo);
+        LOG.info("refresh db[{}] table[{}] for schema change", db.getFullName(), table.getName());
     }
 
     public void replayRenameTable(TableInfo tableInfo) throws DdlException {
@@ -4992,7 +5128,7 @@ public class Catalog {
         Database db = getDb(dbId);
         db.writeLock();
         try {
-            OlapTable table = (OlapTable) db.getTable(tableId);
+            Table table = db.getTable(tableId);
             String tableName = table.getName();
             db.dropTable(tableName);
             table.setName(newTableName);
@@ -5212,11 +5348,11 @@ public class Catalog {
     }
 
     public void renameColumn(Database db, OlapTable table, ColumnRenameClause renameClause) throws DdlException {
-        throw new DdlException("not implmented");
+        throw new DdlException("not implemented");
     }
 
     public void replayRenameColumn(TableInfo tableInfo) throws DdlException {
-        throw new DdlException("not implmented");
+        throw new DdlException("not implemented");
     }
 
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
@@ -5711,7 +5847,7 @@ public class Catalog {
                     alterStmt.setClusterName(clusterName);
                     this.alter.processAlterCluster(alterStmt);
                 } catch (AnalysisException e) {
-                    Preconditions.checkState(false, "should not happend: " + e.getMessage());
+                    Preconditions.checkState(false, "should not happened: " + e.getMessage());
                 }
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_ALTER_BE_NO_CHANGE, newInstanceNum);
@@ -5942,7 +6078,7 @@ public class Catalog {
     }
 
     /**
-     * get migrate progress , when finish migration, next clonecheck will reset dbState
+     * get migrate progress , when finish migration, next cloneCheck will reset dbState
      *
      * @return
      */
@@ -6075,7 +6211,7 @@ public class Catalog {
         }
 
         // we create default_cluster to meet the need for ease of use, because
-        // most users hava no multi tenant needs.
+        // most users have no multi tenant needs.
         cluster.setBackendIdList(backendList);
         unprotectCreateCluster(cluster);
         for (Database db : idToDb.values()) {
@@ -6202,7 +6338,7 @@ public class Catalog {
             unlock();
         }
 
-        LOG.info("finished dumpping image to {}", dumpFilePath);
+        LOG.info("finished dumping image to {}", dumpFilePath);
         return dumpFilePath;
     }
 
@@ -6558,7 +6694,7 @@ public class Catalog {
      */
     public void replaceTempPartition(Database db, String tableName, ReplacePartitionClause clause) throws DdlException {
         List<String> partitionNames = clause.getPartitionNames();
-        List<String> tempPartitonNames = clause.getTempPartitionNames();
+        List<String> tempPartitionNames = clause.getTempPartitionNames();
         boolean isStrictRange = clause.isStrictRange();
         boolean useTempPartitionName = clause.useTempPartitionName();
         db.writeLock();
@@ -6579,17 +6715,17 @@ public class Catalog {
                     throw new DdlException("Partition[" + partName + "] does not exist");
                 }
             }
-            for (String partName : tempPartitonNames) {
+            for (String partName : tempPartitionNames) {
                 if (!olapTable.checkPartitionNameExist(partName, true)) {
                     throw new DdlException("Temp partition[" + partName + "] does not exist");
                 }
             }
 
-            olapTable.replaceTempPartitions(partitionNames, tempPartitonNames, isStrictRange, useTempPartitionName);
+            olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
 
             // write log
             ReplacePartitionOperationLog info = new ReplacePartitionOperationLog(db.getId(), olapTable.getId(),
-                    partitionNames, tempPartitonNames, isStrictRange, useTempPartitionName);
+                    partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
             editLog.logReplaceTempPartition(info);
             LOG.info("finished to replace partitions {} with temp partitions {} from table: {}",
                     clause.getPartitionNames(), clause.getTempPartitionNames(), tableName);

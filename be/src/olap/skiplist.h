@@ -50,9 +50,9 @@ public:
     //   bool is_exist = skiplist->Find(key, &hint);
     //   // 2. Do something separately based on the value of is_exist
     //   if (is_exist) {
-    //       do_something1 ();
+    //       do_something1 ();
     //   } else {
-    //       do_something2 ();
+    //       do_something2 ();
     //       skiplist->InsertWithHint(key, is_exist, hint);
     //   }
     //
@@ -366,7 +366,7 @@ void SkipList<Key,Comparator>::Insert(const Key& key, bool* overwritten) {
     Node* x = FindGreaterOrEqual(key, prev);
 
 #ifndef BE_TEST
-    // The key already exists and duplicate keys are not allowed, so we need to aggreage them
+    // The key already exists and duplicate keys are not allowed, so we need to aggregate them
     if (!_can_dup && x != nullptr && Equal(key, x->key)) {
         *overwritten = true;
         return;
@@ -408,7 +408,7 @@ void SkipList<Key,Comparator>::InsertWithHint(const Key& key, bool is_exist, Hin
     DCHECK(!is_exist || x) << "curr pointer must not be null if row exists";
 
 #ifndef BE_TEST
-    // The key already exists and duplicate keys are not allowed, so we need to aggreage them
+    // The key already exists and duplicate keys are not allowed, so we need to aggregate them
     if (!_can_dup && is_exist) {
         return;
     }

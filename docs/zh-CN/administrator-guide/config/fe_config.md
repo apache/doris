@@ -30,6 +30,12 @@ under the License.
 
 该文档主要介绍 FE 的相关配置项。
 
+FE 的配置文件 `fe.conf` 通常存放在 FE 部署路径的 `conf/` 目录下。 而在 0.14 版本中会引入另一个配置文件 `fe_custom.conf`。该配置文件用于记录用户在运行是动态配置并持久化的配置项。
+
+FE 进程启动后，会先读取 `fe.conf` 中的配置项，之后再读取 `fe_custom.conf` 中的配置项。`fe_custom.conf` 中的配置项会覆盖 `fe.conf` 中相同的配置项。
+
+`fe_custom.conf` 文件的位置可以在 `fe.conf` 通过 `custom_config_dir` 配置项配置。 
+
 ## 查看配置项
 
 FE 的配置项有两种方式进行查看：
@@ -61,7 +67,7 @@ FE 的配置项有两种方式进行配置：
 
     在 `conf/fe.conf` 文件中添加和设置配置项。`fe.conf` 中的配置项会在 FE 进程启动时被读取。没有在 `fe.conf` 中的配置项将使用默认值。
     
-2. 动态配置
+2. 通过 MySQL 协议动态配置
 
     FE 启动后，可以通过以下命令动态设置配置项。该命令需要管理员权限。
     
@@ -74,6 +80,12 @@ FE 的配置项有两种方式进行配置：
     **通过该方式修改的配置项将在 FE 进程重启后失效。**
     
     更多该命令的帮助，可以通过 `HELP ADMIN SET CONFIG;` 命令查看。
+    
+3. 通过 HTTP 协议动态配置
+
+    具体请参阅 [Set Config Action](../http-actions/fe/set-config-action.md)
+    
+    该方式也可以持久化修改后的配置项。配置项将持久化在 `fe_custom.conf` 文件中，在 FE 重启后仍会生效。
     
 ## 应用举例
 
@@ -208,6 +220,12 @@ FE 的配置项有两种方式进行配置：
 
 ### `consistency_check_start_time`
 
+### `custom_config_dir`
+
+配置 `fe_custom.conf` 文件的位置。默认为 `conf/` 目录下。
+
+在某些部署环境下，`conf/` 目录可能因为系统的版本升级被覆盖掉。这会导致用户在运行是持久化修改的配置项也被覆盖。这时，我们可以将 `fe_custom.conf` 存储在另一个指定的目录中，以防止配置文件被覆盖。
+
 ### `db_used_data_quota_update_interval_secs`
 
 为了更好的数据导入性能，在数据导入之前的数据库已使用的数据量是否超出配额的检查中，我们并不实时计算数据库已经使用的数据量，而是获取后台线程周期性更新的值。
@@ -275,6 +293,9 @@ FE 的配置项有两种方式进行配置：
 
 ### `enable_auth_check`
 
+### `enable_batch_delete_by_default`
+在创建 unique 表时是否自动启用批量删除功能
+
 ### `enable_deploy_manager`
 
 ### `enable_insert_strict`
@@ -328,6 +349,12 @@ FE 的配置项有两种方式进行配置：
 ### `history_job_keep_max_second`
 
 ### `http_backlog_num`
+Doris netty http server 的backlog_num 参数，当你增大该配置时，也需要同时
+增大 Linux /proc/sys/net/core/somaxconn 文件的值 
+
+### `mysql_nio_backlog_num`
+Doris mysql nio server 的backlog_num 参数，当你增大该配置时，也需要同时
+增大 Linux /proc/sys/net/core/somaxconn 文件的值 
 
 ### `http_port`
 
@@ -545,6 +572,14 @@ current running txns on db xxx is xx, larger than limit xx
 
 ### `rewrite_count_distinct_to_bitmap_hll`
 
+该变量为 session variable，session 级别生效。
+
++ 类型：boolean
++ 描述：**仅对于 AGG 模型的表来说**，当变量为 true 时，用户查询时包含 count(distinct c1) 这类聚合函数时，如果 c1 列本身类型为 bitmap，则 count distnct 会改写为 bitmap_union_count(c1)。
+        当 c1 列本身类型为 hll，则 count distinct 会改写为 hll_union_agg(c1)
+        如果变量为 false，则不发生任何改写。
++ 默认值：true。
+
 ### `rpc_port`
 
 ### `schedule_slot_num_per_path`
@@ -680,5 +715,33 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 默认为 false。
 
 
+### `enable_odbc_table`
+
+将此参数设置为 true，则 Doris 能够支持ODBC的外表建立，查询。具体ODBC表的使用方式，参考ODBC表的使用文档。
+
+在该功能仍然在实验阶段，所以当前改参数默认为 false。
 
 
+### `default_db_data_quota_bytes`
+
+用于设置database data的默认quota值，单位为 bytes，默认1T.
+
+### `default_max_filter_ratio`
+
+默认的最大容忍可过滤（数据不规范等原因）的数据比例。它将被Load Job 中设置的"max_filter_ratio"覆盖，默认0，取值范围0-1.
+
+### `enable_http_server_v2`
+
+是否启用的 V2 版本的 HTTP Server 实现。新的 HTTP Server 采用 SpringBoot 实现。并且实现了前后端分离。
+只有当开启后，才能使用 `ui/` 目录下的新版 UI 界面。
+
+默认为 false。
+
+### `http_api_extra_base_path`
+
+一些部署环境下，需要指定额外的 base path 作为 HTTP API 的统一前缀。这个参数用于用户指定额外的前缀。
+设置后，可以通过 `GET /api/basepath` 接口获取这个参数值。
+新版本的UI也会先尝试获取这个base path来拼接URL。
+仅在 `enable_http_server_v2` 为 true 的情况下才有效。
+
+默认为空，即不设置。

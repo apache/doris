@@ -32,7 +32,7 @@ public:
     PositionEntryWriter();
     // 获取指定位置的position信息
     int64_t positions(size_t index) const;
-    // 获取pisition的个数
+    // 获取position的个数
     int32_t positions_count() const;
     // 设置统计信息
     OLAPStatus set_statistic(ColumnStatistics* statistic);

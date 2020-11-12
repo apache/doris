@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -111,7 +112,7 @@ public class Database extends MetaObject implements Writable {
         this.rwLock = new ReentrantReadWriteLock(true);
         this.idToTable = new ConcurrentHashMap<>();
         this.nameToTable = new HashMap<>();
-        this.dataQuotaBytes = FeConstants.default_db_data_quota_bytes;
+        this.dataQuotaBytes = Config.default_db_data_quota_bytes;
         this.replicaQuotaSize = FeConstants.default_db_replica_quota_size;
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
@@ -304,6 +305,20 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
+    public void allterExternalTableSchemaWithLock(String tableName, List<Column> newSchema) throws DdlException{
+        writeLock();
+        try {
+            if (!nameToTable.containsKey(tableName)) {
+                throw new DdlException("Do not contain proper table " + tableName + " in refresh table");
+            } else {
+                Table table = nameToTable.get(tableName);
+                table.setNewFullSchema(newSchema);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public boolean createTable(Table table) {
         boolean result = true;
         String tableName = table.getName();
@@ -339,6 +354,16 @@ public class Database extends MetaObject implements Writable {
 
     public List<Table> getTables() {
         return new ArrayList<Table>(idToTable.values());
+    }
+
+    public List<Table> getViews() {
+        List<Table> views = new ArrayList<>();
+        for (Table table : idToTable.values()) {
+            if (table.getType() == TableType.VIEW) {
+                views.add(table);
+            }
+        }
+        return views;
     }
 
     public Set<String> getTableNamesWithLock() {

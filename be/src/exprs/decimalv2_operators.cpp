@@ -153,7 +153,7 @@ DateTimeVal DecimalV2Operators::cast_to_date_val(
         return DateTimeVal::null();
     }
 
-    // convert from DecimalV2Val to DecimalV2Value for caculation
+    // convert from DecimalV2Val to DecimalV2Value for calculation
     const DecimalV2Value& dv = DecimalV2Value::from_decimal_val(val);
     DateTimeValue dt;
     if (!dt.from_date_int64(dv)) {

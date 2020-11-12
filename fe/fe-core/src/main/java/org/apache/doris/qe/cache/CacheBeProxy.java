@@ -17,30 +17,30 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.proto.PCacheStatus;
+import org.apache.doris.common.Status;
 import org.apache.doris.proto.PCacheResponse;
-import org.apache.doris.proto.PUpdateCacheRequest;
+import org.apache.doris.proto.PCacheStatus;
+import org.apache.doris.proto.PClearCacheRequest;
+import org.apache.doris.proto.PClearType;
 import org.apache.doris.proto.PFetchCacheRequest;
 import org.apache.doris.proto.PFetchCacheResult;
-import org.apache.doris.proto.PClearType;
-import org.apache.doris.proto.PClearCacheRequest;
+import org.apache.doris.proto.PUniqueId;
+import org.apache.doris.proto.PUpdateCacheRequest;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
-import org.apache.doris.common.Status;
-import org.apache.doris.proto.PUniqueId;
 import org.apache.doris.thrift.TNetworkAddress;
-
 import org.apache.doris.thrift.TStatusCode;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
-import java.util.List;
 
 /**
  * Encapsulates access to BE, including network and other exception handling
@@ -66,9 +66,9 @@ public class CacheBeProxy extends CacheProxy {
                 status.setStatus(response.status.toString());
             }
         } catch (Exception e) {
-            LOG.warn("update cache exception, sqlKey {}, e {}", sqlKey, e);
+            LOG.warn("update cache exception, sqlKey {}", sqlKey, e);
             status.setRpcStatus(e.getMessage());
-            SimpleScheduler.addToBlacklist(backend.getId());
+            SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
         }
     }
 
@@ -104,7 +104,7 @@ public class CacheBeProxy extends CacheProxy {
         } catch (RpcException e) {
             LOG.warn("fetch catch rpc exception, sqlKey {}, backend {}", sqlKey, backend.getId(), e);
             status.setRpcStatus(e.getMessage());
-            SimpleScheduler.addToBlacklist(backend.getId());
+            SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
         } catch (InterruptedException e) {
             LOG.warn("future get interrupted exception, sqlKey {}, backend {}", sqlKey, backend.getId(), e);
             status.setStatus("interrupted exception");
@@ -136,8 +136,9 @@ public class CacheBeProxy extends CacheProxy {
                 }
             }
             if (retry >= 3) {
-                LOG.warn("clear cache timeout, backend {}", backend.getId());
-                SimpleScheduler.addToBlacklist(backend.getId());
+                String errMsg = "clear cache timeout, backend " + backend.getId();
+                LOG.warn(errMsg);
+                SimpleScheduler.addToBlacklist(backend.getId(), errMsg);
             }
         }
     }

@@ -54,6 +54,9 @@ public:
             columns.push_back(column);
         }
         _delete_sign_idx = tablet_schema.delete_sign_idx();
+        if (tablet_schema.has_sequence_col()) {
+            _has_sequence_col = true;
+        }
         _init(columns, col_ids, num_key_columns);
     }
 
@@ -112,7 +115,7 @@ public:
         return _col_offsets[cid];
     }
 
-    // TODO(lingbin): What is the difference between colun_size() and index_size()
+    // TODO(lingbin): What is the difference between column_size() and index_size()
     size_t column_size(ColumnId cid) const {
         return _cols[cid]->size();
     }
@@ -132,6 +135,7 @@ public:
     size_t num_column_ids() const { return _col_ids.size(); }
     const std::vector<ColumnId>& column_ids() const { return _col_ids; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
+    bool has_sequence_col() const { return _has_sequence_col; }
 
 private:
     void _init(const std::vector<TabletColumn>& cols,
@@ -156,6 +160,7 @@ private:
     size_t _num_key_columns;
     size_t _schema_size;
     int32_t _delete_sign_idx = -1;
+    bool _has_sequence_col = false;
 };
 
 } // namespace doris

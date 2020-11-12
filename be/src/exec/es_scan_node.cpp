@@ -206,7 +206,6 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_TIMER(materialize_tuple_timer());
 
     // create tuple
     MemPool* tuple_pool = row_batch->tuple_data_pool();
@@ -400,7 +399,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
                                vector<TExtPredicate>& disjuncts) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
-            VLOG(1) << "get disjuncts fail: number of childs is not 2";
+            VLOG(1) << "get disjuncts fail: number of children is not 2";
             return false;
         }
         SlotRef* slotRef;
@@ -497,7 +496,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
             }
         }
 
-        HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
+        HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
         while (iter->has_next()) {
             if (nullptr == iter->get_value()) {
                 return false;

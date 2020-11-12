@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
@@ -48,6 +49,7 @@ public class Table extends MetaObject implements Writable {
 
     public enum TableType {
         MYSQL,
+        ODBC,
         OLAP,
         SCHEMA,
         INLINE_VIEW,
@@ -71,7 +73,7 @@ public class Table extends MetaObject implements Writable {
      *  NOTICE: the order of this fullSchema is meaningless to OlapTable
      */
     /**
-     * The fullSchema of OlapTable includes the base columns and the SHADOW_NAME_PRFIX columns.
+     * The fullSchema of OlapTable includes the base columns and the SHADOW_NAME_PREFIX columns.
      * The properties of base columns in fullSchema are same as properties in baseIndex.
      * For example:
      * Table (c1 int, c2 int, c3 int)
@@ -84,7 +86,7 @@ public class Table extends MetaObject implements Writable {
     protected List<Column> fullSchema;
     // tree map for case-insensitive lookup.
     /**
-     * The nameToColumn of OlapTable includes the base columns and the SHADOW_NAME_PRFIX columns.
+     * The nameToColumn of OlapTable includes the base columns and the SHADOW_NAME_PREFIX columns.
      */
     protected Map<String, Column> nameToColumn;
 
@@ -92,6 +94,8 @@ public class Table extends MetaObject implements Writable {
     protected boolean isTypeRead = false;
     // table(view)'s comment
     protected String comment = "";
+    // sql for creating this table, default is "";
+    protected String ddlSql = "";
 
     public Table(TableType type) {
         this.type = type;
@@ -103,7 +107,7 @@ public class Table extends MetaObject implements Writable {
         this.id = id;
         this.name = tableName;
         this.type = type;
-        // must copy the list, it should not be the same object as in indexIdToSchmea
+        // must copy the list, it should not be the same object as in indexIdToSchema
         if (fullSchema != null) {
             this.fullSchema = Lists.newArrayList(fullSchema);
         }
@@ -135,6 +139,10 @@ public class Table extends MetaObject implements Writable {
         return name;
     }
 
+    public void setName(String newName) {
+        name = newName;
+    }
+
     public TableType getType() {
         return type;
     }
@@ -143,10 +151,15 @@ public class Table extends MetaObject implements Writable {
         return fullSchema;
     }
 
+    public String getDdlSql() {
+        return ddlSql;
+    }
+
     // should override in subclass if necessary
     public List<Column> getBaseSchema() {
-        return fullSchema;
+        return getBaseSchema(Util.showHiddenColumns());
     }
+
     public List<Column> getBaseSchema(boolean full) {
         if (full) {
             return fullSchema;
@@ -180,6 +193,8 @@ public class Table extends MetaObject implements Writable {
         TableType type = TableType.valueOf(Text.readString(in));
         if (type == TableType.OLAP) {
             table = new OlapTable();
+        } else if (type == TableType.ODBC) {
+            table = new OdbcTable();
         } else if (type == TableType.MYSQL) {
             table = new MysqlTable();
         } else if (type == TableType.VIEW) {
@@ -273,6 +288,8 @@ public class Table extends MetaObject implements Writable {
     public String getEngine() {
         if (this instanceof OlapTable) {
             return "Doris";
+        } else if (this instanceof OdbcTable) {
+            return "Odbc";
         } else if (this instanceof MysqlTable) {
             return "MySQL";
         } else if (this instanceof SchemaTable) {
@@ -318,7 +335,7 @@ public class Table extends MetaObject implements Writable {
      * 1. Only schedule OLAP table.
      * 2. If table is colocate with other table, not schedule it.
      * 3. (deprecated). if table's state is ROLLUP or SCHEMA_CHANGE, but alter job's state is FINISHING, we should also
-     *      schedule the tablet to repair it(only for VERSION_IMCOMPLETE case, this will be checked in
+     *      schedule the tablet to repair it(only for VERSION_INCOMPLETE case, this will be checked in
      *      TabletScheduler).
      * 4. Even if table's state is ROLLUP or SCHEMA_CHANGE, check it. Because we can repair the tablet of base index.
      */

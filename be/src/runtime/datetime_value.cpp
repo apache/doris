@@ -74,10 +74,7 @@ bool DateTimeValue::check_range() const {
 }
 
 bool DateTimeValue::check_date() const {
-    if (_month == 0 || _day == 0) {
-        return true;
-    }
-    if (_day > s_days_in_month[_month]) {
+    if (_month != 0 && _day > s_days_in_month[_month]) {
         // Feb 29 in leap year is valid.
         if (_month == 2 && _day == 29 && is_leap(_year)) {
             return false;
@@ -229,7 +226,7 @@ bool DateTimeValue::from_date_str(const char* date_str, int len) {
 // ((YY_PART_YEAR - 1)##1231235959, YY_PART_YEAR##0101000000) invalid
 // ((YY_PART_YEAR)##1231235959, 99991231235959] two digits year datetime value 1970 ~ 1999
 // (999991231235959, ~) valid
-int64_t DateTimeValue::standardlize_timevalue(int64_t value) {
+int64_t DateTimeValue::standardize_timevalue(int64_t value) {
     _type = TIME_DATE;
     if (value <= 0) {
         return 0;
@@ -292,7 +289,7 @@ int64_t DateTimeValue::standardlize_timevalue(int64_t value) {
 
 bool DateTimeValue::from_date_int64(int64_t value) {
     _neg = false;
-    value = standardlize_timevalue(value);
+    value = standardize_timevalue(value);
     if (value <= 0) {
         return false;
     }
@@ -1073,6 +1070,8 @@ static int check_word(const char* lib[], const char* str, const char* end, const
     return pos;
 }
 
+// this method is exactly same as fromDateFormatStr() in DateLiteral.java in FE
+// change this method should also change that.
 bool DateTimeValue::from_date_format_str(
         const char* format, int format_len,
         const char* value, int value_len,
@@ -1315,14 +1314,14 @@ bool DateTimeValue::from_date_format_str(
                 date_part_used = true;
                 break;
             case 'r':
-                if (from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
+                if (!from_date_format_str("%I:%i:%S %p", 11, val, val_end - val, &tmp)) {
                     return false;
                 }
                 val = tmp;
                 time_part_used = true;
                 break;
             case 'T':
-                if (from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
+                if (!from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
                     return false;
                 }
                 time_part_used = true;
@@ -1363,6 +1362,33 @@ bool DateTimeValue::from_date_format_str(
         }
     }
 
+    // continue to iterate pattern if has
+    // to find out if it has time part.
+    while (ptr < end) {
+        if (*ptr == '%' && ptr + 1 < end) {
+            ptr++;
+            switch (*ptr++) {
+                case 'H':
+                case 'h':
+                case 'I':
+                case 'i':
+                case 'k':
+                case 'l':
+                case 'r':
+                case 's':
+                case 'S':
+                case 'p':
+                case 'T':
+                    time_part_used = true;
+                    break;
+                default:
+                    break;               
+            }
+        } else {
+            ptr++;
+        }
+    }
+
     if (usa_time) {
         if (_hour > 12 || _hour < 1) {
             return false;
@@ -1371,7 +1397,7 @@ bool DateTimeValue::from_date_format_str(
     }
     if (sub_val_end) {
         *sub_val_end = val;
-        return 0;
+        return true;
     }
     // Year day
     if (yearday > 0) {

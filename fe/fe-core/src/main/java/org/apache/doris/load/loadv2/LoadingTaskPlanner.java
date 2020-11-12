@@ -182,6 +182,13 @@ public class LoadingTaskPlanner {
             }
         }
 
+        // If this is a dynamic partitioned table, it will take some time to create the partition after the
+        // table is created, a exception needs to be thrown here
+        if (partitionIds.isEmpty()) {
+            throw new LoadException("data cannot be inserted into table with empty partition. " +
+                    "Use `SHOW PARTITIONS FROM " + table.getName() + "` to see the currently partitions of this table. ");
+        }
+
         return Lists.newArrayList(partitionIds);
     }
 

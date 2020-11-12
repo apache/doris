@@ -21,8 +21,8 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -37,11 +37,11 @@ import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 
 /*
- * if you want to visit the atrribute(such as queryID,defaultDb) 
+ * if you want to visit the attribute(such as queryID,defaultDb)
  * you can use profile.getInfoStrings("queryId")
  * All attributes can be seen from the above.
  * 
- * why the element in the finished profile arary is not RuntimeProfile,
+ * why the element in the finished profile array is not RuntimeProfile,
  * the purpose is let coordinator can destruct earlier(the fragment profile is in Coordinator) 
  * 
  */
@@ -59,7 +59,8 @@ public class ProfileManager {
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String USER = "User";
     public static final String DEFAULT_DB = "Default Db";
-    
+    public static final String IS_CACHED = "Is Cached";
+
     public static final ArrayList<String> PROFILE_HEADERS = new ArrayList(
             Arrays.asList(QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
                     START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE));

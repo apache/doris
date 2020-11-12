@@ -102,7 +102,7 @@ Then just run `Run/Debug`.
 
 ## Run FE
 
-You can directly start an FE process in Ecplise to facilitate debugging the code.
+You can directly start an FE process in Eclipse to facilitate debugging the code.
 
 1. Create a runtime directory
 
@@ -116,7 +116,7 @@ You can directly start an FE process in Ecplise to facilitate debugging the code
     
     Create the configuration file `fe.conf` in the `conf/` directory created in the first step. You can directly copy `conf/fe.conf` in the source directory and make simple changes.
     
-3. Find the `src/main/java/org/apache/doris/PaloFe.java` file in Ecplise, right-click and select `Run As -> Run Configurations...`. Add the following environment variables to the `Environment` tab:
+3. Find the `src/main/java/org/apache/doris/PaloFe.java` file in Eclipse, right-click and select `Run As -> Run Configurations...`. Add the following environment variables to the `Environment` tab:
 
     * `DORIS_HOME: /path/to/doris/fe/run/`
     * `PID_DIR: /path/to/doris/fe/run/`

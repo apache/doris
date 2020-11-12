@@ -371,6 +371,9 @@ void JsonFunctions::parse_json_paths(
 void JsonFunctions::get_parsed_paths(
         const std::vector<std::string>& path_exprs,
         std::vector<JsonPath>* parsed_paths) {
+    if(path_exprs.empty()){
+        return;
+    }
 
     if (path_exprs[0] != "$") {
         parsed_paths->emplace_back("", -1, false);

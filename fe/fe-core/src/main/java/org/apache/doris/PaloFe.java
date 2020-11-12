@@ -81,17 +81,21 @@ public class PaloFe {
             }
 
             // init config
-            new Config().init(dorisHomeDir + "/conf/fe.conf");
+            Config config = new Config();
+            config.init(dorisHomeDir + "/conf/fe.conf");
+            // Must init custom config after init config, separately.
+            // Because the path of custom config file is defined in fe.conf
+            config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
 
             // check it after Config is initialized, otherwise the config 'check_java_version' won't work.
             if (!JdkUtils.checkJavaVersion()) {
                 throw new IllegalArgumentException("Java version doesn't match");
             }
 
-            Log4jConfig.initLogging();
+            Log4jConfig.initLogging(dorisHomeDir + "/conf/");
 
             // set dns cache ttl
-            java.security.Security.setProperty("networkaddress.cache.ttl" , "60");
+            java.security.Security.setProperty("networkaddress.cache.ttl", "60");
 
             // check command line options
             checkCommandLineOptions(cmdLineOpts);
@@ -111,16 +115,24 @@ public class PaloFe {
             // 3. HttpServer for HTTP Server
             QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
-            HttpServer httpServer = new HttpServer(
-                    Config.http_port,
-                    Config.http_max_line_length,
-                    Config.http_max_header_size,
-                    Config.http_max_chunk_size
-            );
-            httpServer.setup();
 
             feServer.start();
-            httpServer.start();
+
+            if (!Config.enable_http_server_v2) {
+                HttpServer httpServer = new HttpServer(
+                        Config.http_port,
+                        Config.http_max_line_length,
+                        Config.http_max_header_size,
+                        Config.http_max_chunk_size
+                );
+                httpServer.setup();
+                httpServer.start();
+            } else {
+                org.apache.doris.httpv2.HttpServer httpServer2 = new org.apache.doris.httpv2.HttpServer();
+                httpServer2.setPort(Config.http_port);
+                httpServer2.start(dorisHomeDir);
+            }
+
             qeService.start();
 
             ThreadPoolManager.registerAllThreadPoolMetric();

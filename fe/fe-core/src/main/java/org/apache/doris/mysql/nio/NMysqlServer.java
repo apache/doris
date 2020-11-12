@@ -64,7 +64,7 @@ public class NMysqlServer extends MysqlServer {
     public boolean start() {
         try {
             server = xnioWorker.createStreamConnectionServer(new InetSocketAddress(port),
-                    acceptListener, OptionMap.create(Options.TCP_NODELAY, true));
+                    acceptListener, OptionMap.create(Options.TCP_NODELAY, true, Options.BACKLOG, Config.mysql_nio_backlog_num));
             server.resumeAccepts();
             running = true;
             LOG.info("Open mysql server success on {}", port);

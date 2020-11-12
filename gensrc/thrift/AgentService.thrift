@@ -47,6 +47,7 @@ struct TTabletSchema {
     7: optional list<Descriptors.TOlapTableIndex> indexes
     8: optional bool is_in_memory
     9: optional i32 delete_sign_idx = -1
+    10: optional i32 sequence_col_idx = -1
 }
 
 // this enum stands for different storage format in src_backends
@@ -160,6 +161,9 @@ struct TStorageMediumMigrateReq {
     1: required Types.TTabletId tablet_id
     2: required Types.TSchemaHash schema_hash
     3: required Types.TStorageMedium storage_medium
+    // if data dir is specified, the storage_medium is meaning less,
+    // Doris will try to migrate the tablet to the specified data dir.
+    4: optional string data_dir
 }
 
 struct TCancelDeleteDataReq {

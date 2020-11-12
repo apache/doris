@@ -34,6 +34,7 @@ class EtlJobMgr;
 class EvHttpServer;
 class ExternalScanContextMgr;
 class FragmentMgr;
+class ResultCache;
 class LoadPathMgr;
 class LoadStreamMgr;
 class MemTracker;
@@ -54,6 +55,7 @@ class RoutineLoadTaskExecutor;
 class SmallFileMgr;
 class FileBlockManager;
 class PluginMgr;
+
 
 class BackendServiceClient;
 class FrontendServiceClient;
@@ -113,6 +115,7 @@ public:
     PriorityThreadPool* etl_thread_pool() { return _etl_thread_pool; }
     CgroupsMgr* cgroups_mgr() { return _cgroups_mgr; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
+    ResultCache* result_cache() { return _result_cache; }
     TMasterInfo* master_info() { return _master_info; }
     EtlJobMgr* etl_job_mgr() { return _etl_job_mgr; }
     LoadPathMgr* load_path_mgr() { return _load_path_mgr; }
@@ -140,13 +143,14 @@ public:
 
 private:
     Status _init(const std::vector<StorePath>& store_paths);
-    void _destory();
+    void _destroy();
 
     Status _init_mem_tracker();
     /// Initialise 'buffer_pool_' and 'buffer_reservation_' with given capacity.
     void _init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit);
 
 private:
+    bool _is_init;
     std::vector<StorePath> _store_paths;
     // Leave protected so that subclasses can override
     ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
@@ -164,6 +168,7 @@ private:
     PriorityThreadPool* _etl_thread_pool = nullptr;
     CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;
+    ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;
     EtlJobMgr* _etl_job_mgr = nullptr;
     LoadPathMgr* _load_path_mgr = nullptr;

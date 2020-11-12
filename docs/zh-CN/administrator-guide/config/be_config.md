@@ -30,14 +30,68 @@ under the License.
 
 该文档主要介绍 BE 的相关配置项。
 
+BE 的配置文件 `be.conf` 通常存放在 BE 部署路径的 `conf/` 目录下。 而在 0.14 版本中会引入另一个配置文件 `be_custom.conf`。该配置文件用于记录用户在运行是动态配置并持久化的配置项。
+
+BE 进程启动后，会先读取 `be.conf` 中的配置项，之后再读取 `be_custom.conf` 中的配置项。`be_custom.conf` 中的配置项会覆盖 `be.conf` 中相同的配置项。
+
 ## 查看配置项
-（TODO）
+
+用户可以通过访问 BE 的 Web 页面查看当前配置项：
+
+`http://be_host:be_webserver_port/varz`
 
 ## 设置配置项
-（TODO）
+
+BE 的配置项有两种方式进行配置：
+
+1. 静态配置
+
+	在 `conf/be.conf` 文件中添加和设置配置项。`be.conf` 中的配置项会在 BE 进行启动时被读取。没有在 `be.conf` 中的配置项将使用默认值。
+
+2. 动态配置
+
+	BE 启动后，可以通过一下命令动态设置配置项。
+
+	```
+	curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'
+	```
+
+	在 0.13 版本及之前，通过该方式修改的配置项将在 BE 进程重启后失效。在 0.14 及之后版本中，可以通过以下命令持久化修改后的配置。修改后的配置项存储在 `be_custom.conf` 文件中。
+	
+	```
+	curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persist=true'
+	```
 
 ## 应用举例
-（TODO）
+
+1. 静态方式修改 `max_compaction_concurrency`
+
+	通过在 `be.conf` 文件中添加：
+
+	```max_compaction_concurrency=5```
+
+	之后重启 BE 进程以生效该配置。
+
+2. 动态方式修改 `streaming_load_max_mb`
+
+	BE 启动后，通过下面命令动态设置配置项 `streaming_load_max_mb`:
+
+	```curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024```
+
+	返回值如下，则说明设置成功。
+
+	```
+	{
+	    "status": "OK",
+	    "msg": ""
+	}
+	```
+
+	BE 重启后该配置将失效。如果想持久化修改结果，使用如下命令：
+	
+	```
+	curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024\&persist=true
+	```
 
 ## 配置项列表
 
@@ -193,6 +247,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 默认值：64
 
 一般情况下，配置在128m以内，配置过大会导致cumulative compaction写放大较多。
+
+### `custom_config_dir`
+
+配置 `be_custom.conf` 文件的位置。默认为 `conf/` 目录下。
+
+在某些部署环境下，`conf/` 目录可能因为系统的版本升级被覆盖掉。这会导致用户在运行是持久化修改的配置项也被覆盖。这时，我们可以将 `be_custom.conf` 存储在另一个指定的目录中，以防止配置文件被覆盖。
 
 ### `default_num_rows_per_column_file_block`
 
@@ -372,6 +432,12 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `max_tablet_num_per_shard`
 
+### `max_tablet_version_num`
+
+* 类型：int
+* 描述：限制单个 tablet 最大 version 的数量。用于防止导入过于频繁，或 compaction 不及时导致的大量 version 堆积问题。当超过限制后，导入任务将被拒绝。
+* 默认值：500
+
 ### `mem_limit`
 
 ### `memory_limitation_per_thread_for_schema_change`
@@ -383,6 +449,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 ### `min_buffer_size`
 
 ### `min_compaction_failure_interval_sec`
+
+* 类型：int32
+* 描述：在 cumulative compaction 过程中，当选中的 tablet 没能成功的进行版本合并，则会等待一段时间后才会再次有可能被选中。等待的这段时间就是这个配置的值。
+* 默认值：600
+* 单位：秒
 
 ### `min_cumulative_compaction_num_singleton_deltas`
 
@@ -436,6 +507,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `push_write_mbytes_per_sec`
 
++ 类型：int32
++ 描述：导入数据速度控制，默认最快每秒10MB。适用于所有的导入方式。
++ 单位：MB
++ 默认值：10
+
 ### `query_scratch_dirs`
 
 ### `read_size`
@@ -482,19 +558,28 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `storage_root_path`
 
+### `storage_strict_check_incompatible_old_format`
+* 类型：bool
+* 描述：用来检查不兼容的旧版本格式时是否使用严格的验证方式
+* 默认值： true
+* 可动态修改：否
+
+配置用来检查不兼容的旧版本格式时是否使用严格的验证方式，当含有旧版本的 hdr 格式时，使用严谨的方式时，程序会
+打出 fatal log 并且退出运行；否则，程序仅打印 warn log.
+
 ### `streaming_load_max_mb`
 
 * 类型：int64
-* 描述：用于限制一次 Stream load 导入中，允许的最大数据量。单位 MB。
+* 描述：用于限制数据格式为 csv 的一次 Stream load 导入中，允许的最大数据量。单位 MB。
 * 默认值： 10240
 * 可动态修改：是
 
 Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大的数据。
 
-### `streaming_load_max_batch_size_mb`
+### `streaming_load_json_max_mb`
 
 * 类型：int64
-* 描述：对于某些数据格式，如 JSON，用于限制一次 Stream load 导入中，允许的最大数据量。单位 MB。
+* 描述：用于限制数据格式为 json 的一次 Stream load 导入中，允许的最大数据量。单位 MB。
 * 默认值： 100
 * 可动态修改：是
 

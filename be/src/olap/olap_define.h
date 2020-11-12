@@ -44,7 +44,7 @@ static const uint32_t OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE = 10 * 1024;
 // 此为百分比, 字典大小/原数据大小小于该百分比时, 启用字典编码
 static const uint32_t OLAP_DEFAULT_COLUMN_DICT_KEY_SIZE_THRESHOLD = 80; // 30%
 // LRU Cache Key的大小
-static const size_t OLAP_LRU_CACHE_MAX_KEY_LENTH = OLAP_MAX_PATH_LEN * 2;
+static const size_t OLAP_LRU_CACHE_MAX_KEY_LENGTH = OLAP_MAX_PATH_LEN * 2;
 
 static const uint64_t OLAP_FIX_HEADER_MAGIC_NUMBER = 0;
 // 执行be/ce时默认的候选集大小
@@ -164,6 +164,7 @@ enum OLAPStatus {
     OLAP_ERR_DISK_REACH_CAPACITY_LIMIT = -232,
     OLAP_ERR_TOO_MANY_TRANSACTIONS = -233,
     OLAP_ERR_INVALID_SNAPSHOT_VERSION = -234,
+    OLAP_ERR_TOO_MANY_VERSION = -235,
 
     // CommandExecutor
     // [-300, -400)
@@ -212,6 +213,7 @@ enum OLAPStatus {
     OLAP_ERR_READER_GET_ITERATOR_ERROR = -701,
     OLAP_ERR_CAPTURE_ROWSET_READER_ERROR = -702,
     OLAP_ERR_READER_READING_ERROR = -703,
+    OLAP_ERR_READER_INITIALIZE_ERROR = -704,
 
     // BaseCompaction
     // [-800, -900)
@@ -459,7 +461,7 @@ const std::string ROWSET_ID_PREFIX = "s_";
     } while (0)
 
 #ifndef BUILD_VERSION
-#define BUILD_VERSION "Unknow"
+#define BUILD_VERSION "Unknown"
 #endif
 
 }  // namespace doris

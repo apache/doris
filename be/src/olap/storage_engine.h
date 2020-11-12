@@ -18,36 +18,41 @@
 #ifndef DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
 #define DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
 
+#include <condition_variable>
 #include <ctime>
 #include <list>
 #include <map>
 #include <mutex>
-#include <condition_variable>
 #include <set>
 #include <string>
-#include <vector>
 #include <thread>
+#include <vector>
 
-#include <rapidjson/document.h>
 #include <pthread.h>
+#include <rapidjson/document.h>
 
 #include "agent/status.h"
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/MasterService_types.h"
+#include "gutil/ref_counted.h"
+#include "olap/compaction_permit_limiter.h"
+#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/tablet.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"
+#include "olap/rowset/rowset_id_generator.h"
+#include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_sync_service.h"
-#include "olap/txn_manager.h"
 #include "olap/task/engine_task.h"
-#include "olap/rowset/rowset_id_generator.h"
-#include "olap/fs/fs_util.h"
+#include "olap/txn_manager.h"
 #include "runtime/heartbeat_flags.h"
+#include "util/countdown_latch.h"
+#include "util/thread.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -56,6 +61,7 @@ class EngineTask;
 class BlockManager;
 class MemTableFlushExecutor;
 class Tablet;
+class TaskWorkerPool;
 
 // StorageEngine singleton to manage all Table pointers.
 // Providing add/drop/get operations.
@@ -77,9 +83,6 @@ public:
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
                                 const std::vector<TPartitionId>& partition_ids);
-
-    // 获取cache的使用情况信息
-    void get_cache_status(rapidjson::Document* document) const;
 
     // Note: 这里只能reload原先已经存在的root path，即re-load启动时就登记的root path
     // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
@@ -135,37 +138,15 @@ public:
     // @return OLAP_SUCCESS if load tablet success
     OLAPStatus load_header(const std::string& shard_path, const TCloneReq& request, bool restore = false);
 
-    // To trigger a disk-stat and tablet report
-    void trigger_report() {
-        std::lock_guard<std::mutex> l(_report_mtx);
-        _need_report_tablet = true;
-        _need_report_disk_stat = true;
-        _report_cv.notify_all();
-    }
-
-    // call this to wait for a report notification until timeout
-    void wait_for_report_notify(int64_t timeout_sec, bool from_report_tablet_thread) {
-        auto wait_timeout_sec = std::chrono::seconds(timeout_sec);
-        std::unique_lock<std::mutex> l(_report_mtx);
-        // When wait_for() returns, regardless of the return-result(possibly a timeout
-        // error), the report_tablet_thread and report_disk_stat_thread(see TaskWorkerPool)
-        // immediately begin the next round of reporting, so there is no need to check
-        // the return-value of wait_for().
-        if (from_report_tablet_thread) {
-            _report_cv.wait_for(l, wait_timeout_sec, [this] { return _need_report_tablet; });
-            _need_report_tablet = false;
-        } else {
-            _report_cv.wait_for(l, wait_timeout_sec, [this] { return _need_report_disk_stat; });
-            _need_report_disk_stat = false;
-        }
-    }
+    void register_report_listener(TaskWorkerPool* listener);
+    void deregister_report_listener(TaskWorkerPool* listener);
+    void notify_listeners();
 
     OLAPStatus execute_task(EngineTask* task);
 
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
-    fs::BlockManager* block_manager() { return _block_manager.get(); }
 
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
 
@@ -193,8 +174,10 @@ public:
         _heartbeat_flags = heartbeat_flags;
     }
 
-    // start all backgroud threads. This should be call after env is ready.
+    // start all background threads. This should be call after env is ready.
     Status start_bg_threads();
+
+    void stop();
 
 private:
     // Instance should be inited from `static open()`
@@ -224,37 +207,33 @@ private:
 
     // All these xxx_callback() functions are for Background threads
     // unused rowset monitor thread
-    void* _unused_rowset_monitor_thread_callback(void* arg);
+    void _unused_rowset_monitor_thread_callback();
 
-    // base compaction thread process function
-    void* _base_compaction_thread_callback(void* arg, DataDir* data_dir);
-    // cumulative process function
-    void* _cumulative_compaction_thread_callback(void* arg, DataDir* data_dir);
     // check cumulative compaction config
     void _check_cumulative_compaction_config();
 
     // garbage sweep thread process function. clear snapshot and trash folder
-    void* _garbage_sweeper_thread_callback(void* arg);
+    void _garbage_sweeper_thread_callback();
 
     // delete tablet with io error process function
-    void* _disk_stat_monitor_thread_callback(void* arg);
+    void _disk_stat_monitor_thread_callback();
 
     // clean file descriptors cache
-    void* _fd_cache_clean_callback(void* arg);
+    void _fd_cache_clean_callback();
 
     // path gc process function
-    void* _path_gc_thread_callback(void* arg);
+    void _path_gc_thread_callback(DataDir* data_dir);
 
-    void* _path_scan_thread_callback(void* arg);
+    void _path_scan_thread_callback(DataDir* data_dir);
 
-    void* _tablet_checkpoint_callback(void* arg);
+    void _tablet_checkpoint_callback(DataDir* data_dir);
 
     // parse the default rowset type config to RowsetTypePB
     void _parse_default_rowset_type();
 
     void _start_clean_fd_cache();
-    void _perform_cumulative_compaction(DataDir* data_dir);
-    void _perform_base_compaction(DataDir* data_dir);
+    void _perform_cumulative_compaction(TabletSharedPtr best_tablet);
+    void _perform_base_compaction(TabletSharedPtr best_tablet);
     // 清理trash和snapshot文件，返回清理后的磁盘使用量
     OLAPStatus _start_trash_sweep(double *usage);
     // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，
@@ -262,6 +241,9 @@ private:
     // 当磁盘状态为不可用，但未检测到unused标识时，需要从root_path上
     // 重新加载数据。
     void _start_disk_stat_monitor();
+
+    void _compaction_tasks_producer_callback();
+    vector<TabletSharedPtr> _compaction_tasks_generator(CompactionType compaction_type, std::vector<DataDir*> data_dirs);
 
 private:
     struct CompactionCandidate {
@@ -298,12 +280,11 @@ private:
     int32_t _effective_cluster_id;
     bool _is_all_cluster_id_exist;
 
-    Cache* _file_descriptor_lru_cache;
     Cache* _index_stream_lru_cache;
 
     // _file_cache is a lru_cache for file descriptors of files opened by doris,
     // which can be shared by others. Why we need to share cache with others? 
-    // Beacuse a unique memory space is easier for management. For example,
+    // Because a unique memory space is easier for management. For example,
     // we can deal with segment v1's cache and segment v2's cache at same time.
     // Note that, we must create _file_cache before sharing it with other. 
     // (e.g. the storage engine's open function must be called earlier than 
@@ -318,29 +299,28 @@ private:
 
     std::shared_ptr<MemTracker> _compaction_mem_tracker;
 
-    bool _stop_bg_worker = false;
-    std::thread _unused_rowset_monitor_thread;
+    CountDownLatch _stop_background_threads_latch;
+    scoped_refptr<Thread> _unused_rowset_monitor_thread;
     // thread to monitor snapshot expiry
-    std::thread _garbage_sweeper_thread;
+    scoped_refptr<Thread> _garbage_sweeper_thread;
     // thread to monitor disk stat
-    std::thread _disk_stat_monitor_thread;
+    scoped_refptr<Thread> _disk_stat_monitor_thread;
     // threads to run base compaction
-    std::vector<std::thread> _base_compaction_threads;
+    std::vector<scoped_refptr<Thread>> _base_compaction_threads;
     // threads to check cumulative
-    std::vector<std::thread> _cumulative_compaction_threads;
+    std::vector<scoped_refptr<Thread>> _cumulative_compaction_threads;
+    scoped_refptr<Thread> _compaction_tasks_producer_thread;
+    scoped_refptr<Thread> _fd_cache_clean_thread;
     // threads to clean all file descriptor not actively in use
-    std::thread _fd_cache_clean_thread;
-    std::vector<std::thread> _path_gc_threads;
+    std::vector<scoped_refptr<Thread>> _path_gc_threads;
     // threads to scan disk paths
-    std::vector<std::thread> _path_scan_threads;
+    std::vector<scoped_refptr<Thread>> _path_scan_threads;
     // threads to run tablet checkpoint
-    std::vector<std::thread> _tablet_checkpoint_threads;
+    std::vector<scoped_refptr<Thread>> _tablet_checkpoint_threads;
 
     // For tablet and disk-stat report
     std::mutex _report_mtx;
-    std::condition_variable _report_cv;
-    bool _need_report_tablet = false;
-    bool _need_report_disk_stat = false;
+    std::set<TaskWorkerPool*> _report_listeners;
 
     Mutex _engine_task_mutex;
 
@@ -351,13 +331,23 @@ private:
 
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
 
-    std::unique_ptr<fs::BlockManager> _block_manager;
-
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
 
     HeartbeatFlags* _heartbeat_flags;
+
+    std::unique_ptr<ThreadPool> _compaction_thread_pool;
+
+    CompactionPermitLimiter _permit_limiter;
+
+    std::mutex _tablet_submitted_compaction_mutex;
+    std::map<DataDir*, vector<TTabletId>> _tablet_submitted_compaction;
+
+    AtomicInt32 _wakeup_producer_flag;
+
+    std::mutex _compaction_producer_sleep_mutex;
+    std::condition_variable _compaction_producer_sleep_cv;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

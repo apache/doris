@@ -240,7 +240,7 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
 通过上述的步骤后，你可以得到 UDF 的动态库（也就是编译结果中的 `.so` 文件）。你需要将这个动态库放到一个能够通过 HTTP 协议访问到的位置。
 
-然后登录 Doris 系统，在 mysql-client 中通过 `CREATE FUNCTION` 语法创建 UDF 函数。你需要拥有AMDIN权限才能够完成这个操作。这时 Doris 系统内部就会存在刚才创建好的 UDF。
+然后登录 Doris 系统，在 mysql-client 中通过 `CREATE FUNCTION` 语法创建 UDF 函数。你需要拥有ADMIN权限才能够完成这个操作。这时 Doris 系统内部就会存在刚才创建好的 UDF。
 
 ```
 CREATE [AGGREGATE] FUNCTION 

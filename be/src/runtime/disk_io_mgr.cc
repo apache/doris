@@ -258,7 +258,7 @@ static void check_sse_support() {
     if (!CpuInfo::is_supported(CpuInfo::SSE4_2)) {
         LOG(WARNING) << "This machine does not support sse4_2.  The default IO system "
             "configurations are suboptimal for this hardware.  Consider "
-            "increasing the number of threads per disk by restarting impalad "
+            "increasing the number of threads per disk by restarting doris "
             "using the --num_threads_per_disk flag with a higher value";
     }
 }
@@ -394,7 +394,7 @@ Status DiskIoMgr::init(const std::shared_ptr<MemTracker>& process_mem_tracker) {
 
     // _cached_read_options = hadoopRzOptionsAlloc();
     // DCHECK(_cached_read_options != NULL);
-    // Disable checksumming for cached reads.
+    // Disable checksum for cached reads.
     // int ret = hadoopRzOptionsSetSkipChecksum(_cached_read_options, true);
     // DCHECK_EQ(ret, 0);
     // Disable automatic fallback for cached reads.
@@ -783,7 +783,7 @@ bool DiskIoMgr::get_next_request_range(DiskQueue* disk_queue, RequestRange** ran
     *range = NULL;
 
     // This loops returns either with work to do or when the disk IoMgr shuts down.
-    while (true) {
+    while (!_shut_down) {
         *request_context = NULL;
         RequestContext::PerDiskState* request_disk_state = NULL;
         {
@@ -989,7 +989,7 @@ void DiskIoMgr::work_loop(DiskQueue* disk_queue) {
     //      re-enqueues the request.
     //   3. Perform the read or write as specified.
     // Cancellation checking needs to happen in both steps 1 and 3.
-    while (true) {
+    while (!_shut_down) {
         RequestContext* worker_context = NULL;;
         RequestRange* range = NULL;
 

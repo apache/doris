@@ -115,7 +115,7 @@ void init_row_with_others(DstRowType* dst, const SrcRowType& src, MemPool* mem_p
 }
 
 // Copy other row to destination directly. This function assume
-// that destination has enough space for source conetent.
+// that destination has enough space for source content.
 template<typename DstRowType, typename SrcRowType>
 void direct_copy_row(DstRowType* dst, const SrcRowType& src) {
     for (auto cid : dst->schema()->column_ids()) {
@@ -156,11 +156,44 @@ void agg_update_row(DstRowType* dst, const SrcRowType& src, MemPool* mem_pool) {
     }
 }
 
+template<typename DstRowType, typename SrcRowType>
+void agg_update_row_with_sequence(DstRowType* dst, const SrcRowType& src, uint32_t sequence_idx, MemPool* mem_pool) {
+    auto seq_dst_cell = dst->cell(sequence_idx);
+    auto seq_src_cell = src.cell(sequence_idx);
+    auto res = src.schema()->column(sequence_idx)->compare_cell(seq_dst_cell, seq_src_cell);
+    // dst sequence column larger than src, don't need to update
+    if (res > 0) {
+        return;
+    }
+    for (uint32_t cid = dst->schema()->num_key_columns(); cid < dst->schema()->num_columns(); ++cid) {
+        auto dst_cell = dst->cell(cid);
+        auto src_cell = src.cell(cid);
+        dst->schema()->column(cid)->agg_update(&dst_cell, src_cell, mem_pool);
+    }
+}
+
 // Do aggregate update source row to destination row.
-// This funcion will operate on given cids.
+// This function will operate on given cids.
 // TODO(zc): unify two versions of agg_update_row
 template<typename DstRowType, typename SrcRowType>
 void agg_update_row(const std::vector<uint32_t>& cids, DstRowType* dst, const SrcRowType& src) {
+    for (auto cid : cids) {
+        auto dst_cell = dst->cell(cid);
+        auto src_cell = src.cell(cid);
+        dst->schema()->column(cid)->agg_update(&dst_cell, src_cell);
+    }
+}
+
+template<typename DstRowType, typename SrcRowType>
+void agg_update_row_with_sequence(const std::vector<uint32_t>& cids, DstRowType* dst, const SrcRowType& src,
+        const uint32_t sequence_idx) {
+    auto seq_dst_cell = dst->cell(sequence_idx);
+    auto seq_src_cell = src.cell(sequence_idx);
+    auto res = src.schema()->column(sequence_idx)->compare_cell(seq_dst_cell, seq_src_cell);
+    // dst sequence column larger than src, don't need to update
+    if (res > 0) {
+        return;
+    }
     for (auto cid : cids) {
         auto dst_cell = dst->cell(cid);
         auto src_cell = src.cell(cid);

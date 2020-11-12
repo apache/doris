@@ -387,9 +387,9 @@ FileBlockManager::FileBlockManager(Env* env, BlockManagerOptions opts) :
     }
 
     #ifdef BE_TEST
-        _file_cache.reset(new FileCache<RandomAccessFile>("Readable file cache", config::file_descriptor_cache_capacity));
+        _file_cache.reset(new FileCache<RandomAccessFile>("Readable_file_cache", config::file_descriptor_cache_capacity));
     #else
-        _file_cache.reset(new FileCache<RandomAccessFile>("Readable file cache", StorageEngine::instance()->file_cache()));
+        _file_cache.reset(new FileCache<RandomAccessFile>("Readable_file_cache", StorageEngine::instance()->file_cache()));
     #endif
 }
 

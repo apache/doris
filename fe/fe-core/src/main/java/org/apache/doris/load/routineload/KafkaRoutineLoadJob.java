@@ -77,7 +77,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private List<Integer> customKafkaPartitions = Lists.newArrayList();
     // current kafka partitions is the actually partition which will be fetched
     private List<Integer> currentKafkaPartitions = Lists.newArrayList();
-    // optional, user want to set default offset when new partiton add or offset not set.
+    // optional, user want to set default offset when new partition add or offset not set.
     private String kafkaDefaultOffSet = "";
     // kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
     private Map<String, String> customProperties = Maps.newHashMap();

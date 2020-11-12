@@ -479,7 +479,7 @@ void SplitToVector(char* full, const char* delim, vector<char*>* vec,
     if (omit_empty_strings && next[0] == '\0') continue;
     vec->push_back(next);
   }
-  // Add last element (or full string if no delimeter found):
+  // Add last element (or full string if no delimiter found):
   if (full != nullptr) {
     vec->push_back(full);
   }
@@ -492,7 +492,7 @@ void SplitToVector(char* full, const char* delim, vector<const char*>* vec,
     if (omit_empty_strings && next[0] == '\0') continue;
     vec->push_back(next);
   }
-  // Add last element (or full string if no delimeter found):
+  // Add last element (or full string if no delimiter found):
   if (full != nullptr) {
     vec->push_back(full);
   }

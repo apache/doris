@@ -113,7 +113,7 @@ TEST_F(PathTrieTest, MultiTemplateTest) {
     std::string path = "/db/{table}";
     ASSERT_TRUE(root.insert(path, 100));
 
-    // Dumplicate template
+    // Duplicate template
     path = "/db/{rollup}/abc";
     ASSERT_FALSE(root.insert(path, 110));
 
@@ -133,7 +133,7 @@ TEST_F(PathTrieTest, MultiPlayTest) {
     std::string path = "/db/abc";
     ASSERT_TRUE(root.insert(path, 100));
 
-    // Dumplicate template
+    // Duplicate template
     path = "/db";
     ASSERT_TRUE(root.insert(path, 110));
 
@@ -154,7 +154,7 @@ TEST_F(PathTrieTest, EmptyTest) {
     std::string path = "/";
     ASSERT_TRUE(root.insert(path, 100));
 
-    // Dumplicate template
+    // Duplicate template
     path = "/";
     ASSERT_FALSE(root.insert(path, 110));
 

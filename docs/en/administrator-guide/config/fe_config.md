@@ -30,6 +30,12 @@ under the License.
 
 This document mainly introduces the relevant configuration items of FE.
 
+The FE configuration file `fe.conf` is usually stored in the `conf/` directory of the FE deployment path. In version 0.14, another configuration file `fe_custom.conf` will be introduced. The configuration file is used to record the configuration items that are dynamically configured and persisted by the user during operation.
+
+After the FE process is started, it will read the configuration items in `fe.conf` first, and then read the configuration items in `fe_custom.conf`. The configuration items in `fe_custom.conf` will overwrite the same configuration items in `fe.conf`.
+
+The location of the `fe_custom.conf` file can be configured in `fe.conf` through the `custom_config_dir` configuration item.
+
 ## View configuration items
 
 There are two ways to view the configuration items of FE:
@@ -61,9 +67,9 @@ There are two ways to configure FE configuration items:
 
     Add and set configuration items in the `conf/fe.conf` file. The configuration items in `fe.conf` will be read when the FE process starts. Configuration items not in `fe.conf` will use default values.
     
-2. Dynamic configuration
+2. Dynamic configuration via MySQL protocol
 
-    After the FE starts, you can set the configuration items dynamically through the following commands. This command requires administrator priviledge.
+    After the FE starts, you can set the configuration items dynamically through the following commands. This command requires administrator privilege.
 
     `ADMIN SET FRONTEND CONFIG (" fe_config_name "=" fe_config_value ");`
 
@@ -74,6 +80,12 @@ There are two ways to configure FE configuration items:
     **Configuration items modified in this way will become invalid after the FE process restarts.**
 
     For more help on this command, you can view it through the `HELP ADMIN SET CONFIG;` command.
+    
+3. Dynamic configuration via HTTP protocol
+
+    For details, please refer to [Set Config Action](../http-actions/fe/set-config-action.md)
+
+    This method can also persist the modified configuration items. The configuration items will be persisted in the `fe_custom.conf` file and will still take effect after FE is restarted.
 
 ## Examples
 
@@ -99,7 +111,7 @@ There are two ways to configure FE configuration items:
     set forward_to_master = true;
     ADMIN SHOW FRONTEND CONFIG;
     ```
-    
+
     After modification in the above manner, if the Master FE restarts or a Master election is performed, the configuration will be invalid. You can add the configuration item directly in `fe.conf` and restart the FE to make the configuration item permanent.
 
 3. Modify `max_distribution_pruner_recursion_depth`
@@ -210,6 +222,12 @@ But at the same time, it will cause the submission of failed or failed execution
 
 ### `consistency_check_start_time`
 
+### `custom_config_dir`
+
+Configure the location of the `fe_custom.conf` file. The default is in the `conf/` directory.
+
+In some deployment environments, the `conf/` directory may be overwritten due to system upgrades. This will cause the user modified configuration items to be overwritten. At this time, we can store `fe_custom.conf` in another specified directory to prevent the configuration file from being overwritten.
+
 ### `db_used_data_quota_update_interval_secs`
 
 For better data load performance, in the check of whether the amount of data used by the database before data load exceeds the quota, we do not calculate the amount of data already used by the database in real time, but obtain the periodically updated value of the daemon thread.
@@ -277,6 +295,9 @@ This configuration can play a role in certain scenarios. Assume that the initial
 
 ### `enable_auth_check`
 
+### `enable_batch_delete_by_default`
+Whether to add a delete sign column when create unique table
+
 ### `enable_deploy_manager`
 
 ### `enable_insert_strict`
@@ -330,6 +351,14 @@ This variable is a dynamic configuration, and users can modify the configuration
 ### `history_job_keep_max_second`
 
 ### `http_backlog_num`
+
+The backlog_num for netty http server, When you enlarge this backlog_num,
+you should enlarge the value in the linux /proc/sys/net/core/somaxconn file at the same time
+
+### `mysql_nio_backlog_num`
+
+The backlog_num for mysql nio server, When you enlarge this backlog_num,
+you should enlarge the value in the linux /proc/sys/net/core/somaxconn file at the same time
 
 ### `http_port`
 
@@ -549,6 +578,14 @@ See the description of `max_clone_task_timeout_sec`.
 
 ### `rewrite_count_distinct_to_bitmap_hll`
 
+This variable is a session variable, and the session level takes effect.
+
++ Type: boolean
++ Description: **Only for the table of the AGG model**, when the variable is true, when the user query contains aggregate functions such as count(distinct c1), if the type of the c1 column itself is bitmap, count distnct will be rewritten It is bitmap_union_count(c1).
+         When the type of the c1 column itself is hll, count distinct will be rewritten as hll_union_agg(c1)
+         If the variable is false, no overwriting occurs.
++ Default value: true.
+
 ### `rpc_port`
 
 ### `schedule_slot_num_per_path`
@@ -682,3 +719,35 @@ In some very special circumstances, such as code bugs, or human misoperation, et
 Set to true so that Doris will automatically use blank replicas to fill tablets which all replicas have been damaged or missing.
 
 Default is false.
+
+### `enable_odbc_table`
+
+If this parameter is set to true, Doris can support ODBC external table creation and query. For specific usage of ODBC table, please refer to the use document of ODBC table
+
+The function is still in the experimental stage, so the default value is false.
+
+
+### `default_db_data_quota_bytes`
+
+Used to set default database data quota size, default is 1T.
+
+
+### `default_max_filter_ratio`
+
+Used to set default max filter ratio of load Job. It will be overridden by `max_filter_ratio` of the load job properties，default value is 0, value range 0-1.
+
+### `enable_http_server_v2`
+
+Whether to enable the V2 version of the HTTP Server implementation. The new HTTP Server is implemented using SpringBoot. And realize the separation of front and back ends.
+Only when it is turned on, can you use the new UI interface under the `ui/` directory.
+
+Default is false.
+
+### `http_api_extra_base_path`
+
+In some deployment environments, user need to specify an additional base path as the unified prefix of the HTTP API. This parameter is used by the user to specify additional prefixes.
+After setting, user can get the parameter value through the `GET /api/basepath` interface.
+And the new UI will also try to get this base path first to assemble the URL.
+Only valid when `enable_http_server_v2` is true.
+
+The default is empty, that is, not set.

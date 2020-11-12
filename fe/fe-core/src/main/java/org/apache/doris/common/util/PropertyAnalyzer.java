@@ -21,8 +21,10 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -86,6 +88,11 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_USE_TEMP_PARTITION_NAME = "use_temp_partition_name";
 
     public static final String PROPERTIES_TYPE = "type";
+    // This is common prefix for function column
+    public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
+    public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
+
+    public static final String PROPERTIES_SWAP_TABLE = "swap";
 
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
@@ -151,7 +158,7 @@ public class PropertyAnalyzer {
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
         short shortKeyColumnCount = (short) -1;
         if (properties != null && properties.containsKey(PROPERTIES_SHORT_KEY)) {
-            // check and use speciefied short key
+            // check and use specified short key
             try {
                 shortKeyColumnCount = Short.parseShort(properties.get(PROPERTIES_SHORT_KEY));
             } catch (NumberFormatException e) {
@@ -432,5 +439,25 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_TYPE);
         }
         return type;
+    }
+
+    public static Type analyzeSequenceType(Map<String, String> properties, KeysType keysType) throws  AnalysisException{
+        String typeStr = null;
+        String propertyName = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_TYPE;
+        if (properties != null && properties.containsKey(propertyName)) {
+            typeStr = properties.get(propertyName);
+            properties.remove(propertyName);
+        }
+        if (typeStr == null) {
+            return null;
+        }
+        if (typeStr != null && keysType != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException("sequence column only support UNIQUE_KEYS");
+        }
+        PrimitiveType type = PrimitiveType.valueOf(typeStr.toUpperCase());
+        if (!type.isFixedPointType() && !type.isDateType())  {
+            throw new AnalysisException("sequence type only support integer types and date types");
+        }
+        return ScalarType.createType(type);
     }
 }

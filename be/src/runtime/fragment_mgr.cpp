@@ -52,7 +52,8 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(plan_fragment_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(plan_fragment_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
 
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
@@ -141,7 +142,7 @@ private:
     TUniqueId _query_id;
     // Id of this instance
     TUniqueId _fragment_instance_id;
-    // Used to reoprt to coordinator which backend is over
+    // Used to report to coordinator which backend is over
     int _backend_num;
     ExecEnv* _exec_env;
     TNetworkAddress _coord_addr;
@@ -220,8 +221,8 @@ Status FragmentExecState::execute() {
                                                             print_id(_fragment_instance_id)));
         _executor.close();
     }
-    DorisMetrics::instance()->fragment_requests_total.increment(1);
-    DorisMetrics::instance()->fragment_request_duration_us.increment(duration_ns / 1000);
+    DorisMetrics::instance()->fragment_requests_total->increment(1);
+    DorisMetrics::instance()->fragment_request_duration_us->increment(duration_ns / 1000);
     return Status::OK();
 }
 
@@ -380,12 +381,20 @@ void FragmentExecState::coordinator_callback(
 FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         : _exec_env(exec_env),
           _fragment_map(),
-          _stop(false),
-          _cancel_thread(std::bind<void>(&FragmentMgr::cancel_worker, this)) {
+          _stop_background_threads_latch(1) {
+    _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
+    INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
     REGISTER_HOOK_METRIC(plan_fragment_count, [this]() {
         std::lock_guard<std::mutex> lock(_lock);
         return _fragment_map.size();
     });
+
+    CHECK(Thread::create("FragmentMgr", "cancel_timeout_plan_fragment",
+                         [this]() {
+                             this->cancel_worker();
+                         },
+                         &_cancel_thread).ok());
+
     // TODO(zc): we need a better thread-pool
     // now one user can use all the thread pool, others have no resource.
     ThreadPoolBuilder("FragmentMgrThreadPool")
@@ -397,9 +406,10 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
 
 FragmentMgr::~FragmentMgr() {
     DEREGISTER_HOOK_METRIC(plan_fragment_count);
-    // stop thread
-    _stop = true;
-    _cancel_thread.join();
+    _stop_background_threads_latch.count_down();
+    if (_cancel_thread) {
+        _cancel_thread->join();
+    }
     // Stop all the worker, should wait for a while?
     // _thread_pool->wait_for();
     _thread_pool->shutdown();
@@ -506,7 +516,7 @@ Status FragmentMgr::cancel(const TUniqueId& id, const PPlanFragmentCancelReason&
 
 void FragmentMgr::cancel_worker() {
     LOG(INFO) << "FragmentMgr cancel worker start working.";
-    while (!_stop) {
+    do {
         std::vector<TUniqueId> to_delete;
         DateTimeValue now = DateTimeValue::local_time();
         {
@@ -517,14 +527,12 @@ void FragmentMgr::cancel_worker() {
                 }
             }
         }
+        timeout_canceled_fragment_count->increment(to_delete.size());
         for (auto& id : to_delete) {
             cancel(id, PPlanFragmentCancelReason::TIMEOUT);
-            LOG(INFO) << "FragmentMgr cancel worker going to cancel timouet fragment " << print_id(id);
+            LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout fragment " << print_id(id);
         }
-
-        // check every 1 seconds
-        sleep(1);
-    }
+    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(1)));
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
 }
 

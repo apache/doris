@@ -37,6 +37,12 @@ under the License.
     <name>doris-fe</name>
     <url>https://github.com/apache/incubator-doris</url>
 
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.2.0.RELEASE</version>
+    </parent>
+
     <properties>
         <doris.home>${basedir}/../</doris.home>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -88,8 +94,8 @@ under the License.
                 </repository>
                 <!-- for java-cup -->
                 <repository>
-                    <id>cloudera-thirdparty</id>
-                    <url>https://repository.cloudera.com/content/repositories/third-party/</url>
+                    <id>cloudera-public</id>
+                    <url>https://repository.cloudera.com/artifactory/public/</url>
                 </repository>
                 <!-- for bdb je -->
                 <repository>
@@ -99,10 +105,14 @@ under the License.
             </repositories>
 
             <pluginRepositories>
-                <!-- for cup-maven-plugin -->
                 <pluginRepository>
                     <id>spring-plugins</id>
                     <url>https://repo.spring.io/plugins-release/</url>
+                </pluginRepository>
+                <!-- for cup-maven-plugin -->
+                <pluginRepository>
+                    <id>cloudera-public</id>
+                    <url>https://repository.cloudera.com/artifactory/public/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>

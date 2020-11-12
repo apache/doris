@@ -25,7 +25,7 @@ class MemPool;
 class RowBatch;
 class TupleRow;
 
-// Node that calulate the except results of its children by either materializing their
+// Node that calculate the except results of its children by either materializing their
 // evaluated expressions into row batches or passing through (forwarding) the
 // batches if the input tuple layout is identical to the output tuple layout
 // and expressions don't need to be evaluated. The except node pulls from its

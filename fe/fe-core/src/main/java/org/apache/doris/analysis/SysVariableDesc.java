@@ -122,8 +122,12 @@ public class SysVariableDesc extends Expr {
             // Such as `set sql_mode =  concat(@@sql_mode, "STRICT_TRANS_TABLES");`
             // So we return the string type here so that it can correctly match the subsequent function signature.
             // We will convert the string to int in VariableMgr.
+            // And we also set `isSqlMode` to true in StringLiteral, so that it can be cast back
+            // to Integer when returning value.
             try {
-                return new StringLiteral(SqlModeHelper.decode(intValue));
+                StringLiteral s = new StringLiteral(SqlModeHelper.decode(intValue));
+                s.setIsSqlMode(true);
+                return s;
             } catch (DdlException e) {
                 throw new AnalysisException(e.getMessage());
             }

@@ -163,6 +163,14 @@ Status NodeChannel::open_wait() {
                     LOG(WARNING) << name() << " add batch req success but status isn't ok, "
                                  << print_load_info() << ", node=" << node_info()->host << ":"
                                  << node_info()->brpc_port << ", errmsg=" << status.get_error_msg();
+                    {
+                        std::lock_guard<SpinLock> l(_cancel_msg_lock);
+                        if (_cancel_msg == "") {
+                            std::stringstream ss;
+                            ss << "node=" << node_info()->host << ":" << node_info()->brpc_port << ", errmsg=" << status.get_error_msg();
+                            _cancel_msg = ss.str();
+                        }
+                    }
                 }
 
                 if (result.has_execution_time_us()) {
@@ -240,7 +248,7 @@ Status NodeChannel::close_wait(RuntimeState* state) {
         return st.clone_and_prepend("already stopped, skip waiting for close. cancelled/!eos: ");
     }
 
-    // waiting for finished, it may take a long time, so we could't set a timeout
+    // waiting for finished, it may take a long time, so we couldn't set a timeout
     MonotonicStopWatch timer;
     timer.start();
     while (!_add_batches_finished && !_cancelled) {
@@ -261,7 +269,15 @@ Status NodeChannel::close_wait(RuntimeState* state) {
         return Status::OK();
     }
 
-    return Status::InternalError("close wait failed coz rpc error");
+    std::stringstream ss;
+    ss << "close wait failed coz rpc error";
+    {
+        std::lock_guard<SpinLock> l(_cancel_msg_lock);
+        if (_cancel_msg != "") {
+            ss << ". " << _cancel_msg;
+        }
+    }
+    return Status::InternalError(ss.str());
 }
 
 void NodeChannel::cancel() {
@@ -362,7 +378,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
     for (auto& tablet : tablets) {
         auto location = _parent->_location->find_tablet(tablet.tablet_id);
         if (location == nullptr) {
-            LOG(WARNING) << "unknow tablet, tablet_id=" << tablet.tablet_id;
+            LOG(WARNING) << "unknown tablet, tablet_id=" << tablet.tablet_id;
             return Status::InternalError("unknown tablet");
         }
         std::vector<NodeChannel*> channels;
@@ -399,19 +415,20 @@ Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
     }
 
     if (has_intolerable_failure()) {
-        return Status::InternalError("index channel has intoleralbe failure");
+        return Status::InternalError("index channel has intolerable failure");
     }
 
     return Status::OK();
 }
 
 bool IndexChannel::has_intolerable_failure() {
-    return _failed_channels.size() >= ((_parent->_num_repicas + 1) / 2);
+    return _failed_channels.size() >= ((_parent->_num_replicas + 1) / 2);
 }
 
 OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                              const std::vector<TExpr>& texprs, Status* status)
-        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
+        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024),
+          _stop_background_threads_latch(1) {
     if (!texprs.empty()) {
         *status = Expr::create_expr_trees(_pool, texprs, &_output_expr_ctxs);
     }
@@ -434,7 +451,7 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
     _txn_id = table_sink.txn_id;
     _db_id = table_sink.db_id;
     _table_id = table_sink.table_id;
-    _num_repicas = table_sink.num_replicas;
+    _num_replicas = table_sink.num_replicas;
     _need_gen_rollup = table_sink.need_gen_rollup;
     _db_name = table_sink.db_name;
     _table_name = table_sink.table_name;
@@ -592,7 +609,9 @@ Status OlapTableSink::open(RuntimeState* state) {
         }
     }
 
-    _sender_thread = std::thread(&OlapTableSink::_send_batch_process, this);
+    RETURN_IF_ERROR(Thread::create("OlapTableSink", "send_batch_process",
+                                   [this]() { this->_send_batch_process(); },
+                                   &_sender_thread));
 
     return Status::OK();
 }
@@ -604,8 +623,8 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
     // the real 'num_rows_load_total' will be set when sink being closed.
     state->update_num_rows_load_total(input_batch->num_rows());
     state->update_num_bytes_load_total(input_batch->total_byte_size());
-    DorisMetrics::instance()->load_rows.increment(input_batch->num_rows());
-    DorisMetrics::instance()->load_bytes.increment(input_batch->total_byte_size());
+    DorisMetrics::instance()->load_rows->increment(input_batch->num_rows());
+    DorisMetrics::instance()->load_bytes->increment(input_batch->total_byte_size());
     RowBatch* batch = input_batch;
     if (!_output_expr_ctxs.empty()) {
         SCOPED_RAW_TIMER(&_convert_batch_ns);
@@ -722,8 +741,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
 
     // Sender join() must put after node channels mark_close/cancel.
     // But there is no specific sequence required between sender join() & close_wait().
-    if (_sender_thread.joinable()) {
-        _sender_thread.join();
+    _stop_background_threads_latch.count_down();
+    if (_sender_thread) {
+        _sender_thread->join();
     }
 
     Expr::close(_output_expr_ctxs, state);
@@ -839,7 +859,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                     }
                 }
                 if (*dec_val > _max_decimal_val[i] || *dec_val < _min_decimal_val[i]) {
-                    ss << "decimal value is not valid for defination, column=" << desc->col_name()
+                    ss << "decimal value is not valid for definition, column=" << desc->col_name()
                        << ", value=" << dec_val->to_string()
                        << ", precision=" << desc->type().precision
                        << ", scale=" << desc->type().scale;
@@ -860,7 +880,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                     }
                 }
                 if (dec_val > _max_decimalv2_val[i] || dec_val < _min_decimalv2_val[i]) {
-                    ss << "decimal value is not valid for defination, column=" << desc->col_name()
+                    ss << "decimal value is not valid for definition, column=" << desc->col_name()
                        << ", value=" << dec_val.to_string()
                        << ", precision=" << desc->type().precision
                        << ", scale=" << desc->type().scale;
@@ -899,7 +919,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
 
 void OlapTableSink::_send_batch_process() {
     SCOPED_RAW_TIMER(&_non_blocking_send_ns);
-    while (true) {
+    do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
             index_channel->for_each_node_channel([&running_channels_num](NodeChannel* ch) {
@@ -912,8 +932,7 @@ void OlapTableSink::_send_batch_process() {
                          "consumer thread exit.";
             return;
         }
-        SleepFor(MonoDelta::FromMilliseconds(config::olap_table_sink_send_interval_ms));
-    }
+    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromMilliseconds(config::olap_table_sink_send_interval_ms)));
 }
 
 } // namespace stream_load

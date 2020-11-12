@@ -76,7 +76,7 @@ struct ReaderParams {
 
     void check_validation() const {
         if (UNLIKELY(version.first == -1)) {
-            LOG(FATAL) << "verison is not set. tablet=" << tablet->full_name();
+            LOG(FATAL) << "version is not set. tablet=" << tablet->full_name();
         }
     }
 
@@ -225,6 +225,8 @@ private:
     ReaderType _reader_type = READER_QUERY;
     bool _next_delete_flag = false;
     bool _filter_delete = false;
+    bool _has_sequence_col = false;
+    int32_t _sequence_col_idx = -1;
     const RowCursor* _next_key = nullptr;
     CollectIterator* _collect_iter = nullptr;
     std::vector<uint32_t> _key_cids;

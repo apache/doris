@@ -102,6 +102,13 @@ public class CreateTableTest {
                 .expectThrowsNoException(() -> createTable("create table test.tb7(key1 int, key2 varchar(10)) \n"
                         + "distributed by hash(key1) buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
+        ExceptionChecker
+                .expectThrowsNoException(() -> createTable("create table test.tbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
+                        + "unique key(k1, k2)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
+                        + "'function_column.sequence_type' = 'int');"));
+
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
         OlapTable tbl6 = (OlapTable) db.getTable("tbl6");
         Assert.assertTrue(tbl6.getColumn("k1").isKey());
@@ -112,10 +119,16 @@ public class CreateTableTest {
         Assert.assertTrue(tbl7.getColumn("k1").isKey());
         Assert.assertFalse(tbl7.getColumn("k2").isKey());
         Assert.assertTrue(tbl7.getColumn("k2").getAggregationType() == AggregateType.NONE);
+
+        OlapTable tbl8 = (OlapTable) db.getTable("tbl8");
+        Assert.assertTrue(tbl8.getColumn("k1").isKey());
+        Assert.assertTrue(tbl8.getColumn("k2").isKey());
+        Assert.assertFalse(tbl8.getColumn("v1").isKey());
+        Assert.assertTrue(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.REPLACE);
     }
 
     @Test
-    public void testAbormal() throws DdlException {
+    public void testAbnormal() throws DdlException {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Floating point type column can not be distribution column",
                 () -> createTable("create table test.atbl1\n" + "(k1 int, k2 float)\n" + "duplicate key(k1)\n"
@@ -159,5 +172,21 @@ public class CreateTableTest {
                 .expectThrowsWithMsg(DdlException.class, "Failed to find enough host with storage medium is SSD in all backends. need: 1",
                         () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
                                 + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
+
+        ExceptionChecker
+                .expectThrowsWithMsg(DdlException.class, "sequence column only support UNIQUE_KEYS",
+                        () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int sum)\n"
+                        + "aggregate key(k1, k2)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
+                        + "'function_column.sequence_type' = 'int');"));
+
+        ExceptionChecker
+                .expectThrowsWithMsg(DdlException.class, "sequence type only support integer types and date types",
+                        () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
+                                + "unique key(k1, k2)\n"
+                                + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
+                                + "'function_column.sequence_type' = 'double');"));
     }
 }

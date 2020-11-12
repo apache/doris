@@ -34,7 +34,7 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(routine_load_task_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(routine_load_task_count, MetricUnit::NOUNIT);
 
 RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
     : _exec_env(exec_env),
@@ -107,7 +107,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
 
     // thread pool's queue size > 0 means there are tasks waiting to be executed, so no more tasks should be submitted.
     if (_thread_pool.get_queue_size() > 0) {
-        LOG(INFO) << "too many tasks in thread pool. reject task: " << UniqueId(task.id);
+        LOG(INFO) << "too many tasks in thread pool. reject task: " << UniqueId(task.id)
+                  << ", job id: " << task.job_id
+                  << ", queue size: " << _thread_pool.get_queue_size();
         return Status::TooManyTasks(UniqueId(task.id).to_string());
     }
 
@@ -138,7 +140,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     if(task.__isset.format) {
         ctx->format = task.format;
     }
-    // the routine load task'txn has alreay began in FE.
+    // the routine load task'txn has already began in FE.
     // so it need to rollback if encounter error.
     ctx->need_rollback = true;
     ctx->max_filter_ratio = 1.0;

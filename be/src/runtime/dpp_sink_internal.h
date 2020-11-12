@@ -53,7 +53,7 @@ public:
 
     Status open(RuntimeState* state);
 
-    Status close(RuntimeState* state);
+    void close(RuntimeState* state);
 
     const std::string& keys_type() const {
         return _keys_type;
@@ -263,7 +263,7 @@ public:
 
     Status open(RuntimeState* state);
 
-    Status close(RuntimeState* state);
+    void close(RuntimeState* state);
 
     int64_t id() const {
         return _id;

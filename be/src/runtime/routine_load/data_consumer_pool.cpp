@@ -111,19 +111,16 @@ void DataConsumerPool::return_consumers(DataConsumerGroup* grp) {
 }
 
 Status DataConsumerPool::start_bg_worker() {
-    _clean_idle_consumer_thread = std::thread(
-        [this] {
-            #ifdef GOOGLE_PROFILER
-                ProfilerRegisterThread();
-            #endif
-
-            uint32_t interval = 60;
-            while (true) {
-                _clean_idle_consumer_bg();
-                sleep(interval);
-            }
-        });
-    _clean_idle_consumer_thread.detach();
+    RETURN_IF_ERROR(Thread::create("ResultBufferMgr", "clean_idle_consumer",
+                                   [this]() {
+#ifdef GOOGLE_PROFILER
+                                       ProfilerRegisterThread();
+#endif
+                                       do {
+                                           _clean_idle_consumer_bg();
+                                       } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(60)));
+                                   },
+                                   &_clean_idle_consumer_thread));
     return Status::OK();
 }
 

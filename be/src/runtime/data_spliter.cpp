@@ -46,8 +46,8 @@ DataSpliter::DataSpliter(const RowDescriptor& row_desc) :
 DataSpliter::~DataSpliter() {
 }
 
-// We use the ParttitionRange to compare here. It should not be a member function of PartitionInfo
-// class becaurce there are some other member in it.
+// We use the PartitionRange to compare here. It should not be a member function of PartitionInfo
+// class because there are some other member in it.
 static bool compare_part_use_range(const PartitionInfo* v1, const PartitionInfo* v2) {
     return v1->range() < v2->range();
 }
@@ -308,22 +308,10 @@ Status DataSpliter::close(RuntimeState* state, Status close_status) {
     }
     Expr::close(_partition_expr_ctxs, state);
     for (auto& iter : _rollup_map) {
-        Status status = iter.second->close(state);
-        if (UNLIKELY(is_ok && !status.ok())) {
-            LOG(WARNING) << "close rollup_map error"
-                    << " err_msg=" << status.get_error_msg();
-            is_ok = false;
-            err_status = status;
-        }
+        iter.second->close(state);
     }
     for (auto iter : _partition_infos) {
-        Status status = iter->close(state);
-        if (UNLIKELY(is_ok && !status.ok())) {
-            LOG(WARNING) << "close partition_info error"
-                    << " err_msg=" << status.get_error_msg();
-            is_ok = false;
-            err_status = status;
-        }
+        iter->close(state);
     }
   
     _expr_mem_tracker.reset();

@@ -26,7 +26,7 @@ under the License.
 
 # Dynamic Partition
 
-Dynamic partition is a new feature introduced in Doris verion 0.12. It's designed to manage partition's Time-to-Life (TTL), reducing the burden on users.
+Dynamic partition is a new feature introduced in Doris version 0.12. It's designed to manage partition's Time-to-Life (TTL), reducing the burden on users.
 
 At present, the functions of dynamically adding partitions and dynamically deleting partitions are realized.
 
@@ -81,7 +81,9 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
 * `dynamic_partition.time_unit`
 
-    The unit for dynamic partition scheduling. Can be specified as `DAY`,` WEEK`, and `MONTH`, means to create or delete partitions by day, week, and month, respectively.
+    The unit for dynamic partition scheduling. Can be specified as `HOUR`,`DAY`,` WEEK`, and `MONTH`, means to create or delete partitions by hour, day, week, and month, respectively.
+
+    When specified as `HOUR`, the suffix format of the dynamically created partition name is `yyyyMMddHH`, for example, `2020032501`.
 
     When specified as `DAY`, the suffix format of the dynamically created partition name is `yyyyMMdd`, for example, `20200325`.
 
@@ -120,6 +122,10 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 * `dynamic_partition.start_day_of_month`
 
     When `time_unit` is` MONTH`, this parameter is used to specify the start date of each month. The value ranges from 1 to 28. 1 means the 1st of every month, and 28 means the 28th of every month. The default is 1, which means that every month starts at 1st. The 29, 30 and 31 are not supported at the moment to avoid ambiguity caused by lunar years or months.
+
+### Notice
+
+If some partitions between `dynamic_partition.start` and `dynamic_partition.end` are lost due to some unexpected circumstances when using dynamic partition, the lost partitions between the current time and `dynamic_partition.end` will be recreated, but the lost partitions between `dynamic_partition.start` and the current time will not be recreated.
 
 ### Example
 
@@ -296,11 +302,11 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
     Whether to enable Doris's dynamic partition feature. The default value is false, which is off. This parameter only affects the partitioning operation of dynamic partition tables, not normal tables. You can modify the parameters in `fe.conf` and restart FE to take effect. You can also execute the following commands at runtime to take effect:
     
-    MySQL protocal：
+    MySQL protocol：
     
     `ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true")`
     
-    HTTP protocal：
+    HTTP protocol：
     
     `curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_enable=true`
     
@@ -310,11 +316,11 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
     The execution frequency of dynamic partition threads defaults to 3600 (1 hour), that is, scheduling is performed every 1 hour. You can modify the parameters in `fe.conf` and restart FE to take effect. You can also modify the following commands at runtime:
     
-    MySQL protocal：
+    MySQL protocol：
 
     `ADMIN SET FRONTEND CONFIG ("dynamic_partition_check_interval_seconds" = "7200")`
     
-    HTTP protocal：
+    HTTP protocol：
     
     `curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_check_interval_seconds=432000`
     

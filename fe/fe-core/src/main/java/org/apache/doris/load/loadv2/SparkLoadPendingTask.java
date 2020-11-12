@@ -58,14 +58,14 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.FilePatternVersion;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.SourceType;
 import org.apache.doris.transaction.TransactionState;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -84,11 +84,12 @@ public class SparkLoadPendingTask extends LoadTask {
     private final long loadJobId;
     private final long transactionId;
     private EtlJobConfig etlJobConfig;
+    private SparkLoadAppHandle sparkLoadAppHandle;
 
     public SparkLoadPendingTask(SparkLoadJob loadTaskCallback,
                                 Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
                                 SparkResource resource, BrokerDesc brokerDesc) {
-        super(loadTaskCallback);
+        super(loadTaskCallback, TaskType.PENDING);
         this.retryTime = 3;
         this.attachment = new SparkPendingTaskAttachment(signature);
         this.aggKeyToBrokerFileGroups = aggKeyToBrokerFileGroups;
@@ -98,6 +99,7 @@ public class SparkLoadPendingTask extends LoadTask {
         this.loadJobId = loadTaskCallback.getId();
         this.loadLabel = loadTaskCallback.getLabel();
         this.transactionId = loadTaskCallback.getTransactionId();
+        this.sparkLoadAppHandle = loadTaskCallback.getHandle();
         this.failMsg = new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL);
     }
 
@@ -115,7 +117,7 @@ public class SparkLoadPendingTask extends LoadTask {
 
         // handler submit etl job
         SparkEtlJobHandler handler = new SparkEtlJobHandler();
-        handler.submitEtlJob(loadJobId, loadLabel, etlJobConfig, resource, brokerDesc, sparkAttachment);
+        handler.submitEtlJob(loadJobId, loadLabel, etlJobConfig, resource, brokerDesc, sparkLoadAppHandle, sparkAttachment);
         LOG.info("submit spark etl job success. load job id: {}, attachment: {}", loadJobId, sparkAttachment);
     }
 

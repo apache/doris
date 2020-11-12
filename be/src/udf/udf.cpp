@@ -496,7 +496,7 @@ void HllVal::agg_parse_and_cal(FunctionContext* ctx, const HllVal& other) {
             uint8_t first_one_bit = __builtin_ctzl(hash_value >> doris::HLL_COLUMN_PRECISION) + 1;
             pdata[idx] = std::max(pdata[idx], first_one_bit);
         }
-    } else if (resolver.get_hll_data_type() == doris::HLL_DATA_SPRASE) {
+    } else if (resolver.get_hll_data_type() == doris::HLL_DATA_SPARSE) {
         std::map<doris::HllSetResolver::SparseIndexType,
                  doris::HllSetResolver::SparseValueType>&
                      sparse_map = resolver.get_sparse_map();

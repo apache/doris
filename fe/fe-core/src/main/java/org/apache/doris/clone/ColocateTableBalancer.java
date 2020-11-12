@@ -283,7 +283,7 @@ public class ColocateTableBalancer extends MasterDaemon {
         Preconditions.checkState(excludeBeIds.size() >= excludeHosts.size());
 
         // beStats is ordered by load score, ascend. so finding the available from first to last
-        BackendLoadStatistic choosenBe = null;
+        BackendLoadStatistic chosenBe = null;
         for (BackendLoadStatistic beStat : beStats) {
             if (beStat.isAvailable() && beStat.getBeId() != unavailableBeId && !excludeBeIds.contains(beStat.getBeId())) {
                 Backend be = infoService.getBackend(beStat.getBeId());
@@ -293,22 +293,22 @@ public class ColocateTableBalancer extends MasterDaemon {
                 if (excludeHosts.contains(be.getHost())) {
                     continue;
                 }
-                choosenBe = beStat;
+                chosenBe = beStat;
                 break;
             }
         }
-        if (choosenBe == null) {
+        if (chosenBe == null) {
             LOG.warn("failed to find an available backend to relocate for colocate group: {}", groupId);
             return -1;
         }
 
         // check if there is enough capacity to save all these replicas
-        if (!choosenBe.canFitInColocate(totalReplicaSize)) {
-            LOG.warn("no backend has enough capacity to save replics in group {} with bucket: {}", groupId, tabletOrderIdx);
+        if (!chosenBe.canFitInColocate(totalReplicaSize)) {
+            LOG.warn("no backend has enough capacity to save replicas in group {} with bucket: {}", groupId, tabletOrderIdx);
             return -1;
         }
 
-        return choosenBe.getBeId();
+        return chosenBe.getBeId();
     }
 
     /*

@@ -39,11 +39,12 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.load.loadv2.LoadTask;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -81,6 +82,8 @@ public class BrokerFileGroup implements Writable {
     private Expr whereExpr;
     private Expr deleteCondition;
     private LoadTask.MergeType mergeType;
+    // sequence column name
+    private String sequenceCol;
 
     // load from table
     private long srcTableId = -1;
@@ -108,6 +111,7 @@ public class BrokerFileGroup implements Writable {
         this.whereExpr = dataDescription.getWhereExpr();
         this.deleteCondition = dataDescription.getDeleteCondition();
         this.mergeType = dataDescription.getMergeType();
+        this.sequenceCol = dataDescription.getSequenceCol();
     }
 
     // NOTE: DBLock will be held
@@ -150,7 +154,7 @@ public class BrokerFileGroup implements Writable {
         if (dataDescription.isNegative()) {
             for (Column column : table.getBaseSchema()) {
                 if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
-                    throw new DdlException("Column is not SUM AggreateType. column:" + column.getName());
+                    throw new DdlException("Column is not SUM AggregateType. column:" + column.getName());
                 }
             }
         }
@@ -268,6 +272,22 @@ public class BrokerFileGroup implements Writable {
         return mergeType;
     }
 
+    public String getSequenceCol() {
+        return sequenceCol;
+    }
+
+    public boolean hasSequenceCol() {
+        return !Strings.isNullOrEmpty(sequenceCol);
+    }
+
+    public boolean isBinaryFileFormat() {
+        if (fileFormat == null) {
+            // null means default: csv
+            return false;
+        }
+        return fileFormat.toLowerCase().equals("parquet") || fileFormat.toLowerCase().equals("orc");
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -325,7 +345,7 @@ public class BrokerFileGroup implements Writable {
         return sb.toString();
     }
 
-
+    @Deprecated
     @Override
     public void write(DataOutput out) throws IOException {
         // tableId
@@ -375,6 +395,7 @@ public class BrokerFileGroup implements Writable {
         out.writeBoolean(isLoadFromTable);
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         tableId = in.readLong();
         valueSeparator = Text.readString(in);
@@ -448,6 +469,7 @@ public class BrokerFileGroup implements Writable {
         }
     }
 
+    @Deprecated
     public static BrokerFileGroup read(DataInput in) throws IOException {
         BrokerFileGroup fileGroup = new BrokerFileGroup();
         fileGroup.readFields(in);

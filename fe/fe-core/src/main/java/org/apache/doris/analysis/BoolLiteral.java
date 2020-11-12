@@ -34,16 +34,16 @@ public class BoolLiteral extends LiteralExpr {
     }
 
     public BoolLiteral(boolean value) {
-        this.value = value;
+        this.setValue(value);
         type = Type.BOOLEAN;
     }
 
     public BoolLiteral(String value) throws AnalysisException {
         this.type = Type.BOOLEAN;
         if (value.trim().toLowerCase().equals("true") || value.trim().equals("1")) {
-            this.value = true;
+            this.setValue(true);
         } else if (value.trim().toLowerCase().equals("false") || value.trim().equals("0")) {
-            this.value = false;
+            this.setValue(false);
         } else {
             throw new AnalysisException("Invalid BOOLEAN literal: " + value);
         }
@@ -51,12 +51,17 @@ public class BoolLiteral extends LiteralExpr {
 
     protected BoolLiteral(BoolLiteral other) {
         super(other);
-        value = other.value;
+        this.setValue(other.value);
     }
 
     @Override
     public Expr clone() {
         return new BoolLiteral(this);
+    }
+
+    private void setValue(boolean value) {
+        this.value = value;
+        this.selectivity = value ? 1 : 0;
     }
 
     public boolean getValue() {
@@ -110,7 +115,7 @@ public class BoolLiteral extends LiteralExpr {
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        value = in.readBoolean();
+        this.setValue(in.readBoolean());
     }
     
     public static BoolLiteral read(DataInput in) throws IOException {

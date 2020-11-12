@@ -37,7 +37,6 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.MiniEtlTaskInfo;
@@ -127,7 +126,7 @@ import static org.apache.doris.thrift.TStatusCode.NOT_IMPLEMENTED_ERROR;
 // Frontend service used to serve all request for this frontend through
 // thrift protocol
 public class FrontendServiceImpl implements FrontendService.Iface {
-    private static final Logger LOG = LogManager.getLogger(MasterImpl.class);
+    private static final Logger LOG = LogManager.getLogger(FrontendServiceImpl.class);
     private MasterImpl masterImpl;
     private ExecuteEnv exeEnv;
 
@@ -248,7 +247,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db != null) {
             db.readLock();
             try {
-                for (Table table : db.getTables()) {
+                List<Table> tables = null;
+                if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
+                    tables = db.getTables();
+                } else {
+                    switch (params.getType()) {
+                        case "VIEW":
+                            tables = db.getViews();
+                            break;
+                        default:
+                            tables = db.getTables();
+                    }
+                }
+                for (Table table : tables) {
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
                             table.getName(), PrivPredicate.SHOW)) {
                         continue;
@@ -264,6 +275,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     status.setComment(table.getComment());
                     status.setCreateTime(table.getCreateTime());
                     status.setLastCheckTime(table.getLastCheckTime());
+                    status.setDdlSql(table.getDdlSql());
 
                     tablesResult.add(status);
                 }
@@ -307,7 +319,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             try {
                 Table table = db.getTable(params.getTableName());
                 if (table != null) {
-                    for (Column column : table.getBaseSchema()) {
+                    for (Column column : table.getBaseSchema(params.isShowHiddenColumns())) {
                         final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
                         final Integer precision = column.getOriginType().getPrecision();
                         if (precision != null) {
@@ -322,6 +334,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             desc.setColumnScale(decimalDigits);
                         }
                         final TColumnDef colDef = new TColumnDef(desc);
+                        final String comment = column.getComment();
+                        if(comment != null) {
+                            colDef.setComment(comment);
+                        }
                         columns.add(colDef);
                     }
                 }
@@ -373,7 +389,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Deprecated
     @Override
     public TFeResult miniLoad(TMiniLoadRequest request) throws TException {
-        LOG.info("receive mini load request: label: {}, db: {}, tbl: {}, backend: {}",
+        LOG.debug("receive mini load request: label: {}, db: {}, tbl: {}, backend: {}",
                 request.getLabel(), request.getDb(), request.getTbl(), request.getBackend());
 
         ConnectContext context = new ConnectContext(null);
@@ -495,7 +511,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // update etl task status
         TMiniLoadEtlStatusResult statusResult = request.getEtlTaskStatus();
-        LOG.info("load job id: {}, etl task id: {}, status: {}", jobId, taskId, statusResult);
+        LOG.debug("load job id: {}, etl task id: {}, status: {}", jobId, taskId, statusResult);
         EtlStatus taskStatus = taskInfo.getTaskStatus();
         if (taskStatus.setState(statusResult.getEtlState())) {
             if (statusResult.isSetCounters()) {
@@ -513,7 +529,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMiniLoadBeginResult miniLoadBegin(TMiniLoadBeginRequest request) throws TException {
-        LOG.info("receive mini load begin request. label: {}, user: {}, ip: {}",
+        LOG.debug("receive mini load begin request. label: {}, user: {}, ip: {}",
                  request.getLabel(), request.getUser(), request.getUserIp());
 
         TMiniLoadBeginResult result = new TMiniLoadBeginResult();
@@ -573,7 +589,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // add this log so that we can track this stmt
-        LOG.info("receive forwarded stmt {} from FE: {}", params.getStmtId(), clientAddr.getHostname());
+        LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), clientAddr.getHostname());
         ConnectContext context = new ConnectContext(null);
         ConnectProcessor processor = new ConnectProcessor(context);
         TMasterOpResult result = processor.proxyExecute(params);
@@ -600,7 +616,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TFeResult loadCheck(TLoadCheckRequest request) throws TException {
-        LOG.info("receive load check request. label: {}, user: {}, ip: {}",
+        LOG.debug("receive load check request. label: {}, user: {}, ip: {}",
                  request.getLabel(), request.getUser(), request.getUserIp());
 
         TStatus status = new TStatus(TStatusCode.OK);
@@ -630,9 +646,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.info("receive txn begin request, db: {}, tbl: {}, label: {}, backend: {}",
-                request.getDb(), request.getTbl(), request.getLabel(), clientAddr);
-        LOG.debug("txn begin request: {}", request);
+        LOG.debug("receive txn begin request: {}, backend: {}", request, clientAddr);
 
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -641,7 +655,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setTxnId(loadTxnBeginImpl(request, clientAddr));
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
-            LOG.info("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
+            LOG.warn("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
             result.setTxnId(e.getTxnId());
         } catch (LabelAlreadyUsedException e) {
             status.setStatusCode(TStatusCode.LABEL_ALREADY_EXISTS);
@@ -708,9 +722,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxnCommitResult loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.info("receive txn commit request. db: {}, tbl: {}, txn id: {}, backend: {}",
-                request.getDb(), request.getTbl(), request.getTxnId(), clientAddr);
-        LOG.debug("txn commit request: {}", request);
+        LOG.debug("receive txn commit request: {}, backend: {}", request, clientAddr);
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -774,10 +786,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.info("receive txn rollback request. db: {}, tbl: {}, txn id: {}, reason: {}, backend: {}",
-                request.getDb(), request.getTbl(), request.getTxnId(), request.getReason(), clientAddr);
-        LOG.debug("txn rollback request: {}", request);
-
+        LOG.debug("receive txn rollback request: {}, backend: {}", request, clientAddr);
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
@@ -823,10 +832,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) {
         String clientAddr = getClientAddrAsString();
-        LOG.info("receive stream load put request. db:{}, tbl: {}, txn id: {}, load id: {}, backend: {}",
-                 request.getDb(), request.getTbl(), request.getTxnId(), DebugUtil.printId(request.getLoadId()),
-                 clientAddr);
-        LOG.debug("stream load put request: {}", request);
+        LOG.debug("receive stream load put request: {}, backend: {}", request, clientAddr);
 
         TStreamLoadPutResult result = new TStreamLoadPutResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -910,7 +916,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private String getClientAddrAsString() {
         TNetworkAddress addr = getClientAddr();
-        return addr == null ? "unknown" : addr.hostname + ":" + addr.port;
+        return addr == null ? "unknown" : addr.hostname;
     }
 }
 

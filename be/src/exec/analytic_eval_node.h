@@ -165,7 +165,7 @@ private:
     // get_next_output_batch().
     int64_t num_output_rows_ready() const;
 
-    // Resets the slots in current_tuple_ that store the intermedatiate results for lead().
+    // Resets the slots in current_tuple_ that store the intermediate results for lead().
     // This is necessary to produce the default value (set by Init()).
     void reset_lead_fn_slots();
 

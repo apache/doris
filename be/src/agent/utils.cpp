@@ -227,12 +227,15 @@ std::string AgentUtils::print_agent_status(AgentStatus status) {
     }
 }
 
-bool AgentUtils::exec_cmd(const string& command, string* errmsg) {
+bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_stderr) {
     // The exit status of the command.
     uint32_t rc = 0;
 
     // Redirect stderr to stdout to get error message.
-    string cmd = command + " 2>&1";
+    string cmd = command;
+    if (redirect_stderr) {
+        cmd += " 2>&1";
+    }
 
     // Execute command.
     FILE *fp = popen(cmd.c_str(), "r");

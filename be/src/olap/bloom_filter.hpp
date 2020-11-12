@@ -169,7 +169,7 @@ public:
         add_hash(hash);
     }
 
-    // Generate mutiple hash value according to following rule:
+    // Generate multiple hash value according to following rule:
     //     new_hash_value = hash_high_part + (i * hash_low_part)
     void add_hash(uint64_t hash) {
         uint32_t hash1 = (uint32_t) hash;

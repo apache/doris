@@ -6,3 +6,18 @@ The Apache Software Foundation (http://www.apache.org/).
 
 Based on source code originally developed by
 Baidu (http://www.baidu.com/).
+
+This product includes software developed by the LevelDB.
+Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+
+This product includes software developed by CPython for searching string function.
+(https://github.com/python/cpython)
+
+This product includes software developed by Chromium.
+Copyright (c) 2011 The Chromium Authors. All rights reserved.
+
+This product includes software developed by Austin Appleby for MurmurHash3.
+The author hereby disclaims copyright to this source code.
+
+This product includes software developed by cyb70289 for validating utf8 string.
+Copyright (c) cyb70289(https://github.com/cyb70289). All rights reserved.

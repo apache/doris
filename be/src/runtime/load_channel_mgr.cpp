@@ -27,7 +27,7 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_channel_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_channel_count, MetricUnit::NOUNIT);
 
 // Calculate the total memory limit of all load tasks on this BE
 static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
@@ -63,21 +63,21 @@ static int64_t calc_job_timeout_s(int64_t timeout_in_req_s) {
     return load_channel_timeout_s;
 }
 
-LoadChannelMgr::LoadChannelMgr() : _is_stopped(false) {
+LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
     REGISTER_HOOK_METRIC(load_channel_count, [this]() {
         std::lock_guard<std::mutex> l(_lock);
         return _load_channels.size();
     });
-    _lastest_success_channel = new_lru_cache(1024);
+    _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
 }
 
 LoadChannelMgr::~LoadChannelMgr() {
     DEREGISTER_HOOK_METRIC(load_channel_count);
-    _is_stopped.store(true);
-    if (_load_channels_clean_thread.joinable()) {
-        _load_channels_clean_thread.join();
+    _stop_background_threads_latch.count_down();
+    if (_load_channels_clean_thread) {
+        _load_channels_clean_thread->join();
     }
-    delete _lastest_success_channel;
+    delete _last_success_channel;
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
@@ -129,10 +129,10 @@ Status LoadChannelMgr::add_batch(
         std::lock_guard<std::mutex> l(_lock);
         auto it = _load_channels.find(load_id);
         if (it == _load_channels.end()) {
-            auto handle = _lastest_success_channel->lookup(load_id.to_string());
+            auto handle = _last_success_channel->lookup(load_id.to_string());
             // success only when eos be true
             if (handle != nullptr) {
-                _lastest_success_channel->release(handle);
+                _last_success_channel->release(handle);
                 if (request.has_eos() && request.eos()) {
                     return Status::OK();
                 }
@@ -157,9 +157,9 @@ Status LoadChannelMgr::add_batch(
         {
             std::lock_guard<std::mutex> l(_lock);
             _load_channels.erase(load_id);
-            auto handle = _lastest_success_channel->insert(
+            auto handle = _last_success_channel->insert(
                     load_id.to_string(), nullptr, 1, dummy_deleter);
-            _lastest_success_channel->release(handle);
+            _last_success_channel->release(handle);
         }
         VLOG(1) << "removed load channel " << load_id;
     }
@@ -183,7 +183,7 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
     }
     if (max_consume == 0) {
         // should not happen, add log to observe
-        LOG(WARNING) << "failed to find suitable load channel when total load mem limit execeed";
+        LOG(WARNING) << "failed to find suitable load channel when total load mem limit exceed";
         return;
     }
     DCHECK(channel.get() != nullptr);
@@ -215,22 +215,22 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
 }
 
 Status LoadChannelMgr::_start_bg_worker() {
-    _load_channels_clean_thread = std::thread(
-        [this] {
+    RETURN_IF_ERROR(
+        Thread::create("LoadChannelMgr", "cancel_timeout_load_channels",
+                       [this]() {
 #ifdef GOOGLE_PROFILER
-            ProfilerRegisterThread();
+                           ProfilerRegisterThread();
 #endif
-
 #ifndef BE_TEST
-            uint32_t interval = 60;
+                           uint32_t interval = 60;
 #else
-            uint32_t interval = 1;
+                           uint32_t interval = 1;
 #endif
-            while (!_is_stopped.load()) {
-                _start_load_channels_clean();
-                sleep(interval);
-            }
-        });
+                           while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval))) {
+                               _start_load_channels_clean();
+                           }},
+                       &_load_channels_clean_thread));
+
     return Status::OK();
 }
 

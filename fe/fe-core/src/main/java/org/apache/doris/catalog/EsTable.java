@@ -191,7 +191,7 @@ public class EsTable extends Table {
             } catch (Exception e) {
                 throw new DdlException("fail to parse enable_docvalue_scan, enable_docvalue_scan= "
                         + properties.get(VERSION).trim() + " ,`enable_docvalue_scan`"
-                        + " shoud be like 'true' or 'false'， value should be double quotation marks");
+                        + " should be like 'true' or 'false'， value should be double quotation marks");
             }
         }
 
@@ -201,7 +201,7 @@ public class EsTable extends Table {
             } catch (Exception e) {
                 throw new DdlException("fail to parse enable_keyword_sniff, enable_keyword_sniff= "
                         + properties.get(VERSION).trim() + " ,`enable_keyword_sniff`"
-                        + " shoud be like 'true' or 'false'， value should be double quotation marks");
+                        + " should be like 'true' or 'false'， value should be double quotation marks");
             }
         } else {
             enableKeywordSniff = true;

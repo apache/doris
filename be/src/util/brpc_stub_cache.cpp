@@ -19,7 +19,7 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(brpc_endpoint_stub_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_endpoint_stub_count, MetricUnit::NOUNIT);
 
 BrpcStubCache::BrpcStubCache() {
     _stub_map.init(239);

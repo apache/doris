@@ -149,5 +149,5 @@ private:
 };
 
 
-} // end namesapce
+} // end namespace
 #endif

@@ -108,8 +108,8 @@ public class ConfigWatcher extends Daemon {
 
     // for test
     public static void main(String[] args) throws InterruptedException {
-        ConfigWatcher wathcer = new ConfigWatcher("./");
-        wathcer.start();
+        ConfigWatcher watcher = new ConfigWatcher("./");
+        watcher.start();
         Thread.sleep(500000);
     }
 }

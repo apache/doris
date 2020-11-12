@@ -100,7 +100,7 @@ public:
         return _block_count;
     }
 
-    // 返回当前semgnet中，每块的行数
+    // 返回当前segment中，每块的行数
     uint32_t num_rows_in_block() {
         return _num_rows_in_block;
     }
@@ -189,7 +189,7 @@ private:
     // 创建reader
     OLAPStatus _create_reader(size_t* buffer_size);
 
-    // we impelete seek to block in two phase. first, we just only move _next_block_id
+    // we implement seek to block in two phase. first, we just only move _next_block_id
     // to the position that we want goto; second, we seek the column streams to the
     // position we going to read.
     void _seek_to_block(int64_t block_id, bool without_filter);
@@ -310,7 +310,7 @@ private:
     UniqueIdSet _include_bf_columns;
     UniqueIdToColumnIdMap _tablet_id_to_unique_id_map; // tablet id到unique id的映射
     UniqueIdToColumnIdMap _unique_id_to_tablet_id_map; // unique id到tablet id的映射
-    UniqueIdToColumnIdMap _unique_id_to_segment_id_map; // uniqid到segment id的映射
+    UniqueIdToColumnIdMap _unique_id_to_segment_id_map; // unique id到segment id的映射
 
     std::map<ColumnId, StreamIndexReader*> _indices;
     std::map<StreamName, ReadOnlyFileStream*> _streams;      //需要读取的流
@@ -321,8 +321,8 @@ private:
 
     /*
      * _include_blocks is used for saving the state of block when encountering delete conditions,
-     * in this place the delete condition include the delete condtion, the query filter condition 
-     * and the bloom filter condtion.
+     * in this place the delete condition include the delete condition, the query filter condition
+     * and the bloom filter condition.
      * DEL_SATISFIED is for block meet the delete condition, should be filtered.
      *    but it is not stored, it reflect in _include_blocks.
      * DEL_NOT_SATISFIED is for block not meet the delete condition, should be held to read.

@@ -53,7 +53,7 @@ SET forward_to_master = true;
 SET time_zone = "Asia/Shanghai";
 ```
 
-For global-level, set by `SET GLOBALE var_name=xxx;`. Such as:
+For global-level, set by `SET GLOBAL var_name=xxx;`. Such as:
 
 ```
 SET GLOBAL exec_mem_limit = 137438953472
@@ -84,6 +84,18 @@ At the same time, variable settings also support constant expressions. Such as:
 SET exec_mem_limit = 10 * 1024 * 1024 * 1024;
 SET forward_to_master = concat('tr', 'u', 'e');
 ```
+
+### Set variables in the query statement
+
+In some scenarios, we may need to set variables specifically for certain queries.
+The SET_VAR hint sets the session value of a system variable temporarily (for the duration of a single statement). Examples:
+
+```
+SELECT /*+ SET_VAR(exec_mem_limit = 8589934592) */ name FROM people ORDER BY name;
+SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
+```
+
+Note that the comment must start with /*+ and can only follow the SELECT.
 
 ## Supported variables
 
@@ -147,7 +159,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
 * `enable_insert_strict`
 
-    Used to set the `strict` mode when loadingdata via INSERT statement. The default is false, which means that the `strict` mode is not turned on. For an introduction to this mode, see [here] (./load-data/insert-into-manual.md).
+    Used to set the `strict` mode when loading data via INSERT statement. The default is false, which means that the `strict` mode is not turned on. For an introduction to this mode, see [here] (./load-data/insert-into-manual.md).
 
 * `enable_spilling`
 
@@ -169,7 +181,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
 * `forward_to_master`
 
-    The user sets whether to forward some commands to the Master FE node for execution. The default is false, which means no forwarding. There are multiple FE nodes in Doris, one of which is the Master node. Usually users can connect to any FE node for full-featured operation. However, some of detail informationcan only be obtained from the Master FE node.
+    The user sets whether to forward some commands to the Master FE node for execution. The default is false, which means no forwarding. There are multiple FE nodes in Doris, one of which is the Master node. Usually users can connect to any FE node for full-featured operation. However, some of detail information can only be obtained from the Master FE node.
     
     For example, the `SHOW BACKENDS;` command, if not forwarded to the Master FE node, can only see some basic information such as whether the node is alive, and forwarded to the Master FE to obtain more detailed information including the node startup time and the last heartbeat time.
     
@@ -318,6 +330,10 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `version`
 
     Used for compatibility with MySQL clients. No practical effect.
+
+* `performance_schema`
+
+    Used for compatibility with MySQL JDBC 8.0.16 or later version. No practical effect.    
     
 * `version_comment`
 

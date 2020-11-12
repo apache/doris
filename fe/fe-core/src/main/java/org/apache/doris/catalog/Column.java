@@ -48,6 +48,7 @@ import java.util.List;
 public class Column implements Writable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
+    public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     @SerializedName(value = "name")
     private String name;
     @SerializedName(value = "type")
@@ -185,8 +186,16 @@ public class Column implements Writable {
         return visible;
     }
 
+    public void setIsVisible(boolean isVisible) {
+        this.visible = isVisible;
+    }
+
     public boolean isDeleteSignColumn() {
         return !visible && aggregationType == AggregateType.REPLACE && nameEquals(DELETE_SIGN, true);
+    }
+
+    public boolean isSequenceColumn() {
+        return !visible && aggregationType == AggregateType.REPLACE && nameEquals(SEQUENCE_COL, true);
     }
 
     public PrimitiveType getDataType() { return type.getPrimitiveType(); }
@@ -380,11 +389,16 @@ public class Column implements Writable {
     }
 
     public String toSql() {
+        return toSql(false);
+    }
+
+    public String toSql(boolean isUniqueTable) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
         sb.append(typeStr).append(" ");
-        if (aggregationType != null && aggregationType != AggregateType.NONE && !isAggregationTypeImplicit) {
+        if (aggregationType != null && aggregationType != AggregateType.NONE
+                && !isUniqueTable &&  !isAggregationTypeImplicit) {
             sb.append(aggregationType.name()).append(" ");
         }
         if (isAllowNull) {

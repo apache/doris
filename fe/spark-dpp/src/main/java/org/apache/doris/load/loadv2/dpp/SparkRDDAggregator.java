@@ -32,6 +32,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -52,7 +53,6 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
         return value;
     };
 
-    // TODO(wb) support more datatype:decimal,date,datetime
     public static SparkRDDAggregator buildAggregator(EtlJobConfig.EtlColumn column) throws SparkDppException {
         String aggType = StringUtils.lowerCase(column.aggregationType);
         String columnType = StringUtils.lowerCase(column.columnType);
@@ -69,6 +69,9 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "bigint":
                     case "float":
                     case "double":
+                    case "decimalv2":
+                    case "date":
+                    case "datetime":
                         return new NumberMaxAggregator();
                     case "char":
                     case "varchar":
@@ -86,6 +89,9 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "bigint":
                     case "float":
                     case "double":
+                    case "decimalv2":
+                    case "date":
+                    case "datetime":
                         return new NumberMinAggregator();
                     case "char":
                     case "varchar":
@@ -111,6 +117,8 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                         return new DoubleSumAggregator();
                     case "largeint":
                         return new LargeIntSumAggregator();
+                    case "decimalv2":
+                        return new BigDecimalSumAggregator();
                     default:
                         throw new SparkDppException(String.format("unsupported sum aggregator for column type:%s", columnType));
                 }
@@ -324,6 +332,12 @@ class LargeIntMaxAggregator extends SparkRDDAggregator<BigInteger> {
         }
         return dst.compareTo(src) > 0 ? dst : src;
     }
+
+    @Override
+    String finalize(Object value) {
+        BigInteger bigInteger = (BigInteger) value;
+        return bigInteger.toString();
+    }
 }
 
 class LargeIntMinAggregator extends LargeIntMaxAggregator {
@@ -394,7 +408,6 @@ class LongSumAggregator extends SparkRDDAggregator<Long> {
         if (dst == null) {
             return src;
         }
-        // TODO(wb) check overflow of long type
         return dst + src;
     }
 }
@@ -409,11 +422,9 @@ class ShortSumAggregator extends SparkRDDAggregator<Short> {
         if (dst == null) {
             return src;
         }
-        Integer ret = dst + src;
-        if  (ret > Short.MAX_VALUE || ret < Short.MIN_VALUE) {
-            throw new RuntimeException("short column sum size exceeds Short.MAX_VALUE or Short.MIN_VALUE");
-        }
-        return Short.valueOf(ret.toString());
+        int ret = dst + src;
+        // here may overflow, just keep the same logic with be
+        return (short)ret;
     }
 }
 
@@ -428,9 +439,7 @@ class IntSumAggregator extends SparkRDDAggregator<Integer> {
             return src;
         }
         long ret = Long.sum(dst, src);
-        if  (ret > Integer.MAX_VALUE || ret < Integer.MIN_VALUE) {
-            throw new RuntimeException("int column sum size exceeds Integer.MAX_VALUE or Integer.MIN_VALUE");
-        }
+        // here may overflow, just keep the same logic with be
         return (int) ret;
     }
 }
@@ -445,11 +454,9 @@ class ByteSumAggregator extends SparkRDDAggregator<Byte> {
         if (dst == null) {
             return src;
         }
-        Integer ret = dst + src;
-        if  (ret > Byte.MAX_VALUE || ret < Byte.MIN_VALUE) {
-            throw new RuntimeException("byte column sum size exceeds Byte.MAX_VALUE or Byte.MIN_VALUE");
-        }
-        return Byte.valueOf(ret.toString());
+        int ret = dst + src;
+        // here may overflow, just keep the same logic with be
+        return (byte)ret;
     }
 }
 
@@ -467,7 +474,6 @@ class DoubleSumAggregator extends SparkRDDAggregator<Double> {
     }
 }
 
-// TODO(wb) add bound check for float/double
 class FloatSumAggregator extends SparkRDDAggregator<Float> {
 
     @Override
@@ -507,6 +513,21 @@ class StringMinAggregator extends SparkRDDAggregator<String> {
             return src;
         }
         return dst.compareTo(src) < 0 ? dst : src;
+    }
+}
+
+class BigDecimalSumAggregator extends SparkRDDAggregator<BigDecimal> {
+
+
+    @Override
+    BigDecimal update(BigDecimal src, BigDecimal dst) {
+        if (src == null) {
+            return dst;
+        }
+        if (dst == null) {
+            return src;
+        }
+        return src.add(dst);
     }
 }
 

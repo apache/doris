@@ -22,7 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import java.util.Collection;
 
 public interface DistributionPruner {
-    // return partition after prunning
+    // return partition after pruning
     public Collection<Long> prune() throws AnalysisException;
 }
 

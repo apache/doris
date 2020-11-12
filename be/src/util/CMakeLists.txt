@@ -100,6 +100,8 @@ set(UTIL_FILES
   easy_json.cc
   mustache/mustache.cc
   brpc_stub_cache.cpp
+  zlib.cpp
+  pprof_utils.cpp
 )
 
 if (WITH_MYSQL)

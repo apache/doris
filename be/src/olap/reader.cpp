@@ -415,11 +415,10 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
             return OLAP_SUCCESS;
         }
         cur_delete_flag = _next_delete_flag;
-        // the verion is in reverse order, the first row is the highest version,
+        // the version is in reverse order, the first row is the highest version,
         // in UNIQUE_KEY highest version is the final result, there is no need to
         // merge the lower versions
         direct_copy_row(row_cursor, *_next_key);
-        agg_finalize_row(_value_cids, row_cursor, mem_pool);
         // skip the lower version rows;
         while (nullptr != _next_key) {
             auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
@@ -431,9 +430,15 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
             }
             // break while can NOT doing aggregation
             if (!equal_row(_key_cids, *row_cursor, *_next_key)) {
+                agg_finalize_row(_value_cids, row_cursor, mem_pool);
                 break;
             }
             ++merged_count;
+            cur_delete_flag = _next_delete_flag;
+            // if has sequence column, the higher version need to merge the lower versions
+            if (_has_sequence_col) {
+                agg_update_row_with_sequence(_value_cids, row_cursor, *_next_key, _sequence_col_idx);
+            }
         }
 
         // if reader needs to filter delete row and current delete_flag is ture, 
@@ -592,6 +597,19 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
     _collect_iter = new CollectIterator();
     _collect_iter->init(this);
 
+    if (_tablet->tablet_schema().has_sequence_col()) {
+        _sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
+        if (_sequence_col_idx != -1) {
+            for (auto col : _return_columns) {
+                // query has sequence col
+                if (col == _sequence_col_idx) {
+                    _has_sequence_col = true;
+                    break;
+                }
+            }
+        }
+    }
+
     return res;
 }
 
@@ -625,7 +643,7 @@ OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
                 _value_cids.push_back(i);
             }
         }
-        VLOG(3) << "return column is empty, using full column as defaut.";
+        VLOG(3) << "return column is empty, using full column as default.";
     } else if (read_params.reader_type == READER_CHECKSUM) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {
@@ -730,7 +748,7 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
 void Reader::_init_conditions_param(const ReaderParams& read_params) {
     _conditions.set_tablet_schema(&_tablet->tablet_schema());
     for (const auto& condition : read_params.conditions) {
-        _conditions.append_condition(condition);
+        DCHECK_EQ(OLAP_SUCCESS, _conditions.append_condition(condition));
         ColumnPredicate* predicate = _parse_to_predicate(condition);
         if (predicate != nullptr) {
             _col_predicates.push_back(predicate);
@@ -836,7 +854,10 @@ COMPARISON_PREDICATE_CONDITION_VALUE(ge, GreaterEqualPredicate)
 
 ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
     // TODO: not equal and not in predicate is not pushed down
-    int index = _tablet->field_index(condition.column_name);
+    int32_t index = _tablet->field_index(condition.column_name);
+    if (index < 0) {
+        return nullptr;
+    }
     const TabletColumn& column = _tablet->tablet_schema().column(index);
     if (column.aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
         return nullptr;

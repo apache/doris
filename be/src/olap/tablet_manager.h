@@ -69,7 +69,9 @@ public:
 
     OLAPStatus drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
-    TabletSharedPtr find_best_tablet_to_compaction(CompactionType compaction_type, DataDir* data_dir);
+    TabletSharedPtr find_best_tablet_to_compaction(
+            CompactionType compaction_type, DataDir* data_dir,
+            vector<TTabletId> &tablet_submitted_compaction);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                bool include_deleted = false, std::string* err = nullptr);
@@ -135,7 +137,7 @@ public:
 
     void do_tablet_meta_checkpoint(DataDir* data_dir);
 
-    void  obtain_all_tablets(vector<TabletInfo> &tablets_info);
+    void  obtain_specific_quantity_tablets(vector<TabletInfo> &tablets_info, int64_t num);
 
     void register_clone_tablet(int64_t tablet_id);
     void unregister_clone_tablet(int64_t tablet_id);
@@ -155,7 +157,7 @@ private:
                                            bool keep_files, bool drop_old);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
-    OLAPStatus _create_inital_rowset_unlocked(const TCreateTabletReq& request,
+    OLAPStatus _create_initial_rowset_unlocked(const TCreateTabletReq& request,
                                               Tablet* tablet);
 
     OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id,

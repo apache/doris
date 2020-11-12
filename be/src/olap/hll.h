@@ -31,7 +31,7 @@ class Slice;
 
 const static int HLL_COLUMN_PRECISION = 14;
 const static int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
-const static int HLL_EXPLICLIT_INT64_NUM = 160;
+const static int HLL_EXPLICIT_INT64_NUM = 160;
 const static int HLL_SPARSE_THRESHOLD = 4096;
 const static int HLL_REGISTERS_COUNT = 16 * 1024;
 // maximum size in byte of serialized HLL: type(1) + registers (2^14)
@@ -54,11 +54,11 @@ const static int HLL_EMPTY_SIZE = 1;
 //
 // HLL_DATA_EXPLICIT: when there is only few values in set, store these values explicit.
 // If the number of hash values is not greater than 160, set is encoded in this format.
-// The max space occupied is (1 + 1 + 160 * 8) = 1282. I don't know why 160 is choosed,
+// The max space occupied is (1 + 1 + 160 * 8) = 1282. I don't know why 160 is chosen,
 // maybe can be other number. If you are interested, you can try other number and see
 // if it will be better.
 //
-// HLL_DATA_SPRASE: only store non-zero registers. If the number of non-zero registers
+// HLL_DATA_SPARSE: only store non-zero registers. If the number of non-zero registers
 // is not greater than 4096, set is encoded in this format. The max space occupied is
 // (1 + 4 + 3 * 4096) = 12293.
 //
@@ -72,7 +72,7 @@ const static int HLL_EMPTY_SIZE = 1;
 enum HllDataType {
     HLL_DATA_EMPTY = 0,
     HLL_DATA_EXPLICIT = 1,
-    HLL_DATA_SPRASE = 2,
+    HLL_DATA_SPARSE = 2,
     HLL_DATA_FULL = 3,
 };
 
@@ -110,7 +110,7 @@ public:
     // Return actual size of serialized binary.
     size_t serialize(uint8_t* dst) const;
 
-    // Now, only empty HLL support this funciton.
+    // Now, only empty HLL support this function.
     bool deserialize(const Slice& slice);
 
     int64_t estimate_cardinality() const;
@@ -134,7 +134,7 @@ public:
             case HLL_DATA_EMPTY:
                 return {};
             case HLL_DATA_EXPLICIT:
-            case HLL_DATA_SPRASE:
+            case HLL_DATA_SPARSE:
             case HLL_DATA_FULL:
                 {
                     std::string str {"hash set size: "};
@@ -154,7 +154,7 @@ private:
     HllDataType _type = HLL_DATA_EMPTY;
     std::set<uint64_t> _hash_set;
 
-    // This field is much space consumming(HLL_REGISTERS_COUNT), we craete
+    // This field is much space consuming(HLL_REGISTERS_COUNT), we create
     // it only when it is really needed.
     uint8_t* _registers = nullptr;
 
@@ -196,7 +196,7 @@ public:
     ~HllSetResolver() {}
 
     typedef uint8_t SetTypeValueType;
-    typedef uint8_t ExpliclitLengthValueType;
+    typedef uint8_t ExplicitLengthValueType;
     typedef int32_t SparseLengthValueType;
     typedef uint16_t SparseIndexType;
     typedef uint8_t SparseValueType;
@@ -243,7 +243,7 @@ private :
     HllDataType _set_type;        //set type
     char* _full_value_position;
     uint64_t* _explicit_value;
-    ExpliclitLengthValueType _explicit_num;
+    ExplicitLengthValueType _explicit_num;
     std::map<SparseIndexType, SparseValueType> _sparse_map;
     SparseLengthValueType* _sparse_count;
 };

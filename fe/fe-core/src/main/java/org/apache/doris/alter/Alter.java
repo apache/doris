@@ -30,6 +30,7 @@ import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.ReplacePartitionClause;
+import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRenameClause;
@@ -55,14 +56,16 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ModifyPartitionInfo;
+import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TTabletType;
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.Arrays;
 import java.util.List;
@@ -151,6 +154,92 @@ public class Alter {
         }
     }
 
+    private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
+                                         final String clusterName, Database db) throws UserException {
+        stmt.rewriteAlterClause(olapTable);
+
+        // check conflict alter ops first
+        alterClauses.addAll(stmt.getOps());
+        AlterOperations currentAlterOps = new AlterOperations();
+        currentAlterOps.checkConflict(alterClauses);
+
+        // check cluster capacity and db quota, only need to check once.
+        if (currentAlterOps.needCheckCapacity()) {
+            Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
+            db.checkQuota();
+        }
+
+        if (olapTable.getState() != OlapTableState.NORMAL) {
+            throw new DdlException(
+                    "Table[" + olapTable.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
+        }
+
+        boolean needProcessOutsideDatabaseLock = false;
+        if (currentAlterOps.hasSchemaChangeOp()) {
+            // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
+            schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
+        } else if (currentAlterOps.hasRollupOp()) {
+            materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
+        } else if (currentAlterOps.hasPartitionOp()) {
+            Preconditions.checkState(alterClauses.size() == 1);
+            AlterClause alterClause = alterClauses.get(0);
+            if (alterClause instanceof DropPartitionClause) {
+                if (!((DropPartitionClause) alterClause).isTempPartition()) {
+                    DynamicPartitionUtil.checkAlterAllowed((OlapTable) db.getTable(olapTable.getName()));
+                }
+                Catalog.getCurrentCatalog().dropPartition(db, olapTable, ((DropPartitionClause) alterClause));
+            } else if (alterClause instanceof ReplacePartitionClause) {
+                Catalog.getCurrentCatalog().replaceTempPartition(db, olapTable.getName(), (ReplacePartitionClause) alterClause);
+            } else if (alterClause instanceof ModifyPartitionClause) {
+                ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
+                // expand the partition names if it is 'Modify Partition(*)'
+                if (clause.isNeedExpand()) {
+                    List<String> partitionNames = clause.getPartitionNames();
+                    partitionNames.clear();
+                    for (Partition partition : olapTable.getPartitions()) {
+                        partitionNames.add(partition.getName());
+                    }
+                }
+                Map<String, String> properties = clause.getProperties();
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
+                    needProcessOutsideDatabaseLock = true;
+                } else {
+                    List<String> partitionNames = clause.getPartitionNames();
+                    modifyPartitionsProperty(db, olapTable, partitionNames, properties);
+                }
+            } else if (alterClause instanceof AddPartitionClause) {
+                needProcessOutsideDatabaseLock = true;
+            } else {
+                throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
+            }
+        } else if (currentAlterOps.hasRenameOp()) {
+            processRename(db, olapTable, alterClauses);
+        } else if (currentAlterOps.hasReplaceTableOp()) {
+            processReplaceTable(db, olapTable, alterClauses);
+        } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_PROPERTY_SYNC)) {
+            needProcessOutsideDatabaseLock = true;
+        } else {
+            throw new DdlException("Invalid alter operations: " + currentAlterOps);
+        }
+
+        return needProcessOutsideDatabaseLock;
+    }
+
+    private void processAlterExternalTable(AlterTableStmt stmt, Table externalTable, Database db) throws UserException {
+        stmt.rewriteAlterClause(externalTable);
+
+        // check conflict alter ops first
+        List<AlterClause> alterClauses = stmt.getOps();
+        AlterOperations currentAlterOps = new AlterOperations();
+        currentAlterOps.checkConflict(alterClauses);
+
+        if (currentAlterOps.hasRenameOp()) {
+            processRename(db, externalTable, alterClauses);
+        } else if (currentAlterOps.hasSchemaChangeOp()) {
+            schemaChangeHandler.processExternalTable(alterClauses, db, externalTable);
+        }
+    }
+
     public void processAlterTable(AlterTableStmt stmt) throws UserException {
         TableName dbTableName = stmt.getTbl();
         String dbName = dbTableName.getDb();
@@ -160,9 +249,9 @@ public class Alter {
         if (db == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
-        List<AlterClause> alterClauses;
+        List<AlterClause> alterClauses = Lists.newArrayList();
 
-        // some operations will take long time to process, need to be done outside the databse lock
+        // some operations will take long time to process, need to be done outside the database lock
         boolean needProcessOutsideDatabaseLock = false;
         String tableName = dbTableName.getTbl();
         db.writeLock();
@@ -172,71 +261,18 @@ public class Alter {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
             }
 
-            if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Do not support alter non-OLAP table[" + tableName + "]");
-            }
-            OlapTable olapTable = (OlapTable) table;
-            stmt.rewriteAlterClause(olapTable);
-
-            // check conflict alter ops first
-            alterClauses = stmt.getOps();
-            AlterOperations currentAlterOps = new AlterOperations();
-            currentAlterOps.checkConflict(alterClauses);
-
-            // check cluster capacity and db quota, only need to check once.
-            if (currentAlterOps.needCheckCapacity()) {
-                Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
-                db.checkQuota();
-            }
-
-            if (olapTable.getState() != OlapTableState.NORMAL) {
-                throw new DdlException(
-                        "Table[" + table.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
-            }
-
-            if (currentAlterOps.hasSchemaChangeOp()) {
-                // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
-                schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
-            } else if (currentAlterOps.hasRollupOp()) {
-                materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
-            } else if (currentAlterOps.hasPartitionOp()) {
-                Preconditions.checkState(alterClauses.size() == 1);
-                AlterClause alterClause = alterClauses.get(0);
-                if (alterClause instanceof DropPartitionClause) {
-                    if (!((DropPartitionClause) alterClause).isTempPartition()) {
-                        DynamicPartitionUtil.checkAlterAllowed((OlapTable) db.getTable(tableName));
-                    }
-                    Catalog.getCurrentCatalog().dropPartition(db, olapTable, ((DropPartitionClause) alterClause));
-                } else if (alterClause instanceof ReplacePartitionClause) {
-                    Catalog.getCurrentCatalog().replaceTempPartition(db, tableName, (ReplacePartitionClause) alterClause);
-                } else if (alterClause instanceof ModifyPartitionClause) {
-                    ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
-                    // expand the partition names if it is 'Modify Partition(*)'
-                    if (clause.isNeedExpand()) {
-                        List<String> partitionNames = clause.getPartitionNames();
-                        partitionNames.clear();
-                        for (Partition partition : olapTable.getPartitions()) {
-                            partitionNames.add(partition.getName());
-                        }
-                    }
-                    Map<String, String> properties = clause.getProperties();
-                    if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
-                        needProcessOutsideDatabaseLock = true;
-                    } else {
-                        List<String> partitionNames = clause.getPartitionNames();
-                        modifyPartitionsProperty(db, olapTable, partitionNames, properties);
-                    }
-                } else if (alterClause instanceof AddPartitionClause) {
-                    needProcessOutsideDatabaseLock = true;
-                } else {
-                    throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
-                }
-            } else if (currentAlterOps.hasRenameOp()) {
-                processRename(db, olapTable, alterClauses);
-            } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_PROPERTY_SYNC)) {
-                needProcessOutsideDatabaseLock = true;
-            } else {
-                throw new DdlException("Invalid alter operations: " + currentAlterOps);
+            switch (table.getType()) {
+                case OLAP:
+                    OlapTable olapTable = (OlapTable) table;
+                    needProcessOutsideDatabaseLock = processAlterOlapTable(stmt, olapTable, alterClauses, clusterName, db);
+                    break;
+                case ODBC:
+                case MYSQL:
+                case ELASTICSEARCH:
+                    processAlterExternalTable(stmt, table, db);
+                    return;
+                default:
+                    throw new DdlException("Do not support alter " + table.getType().toString() + " table[" + tableName + "]");
             }
         } finally {
             db.writeUnlock();
@@ -275,6 +311,86 @@ public class Alter {
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
             }
+        }
+    }
+
+    // entry of processing replace table
+    private void processReplaceTable(Database db, OlapTable origTable, List<AlterClause> alterClauses) throws UserException {
+        ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
+        Preconditions.checkState(db.isWriteLockHeldByCurrentThread());
+
+        String oldTblName = origTable.getName();
+        String newTblName = clause.getTblName();
+        Table newTbl = db.getTable(newTblName);
+        if (newTbl == null || newTbl.getType() != TableType.OLAP) {
+            throw new DdlException("Table " + newTblName + " does not exist or is not OLAP table");
+        }
+        OlapTable olapNewTbl = (OlapTable) newTbl;
+
+        boolean swapTable = clause.isSwapTable();
+
+        // First, we need to check whether the table to be operated on can be renamed
+        olapNewTbl.checkAndSetName(oldTblName, true);
+        if (swapTable) {
+            origTable.checkAndSetName(newTblName, true);
+        }
+
+        replaceTableInternal(db, origTable, olapNewTbl, swapTable);
+
+        // write edit log
+        ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(), origTable.getId(), olapNewTbl.getId(), swapTable);
+        Catalog.getCurrentCatalog().getEditLog().logReplaceTable(log);
+
+        LOG.info("finish replacing table {} with table {}, is swap: {}", oldTblName, newTblName, swapTable);
+    }
+
+    public void replayReplaceTable(ReplaceTableOperationLog log) {
+        long dbId = log.getDbId();
+        long origTblId = log.getOrigTblId();
+        long newTblId = log.getNewTblId();
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        OlapTable origTable = (OlapTable) db.getTable(origTblId);
+        OlapTable newTbl = (OlapTable) db.getTable(newTblId);
+
+        try {
+            replaceTableInternal(db, origTable, newTbl, log.isSwapTable());
+        } catch (DdlException e) {
+            LOG.warn("should not happen", e);
+        }
+        LOG.info("finish replay replacing table {} with table {}, is swap: {}", origTblId, newTblId, log.isSwapTable());
+    }
+
+    /**
+     * The replace table operation works as follow:
+     * For example, REPLACE TABLE A WITH TABLE B.
+     * <p>
+     * 1. If "swapTable" is true, A will be renamed to B, and B will be renamed to A
+     * 1.1 check if A can be renamed to B (checking name conflict, etc...)
+     * 1.2 check if B can be renamed to A (checking name conflict, etc...)
+     * 1.3 rename B to A, drop old A, and add new A to database.
+     * 1.4 rename A to B, drop old B, and add new B to database.
+     * <p>
+     * 2. If "swapTable" is false, A will be dropped, and B will be renamed to A
+     * 1.1 check if B can be renamed to A (checking name conflict, etc...)
+     * 1.2 rename B to A, drop old A, and add new A to database.
+     */
+    private void replaceTableInternal(Database db, OlapTable origTable, OlapTable newTbl, boolean swapTable)
+            throws DdlException {
+        String oldTblName = origTable.getName();
+        String newTblName = newTbl.getName();
+
+        // drop origin table and new table
+        db.dropTable(oldTblName);
+        db.dropTable(newTblName);
+
+        // rename new table name to origin table name and add it to database
+        newTbl.checkAndSetName(oldTblName, false);
+        db.createTable(newTbl);
+
+        if (swapTable) {
+            // rename origin table name to new table name and add it to database
+            origTable.checkAndSetName(newTblName, false);
+            db.createTable(origTable);
         }
     }
 
@@ -370,6 +486,17 @@ public class Alter {
                 break;
             } else if (alterClause instanceof ColumnRenameClause) {
                 Catalog.getCurrentCatalog().renameColumn(db, table, (ColumnRenameClause) alterClause);
+                break;
+            } else {
+                Preconditions.checkState(false);
+            }
+        }
+    }
+
+    private void processRename(Database db, Table table, List<AlterClause> alterClauses) throws DdlException {
+        for (AlterClause alterClause : alterClauses) {
+            if (alterClause instanceof TableRenameClause) {
+                Catalog.getCurrentCatalog().renameTable(db, table, (TableRenameClause) alterClause);
                 break;
             } else {
                 Preconditions.checkState(false);

@@ -36,14 +36,21 @@ public abstract class LoadTask extends MasterTask {
         DELETE
     }
 
+    public enum TaskType {
+        PENDING,
+        LOADING
+    }
+
     private static final Logger LOG = LogManager.getLogger(LoadTask.class);
 
+    protected TaskType taskType;
     protected LoadTaskCallback callback;
     protected TaskAttachment attachment;
     protected FailMsg failMsg = new FailMsg();
     protected int retryTime = 1;
 
-    public LoadTask(LoadTaskCallback callback) {
+    public LoadTask(LoadTaskCallback callback, TaskType taskType) {
+        this.taskType = taskType;
         this.signature = Catalog.getCurrentCatalog().getNextId();
         this.callback = callback;
     }
@@ -95,5 +102,9 @@ public abstract class LoadTask extends MasterTask {
     public void updateRetryInfo() {
         this.retryTime--;
         this.signature = Catalog.getCurrentCatalog().getNextId();
+    }
+
+    public TaskType getTaskType() {
+        return taskType;
     }
 }

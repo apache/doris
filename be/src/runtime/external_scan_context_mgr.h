@@ -28,6 +28,9 @@
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
+#include "gutil/ref_counted.h"
+#include "util/countdown_latch.h"
+#include "util/thread.h"
 
 namespace doris {
 
@@ -49,7 +52,6 @@ class ExternalScanContextMgr {
 public:
 
     ExternalScanContextMgr(ExecEnv* exec_env);
-
     ~ExternalScanContextMgr();
 
     Status create_scan_context(std::shared_ptr<ScanContext>* p_context);
@@ -58,14 +60,14 @@ public:
 
     Status clear_scan_context(const std::string& context_id);
 
-
 private:
-
     ExecEnv* _exec_env;
     std::map<std::string, std::shared_ptr<ScanContext>> _active_contexts;
     void gc_expired_context();
-    bool _is_stop;
-    std::unique_ptr<std::thread> _keep_alive_reaper;
+
+    CountDownLatch _stop_background_threads_latch;
+    scoped_refptr<Thread> _keep_alive_reaper;
+
     std::mutex _lock;
 };
 

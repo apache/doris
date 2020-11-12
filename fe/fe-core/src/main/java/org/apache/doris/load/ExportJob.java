@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MysqlTable;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
@@ -49,6 +50,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.MysqlScanNode;
+import org.apache.doris.planner.OdbcScanNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
@@ -120,7 +122,7 @@ public class ExportJob implements Writable {
     private long finishTimeMs;
     // progress has two functions at EXPORTING stage:
     // 1. when progress < 100, it indicates exporting
-    // 2. set progress = 100 ONLY when exporting progress is compeletly done
+    // 2. set progress = 100 ONLY when exporting progress is completely done
     private int progress;
     private ExportFailMsg failMsg;
     private Set<String> exportedFiles = Sets.newConcurrentHashSet();
@@ -144,7 +146,7 @@ public class ExportJob implements Writable {
     private Thread doExportingThread;
 
     private List<TScanRangeLocations> tabletLocations = Lists.newArrayList();
-    // backedn_address => snapshot path
+    // backend_address => snapshot path
     private List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();
 
     public ExportJob() {
@@ -284,6 +286,9 @@ public class ExportJob implements Writable {
                 scanNode.init(analyzer);
                 ((OlapScanNode) scanNode).selectBestRollupByRollupSelector(analyzer);
                 break;
+            case ODBC:
+                scanNode = new OdbcScanNode(new PlanNodeId(0), exportTupleDesc, (OdbcTable) this.exportTable);
+                break;
             case MYSQL:
                 scanNode = new MysqlScanNode(new PlanNodeId(0), exportTupleDesc, (MysqlTable) this.exportTable);
                 break;
@@ -313,6 +318,10 @@ public class ExportJob implements Writable {
             case OLAP:
                 fragment = new PlanFragment(
                         new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.RANDOM);
+                break;
+            case ODBC:
+                fragment = new PlanFragment(
+                        new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.UNPARTITIONED);
                 break;
             case MYSQL:
                 fragment = new PlanFragment(
@@ -361,7 +370,7 @@ public class ExportJob implements Writable {
             coord.setExecMemoryLimit(getExecMemLimit());
             this.coordList.add(coord);
         }
-        LOG.info("create {} coordintors for export job: {}", coordList.size(), id);
+        LOG.info("create {} coordinators for export job: {}", coordList.size(), id);
     }
 
     public long getId() {

@@ -25,8 +25,6 @@ using std::vector;
 
 namespace doris {
 
-Semaphore Compaction::_concurrency_sem;
-
 Compaction::Compaction(TabletSharedPtr tablet, const std::string& label, const std::shared_ptr<MemTracker>& parent_tracker)
         : _mem_tracker(MemTracker::CreateTracker(-1, label, parent_tracker)),
           _readers_tracker(MemTracker::CreateTracker(-1, "readers tracker", _mem_tracker)),
@@ -37,20 +35,17 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label, const s
 
 Compaction::~Compaction() {}
 
-OLAPStatus Compaction::init(int concurreny) {
-    _concurrency_sem.set_count(concurreny);
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus Compaction::do_compaction() {
-    _concurrency_sem.wait();
-    TRACE("got concurrency lock and start to do compaction");
-    OLAPStatus st = do_compaction_impl();
-    _concurrency_sem.signal();
+OLAPStatus Compaction::do_compaction(int64_t permits) {
+    TRACE("start to do compaction");
+    _tablet->data_dir()->disks_compaction_score_increment(permits);
+    _tablet->data_dir()->disks_compaction_num_increment(1);
+    OLAPStatus st = do_compaction_impl(permits);
+    _tablet->data_dir()->disks_compaction_score_increment(-permits);
+    _tablet->data_dir()->disks_compaction_num_increment(-1);
     return st;
 }
 
-OLAPStatus Compaction::do_compaction_impl() {
+OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     OlapStopWatch watch;
 
     // 1. prepare input and output parameters
@@ -68,7 +63,8 @@ OLAPStatus Compaction::do_compaction_impl() {
     _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
 
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name()
-            << ", output version is=" << _output_version.first << "-" << _output_version.second;
+            << ", output version is=" << _output_version.first << "-" << _output_version.second
+            << ", score: " << permits;
 
     RETURN_NOT_OK(construct_output_rowset_writer());
     RETURN_NOT_OK(construct_input_rowset_readers());
@@ -181,13 +177,40 @@ OLAPStatus Compaction::gc_unused_rowsets() {
     return OLAP_SUCCESS;
 }
 
+// Find the longest consecutive version path in "rowset", from begining.
+// Two versions before and after the missing version will be saved in missing_version,
+// if missing_version is not null.
+OLAPStatus Compaction::find_longest_consecutive_version(
+        vector<RowsetSharedPtr>* rowsets,
+        vector<Version>* missing_version) {
+    if (rowsets->empty()) {
+        return OLAP_SUCCESS;
+    }
+    RowsetSharedPtr prev_rowset = rowsets->front();
+    size_t i = 1;
+    for (; i < rowsets->size(); ++i) {
+        RowsetSharedPtr rowset = (*rowsets)[i];
+        if (rowset->start_version() != prev_rowset->end_version() + 1) {
+            if (missing_version != nullptr) {
+                missing_version->push_back(prev_rowset->version());
+                missing_version->push_back(rowset->version());
+            }
+            break;
+        }
+        prev_rowset = rowset;
+    }
+
+    rowsets->resize(i);
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus Compaction::check_version_continuity(const vector<RowsetSharedPtr>& rowsets) {
     RowsetSharedPtr prev_rowset = rowsets.front();
     for (size_t i = 1; i < rowsets.size(); ++i) {
         RowsetSharedPtr rowset = rowsets[i];
         if (rowset->start_version() != prev_rowset->end_version() + 1) {
             LOG(WARNING) << "There are missed versions among rowsets. "
-                << "prev_rowset verison=" << prev_rowset->start_version()
+                << "prev_rowset version=" << prev_rowset->start_version()
                 << "-" << prev_rowset->end_version()
                 << ", rowset version=" << rowset->start_version()
                 << "-" << rowset->end_version();
@@ -205,7 +228,7 @@ OLAPStatus Compaction::check_correctness(const Merger::Statistics& stats) {
         LOG(WARNING) << "row_num does not match between cumulative input and output! "
                    << "input_row_num=" << _input_row_num
                    << ", merged_row_num=" << stats.merged_rows
-                   << ", filted_row_num=" << stats.filtered_rows
+                   << ", filtered_row_num=" << stats.filtered_rows
                    << ", output_row_num=" << _output_rowset->num_rows();
 
         // ATTN(cmy): We found that the num_rows in some rowset meta may be set to the wrong value,
@@ -223,7 +246,7 @@ OLAPStatus Compaction::check_correctness(const Merger::Statistics& stats) {
             LOG(WARNING) << "row_num got from seg groups does not match between cumulative input and output! "
                 << "input_row_num=" << num_rows
                 << ", merged_row_num=" << stats.merged_rows
-                << ", filted_row_num=" << stats.filtered_rows
+                << ", filtered_row_num=" << stats.filtered_rows
                 << ", output_row_num=" << _output_rowset->num_rows();
 
             return OLAP_ERR_CHECK_LINES_ERROR;

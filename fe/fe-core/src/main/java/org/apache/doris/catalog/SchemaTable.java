@@ -281,7 +281,25 @@ public class SchemaTable extends Table {
                                                  .column("XA", ScalarType.createVarchar(3))
                                                  .column("SAVEPOINTS", ScalarType.createVarchar(3))
                                                  .build()))
+                    .put("views",
+                        new SchemaTable(
+                                SystemIdGenerator.getNextId(),
+                                "views",
+                                TableType.SCHEMA,
+                                builder()
+                                        .column("TABLE_CATALOG", ScalarType.createVarchar(512))
+                                        .column("TABLE_SCHEMA", ScalarType.createVarchar(64))
+                                        .column("TABLE_NAME", ScalarType.createVarchar(64))
+                                        .column("VIEW_DEFINITION", ScalarType.createVarchar(8096))
+                                        .column("CHECK_OPTION", ScalarType.createVarchar(8))
+                                        .column("IS_UPDATABLE", ScalarType.createVarchar(3))
+                                        .column("DEFINER", ScalarType.createVarchar(77))
+                                        .column("SECURITY_TYPE", ScalarType.createVarchar(7))
+                                        .column("CHARACTER_SET_CLIENT", ScalarType.createVarchar(32))
+                                        .column("COLLATION_CONNECTION", ScalarType.createVarchar(32))
+                                        .build()))
                     .build();
+    // views column is from show create table views in mysql: 5.5.6
 
     public static class Builder {
         List<Column> columns;

@@ -130,7 +130,7 @@ private:
 class SchemaChangeDirectly : public SchemaChange {
 public:
     // @params tablet           the instance of tablet which has new schema.
-    // @params row_block_changer    changer to modifiy the data of RowBlock
+    // @params row_block_changer    changer to modify the data of RowBlock
     explicit SchemaChangeDirectly(const RowBlockChanger& row_block_changer);
     virtual ~SchemaChangeDirectly();
 
@@ -178,9 +178,6 @@ class SchemaChangeHandler {
 public:
     SchemaChangeHandler() {}
     virtual ~SchemaChangeHandler() {}
-
-    OLAPStatus process_alter_tablet(AlterTabletType alter_tablet_type,
-                                    const TAlterTabletReq& request);
 
     OLAPStatus schema_version_convert(TabletSharedPtr base_tablet, TabletSharedPtr new_tablet,
                                       RowsetSharedPtr* base_rowset, RowsetSharedPtr* new_rowset);

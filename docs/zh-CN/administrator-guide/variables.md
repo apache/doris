@@ -53,7 +53,7 @@ SET forward_to_master = true;
 SET time_zone = "Asia/Shanghai";
 ```
 
-全局生效，通过 `SET GLOBALE var_name=xxx;` 设置。如：
+全局生效，通过 `SET GLOBAL var_name=xxx;` 设置。如：
 
 ```
 SET GLOBAL exec_mem_limit = 137438953472
@@ -84,6 +84,18 @@ SET GLOBAL exec_mem_limit = 137438953472
 SET exec_mem_limit = 10 * 1024 * 1024 * 1024;
 SET forward_to_master = concat('tr', 'u', 'e');
 ```
+
+### 在查询语句中设置变量
+
+在一些场景中，我们可能需要对某些查询有针对性的设置变量。
+通过使用SET_VAR提示可以在查询中设置会话变量（在单个语句内生效）。例子：
+
+```
+SELECT /*+ SET_VAR(exec_mem_limit = 8589934592) */ name FROM people ORDER BY name;
+SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
+```
+
+注意注释必须以/*+ 开头，并且只能跟随在SELECT之后。
 
 ## 支持的变量
 
@@ -317,6 +329,10 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `version`
 
     用于兼容 MySQL 客户端。无实际作用。
+
+* `performance_schema`
+
+    用于兼容 8.0.16及以上版本的MySQL JDBC。无实际作用。     
     
 * `version_comment`
 

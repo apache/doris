@@ -261,7 +261,7 @@ public class LoadChecker extends MasterDaemon {
         } else if (state.getTransactionStatus() == TransactionStatus.COMMITTED) {
             // if job is committed and then fe restart, the progress is not persisted, so that set it here
             job.setProgress(100);
-            LOG.debug("job {} is already committed, just wait it to be visiable, transaction state {}", job, state);
+            LOG.debug("job {} is already committed, just wait it to be visible, transaction state {}", job, state);
             return;
         } else if (state.getTransactionStatus() == TransactionStatus.VISIBLE) {
             if (load.updateLoadJobState(job, JobState.FINISHED)) {
@@ -291,10 +291,10 @@ public class LoadChecker extends MasterDaemon {
         
         long stragglerTimeout = job.isSyncDeleteJob() ? job.getDeleteJobTimeout() / 2 
                                                     : Config.load_straggler_wait_second * 1000;
-        Set<Long> unfinisheTablets = Sets.newHashSet();
-        unfinisheTablets.addAll(jobTotalTablets);
-        unfinisheTablets.removeAll(job.getQuorumTablets());
-        job.setUnfinishedTablets(unfinisheTablets);
+        Set<Long> unfinishedTablets = Sets.newHashSet();
+        unfinishedTablets.addAll(jobTotalTablets);
+        unfinishedTablets.removeAll(job.getQuorumTablets());
+        job.setUnfinishedTablets(unfinishedTablets);
         if (job.getQuorumTablets().containsAll(jobTotalTablets)) {
             // commit the job to transaction manager and not care about the result
             // if could not commit successfully and commit again until job is timeout
@@ -424,7 +424,7 @@ public class LoadChecker extends MasterDaemon {
                         
                         // add to jobTotalTablets first.
                         for (Tablet tablet : index.getTablets()) {
-                            // the job is submmitted before rollup finished and try to finish after rollup finished
+                            // the job is submitted before rollup finished and try to finish after rollup finished
                             // then the job's tablet load info does not contain the new rollup index's tablet
                             // not deal with this case because the finished replica will include new rollup index's replica
                             // and check it at commit time 
@@ -440,7 +440,7 @@ public class LoadChecker extends MasterDaemon {
                             // get tablet file path
                             TabletLoadInfo tabletLoadInfo = tabletLoadInfos.get(tabletId);
                             // the tabletinfo maybe null, in this case:
-                            // the job is submmitted before rollup finished and try to finish after rollup finished
+                            // the job is submitted before rollup finished and try to finish after rollup finished
                             // then the job's tablet load info does not contain the new rollup index's tablet
                             // not deal with this case because the finished replica will include new rollup index's replica
                             // and check it at commit time
@@ -462,7 +462,7 @@ public class LoadChecker extends MasterDaemon {
                             for (Replica replica : tablet.getReplicas()) {
                                 long replicaId = replica.getId();
                                 allReplicas.add(replicaId);
-                                // yiguolei: real time load do not need check replica state and version, version hashs
+                                // yiguolei: real time load do not need check replica state and version, version hash
                                 // check replica state and replica version
                                 if (!tabletLoadInfo.isReplicaSent(replicaId)) {
                                     PushTask pushTask = new PushTask(job.getResourceInfo(),

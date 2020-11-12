@@ -71,6 +71,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BATCH_SIZE = "batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String DISABLE_COLOCATE_JOIN = "disable_colocate_join";
+    public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
@@ -85,6 +86,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FORWARD_TO_MASTER = "forward_to_master";
     // user can set instance num after exchange, no need to be equal to nums of before exchange
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
+    public static final String SHOW_HIDDEN_COLUMNS = "show_hidden_columns";
     /*
      * configure the mem limit of load process on BE. 
      * Previously users used exec_mem_limit to set memory limits.
@@ -214,6 +216,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_JOIN)
     private boolean disableColocateJoin = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN)
+    private boolean enableBucketShuffleJoin = false;
+
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
     private String preferJoinMethod = "broadcast";
 
@@ -262,6 +267,8 @@ public class SessionVariable implements Serializable, Writable {
     private int maxScanKeyNum = -1;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
     private int maxPushdownConditionsPerColumn = -1;
+    @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
+    private boolean showHiddenColumns = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -411,6 +418,10 @@ public class SessionVariable implements Serializable, Writable {
         return disableColocateJoin;
     }
 
+    public boolean isEnableBucketShuffleJoin() {
+        return enableBucketShuffleJoin;
+    }
+
     public String getPreferJoinMethod() {return preferJoinMethod; }
 
     public void setPreferJoinMethod(String preferJoinMethod) {this.preferJoinMethod = preferJoinMethod; }
@@ -444,7 +455,7 @@ public class SessionVariable implements Serializable, Writable {
     public void setEnablePartitionCache(boolean enablePartitionCache) {
         this.enablePartitionCache = enablePartitionCache;
     }
-    
+
     // Serialize to thrift object
     public boolean getForwardToMaster() {
         return forwardToMaster;
@@ -508,6 +519,15 @@ public class SessionVariable implements Serializable, Writable {
     public void setMaxPushdownConditionsPerColumn(int maxPushdownConditionsPerColumn) {
         this.maxPushdownConditionsPerColumn = maxPushdownConditionsPerColumn;
     }
+
+    public boolean showHiddenColumns() {
+        return showHiddenColumns;
+    }
+
+    public void setShowHiddenColumns(boolean showHiddenColumns) {
+        this.showHiddenColumns = showHiddenColumns;
+    }
+
 
     // Serialize to thrift object
     // used for rest api

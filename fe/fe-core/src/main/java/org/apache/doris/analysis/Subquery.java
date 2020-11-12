@@ -124,7 +124,7 @@ public class Subquery extends Expr {
     }
 
     /**
-     * Create a StrucType from the result expr list of a subquery's SelectStmt.
+     * Create a StructType from the result expr list of a subquery's SelectStmt.
      */
     private StructType createStructTypeFromExprList() {
         List<Expr> stmtResultExprs = stmt.getResultExprs();

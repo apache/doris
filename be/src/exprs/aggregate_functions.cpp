@@ -27,7 +27,7 @@
 #include "runtime/datetime_value.h"
 #include "runtime/runtime_state.h"
 #include "exprs/anyval_util.h"
-#include "exprs/hybird_set.h"
+#include "exprs/hybrid_set.h"
 #include "util/tdigest.h"
 #include "util/debug_util.h"
 
@@ -309,7 +309,7 @@ void AggregateFunctions::decimal_avg_init(FunctionContext* ctx, StringVal* dst) 
 void AggregateFunctions::decimalv2_avg_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(DecimalV2AvgState);
-    // The memroy for int128 need to be aligned by 16.
+    // The memory for int128 need to be aligned by 16.
     // So the constructor has been used instead of allocating memory.
     // Also, it will be release in finalize.
     dst->ptr = (uint8_t*) new DecimalV2AvgState;
@@ -883,7 +883,7 @@ void AggregateFunctions::string_concat(FunctionContext* ctx, const StringVal& sr
 // separator, followed by the accumulated string.  The accumulated
 // string starts with the separator of the first value that arrived in
 // StringConcatUpdate().
-typedef int StringConcatHeader;
+using StringConcatHeader = int64_t;
 // Delimiter to use if the separator is NULL.
 
 void AggregateFunctions::string_concat_update(FunctionContext* ctx,
@@ -899,12 +899,9 @@ void AggregateFunctions::string_concat_update(FunctionContext* ctx,
     const StringVal* sep = separator.is_null ? &DEFAULT_STRING_CONCAT_DELIM : &separator;
     if (result->is_null) {
         // Header of the intermediate state holds the length of the first separator.
-        const int header_len = sizeof(StringConcatHeader);
+        const auto header_len = sizeof(StringConcatHeader);
         DCHECK(header_len == sizeof(sep->len));
         *result = StringVal(ctx->allocate(header_len), header_len);
-        if (result->is_null) {
-            return;
-        }
         *reinterpret_cast<StringConcatHeader*>(result->ptr) = sep->len;
     }
     result->append(ctx, sep->ptr, sep->len, src.ptr, src.len);
@@ -915,7 +912,7 @@ void AggregateFunctions::string_concat_merge(FunctionContext* ctx,
     if (src.is_null) {
         return;
     }
-    const int header_len = sizeof(StringConcatHeader);
+    const auto header_len = sizeof(StringConcatHeader);
     if (result->is_null) {
          // Copy the header from the first intermediate value.
         *result = StringVal(ctx->allocate(header_len), header_len);
@@ -934,7 +931,7 @@ StringVal AggregateFunctions::string_concat_finalize(FunctionContext* ctx,
     if (src.is_null) {
         return src;
     }
-    const int header_len = sizeof(StringConcatHeader);
+    const auto header_len = sizeof(StringConcatHeader);
     DCHECK(src.len >= header_len);
     int sep_len = *reinterpret_cast<StringConcatHeader*>(src.ptr);
     DCHECK(src.len >= header_len + sep_len);
@@ -1085,7 +1082,7 @@ void AggregateFunctions::pc_merge(FunctionContext* c,
              << distinct_estimate_bitmap_to_string(dst->ptr);
 }
 
-double distince_estimate_finalize(const StringVal& src) {
+double distinct_estimate_finalize(const StringVal& src) {
     DCHECK(!src.is_null);
     DCHECK_EQ(src.len, NUM_PC_BITMAPS * PC_BITMAP_LENGTH / 8);
     VLOG_ROW << "FinalizeEstimateSlot Bit map:\n"
@@ -1135,7 +1132,7 @@ double distince_estimate_finalize(const StringVal& src) {
 }
 
 StringVal AggregateFunctions::pc_finalize(FunctionContext* c, const StringVal& src) {
-    double estimate = distince_estimate_finalize(src);
+    double estimate = distinct_estimate_finalize(src);
     int64_t result = estimate;
     // TODO: this should return bigint. this is a hack
     std::stringstream ss;
@@ -1149,7 +1146,7 @@ StringVal AggregateFunctions::pc_finalize(FunctionContext* c, const StringVal& s
 
 StringVal AggregateFunctions::pcsa_finalize(FunctionContext* c, const StringVal& src) {
     // When using stochastic averaging, the result has to be multiplied by NUM_PC_BITMAPS.
-    double estimate = distince_estimate_finalize(src) * NUM_PC_BITMAPS;
+    double estimate = distinct_estimate_finalize(src) * NUM_PC_BITMAPS;
     int64_t result = estimate;
     // TODO: this should return bigint. this is a hack
     std::stringstream ss;
@@ -1270,16 +1267,16 @@ int64_t AggregateFunctions::hll_algorithm(uint8_t *pdata, int data_len) {
 
     harmonic_mean = 1.0f / harmonic_mean;
     double estimate = alpha * num_streams * num_streams * harmonic_mean;
-    // according to HerperLogLog current correction, if E is cardinal
+    // according to HyperLogLog current correction, if E is cardinal
     // E =< num_streams * 2.5 , LC has higher accuracy.
-    // num_streams * 2.5 < E , HerperLogLog has higher accuracy.
-    // Generally , we can use HerperLogLog to produce value as E.
+    // num_streams * 2.5 < E , HyperLogLog has higher accuracy.
+    // Generally , we can use HyperLogLog to produce value as E.
     if (estimate <= num_streams * 2.5 && num_zero_registers != 0) {
         // Estimated cardinality is too low. Hll is too inaccurate here, instead use
         // linear counting.
         estimate = num_streams * log(static_cast<float>(num_streams) / num_zero_registers);
     } else if (num_streams == 16384 && estimate < 72000) {
-        // when Linear Couint change to HerperLoglog according to HerperLogLog Correction,
+        // when Linear Count change to HyperLoglog according to HyperLogLog Correction,
         // there are relatively large fluctuations, we fixed the problem refer to redis.
         double bias = 5.9119 * 1.0e-18 * (estimate * estimate * estimate * estimate)
         - 1.4253 * 1.0e-12 * (estimate * estimate * estimate) +
@@ -1324,7 +1321,7 @@ doris_udf::HllVal AggregateFunctions::hll_raw_agg_finalize(
 }
 
 // TODO chenhao , reduce memory copy
-// multi distinct state for numertic
+// multi distinct state for numeric
 // serialize order type:value:value:value ...
 template <typename T>
 class MultiDistinctNumericState {
@@ -1355,7 +1352,7 @@ public:
         dst->ptr = (uint8_t*)state;
     }
 
-    static void destory(const StringVal& dst) {
+    static void destroy(const StringVal& dst) {
         delete (MultiDistinctNumericState<T>*)dst.ptr;
     }
 
@@ -1451,7 +1448,7 @@ private:
     std::unordered_set<T, NumericHashHelper> _set;
     // Because Anyval does not provide the hash function, in order
     // to adopt the type different from the template, the pointer is used
-    // HybirdSetBase* _set;
+    // HybridSetBase* _set;
     // _type is serialized into buffer by one byte
     FunctionContext::Type _type;
 };
@@ -1471,7 +1468,7 @@ public:
         dst->ptr = (uint8_t*)state;
     }
 
-    static void destory(const StringVal& dst) {
+    static void destroy(const StringVal& dst) {
         delete (MultiDistinctStringCountState*)dst.ptr;
     }
 
@@ -1482,7 +1479,7 @@ public:
     StringVal serialize(FunctionContext* ctx) {
         // calculate total serialize buffer length
         int total_serialized_set_length = 1;
-        HybirdSetBase::IteratorBase* iterator = _set.begin();
+        HybridSetBase::IteratorBase* iterator = _set.begin();
         while (iterator->has_next()) {
             const StringValue* value =
                         reinterpret_cast<const StringValue*>(iterator->get_value());
@@ -1562,7 +1559,7 @@ public:
         dst->ptr = (uint8_t*)state;
     }
 
-    static void destory(const StringVal& dst) {
+    static void destroy(const StringVal& dst) {
         delete (MultiDistinctDecimalState*)dst.ptr;
     }
 
@@ -1664,7 +1661,7 @@ public:
         dst->ptr = (uint8_t*)state;
     }
 
-    static void destory(const StringVal& dst) {
+    static void destroy(const StringVal& dst) {
         delete (MultiDistinctDecimalV2State*)dst.ptr;
     }
 
@@ -1750,7 +1747,7 @@ public:
         dst->ptr = (uint8_t*)state;
     }
 
-    static void destory(const StringVal& dst) {
+    static void destroy(const StringVal& dst) {
         delete (MultiDistinctCountDateState*)dst.ptr;
     }
 
@@ -1906,7 +1903,7 @@ void AggregateFunctions::count_or_sum_distinct_numeric_merge(FunctionContext* ct
    src_state->unserialize(src);
    DCHECK(dst_state->set_type() == src_state->set_type());
    dst_state->merge(*src_state);
-   MultiDistinctNumericState<T>::destory(src_state_val);
+   MultiDistinctNumericState<T>::destroy(src_state_val);
 }
 
 void AggregateFunctions::count_distinct_string_merge(FunctionContext* ctx, StringVal& src,
@@ -1921,7 +1918,7 @@ void AggregateFunctions::count_distinct_string_merge(FunctionContext* ctx, Strin
     src_state->unserialize(src);
     DCHECK(dst_state->set_type() == src_state->set_type());
     dst_state->merge(*src_state);
-    MultiDistinctStringCountState::destory(src_state_val);
+    MultiDistinctStringCountState::destroy(src_state_val);
 }
 
 
@@ -1937,7 +1934,7 @@ void AggregateFunctions::count_or_sum_distinct_decimal_merge(FunctionContext* ct
     src_state->unserialize(src);
     DCHECK(dst_state->set_type() == src_state->set_type());
     dst_state->merge(*src_state);
-    MultiDistinctDecimalState::destory(src_state_val);
+    MultiDistinctDecimalState::destroy(src_state_val);
 }
 
 void AggregateFunctions::count_or_sum_distinct_decimalv2_merge(FunctionContext* ctx, StringVal& src,
@@ -1952,7 +1949,7 @@ void AggregateFunctions::count_or_sum_distinct_decimalv2_merge(FunctionContext* 
     src_state->unserialize(src);
     DCHECK(dst_state->set_type() == src_state->set_type());
     dst_state->merge(*src_state);
-    MultiDistinctDecimalV2State::destory(src_state_val);
+    MultiDistinctDecimalV2State::destroy(src_state_val);
 }
 
 void AggregateFunctions::count_distinct_date_merge(FunctionContext* ctx, StringVal& src,
@@ -1967,7 +1964,7 @@ void AggregateFunctions::count_distinct_date_merge(FunctionContext* ctx, StringV
     src_state->unserialize(src);
     DCHECK(dst_state->set_type() == src_state->set_type());
     dst_state->merge(*src_state);
-    MultiDistinctCountDateState::destory(src_state_val);
+    MultiDistinctCountDateState::destroy(src_state_val);
 }
 
 template <typename T>
@@ -1976,7 +1973,7 @@ StringVal AggregateFunctions::count_or_sum_distinct_numeric_serialize(FunctionCo
     MultiDistinctNumericState<T>* state = reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
     StringVal result = state->serialize(ctx);
     // release original object
-    MultiDistinctNumericState<T>::destory(state_sv);
+    MultiDistinctNumericState<T>::destroy(state_sv);
     return result;
 }
 
@@ -1985,7 +1982,7 @@ StringVal AggregateFunctions::count_distinct_string_serialize(FunctionContext* c
     MultiDistinctStringCountState* state = reinterpret_cast<MultiDistinctStringCountState*>(state_sv.ptr);
     StringVal result = state->serialize(ctx);
     // release original object
-    MultiDistinctStringCountState::destory(state_sv);
+    MultiDistinctStringCountState::destroy(state_sv);
     return result;
 }
 
@@ -1994,7 +1991,7 @@ StringVal AggregateFunctions::count_or_sum_distinct_decimal_serialize(FunctionCo
     MultiDistinctDecimalState* state = reinterpret_cast<MultiDistinctDecimalState*>(state_sv.ptr);
     StringVal result = state->serialize(ctx);
     // release original object
-    MultiDistinctDecimalState::destory(state_sv);
+    MultiDistinctDecimalState::destroy(state_sv);
     return result;
 }
 
@@ -2003,7 +2000,7 @@ StringVal AggregateFunctions::count_or_sum_distinct_decimalv2_serialize(Function
     MultiDistinctDecimalV2State* state = reinterpret_cast<MultiDistinctDecimalV2State*>(state_sv.ptr);
     StringVal result = state->serialize(ctx);
     // release original object
-    MultiDistinctDecimalV2State::destory(state_sv);
+    MultiDistinctDecimalV2State::destroy(state_sv);
     return result;
 }
 
@@ -2012,7 +2009,7 @@ StringVal AggregateFunctions::count_distinct_date_serialize(FunctionContext* ctx
     MultiDistinctCountDateState* state = reinterpret_cast<MultiDistinctCountDateState*>(state_sv.ptr);
     StringVal result = state->serialize(ctx);
     // release original object
-    MultiDistinctCountDateState::destory(state_sv);
+    MultiDistinctCountDateState::destroy(state_sv);
     return result;
 }
 
@@ -2021,7 +2018,7 @@ BigIntVal AggregateFunctions::count_or_sum_distinct_numeric_finalize(FunctionCon
     DCHECK(!state_sv.is_null);
     MultiDistinctNumericState<T>* state = reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
     BigIntVal result = state->count_finalize();
-    MultiDistinctNumericState<T>::destory(state_sv);
+    MultiDistinctNumericState<T>::destroy(state_sv);
     return result;
 }
 
@@ -2029,7 +2026,7 @@ BigIntVal AggregateFunctions::count_distinct_string_finalize(FunctionContext* ct
     DCHECK(!state_sv.is_null);
     MultiDistinctStringCountState* state = reinterpret_cast<MultiDistinctStringCountState*>(state_sv.ptr);
     BigIntVal result = state->finalize();
-    MultiDistinctStringCountState::destory(state_sv);
+    MultiDistinctStringCountState::destroy(state_sv);
     return result;
 }
 
@@ -2038,7 +2035,7 @@ DoubleVal AggregateFunctions::sum_distinct_double_finalize(FunctionContext* ctx,
     DCHECK(!state_sv.is_null);
     MultiDistinctNumericState<T>* state = reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
     DoubleVal result = state->sum_finalize_double();
-    MultiDistinctNumericState<T>::destory(state_sv);
+    MultiDistinctNumericState<T>::destroy(state_sv);
     return result;
 }
 
@@ -2047,7 +2044,7 @@ LargeIntVal AggregateFunctions::sum_distinct_largeint_finalize(FunctionContext* 
     DCHECK(!state_sv.is_null);
     MultiDistinctNumericState<T>* state = reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
     LargeIntVal result = state->sum_finalize_largeint();
-    MultiDistinctNumericState<T>::destory(state_sv);
+    MultiDistinctNumericState<T>::destroy(state_sv);
     return result;
 }
 
@@ -2056,7 +2053,7 @@ BigIntVal AggregateFunctions::sum_distinct_bigint_finalize(FunctionContext* ctx,
     DCHECK(!state_sv.is_null);
     MultiDistinctNumericState<T>* state = reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
     BigIntVal result = state->sum_finalize_bigint();
-    MultiDistinctNumericState<T>::destory(state_sv);
+    MultiDistinctNumericState<T>::destroy(state_sv);
     return result;
 }
 
@@ -2064,7 +2061,7 @@ BigIntVal AggregateFunctions::count_distinct_decimal_finalize(FunctionContext* c
     DCHECK(!state_sv.is_null);
     MultiDistinctDecimalState* state = reinterpret_cast<MultiDistinctDecimalState*>(state_sv.ptr);
     BigIntVal result = state->count_finalize();
-    MultiDistinctDecimalState::destory(state_sv);
+    MultiDistinctDecimalState::destroy(state_sv);
     return result;
 }
 
@@ -2072,7 +2069,7 @@ BigIntVal AggregateFunctions::count_distinct_decimalv2_finalize(FunctionContext*
     DCHECK(!state_sv.is_null);
     MultiDistinctDecimalV2State* state = reinterpret_cast<MultiDistinctDecimalV2State*>(state_sv.ptr);
     BigIntVal result = state->count_finalize();
-    MultiDistinctDecimalV2State::destory(state_sv);
+    MultiDistinctDecimalV2State::destroy(state_sv);
     return result;
 }
 
@@ -2080,7 +2077,7 @@ DecimalVal AggregateFunctions::sum_distinct_decimal_finalize(FunctionContext* ct
     DCHECK(!state_sv.is_null);
     MultiDistinctDecimalState* state = reinterpret_cast<MultiDistinctDecimalState*>(state_sv.ptr);
     DecimalVal result = state->sum_finalize();
-    MultiDistinctDecimalState::destory(state_sv);
+    MultiDistinctDecimalState::destroy(state_sv);
     return result;
 }
 
@@ -2088,7 +2085,7 @@ DecimalV2Val AggregateFunctions::sum_distinct_decimalv2_finalize(FunctionContext
     DCHECK(!state_sv.is_null);
     MultiDistinctDecimalV2State* state = reinterpret_cast<MultiDistinctDecimalV2State*>(state_sv.ptr);
     DecimalV2Val result = state->sum_finalize();
-    MultiDistinctDecimalV2State::destory(state_sv);
+    MultiDistinctDecimalV2State::destroy(state_sv);
     return result;
 }
 
@@ -2096,7 +2093,7 @@ BigIntVal AggregateFunctions::count_distinct_date_finalize(FunctionContext* ctx,
     DCHECK(!state_sv.is_null);
     MultiDistinctCountDateState* state = reinterpret_cast<MultiDistinctCountDateState*>(state_sv.ptr);
     BigIntVal result = state->count_finalize();
-    MultiDistinctCountDateState::destory(state_sv);
+    MultiDistinctCountDateState::destroy(state_sv);
     return result;
 }
 

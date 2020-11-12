@@ -20,7 +20,10 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -109,6 +112,8 @@ public class DataDescription {
     private TNetworkAddress beAddr;
     private String lineDelimiter;
 
+    private String sequenceCol;
+
     // Merged from fileFieldNames, columnsFromPath and columnMappingList
     // ImportColumnDesc: column name to (expr or null)
     private List<ImportColumnDesc> parsedColumnExprList = Lists.newArrayList();
@@ -133,7 +138,7 @@ public class DataDescription {
                            boolean isNegative,
                            List<Expr> columnMappingList) {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
-                isNegative, columnMappingList, null, LoadTask.MergeType.APPEND, null);
+                isNegative, columnMappingList, null, LoadTask.MergeType.APPEND, null, null);
     }
 
     public DataDescription(String tableName,
@@ -147,7 +152,8 @@ public class DataDescription {
                            List<Expr> columnMappingList,
                            Expr whereExpr,
                            LoadTask.MergeType mergeType,
-                           Expr deleteCondition) {
+                           Expr deleteCondition,
+                           String sequenceColName) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
@@ -161,6 +167,7 @@ public class DataDescription {
         this.srcTableName = null;
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
+        this.sequenceCol = sequenceColName;
     }
 
     // data from table external_hive_table
@@ -254,6 +261,14 @@ public class DataDescription {
 
     public void setLineDelimiter(String lineDelimiter) {
         this.lineDelimiter = lineDelimiter;
+    }
+
+    public String getSequenceCol() {
+        return sequenceCol;
+    }
+
+    public boolean hasSequenceCol() {
+        return !Strings.isNullOrEmpty(sequenceCol);
     }
 
     @Deprecated
@@ -406,6 +421,55 @@ public class DataDescription {
 
         Pair<String, List<String>> functionPair = new Pair<String, List<String>>(functionName, args);
         columnToHadoopFunction.put(columnName, functionPair);
+    }
+
+    private void analyzeSequenceCol(String fullDbName) throws AnalysisException {
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
+        if (db == null) {
+            throw new AnalysisException("Database[" + fullDbName + "] does not exist");
+        }
+        Table table = db.getTable(tableName);
+        if (table == null) {
+            throw new AnalysisException("Unknown table " + tableName
+                    + " in database " + db.getFullName());
+        }
+        if (!(table instanceof OlapTable)) {
+            throw new AnalysisException("Table " + table.getName() + " is not OlapTable");
+        }
+        OlapTable olapTable = (OlapTable) table;
+        // no sequence column in load and table schema
+        if (!hasSequenceCol() && !olapTable.hasSequenceCol()) {
+            return;
+        }
+        // check olapTable schema and sequenceCol
+        if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
+            throw new AnalysisException("Table " + table.getName() + " has sequence column, need to specify the sequence column");
+        }
+        if (hasSequenceCol() && !olapTable.hasSequenceCol()) {
+            throw new AnalysisException("There is no sequence column in the table " + table.getName());
+        }
+        // check source sequence column is in parsedColumnExprList or Table base schema
+        boolean hasSourceSequenceCol = false;
+        if (!parsedColumnExprList.isEmpty()) {
+            for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
+                if (importColumnDesc.getColumnName().equals(sequenceCol)) {
+                    hasSourceSequenceCol = true;
+                    break;
+                }
+            }
+        } else {
+            List<Column> columns = olapTable.getBaseSchema();
+            for (Column column : columns) {
+                if (column.getName().equals(sequenceCol)) {
+                    hasSourceSequenceCol = true;
+                    break;
+                }
+            }
+        }
+        if (!hasSourceSequenceCol) {
+            throw new AnalysisException("There is no sequence column " + sequenceCol + " in the " + table.getName()
+                + " or the COLUMNS and SET clause");
+        }
     }
 
     public static void validateMappingFunction(String functionName, List<String> args,
@@ -607,22 +671,22 @@ public class DataDescription {
 
     public void analyze(String fullDbName) throws AnalysisException {
         if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
-            throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE");
+            throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE.");
         }
         if (mergeType == LoadTask.MergeType.MERGE && deleteCondition == null) {
-            throw new AnalysisException("Except DELETE ON clause where merge type is MERGE");
+            throw new AnalysisException("Excepted DELETE ON clause when merge type is MERGE.");
         }
         if (mergeType != LoadTask.MergeType.APPEND && isNegative) {
-            throw new AnalysisException("not support MERGE or DELETE with NEGATIVE");
+            throw new AnalysisException("not support MERGE or DELETE with NEGATIVE.");
         }
         checkLoadPriv(fullDbName);
-        analyzeWithoutCheckPriv();
+        analyzeWithoutCheckPriv(fullDbName);
         if (isNegative && mergeType != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("Negative is only used when merge type is append.");
         }
     }
 
-    public void analyzeWithoutCheckPriv() throws AnalysisException {
+    public void analyzeWithoutCheckPriv(String fullDbName) throws AnalysisException {
         if (!isLoadFromTable()) {
             if (filePaths == null || filePaths.isEmpty()) {
                 throw new AnalysisException("No file path in load statement.");
@@ -641,6 +705,7 @@ public class DataDescription {
         }
 
         analyzeColumns();
+        analyzeSequenceCol(fullDbName);
     }
 
     /*

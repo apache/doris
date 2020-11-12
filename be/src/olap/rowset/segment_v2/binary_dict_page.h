@@ -47,7 +47,7 @@ enum {
 // Layout for dictionary encoded page:
 // Either header + embedded codeword page, which can be encoded with any
 //        int PageBuilder, when mode_ = DICT_ENCODING.
-// Or     header + embedded BinaryPlainPage, when mode_ = PLAIN_ENCOING.
+// Or     header + embedded BinaryPlainPage, when mode_ = PLAIN_ENCODING.
 // Data pages start with mode_ = DICT_ENCODING, when the the size of dictionary
 // page go beyond the option_->dict_page_size, the subsequent data pages will switch
 // to string plain page automatically.

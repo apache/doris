@@ -40,7 +40,7 @@ uint32_t MemPool::k_zero_length_region_ alignas(std::max_align_t) = MEM_POOL_POI
 MemPool::ChunkInfo::ChunkInfo(const Chunk& chunk_)
         : chunk(chunk_),
         allocated_bytes(0) {
-    DorisMetrics::instance()->memory_pool_bytes_total.increment(chunk.size);
+    DorisMetrics::instance()->memory_pool_bytes_total->increment(chunk.size);
 }
 
 MemPool::~MemPool() {
@@ -50,7 +50,7 @@ MemPool::~MemPool() {
         ChunkAllocator::instance()->free(chunk.chunk);
     }
     mem_tracker_->Release(total_bytes_released);
-    DorisMetrics::instance()->memory_pool_bytes_total.increment(-total_bytes_released);
+    DorisMetrics::instance()->memory_pool_bytes_total->increment(-total_bytes_released);
 }
 
 void MemPool::clear() {
@@ -76,7 +76,7 @@ void MemPool::free_all() {
     total_reserved_bytes_ = 0;
 
     mem_tracker_->Release(total_bytes_released);
-    DorisMetrics::instance()->memory_pool_bytes_total.increment(-total_bytes_released);
+    DorisMetrics::instance()->memory_pool_bytes_total->increment(-total_bytes_released);
 }
 
 bool MemPool::find_chunk(size_t min_size, bool check_limits) {
@@ -165,17 +165,17 @@ void MemPool::acquire_data(MemPool* src, bool keep_current) {
     }
 
     auto end_chunk = src->chunks_.begin() + num_acquired_chunks;
-    int64_t total_transfered_bytes = 0;
+    int64_t total_transferred_bytes = 0;
     for (auto i = src->chunks_.begin(); i != end_chunk; ++i) {
-        total_transfered_bytes += i->chunk.size;
+        total_transferred_bytes += i->chunk.size;
     }
-    src->total_reserved_bytes_ -= total_transfered_bytes;
-    total_reserved_bytes_ += total_transfered_bytes;
+    src->total_reserved_bytes_ -= total_transferred_bytes;
+    total_reserved_bytes_ += total_transferred_bytes;
 
     // Skip unnecessary atomic ops if the mem_trackers are the same.
     if (src->mem_tracker_ != mem_tracker_) {
-        src->mem_tracker_->Release(total_transfered_bytes);
-        mem_tracker_->Consume(total_transfered_bytes);
+        src->mem_tracker_->Release(total_transferred_bytes);
+        mem_tracker_->Consume(total_transferred_bytes);
     }
 
     // insert new chunks after current_chunk_idx_

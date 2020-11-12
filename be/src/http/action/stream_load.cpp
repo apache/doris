@@ -63,7 +63,7 @@ namespace doris {
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_requests_total, MetricUnit::REQUESTS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
 
 #ifdef BE_TEST
 TStreamLoadPutResult k_stream_load_put_result;
@@ -89,15 +89,15 @@ static bool is_format_support_streaming(TFileFormatType::type format) {
 }
 
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
-    _stream_load_entity = DorisMetrics::instance()->metric_registry()->register_entity("stream_load", {});
-    METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
-    METRIC_REGISTER(_stream_load_entity, streaming_load_bytes);
-    METRIC_REGISTER(_stream_load_entity, streaming_load_duration_ms);
-    METRIC_REGISTER(_stream_load_entity, streaming_load_current_processing);
+    _stream_load_entity = DorisMetrics::instance()->metric_registry()->register_entity("stream_load");
+    INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_bytes);
+    INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_duration_ms);
+    INT_GAUGE_METRIC_REGISTER(_stream_load_entity, streaming_load_current_processing);
 }
 
 StreamLoadAction::~StreamLoadAction() {
-    DorisMetrics::instance()->metric_registry()->deregister_entity("stream_load");
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_stream_load_entity);
 }
 
 void StreamLoadAction::handle(HttpRequest* req) {
@@ -130,10 +130,10 @@ void StreamLoadAction::handle(HttpRequest* req) {
     HttpChannel::send_reply(req, str);
 
     // update statstics
-    streaming_load_requests_total.increment(1);
-    streaming_load_duration_ms.increment(ctx->load_cost_nanos / 1000000);
-    streaming_load_bytes.increment(ctx->receive_bytes);
-    streaming_load_current_processing.increment(-1);
+    streaming_load_requests_total->increment(1);
+    streaming_load_duration_ms->increment(ctx->load_cost_nanos / 1000000);
+    streaming_load_bytes->increment(ctx->receive_bytes);
+    streaming_load_current_processing->increment(-1);
 }
 
 Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
@@ -141,7 +141,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
         LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes="
             << ctx->body_bytes << ", receive_bytes=" << ctx->receive_bytes
             << ", id=" << ctx->id;
-        return Status::InternalError("receive body dont't equal with body bytes");
+        return Status::InternalError("receive body don't equal with body bytes");
     }
     if (!ctx->use_streaming) {
         // if we use non-streaming, we need to close file first,
@@ -156,7 +156,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
     // wait stream load finish
     RETURN_IF_ERROR(ctx->future.get());
 
-    // If put file succeess we need commit this load
+    // If put file success we need commit this load
     int64_t commit_and_publish_start_time = MonotonicNanos();
     RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
     ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
@@ -165,7 +165,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
 }
 
 int StreamLoadAction::on_header(HttpRequest* req) {
-    streaming_load_current_processing.increment(1);
+    streaming_load_current_processing->increment(1);
 
     StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
     ctx->ref();
@@ -196,7 +196,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         }
         auto str = ctx->to_json();
         HttpChannel::send_reply(req, str);
-        streaming_load_current_processing.increment(-1);
+        streaming_load_current_processing->increment(-1);
         return -1;
     }
     return 0;
@@ -208,25 +208,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
         LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
         return Status::InternalError("no valid Basic authorization");
     }
-    // check content length
-    ctx->body_bytes = 0;
-    size_t max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
-    if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-        ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
-        if (ctx->body_bytes > max_body_bytes) {
-            LOG(WARNING) << "body exceed max size." << ctx->brief();
 
-            std::stringstream ss;
-            ss << "body exceed max size: " << max_body_bytes << ", limit: " << max_body_bytes;
-            return Status::InternalError(ss.str());
-        }
-    } else {
-#ifndef BE_TEST
-        evhttp_connection_set_max_body_size(
-            evhttp_request_get_connection(http_req->get_evhttp_request()),
-            max_body_bytes);
-#endif
-    }
     // get format of this put
     if (http_req->header(HTTP_FORMAT_KEY).empty()) {
         ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
@@ -237,16 +219,34 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
             ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
             return Status::InternalError(ss.str());
         }
+    }
 
-        if (ctx->format == TFileFormatType::FORMAT_JSON) {
-            size_t max_body_bytes = config::streaming_load_max_batch_size_mb * 1024 * 1024;
-            if (ctx->body_bytes > max_body_bytes) {
-                std::stringstream ss;
-                ss << "The size of this batch exceed the max size [" << max_body_bytes
-                   << "]  of json type data " << " data [ " << ctx->body_bytes << " ]";
-                return Status::InternalError(ss.str());
-            }
+    // check content length
+    ctx->body_bytes = 0;
+    size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
+    size_t json_max_body_bytes = config::streaming_load_json_max_mb * 1024 * 1024;
+    if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+        ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        // json max body size
+        if ((ctx->format == TFileFormatType::FORMAT_JSON) && (ctx->body_bytes > json_max_body_bytes)) {
+            std::stringstream ss;
+            ss << "The size of this batch exceed the max size [" << json_max_body_bytes
+                << "]  of json type data " << " data [ " << ctx->body_bytes << " ]";
+            return Status::InternalError(ss.str());
+        } 
+        // csv max body size
+        else if (ctx->body_bytes > csv_max_body_bytes) {
+            LOG(WARNING) << "body exceed max size." << ctx->brief();
+            std::stringstream ss;
+            ss << "body exceed max size: " << csv_max_body_bytes << ", data: " << ctx->body_bytes;
+            return Status::InternalError(ss.str());
         }
+    } else {
+#ifndef BE_TEST
+        evhttp_connection_set_max_body_size(
+            evhttp_request_get_connection(http_req->get_evhttp_request()),
+            csv_max_body_bytes);
+#endif
     }
 
     if (!http_req->header(HTTP_TIMEOUT).empty()) {
@@ -397,30 +397,36 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     } else {
         request.__set_strip_outer_array(false);
     }
+    if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
+        request.__set_sequence_col(http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL));
+    }
+
     if (ctx->timeout_second != -1) {
         request.__set_timeout(ctx->timeout_second);
     }
     request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
-    request.__set_merge_type(TMergeType::APPEND);
+    TMergeType::type merge_type = TMergeType::APPEND;
     StringCaseMap<TMergeType::type> merge_type_map = {
         { "APPEND", TMergeType::APPEND },
         { "DELETE", TMergeType::DELETE },
         { "MERGE", TMergeType::MERGE }
     };
     if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
-        std::string merge_type = http_req->header(HTTP_MERGE_TYPE);
-        if (merge_type_map.find(merge_type) != merge_type_map.end() ) {
-            request.__set_merge_type(merge_type_map.find(merge_type)->second);
+        std::string merge_type_str = http_req->header(HTTP_MERGE_TYPE);
+        if (merge_type_map.find(merge_type_str) != merge_type_map.end() ) {
+            merge_type = merge_type_map.find(merge_type_str)->second;
         } else {
-            return Status::InvalidArgument("Invalid merge type " + merge_type);
+            return Status::InvalidArgument("Invalid merge type " + merge_type_str);
+        }
+        if (merge_type == TMergeType::MERGE && http_req->header(HTTP_DELETE_CONDITION).empty()) {
+            return Status::InvalidArgument("Excepted DELETE ON clause when merge type is MERGE.");
+        } else if (merge_type != TMergeType::MERGE && !http_req->header(HTTP_DELETE_CONDITION).empty()) {
+            return Status::InvalidArgument("Not support DELETE ON clause when merge type is not MERGE.");
         }
     }
+    request.__set_merge_type(merge_type);
     if (!http_req->header(HTTP_DELETE_CONDITION).empty()) {
-        if (request.merge_type == TMergeType::MERGE) {
-            request.__set_delete_condition(http_req->header(HTTP_DELETE_CONDITION));
-        } else {
-            return Status::InvalidArgument("not support delete when merge type is not merge.");
-        }
+        request.__set_delete_condition(http_req->header(HTTP_DELETE_CONDITION));
     }
     // plan this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;

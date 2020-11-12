@@ -55,10 +55,12 @@ using strings::Substitute;
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_total_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_avail_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_data_used_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(disks_state, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_total_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_avail_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_data_used_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_score, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
 
 static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
@@ -79,14 +81,16 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
           _current_shard(0),
           _meta(nullptr) {
     _data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(std::string("data_dir.") + path, {{"path", path}});
-    METRIC_REGISTER(_data_dir_metric_entity, disks_total_capacity);
-    METRIC_REGISTER(_data_dir_metric_entity, disks_avail_capacity);
-    METRIC_REGISTER(_data_dir_metric_entity, disks_data_used_capacity);
-    METRIC_REGISTER(_data_dir_metric_entity, disks_state);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_total_capacity);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_avail_capacity);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_data_used_capacity);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_state);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_score);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_num);
 }
 
 DataDir::~DataDir() {
-    DorisMetrics::instance()->metric_registry()->deregister_entity(std::string("data_dir.") + _path);
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_data_dir_metric_entity);
     delete _id_generator;
     delete _meta;
 }
@@ -314,7 +318,7 @@ void DataDir::health_check() {
             }
         }
     }
-    disks_state.set_value(_is_used ? 1 : 0);
+    disks_state->set_value(_is_used ? 1 : 0);
 }
 
 OLAPStatus DataDir::_read_and_write_test_file() {
@@ -602,6 +606,36 @@ OLAPStatus DataDir::set_convert_finished() {
     return OLAP_SUCCESS;
 }
 
+OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
+
+    auto check_incompatible_old_func = [this](int64_t tablet_id, int32_t schema_hash,
+                                              const std::string& value) -> bool {
+                                                  
+        // if strict check incompatible old format, then log fatal
+        if (config::storage_strict_check_incompatible_old_format) {
+            LOG(FATAL) << "There are incompatible old format metas, current version does not support "
+                       << "and it may lead to data missing!!! "
+                       << "tablet_id = " << tablet_id << " schema_hash = " << schema_hash;
+        } else {
+            LOG(WARNING)
+                    << "There are incompatible old format metas, current version does not support "
+                    << "and it may lead to data missing!!! "
+                    << "tablet_id = " << tablet_id << " schema_hash = " << schema_hash;
+        }
+        return false;
+    };
+
+    // seek old header prefix. when check_incompatible_old_func is called, it has old format in olap_meta
+    OLAPStatus check_incompatible_old_status = TabletMetaManager::traverse_headers(
+            _meta, check_incompatible_old_func, OLD_HEADER_PREFIX);
+    if (check_incompatible_old_status != OLAP_SUCCESS) {
+        LOG(WARNING) << "check incompatible old format meta fails, it may lead to data missing!!! " << _path;
+    } else {
+        LOG(INFO) << "successfully check incompatible old format meta " << _path;
+    }
+    return check_incompatible_old_status;
+}
+
 // TODO(ygl): deal with rowsets and tablets when load failed
 OLAPStatus DataDir::load() {
     LOG(INFO) << "start to load tablets from " << _path;
@@ -609,6 +643,10 @@ OLAPStatus DataDir::load() {
     // COMMITTED: add to txn manager
     // VISIBLE: add to tablet
     // if one rowset load failed, then the total data dir will not be loaded
+    
+    // necessarily check incompatible old format. when there are old metas, it may load to data missing
+    _check_incompatible_old_format_tablet();
+
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
     LOG(INFO) << "begin loading rowset from meta";
     auto load_rowset_func = [&dir_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
@@ -937,8 +975,8 @@ Status DataDir::update_capacity() {
             "boost::filesystem::space failed");
     }
 
-    disks_total_capacity.set_value(_disk_capacity_bytes);
-    disks_avail_capacity.set_value(_available_bytes);
+    disks_total_capacity->set_value(_disk_capacity_bytes);
+    disks_avail_capacity->set_value(_available_bytes);
     LOG(INFO) << "path: " << _path << " total capacity: " << _disk_capacity_bytes
               << ", available capacity: " << _available_bytes;
 
@@ -946,13 +984,13 @@ Status DataDir::update_capacity() {
 }
 
 void DataDir::update_user_data_size(int64_t size) {
-    disks_data_used_capacity.set_value(size);
+    disks_data_used_capacity->set_value(size);
 }
 
 bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
     double used_pct = (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
                       (double)_disk_capacity_bytes;
-    int64_t left_bytes = _disk_capacity_bytes - _available_bytes - incoming_data_size;
+    int64_t left_bytes = _available_bytes - incoming_data_size;
 
     if (used_pct >= config::storage_flood_stage_usage_percent / 100.0 &&
         left_bytes <= config::storage_flood_stage_left_capacity_bytes) {
@@ -961,5 +999,13 @@ bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
         return true;
     }
     return false;
+}
+
+void DataDir::disks_compaction_score_increment(int64_t delta) {
+    disks_compaction_score->increment(delta);
+}
+
+void DataDir::disks_compaction_num_increment(int64_t delta) {
+    disks_compaction_num->increment(delta);
 }
 } // namespace doris

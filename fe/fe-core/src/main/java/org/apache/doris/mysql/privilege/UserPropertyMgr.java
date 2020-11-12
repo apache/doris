@@ -205,9 +205,9 @@ public class UserPropertyMgr implements Writable {
         return propertyMap.get(userIdent.getQualifiedUser()).getWhiteList().containsDomain(userIdent.getHost());
     }
 
-    public void addUserPrivEntriesByResovledIPs(Map<String, Set<String>> resolvedIPsMap) {
+    public void addUserPrivEntriesByResolvedIPs(Map<String, Set<String>> resolvedIPsMap) {
         for (UserProperty userProperty : propertyMap.values()) {
-            userProperty.getWhiteList().addUserPrivEntriesByResovledIPs(userProperty.getQualifiedUser(), resolvedIPsMap);
+            userProperty.getWhiteList().addUserPrivEntriesByResolvedIPs(userProperty.getQualifiedUser(), resolvedIPsMap);
         }
     }
 

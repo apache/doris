@@ -87,10 +87,46 @@ Status SchemaColumnsScanner::start(RuntimeState *state) {
         RETURN_IF_ERROR(SchemaHelper::get_db_names(*(_param->ip),
                     _param->port, db_params, &_db_result)); 
     } else {
-        return Status::InternalError("IP or port dosn't exists");
+        return Status::InternalError("IP or port doesn't exists");
     }
 
     return Status::OK();
+}
+
+//For compatibility with mysql the result of DATA_TYPE in information_schema.columns
+std::string SchemaColumnsScanner::to_mysql_data_type_string(TColumnDesc &desc) {
+    switch (desc.columnType) {
+        case TPrimitiveType::BOOLEAN:
+            return "tinyint";
+        case TPrimitiveType::TINYINT:
+            return "tinyint";
+        case TPrimitiveType::SMALLINT:
+            return "smallint";
+        case TPrimitiveType::INT:
+            return "int";
+        case TPrimitiveType::BIGINT:
+            return "bigint";
+        case TPrimitiveType::LARGEINT:
+            return "bigint unsigned";
+        case TPrimitiveType::FLOAT:
+            return "float";
+        case TPrimitiveType::DOUBLE:
+            return "double";
+        case TPrimitiveType::VARCHAR:
+            return "varchar";
+        case TPrimitiveType::CHAR:
+            return "char";
+        case TPrimitiveType::DATE:
+            return "date";
+        case TPrimitiveType::DATETIME:
+            return "datetime";
+        case TPrimitiveType::DECIMALV2:
+        case TPrimitiveType::DECIMAL: {
+            return "decimal";
+        }
+        default:
+            return "unknown";
+    }
 }
 
 std::string SchemaColumnsScanner::type_to_string(TColumnDesc &desc) {
@@ -106,7 +142,7 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc &desc) {
         case TPrimitiveType::BIGINT:
             return "bigint(20)";
         case TPrimitiveType::LARGEINT:
-            return "bigint(20) unsinged";
+            return "bigint(20) unsigned";
         case TPrimitiveType::FLOAT:
             return "float";
         case TPrimitiveType::DOUBLE:
@@ -154,11 +190,11 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     // set all bit to not null
     memset((void *)tuple, 0, _tuple_desc->num_null_bytes());
 
-    // catalog
+    // TABLE_CATALOG
     {
         tuple->set_null(_tuple_desc->slots()[0]->null_indicator_offset());
     }
-    // schema
+    // TABLE_SCHEMA
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
@@ -167,7 +203,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         str_slot->len = db_name.size();
         memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
     }
-    // table
+    // TABLE_NAME
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
@@ -175,7 +211,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         str_slot->len = _table_result.tables[_table_index - 1].length();
         memcpy(str_slot->ptr, _table_result.tables[_table_index - 1].c_str(), str_slot->len);
     }
-    // column
+    // COLUMN_NAME
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
@@ -208,7 +244,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        std::string buffer = type_to_string(_desc_result.columns[_column_index].columnDesc);
+        std::string buffer = to_mysql_data_type_string(_desc_result.columns[_column_index].columnDesc);
         str_slot->len = buffer.length();
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
         memcpy(str_slot->ptr, buffer.c_str(), str_slot->len);
@@ -252,17 +288,21 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
             tuple->set_null(_tuple_desc->slots()[11]->null_indicator_offset());
         }
     }
-    // CHARACTER_SET_NAME
+    // DATETIME_PRECISION
     {
         tuple->set_null(_tuple_desc->slots()[12]->null_indicator_offset());
     }
-    // COLLATION_NAME
+    // CHARACTER_SET_NAME
     {
         tuple->set_null(_tuple_desc->slots()[13]->null_indicator_offset());
     }
+    // COLLATION_NAME
+    {
+        tuple->set_null(_tuple_desc->slots()[14]->null_indicator_offset());
+    }
     // COLUMN_TYPE
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[14]->tuple_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[15]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         std::string buffer = type_to_string(_desc_result.columns[_column_index].columnDesc);
         str_slot->len = buffer.length();
@@ -271,7 +311,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     }
     // COLUMN_KEY
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[15]->tuple_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[16]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         str_slot->len = strlen("") + 1;
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
@@ -279,7 +319,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     }
     // EXTRA
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[16]->tuple_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[17]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         str_slot->len = strlen("") + 1;
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
@@ -287,7 +327,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     }
     // PRIVILEGES
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[17]->tuple_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[18]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         str_slot->len = strlen("") + 1;
         str_slot->ptr = (char *)pool->allocate(str_slot->len);
@@ -295,7 +335,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     }
     // COLUMN_COMMENT
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[18]->tuple_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[19]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         str_slot->ptr = 
             (char *)pool->allocate(_desc_result.columns[_column_index].comment.length());
@@ -304,23 +344,31 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     }
     // COLUMN_SIZE
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[19]->tuple_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[20]->tuple_offset());
         int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
         if (_desc_result.columns[_column_index].columnDesc.__isset.columnLength) {
             *str_slot = _desc_result.columns[_column_index].columnDesc.columnLength;
         } else {
-            tuple->set_null(_tuple_desc->slots()[19]->null_indicator_offset());
+            tuple->set_null(_tuple_desc->slots()[20]->null_indicator_offset());
         }
     }
     // DECIMAL_DIGITS
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[20]->tuple_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[21]->tuple_offset());
         int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
         if (_desc_result.columns[_column_index].columnDesc.__isset.columnScale) {
             *str_slot = _desc_result.columns[_column_index].columnDesc.columnScale;
         } else {
-            tuple->set_null(_tuple_desc->slots()[20]->null_indicator_offset());
+            tuple->set_null(_tuple_desc->slots()[21]->null_indicator_offset());
         }
+    }
+    // GENERATION_EXPRESSION
+    {
+        tuple->set_null(_tuple_desc->slots()[22]->null_indicator_offset());
+    }
+    // SRS_ID
+    {
+        tuple->set_null(_tuple_desc->slots()[23]->null_indicator_offset());
     }
     _column_index++;
     return Status::OK();
@@ -345,7 +393,7 @@ Status SchemaColumnsScanner::get_new_desc() {
         RETURN_IF_ERROR(SchemaHelper::describe_table(*(_param->ip),
                 _param->port, desc_params, &_desc_result)); 
     } else {
-        return Status::InternalError("IP or port dosn't exists");
+        return Status::InternalError("IP or port doesn't exists");
     }
     _column_index = 0;
 
@@ -373,7 +421,7 @@ Status SchemaColumnsScanner::get_new_table() {
         RETURN_IF_ERROR(SchemaHelper::get_table_names(*(_param->ip),
                 _param->port, table_params, &_table_result)); 
     } else {
-        return Status::InternalError("IP or port dosn't exists");
+        return Status::InternalError("IP or port doesn't exists");
     }
     _table_index = 0;
     return Status::OK();

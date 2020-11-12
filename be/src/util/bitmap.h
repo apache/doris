@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UITL_BITMAP_H
-#define DORIS_BE_SRC_COMMON_UITL_BITMAP_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_BITMAP_H
+#define DORIS_BE_SRC_COMMON_UTIL_BITMAP_H
 
 #include "util/bit_util.h"
 #include "gutil/strings/fastmem.h"

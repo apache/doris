@@ -43,7 +43,7 @@ Status NullLoadErrorHub::close() {
 
 std::string NullLoadErrorHub::debug_string() const {
     std::stringstream out;
-    out << "NullLoadErrorHub(tatal_error_num=" << _total_error_num << ")";
+    out << "NullLoadErrorHub(total_error_num=" << _total_error_num << ")";
     return out.str();
 }
 

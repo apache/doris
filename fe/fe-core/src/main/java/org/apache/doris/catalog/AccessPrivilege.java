@@ -31,14 +31,14 @@ public enum AccessPrivilege {
     READ_WRITE(2, "READ_WRITE"),
     ALL(3, "ALL"),
     NODE_PRIV(4, "Privilege for cluster node operations"),
-    GRANT_PRIV(5, "Privilege for granting privlege"),
+    GRANT_PRIV(5, "Privilege for granting privilege"),
     SELECT_PRIV(6, "Privilege for select data in tables"),
     LOAD_PRIV(7, "Privilege for loading data into tables"),
     ALTER_PRIV(8, "Privilege for alter database or table"),
-    CREATE_PRIV(9, "Privilege for createing database or table"),
+    CREATE_PRIV(9, "Privilege for creating database or table"),
     DROP_PRIV(10, "Privilege for dropping database or table"),
     ADMIN_PRIV(11, "All privileges except NODE_PRIV"),
-    USAGE_PRIV(12, "Privileage for use resource");
+    USAGE_PRIV(12, "Privilege for use resource");
 
     private int flag;
     private String desc;

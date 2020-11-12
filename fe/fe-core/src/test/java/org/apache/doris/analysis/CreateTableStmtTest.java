@@ -132,7 +132,7 @@ public class CreateTableStmtTest {
     
     @Test(expected = AnalysisException.class)
     public void testNoDb(@Mocked Analyzer noDbAnalyzer) throws UserException, AnalysisException {
-        // make defalut db return empty;
+        // make default db return empty;
         new Expectations() {
             {
                 noDbAnalyzer.getDefaultDb();
@@ -152,7 +152,7 @@ public class CreateTableStmtTest {
     
     @Test(expected = AnalysisException.class)
     public void testEmptyCol() throws UserException, AnalysisException {
-        // make defalut db return empty;
+        // make default db return empty;
         List<ColumnDef> emptyCols = Lists.newArrayList();
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, emptyCols, "olap",
                 new KeysDesc(), null,
@@ -162,7 +162,7 @@ public class CreateTableStmtTest {
     
     @Test(expected = AnalysisException.class)
     public void testDupCol() throws UserException, AnalysisException {
-        // make defalut db return empty;
+        // make default db return empty;
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, invalidCols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, invalidColsName), null,
                 new RandomDistributionDesc(10), null, null, "");

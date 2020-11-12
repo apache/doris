@@ -103,7 +103,7 @@ public class EsTablePartitions {
                 esTablePartitions.addPartition(esShardPartitions.getIndexName(), partitionId);
                 esShardPartitions.setPartitionId(partitionId);
                 ++partitionId;
-                LOG.debug("add parition to es table [{}] with range [{}]", esTable.getName(),
+                LOG.debug("add partition to es table [{}] with range [{}]", esTable.getName(),
                         range);
             }
         }

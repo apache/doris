@@ -202,10 +202,16 @@ struct TMySQLScanNode {
 struct TOdbcScanNode {
   1: optional Types.TTupleId tuple_id
   2: optional string table_name
+
+  //Deprecated
   3: optional string driver
   4: optional Types.TOdbcTableType type
   5: optional list<string> columns
   6: optional list<string> filters
+
+  //Use now
+  7: optional string connect_string
+  8: optional string query_string
 }
 
 
@@ -291,6 +297,7 @@ struct TSchemaScanNode {
   9: optional i64 thread_id
   10: optional string user_ip   // deprecated
   11: optional Types.TUserIdentity current_user_ident   // to replace the user and user_ip
+  12: optional bool show_hidden_cloumns = false
 }
 
 struct TMetaScanNode {

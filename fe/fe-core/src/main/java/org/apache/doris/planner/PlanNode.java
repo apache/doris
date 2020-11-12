@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.base.Predicates;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -223,6 +224,16 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         limit = -1;
     }
 
+    protected List<TupleId> getAllScanTupleIds() {
+        List<TupleId> tupleIds = Lists.newArrayList();
+        List<ScanNode> scanNodes = Lists.newArrayList();
+        collectAll(Predicates.instanceOf(ScanNode.class), scanNodes);
+        for(ScanNode node: scanNodes) {
+            tupleIds.addAll(node.getTupleIds());
+        }
+        return tupleIds;
+    }
+
     public ArrayList<TupleId> getTupleIds() {
         Preconditions.checkState(tupleIds != null);
         return tupleIds;
@@ -423,11 +434,14 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     /**
-     * Compute the product of the selectivies of all conjuncts.
+     * Compute the product of the selectivity of all conjuncts.
      */
     protected double computeSelectivity() {
         double prod = 1.0;
         for (Expr e : conjuncts) {
+            if (e.getSelectivity() < 0) {
+                return -1.0;
+            }
             prod *= e.getSelectivity();
         }
         return prod;
@@ -478,7 +492,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     /**
-     * Returns an smap that combines the childrens' smaps.
+     * Returns an smap that combines the children's smaps.
      */
     protected ExprSubstitutionMap getCombinedChildSmap() {
         if (getChildren().size() == 0) {

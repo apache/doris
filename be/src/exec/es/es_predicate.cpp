@@ -229,7 +229,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
     // process binary predicate
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
-            return Status::InternalError("build disjuncts failed: number of childs is not 2");
+            return Status::InternalError("build disjuncts failed: number of children is not 2");
         }
         SlotRef* slot_ref = nullptr;
         TExprOpcode::type op;
@@ -238,7 +238,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         // doris on es should ignore this doris native cast transformation, we push down this `cast` to elasticsearch
         // conjunct->get_child(0)->node_type() return CAST_EXPR
         // conjunct->get_child(1)->node_type()return FLOAT_LITERAL
-        // the left child is literal and right child is SlotRef maybe not happend, but here we just process
+        // the left child is literal and right child is SlotRef maybe not happened, but here we just process
         // this situation regardless of the rewrite logic from the FE's Query Engine
         if (TExprNodeType::SLOT_REF == conjunct->get_child(0)->node_type()
             || TExprNodeType::CAST_EXPR == conjunct->get_child(0)->node_type()) {
@@ -288,7 +288,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         std::string fname = conjunct->fn().name.function_name;
         if (fname == "esquery") {
             if (conjunct->children().size() != 2) {
-                return Status::InternalError("build disjuncts failed: number of childs is not 2");
+                return Status::InternalError("build disjuncts failed: number of children is not 2");
             }
             Expr* expr = conjunct->get_child(1);
             ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
@@ -310,7 +310,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             _disjuncts.push_back(predicate);
         } else if (fname == "is_null_pred" || fname == "is_not_null_pred") {
             if (conjunct->children().size() != 1) {
-                return Status::InternalError("build disjuncts failed: number of childs is not 1");
+                return Status::InternalError("build disjuncts failed: number of children is not 1");
             }
             // such as sub-query: select * from (select split_part(k, "_", 1) as new_field from table) t where t.new_field > 1;
             // conjunct->get_child(0)->node_type() == TExprNodeType::FUNCTION_CALL, at present doris on es can not support push down function
@@ -330,7 +330,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             _disjuncts.push_back(predicate);
         } else if (fname == "like") {
             if (conjunct->children().size() != 2) {
-                return Status::InternalError("build disjuncts failed: number of childs is not 2");
+                return Status::InternalError("build disjuncts failed: number of children is not 2");
             }
             SlotRef* slot_ref = nullptr;
             Expr* expr = nullptr;
@@ -401,10 +401,10 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             }
         }
 
-        HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
+        HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
         while (iter->has_next()) {
             if (nullptr == iter->get_value()) {
-                return Status::InternalError("build disjuncts failed: hybird set has a null value");
+                return Status::InternalError("build disjuncts failed: hybrid set has a null value");
             }
 
             ExtLiteral literal(slot_desc->type().type, const_cast<void *>(iter->get_value()));
@@ -426,7 +426,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         return Status::OK();
     }
     if (TExprNodeType::COMPOUND_PRED == conjunct->node_type()) {
-        // processe COMPOUND_AND, such as:
+        // process COMPOUND_AND, such as:
         // k = 1 or (k1 = 7 and (k2 in (6,7) or k3 = 12))
         // k1 = 7 and (k2 in (6,7) or k3 = 12) is compound pred, we should rebuild this sub tree
         if (conjunct->op() == TExprOpcode::COMPOUND_AND) {

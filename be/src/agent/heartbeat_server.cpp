@@ -30,6 +30,7 @@
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/thrift_server.h"
+#include "util/time.h"
 #include "runtime/heartbeat_flags.h"
 
 using std::fstream;
@@ -42,8 +43,9 @@ namespace doris {
 
 HeartbeatServer::HeartbeatServer(TMasterInfo* master_info) :
         _master_info(master_info),
-        _epoch(0) {
+        _fe_epoch(0) {
     _olap_engine = StorageEngine::instance();
+    _be_epoch = GetCurrentTimeMicros() / 1000;
 }
 
 void HeartbeatServer::init_cluster_id() {
@@ -71,6 +73,7 @@ void HeartbeatServer::heartbeat(
         heartbeat_result.backend_info.__set_be_rpc_port(-1);
         heartbeat_result.backend_info.__set_brpc_port(config::brpc_port);
         heartbeat_result.backend_info.__set_version(get_short_version());
+        heartbeat_result.backend_info.__set_be_start_time(_be_epoch);
     }
 }
 
@@ -110,33 +113,34 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     bool need_report = false;
     if (_master_info->network_address.hostname != master_info.network_address.hostname
             || _master_info->network_address.port != master_info.network_address.port) {
-        if (master_info.epoch > _epoch) {
+        if (master_info.epoch > _fe_epoch) {
             _master_info->network_address.hostname = master_info.network_address.hostname;
             _master_info->network_address.port = master_info.network_address.port;
-            _epoch = master_info.epoch;
+            _fe_epoch = master_info.epoch;
             need_report = true;
             LOG(INFO) << "master change. new master host: " << _master_info->network_address.hostname
-                      << ". port: " << _master_info->network_address.port << ". epoch: " << _epoch;
+                      << ". port: " << _master_info->network_address.port << ". epoch: " << _fe_epoch;
         } else {
             LOG(WARNING) << "epoch is not greater than local. ignore heartbeat. host: "
                          << _master_info->network_address.hostname
                          << " port: " <<  _master_info->network_address.port
-                         << " local epoch: " << _epoch << " received epoch: " << master_info.epoch;
+                         << " local epoch: " << _fe_epoch
+                         << " received epoch: " << master_info.epoch;
             return Status::InternalError("epoch is not greater than local. ignore heartbeat.");
         }
     } else {
         // when Master FE restarted, host and port remains the same, but epoch will be increased.
-        if (master_info.epoch > _epoch) {
-            _epoch = master_info.epoch;
+        if (master_info.epoch > _fe_epoch) {
+            _fe_epoch = master_info.epoch;
             need_report = true;
-            LOG(INFO) << "master restarted. epoch: " << _epoch;
+            LOG(INFO) << "master restarted. epoch: " << _fe_epoch;
         }
     }
 
     if (master_info.__isset.token) {
         if (!_master_info->__isset.token) {
             _master_info->__set_token(master_info.token);
-            LOG(INFO) << "get token.  token: " << _master_info->token;
+            LOG(INFO) << "get token. token: " << _master_info->token;
         } else if (_master_info->token != master_info.token) {
             LOG(WARNING) << "invalid token. local_token:" << _master_info->token
                          << ". token:" << master_info.token;
@@ -159,7 +163,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
     if (need_report) {
         LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
-        _olap_engine->trigger_report();
+        _olap_engine->notify_listeners();
     }
 
     return Status::OK();

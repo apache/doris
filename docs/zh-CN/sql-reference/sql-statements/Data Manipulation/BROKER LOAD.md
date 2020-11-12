@@ -71,6 +71,7 @@ under the License.
             [SET (k1 = func(k2))]
             [WHERE predicate]
             [DELETE ON label=true]
+            [ORDER BY source_sequence]
 
         说明：
             file_path: 
@@ -121,6 +122,11 @@ under the License.
             delete_on_predicates:
 
             表示删除条件，仅在 merge type 为MERGE 时有意义，语法与where 相同
+            
+            ORDER BY:
+            
+            只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence进行REPLACE, source_sequence可以是数据源中的列，也可以是表结构中的一列。
+
     3. broker_name
 
         所使用的 broker 名称，可以通过 show broker 命令查看。
@@ -329,7 +335,8 @@ under the License.
     
     7. 导入数据到含有HLL列的表，可以是表中的列或者数据里面的列
 
-        如果表中有三列分别是（id,v1,v2,v3）。其中v1和v2列是hll列。导入的源文件有3列。则（column_list）中声明第一列为id，第二三列为一个临时命名的k1,k2。
+        如果表中有4列分别是（id,v1,v2,v3）。其中v1和v2列是hll列。导入的源文件有3列, 其中表中的第一列 = 源文件中的第一列，而表中的第二，三列为源文件中的第二，三列变换得到，表中的第四列在源文件中并不存在。
+        则（column_list）中声明第一列为id，第二三列为一个临时命名的k1,k2。
         在SET中必须给表中的hll列特殊声明 hll_hash。表中的v1列等于原始数据中的hll_hash(k1)列, 表中的v3列在原始数据中并没有对应的值，使用empty_hll补充默认值。
         LOAD LABEL example_db.label7
         (
@@ -460,7 +467,18 @@ under the License.
         "timeout" = "3600",
         "max_filter_ratio" = "0.1"
         );
-             
+        
+    14. 导入时指定source_sequence列，保证UNIQUE_KEYS表中的替换顺序：
+        LOAD LABEL example_db.label_sequence
+        (
+         DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+         INTO TABLE `tbl1`
+         COLUMNS TERMINATED BY ","
+         (k1,k2,source_sequence,v1,v2)
+         ORDER BY source_sequence
+        ) 
+        with BROKER "hdfs" ("username"="user", "password"="pass");
+         
 ## keyword
 
     BROKER,LOAD

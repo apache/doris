@@ -140,8 +140,8 @@ public class LocalJournal implements Journal {
     public void deleteJournals(long deleteJournalToId) {
         try {
             Storage storage = new Storage(imageDir);
-            List<Long> nubmers = storage.getEditsFileSequenceNumbers();
-            for (long number : nubmers) {
+            List<Long> numbers = storage.getEditsFileSequenceNumbers();
+            for (long number : numbers) {
                 if (number < deleteJournalToId) {
                     File file = new File(imageDir, "edits." + number);
                     if (file.exists()) {

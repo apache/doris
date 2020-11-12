@@ -275,7 +275,7 @@ void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
                     _clone_req.schema_hash);
                 if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
                     // just log
-                    LOG(WARNING) << "drop stale cloned table failed! tabelt id: " << _clone_req.tablet_id;
+                    LOG(WARNING) << "drop stale cloned table failed! tablet id: " << _clone_req.tablet_id;
                 }
             }
             status = DORIS_ERROR;
@@ -312,7 +312,7 @@ AgentStatus EngineCloneTask::_clone_copy(
         // Make snapshot in remote olap engine
         *src_host = src;
         int32_t snapshot_version = 0;
-        // make snapsthot
+        // make snapshot
         auto st = _make_snapshot(src.host, src.be_port,
                                  _clone_req.tablet_id, _clone_req.schema_hash,
                                  timeout_s,
@@ -487,7 +487,7 @@ Status EngineCloneTask::_download_files(
     RETURN_IF_ERROR(HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, list_files_cb));
     vector<string> file_name_list = strings::Split(file_list_str, "\n", strings::SkipWhitespace());
 
-    // If the header file is not exist, the table could't loaded by olap engine.
+    // If the header file is not exist, the table couldn't loaded by olap engine.
     // Avoid of data is not complete, we copy the header file at last.
     // The header file's name is end of .hdr.
     for (int i = 0; i < file_name_list.size() - 1; ++i) {
@@ -845,7 +845,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(Tablet* tablet, TabletMeta* cloned_
     }
 
     // clone_data to tablet
-    // only replace rowet info, must not modify other info such as alter task info. for example
+    // only replace rowset info, must not modify other info such as alter task info. for example
     // 1. local tablet finished alter task
     // 2. local tablet has error in push
     // 3. local tablet cloned rowset from other nodes

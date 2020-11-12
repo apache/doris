@@ -144,7 +144,7 @@ public class DistributedPlanner {
             }
         }
 
-        // Need a merge node to merge all partition of input framgent
+        // Need a merge node to merge all partition of input fragment
         if (needMerge) {
             PlanFragment newInputFragment = createMergeFragment(inputFragment);
             fragments.add(newInputFragment);
@@ -271,9 +271,9 @@ public class DistributedPlanner {
      * TODO: hbase scans are range-partitioned on the row key
      */
     private PlanFragment createScanFragment(PlanNode node) {
-        if (node instanceof MysqlScanNode) {
+        if (node instanceof MysqlScanNode || node instanceof OdbcScanNode) {
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
-        } else if (node instanceof SchemaScanNode) {
+        }  else if (node instanceof SchemaScanNode) {
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else {
             // es scan node, olap scan node are random partitioned
@@ -390,6 +390,28 @@ public class DistributedPlanner {
             node.setColocate(false, reason.get(0));
         }
 
+        // bucket shuffle join is better than broadcast and shuffle join
+        // it can reduce the network cost of join, so doris chose it first
+        List<Expr> rhsPartitionxprs = Lists.newArrayList();
+        if (canBucketShuffleJoin(node, leftChildFragment, rhsPartitionxprs)) {
+            node.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
+            DataPartition rhsJoinPartition =
+                    new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, rhsPartitionxprs);
+            ExchangeNode rhsExchange =
+                    new ExchangeNode(ctx_.getNextNodeId(), rightChildFragment.getPlanRoot(), false);
+            rhsExchange.setNumInstances(rightChildFragment.getPlanRoot().getNumInstances());
+            rhsExchange.init(ctx_.getRootAnalyzer());
+
+            node.setChild(0, leftChildFragment.getPlanRoot());
+            node.setChild(1, rhsExchange);
+            leftChildFragment.setPlanRoot(node);
+
+            rightChildFragment.setDestination(rhsExchange);
+            rightChildFragment.setOutputPartition(rhsJoinPartition);
+
+            return leftChildFragment;
+        }
+
         if (doBroadcast) {
             node.setDistributionMode(HashJoinNode.DistributionMode.BROADCAST);
             // Doesn't create a new fragment, but modifies leftChildFragment to execute
@@ -466,6 +488,12 @@ public class DistributedPlanner {
             return false;
         }
 
+        // If user have a join hint to use proper way of join, can not be colocate join
+        if (node.getInnerRef().hasJoinHints()) {
+            cannotReason.add("Has join hint");
+            return false;
+        }
+
         PlanNode leftRoot = leftChildFragment.getPlanRoot();
         PlanNode rightRoot = rightChildFragment.getPlanRoot();
 
@@ -490,6 +518,74 @@ public class DistributedPlanner {
 
         cannotReason.add("Node type not match");
         return false;
+    }
+
+    private boolean canBucketShuffleJoin(HashJoinNode node, PlanFragment leftChildFragment,
+                                   List<Expr> rhsHashExprs) {
+        if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
+            return false;
+        }
+        // If user have a join hint to use proper way of join, can not be bucket shuffle join
+        if (node.getInnerRef().hasJoinHints()) {
+            return false;
+        }
+
+        PlanNode leftRoot = leftChildFragment.getPlanRoot();
+        // leftRoot should be OlapScanNode
+        if (leftRoot instanceof OlapScanNode) {
+            return canBucketShuffleJoin(node, leftRoot, rhsHashExprs);
+        }
+
+        return false;
+    }
+
+    //the join expr must contian left table distribute column
+    private boolean canBucketShuffleJoin(HashJoinNode node, PlanNode leftRoot,
+                                    List<Expr> rhsJoinExprs) {
+        OlapScanNode leftScanNode = ((OlapScanNode) leftRoot);
+
+        //1 the left table must be only one partition
+        if (leftScanNode.getSelectedPartitionIds().size() > 1) {
+            return false;
+        }
+
+        DistributionInfo leftDistribution = leftScanNode.getOlapTable().getDefaultDistributionInfo();
+
+        if (leftDistribution instanceof HashDistributionInfo) {
+            List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
+
+            List<Column> leftJoinColumns = new ArrayList<>();
+            List<Expr> rightExprs = new ArrayList<>();
+            List<BinaryPredicate> eqJoinConjuncts = node.getEqJoinConjuncts();
+
+            for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
+                Expr lhsJoinExpr = eqJoinPredicate.getChild(0);
+                Expr rhsJoinExpr = eqJoinPredicate.getChild(1);
+                if (lhsJoinExpr.unwrapSlotRef() == null || rhsJoinExpr.unwrapSlotRef() == null) {
+                    continue;
+                }
+
+                SlotDescriptor leftSlot = lhsJoinExpr.unwrapSlotRef().getDesc();
+
+                leftJoinColumns.add(leftSlot.getColumn());
+                rightExprs.add(rhsJoinExpr);
+            }
+
+            //2 the join columns should contains all left table distribute columns to enable bucket shuffle join
+            for (Column distributeColumn : leftDistributeColumns) {
+                int loc = leftJoinColumns.indexOf(distributeColumn);
+                // TODO: now support bucket shuffle join when distribute column type different with
+                // right expr type
+                if (loc == -1 || !rightExprs.get(loc).getType().equals(distributeColumn.getType())) {
+                    return false;
+                }
+                rhsJoinExprs.add(rightExprs.get(loc));
+            }
+        } else {
+            return false;
+        }
+
+        return true;
     }
 
     //the table must be colocate
@@ -612,7 +708,7 @@ public class DistributedPlanner {
         PlanFragment parentFragment =
                 new PlanFragment(ctx_.getNextFragmentId(), exchNode, DataPartition.UNPARTITIONED);
 
-        // we don't expect to be parallelizing a MergeNode that was inserted solely
+        // we don't expect to be paralleling a MergeNode that was inserted solely
         // to evaluate conjuncts (ie, that doesn't explicitly materialize its output)
         Preconditions.checkState(mergeNode.getTupleIds().size() == 1);
 
@@ -715,7 +811,7 @@ public class DistributedPlanner {
              * }
              */
 
-            // UnionNode should't be absorbed by childFragment, because it reduce 
+            // UnionNode shouldn't be absorbed by childFragment, because it reduce
             // the degree of concurrency.
             // chenhao16 add
             // dummy entry for subsequent addition of the ExchangeNode
@@ -825,7 +921,16 @@ public class DistributedPlanner {
         if (isDistinct) {
             return createPhase2DistinctAggregationFragment(node, childFragment, fragments);
         } else {
-            return createMergeAggregationFragment(node, childFragment);
+
+            // Check table's distribution. See #4481.
+            PlanNode childPlan = childFragment.getPlanRoot();
+            if (childPlan instanceof OlapScanNode &&
+                    ((OlapScanNode) childPlan).getOlapTable().meetAggDistributionRequirements(node.getAggInfo())) {
+                childFragment.addPlanRoot(node);
+                return childFragment;
+            } else {
+                return createMergeAggregationFragment(node, childFragment);
+            }
         }
     }
 

@@ -68,7 +68,7 @@ public class LoadLoadingTask extends LoadTask {
                            long jobDeadlineMs, long execMemLimit, boolean strictMode,
                            long txnId, LoadTaskCallback callback, String timezone,
                            long timeoutS) {
-        super(callback);
+        super(callback, TaskType.LOADING);
         this.db = db;
         this.table = table;
         this.brokerDesc = brokerDesc;
