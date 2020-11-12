@@ -159,7 +159,7 @@ public:
         }
         size_t len = l_value->length;
 
-        if (!l_value->may_has_null && !r_value->may_has_null) {
+        if (!l_value->has_null && !r_value->has_null) {
             for (size_t i = 0; i < len; ++i){
                 if (!_item_type_info->equal((uint8_t*)(l_value->data) + i * _item_size,
                                             (uint8_t*)(r_value->data) + i * _item_size)) {
@@ -193,7 +193,7 @@ public:
         size_t r_length = r_value->length;
         size_t cur = 0;
 
-        if (!l_value->may_has_null && !r_value->may_has_null) {
+        if (!l_value->has_null && !r_value->has_null) {
             while (cur < l_length && cur < r_length) {
                 int result = _item_type_info->cmp((uint8_t*)(l_value->data) + cur * _item_size,
                                                       (uint8_t*)(r_value->data) + cur * _item_size);
@@ -241,13 +241,13 @@ public:
         dest_value->length = src_value->length;
 
         size_t item_size = src_value->length * _item_size;
-        size_t nulls_size = src_value->may_has_null ? src_value->length : 0;
+        size_t nulls_size = src_value->has_null ? src_value->length : 0;
         dest_value->data = mem_pool->allocate(item_size + nulls_size);
-        dest_value->may_has_null = src_value->may_has_null;
-        dest_value->null_signs = src_value->may_has_null ? reinterpret_cast<bool*>(dest_value->data) + item_size : nullptr;
+        dest_value->has_null = src_value->has_null;
+        dest_value->null_signs = src_value->has_null ? reinterpret_cast<bool*>(dest_value->data) + item_size : nullptr;
 
         // copy null_signs
-        if (src_value->may_has_null) {
+        if (src_value->has_null) {
             memory_copy(dest_value->null_signs, src_value->null_signs, sizeof(bool) * src_value->length);
         }
 
@@ -268,8 +268,8 @@ public:
         auto src_value = reinterpret_cast<const Collection*>(src);
 
         dest_value->length = src_value->length;
-        dest_value->may_has_null = src_value->may_has_null;
-        if (src_value->may_has_null) {
+        dest_value->has_null = src_value->has_null;
+        if (src_value->has_null) {
             // direct copy null_signs
             memory_copy(dest_value->null_signs, src_value->null_signs, src_value->length);
         }
