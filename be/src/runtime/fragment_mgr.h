@@ -33,6 +33,7 @@
 #include "http/rest_monitor_iface.h"
 #include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
+#include "util/metrics.h"
 #include "util/thread.h"
 
 namespace doris {
@@ -93,6 +94,9 @@ private:
     scoped_refptr<Thread> _cancel_thread;
     // every job is a pool
     std::unique_ptr<ThreadPool> _thread_pool;
+
+    std::shared_ptr<MetricEntity> _entity = nullptr;
+    UIntGauge* timeout_canceled_fragment_count = nullptr;
 };
 
 }

@@ -883,7 +883,7 @@ void AggregateFunctions::string_concat(FunctionContext* ctx, const StringVal& sr
 // separator, followed by the accumulated string.  The accumulated
 // string starts with the separator of the first value that arrived in
 // StringConcatUpdate().
-typedef int StringConcatHeader;
+using StringConcatHeader = int64_t;
 // Delimiter to use if the separator is NULL.
 
 void AggregateFunctions::string_concat_update(FunctionContext* ctx,
@@ -899,12 +899,9 @@ void AggregateFunctions::string_concat_update(FunctionContext* ctx,
     const StringVal* sep = separator.is_null ? &DEFAULT_STRING_CONCAT_DELIM : &separator;
     if (result->is_null) {
         // Header of the intermediate state holds the length of the first separator.
-        const int header_len = sizeof(StringConcatHeader);
+        const auto header_len = sizeof(StringConcatHeader);
         DCHECK(header_len == sizeof(sep->len));
         *result = StringVal(ctx->allocate(header_len), header_len);
-        if (result->is_null) {
-            return;
-        }
         *reinterpret_cast<StringConcatHeader*>(result->ptr) = sep->len;
     }
     result->append(ctx, sep->ptr, sep->len, src.ptr, src.len);
@@ -915,7 +912,7 @@ void AggregateFunctions::string_concat_merge(FunctionContext* ctx,
     if (src.is_null) {
         return;
     }
-    const int header_len = sizeof(StringConcatHeader);
+    const auto header_len = sizeof(StringConcatHeader);
     if (result->is_null) {
          // Copy the header from the first intermediate value.
         *result = StringVal(ctx->allocate(header_len), header_len);
@@ -934,7 +931,7 @@ StringVal AggregateFunctions::string_concat_finalize(FunctionContext* ctx,
     if (src.is_null) {
         return src;
     }
-    const int header_len = sizeof(StringConcatHeader);
+    const auto header_len = sizeof(StringConcatHeader);
     DCHECK(src.len >= header_len);
     int sep_len = *reinterpret_cast<StringConcatHeader*>(src.ptr);
     DCHECK(src.len >= header_len + sep_len);

@@ -243,7 +243,6 @@ Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
 
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_TIMER(materialize_tuple_timer());
 
     if (reached_limit()) {
         *eos = true;

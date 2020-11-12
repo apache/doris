@@ -387,7 +387,9 @@ public class Catalog {
 
     private TabletChecker tabletChecker;
 
-    private MasterTaskExecutor loadTaskScheduler;
+    // Thread pools for pending and loading task, separately
+    private MasterTaskExecutor pendingLoadTaskScheduler;
+    private MasterTaskExecutor loadingLoadTaskScheduler;
 
     private LoadJobScheduler loadJobScheduler;
 
@@ -537,7 +539,10 @@ public class Catalog {
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
 
-        this.loadTaskScheduler = new MasterTaskExecutor("load_task_scheduler", Config.async_load_task_pool_size, !isCheckpointCatalog);
+        this.pendingLoadTaskScheduler = new MasterTaskExecutor("pending_load_task_scheduler", Config.async_load_task_pool_size,
+                Config.desired_max_waiting_jobs, !isCheckpointCatalog);
+        this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading_load_task_scheduler", Config.async_load_task_pool_size,
+                Config.desired_max_waiting_jobs, !isCheckpointCatalog);
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
         this.loadTimeoutChecker = new LoadTimeoutChecker(loadManager);
@@ -1238,9 +1243,6 @@ public class Catalog {
                 }
             }
         }
-
-        LOG.info("start to fix meta data bug");
-        loadManager.fixLoadJobMetaBugs(globalTransactionMgr);
     }
 
     // start all daemon threads only running on Master
@@ -1262,7 +1264,8 @@ public class Catalog {
         LoadChecker.init(Config.load_checker_interval_second * 1000L);
         LoadChecker.startAll();
         // New load scheduler
-        loadTaskScheduler.start();
+        pendingLoadTaskScheduler.start();
+        loadingLoadTaskScheduler.start();
         loadManager.prepareJobs();
         loadJobScheduler.start();
         loadTimeoutChecker.start();
@@ -4822,8 +4825,12 @@ public class Catalog {
         return loadManager;
     }
 
-    public MasterTaskExecutor getLoadTaskScheduler() {
-        return loadTaskScheduler;
+    public MasterTaskExecutor getPendingLoadTaskScheduler() {
+        return pendingLoadTaskScheduler;
+    }
+
+    public MasterTaskExecutor getLoadingLoadTaskScheduler() {
+        return loadingLoadTaskScheduler;
     }
 
     public RoutineLoadManager getRoutineLoadManager() {
@@ -5080,9 +5087,9 @@ public class Catalog {
             }
         }
 
-        String tableName = table.getName();
+        String oldTableName = table.getName();
         String newTableName = tableRenameClause.getNewTableName();
-        if (tableName.equals(newTableName)) {
+        if (oldTableName.equals(newTableName)) {
             throw new DdlException("Same table name");
         }
 
@@ -5091,14 +5098,19 @@ public class Catalog {
             throw new DdlException("Table name[" + newTableName + "] is already used");
         }
 
-        table.setName(newTableName);
+        if (table.getType() == TableType.OLAP) {
+            // olap table should also check if any rollup has same name as "newTableName"
+            ((OlapTable) table).checkAndSetName(newTableName, false);
+        } else {
+            table.setName(newTableName);
+        }
 
-        db.dropTable(tableName);
+        db.dropTable(oldTableName);
         db.createTable(table);
 
         TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
         editLog.logTableRename(tableInfo);
-        LOG.info("rename table[{}] to {}", tableName, newTableName);
+        LOG.info("rename table[{}] to {}", oldTableName, newTableName);
     }
 
     public void refreshExternalTableSchema(Database db, Table table, List<Column> newSchema) {
