@@ -88,6 +88,7 @@ public abstract class StatementBase implements ParseNode {
      * 
      * @see org.apache.doris.parser.ParseNode#toSql()
      */
+    @Override
     public String toSql() {
         return "";
     }
