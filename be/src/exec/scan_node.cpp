@@ -24,11 +24,11 @@ namespace doris {
 const string ScanNode::_s_bytes_read_counter = "BytesRead";
 const string ScanNode::_s_rows_read_counter = "RowsRead";
 const string ScanNode::_s_total_throughput_counter = "TotalReadThroughput";
-const string ScanNode::_s_materialize_tuple_timer = "MaterializeTupleTime(*)";
 const string ScanNode::_s_num_disks_accessed_counter = "NumDiskAccess";
-const string ScanNode::_s_scanner_thread_counters_prefix = "ScannerThreads";
-const string ScanNode::_s_scanner_thread_total_wallclock_time =
-    "ScannerThreadsTotalWallClockTime";
+// const string ScanNode::_s_materialize_tuple_timer = "MaterializeTupleTime(*)";
+// const string ScanNode::_s_scanner_thread_counters_prefix = "ScannerThreads";
+// const string ScanNode::_s_scanner_thread_total_wallclock_time =
+    // "ScannerThreadsTotalWallClockTime";
 
 Status ScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
@@ -42,8 +42,8 @@ Status ScanNode::prepare(RuntimeState* state) {
     _total_throughput_counter = runtime_profile()->add_rate_counter(
                                     _s_total_throughput_counter, _bytes_read_counter);
 #endif
-    _materialize_tuple_timer = ADD_CHILD_TIMER(runtime_profile(), _s_materialize_tuple_timer,
-                               _s_scanner_thread_total_wallclock_time);
+    //_materialize_tuple_timer = ADD_CHILD_TIMER(runtime_profile(), _s_materialize_tuple_timer,
+      //                         _s_scanner_thread_total_wallclock_time);
     _num_disks_accessed_counter =
         ADD_COUNTER(runtime_profile(), _s_num_disks_accessed_counter, TUnit::UNIT);
 

@@ -108,9 +108,9 @@ public:
     static const std::string _s_rows_read_counter;
     static const std::string _s_total_throughput_counter;
     static const std::string _s_num_disks_accessed_counter;
-    static const std::string _s_materialize_tuple_timer;
-    static const std::string _s_scanner_thread_counters_prefix;
-    static const std::string _s_scanner_thread_total_wallclock_time;
+    // static const std::string _s_materialize_tuple_timer;
+    // static const std::string _s_scanner_thread_counters_prefix;
+    // static const std::string _s_scanner_thread_total_wallclock_time;
 
 protected:
     RuntimeProfile::Counter* _bytes_read_counter; // # bytes read from the scanner
