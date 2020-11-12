@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.ToSqlContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSlotRef;
@@ -164,20 +165,15 @@ public class SlotRef extends Expr {
     public String toSqlImpl() {
         StringBuilder sb = new StringBuilder();
 
-        // if (desc != null) {
-        //     sb.append("[tupleId=");
-        //     sb.append(desc.getParent().getId().asInt());
-        //     sb.append(",SlotId=");
-        //     sb.append(desc.getId().asInt());
-        //     sb.append("]");
-        // }
         if (tblName != null) {
             return tblName.toSql() + "." + label + sb.toString();
         } else if (label != null) {
             return label + sb.toString();
         } else if (desc.getSourceExprs() != null) {
-            if (desc.getId().asInt() != 1) {
-                sb.append("<slot " + Integer.toString(desc.getId().asInt()) + ">");
+            if (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId()) {
+                if (desc.getId().asInt() != 1) {
+                    sb.append("<slot " + desc.getId().asInt() + ">");
+                }
             }
             for (Expr expr : desc.getSourceExprs()) {
                 sb.append(" ");
@@ -185,7 +181,7 @@ public class SlotRef extends Expr {
             }
             return sb.toString();
         } else {
-            return "<slot " + Integer.toString(desc.getId().asInt()) + ">" + sb.toString();
+            return "<slot " + desc.getId().asInt() + ">" + sb.toString();
         }
     }
 
