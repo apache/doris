@@ -463,6 +463,7 @@ void FragmentMgr::exec_actual(
     // NOTE: 'exec_state' is desconstructed here without lock
 }
 
+// _exec_actual_v2 works with batch fragment execution
 void FragmentMgr::_exec_actual_v2(
         std::shared_ptr<FragmentExecState> exec_state,
         std::shared_ptr<BatchFragmentsCtx> batch_ctx,
