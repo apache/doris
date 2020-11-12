@@ -167,7 +167,7 @@ public class ExprTest {
         Expr r1 = new DateLiteral(2020, 10, 20);
         Expr r2 = new DateLiteral(2020, 10, 21);
         Expr r3 = new DateLiteral(2020, 10, 22);
-        Expr r4 = new DateLiteral(2020, 10, 22);
+        Expr r4 = new DateLiteral(2020, 10, 23);
 
         //list1 equal list2
         List<Expr> list1 = new ArrayList<>();
