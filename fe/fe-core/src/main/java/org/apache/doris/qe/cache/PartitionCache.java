@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe.cache;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InlineViewRef;
@@ -32,6 +31,9 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

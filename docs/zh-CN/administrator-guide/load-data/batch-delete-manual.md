@@ -123,9 +123,12 @@ routine load 在`columns` 字段增加映射 映射方式同上，示例如下
 ```
 
 ## 启用批量删除支持
-在新建表时如果 `enable_batch_delete_by_default` 为true 则新建表的都支持批量删除，如果为false 则新建的表默认不支持批量删除功能。
-对于一个不支持批量删除功能的表 如果项要使用批量删除 可以使用如下语句：
-`ALTER TABLE tablename ENABLE FEATURE "BATCH_DELETE"` 来启用批量删除。
+启用批量删除支持 有两种形式：
+1. 通过在fe 配置文件中增加`enable_batch_delete_by_default=true` 重启fe 后新建表的都支持批量删除，此选项默认为false
+
+2. 对于没有更改上述fe 配置或对于以存在的不支持批量删除功能的表，可以使用如下语句：
+`ALTER TABLE tablename ENABLE FEATURE "BATCH_DELETE"` 来启用批量删除。本操作本质上是一个schema change 操作，操作立即返回，可以通过`show alter table column` 来确认操作是否完成。
+
 如果确定一个表是否支持批量删除，可以通过 设置一个session variable 来显示隐藏列 `SET show_hidden_columns=true` ，之后使用`desc tablename`，如果输出中有`__DELETE_SIGN__` 列则支持，如果没有则不支持
 
 ## 注意

@@ -158,6 +158,9 @@ protected:
 
 private:
     void _init_counter(RuntimeState* state);
+    // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator 
+    // according to the calling relationship
+    void init_scan_profile();
 
     void construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, const std::string& is_null_str);
 
@@ -254,6 +257,9 @@ private:
     // or be overwritten by value in TQueryOptions
     int32_t _max_pushdown_conditions_per_column = 1024;
 
+    std::unique_ptr<RuntimeProfile> _scanner_profile;
+    std::unique_ptr<RuntimeProfile> _segment_profile;
+
     // Counters
     RuntimeProfile::Counter* _io_timer = nullptr;
     RuntimeProfile::Counter* _read_compressed_counter = nullptr;
@@ -267,6 +273,7 @@ private:
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _conditions_filtered_counter = nullptr;
     RuntimeProfile::Counter* _key_range_filtered_counter = nullptr;
 
     RuntimeProfile::Counter* _block_seek_timer = nullptr;

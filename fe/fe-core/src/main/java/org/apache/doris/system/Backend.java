@@ -491,7 +491,6 @@ public class Backend implements Writable {
         out.writeBoolean(isAlive.get());
         out.writeBoolean(isDecommissioned.get());
         out.writeLong(lastUpdateMs);
-
         out.writeLong(lastStartTime);
 
         ImmutableMap<String, DiskInfo> disks = disksRef;
@@ -638,11 +637,11 @@ public class Backend implements Writable {
             this.lastUpdateMs = hbResponse.getHbTime();
             if (!isAlive.get()) {
                 isChanged = true;
-                this.lastStartTime = hbResponse.getHbTime();
-                LOG.info("{} is alive, last start time: {}", this.toString(), hbResponse.getHbTime());
+                this.lastStartTime = hbResponse.getBeStartTime();
+                LOG.info("{} is alive, last start time: {}", this.toString(), hbResponse.getBeStartTime());
                 this.isAlive.set(true);
             } else if (this.lastStartTime <= 0) {
-                this.lastStartTime = hbResponse.getHbTime();
+                this.lastStartTime = hbResponse.getBeStartTime();
             }
 
             heartbeatErrMsg = "";

@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ToSqlContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -46,7 +47,6 @@ public class BaseViewStmt extends DdlStmt {
     // Set during analyze
     protected final List<Column> finalCols;
 
-    protected String originalViewDef;
     protected String inlineViewDef;
 
     protected QueryStmt cloneStmt;
@@ -111,33 +111,26 @@ public class BaseViewStmt extends DdlStmt {
         }
 
         // format view def string
-        originalViewDef = viewDefStmt.toSql();
-
         if (cols == null) {
-            inlineViewDef = originalViewDef;
+            try (ToSqlContext toSqlContext = ToSqlContext.getOrNewThreadLocalContext()) {
+                // after being analyzed, the toSql() of SlotRef will output like "<slot 10> col as col",
+                // we don't need the slot id info, so using ToSqlContext to remove it.
+                toSqlContext.setNeedSlotRefId(false);
+                inlineViewDef = viewDefStmt.toSql();
+            }
             return;
         }
 
         Analyzer tmpAnalyzer = new Analyzer(analyzer);
         List<String> colNames = cols.stream().map(c -> c.getColName()).collect(Collectors.toList());
         cloneStmt.substituteSelectList(tmpAnalyzer, colNames);
-        inlineViewDef = cloneStmt.toSql();
 
-//        StringBuilder sb = new StringBuilder();
-//        sb.append("SELECT ");
-//        for (int i = 0; i < finalCols.size(); ++i) {
-//            if (i != 0) {
-//                sb.append(", ");
-//            }
-//            String colRef = viewDefStmt.getColLabels().get(i);
-//            if (!colRef.startsWith("`")) {
-//                colRef = "`" + colRef + "`";
-//            }
-//            String colAlias = finalCols.get(i).getName();
-//            sb.append(String.format("`%s`.%s AS `%s`", tableName.getTbl(), colRef, colAlias));
-//        }
-//        sb.append(String.format(" FROM (%s) %s", originalViewDef, tableName.getTbl()));
-//        inlineViewDef = sb.toString();
+        try (ToSqlContext toSqlContext = ToSqlContext.getOrNewThreadLocalContext()) {
+            // after being analyzed, the toSql() of SlotRef will output like "<slot 10> col as col",
+            // we don't need the slot id info, so using ToSqlContext to remove it.
+            toSqlContext.setNeedSlotRefId(false);
+            inlineViewDef = cloneStmt.toSql();
+        }
     }
 
     @Override

@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -54,7 +53,7 @@ public class CreateViewStmt extends BaseViewStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         tableName.analyze(analyzer);
         viewDefStmt.setNeedToSql(true);
 
