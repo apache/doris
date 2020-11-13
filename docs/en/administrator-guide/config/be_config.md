@@ -655,6 +655,13 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `row_nums_check`
 
+### `row_step_for_compaction_merge_log`
+
+* Type: int64
+* Description: Merge log will be printed for each "row_step_for_compaction_merge_log" rows merged during compaction. If the value is set to 0, merge log will not be printed.
+* Default value: 0
+* Dynamically modify: true
+
 ### `scan_context_gc_interval_min`
 
 ### `scratch_dirs`
@@ -801,6 +808,13 @@ This configuration indicates the service model used by FE's Thrift service. The 
 If the parameter is `THREADED`, the model is a non-blocking I/O model,
 
 If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
+
+### `total_permits_for_compaction_score`
+
+* Type: int64
+* Description: The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
+* Default: 10000
+* Dynamically modify: true
 
 ### `trash_file_expire_time_sec`
 

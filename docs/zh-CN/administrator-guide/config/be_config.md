@@ -654,6 +654,13 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `row_nums_check`
 
+### `row_step_for_compaction_merge_log`
+
+* 类型：int64
+* 描述：Compaction执行过程中，每次合并row_step_for_compaction_merge_log行数据会打印一条LOG。如果该参数被设置为0，表示merge过程中不需要打印LOG。
+* 默认值： 0
+* 可动态修改：是
+
 ### `scan_context_gc_interval_min`
 
 ### `scratch_dirs`
@@ -798,6 +805,13 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 若该参数为`THREADED`, 该模型为非阻塞式I/O模型，
 
 若该参数为`THREAD_POOL`, 该模型为阻塞式I/O模型。
+
+### `total_permits_for_compaction_score`
+
+* 类型：int64
+* 描述：被所有的compaction任务所能持有的 "permits" 上限，用来限制compaction占用的内存。
+* 默认值：10000
+* 可动态修改：是
 
 ### `trash_file_expire_time_sec`
 

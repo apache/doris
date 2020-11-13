@@ -110,6 +110,9 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(process_fd_num_limit_hard, MetricUnit::NOUNIT
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_cumulative_max_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_base_max_compaction_score, MetricUnit::NOUNIT);
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_used_permits, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_waitting_permits, MetricUnit::NOUNIT);
+
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(push_request_write_bytes_per_second, MetricUnit::BYTES);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_scan_bytes_per_second, MetricUnit::BYTES);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(max_disk_io_util_percent, MetricUnit::PERCENT);
@@ -213,6 +216,9 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_cumulative_max_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, tablet_base_max_compaction_score);
+
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_used_permits);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_waitting_permits);
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, push_request_write_bytes_per_second);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_per_second);
