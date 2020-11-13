@@ -1401,7 +1401,7 @@ public class SingleNodePlanner {
                 if ((tblRef.getJoinOp().isInnerJoin() || tblRef.getJoinOp().isLeftOuterJoin())) {
                     List<Expr> allConjuncts = analyzer.getConjuncts(analyzer.getAllTupleIds());
                     allConjuncts.removeAll(conjuncts);
-                    for (Expr conjunct: allConjuncts) {
+                    for (Expr conjunct : allConjuncts) {
                         if (org.apache.doris.analysis.Predicate.canPushDownPredicate(conjunct)) {
                             for (Expr eqJoinPredicate : eqJoinPredicates) {
                                 // we can ensure slot is left node, because NormalizeBinaryPredicatesRule
@@ -1473,7 +1473,7 @@ public class SingleNodePlanner {
 
         if (oldPredicate instanceof InPredicate) {
             InPredicate oldIP = (InPredicate) oldPredicate;
-            InPredicate ip =  new InPredicate(leftChild, oldIP.getListChildren(), oldIP.isNotIn());
+            InPredicate ip = new InPredicate(leftChild, oldIP.getListChildren(), oldIP.isNotIn());
             ip.analyzeNoThrow(analyzer);
             return ip;
         }
@@ -1898,10 +1898,11 @@ public class SingleNodePlanner {
      * Inner tuple: tuple 0 with a not materialized slot k1
      * In the above two cases, it is necessary to add a mini column to the inner tuple
      * to ensure that the number of rows in the inner query result is the number of rows in the table.
-     *
+     * <p>
      * After this function, the inner tuple is following:
      * case1. tuple 0: slot<k1> materialized true (new slot)
      * case2. tuple 0: slot<k1> materialized true (changed)
+     *
      * @param tblRef
      * @param analyzer
      */
@@ -1915,9 +1916,14 @@ public class SingleNodePlanner {
                 }
             }
             if (minimuColumn != null) {
-                SlotDescriptor slot = analyzer.getDescTbl().addSlotDescriptor(tblRef.getDesc());
-                slot.setColumn(minimuColumn);
-                slot.setIsMaterialized(true);
+                SlotDescriptor slot = tblRef.getDesc().getColumnSlot(minimuColumn.getName());
+                if (slot != null) {
+                    slot.setIsMaterialized(true);
+                } else {
+                    slot = analyzer.getDescTbl().addSlotDescriptor(tblRef.getDesc());
+                    slot.setColumn(minimuColumn);
+                    slot.setIsMaterialized(true);
+                }
             }
         }
     }
@@ -2087,7 +2093,7 @@ public class SingleNodePlanner {
                     } else {
                         // if grouping type is GROUPING_SETS and the predicate not in all grouping list,
                         // the predicate cannot be push down
-                        for (List<Expr> exprs: stmt.getGroupByClause().getGroupingSetList()) {
+                        for (List<Expr> exprs : stmt.getGroupByClause().getGroupingSetList()) {
                             if (!exprs.contains(sourceExpr)) {
                                 isAllSlotReferingGroupBys = false;
                                 break;
