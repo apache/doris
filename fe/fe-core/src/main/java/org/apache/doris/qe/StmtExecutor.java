@@ -90,12 +90,14 @@ import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.glassfish.jersey.internal.guava.Sets;
 
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -446,9 +448,10 @@ public class StmtExecutor {
                 || parsedStmt instanceof CreateTableAsSelectStmt) {
             Map<String, Database> dbs = Maps.newTreeMap();
             QueryStmt queryStmt;
+            Set<String> parentViewNameSet = Sets.newHashSet();
             if (parsedStmt instanceof QueryStmt) {
                 queryStmt = (QueryStmt) parsedStmt;
-                queryStmt.getDbs(analyzer, dbs);
+                queryStmt.getDbs(analyzer, dbs, parentViewNameSet);
             } else {
                 InsertStmt insertStmt;
                 if (parsedStmt instanceof InsertStmt) {
@@ -456,7 +459,7 @@ public class StmtExecutor {
                 } else {
                     insertStmt = ((CreateTableAsSelectStmt) parsedStmt).getInsertStmt();
                 }
-                insertStmt.getDbs(analyzer, dbs);
+                insertStmt.getDbs(analyzer, dbs, parentViewNameSet);
             }
 
             lock(dbs);
