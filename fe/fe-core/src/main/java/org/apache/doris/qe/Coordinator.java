@@ -446,9 +446,9 @@ public class Coordinator {
         }
 
         if (Config.enable_batch_fragment_execution) {
-            sendFragmentInBatch();
-        } else {
             sendFragmentV3();
+        } else {
+            sendFragment();
         }
     }
 
@@ -1923,7 +1923,7 @@ public class Coordinator {
             this.hasCanceled = false;
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
 
-            if (beIdToAlreadySend.contains(backend.getId())) {
+            if (beIdToAlreadySend.contains(backend.getId()) && Config.enable_batch_fragment_execution) {
                 unsetFields();
             } else {
                 beIdToAlreadySend.add(backend.getId());

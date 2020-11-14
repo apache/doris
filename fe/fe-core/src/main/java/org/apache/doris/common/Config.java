@@ -1299,6 +1299,6 @@ public class Config extends ConfigBase {
      * This is to avoid some error when using this new feature.
      * Should be removed later.
      */
-    @ConfField
+    @ConfField(mutable = true)
     public static boolean enable_batch_fragment_execution = true;
 }

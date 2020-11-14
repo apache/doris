@@ -490,7 +490,7 @@ Status FragmentMgr::exec_plan_fragment(
     return exec_plan_fragment(params, std::bind<void>(&empty_function, std::placeholders::_1));
 }
 
-Status FragmentMgr::exec_plan_fragmenti_v3(
+Status FragmentMgr::exec_plan_fragment_v3(
         const TExecPlanFragmentParams& params) {
     return exec_plan_fragment_v3(params, std::bind<void>(&empty_function, std::placeholders::_1));
 }
@@ -499,7 +499,6 @@ Status FragmentMgr::exec_plan_fragment_v3(
         const TExecPlanFragmentParams& params,
         FinishCallback cb) {
     const TUniqueId& fragment_instance_id = params.params.fragment_instance_id;
-    std::shared_ptr<FragmentExecState> exec_state;
     {
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(fragment_instance_id);
@@ -536,16 +535,16 @@ Status FragmentMgr::exec_plan_fragment_v3(
     std::shared_ptr<FragmentExecState> exec_state(
             new FragmentExecState(
                 batch_ctx->query_id,
-                params.fragment_instance_id,
+                params.params.fragment_instance_id,
                 params.backend_num,
                 _exec_env,
                 batch_ctx));
 
-    RETURN_IF_ERROR(exec_state->prepare(t_request));
+    RETURN_IF_ERROR(exec_state->prepare(params));
     {
         std::lock_guard<std::mutex> lock(_lock);
-        batch_ctx->add_fragment_id(t_request.params.fragment_instance_id);
-        _fragment_map.insert(std::make_pair(t_request.params.fragment_instance_id, exec_state));
+        batch_ctx->add_fragment_id(params.params.fragment_instance_id);
+        _fragment_map.insert(std::make_pair(params.params.fragment_instance_id, exec_state));
     }
 
     auto st = _thread_pool->submit_func(
@@ -554,7 +553,7 @@ Status FragmentMgr::exec_plan_fragment_v3(
         {
             // Remove the exec state added
             std::lock_guard<std::mutex> lock(_lock);
-            _fragment_map.erase(fragment_instance_id);
+            _fragment_map.erase(params.params.fragment_instance_id);
         }
         exec_state->cancel_before_execute();
         return Status::InternalError(strings::Substitute(
