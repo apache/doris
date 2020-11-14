@@ -1696,7 +1696,7 @@ public class Coordinator {
          * This information can be obtained from the cache of BE.
          */
         public void unsetFields() {
-            if (alreadSentBackendIds.contains(backend.getId())) {
+            if (alreadySentBackendIds.contains(backend.getId())) {
                 this.rpcParams.unsetDescTbl();
                 this.rpcParams.unsetCoord();
                 this.rpcParams.unsetQueryGlobals();
