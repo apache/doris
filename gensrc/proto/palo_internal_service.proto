@@ -29,6 +29,7 @@ option cc_generic_services = true;
 service PInternalService {
     rpc transmit_data(doris.PTransmitDataParams) returns (doris.PTransmitDataResult);
     rpc exec_plan_fragment(doris.PExecPlanFragmentRequest) returns (doris.PExecPlanFragmentResult);
+    rpc exec_plan_fragment_v3(doris.PExecPlanFragmentRequest) returns (doris.PExecPlanFragmentResult);
     rpc batch_exec_plan_fragments(doris.PExecPlanFragmentRequest) returns (doris.PExecPlanFragmentResult);
     rpc cancel_plan_fragment(doris.PCancelPlanFragmentRequest) returns (doris.PCancelPlanFragmentResult);
     rpc fetch_data(doris.PFetchDataRequest) returns (doris.PFetchDataResult);

@@ -39,6 +39,10 @@ public interface PBackendService {
             attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 10000)
     Future<PExecPlanFragmentResult> execPlanFragmentAsync(PExecPlanFragmentRequest request);
 
+    @ProtobufRPC(serviceName = "PBackendService", methodName = "exec_plan_fragment_v3",
+            attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 10000)
+    Future<PExecPlanFragmentResult> execPlanFragmentAsyncV3(PExecPlanFragmentRequest request);
+
     @ProtobufRPC(serviceName = "PBackendService", methodName = "batch_exec_plan_fragments",
             attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 10000)
     Future<PExecPlanFragmentResult> batchExecPlanFragmentsAsync(PExecPlanFragmentRequest request);

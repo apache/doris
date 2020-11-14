@@ -136,6 +136,8 @@ public class Coordinator {
     // copied from TQueryExecRequest; constant across all fragments
     private TDescriptorTable descTable;
 
+    Set<Long> beIdToAlreadySend = Sets.newHashSet();
+
     // Why we use query global?
     // When `NOW()` function is in sql, we need only one now(),
     // but, we execute `NOW()` distributed.
@@ -446,7 +448,117 @@ public class Coordinator {
         if (Config.enable_batch_fragment_execution) {
             sendFragmentInBatch();
         } else {
-            sendFragment();
+            sendFragmentV3();
+        }
+    }
+
+    private void sendFragmentV3() throws TException, RpcException, UserException {
+        lock();
+        try {
+            // execute all instances from up to bottom
+            int backendIdx = 0;
+            int profileFragmentId = 0;
+            long memoryLimit = queryOptions.getMemLimit();
+            for (PlanFragment fragment : fragments) {
+                FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
+
+                // set up exec states
+                int instanceNum = params.instanceExecParams.size();
+                Preconditions.checkState(instanceNum > 0);
+                List<TExecPlanFragmentParams> tParams = params.toThriftV3(backendIdx);
+                List<Pair<BackendExecState, Future<PExecPlanFragmentResult>>> futures = Lists.newArrayList();
+
+                //update memory limit for colocate join
+                if (colocateFragmentIds.contains(fragment.getFragmentId().asInt())) {
+                    int rate = Math.min(Config.query_colocate_join_memory_limit_penalty_factor, instanceNum);
+                    long newmemory = memoryLimit / rate;
+
+                    for (TExecPlanFragmentParams tParam : tParams) {
+                        tParam.query_options.setMemLimit(newmemory);
+                    }
+                }
+
+                boolean needCheckBackendState = false;
+                if (queryOptions.getQueryType() == TQueryType.LOAD && profileFragmentId == 0) {
+                    // this is a load process, and it is the first fragment.
+                    // we should add all BackendExecState of this fragment to needCheckBackendExecStates,
+                    // so that we can check these backends' state when joining this Coordinator
+                    needCheckBackendState = true;
+                }
+
+                int instanceId = 0;
+                for (TExecPlanFragmentParams tParam : tParams) {
+                    // TODO: pool of pre-formatted BackendExecStates?
+                    BackendExecState execState = new BackendExecState(fragment.getFragmentId(), instanceId++,
+                            profileFragmentId, tParam, this.addressToBackendID);
+                    backendExecStates.add(execState);
+                    if (needCheckBackendState) {
+                        needCheckBackendExecStates.add(execState);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("add need check backend {} for fragment, {} job: {}", execState.backend.getId(),
+                                    fragment.getFragmentId().asInt(), jobId);
+                        }
+                    }
+
+                    futures.add(Pair.create(execState, execState.execRemoteFragmentAsyncV3()));
+
+                    backendIdx++;
+                }
+
+                for (Pair<BackendExecState, Future<PExecPlanFragmentResult>> pair : futures) {
+                    TStatusCode code = TStatusCode.INTERNAL_ERROR;
+                    String errMsg = null;
+                    Exception exception = null;
+                    try {
+                        PExecPlanFragmentResult result = pair.second.get(Config.remote_fragment_exec_timeout_ms,
+                                TimeUnit.MILLISECONDS);
+                        code = TStatusCode.findByValue(result.status.status_code);
+                        if (result.status.error_msgs != null && !result.status.error_msgs.isEmpty()) {
+                            errMsg = result.status.error_msgs.get(0);
+                        }
+                    } catch (ExecutionException e) {
+                        LOG.warn("catch a execute exception", e);
+                        exception = e;
+                        code = TStatusCode.THRIFT_RPC_ERROR;
+                    } catch (InterruptedException e) {
+                        LOG.warn("catch a interrupt exception", e);
+                        exception = e;
+                        code = TStatusCode.INTERNAL_ERROR;
+                    } catch (TimeoutException e) {
+                        LOG.warn("catch a timeout exception", e);
+                        exception = e;
+                        code = TStatusCode.TIMEOUT;
+                    }
+
+                    if (code != TStatusCode.OK) {
+                        if (exception != null) {
+                            errMsg = exception.getMessage();
+                        }
+
+                        if (errMsg == null) {
+                            errMsg = "exec rpc error. backend id: " + pair.first.backend.getId();
+                        }
+                        queryStatus.setStatus(errMsg);
+                        LOG.warn("exec plan fragment failed, errmsg={}, code: {}, fragmentId={}, backend={}:{}",
+                                errMsg, code, fragment.getFragmentId(),
+                                pair.first.address.hostname, pair.first.address.port);
+                        cancelInternal(PPlanFragmentCancelReason.INTERNAL_ERROR);
+                        switch (code) {
+                            case TIMEOUT:
+                                throw new UserException("query timeout. backend id: " + pair.first.backend.getId());
+                            case THRIFT_RPC_ERROR:
+                                SimpleScheduler.addToBlacklist(pair.first.backend.getId(), errMsg);
+                                throw new RpcException(pair.first.backend.getHost(), "rpc failed");
+                            default:
+                                throw new UserException(errMsg);
+                        }
+                    }
+                }
+                profileFragmentId += 1;
+            }
+            attachInstanceProfileToFragmentProfile();
+        } finally {
+            unlock();
         }
     }
 
@@ -1810,6 +1922,19 @@ public class Coordinator {
             this.profile = new RuntimeProfile(name);
             this.hasCanceled = false;
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
+
+            if (beIdToAlreadySend.contains(backend.getId())) {
+                unsetFields();
+            } else {
+                beIdToAlreadySend.add(backend.getId());
+            }
+        }
+
+        private void unsetFields() {
+            this.rpcParams.unsetDescTbl();
+            this.rpcParams.unsetCoord();
+            this.rpcParams.unsetQueryGlobals();
+            this.rpcParams.unsetResourceInfo();
         }
 
         // update profile.
@@ -1896,6 +2021,55 @@ public class Coordinator {
             this.initiated = true;
             try {
                 return BackendServiceProxy.getInstance().execPlanFragmentAsync(brpcAddress, rpcParams);
+            } catch (RpcException e) {
+                // DO NOT throw exception here, return a complete future with error code,
+                // so that the following logic will cancel the fragment.
+                return new Future<PExecPlanFragmentResult>() {
+                    @Override
+                    public boolean cancel(boolean mayInterruptIfRunning) {
+                        return false;
+                    }
+
+                    @Override
+                    public boolean isCancelled() {
+                        return false;
+                    }
+
+                    @Override
+                    public boolean isDone() {
+                        return true;
+                    }
+
+                    @Override
+                    public PExecPlanFragmentResult get() {
+                        PExecPlanFragmentResult result = new PExecPlanFragmentResult();
+                        PStatus pStatus = new PStatus();
+                        pStatus.error_msgs = Lists.newArrayList();
+                        pStatus.error_msgs.add(e.getMessage());
+                        // use THRIFT_RPC_ERROR so that this BE will be added to the blacklist later.
+                        pStatus.status_code = TStatusCode.THRIFT_RPC_ERROR.getValue();
+                        result.status = pStatus;
+                        return result;
+                    }
+
+                    @Override
+                    public PExecPlanFragmentResult get(long timeout, TimeUnit unit) {
+                        return get();
+                    }
+                };
+            }
+        }
+
+        public Future<PExecPlanFragmentResult> execRemoteFragmentAsyncV3() throws TException, RpcException {
+            TNetworkAddress brpcAddress = null;
+            try {
+                brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+            } catch (Exception e) {
+                throw new TException(e.getMessage());
+            }
+            this.initiated = true;
+            try {
+                return BackendServiceProxy.getInstance().execPlanFragmentAsyncV3(brpcAddress, rpcParams);
             } catch (RpcException e) {
                 // DO NOT throw exception here, return a complete future with error code,
                 // so that the following logic will cancel the fragment.
@@ -2034,6 +2208,51 @@ public class Coordinator {
 
         public FragmentExecParams(PlanFragment fragment) {
             this.fragment = fragment;
+        }
+
+        List<TExecPlanFragmentParams> toThriftV3(int backendNum) {
+            List<TExecPlanFragmentParams> paramsList = Lists.newArrayList();
+
+            for (int i = 0; i < instanceExecParams.size(); ++i) {
+                final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
+                TExecPlanFragmentParams params = new TExecPlanFragmentParams();
+                params.setProtocolVersion(PaloInternalServiceVersion.V1);
+                params.setFragment(fragment.toThrift());
+                params.setDescTbl(descTable);
+                params.setParams(new TPlanFragmentExecParams());
+                params.setResourceInfo(tResourceInfo);
+                params.params.setQueryId(queryId);
+                params.params.setFragmentInstanceId(instanceExecParam.instanceId);
+                Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
+                if (scanRanges == null) {
+                    scanRanges = Maps.newHashMap();
+                }
+
+                params.params.setPerNodeScanRanges(scanRanges);
+                params.params.setPerExchNumSenders(perExchNumSenders);
+
+                params.params.setDestinations(destinations);
+                params.params.setSenderId(i);
+                params.params.setNumSenders(instanceExecParams.size());
+                params.setCoord(coordAddress);
+                params.setBackendNum(backendNum++);
+                params.setQueryGlobals(queryGlobals);
+                params.setQueryOptions(queryOptions);
+                params.params.setSendQueryStatisticsWithEveryBatch(
+                        fragment.isTransferQueryStatisticsWithEveryBatch());
+                if (queryOptions.getQueryType() == TQueryType.LOAD) {
+                    LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
+                    if (param != null) {
+                        TLoadErrorHubInfo info = param.toThrift();
+                        if (info != null) {
+                            params.setLoadErrorHubInfo(info);
+                        }
+                    }
+                }
+
+                paramsList.add(params);
+            }
+            return paramsList;
         }
 
         // Use toThriftV2 instead

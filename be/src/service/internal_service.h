@@ -48,6 +48,12 @@ public:
         PExecPlanFragmentResult* result,
         google::protobuf::Closure* done) override;
 
+    void exec_plan_fragment_v3(
+        google::protobuf::RpcController* controller,
+        const PExecPlanFragmentRequest* request,
+        PExecPlanFragmentResult* result,
+        google::protobuf::Closure* done) override;
+
     // "request" contains a batch of plan fragments.
     void batch_exec_plan_fragments(
         google::protobuf::RpcController* controller,
@@ -110,6 +116,7 @@ public:
         google::protobuf::Closure* done) override;
 private:
     Status _exec_plan_fragment(brpc::Controller* cntl);
+    Status _exec_plan_fragment_v3(brpc::Controller* cntl);
     Status _batch_exec_plan_fragments(brpc::Controller* cntl);
 private:
     ExecEnv* _exec_env;

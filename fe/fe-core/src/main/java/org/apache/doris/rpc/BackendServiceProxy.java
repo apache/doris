@@ -37,16 +37,16 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
+
 import com.baidu.bjf.remoting.protobuf.utils.JDKCompilerHelper;
 import com.baidu.bjf.remoting.protobuf.utils.compiler.JdkCompiler;
 import com.baidu.jprotobuf.pbrpc.client.ProtobufRpcProxy;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClient;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClientOptions;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
 
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -123,6 +123,37 @@ public class BackendServiceProxy {
             throw new RpcException(address.hostname, e.getMessage());
         }
     }
+
+    public Future<PExecPlanFragmentResult> execPlanFragmentAsyncV3(
+            TNetworkAddress address, TExecPlanFragmentParams tRequest)
+            throws TException, RpcException {
+        final PExecPlanFragmentRequest pRequest = new PExecPlanFragmentRequest();
+        pRequest.setRequest(tRequest);
+        try {
+            final PBackendService service = getProxy(address);
+            return service.execPlanFragmentAsyncV3(pRequest);
+        } catch (NoSuchElementException e) {
+            try {
+                // retry
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException interruptedException) {
+                    // do nothing
+                }
+                final PBackendService service = getProxy(address);
+                return service.execPlanFragmentAsync(pRequest);
+            } catch (NoSuchElementException noSuchElementException) {
+                LOG.warn("Execute plan fragment retry failed, address={}:{}",
+                        address.getHostname(), address.getPort(), noSuchElementException);
+                throw new RpcException(address.hostname, e.getMessage());
+            }
+        } catch (Throwable e) {
+            LOG.warn("Execute plan fragment catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
 
     // Execute plan fragments in batch
     public Future<PExecPlanFragmentResult> batchExecPlanFragmentsAsync(
