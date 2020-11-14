@@ -134,7 +134,7 @@ public class Coordinator {
     // copied from TQueryExecRequest; constant across all fragments
     private TDescriptorTable descTable;
 
-    private Set<Long> alreadSentBackendIds = Sets.newHashSet();
+    private Set<Long> alreadySentBackendIds = Sets.newHashSet();
 
     // Why we use query global?
     // When `NOW()` function is in sql, we need only one now(),
@@ -553,7 +553,7 @@ public class Coordinator {
                     }
 
                     // succeed to send the plan fragment, update the "alreadySentBackendIds"
-                    alreadSentBackendIds.add(pair.first.backend.getId());
+                    alreadySentBackendIds.add(pair.first.backend.getId());
                 }
 
                 profileFragmentId += 1;

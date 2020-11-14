@@ -63,12 +63,6 @@ public:
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb);
 
-    // execute one plan fragment
-    Status exec_plan_fragment_v3(const TExecPlanFragmentParams& params);
-
-    // TODO(zc): report this is over
-    Status exec_plan_fragment_v3(const TExecPlanFragmentParams& params, FinishCallback cb);
-
     Status cancel(const TUniqueId& fragment_id) {
         return cancel(fragment_id, PPlanFragmentCancelReason::INTERNAL_ERROR);
     }
@@ -87,22 +81,8 @@ public:
     Status exec_external_plan_fragment(const TScanOpenParams& params, const TUniqueId& fragment_instance_id, std::vector<TScanColumnDesc>* selected_columns);
 
 private:
-    void exec_actual(std::shared_ptr<FragmentExecState> exec_state,
+    void _exec_actual(std::shared_ptr<FragmentExecState> exec_state,
                      FinishCallback cb);
-
-    void _exec_actual_v2(
-        std::shared_ptr<FragmentExecState> exec_state,
-        std::shared_ptr<BatchFragmentsCtx> batchCtx,
-        FinishCallback cb);
-
-    Status _submit_plan_fragment(const TExecPlanFragmentParams& param,
-            std::shared_ptr<BatchFragmentsCtx> batch_state,
-            FinishCallback cb);
-
-    Status _prepare_batch_ctx(const TExecPlanFragmentParamsList& t_requests, std::shared_ptr<BatchFragmentsCtx> batch_ctx);
-
-    // Clean the BatchFragmentsCtx and FragmentExecState from _batch_ctx_map and _fragment_map if error happens
-    void _clean_ctx(const TExecPlanFragmentParamsList& t_requests);
 
     // This is input params
     ExecEnv* _exec_env;

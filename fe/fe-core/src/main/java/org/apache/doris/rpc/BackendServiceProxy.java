@@ -124,35 +124,6 @@ public class BackendServiceProxy {
         }
     }
 
-    // Execute plan fragments in batch
-    public Future<PExecPlanFragmentResult> batchExecPlanFragmentsAsync(
-            TNetworkAddress address, PExecPlanFragmentRequest pRequests)
-            throws RpcException {
-        try {
-            final PBackendService service = getProxy(address);
-            return service.batchExecPlanFragmentsAsync(pRequests);
-        } catch (NoSuchElementException e) {
-            try {
-                // retry
-                try {
-                    Thread.sleep(10);
-                } catch (InterruptedException interruptedException) {
-                    // do nothing
-                }
-                final PBackendService service = getProxy(address);
-                return service.batchExecPlanFragmentsAsync(pRequests);
-            } catch (NoSuchElementException noSuchElementException) {
-                LOG.warn("Execute plan fragment retry failed, address={}:{}",
-                        address.getHostname(), address.getPort(), noSuchElementException);
-                throw new RpcException(address.hostname, e.getMessage());
-            }
-        } catch (Throwable e) {
-            LOG.warn("Execute plan fragment catch a exception, address={}:{}",
-                    address.getHostname(), address.getPort(), e);
-            throw new RpcException(address.hostname, e.getMessage());
-        }
-    }
-
     public Future<PCancelPlanFragmentResult> cancelPlanFragmentAsync(
             TNetworkAddress address, TUniqueId finstId, PPlanFragmentCancelReason cancelReason) throws RpcException {
         final PCancelPlanFragmentRequest pRequest = new PCancelPlanFragmentRequest();

@@ -142,6 +142,10 @@ public:
 
     int get_timeout_second() const { return _timeout_second; } 
 
+    std::shared_ptr<BatchFragmentsCtx> get_batch_ctx() {
+        return _batch_ctx;
+    }
+
 private:
     void coordinator_callback(const Status& status, RuntimeProfile* profile, bool done);
 
@@ -487,9 +491,10 @@ Status FragmentMgr::exec_plan_fragment(
 
     std::shared_ptr<FragmentExecState> exec_state;
     if (!params.__isset.is_simplified_param) {
-        // This is an old version params, all @Common components is set in TExecPlanFragmentParams
+        // This is an old version params, all @Common components is set in TExecPlanFragmentParams.
+        // TODO: this should be removed in next version.
         exec_state.reset(new FragmentExecState(
-                    batch_ctx->query_id,
+                    params.params.query_id,
                     params.params.fragment_instance_id,
                     params.backend_num,
                     _exec_env,
