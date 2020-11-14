@@ -40,6 +40,9 @@ public class SchemaTable extends Table {
     private final static int NAME_CHAR_LEN           = 64;
     private final static int MAX_FIELD_VARCHARLENGTH = 65535;
     private final static int MY_CS_NAME_SIZE         = 32;
+    private final static int GRANTEE_len             = 81;
+    private final static int PRIVILEGE_TYPE_LEN      = 64;
+    private final static int IS_GRANTABLE_LEN        = 3;
     private SchemaTableType schemaTableType;
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
@@ -103,33 +106,33 @@ public class SchemaTable extends Table {
                             "table_privileges",
                             TableType.SCHEMA,
                             builder()
-                                    .column("GRANTEE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("GRANTEE", ScalarType.createVarchar(GRANTEE_len))
                                     .column("TABLE_CATALOG", ScalarType.createVarchar(FN_REFLEN))
                                     .column("TABLE_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
                                     .column("TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
-                                    .column("PRIVILEGE_TYPE", ScalarType.createVarchar(64))
-                                    .column("IS_GRANTABLE", ScalarType.createVarchar(3))
+                                    .column("PRIVILEGE_TYPE", ScalarType.createVarchar(PRIVILEGE_TYPE_LEN))
+                                    .column("IS_GRANTABLE", ScalarType.createVarchar(IS_GRANTABLE_LEN))
                                     .build()))
                     .put("schema_privileges", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "schema_privileges",
                             TableType.SCHEMA,
                             builder()
-                                    .column("GRANTEE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("GRANTEE", ScalarType.createVarchar(GRANTEE_len))
                                     .column("TABLE_CATALOG", ScalarType.createVarchar(FN_REFLEN))
                                     .column("TABLE_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
-                                    .column("PRIVILEGE_TYPE", ScalarType.createVarchar(64))
-                                    .column("IS_GRANTABLE", ScalarType.createVarchar(3))
+                                    .column("PRIVILEGE_TYPE", ScalarType.createVarchar(PRIVILEGE_TYPE_LEN))
+                                    .column("IS_GRANTABLE", ScalarType.createVarchar(IS_GRANTABLE_LEN))
                                     .build()))
                     .put("user_privileges", new SchemaTable(
                             SystemIdGenerator.getNextId(),
                             "user_privileges",
                             TableType.SCHEMA,
                             builder()
-                                    .column("GRANTEE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("GRANTEE", ScalarType.createVarchar(GRANTEE_len))
                                     .column("TABLE_CATALOG", ScalarType.createVarchar(FN_REFLEN))
-                                    .column("PRIVILEGE_TYPE", ScalarType.createVarchar(64))
-                                    .column("IS_GRANTABLE", ScalarType.createVarchar(3))
+                                    .column("PRIVILEGE_TYPE", ScalarType.createVarchar(PRIVILEGE_TYPE_LEN))
+                                    .column("IS_GRANTABLE", ScalarType.createVarchar(IS_GRANTABLE_LEN))
                                     .build()))
                     .put("referential_constraints", new SchemaTable(
                             SystemIdGenerator.getNextId(),

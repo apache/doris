@@ -1301,10 +1301,6 @@ public class PaloAuth implements Writable {
         }
     }
 
-    // Used for transforming privileges in palo to mysql.
-    private final String[] privilegesInMysql = new String[]{"", "", "", "SELECT", "INSERT", "ALTER",
-            "CREATE", "DROP", "USAGE"};
-
     // Used for creating table_privileges table in information_schema.
     public void getTablePrivStatus(List<TPrivilegeStatus> tblPrivResult, UserIdentity currentUser) {
         readLock();
@@ -1321,14 +1317,14 @@ public class PaloAuth implements Writable {
 
                 String grantee = new String("\'").concat(ClusterNamespace.getNameFromFullName(tblPrivEntry.getOrigUser()))
                         .concat("\'@\'").concat(tblPrivEntry.getOrigHost()).concat("\'");
-                String isGrantable = tblPrivEntry.getPrivSet().get(2) ? "yes" : "no"; //Grant_priv
+                String isGrantable = tblPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
                 for (PaloPrivilege paloPriv : tblPrivEntry.getPrivSet().toPrivilegeList()) {
-                    if (paloPriv == PaloPrivilege.GRANT_PRIV) {
+                    if (!PaloPrivilege.privInPaloToMysql.containsKey(paloPriv)) {
                         continue;
                     }
                     TPrivilegeStatus status = new TPrivilegeStatus();
                     status.setTableName(tblName);
-                    status.setPrivilegeType(privilegesInMysql[paloPriv.getIdx()]);
+                    status.setPrivilegeType(PaloPrivilege.privInPaloToMysql.get(paloPriv));
                     status.setGrantee(grantee);
                     status.setSchema(dbName);
                     status.setIsGrantable(isGrantable);
@@ -1356,13 +1352,13 @@ public class PaloAuth implements Writable {
 
                 String grantee = new String("\'").concat(ClusterNamespace.getNameFromFullName(dbPrivEntry.getOrigUser()))
                         .concat("\'@\'").concat(dbPrivEntry.getOrigHost()).concat("\'");
-                String isGrantable = dbPrivEntry.getPrivSet().get(2) ? "yes" : "no"; //Grant_priv
+                String isGrantable = dbPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
                 for (PaloPrivilege paloPriv : dbPrivEntry.getPrivSet().toPrivilegeList()) {
-                    if (paloPriv == PaloPrivilege.GRANT_PRIV) {
+                    if (!PaloPrivilege.privInPaloToMysql.containsKey(paloPriv)) {
                         continue;
                     }
                     TPrivilegeStatus status = new TPrivilegeStatus();
-                    status.setPrivilegeType(privilegesInMysql[paloPriv.getIdx()]);
+                    status.setPrivilegeType(PaloPrivilege.privInPaloToMysql.get(paloPriv));
                     status.setGrantee(grantee);
                     status.setSchema(dbName);
                     status.setIsGrantable(isGrantable);
@@ -1385,26 +1381,23 @@ public class PaloAuth implements Writable {
             for (PrivEntry userPrivEntry : userPrivTable.getEntries()) {
                 String grantee = new String("\'").concat(ClusterNamespace.getNameFromFullName(userPrivEntry.getOrigUser()))
                         .concat("\'@\'").concat(userPrivEntry.getOrigHost()).concat("\'");
-                String isGrantable = userPrivEntry.getPrivSet().get(2) ? "yes" : "no"; //Grant_priv
+                String isGrantable = userPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
                 for (PaloPrivilege paloPriv : userPrivEntry.getPrivSet().toPrivilegeList()) {
-                    if (paloPriv == PaloPrivilege.GRANT_PRIV
-                            || paloPriv == PaloPrivilege.NODE_PRIV /* Don't show NODE_PRIV, which doesn't exist in mysql */) {
-                        continue;
-                    }
                     if (paloPriv == PaloPrivilege.ADMIN_PRIV) {
-                        for (String priv : privilegesInMysql) { //ADMIN_PRIV includes all privileges of table and resource.
-                            if(!priv.isEmpty()){
-                                TPrivilegeStatus status = new TPrivilegeStatus();
-                                status.setPrivilegeType(priv);
-                                status.setGrantee(grantee);
-                                status.setIsGrantable("yes");
-                                userPrivResult.add(status);
-                            }
+                        for (String priv : PaloPrivilege.privInPaloToMysql.values()) { // ADMIN_PRIV includes all privileges of table and resource.
+                            TPrivilegeStatus status = new TPrivilegeStatus();
+                            status.setPrivilegeType(priv);
+                            status.setGrantee(grantee);
+                            status.setIsGrantable("YES");
+                            userPrivResult.add(status);
                         }
                         break;
                     }
+                    if (!PaloPrivilege.privInPaloToMysql.containsKey(paloPriv)) {
+                        continue;
+                    }
                     TPrivilegeStatus status = new TPrivilegeStatus();
-                    status.setPrivilegeType(paloPriv.toString());
+                    status.setPrivilegeType(PaloPrivilege.privInPaloToMysql.get(paloPriv));
                     status.setGrantee(grantee);
                     status.setIsGrantable(isGrantable);
                     userPrivResult.add(status);
