@@ -211,9 +211,9 @@ FragmentExecState::~FragmentExecState() {
 }
 
 Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
-        if (params.__isset.query_options) {
-            _timeout_second = params.query_options.query_timeout;
-        }
+    if (params.__isset.query_options) {
+        _timeout_second = params.query_options.query_timeout;
+    }
 
     if (_batch_ctx == nullptr) {
         if (params.__isset.resource_info) {
@@ -442,37 +442,19 @@ FragmentMgr::~FragmentMgr() {
 static void empty_function(PlanFragmentExecutor* exec) {
 }
 
-void FragmentMgr::exec_actual(
+void FragmentMgr::_exec_actual(
         std::shared_ptr<FragmentExecState> exec_state,
         FinishCallback cb) {
+
     exec_state->execute();
 
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        auto iter = _fragment_map.find(exec_state->fragment_instance_id());
-        if (iter != _fragment_map.end()) {
-            _fragment_map.erase(iter);
-        } else {
-            // Impossible
-            LOG(WARNING) << "missing entry in fragment exec state map: instance_id="
-                << exec_state->fragment_instance_id();
-        }
+    std::shared_ptr<BatchFragmentsCtx> batch_ctx = exec_state->get_batch_ctx();
+    bool all_done = false;
+    if (batch_ctx != nullptr) {
+        all_done = batch_ctx->remove_fragment_id(exec_state->fragment_instance_id());
     }
-    // Callback after remove from this id
-    cb(exec_state->executor());
-    // NOTE: 'exec_state' is desconstructed here without lock
-}
-
-// _exec_actual_v2 works with batch fragment execution
-void FragmentMgr::_exec_actual_v2(
-        std::shared_ptr<FragmentExecState> exec_state,
-        std::shared_ptr<BatchFragmentsCtx> batch_ctx,
-        FinishCallback cb) {
-
-    exec_state->execute();
 
     // remove exec state after this fragment finished
-    bool all_done = batch_ctx->remove_fragment_id(exec_state->fragment_instance_id());
     {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.erase(exec_state->fragment_instance_id());
@@ -490,12 +472,7 @@ Status FragmentMgr::exec_plan_fragment(
     return exec_plan_fragment(params, std::bind<void>(&empty_function, std::placeholders::_1));
 }
 
-Status FragmentMgr::exec_plan_fragment_v3(
-        const TExecPlanFragmentParams& params) {
-    return exec_plan_fragment_v3(params, std::bind<void>(&empty_function, std::placeholders::_1));
-}
-
-Status FragmentMgr::exec_plan_fragment_v3(
+Status FragmentMgr::exec_plan_fragment(
         const TExecPlanFragmentParams& params,
         FinishCallback cb) {
     const TUniqueId& fragment_instance_id = params.params.fragment_instance_id;
@@ -507,13 +484,29 @@ Status FragmentMgr::exec_plan_fragment_v3(
             return Status::OK();
         }
     }
-    
-    std::shared_ptr<BatchFragmentsCtx> batch_ctx;
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        auto search = _batch_ctx_map.find(params.params.query_id);
-        if (search == _batch_ctx_map.end()) {
-            // create a new BatchFragmentsCtx
+
+    std::shared_ptr<FragmentExecState> exec_state;
+    if (!params.__isset.is_simplified_param) {
+        // This is an old version params, all @Common components is set in TExecPlanFragmentParams
+        exec_state.reset(new FragmentExecState(
+                    batch_ctx->query_id,
+                    params.params.fragment_instance_id,
+                    params.backend_num,
+                    _exec_env,
+                    params.coord));
+    } else {
+        std::shared_ptr<BatchFragmentsCtx> batch_ctx;
+        if (params.is_simplified_param) {
+            // Get common components from _batch_ctx_map
+            std::lock_guard<std::mutex> lock(_lock);
+            auto search = _batch_ctx_map.find(params.params.query_id);
+            if (search == _batch_ctx_map.end()) {
+                return Status::InternalError("Failed to find batch context");
+            }
+            batch_ctx = search->second;
+        } else {
+            // This may be a first fragment request of the query.
+            // Create the batch context
             batch_ctx.reset(new BatchFragmentsCtx());
             batch_ctx->query_id = params.params.query_id;
             RETURN_IF_ERROR(DescriptorTbl::create(&(batch_ctx->obj_pool), params.desc_tbl, &(batch_ctx->desc_tbl)));
@@ -525,30 +518,36 @@ Status FragmentMgr::exec_plan_fragment_v3(
                 batch_ctx->group = params.resource_info.group;
                 batch_ctx->set_rsc_info = true;
             }
-
-            _batch_ctx_map.insert(std::make_pair(batch_ctx->query_id, batch_ctx));
-        } else {
-            batch_ctx = search->second;
+            
+            // Find _batch_ctx_map again, in case some other request has already
+            // create the batch context
+            std::lock_guard<std::mutex> lock(_lock);
+            auto search = _batch_ctx_map.find(params.params.query_id);
+            if (search == _batch_ctx_map.end()) {
+                _batch_ctx_map.insert(std::make_pair(batch_ctx->query_id, batch_ctx));
+            } else {
+                // Already has a batch context, use it
+                batch_ctx = search->second;
+            }
         }
+        
+        exec_state.reset(new FragmentExecState(
+                    batch_ctx->query_id,
+                    params.params.fragment_instance_id,
+                    params.backend_num,
+                    _exec_env,
+                    batch_ctx));
+        batch_ctx->add_fragment_id(params.params.fragment_instance_id);
     }
-
-    std::shared_ptr<FragmentExecState> exec_state(
-            new FragmentExecState(
-                batch_ctx->query_id,
-                params.params.fragment_instance_id,
-                params.backend_num,
-                _exec_env,
-                batch_ctx));
 
     RETURN_IF_ERROR(exec_state->prepare(params));
     {
         std::lock_guard<std::mutex> lock(_lock);
-        batch_ctx->add_fragment_id(params.params.fragment_instance_id);
         _fragment_map.insert(std::make_pair(params.params.fragment_instance_id, exec_state));
     }
 
     auto st = _thread_pool->submit_func(
-            std::bind<void>(&FragmentMgr::_exec_actual_v2, this, exec_state, batch_ctx, cb));
+            std::bind<void>(&FragmentMgr::_exec_actual, this, exec_state, cb));
     if (!st.ok()) {
         {
             // Remove the exec state added
@@ -563,6 +562,7 @@ Status FragmentMgr::exec_plan_fragment_v3(
     return Status::OK();
 }
 
+#if 0
 Status FragmentMgr::exec_plan_fragment(
         const TExecPlanFragmentParams& params,
         FinishCallback cb) {
@@ -611,6 +611,7 @@ Status FragmentMgr::exec_plan_fragment(
 
     return Status::OK();
 }
+#endif
 
 Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason) {
     std::shared_ptr<FragmentExecState> exec_state;
@@ -797,103 +798,6 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, c
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
     return exec_plan_fragment(exec_fragment_params);
-}
-
-Status FragmentMgr::batch_exec_plan_fragments(const TExecPlanFragmentParamsList& t_requests) {
-    std::shared_ptr<BatchFragmentsCtx> batch_ctx(new BatchFragmentsCtx());
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        auto iter = _batch_ctx_map.find(t_requests.query_id);
-        if (iter != _batch_ctx_map.end()) {
-            // Duplicate request
-            return Status::InternalError("Duplicate query request");
-        }
-        _batch_ctx_map.insert(std::make_pair(t_requests.query_id, batch_ctx));
-    }
-
-    Status st = _prepare_batch_ctx(t_requests, batch_ctx);
-    if (!st.ok()) {
-        _clean_ctx(t_requests);
-        return st;
-    }
-
-    for (auto& t_request : t_requests.paramsList) {
-        st = _submit_plan_fragment(t_request, batch_ctx, std::bind<void>(&empty_function, std::placeholders::_1));
-        if (!st.ok()) {
-            break;
-        }
-    }
-    
-    if (!st.ok()) {
-        _clean_ctx(t_requests);
-        LOG(WARNING) << "failed to submit plan fragment: " << st.get_error_msg();
-    } else {
-        LOG(INFO) << "finish to submit batch exec fragment. batch size: " << t_requests.paramsList.size()
-            << ", query id: " << print_id(t_requests.query_id);
-    }
-    return st;
-}
-
-void FragmentMgr::_clean_ctx(const TExecPlanFragmentParamsList& t_requests) {
-    std::lock_guard<std::mutex> lock(_lock);
-    _batch_ctx_map.erase(t_requests.query_id); 
-    for (auto& t_request : t_requests.paramsList) {
-        _fragment_map.erase(t_request.params.fragment_instance_id);
-    }
-}
-
-Status FragmentMgr::_prepare_batch_ctx(const TExecPlanFragmentParamsList& t_requests, std::shared_ptr<BatchFragmentsCtx> batch_ctx) {
-    batch_ctx->query_id = t_requests.query_id;
-    RETURN_IF_ERROR(DescriptorTbl::create(&(batch_ctx->obj_pool), t_requests.desc_tbl, &(batch_ctx->desc_tbl)));
-    batch_ctx->coord_addr = t_requests.coord;
-    batch_ctx->query_globals = t_requests.query_globals;
-    
-    if (t_requests.__isset.resource_info) {
-        batch_ctx->user = t_requests.resource_info.user;
-        batch_ctx->group = t_requests.resource_info.group;
-        batch_ctx->set_rsc_info = true;
-    }
-
-    // For each fragment in fragment list, create a FragmentExecState
-    Status st;
-    for (auto& t_request : t_requests.paramsList) {
-        std::shared_ptr<FragmentExecState> exec_state(
-            new FragmentExecState(
-                    t_requests.query_id,
-                    t_request.params.fragment_instance_id,
-                    t_request.backend_num,
-                    _exec_env,
-                    batch_ctx));
-
-        st = exec_state->prepare(t_request);
-        if (!st.ok()) {
-            break;
-        }
-        batch_ctx->add_fragment_id(t_request.params.fragment_instance_id);
-        {
-            std::lock_guard<std::mutex> lock(_lock);
-            _fragment_map.insert(std::make_pair(t_request.params.fragment_instance_id, exec_state));
-        }
-    }
-    return st;
-}
-
-Status FragmentMgr::_submit_plan_fragment(const TExecPlanFragmentParams& param,
-                    std::shared_ptr<BatchFragmentsCtx> batch_ctx,
-                    FinishCallback cb) {
-    std::shared_ptr<FragmentExecState> exec_state;
-    { 
-        std::lock_guard<std::mutex> lock(_lock);
-        auto iter = _fragment_map.find(param.params.fragment_instance_id);
-        CHECK(iter != _fragment_map.end()) << print_id(param.params.fragment_instance_id);
-        exec_state = iter->second;
-    }
-    auto st = _thread_pool->submit_func(std::bind<void>(&FragmentMgr::_exec_actual_v2, this, exec_state, batch_ctx, cb));
-    if (!st.ok()) {
-        return Status::InternalError(strings::Substitute(
-                    "Failed to submit planfragment to thread pool. err = $0", st.get_error_msg()));
-    }
-    return Status::OK();
 }
 
 }
