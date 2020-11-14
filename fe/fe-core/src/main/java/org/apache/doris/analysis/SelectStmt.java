@@ -276,14 +276,13 @@ public class SelectStmt extends QueryStmt {
     }
 
     @Override
-    public void getDbs(Analyzer analyzer, Map<String, Database> dbs) throws AnalysisException {
-        getWithClauseDbs(analyzer, dbs);
+    public void getDbs(Analyzer analyzer, Map<String, Database> dbs, Set<String> parentViewNameSet) throws AnalysisException {
+        getWithClauseDbs(analyzer, dbs, parentViewNameSet);
         for (TableRef tblRef : fromClause_) {
             if (tblRef instanceof InlineViewRef) {
                 // Inline view reference
                 QueryStmt inlineStmt = ((InlineViewRef) tblRef).getViewStmt();
-                inlineStmt.withClause_ = this.withClause_;
-                inlineStmt.getDbs(analyzer, dbs);
+                inlineStmt.getDbs(analyzer, dbs, parentViewNameSet);
             } else {
                 String dbName = tblRef.getName().getDb();
                 if (Strings.isNullOrEmpty(dbName)) {
@@ -291,7 +290,7 @@ public class SelectStmt extends QueryStmt {
                 } else {
                     dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), tblRef.getName().getDb());
                 }
-                if(withClause_ != null && isViewTableRef(tblRef)){
+                if (isViewTableRef(tblRef.getName().toString(), parentViewNameSet)) {
                     continue;
                 }
                 if (Strings.isNullOrEmpty(dbName)) {
@@ -318,13 +317,22 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
-    private boolean isViewTableRef(TableRef tblRef) {
-        List<View> views = withClause_.getViews();
-        for(View view : views){
-            if(view.getName().equals(tblRef.getName().toString())){
-                return true;
+    // if tableName in parentViewNameSetor tableName in withClause views
+    // means this tableref is inlineview, no need check dbname again
+    private boolean isViewTableRef(String tblName, Set<String> parentViewNameSet) {
+        if (parentViewNameSet.contains(tblName)) {
+            return true;
+        }
+
+        if (withClause_ != null) {
+            List<View> views = withClause_.getViews();
+            for (View view : views) {
+                if (view.getName().equals(tblName)) {
+                    return true;
+                }
             }
         }
+
         return false;
     }
 

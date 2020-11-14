@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Representation of a set ops with its list of operands, and optional order by and limit.
@@ -171,10 +172,10 @@ public class SetOperationStmt extends QueryStmt {
     public List<Expr> getSetOpsResultExprs() { return setOpsResultExprs_; }
 
     @Override
-    public void getDbs(Analyzer analyzer, Map<String, Database> dbs) throws AnalysisException {
-        getWithClauseDbs(analyzer, dbs);
+    public void getDbs(Analyzer analyzer, Map<String, Database> dbs, Set<String> parentViewNameSet) throws AnalysisException {
+        getWithClauseDbs(analyzer, dbs, parentViewNameSet);
         for (SetOperand op : operands) {
-            op.getQueryStmt().getDbs(analyzer, dbs);
+            op.getQueryStmt().getDbs(analyzer, dbs, parentViewNameSet);
         }
     }
 

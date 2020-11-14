@@ -259,8 +259,11 @@ struct OlapReaderStatistics {
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
     int64_t rows_bf_filtered = 0;
-    int64_t rows_del_filtered = 0;
-    int64_t rows_conditions_filtered = 0;
+    // Including the number of rows filtered out according to the Delete information in the Tablet, 
+    // and the number of rows filtered for marked deleted rows under the unique key model.
+    int64_t rows_del_filtered = 0; 
+    // the number of rows filtered by various column indexes.
+    int64_t rows_conditions_filtered = 0; 
 
     int64_t index_load_ns = 0;
 
