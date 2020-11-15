@@ -73,13 +73,13 @@ using apache::thrift::transport::TTransportException;
 class RuntimeProfile;
 class FragmentExecState {
 public:
-    // Used for batch execute
+    // Constructor by using QueryFragmentsCtx
     FragmentExecState(
         const TUniqueId& query_id,
         const TUniqueId& instance_id,
         int backend_num,
         ExecEnv* exec_env,
-        std::shared_ptr<BatchFragmentsCtx> batch_ctx);
+        std::shared_ptr<QueryFragmentsCtx> fragments_ctx);
 
     FragmentExecState(
         const TUniqueId& query_id,
@@ -142,8 +142,8 @@ public:
 
     int get_timeout_second() const { return _timeout_second; } 
 
-    std::shared_ptr<BatchFragmentsCtx> get_batch_ctx() {
-        return _batch_ctx;
+    std::shared_ptr<QueryFragmentsCtx> get_fragments_ctx() {
+        return _fragments_ctx;
     }
 
 private:
@@ -172,8 +172,8 @@ private:
 
     std::unique_ptr<std::thread> _exec_thread;
 
-    // This context is shared by all fragments in a batch
-    std::shared_ptr<BatchFragmentsCtx> _batch_ctx;
+    // This context is shared by all fragments of this host in a query
+    std::shared_ptr<QueryFragmentsCtx> _fragments_ctx;
 };
 
 FragmentExecState::FragmentExecState(
@@ -181,7 +181,7 @@ FragmentExecState::FragmentExecState(
         const TUniqueId& fragment_instance_id,
         int backend_num,
         ExecEnv* exec_env,
-        std::shared_ptr<BatchFragmentsCtx> batch_ctx) :
+        std::shared_ptr<QueryFragmentsCtx> fragments_ctx) :
             _query_id(query_id),
             _fragment_instance_id(fragment_instance_id),
             _backend_num(backend_num),
@@ -189,9 +189,9 @@ FragmentExecState::FragmentExecState(
             _executor(exec_env, boost::bind<void>(
                     boost::mem_fn(&FragmentExecState::coordinator_callback), this, _1, _2, _3)),
             _timeout_second(-1),
-            _batch_ctx(batch_ctx) {
+            _fragments_ctx(fragments_ctx) {
     _start_time = DateTimeValue::local_time();
-    _coord_addr = _batch_ctx->coord_addr;
+    _coord_addr = _fragments_ctx->coord_addr;
 }
 
 FragmentExecState::FragmentExecState(
@@ -219,16 +219,16 @@ Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
         _timeout_second = params.query_options.query_timeout;
     }
 
-    if (_batch_ctx == nullptr) {
+    if (_fragments_ctx == nullptr) {
         if (params.__isset.resource_info) {
             set_group(params.resource_info);
         }
     }
 
-    if (_batch_ctx == nullptr) {
+    if (_fragments_ctx == nullptr) {
         return _executor.prepare(params);
     } else {
-        return _executor.prepare(params, _batch_ctx.get());
+        return _executor.prepare(params, _fragments_ctx.get());
     }
 }
 
@@ -401,7 +401,7 @@ void FragmentExecState::coordinator_callback(
 FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         : _exec_env(exec_env),
           _fragment_map(),
-          _batch_ctx_map(),
+          _fragments_ctx_map(),
           _stop_background_threads_latch(1) {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
     INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
@@ -439,7 +439,7 @@ FragmentMgr::~FragmentMgr() {
     {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.clear();
-        _batch_ctx_map.clear();
+        _fragments_ctx_map.clear();
     }
 }
 
@@ -452,11 +452,11 @@ void FragmentMgr::_exec_actual(
 
     exec_state->execute();
 
-    std::shared_ptr<BatchFragmentsCtx> batch_ctx = exec_state->get_batch_ctx();
+    std::shared_ptr<QueryFragmentsCtx> fragments_ctx = exec_state->get_fragments_ctx();
     bool all_done = false;
-    if (batch_ctx != nullptr) {
+    if (fragments_ctx != nullptr) {
         // decrease the number of unfinished fragments
-        all_done = batch_ctx->countdown();
+        all_done = fragments_ctx->countdown();
     }
 
     // remove exec state after this fragment finished
@@ -464,7 +464,7 @@ void FragmentMgr::_exec_actual(
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.erase(exec_state->fragment_instance_id());
         if (all_done) {
-            _batch_ctx_map.erase(batch_ctx->query_id);
+            _fragments_ctx_map.erase(fragments_ctx->query_id);
         }
     }
 
@@ -500,56 +500,56 @@ Status FragmentMgr::exec_plan_fragment(
                     _exec_env,
                     params.coord));
     } else {
-        std::shared_ptr<BatchFragmentsCtx> batch_ctx;
+        std::shared_ptr<QueryFragmentsCtx> fragments_ctx;
         if (params.is_simplified_param) {
-            // Get common components from _batch_ctx_map
+            // Get common components from _fragments_ctx_map
             std::lock_guard<std::mutex> lock(_lock);
-            auto search = _batch_ctx_map.find(params.params.query_id);
-            if (search == _batch_ctx_map.end()) {
+            auto search = _fragments_ctx_map.find(params.params.query_id);
+            if (search == _fragments_ctx_map.end()) {
                 return Status::InternalError(strings::Substitute(
-                            "Failed to get batch context. Query may be timeout or be cancelled. host: ",
+                            "Failed to get query fragments context. Query may be timeout or be cancelled. host: ",
                             BackendOptions::get_localhost()));
             }
-            batch_ctx = search->second;
+            fragments_ctx = search->second;
         } else {
             // This may be a first fragment request of the query.
-            // Create the batch context
-            batch_ctx.reset(new BatchFragmentsCtx(params.fragment_num_on_host));
-            batch_ctx->query_id = params.params.query_id;
-            RETURN_IF_ERROR(DescriptorTbl::create(&(batch_ctx->obj_pool), params.desc_tbl, &(batch_ctx->desc_tbl)));
-            batch_ctx->coord_addr = params.coord;
-            batch_ctx->query_globals = params.query_globals;
+            // Create the query fragments context.
+            fragments_ctx.reset(new QueryFragmentsCtx(params.fragment_num_on_host));
+            fragments_ctx->query_id = params.params.query_id;
+            RETURN_IF_ERROR(DescriptorTbl::create(&(fragments_ctx->obj_pool), params.desc_tbl, &(fragments_ctx->desc_tbl)));
+            fragments_ctx->coord_addr = params.coord;
+            fragments_ctx->query_globals = params.query_globals;
 
             if (params.__isset.resource_info) {
-                batch_ctx->user = params.resource_info.user;
-                batch_ctx->group = params.resource_info.group;
-                batch_ctx->set_rsc_info = true;
+                fragments_ctx->user = params.resource_info.user;
+                fragments_ctx->group = params.resource_info.group;
+                fragments_ctx->set_rsc_info = true;
             }
 
             if (params.__isset.query_options) {
-                batch_ctx->timeout_second = params.query_options.query_timeout;
+                fragments_ctx->timeout_second = params.query_options.query_timeout;
             }
             
             {
-                // Find _batch_ctx_map again, in case some other request has already
-                // create the batch context
+                // Find _fragments_ctx_map again, in case some other request has already
+                // create the query fragments context.
                 std::lock_guard<std::mutex> lock(_lock);
-                auto search = _batch_ctx_map.find(params.params.query_id);
-                if (search == _batch_ctx_map.end()) {
-                    _batch_ctx_map.insert(std::make_pair(batch_ctx->query_id, batch_ctx));
+                auto search = _fragments_ctx_map.find(params.params.query_id);
+                if (search == _fragments_ctx_map.end()) {
+                    _fragments_ctx_map.insert(std::make_pair(fragments_ctx->query_id, fragments_ctx));
                 } else {
-                    // Already has a batch context, use it
-                    batch_ctx = search->second;
+                    // Already has a query fragmentscontext, use it
+                    fragments_ctx = search->second;
                 }
             }
         }
         
         exec_state.reset(new FragmentExecState(
-                    batch_ctx->query_id,
+                    fragments_ctx->query_id,
                     params.params.fragment_instance_id,
                     params.backend_num,
                     _exec_env,
-                    batch_ctx));
+                    fragments_ctx));
     }
 
     RETURN_IF_ERROR(exec_state->prepare(params));
@@ -602,9 +602,9 @@ void FragmentMgr::cancel_worker() {
                     to_cancel.push_back(it.second->fragment_instance_id());
                 }
             }
-            for (auto it = _batch_ctx_map.begin(); it != _batch_ctx_map.end();) {
+            for (auto it = _fragments_ctx_map.begin(); it != _fragments_ctx_map.end();) {
                 if (it->second->is_timeout(now)) {
-                    it = _batch_ctx_map.erase(it);
+                    it = _fragments_ctx_map.erase(it);
                 } else {
                     ++it;
                 }

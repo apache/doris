@@ -70,7 +70,7 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 
 Status PlanFragmentExecutor::prepare(
         const TExecPlanFragmentParams& request,
-        const BatchFragmentsCtx* batch_ctx) {
+        const QueryFragmentsCtx* fragments_ctx) {
     const TPlanFragmentExecParams& params = request.params;
     _query_id = params.query_id;
 
@@ -79,7 +79,7 @@ Status PlanFragmentExecutor::prepare(
                << " backend_num=" << request.backend_num;
     // VLOG(2) << "request:\n" << apache::thrift::ThriftDebugString(request);
 
-    const TQueryGlobals& query_globals = batch_ctx == nullptr ? request.query_globals : batch_ctx->query_globals;
+    const TQueryGlobals& query_globals = fragments_ctx == nullptr ? request.query_globals : fragments_ctx->query_globals;
     _runtime_state.reset(new RuntimeState(
             params, request.query_options, query_globals, _exec_env));
 
@@ -143,8 +143,8 @@ Status PlanFragmentExecutor::prepare(
 
     // set up desc tbl
     DescriptorTbl* desc_tbl = nullptr;
-    if (batch_ctx != nullptr) {
-        desc_tbl = batch_ctx->desc_tbl;
+    if (fragments_ctx != nullptr) {
+        desc_tbl = fragments_ctx->desc_tbl;
     } else {
         DCHECK(request.__isset.desc_tbl);
         RETURN_IF_ERROR(DescriptorTbl::create(obj_pool(), request.desc_tbl, &desc_tbl));

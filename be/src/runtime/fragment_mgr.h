@@ -38,7 +38,7 @@
 
 namespace doris {
 
-class BatchFragmentsCtx;
+class QueryFragmentsCtx;
 class ExecEnv;
 class FragmentExecState;
 class PlanFragmentExecutor;
@@ -91,8 +91,8 @@ private:
 
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
-    // query id -> BatchFragmentsCtx
-    std::unordered_map<TUniqueId, std::shared_ptr<BatchFragmentsCtx>> _batch_ctx_map;
+    // query id -> QueryFragmentsCtx
+    std::unordered_map<TUniqueId, std::shared_ptr<QueryFragmentsCtx>> _fragments_ctx_map;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _cancel_thread;
