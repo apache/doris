@@ -262,23 +262,12 @@ struct TExecPlanFragmentParams {
   13: optional i64 load_job_id
   14: optional TLoadErrorHubInfo load_error_hub_info
 
+  // The total number of fragments on same BE host
   15: optional i32 fragment_num_on_host;
 
   // If true, all @Common components is unset and should be got from BE's cache
   // If this field is unset or it set to false, all @Common components is set.
   16: optional bool is_simplified_param
-}
-
-// A set of TExecPlanFragmentParams.
-// The common part in a set of TExecPlanFragmentParams is extracted
-// to avoid sending duplicate content in the query plan.
-struct TExecPlanFragmentParamsList {
-  1: optional Types.TUniqueId query_id
-  2: optional Descriptors.TDescriptorTable desc_tbl
-  3: optional Types.TNetworkAddress coord
-  4: optional TQueryGlobals query_globals
-  5: optional Types.TResourceInfo resource_info
-  6: optional list<TExecPlanFragmentParams> paramsList
 }
 
 struct TExecPlanFragmentResult {
