@@ -455,7 +455,7 @@ void FragmentMgr::_exec_actual(
     std::shared_ptr<BatchFragmentsCtx> batch_ctx = exec_state->get_batch_ctx();
     bool all_done = false;
     if (batch_ctx != nullptr) {
-        all_done = batch_ctx->remove_fragment_id(exec_state->fragment_instance_id());
+        // all_done = batch_ctx->remove_fragment_id(exec_state->fragment_instance_id());
     }
 
     // remove exec state after this fragment finished
