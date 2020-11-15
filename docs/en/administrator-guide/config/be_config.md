@@ -146,7 +146,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `be_service_threads`
 
-* * Type: int32
+* Type: int32
 * Description: The number of execution threads of the thrift server service on BE which represents the number of threads that can be used to execute FE requests.
 * Default value: 64
 
@@ -186,6 +186,7 @@ User can set this configuration to a larger value to get better QPS performance.
 * Type: string
 * Description: The largest allocatable memory of the buffer pool
 * Default value: 80G
+
 The maximum amount of memory available in the BE buffer pool. The buffer pool is a new memory management structure of BE, which manages the memory by the buffer page and enables spill data to disk. The memory for all concurrent queries will be allocated from the buffer pool. The current buffer pool only works on **AggregationNode** and **ExchangeNode**.
 
 ### `check_consistency_worker_count`
@@ -677,9 +678,9 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 * Description: data root path, separate by ';'.you can specify the storage medium of each root path, HDD or SSD. you can add capacity limit at the end of each root path, seperate by ','
 eg: storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris
 
-​	1./home/disk1/doris.HDD, capacity limit is 50GB, HDD;
-​	2./home/disk2/doris.SSD, capacity limit is 1GB, SSD;
-​	3./home/disk2/doris, capacity limit is disk capacity, HDD(default)
+    * 1./home/disk1/doris.HDD, capacity limit is 50GB, HDD;
+    * 2./home/disk2/doris.SSD, capacity limit is 1GB, SSD;
+    * 3./home/disk2/doris, capacity limit is disk capacity, HDD(default)
 
 * Default: ${DORIS_HOME}
 
