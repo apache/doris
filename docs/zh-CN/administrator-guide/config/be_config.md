@@ -178,6 +178,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 类型：string
 * 描述：buffer pool之中最大的可分配内存
 * 默认值：80G
+
 BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构，通过buffer page来进行内存管理，并能够实现数据的落盘。并发的所有查询的内存申请都会通过buffer pool来申请。当前buffer pool仅作用在**AggregationNode**与**ExchangeNode**。
 
 ### `check_consistency_worker_count`
@@ -673,9 +674,9 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述：BE数据存储的目录,多目录之间用;分隔。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过,隔开。
 eg：storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris
 
-​       1./home/disk1/doris.HDD, 存储限制为50GB, HDD;
-​       2./home/disk2/doris.SSD，存储限制为1GB，SSD；
-​       3./home/disk2/doris，存储限制为磁盘容量，默认为HDD
+	* 1./home/disk1/doris.HDD, 存储限制为50GB, HDD;
+	* 2./home/disk2/doris.SSD，存储限制为1GB，SSD；
+	* 3./home/disk2/doris，存储限制为磁盘容量，默认为HDD
 
 * 默认值：${DORIS_HOME}
 
