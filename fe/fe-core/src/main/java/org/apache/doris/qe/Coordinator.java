@@ -88,9 +88,11 @@ import org.apache.thrift.TException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.HashMultiset;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
 
 import java.text.DateFormat;
@@ -449,6 +451,12 @@ public class Coordinator {
     private void sendFragment() throws TException, RpcException, UserException {
         lock();
         try {
+            Multiset<TNetworkAddress> hostCounter = HashMultiset.create();
+            for (FragmentExecParams params : fragmentExecParamsMap.values()) {
+                for (FInstanceExecParam fi : params.instanceExecParams) {
+                    hostCounter.add(fi.host);
+                }
+            }
             // Execute all instances from up to bottom
             // NOTICE: We must ensure that these fragments are executed sequentially,
             // otherwise the data dependency between the fragments will be destroyed.
@@ -484,10 +492,10 @@ public class Coordinator {
 
                 int instanceId = 0;
                 for (TExecPlanFragmentParams tParam : tParams) {
-                    // TODO: pool of pre-formatted BackendExecStates?
                     BackendExecState execState = new BackendExecState(fragment.getFragmentId(), instanceId++,
                             profileFragmentId, tParam, this.addressToBackendID);
                     execState.unsetFields();
+                    tParam.setFragmentNumOnHost(hostCounter.count(execState.address));
 
                     backendExecStates.add(execState);
                     if (needCheckBackendState) {

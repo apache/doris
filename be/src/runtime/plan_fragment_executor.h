@@ -280,7 +280,13 @@ private:
 class BatchFragmentsCtx {
     
 public:
-    BatchFragmentsCtx() {}
+    BatchFragmentsCtx(int total_fragment_num)
+        : fragment_num(total_fragment_num){
+    }
+
+    public boolean countdown() {
+        return fragment_num.fetch_sub(1) == 1;
+    }
 
 public:
     TUniqueId query_id;
@@ -290,6 +296,9 @@ public:
     std::string group;
     TNetworkAddress coord_addr;
     TQueryGlobals query_globals;
+
+    std::atomic<int> fragment_num; 
+
     ObjectPool obj_pool;
 };
 
