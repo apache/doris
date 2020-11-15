@@ -282,18 +282,6 @@ class BatchFragmentsCtx {
 public:
     BatchFragmentsCtx() {}
 
-    // Return true if _fragment_ids is empty
-    bool remove_fragment_id(const TUniqueId& fragment_id) {
-        std::lock_guard<SpinLock> l(_lock);
-        _fragment_ids.erase(fragment_id);
-        return _fragment_ids.empty();
-    }
-
-    void add_fragment_id(const TUniqueId& fragment_id) {
-        // No need to lock, because only one thread will call this
-        _fragment_ids.insert(fragment_id);
-    }
-
 public:
     TUniqueId query_id;
     DescriptorTbl* desc_tbl;
@@ -303,10 +291,6 @@ public:
     TNetworkAddress coord_addr;
     TQueryGlobals query_globals;
     ObjectPool obj_pool;
-
-private:
-    SpinLock _lock; // lock to protect _fragment_ids
-    std::unordered_set<TUniqueId> _fragment_ids;
 };
 
 }

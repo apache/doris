@@ -463,7 +463,7 @@ void FragmentMgr::_exec_actual(
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.erase(exec_state->fragment_instance_id());
         if (all_done) {
-            _batch_ctx_map.erase(batch_ctx->query_id);
+            // _batch_ctx_map.erase(batch_ctx->query_id);
         }
     }
 
@@ -542,7 +542,6 @@ Status FragmentMgr::exec_plan_fragment(
                     params.backend_num,
                     _exec_env,
                     batch_ctx));
-        batch_ctx->add_fragment_id(params.params.fragment_instance_id);
     }
 
     RETURN_IF_ERROR(exec_state->prepare(params));

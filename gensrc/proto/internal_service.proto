@@ -247,8 +247,6 @@ message PProxyResult {
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
-    rpc exec_plan_fragment_v3(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
-    rpc batch_exec_plan_fragments(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
