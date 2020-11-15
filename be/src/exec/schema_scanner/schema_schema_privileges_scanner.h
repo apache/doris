@@ -34,6 +34,7 @@ public:
 private:
     Status get_new_table();
     Status fill_one_row(Tuple *tuple, MemPool *pool);
+    Status fill_one_col(const std::string* src, MemPool *pool, void* slot);
 
     int _priv_index;
     TListPrivilegesResult _priv_result;

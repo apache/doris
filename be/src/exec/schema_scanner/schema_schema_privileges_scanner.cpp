@@ -53,69 +53,65 @@ Status SchemaSchemaPrivilegesScanner::start(RuntimeState *state) {
 Status SchemaSchemaPrivilegesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     // set all bit to not null
     memset((void *)tuple, 0, _tuple_desc->num_null_bytes());
-    const TPrivilegeStatus& tbl_priv_status = _priv_result.privileges[_priv_index];
+    const TPrivilegeStatus& priv_status = _priv_result.privileges[_priv_index];
     // grantee
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* src = &tbl_priv_status.grantee;
-        str_slot->len = src->length();
-        str_slot->ptr = (char *)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
+        Status status = fill_one_col(&priv_status.grantee, pool,
+                tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset()));
+        if (!status.ok()) {
+            return status;
         }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
     }
     // catalog
-    //This value is always def.
+    // This value is always def.
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string definer = "def";
-        str_slot->len = definer.length();
-        str_slot->ptr = (char *)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
+        std::string definer = "def";
+        Status status = fill_one_col(&definer, pool,
+                tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset()));
+        if (!status.ok()) {
+            return status;
         }
-        memcpy(str_slot->ptr, definer.c_str(), str_slot->len);
     }
     // schema
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* src = &tbl_priv_status.schema;
-        str_slot->len = src->length();
-        str_slot->ptr = (char *)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
+        Status status = fill_one_col(&priv_status.schema, pool,
+                tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset()));
+        if (!status.ok()) {
+            return status;
         }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
     }
     // privilege type
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* src = &tbl_priv_status.privilege_type;
-        str_slot->len = src->length();
-        str_slot->ptr = (char *)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
+        Status status = fill_one_col(&priv_status.privilege_type, pool,
+                tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset()));
+        if (!status.ok()) {
+            return status;
         }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
     }
     // is grantable
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string* src = &tbl_priv_status.is_grantable;
-        str_slot->len = src->length();
-        str_slot->ptr = (char *)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
+        Status status = fill_one_col(&priv_status.is_grantable, pool,
+                tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset()));
+        if (!status.ok()) {
+            return status;
         }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
     }
     _priv_index++;
+    return Status::OK();
+}
+
+Status SchemaSchemaPrivilegesScanner::fill_one_col(const std::string* src, 
+        MemPool *pool, void *slot) {
+    if (NULL == slot || NULL == pool || NULL == src) {
+        return Status::InternalError("input pointer is NULL.");
+    }
+    StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+    str_slot->len = src->length();
+    str_slot->ptr = (char *)pool->allocate(str_slot->len);
+    if (NULL == str_slot->ptr) {
+        return Status::InternalError("Allocate memcpy failed.");
+    }
+    memcpy(str_slot->ptr, src->c_str(), str_slot->len);
     return Status::OK();
 }
 
