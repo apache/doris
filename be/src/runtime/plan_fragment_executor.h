@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "common/object_pool.h"
+#include "runtime/datetime_value.h"
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "util/hash_util.hpp"
@@ -281,11 +282,23 @@ class BatchFragmentsCtx {
     
 public:
     BatchFragmentsCtx(int total_fragment_num)
-        : fragment_num(total_fragment_num){
+        : fragment_num(total_fragment_num),
+          timeout_second(-1) {
+        _start_time = DateTimeValue::local_time();
     }
 
-    public boolean countdown() {
+    bool countdown() {
         return fragment_num.fetch_sub(1) == 1;
+    }
+
+    bool is_timeout(const DateTimeValue& now) const {
+        if (timeout_second <= 0) {
+            return false;
+        }
+        if (now.second_diff(_start_time) > timeout_second) {
+            return true;
+        }
+        return false;
     }
 
 public:
@@ -297,9 +310,20 @@ public:
     TNetworkAddress coord_addr;
     TQueryGlobals query_globals;
 
+    /// In the current implementation, for multiple fragments executed by a query on the same BE node,
+    /// we store some common components in BatchFragmentsCtx, and save BatchFragmentsCtx in FragmentMgr.
+    /// When all Fragments are executed, BatchFragmentsCtx needs to be deleted from FragmentMgr.
+    /// Here we use a counter to store the number of Fragments that have not yet been completed,
+    /// and after each Fragment is completed, this value will be reduced by one.
+    /// When the last Fragment is completed, the counter is cleared, and the worker thread of the last Fragment
+    /// will clean up BatchFragmentsCtx.
     std::atomic<int> fragment_num; 
-
+    int timeout_second;
     ObjectPool obj_pool;
+
+private:
+    DateTimeValue _start_time;
+
 };
 
 }

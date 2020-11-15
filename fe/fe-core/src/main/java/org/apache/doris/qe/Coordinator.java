@@ -495,6 +495,8 @@ public class Coordinator {
                     BackendExecState execState = new BackendExecState(fragment.getFragmentId(), instanceId++,
                             profileFragmentId, tParam, this.addressToBackendID);
                     execState.unsetFields();
+                    // Each tParam will set the total number of Fragments that need to be executed on the same BE,
+                    // and the BE will determine whether all Fragments have been executed based on this information.
                     tParam.setFragmentNumOnHost(hostCounter.count(execState.address));
 
                     backendExecStates.add(execState);
@@ -565,6 +567,7 @@ public class Coordinator {
 
                 profileFragmentId += 1;
             }
+
             attachInstanceProfileToFragmentProfile();
         } finally {
             unlock();

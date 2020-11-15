@@ -455,7 +455,8 @@ void FragmentMgr::_exec_actual(
     std::shared_ptr<BatchFragmentsCtx> batch_ctx = exec_state->get_batch_ctx();
     bool all_done = false;
     if (batch_ctx != nullptr) {
-        all_done = batch_ctx->count_down();
+        // decrease the number of unfinished fragments
+        all_done = batch_ctx->countdown();
     }
 
     // remove exec state after this fragment finished
@@ -505,7 +506,9 @@ Status FragmentMgr::exec_plan_fragment(
             std::lock_guard<std::mutex> lock(_lock);
             auto search = _batch_ctx_map.find(params.params.query_id);
             if (search == _batch_ctx_map.end()) {
-                return Status::InternalError("Failed to find batch context");
+                return Status::InternalError(strings::Substitute(
+                            "Failed to get batch context. Query may be timeout or be cancelled. host: ",
+                            BackendOptions::get_localhost()));
             }
             batch_ctx = search->second;
         } else {
@@ -521,6 +524,10 @@ Status FragmentMgr::exec_plan_fragment(
                 batch_ctx->user = params.resource_info.user;
                 batch_ctx->group = params.resource_info.group;
                 batch_ctx->set_rsc_info = true;
+            }
+
+            if (params.__isset.query_options) {
+                batch_ctx->timeout_second = params.query_options.query_timeout;
             }
             
             {
@@ -593,6 +600,13 @@ void FragmentMgr::cancel_worker() {
             for (auto& it : _fragment_map) {
                 if (it.second->is_timeout(now)) {
                     to_cancel.push_back(it.second->fragment_instance_id());
+                }
+            }
+            for (auto it = _batch_ctx_map.begin(); it != _batch_ctx_map.end();) {
+                if (it->second->is_timeout(now)) {
+                    it = _batch_ctx_map.erase(it);
+                } else {
+                    ++it;
                 }
             }
         }
