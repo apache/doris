@@ -119,7 +119,7 @@ ColumnWriter* ColumnWriter::create(uint32_t column_id,
         break;
     }
     case OLAP_FIELD_TYPE_STRUCT:
-    case OLAP_FIELD_TYPE_LIST:
+    case OLAP_FIELD_TYPE_ARRAY:
     case OLAP_FIELD_TYPE_MAP:
     default: {
         LOG(WARNING) << "Unsupported field type. field=" << column.name()

@@ -31,6 +31,7 @@ public:
     TabletColumn();
     TabletColumn(FieldAggregationMethod agg, FieldType type);
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable);
+    TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable, int32_t unique_id, size_t length);
     void init_from_pb(const ColumnPB& column);
     void to_schema_pb(ColumnPB* column);
 
@@ -52,6 +53,17 @@ public:
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() { return _visible; }
+    /**
+     * Add a sub column.
+     */
+    void add_sub_column(TabletColumn& sub_column);
+
+    uint32_t get_subtype_count() const {
+        return _sub_column_count;
+    }
+    const TabletColumn& get_sub_column(uint32_t i) const {
+        return _sub_columns[i];
+    }
 
     friend bool operator==(const TabletColumn& a, const TabletColumn& b);
     friend bool operator!=(const TabletColumn& a, const TabletColumn& b);
@@ -88,6 +100,10 @@ private:
 
     bool _has_bitmap_index = false;
     bool _visible = true;
+
+    TabletColumn* _parent = nullptr;
+    std::vector<TabletColumn> _sub_columns;
+    uint32_t _sub_column_count = 0;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
