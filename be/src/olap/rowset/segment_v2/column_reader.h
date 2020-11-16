@@ -106,7 +106,6 @@ public:
     bool is_nullable() const { return _meta.is_nullable(); }
 
     const EncodingInfo* encoding_info() const { return _encoding_info; }
-    const TypeInfo* type_info() const { return _type_info; }
 
     bool has_zone_map() const { return _zone_map_index_meta != nullptr; }
     bool has_bitmap_index() const { return _bitmap_index_meta != nullptr; }
@@ -136,6 +135,7 @@ private:
                  uint64_t num_rows,
                  const std::string& file_name);
     Status init();
+
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
     // May be called multiple times, subsequent calls will no op.
@@ -172,15 +172,15 @@ private:
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
 private:
-    ColumnReaderOptions _opts;
     ColumnMetaPB _meta;
+    ColumnReaderOptions _opts;
     uint64_t _num_rows;
     std::string _file_name;
 
-    // initialized in init()
-    const TypeInfo* _type_info = nullptr;
-    const EncodingInfo* _encoding_info = nullptr;
-    const BlockCompressionCodec* _compress_codec = nullptr;
+    const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
+    const EncodingInfo* _encoding_info = nullptr; // initialized in init(), used for create PageDecoder
+    const BlockCompressionCodec* _compress_codec = nullptr; // initialized in init()
+
     // meta for various column indexes (null if the index is absent)
     const ZoneMapIndexPB* _zone_map_index_meta = nullptr;
     const OrdinalIndexPB* _ordinal_index_meta = nullptr;
@@ -192,13 +192,15 @@ private:
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
+
+    std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 };
 
 // Base iterator to read one column data
 class ColumnIterator {
 public:
-    ColumnIterator() { }
-    virtual ~ColumnIterator() { }
+    ColumnIterator() = default;
+    virtual ~ColumnIterator() = default;
 
     virtual Status init(const ColumnIteratorOptions& opts) {
         _opts = opts;
@@ -214,10 +216,15 @@ public:
     // then returns false.
     virtual Status seek_to_ordinal(ordinal_t ord) = 0;
 
+    Status next_batch(size_t* n, ColumnBlockView* dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
     // After one seek, we can call this function many times to read data
     // into ColumnBlockView. when read string type data, memory will allocated
     // from MemPool
-    virtual Status next_batch(size_t* n, ColumnBlockView* dst) = 0;
+    virtual Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) = 0;
 
     virtual ordinal_t get_current_ordinal() const = 0;
 
@@ -252,16 +259,17 @@ protected:
 };
 
 // This iterator is used to read column data from file
-class FileColumnIterator : public ColumnIterator {
+// for scalar type
+class FileColumnIterator final : public ColumnIterator {
 public:
-    FileColumnIterator(ColumnReader* reader);
+    explicit FileColumnIterator(ColumnReader* reader);
     ~FileColumnIterator() override;
 
     Status seek_to_first() override;
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override;
+    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
@@ -273,6 +281,10 @@ public:
                                       RowRanges* row_ranges) override;
 
     Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) override;
+
+    ParsedPage* get_current_page() { return _page.get(); }
+
+    bool is_nullable() { return _reader->is_nullable(); }
 
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page);
@@ -305,15 +317,37 @@ private:
     std::unordered_set<uint32_t> _delete_partial_satisfied_pages;
 };
 
+class ArrayFileColumnIterator final : public ColumnIterator {
+public:
+    explicit ArrayFileColumnIterator(FileColumnIterator* offset_iterator, ColumnIterator* item_iterator);
+
+    ~ArrayFileColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
+
+    Status seek_to_first() override { return _offset_iterator->seek_to_first(); };
+
+    Status seek_to_ordinal(ordinal_t ord) override { return _offset_iterator->seek_to_ordinal(ord); };
+
+    ordinal_t get_current_ordinal() const override { return _offset_iterator->get_current_ordinal(); }
+
+private:
+    std::unique_ptr<FileColumnIterator> _offset_iterator;
+    std::unique_ptr<ColumnIterator> _item_iterator;
+    std::unique_ptr<ColumnVectorBatch> _offset_batch;
+};
+
 // This iterator is used to read default value column
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, FieldType type, size_t schema_length)
+                               bool is_nullable, TypeInfo* type_info, size_t schema_length)
             : _has_default_value(has_default_value),
               _default_value(default_value),
               _is_nullable(is_nullable),
-              _type(type),
+              _type_info(type_info),
               _schema_length(schema_length),
               _is_default_value_null(false),
               _type_size(0),
@@ -332,7 +366,7 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override;
+    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
@@ -340,7 +374,7 @@ private:
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;
-    FieldType _type;
+    TypeInfo* _type_info;
     size_t _schema_length;
     bool _is_default_value_null;
     size_t _type_size;
