@@ -73,6 +73,7 @@ Status UnionNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
+    _materialize_exprs_evaluate_timer = ADD_TIMER(_runtime_profile, "MaterializeExprsEvaluateTimer");
     _codegend_union_materialize_batch_fns.resize(_child_expr_lists.size());
     // Prepare const expr lists.
     for (const vector<ExprContext*>& exprs : _const_expr_lists) {
@@ -180,6 +181,7 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
             }
             DCHECK_EQ(_codegend_union_materialize_batch_fns.size(), _children.size());
             if (_codegend_union_materialize_batch_fns[_child_idx] == nullptr) {
+                SCOPED_TIMER(_materialize_exprs_evaluate_timer);
                 materialize_batch(row_batch, &tuple_buf);
             } else {
                 _codegend_union_materialize_batch_fns[_child_idx](this, row_batch, &tuple_buf);
@@ -296,6 +298,19 @@ Status UnionNode::close(RuntimeState* state) {
         Expr::close(exprs, state);
     }
     return ExecNode::close(state);
+}
+
+void UnionNode::debug_string(int indentation_level, std::stringstream* out) const {
+    *out << string(indentation_level * 2, ' ');
+    *out << "_union(_first_materialized_child_idx=" << _first_materialized_child_idx
+         << " _row_descriptor=[" <<  row_desc().debug_string() << "] "
+         << " _child_expr_lists=[";
+    for (int i = 0; i < _child_expr_lists.size(); ++i) {
+        *out << Expr::debug_string(_child_expr_lists[i]) << ", ";
+    }
+    *out << "] \n";
+    ExecNode::debug_string(indentation_level, out);
+    *out << ")" << std::endl;
 }
 
 }
