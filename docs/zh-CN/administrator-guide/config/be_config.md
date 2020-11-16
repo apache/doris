@@ -641,6 +641,14 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `thrift_rpc_timeout_ms`
 
+### `thrift_server_type_of_fe`
+
+该配置表示FE的Thrift服务使用的服务模型, 类型为string, 大小写不敏感,该参数需要和fe的thrift_server_type参数的设置保持一致。目前该参数的取值有两个,`THREADED`和`THREAD_POOL`。
+
+若该参数为`THREADED`, 该模型为非阻塞式I/O模型，
+
+若该参数为`THREAD_POOL`, 该模型为阻塞式I/O模型。
+
 ### `trash_file_expire_time_sec`
 
 ### `txn_commit_rpc_timeout_ms`

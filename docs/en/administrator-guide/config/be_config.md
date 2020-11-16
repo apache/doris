@@ -646,6 +646,14 @@ If the system is found to be in a high-stress scenario and a large number of thr
 
 ### `thrift_rpc_timeout_ms`
 
+### `thrift_server_type_of_fe`
+
+This configuration indicates the service model used by FE's Thrift service. The type is string and is case-insensitive. This parameter needs to be consistent with the setting of fe's thrift_server_type parameter. Currently there are two values for this parameter, `THREADED` and `THREAD_POOL`.
+
+If the parameter is `THREADED`, the model is a non-blocking I/O model,
+
+If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
+
 ### `trash_file_expire_time_sec`
 
 ### `txn_commit_rpc_timeout_ms`
