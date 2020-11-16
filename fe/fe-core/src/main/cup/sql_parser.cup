@@ -652,7 +652,7 @@ stmt ::=
     {: RESULT = stmt; :}
     | backup_stmt : stmt
     {: RESULT = stmt; :}
-	| restore_stmt : stmt
+    | restore_stmt : stmt
     {: RESULT = stmt; :}
     | unsupported_stmt : stmt
     {: RESULT = stmt; :}
@@ -676,7 +676,7 @@ cluster_name ::=
     ident:cluster
     {:
         RESULT = new ClusterName(cluster, "");
-	:}
+    :}
     | ident:cluster DOT ident:db
     {:
         RESULT = new ClusterName(cluster, db);
@@ -1492,7 +1492,7 @@ opt_col_mapping_list ::=
     :}
     | KW_SET LPAREN expr_list:list RPAREN
     {:
-    	RESULT = list;
+        RESULT = list;
     :}
     ;
 
@@ -1898,15 +1898,15 @@ opt_keys ::=
     ;
 
 opt_single_range_partition_desc_list ::=
-	/* Empty */
+    /* Empty */
     {:
         RESULT = null;
     :}
-	| single_range_partition_desc_list:list
-	{:
-		RESULT = list;
-	:}
-	;
+    | single_range_partition_desc_list:list
+    {:
+        RESULT = list;
+    :}
+    ;
 
 single_range_partition_desc_list ::=
     single_range_partition_desc_list:list COMMA single_range_partition_desc:desc
@@ -2069,14 +2069,14 @@ opt_default_value ::=
     ;
 
 opt_is_key ::=
-	{:
-		RESULT = false;
-	:}
-	| KW_KEY:key
-	{:
-		RESULT = true;
-	:}
-	;
+    {:
+        RESULT = false;
+    :}
+    | KW_KEY:key
+    {:
+        RESULT = true;
+    :}
+    ;
 
 column_definition ::=
     ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_default_value:defaultValue opt_comment:comment
@@ -2179,10 +2179,10 @@ show_stmt ::=
     ;
 
 show_param ::=
-	KW_WHITELIST
-	{:
-		RESULT = new ShowWhiteListStmt();
-	:}
+    KW_WHITELIST
+    {:
+        RESULT = new ShowWhiteListStmt();
+    :}
     /* show variables */
     | opt_var_type:type KW_VARIABLES opt_wild_where
     {:
@@ -2363,7 +2363,7 @@ show_param ::=
     {:
         RESULT = new ShowDataStmt(dbTblName.getDb(), dbTblName.getTbl());
     :}
-	| opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
+    | opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
         RESULT = new ShowPartitionsStmt(tblName, parser.where, orderByClause, limitClause, tmp);
     :}
@@ -2938,7 +2938,7 @@ insert_source ::=
 backup_stmt ::=
     KW_BACKUP KW_SNAPSHOT job_label:label
     KW_TO ident:repoName
-	KW_ON LPAREN base_table_ref_list:tbls RPAREN
+    KW_ON LPAREN base_table_ref_list:tbls RPAREN
     opt_properties:properties
     {:
         RESULT = new BackupStmt(label, repoName, tbls, properties);
@@ -2949,7 +2949,7 @@ backup_stmt ::=
 restore_stmt ::=
     KW_RESTORE KW_SNAPSHOT job_label:label
     KW_FROM ident:repoName
-	KW_ON LPAREN base_table_ref_list:tbls RPAREN
+    KW_ON LPAREN base_table_ref_list:tbls RPAREN
     opt_properties:properties
     {:
         RESULT = new RestoreStmt(label, repoName, tbls, properties);
