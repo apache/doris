@@ -98,6 +98,39 @@ Status SchemaHelper::show_variables(
                });
 }
 
+Status SchemaHelper::list_table_privilege_status(
+         const std::string& ip,
+         const int32_t port,
+         const TGetTablesParams &request,
+         TListPrivilegesResult *result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(ip, port,
+               [&request, &result] (FrontendServiceConnection& client) {
+                client->listTablePrivilegeStatus(*result, request);
+               });
+}
+
+Status SchemaHelper::list_schema_privilege_status(
+         const std::string& ip,
+         const int32_t port,
+         const TGetTablesParams &request,
+         TListPrivilegesResult *result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(ip, port,
+               [&request, &result] (FrontendServiceConnection& client) {
+                client->listSchemaPrivilegeStatus(*result, request);
+               });
+}
+
+Status SchemaHelper::list_user_privilege_status(
+         const std::string& ip,
+         const int32_t port,
+         const TGetTablesParams &request,
+         TListPrivilegesResult *result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(ip, port,
+               [&request, &result] (FrontendServiceConnection& client) {
+                client->listUserPrivilegeStatus(*result, request);
+               });
+}
+
 std::string SchemaHelper::extract_db_name(const std::string& full_name) {
     auto found = full_name.find(':');
     if (found == std::string::npos) {
