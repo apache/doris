@@ -325,6 +325,18 @@ struct TGetTablesResult {
   1: list<string> tables
 }
 
+struct TPrivilegeStatus {
+    1: optional string table_name
+    2: optional string privilege_type
+    3: optional string grantee
+    4: optional string schema
+    5: optional string is_grantable
+}
+
+struct TListPrivilegesResult{
+  1: required list<TPrivilegeStatus> privileges
+}
+
 struct TReportExecStatusResult {
   // required in V1
   1: optional Status.TStatus status
@@ -663,6 +675,9 @@ service FrontendService {
     TMasterOpResult forward(TMasterOpRequest params)
 
     TListTableStatusResult listTableStatus(1:TGetTablesParams params)
+    TListPrivilegesResult listTablePrivilegeStatus(1:TGetTablesParams params)
+    TListPrivilegesResult listSchemaPrivilegeStatus(1:TGetTablesParams params)
+    TListPrivilegesResult listUserPrivilegeStatus(1:TGetTablesParams params)
 
     TFeResult updateExportTaskStatus(1:TUpdateExportTaskStatusRequest request)
 

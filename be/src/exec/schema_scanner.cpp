@@ -24,6 +24,11 @@
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
+#include "exec/schema_scanner/schema_table_privileges_scanner.h"
+#include "exec/schema_scanner/schema_schema_privileges_scanner.h"
+#include "exec/schema_scanner/schema_user_privileges_scanner.h"
+
+
 
 namespace doris {
 
@@ -96,6 +101,12 @@ SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
         return new(std::nothrow) SchemaVariablesScanner(TVarType::SESSION);
     case TSchemaTableType::SCH_VIEWS:
         return new(std::nothrow) SchemaViewsScanner();
+    case TSchemaTableType::SCH_TABLE_PRIVILEGES:
+        return new(std::nothrow) SchemaTablePrivilegesScanner();
+    case TSchemaTableType::SCH_SCHEMA_PRIVILEGES:
+        return new(std::nothrow) SchemaSchemaPrivilegesScanner();
+    case TSchemaTableType::SCH_USER_PRIVILEGES:
+        return new(std::nothrow) SchemaUserPrivilegesScanner();
     default:
         return new(std::nothrow) SchemaDummyScanner();
         break;
