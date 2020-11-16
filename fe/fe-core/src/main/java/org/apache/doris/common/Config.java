@@ -763,7 +763,7 @@ public class Config extends ConfigBase {
      * exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
      */
     @ConfField(mutable = true)
-    public static int query_colocate_join_memory_limit_penalty_factor = 8;
+    public static int query_colocate_join_memory_limit_penalty_factor = 1;
 
     /**
      * Deprecated after 0.10
