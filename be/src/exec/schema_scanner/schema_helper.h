@@ -55,6 +55,24 @@ public:
             const TShowVariableRequest &var_params,
             TShowVariableResult *var_result);
 
+    static Status list_table_privilege_status(
+            const std::string& ip,
+            const int32_t port,
+            const TGetTablesParams &table_params,
+            TListPrivilegesResult *privileges_result);
+
+    static Status list_schema_privilege_status(
+            const std::string& ip,
+            const int32_t port,
+            const TGetTablesParams &table_params,
+            TListPrivilegesResult *privileges_result);
+
+    static Status list_user_privilege_status(
+            const std::string& ip,
+            const int32_t port,
+            const TGetTablesParams &table_params,
+            TListPrivilegesResult *privileges_result);
+
     static std::string extract_db_name(const std::string& full_name);
 };
 

@@ -83,6 +83,10 @@ public abstract class PrivTable implements Writable {
         }
     }
 
+    public List<PrivEntry> getEntries() {
+        return entries;
+    }
+
     public void dropEntry(PrivEntry entry) {
         Iterator<PrivEntry> iter = entries.iterator();
         while (iter.hasNext()) {
