@@ -550,7 +550,7 @@ namespace config {
 
     // config for default rowset type
     // Valid configs: ALPHA, BETA
-    CONF_String(default_rowset_type, "ALPHA");
+    CONF_String(default_rowset_type, "BETA");
 
     // Maximum size of a single message body in all protocols
     CONF_Int64(brpc_max_body_size, "209715200");

@@ -1293,4 +1293,12 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String http_api_extra_base_path = "";
+
+    /**
+     * Whether to support the creation of alpha rowset tables.
+     * The default is false and should only be used in emergency situations,
+     * this config should be remove in some future version
+     */
+    @ConfField
+    public static boolean enable_alpha_rowset = false;
 }
