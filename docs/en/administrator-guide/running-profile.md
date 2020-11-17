@@ -83,7 +83,11 @@ Here is a detailed list of  ```query ID, execution time, execution statement``` 
            - MemoryUsed: 0.00 
            - RowsReturnedRate: 811
 ```
-The fragment ID is listed here; ``` hostname ``` show the be node executing the fragment; ```active: 10s270ms```show the total execution time of the node;  ```non child: 0.14%``` show the execution time of the node self except the execution time of the subchild node. Subsequently, the statistics of the child nodes will be printed in turn. **here you can distinguish the parent-child relationship by intent**.
+The fragment ID is listed here; ``` hostname ``` show the be node executing the fragment; ```active: 10s270ms```show the total execution time of the node;  ```non child: 0.14%``` means the execution time of the execution node itself (not including the execution time of child nodes) as a percentage of the total time. 
+
+`PeakMemoryUsage` indicates the peak memory usage of `EXCHANGE_NODE`; `RowsReturned` indicates the number of rows returned by `EXCHANGE_NODE`; `RowsReturnedRate`=`RowsReturned`/`ActiveTime`; the meaning of these three statistics in other `NODE` the same.
+
+Subsequently, the statistics of the child nodes will be printed in turn. **here you can distinguish the parent-child relationship by intent**.
 
 ## Profile statistic analysis
 
@@ -141,6 +145,33 @@ There are many statistical information collected at BE.  so we list the correspo
   - HashFilledBuckets:  Number of buckets filled data
   - HashProbe:  Number of hashtable probe
   - HashTravelLength:  The number of steps moved when hashtable queries
+
+#### `HASH_JOIN_NODE`
+  - ExecOption: The way to construct a HashTable for the right child (synchronous or asynchronous), the right child in Join may be a table or a subquery, the same is true for the left child
+  - BuildBuckets: The number of Buckets in HashTable
+  - BuildRows: the number of rows of HashTable
+  - BuildTime: Time-consuming to construct HashTable
+  - LoadFactor: Load factor of HashTable (ie the number of non-empty buckets)
+  - ProbeRows: Traverse the number of rows of the left child for Hash Probe
+  - ProbeTime: Time consuming to traverse the left child for Hash Probe, excluding the time consuming to call GetNext on the left child RowBatch
+  - PushDownComputeTime: The calculation time of the predicate pushdown condition
+  - PushDownTime: The total time consumed by the predicate push down. When Join, the right child who meets the requirements is converted to the left child's in query
+
+#### `CROSS_JOIN_NODE`
+  - ExecOption: The way to construct RowBatchList for the right child (synchronous or asynchronous)
+  - BuildRows: The number of rows of RowBatchList (ie the number of rows of the right child)
+  - BuildTime: Time-consuming to construct RowBatchList
+  - LeftChildRows: the number of rows of the left child
+  - LeftChildTime: The time it takes to traverse the left child and find the Cartesian product with the right child, not including the time it takes to call GetNext on the left child RowBatch
+
+#### `UNION_NODE`
+  - MaterializeExprsEvaluateTime: When the field types at both ends of the Union are inconsistent, the time spent to evaluates type conversion exprs and materializes the results 
+
+#### `ANALYTIC_EVAL_NODE`
+  - EvaluationTime: Analysis function (window function) calculation total time
+  - GetNewBlockTime: It takes time to apply for a new block during initialization. Block saves the cache line window or the entire partition for analysis function calculation
+  - PinTime: the time it takes to apply for a new block later or reread the block written to the disk back to the memory
+  - UnpinTime: the time it takes to flush the data of the block to the disk when the memory pressure of the block that is not in use or the current operator is high
 
 #### `OLAP_SCAN_NODE`
 

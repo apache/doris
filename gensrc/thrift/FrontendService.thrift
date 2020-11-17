@@ -48,6 +48,7 @@ struct TColumnDesc {
   3: optional i32 columnLength
   4: optional i32 columnPrecision
   5: optional i32 columnScale
+  6: optional bool isAllowNull
 }
 
 // A column definition; used by CREATE TABLE and DESCRIBE <table> statements. A column
@@ -322,6 +323,18 @@ struct TListTableStatusResult {
 // getTableNames returns a list of unqualified table names
 struct TGetTablesResult {
   1: list<string> tables
+}
+
+struct TPrivilegeStatus {
+    1: optional string table_name
+    2: optional string privilege_type
+    3: optional string grantee
+    4: optional string schema
+    5: optional string is_grantable
+}
+
+struct TListPrivilegesResult{
+  1: required list<TPrivilegeStatus> privileges
 }
 
 struct TReportExecStatusResult {
@@ -662,6 +675,9 @@ service FrontendService {
     TMasterOpResult forward(TMasterOpRequest params)
 
     TListTableStatusResult listTableStatus(1:TGetTablesParams params)
+    TListPrivilegesResult listTablePrivilegeStatus(1:TGetTablesParams params)
+    TListPrivilegesResult listSchemaPrivilegeStatus(1:TGetTablesParams params)
+    TListPrivilegesResult listUserPrivilegeStatus(1:TGetTablesParams params)
 
     TFeResult updateExportTaskStatus(1:TUpdateExportTaskStatusRequest request)
 
