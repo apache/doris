@@ -73,7 +73,6 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TResourceInfo;
-import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -1135,10 +1134,6 @@ public class Coordinator {
         return value;
     }
 
-    private long getScanRangeLength(final TScanRange scanRange) {
-        return 1;
-    }
-
     private void computeColocateJoinInstanceParam(PlanFragmentId fragmentId, int parallelExecInstanceNum, FragmentExecParams params) {
         Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(fragmentId);
         Set<Integer> scanNodeIds = fragmentIdToScanNodeIds.get(fragmentId);
@@ -1269,6 +1264,7 @@ public class Coordinator {
             FragmentScanRangeAssignment assignment) throws Exception {
 
         HashMap<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
+        Long step = 1L;
         for (TScanRangeLocations scanRangeLocations : locations) {
             // assign this scan range to the host w/ the fewest assigned bytes
             Long minAssignedBytes = Long.MAX_VALUE;
@@ -1280,9 +1276,8 @@ public class Coordinator {
                     minLocation = location;
                 }
             }
-            Long scanRangeLength = getScanRangeLength(scanRangeLocations.scan_range);
             assignedBytesPerHost.put(minLocation.server,
-                    assignedBytesPerHost.get(minLocation.server) + scanRangeLength);
+                    assignedBytesPerHost.get(minLocation.server) + step);
 
             Reference<Long> backendIdRef = new Reference<Long>();
             TNetworkAddress execHostPort = SimpleScheduler.getHost(minLocation.backend_id,
