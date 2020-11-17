@@ -2507,9 +2507,9 @@ show_param ::=
     {:
         RESULT = new ShowUserPropertyStmt(user, parser.wild);
     :}
-    | KW_BACKUP opt_db:db
+    | KW_BACKUP opt_db:db opt_wild_where
     {:
-        RESULT = new ShowBackupStmt(db);
+        RESULT = new ShowBackupStmt(db, parser.where);
     :}
     | KW_RESTORE opt_db:db opt_wild_where
     {:
