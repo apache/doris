@@ -1287,6 +1287,12 @@ public class Coordinator {
             Reference<Long> backendIdRef = new Reference<Long>();
             TNetworkAddress execHostPort = SimpleScheduler.getHost(minLocation.backend_id,
                     scanRangeLocations.getLocations(), this.idToBackend, backendIdRef);
+            if (execHostPort != minLocation.server) {
+                assignedBytesPerHost.put(minLocation.server,
+                        assignedBytesPerHost.get(minLocation.server) - scanRangeLength);
+                assignedBytesPerHost.put(execHostPort,
+                        assignedBytesPerHost.get(execHostPort) + scanRangeLength);
+            }
             this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
 
             Map<Integer, List<TScanRangeParams>> scanRanges = findOrInsert(assignment, execHostPort,
