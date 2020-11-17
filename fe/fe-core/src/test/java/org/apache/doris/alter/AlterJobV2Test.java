@@ -133,7 +133,7 @@ public class AlterJobV2Test {
         Assert.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTable("segmentv2");
         Assert.assertNotNull(tbl);
-        Assert.assertEquals(TStorageFormat.V1, tbl.getTableProperty().getStorageFormat());
+        Assert.assertEquals(TStorageFormat.V2, tbl.getTableProperty().getStorageFormat());
         
         // 1. create a rollup r1
         String alterStmtStr = "alter table test.segmentv2 add rollup r1(k2, v1)";
