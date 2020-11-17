@@ -24,6 +24,7 @@ import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -53,6 +54,7 @@ public class AlterJobV2Test {
         FeConstants.runningUnitTest = true;
 
         UtFrameUtils.createMinDorisCluster(runningDir);
+        Config.enable_alpha_rowset = true;
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -63,7 +65,7 @@ public class AlterJobV2Test {
 
         createTable("CREATE TABLE test.schema_change_test(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
 
-        createTable("CREATE TABLE test.segmentv2(k1 int, k2 int, v1 int sum) distributed by hash(k1) buckets 3 properties('replication_num' = '1', 'storage_format' = 'v2');");
+        createTable("CREATE TABLE test.segmentv2(k1 int, k2 int, v1 int sum) distributed by hash(k1) buckets 3 properties('replication_num' = '1', 'storage_format' = 'v1');");
     }
 
     @AfterClass
@@ -128,12 +130,14 @@ public class AlterJobV2Test {
     }
     
     @Test
+    @Deprecated
     public void testAlterSegmentV2() throws Exception {
+        // TODO this test should remove after we disable segment v1 completely
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
         Assert.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTable("segmentv2");
         Assert.assertNotNull(tbl);
-        Assert.assertEquals(TStorageFormat.V2, tbl.getTableProperty().getStorageFormat());
+        Assert.assertEquals(TStorageFormat.V1, tbl.getTableProperty().getStorageFormat());
         
         // 1. create a rollup r1
         String alterStmtStr = "alter table test.segmentv2 add rollup r1(k2, v1)";
