@@ -387,5 +387,87 @@ public class CoordinatorTest extends Coordinator {
         Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 5, params);
         Assert.assertEquals(3, params.instanceExecParams.size());
     }
+
+    @Test
+    public void testComputeScanRangeAssignmentByScheduler()  {
+        Coordinator coordinator = new Coordinator(context, analyzer, planner);
+        PlanFragmentId planFragmentId = new PlanFragmentId(1);
+        int scanNodeId = 1;
+        Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
+        fragmentIdToScanNodeIds.put(planFragmentId, new HashSet<>());
+        fragmentIdToScanNodeIds.get(planFragmentId).add(scanNodeId);
+
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(-1));
+        OlapTable olapTable = new OlapTable();
+        HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(66, new ArrayList<>());
+        Deencapsulation.setField(olapTable, "defaultDistributionInfo", hashDistributionInfo);
+        tupleDescriptor.setTable(olapTable);
+
+        OlapScanNode olapScanNode = new OlapScanNode(new PlanNodeId(scanNodeId), tupleDescriptor, "test");
+        // each olaptable bucket have the same TScanRangeLocations, be id is {0, 1, 2}
+        TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();
+        TScanRangeLocation tScanRangeLocation0 = new TScanRangeLocation();
+        tScanRangeLocation0.backend_id = 0;
+        tScanRangeLocation0.server = new TNetworkAddress("0.0.0.0", 9050);
+        TScanRangeLocation tScanRangeLocation1 = new TScanRangeLocation();
+        tScanRangeLocation1.backend_id = 1;
+        tScanRangeLocation1.server = new TNetworkAddress("0.0.0.1", 9050);
+        TScanRangeLocation tScanRangeLocation2 = new TScanRangeLocation();
+        tScanRangeLocation2.backend_id = 2;
+        tScanRangeLocation2.server = new TNetworkAddress("0.0.0.2", 9050);
+        tScanRangeLocations.locations = new ArrayList<>();
+        tScanRangeLocations.locations.add(tScanRangeLocation0);
+        tScanRangeLocations.locations.add(tScanRangeLocation1);
+        tScanRangeLocations.locations.add(tScanRangeLocation2);
+
+        TScanRangeLocations tScanRangeLocations1 = new TScanRangeLocations();
+        TScanRangeLocation tScanRangeLocation3 = new TScanRangeLocation();
+        tScanRangeLocation3.backend_id = 0;
+        tScanRangeLocation3.server = new TNetworkAddress("0.0.0.0", 9050);
+        TScanRangeLocation tScanRangeLocation4 = new TScanRangeLocation();
+        tScanRangeLocation4.backend_id = 1;
+        tScanRangeLocation4.server = new TNetworkAddress("0.0.0.1", 9050);
+        TScanRangeLocation tScanRangeLocation5 = new TScanRangeLocation();
+        tScanRangeLocation5.backend_id = 2;
+        tScanRangeLocation5.server = new TNetworkAddress("0.0.0.2", 9050);
+        tScanRangeLocations1.locations = new ArrayList<>();
+        tScanRangeLocations1.locations.add(tScanRangeLocation3);
+        tScanRangeLocations1.locations.add(tScanRangeLocation4);
+        tScanRangeLocations1.locations.add(tScanRangeLocation5);
+
+        olapScanNode.setFragment(new PlanFragment(planFragmentId, olapScanNode,
+                new DataPartition(TPartitionType.UNPARTITIONED)));
+
+        // init all backend
+        Backend backend0 = new Backend(0, "0.0.0.0", 9060);
+        backend0.setAlive(false);
+        backend0.setBePort(9050);
+        Backend backend1 = new Backend(1, "0.0.0.1", 9060);
+        backend1.setAlive(true);
+        backend1.setBePort(9050);
+        Backend backend2 = new Backend(2, "0.0.0.2", 9060);
+        backend2.setAlive(true);
+        backend2.setBePort(9050);
+
+        ImmutableMap<Long, Backend> idToBackend =
+                new ImmutableMap.Builder<Long, Backend>().
+                put(0l, backend0).
+                put(1l, backend1).
+                put(2l, backend2).build();
+        Deencapsulation.setField(coordinator, "idToBackend", idToBackend);
+        FragmentScanRangeAssignment assignment = new FragmentScanRangeAssignment();
+        List<TScanRangeLocations> locations = new ArrayList<>();
+        locations.add(tScanRangeLocations);
+        locations.add(tScanRangeLocations1);
+        Deencapsulation.invoke(coordinator, "computeScanRangeAssignmentByScheduler",
+                olapScanNode, locations, assignment);
+        for (Map.Entry entry:assignment.entrySet()) {
+            Map<Integer, List<TScanRangeParams>> addr = (HashMap<Integer, List<TScanRangeParams>>) entry.getValue();
+            for (Map.Entry item:addr.entrySet()) {
+                List<TScanRangeParams> params = (List<TScanRangeParams>) item.getValue();
+                Assert.assertTrue(params.size() == 2);
+            }
+        }
+    }
 }
 
