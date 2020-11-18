@@ -95,7 +95,7 @@ std::string DeleteConditionHandler::construct_sub_predicates(const TCondition& c
     } else if (op == ">") {
         op += ">";
     }
-    string condition_str = "";
+    string condition_str;
     if ("IS" == op) {
         condition_str = condition.column_name + " " + op + " " + condition.condition_values[0];
     } else {
@@ -110,58 +110,60 @@ std::string DeleteConditionHandler::construct_sub_predicates(const TCondition& c
 }
 
 bool DeleteConditionHandler::is_condition_value_valid(const TabletColumn& column,
-                                                      const TCondition& cond,
+                                                      const std::string& condition_op,
                                                       const string& value_str) {
-    bool valid_condition = false;
-    FieldType field_type = column.type();
-    if ("IS" == cond.condition_op && ("NULL" == value_str || "NOT NULL" == value_str)) {
-        valid_condition = true;
-    } else if (field_type == OLAP_FIELD_TYPE_TINYINT) {
-        valid_condition = valid_signed_number<int8_t>(value_str);
-    } else if (field_type == OLAP_FIELD_TYPE_SMALLINT) {
-        valid_condition = valid_signed_number<int16_t>(value_str);
-    } else if (field_type == OLAP_FIELD_TYPE_INT) {
-        valid_condition = valid_signed_number<int32_t>(value_str);
-    } else if (field_type == OLAP_FIELD_TYPE_BIGINT) {
-        valid_condition = valid_signed_number<int64_t>(value_str);
-    } else if (field_type == OLAP_FIELD_TYPE_LARGEINT) {
-        valid_condition = valid_signed_number<int128_t>(value_str);
-    } else if (field_type == OLAP_FIELD_TYPE_UNSIGNED_TINYINT) {
-        valid_condition = valid_unsigned_number<uint8_t>(value_str);
-    } else if (field_type == OLAP_FIELD_TYPE_UNSIGNED_SMALLINT) {
-        valid_condition = valid_unsigned_number<uint16_t>(value_str);
-    } else if (field_type == OLAP_FIELD_TYPE_UNSIGNED_INT) {
-        valid_condition = valid_unsigned_number<uint32_t>(value_str);
-    } else if (field_type == OLAP_FIELD_TYPE_UNSIGNED_BIGINT) {
-        valid_condition = valid_unsigned_number<uint64_t>(value_str);
-    } else if (field_type == OLAP_FIELD_TYPE_DECIMAL) {
-        valid_condition = valid_decimal(value_str, column.precision(), column.frac());
-    } else if (field_type == OLAP_FIELD_TYPE_CHAR || field_type == OLAP_FIELD_TYPE_VARCHAR) {
-        if (value_str.size() <= column.length()) {
-            valid_condition = true;
-        }
-    } else if (field_type == OLAP_FIELD_TYPE_DATE || field_type == OLAP_FIELD_TYPE_DATETIME) {
-        valid_condition = valid_datetime(value_str);
-    } else if (field_type == OLAP_FIELD_TYPE_BOOL) {
-        valid_condition = valid_bool(value_str);
-    } else {
-        OLAP_LOG_WARNING("unknown field type. [type=%d]", field_type);
+    if ("IS" == condition_op && ("NULL" == value_str || "NOT NULL" == value_str)) {
+        return true;
     }
-    return valid_condition;
+
+    FieldType field_type = column.type();
+    switch(field_type) {
+        case OLAP_FIELD_TYPE_TINYINT:
+            return valid_signed_number<int8_t>(value_str);
+        case OLAP_FIELD_TYPE_SMALLINT:
+            return valid_signed_number<int16_t>(value_str);
+        case OLAP_FIELD_TYPE_INT:
+            return valid_signed_number<int32_t>(value_str);
+        case OLAP_FIELD_TYPE_BIGINT:
+            return valid_signed_number<int64_t>(value_str);
+        case OLAP_FIELD_TYPE_LARGEINT:
+            return valid_signed_number<int128_t>(value_str);
+        case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
+            return valid_unsigned_number<uint8_t>(value_str);
+        case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
+            return valid_unsigned_number<uint16_t>(value_str);
+        case OLAP_FIELD_TYPE_UNSIGNED_INT:
+            return valid_unsigned_number<uint32_t>(value_str);
+        case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+            return valid_unsigned_number<uint64_t>(value_str);
+        case OLAP_FIELD_TYPE_DECIMAL:
+            return valid_decimal(value_str, column.precision(), column.frac());
+        case OLAP_FIELD_TYPE_CHAR:
+        case OLAP_FIELD_TYPE_VARCHAR:
+            return value_str.size() <= column.length();
+        case OLAP_FIELD_TYPE_DATE:
+        case OLAP_FIELD_TYPE_DATETIME:
+            return valid_datetime(value_str);
+        case OLAP_FIELD_TYPE_BOOL:
+            return valid_bool(value_str);
+        default:
+            OLAP_LOG_WARNING("unknown field type. [type=%d]", field_type);
+    }
+    return false;
 }
 
 OLAPStatus DeleteConditionHandler::check_condition_valid(const TabletSchema& schema,
                                                          const TCondition& cond) {
-    // 检查指定列名的列是否存在
+    // Check whether the column exists
     int32_t field_index = schema.field_index(cond.column_name);
     if (field_index < 0) {
         OLAP_LOG_WARNING("field is not existent. [field_index=%d]", field_index);
         return OLAP_ERR_DELETE_INVALID_CONDITION;
     }
 
-    // 检查指定的列是不是key，是不是float或double类型
+    // Delete condition should only applied on key columns or duplicate key table, and
+    // the condition column type should not be float or double.
     const TabletColumn& column = schema.column(field_index);
-
     if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS) ||
         column.type() == OLAP_FIELD_TYPE_DOUBLE || column.type() == OLAP_FIELD_TYPE_FLOAT) {
         LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type "
@@ -169,21 +171,17 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(const TabletSchema& sch
         return OLAP_ERR_DELETE_INVALID_CONDITION;
     }
 
-    // 检查删除条件中指定的过滤值是否符合每个类型自身的要求
-    // 1. 对于整数类型(int8,int16,in32,int64,uint8,uint16,uint32,uint64)，检查是否溢出
-    // 2. 对于decimal类型，检查是否超过建表时指定的精度和标度
-    // 3. 对于date和datetime类型，检查指定的过滤值是否符合日期格式以及是否指定错误的值
-    // 4. 对于string和varchar类型，检查指定的过滤值是否超过建表时指定的长度
+    // Check operator and operands size are matched.
     if ("*=" != cond.condition_op && "!*=" != cond.condition_op &&
         cond.condition_values.size() != 1) {
         OLAP_LOG_WARNING("invalid condition value size. [size=%ld]", cond.condition_values.size());
         return OLAP_ERR_DELETE_INVALID_CONDITION;
     }
 
-    for (int i = 0; i < cond.condition_values.size(); i++) {
-        const string& value_str = cond.condition_values[i];
-        if (!is_condition_value_valid(column, cond, value_str)) {
-            LOG(WARNING) << "invalid condition value. [value=" << value_str << "]";
+    // Check each operand is valid
+    for (const auto& condition_value : cond.condition_values) {
+        if (!is_condition_value_valid(column, cond.condition_op, condition_value)) {
+            LOG(WARNING) << "invalid condition value. [value=" << condition_value << "]";
             return OLAP_ERR_DELETE_INVALID_CONDITION;
         }
     }
@@ -227,32 +225,29 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
 }
 
 OLAPStatus DeleteHandler::init(const TabletSchema& schema,
-                               const DelPredicateArray& delete_conditions, int32_t version) {
+                               const DelPredicateArray& delete_conditions, int64_t version) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
 
-    DelPredicateArray::const_iterator it = delete_conditions.begin();
-    for (; it != delete_conditions.end(); ++it) {
+    for (const auto& delete_condition : delete_conditions) {
         // 跳过版本号大于version的过滤条件
-        if (it->version() > version) {
+        if (delete_condition.version() > version) {
             continue;
         }
 
         DeleteConditions temp;
-        temp.filter_version = it->version();
+        temp.filter_version = delete_condition.version();
         temp.del_cond = new (std::nothrow) Conditions();
-
         if (temp.del_cond == nullptr) {
             LOG(FATAL) << "fail to malloc Conditions. size=" << sizeof(Conditions);
             return OLAP_ERR_MALLOC_ERROR;
         }
 
         temp.del_cond->set_tablet_schema(&schema);
-        for (int i = 0; i != it->sub_predicates_size(); ++i) {
+        for (const auto& sub_predicate : delete_condition.sub_predicates()) {
             TCondition condition;
-            if (!_parse_condition(it->sub_predicates(i), &condition)) {
-                OLAP_LOG_WARNING("fail to parse condition. [condition=%s]",
-                                 it->sub_predicates(i).c_str());
+            if (!_parse_condition(sub_predicate, &condition)) {
+                OLAP_LOG_WARNING("fail to parse condition. [condition=%s]", sub_predicate.c_str());
                 return OLAP_ERR_DELETE_INVALID_PARAMETERS;
             }
 
@@ -263,9 +258,8 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
             }
         }
 
-        for (int i = 0; i != it->in_predicates_size(); ++i) {
+        for (const auto& in_predicate : delete_condition.in_predicates()) {
             TCondition condition;
-            const InPredicatePB& in_predicate = it->in_predicates(i);
             condition.__set_column_name(in_predicate.column_name());
             if (in_predicate.is_not_in()) {
                 condition.__set_condition_op("!*=");
@@ -290,17 +284,11 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
     return OLAP_SUCCESS;
 }
 
-bool DeleteHandler::is_filter_data(const int32_t data_version, const RowCursor& row) const {
-    if (_del_conds.empty()) {
-        return false;
-    }
-
+bool DeleteHandler::is_filter_data(const int64_t data_version, const RowCursor& row) const {
     // 根据语义，存储在_del_conds的删除条件应该是OR关系
     // 因此，只要数据符合其中一条过滤条件，则返回true
-    std::vector<DeleteConditions>::const_iterator it = _del_conds.begin();
-
-    for (; it != _del_conds.end(); ++it) {
-        if (data_version <= it->filter_version && it->del_cond->delete_conditions_eval(row)) {
+    for (const auto& del_cond : _del_conds) {
+        if (data_version <= del_cond.filter_version && del_cond.del_cond->delete_conditions_eval(row)) {
             return true;
         }
     }
@@ -308,14 +296,11 @@ bool DeleteHandler::is_filter_data(const int32_t data_version, const RowCursor& 
     return false;
 }
 
-std::vector<int32_t> DeleteHandler::get_conds_version() {
-    std::vector<int32_t> conds_version;
-    std::vector<DeleteConditions>::const_iterator cond_iter = _del_conds.begin();
-
-    for (; cond_iter != _del_conds.end(); ++cond_iter) {
-        conds_version.push_back(cond_iter->filter_version);
+std::vector<int64_t> DeleteHandler::get_conds_version() {
+    std::vector<int64_t> conds_version;
+    for (const auto& cond : _del_conds) {
+        conds_version.push_back(cond.filter_version);
     }
-
     return conds_version;
 }
 
@@ -324,19 +309,16 @@ void DeleteHandler::finalize() {
         return;
     }
 
-    std::vector<DeleteConditions>::iterator it = _del_conds.begin();
-
-    for (; it != _del_conds.end(); ++it) {
-        it->del_cond->finalize();
-        delete it->del_cond;
+    for (auto& cond : _del_conds) {
+        cond.del_cond->finalize();
+        delete cond.del_cond;
     }
-
     _del_conds.clear();
     _is_inited = false;
 }
 
 void DeleteHandler::get_delete_conditions_after_version(
-        int32_t version, std::vector<const Conditions*>* delete_conditions) const {
+        int64_t version, std::vector<const Conditions*>* delete_conditions) const {
     for (auto& del_cond : _del_conds) {
         if (del_cond.filter_version > version) {
             delete_conditions->emplace_back(del_cond.del_cond);
