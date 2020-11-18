@@ -196,6 +196,8 @@ public final class FeMetaVersion {
     public static final int VERSION_91 = 91;
     // for mysql external table support resource
     public static final int VERSION_92 = 92;
+    //jira: 4863 for load job support udf
+    public static final int VERSION_93 = 93;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_92;
+    public static final int VERSION_CURRENT = VERSION_93;
 }

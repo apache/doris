@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -70,9 +71,10 @@ public class BrokerLoadJob extends BulkLoadJob {
         this.jobType = EtlJobType.BROKER;
     }
 
-    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, OriginStatement originStmt)
+    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc,
+                         OriginStatement originStmt, UserIdentity userInfo)
             throws MetaNotFoundException {
-        super(dbId, label, originStmt);
+        super(dbId, label, originStmt, userInfo);
         this.timeoutSecond = Config.broker_load_default_timeout_second;
         this.brokerDesc = brokerDesc;
         this.jobType = EtlJobType.BROKER;
@@ -194,7 +196,8 @@ public class BrokerLoadJob extends BulkLoadJob {
                         strictMode, transactionId, this, timezone, timeoutSecond);
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-                task.init(loadId, attachment.getFileStatusByTable(aggKey), attachment.getFileNumByTable(aggKey));
+                task.init(loadId, attachment.getFileStatusByTable(aggKey),
+                        attachment.getFileNumByTable(aggKey), getUserInfo());
                 idToTasks.put(task.getSignature(), task);
                 // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.
                 // use newLoadingTasks to save new created loading tasks and submit them later.
