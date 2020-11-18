@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
@@ -525,6 +526,16 @@ public class StmtExecutorTest {
         stmtExecutor.execute();
 
         Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+    }
+
+    @Test
+    public void testStmtWithUserInfo(@Mocked StatementBase stmt, @Mocked ConnectContext context) throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, stmt);
+        Deencapsulation.setField(stmtExecutor, "parsedStmt", null);
+        Deencapsulation.setField(stmtExecutor, "originStmt", new OriginStatement("show databases;", 1));
+        stmtExecutor.execute();
+        StatementBase newstmt = (StatementBase)Deencapsulation.getField(stmtExecutor, "parsedStmt");
+        Assert.assertTrue(newstmt.getUserInfo() != null);
     }
 
     @Test
