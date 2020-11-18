@@ -406,6 +406,7 @@ public class StmtExecutor {
             try {
                 parsedStmt = SqlParserUtils.getStmt(parser, originStmt.idx);
                 parsedStmt.setOrigStmt(originStmt);
+                parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             } catch (Error e) {
                 LOG.info("error happened when parsing stmt {}, id: {}", originStmt, context.getStmtId(), e);
                 throw new AnalysisException("sql parsing error, please check your sql");

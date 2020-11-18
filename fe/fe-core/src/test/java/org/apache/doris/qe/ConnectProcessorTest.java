@@ -313,6 +313,25 @@ public class ConnectProcessorTest {
     }
 
     @Test
+    public void testQueryWithUserInfo(@Mocked StmtExecutor executor) throws Exception {
+        ConnectContext ctx = initMockContext(mockChannel(queryPacket), AccessTestUtil.fetchAdminCatalog());
+
+        ConnectProcessor processor = new ConnectProcessor(ctx);
+
+        // Mock statement executor
+        new Expectations() {
+            {
+                executor.getQueryStatisticsForAuditLog();
+                minTimes = 0;
+                result = statistics;
+            }
+        };
+        processor.processOnce();
+        StmtExecutor er = Deencapsulation.getField(processor, "executor");
+        Assert.assertTrue(er.getParsedStmt().getUserInfo() != null);
+    }
+
+    @Test
     public void testQueryFail(@Mocked StmtExecutor executor) throws Exception {
         ConnectContext ctx = initMockContext(mockChannel(queryPacket), AccessTestUtil.fetchAdminCatalog());
 
