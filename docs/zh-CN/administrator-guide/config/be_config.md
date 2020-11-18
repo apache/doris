@@ -180,6 +180,24 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `column_dictionary_key_size_threshold`
 
+### `compaction_tablet_compaction_score_factor`
+
+* 类型：int32
+* 描述：选择tablet进行compaction时，计算 tablet score 的公式中 compaction score的权重。
+* 默认值：1
+
+### `compaction_tablet_scan_frequency_factor`
+
+* 类型：int32
+* 描述：选择tablet进行compaction时，计算 tablet score 的公式中 tablet scan frequency 的权重。
+* 默认值：0
+
+选择一个tablet执行compaction任务时，可以将tablet的scan频率作为一个选择依据，对当前最近一段时间频繁scan的tablet优先执行compaction。
+tablet score可以通过以下公式计算：
+
+tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
+
+
 ### `compress_rowbatches`
 
 ### `create_tablet_worker_count`
@@ -606,6 +624,12 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 ### `tablet_meta_checkpoint_min_interval_secs`
 
 ### `tablet_meta_checkpoint_min_new_rowsets_num`
+
+### `tablet_scan_frequency_time_node_interval_second`
+
+* 类型：int64
+* 描述：用来表示记录 metric 'query_scan_count' 的时间间隔。为了计算当前一段时间的tablet的scan频率，需要每隔一段时间记录一次 metric 'query_scan_count'。
+* 默认值：300
 
 ### `tablet_stat_cache_update_interval_second`
 
