@@ -329,6 +329,13 @@ namespace config {
     CONF_mInt32(base_compaction_trace_threshold, "10");
     CONF_mInt32(cumulative_compaction_trace_threshold, "2");
 
+    // time interval to record tablet scan count in second for the purpose of calculating tablet scan frequency
+    CONF_mInt64(tablet_scan_frequency_time_node_interval_second, "300");
+    // coefficient for tablet scan frequency and compaction score when finding a tablet for compaction
+    CONF_mInt32(compaction_tablet_scan_frequency_factor, "0");
+    CONF_mInt32(compaction_tablet_compaction_score_factor, "1");
+
+
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");
     // Number of webserver workers

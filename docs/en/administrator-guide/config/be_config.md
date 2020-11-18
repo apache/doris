@@ -186,6 +186,23 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `column_dictionary_key_size_threshold`
 
+### `compaction_tablet_compaction_score_factor`
+
+* Type: int32
+* Description: Coefficient for compaction score when calculating tablet score to find a tablet for compaction.
+* Default value: 1
+
+### `compaction_tablet_scan_frequency_factor`
+
+* Type: int32
+* Description: Coefficient for tablet scan frequency when calculating tablet score to find a tablet for compaction.
+* Default value: 0
+
+Tablet scan frequency can be taken into consideration when selecting an tablet for compaction and preferentially do compaction for those tablets which are scanned frequently during a latest period of time at the present.
+Tablet score can be calculated like this:
+
+tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
+
 ### `compress_rowbatches`
 
 ### `create_tablet_worker_count`
@@ -611,6 +628,12 @@ Some data formats, such as JSON, cannot be split. Doris must read all the data i
 ### `tablet_meta_checkpoint_min_interval_secs`
 
 ### `tablet_meta_checkpoint_min_new_rowsets_num`
+
+### `tablet_scan_frequency_time_node_interval_second`
+
+* Type: int64
+* Description: Time interval to record the metric 'query_scan_count' and timestamp in second for the purpose of  calculating tablet scan frequency during a latest period of time at the present.
+* Default: 300
 
 ### `tablet_stat_cache_update_interval_second`
 
