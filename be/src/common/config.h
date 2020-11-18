@@ -27,7 +27,7 @@ namespace config {
 
     // cluster id
     CONF_Int32(cluster_id, "-1");
-    // port on which ImpalaInternalService is exported
+    // port on which BackendService is exported
     CONF_Int32(be_port, "9060");
 
     // port for brpc
@@ -177,7 +177,7 @@ namespace config {
     CONF_String(local_library_dir, "${UDF_RUNTIME_DIR}");
     // number of olap scanner thread pool size
     CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
-    // number of olap scanner thread pool size
+    // number of olap scanner thread pool queue size
     CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
     // number of etl thread pool size
     CONF_Int32(etl_thread_pool_size, "8");
@@ -236,7 +236,6 @@ namespace config {
     CONF_mInt32(max_percentage_of_error_disk, "0");
     // CONF_Int32(default_num_rows_per_data_block, "1024");
     CONF_mInt32(default_num_rows_per_column_file_block, "1024");
-    CONF_Int32(max_tablet_num_per_shard, "1024");
     // pending data policy
     CONF_mInt32(pending_data_expire_time_sec, "1800");
     // inc_rowset expired interval
@@ -557,7 +556,7 @@ namespace config {
 
     // config for default rowset type
     // Valid configs: ALPHA, BETA
-    CONF_String(default_rowset_type, "ALPHA");
+    CONF_String(default_rowset_type, "BETA");
 
     // Maximum size of a single message body in all protocols
     CONF_Int64(brpc_max_body_size, "209715200");
