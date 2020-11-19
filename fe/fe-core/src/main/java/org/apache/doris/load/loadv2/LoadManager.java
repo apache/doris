@@ -107,7 +107,7 @@ public class LoadManager implements Writable{
                 throw new DdlException("LoadManager only support the broker and spark load.");
             }
             if (loadJobScheduler.isQueueFull()) {
-                throw new DdlException("There are more then " + Config.desired_max_waiting_jobs + " load jobs in waiting queue, "
+                throw new DdlException("There are more than " + Config.desired_max_waiting_jobs + " load jobs in waiting queue, "
                                                + "please retry later.");
             }
             loadJob = BulkLoadJob.fromLoadStmt(stmt);
