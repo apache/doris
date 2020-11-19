@@ -109,6 +109,7 @@ public class WithClause implements ParseNode {
     public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
         for (View view : views_) {
             QueryStmt stmt = view.getQueryStmt();
+            parentViewNameSet.add(view.getName());
             stmt.getTables(analyzer, tableMap, parentViewNameSet);
         }
     }
