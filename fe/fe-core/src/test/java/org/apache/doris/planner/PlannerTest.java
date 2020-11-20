@@ -309,4 +309,19 @@ public class PlannerTest {
 
     }
 
+    @Test
+    public void testWithStmtSoltIsAllowNull() throws Exception {
+        // union
+        String sql1 = "with a as (select NULL as user_id ), " +
+                "b as ( select '543' as user_id) " +
+                "select user_id from a union all select user_id from b";
+
+        StmtExecutor stmtExecutor1 = new StmtExecutor(ctx, sql1);
+        stmtExecutor1.execute();
+        Planner planner1 = stmtExecutor1.planner();
+        List<PlanFragment> fragments1 = planner1.getFragments();
+        String plan1 = planner1.getExplainString(fragments1, TExplainLevel.VERBOSE);
+        Assert.assertEquals(3, StringUtils.countMatches(plan1, "nullIndicatorBit=0"));
+    }
+
 }
