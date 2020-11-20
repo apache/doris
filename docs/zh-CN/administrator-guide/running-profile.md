@@ -83,7 +83,11 @@ Query:
            - MemoryUsed: 0.00 
            - RowsReturnedRate: 811
 ```
-这里列出了Fragment的ID；```hostname```指的是执行Fragment的BE节点；```Active：10s270ms```表示该节点的执行总时间；```non-child: 0.14%```表示执行节点自身的执行时间，不包含子节点的执行时间。后续依次打印子节点的统计信息，**这里可以通过缩进区分节点之间的父子关系**。
+这里列出了Fragment的ID；```hostname```指的是执行Fragment的BE节点；```Active：10s270ms```表示该节点的执行总时间；```non-child: 0.14%```表示执行节点自身的执行时间（不包含子节点的执行时间）占总时间的百分比；
+
+`PeakMemoryUsage`表示`EXCHANGE_NODE`内存使用的峰值；`RowsReturned`表示`EXCHANGE_NODE`结果返回的行数；`RowsReturnedRate`=`RowsReturned`/`ActiveTime`；这三个统计信息在其他`NODE`中的含义相同。
+
+后续依次打印子节点的统计信息，**这里可以通过缩进区分节点之间的父子关系**。
 
 ## Profile参数解析
 BE端收集的统计信息较多，下面列出了各个参数的对应含义：
@@ -140,6 +144,33 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
   - HashFilledBuckets:  HashTable填入数据的Buckets数目
   - HashProbe:  HashTable查询的次数
   - HashTravelLength:  HashTable查询时移动的步数
+
+#### `HASH_JOIN_NODE`
+  - ExecOption: 对右孩子构造HashTable的方式（同步or异步），Join中右孩子可能是表或子查询，左孩子同理
+  - BuildBuckets: HashTable中Buckets的个数
+  - BuildRows: HashTable的行数
+  - BuildTime: 构造HashTable的耗时
+  - LoadFactor: HashTable的负载因子（即非空Buckets的数量）
+  - ProbeRows: 遍历左孩子进行Hash Probe的行数
+  - ProbeTime: 遍历左孩子进行Hash Probe的耗时，不包括对左孩子RowBatch调用GetNext的耗时
+  - PushDownComputeTime: 谓词下推条件计算耗时
+  - PushDownTime: 谓词下推的总耗时，Join时对满足要求的右孩子，转为左孩子的in查询
+
+#### `CROSS_JOIN_NODE`
+  - ExecOption: 对右孩子构造RowBatchList的方式（同步or异步）
+  - BuildRows: RowBatchList的行数（即右孩子的行数）
+  - BuildTime: 构造RowBatchList的耗时
+  - LeftChildRows: 左孩子的行数
+  - LeftChildTime: 遍历左孩子，和右孩子求笛卡尔积的耗时，不包括对左孩子RowBatch调用GetNext的耗时
+
+#### `UNION_NODE`
+  - MaterializeExprsEvaluateTime: Union两端字段类型不一致时，类型转换表达式计算及物化结果的耗时
+
+#### `ANALYTIC_EVAL_NODE`
+  - EvaluationTime: 分析函数（窗口函数）计算总耗时
+  - GetNewBlockTime: 初始化时申请一个新的Block的耗时，Block用来缓存Rows窗口或整个分区，用于分析函数计算
+  - PinTime: 后续申请新的Block或将写入磁盘的Block重新读取回内存的耗时
+  - UnpinTime: 对暂不需要使用的Block或当前操作符内存压力大时，将Block的数据刷入磁盘的耗时
 
 #### `OLAP_SCAN_NODE`
 

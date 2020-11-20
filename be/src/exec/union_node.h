@@ -50,6 +50,9 @@ public:
     // virtual Status reset(RuntimeState* state);
     virtual Status close(RuntimeState* state);
 
+protected:
+    void debug_string(int indentation_level, std::stringstream* out) const;
+
 private:
     /// Tuple id resolved in Prepare() to set tuple_desc_;
     const int _tuple_id;
@@ -98,6 +101,9 @@ private:
     /// Index of the child that needs to be closed on the next GetNext() call. Should be set
     /// to -1 if no child needs to be closed.
     int _to_close_child_idx;
+
+    // Time spent to evaluates exprs and materializes the results
+    RuntimeProfile::Counter* _materialize_exprs_evaluate_timer = nullptr;
 
     /// END: Members that must be Reset()
     /////////////////////////////////////////

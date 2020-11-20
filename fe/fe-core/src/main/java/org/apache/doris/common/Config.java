@@ -579,7 +579,7 @@ public class Config extends ConfigBase {
     /**
      * Default number of waiting jobs for routine load and version 2 of load
      * This is a desired number.
-     * In some situation, such as switch the master, the current number is maybe more then desired_max_waiting_jobs
+     * In some situation, such as switch the master, the current number is maybe more than desired_max_waiting_jobs
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int desired_max_waiting_jobs = 100;
@@ -763,7 +763,7 @@ public class Config extends ConfigBase {
      * exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
      */
     @ConfField(mutable = true)
-    public static int query_colocate_join_memory_limit_penalty_factor = 8;
+    public static int query_colocate_join_memory_limit_penalty_factor = 1;
 
     /**
      * Deprecated after 0.10
@@ -1293,4 +1293,12 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String http_api_extra_base_path = "";
+
+    /**
+     * Whether to support the creation of alpha rowset tables.
+     * The default is false and should only be used in emergency situations,
+     * this config should be remove in some future version
+     */
+    @ConfField
+    public static boolean enable_alpha_rowset = false;
 }

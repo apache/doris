@@ -70,6 +70,7 @@ import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TIsMethodSupportedRequest;
 import org.apache.doris.thrift.TListTableStatusResult;
+import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TLoadCheckRequest;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
@@ -96,6 +97,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateMiniEtlTaskStatusRequest;
@@ -287,6 +289,57 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
+    public TListPrivilegesResult listTablePrivilegeStatus(TGetTablesParams params) throws TException {
+        LOG.debug("get list table privileges request: {}", params);
+        TListPrivilegesResult result = new TListPrivilegesResult();
+        List<TPrivilegeStatus> tblPrivResult = Lists.newArrayList();
+        result.setPrivileges(tblPrivResult);
+
+        UserIdentity currentUser = null;
+        if (params.isSetCurrentUserIdent()) {
+            currentUser = UserIdentity.fromThrift(params.current_user_ident);
+        } else {
+            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
+        }
+        Catalog.getCurrentCatalog().getAuth().getTablePrivStatus(tblPrivResult, currentUser);
+        return result;
+    }
+
+    @Override
+    public TListPrivilegesResult listSchemaPrivilegeStatus(TGetTablesParams params) throws TException {
+        LOG.debug("get list schema privileges request: {}", params);
+        TListPrivilegesResult result = new TListPrivilegesResult();
+        List<TPrivilegeStatus> tblPrivResult = Lists.newArrayList();
+        result.setPrivileges(tblPrivResult);
+
+        UserIdentity currentUser = null;
+        if (params.isSetCurrentUserIdent()) {
+            currentUser = UserIdentity.fromThrift(params.current_user_ident);
+        } else {
+            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
+        }
+        Catalog.getCurrentCatalog().getAuth().getSchemaPrivStatus(tblPrivResult, currentUser);
+        return result;
+    }
+
+    @Override
+    public TListPrivilegesResult listUserPrivilegeStatus(TGetTablesParams params) throws TException {
+        LOG.debug("get list user privileges request: {}", params);
+        TListPrivilegesResult result = new TListPrivilegesResult();
+        List<TPrivilegeStatus> userPrivResult = Lists.newArrayList();
+        result.setPrivileges(userPrivResult);
+
+        UserIdentity currentUser = null;
+        if (params.isSetCurrentUserIdent()) {
+            currentUser = UserIdentity.fromThrift(params.current_user_ident);
+        } else {
+            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
+        }
+        Catalog.getCurrentCatalog().getAuth().getGlobalPrivStatus(userPrivResult, currentUser);
+        return result;
+    }
+
+    @Override
     public TFeResult updateExportTaskStatus(TUpdateExportTaskStatusRequest request) throws TException {
         TStatus status = new TStatus(TStatusCode.OK);
         TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
@@ -333,6 +386,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         if (decimalDigits != null) {
                             desc.setColumnScale(decimalDigits);
                         }
+                        desc.setIsAllowNull(column.isAllowNull());
                         final TColumnDef colDef = new TColumnDef(desc);
                         final String comment = column.getComment();
                         if(comment != null) {

@@ -180,9 +180,9 @@ public class InsertStmt extends DdlStmt {
     }
 
     // TODO(zc): used to get all dbs for lock
-    public void getDbs(Analyzer analyzer, Map<String, Database> dbs) throws AnalysisException {
+    public void getDbs(Analyzer analyzer, Map<String, Database> dbs, Set<String> parentViewNameSet) throws AnalysisException {
         // get dbs of statement
-        queryStmt.getDbs(analyzer, dbs);
+        queryStmt.getDbs(analyzer, dbs, parentViewNameSet);
         // get db of target table
         tblName.analyze(analyzer);
         String dbName = tblName.getDb();

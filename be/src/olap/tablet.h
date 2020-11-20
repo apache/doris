@@ -232,6 +232,8 @@ public:
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
 
+    double calculate_scan_frequency();
+
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -302,6 +304,15 @@ private:
     // cumulative compaction policy
     std::unique_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string _cumulative_compaction_type;
+
+    // the value of metric 'query_scan_count' and timestamp will be recorded when every time
+    // 'config::tablet_scan_frequency_time_node_interval_second' passed to calculate tablet
+    // scan frequency.
+    // the value of metric 'query_scan_count' for the last record.
+    int64_t _last_record_scan_count;
+    // the timestamp of the last record.
+    time_t _last_record_scan_count_timestamp;
+
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 
 public:

@@ -46,7 +46,6 @@ import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
 import org.apache.doris.rewrite.mvrewrite.HLLHashToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.NDVToHll;
 import org.apache.doris.rewrite.mvrewrite.ToBitmapToSlotRefRule;
-import org.apache.doris.rewrite.BinaryPredicatesDateRule;
 import org.apache.doris.thrift.TQueryGlobals;
 
 import com.google.common.base.Joiner;
@@ -256,7 +255,6 @@ public class Analyzer {
             // pushdown and Parquet row group pruning based on min/max statistics.
             rules.add(NormalizeBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
-            rules.add(BinaryPredicatesDateRule.INSTANCE);
             exprRewriter_ = new ExprRewriter(rules);
             // init mv rewriter
             List<ExprRewriteRule> mvRewriteRules = Lists.newArrayList();

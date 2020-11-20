@@ -64,15 +64,6 @@ class TScanRange;
 //
 //   ScanRangesComplete - number of scan ranges completed
 //
-//   MaterializeTupleTime - time spent in creating in-memory tuple format
-//
-//   ScannerThreadsTotalWallClockTime - total time spent in all scanner threads.
-//
-//   ScannerThreadsUserTime, ScannerThreadsSysTime,
-//   ScannerThreadsVoluntaryContextSwitches, ScannerThreadsInvoluntaryContextSwitches -
-//     these are aggregated counters across all scanner threads of this scan node. They
-//     are taken from getrusage. See RuntimeProfile::ThreadCounters for details.
-//
 class ScanNode : public ExecNode {
 public:
     ScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -99,18 +90,12 @@ public:
     RuntimeProfile::Counter* total_throughput_counter() const {
         return _total_throughput_counter;
     }
-    RuntimeProfile::Counter* materialize_tuple_timer() const {
-        return _materialize_tuple_timer;
-    }
 
     // names of ScanNode common counters
     static const std::string _s_bytes_read_counter;
     static const std::string _s_rows_read_counter;
     static const std::string _s_total_throughput_counter;
     static const std::string _s_num_disks_accessed_counter;
-    static const std::string _s_materialize_tuple_timer;
-    static const std::string _s_scanner_thread_counters_prefix;
-    static const std::string _s_scanner_thread_total_wallclock_time;
 
 protected:
     RuntimeProfile::Counter* _bytes_read_counter; // # bytes read from the scanner
@@ -119,7 +104,6 @@ protected:
     // Wall based aggregate read throughput [bytes/sec]
     RuntimeProfile::Counter* _total_throughput_counter;
     RuntimeProfile::Counter* _num_disks_accessed_counter;
-    RuntimeProfile::Counter* _materialize_tuple_timer;  // time writing tuple slots
 };
 
 }

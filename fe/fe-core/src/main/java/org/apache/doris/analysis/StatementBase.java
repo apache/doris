@@ -51,6 +51,8 @@ public abstract class StatementBase implements ParseNode {
 
     private OriginStatement origStmt;
 
+    private UserIdentity userInfo;
+
     protected StatementBase() { }
 
     /**
@@ -168,6 +170,14 @@ public abstract class StatementBase implements ParseNode {
 
     public OriginStatement getOrigStmt() {
         return origStmt;
+    }
+
+    public UserIdentity getUserInfo() {
+        return userInfo;
+    }
+
+    public void setUserInfo(UserIdentity userInfo) {
+        this.userInfo = userInfo;
     }
 
     /**

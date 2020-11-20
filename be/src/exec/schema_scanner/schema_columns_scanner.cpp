@@ -186,6 +186,8 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc &desc) {
     }
 }
 
+//fill row in the "INFORMATION_SCHEMA COLUMNS"
+//Reference from https://dev.mysql.com/doc/refman/8.0/en/information-schema-columns-table.html
 Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     // set all bit to not null
     memset((void *)tuple, 0, _tuple_desc->num_null_bytes());
@@ -236,9 +238,22 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[6]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->len = strlen("NO") + 1;
-        str_slot->ptr = (char *)pool->allocate(str_slot->len);
-        memcpy(str_slot->ptr, "NO", str_slot->len);
+
+        if (_desc_result.columns[_column_index].columnDesc.__isset.isAllowNull) {
+            if (_desc_result.columns[_column_index].columnDesc.isAllowNull) {
+                str_slot->len = strlen("YES");
+                str_slot->ptr = (char *)pool->allocate(str_slot->len);
+                memcpy(str_slot->ptr, "YES", str_slot->len);
+            } else {
+                str_slot->len = strlen("NO");
+                str_slot->ptr = (char *)pool->allocate(str_slot->len);
+                memcpy(str_slot->ptr, "NO", str_slot->len);
+            }
+        } else {
+            str_slot->len = strlen("NO");
+            str_slot->ptr = (char *) pool->allocate(str_slot->len);
+            memcpy(str_slot->ptr, "NO", str_slot->len);
+        }
     }
     // DATA_TYPE
     {
@@ -250,20 +265,33 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
         memcpy(str_slot->ptr, buffer.c_str(), str_slot->len);
     }
     // CHARACTER_MAXIMUM_LENGTH
+    // For string columns, the maximum length in characters.
     {
-        tuple->set_null(_tuple_desc->slots()[8]->null_indicator_offset());
+        int data_type = _desc_result.columns[_column_index].columnDesc.columnType;
+        if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR) {
+            void *slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
+            int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
+            if (_desc_result.columns[_column_index].columnDesc.__isset.columnLength) {
+                *str_slot = _desc_result.columns[_column_index].columnDesc.columnLength;
+            } else {
+                tuple->set_null(_tuple_desc->slots()[8]->null_indicator_offset());
+            }
+        } else {
+            tuple->set_null(_tuple_desc->slots()[8]->null_indicator_offset());
+        }
     }
     // CHARACTER_OCTET_LENGTH
+    // For string columns, the maximum length in bytes.
     {
         int data_type = _desc_result.columns[_column_index].columnDesc.columnType;
         if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR) {
             void *slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
             int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
             if (_desc_result.columns[_column_index].columnDesc.__isset.columnLength) {
-                *str_slot = _desc_result.columns[_column_index].columnDesc.columnLength;
+                *str_slot = _desc_result.columns[_column_index].columnDesc.columnLength * 4;
             } else {
                 tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset());
-            }     
+            }
         } else {
             tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset());
         }
