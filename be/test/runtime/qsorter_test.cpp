@@ -17,21 +17,20 @@
 
 #include "runtime/qsorter.h"
 
-#include <vector>
-#include <string>
 #include <gtest/gtest.h>
 
-#include "exprs/expr.h"
-#include "exprs/expr.h"
-#include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
-#include "runtime/runtime_state.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
-#include "runtime/tuple.h"
-#include "runtime/mem_pool.h"
-#include "gen_cpp/Descriptors_types.h"
+#include <string>
+#include <vector>
+
 #include "common/object_pool.h"
+#include "exprs/expr.h"
+#include "gen_cpp/Descriptors_types.h"
+#include "runtime/descriptors.h"
+#include "runtime/mem_pool.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/tuple.h"
+#include "runtime/tuple_row.h"
 
 namespace doris {
 
@@ -44,8 +43,7 @@ public:
         init_order_expr();
     }
 
-    ~QSorterTest() {
-    }
+    ~QSorterTest() {}
 
     void init_desc_tbl();
 
@@ -56,11 +54,9 @@ public:
     void init_runtime_state();
 
 protected:
-    virtual void SetUp() {
-    }
+    virtual void SetUp() {}
 
-    virtual void TearDown() {
-    }
+    virtual void TearDown() {}
 
 private:
     ObjectPool _obj_pool;
@@ -202,7 +198,7 @@ TEST_F(QSorterTest, normalCase) {
         batch.commit_last_row();
     }
 
-    // 5, 5 
+    // 5, 5
     {
         batch.add_row();
         TupleRow* row = batch.get_row(batch.num_rows());
@@ -215,7 +211,7 @@ TEST_F(QSorterTest, normalCase) {
         batch.commit_last_row();
     }
 
-    // 1000, 5 
+    // 1000, 5
     {
         batch.add_row();
         TupleRow* row = batch.get_row(batch.num_rows());
@@ -228,7 +224,7 @@ TEST_F(QSorterTest, normalCase) {
         batch.commit_last_row();
     }
 
-    // 0, 195 
+    // 0, 195
     {
         batch.add_row();
         TupleRow* row = batch.get_row(batch.num_rows());
@@ -253,7 +249,6 @@ TEST_F(QSorterTest, normalCase) {
     ASSERT_TRUE(eos);
     ASSERT_EQ(5, result.num_rows());
 
-
     // 0, 195
     {
         ASSERT_EQ(0, *(int*)_order_expr[0]->get_value(result.get_row(0)));
@@ -274,14 +269,14 @@ TEST_F(QSorterTest, normalCase) {
         ASSERT_EQ(5, *(int*)_order_expr[0]->get_value(result.get_row(3)));
         ASSERT_EQ(100, *(int*)_order_expr[1]->get_value(result.get_row(3)));
     }
-    // 10000, 5 
+    // 10000, 5
     {
         ASSERT_EQ(10000, *(int*)_order_expr[0]->get_value(result.get_row(4)));
         ASSERT_EQ(5, *(int*)_order_expr[1]->get_value(result.get_row(4)));
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

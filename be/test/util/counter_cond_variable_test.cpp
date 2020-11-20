@@ -17,8 +17,9 @@
 
 #include "util/counter_cond_variable.hpp"
 
-#include <thread>
 #include <gtest/gtest.h>
+
+#include <thread>
 
 #include "common/logging.h"
 
@@ -29,8 +30,8 @@ std::mutex g_io_mu;
 
 class CounterCondVariableTest : public testing::Test {
 public:
-    CounterCondVariableTest() { }
-    virtual ~CounterCondVariableTest() { }
+    CounterCondVariableTest() {}
+    virtual ~CounterCondVariableTest() {}
 };
 
 void submitter() {
@@ -74,7 +75,7 @@ TEST_F(CounterCondVariableTest, test) {
     g_cond.block_wait();
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

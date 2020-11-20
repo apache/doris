@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/mem_tracker.h"
-
 #include <gtest/gtest.h>
 
-#include "util/metrics.h"
+#include "runtime/mem_tracker.h"
 #include "util/logging.h"
+#include "util/metrics.h"
 
 namespace doris {
 
@@ -105,8 +104,8 @@ TEST(MemTestTest, ConsumptionMetric) {
 
 TEST(MemTestTest, TrackerHierarchy) {
     auto p = std::make_shared<MemTracker>(100);
-    auto c1= std::make_shared<MemTracker>(80, "", p);
-    auto c2= std::make_shared<MemTracker>(50, "", p);
+    auto c1 = std::make_shared<MemTracker>(80, "", p);
+    auto c2 = std::make_shared<MemTracker>(50, "", p);
 
     // everything below limits
     c1->Consume(60);
@@ -146,8 +145,8 @@ TEST(MemTestTest, TrackerHierarchy) {
 
 TEST(MemTestTest, TrackerHierarchyTryConsume) {
     auto p = std::make_shared<MemTracker>(100);
-    auto c1= std::make_shared<MemTracker>(80, "", p);
-    auto c2= std::make_shared<MemTracker>(50, "", p);
+    auto c1 = std::make_shared<MemTracker>(80, "", p);
+    auto c2 = std::make_shared<MemTracker>(50, "", p);
 
     // everything below limits
     bool consumption = c1->TryConsume(60);

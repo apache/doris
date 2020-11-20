@@ -15,25 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
-#include <sstream>
-#include <fstream>
+#include "olap/rowset/alpha_rowset.h"
 
-#include "gtest/gtest.h"
-#include "gmock/gmock.h"
+#include <fstream>
+#include <sstream>
+#include <string>
+
 #include "boost/filesystem.hpp"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "json2pb/json_to_pb.h"
-#include "util/logging.h"
-#include "util/file_utils.h"
+#include "olap/data_dir.h"
 #include "olap/olap_meta.h"
+#include "olap/rowset/alpha_rowset_reader.h"
+#include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
-#include "olap/rowset/rowset_reader_context.h"
-#include "olap/rowset/alpha_rowset.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/alpha_rowset_reader.h"
-#include "olap/data_dir.h"
 #include "olap/storage_engine.h"
+#include "util/file_utils.h"
+#include "util/logging.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -72,7 +73,7 @@ void tear_down() {
 }
 
 void create_rowset_writer_context(TabletSchema* tablet_schema,
-        RowsetWriterContext* rowset_writer_context) {
+                                  RowsetWriterContext* rowset_writer_context) {
     RowsetId rowset_id;
     rowset_id.init(10000);
     rowset_writer_context->rowset_id = rowset_id;
@@ -87,9 +88,12 @@ void create_rowset_writer_context(TabletSchema* tablet_schema,
     rowset_writer_context->version.second = 1;
 }
 
-void create_rowset_reader_context(TabletSchema* tablet_schema, const std::vector<uint32_t>* return_columns,
-        const DeleteHandler* delete_handler, std::vector<ColumnPredicate*>* predicates,
-        std::set<uint32_t>* load_bf_columns, Conditions* conditions, RowsetReaderContext* rowset_reader_context) {
+void create_rowset_reader_context(TabletSchema* tablet_schema,
+                                  const std::vector<uint32_t>* return_columns,
+                                  const DeleteHandler* delete_handler,
+                                  std::vector<ColumnPredicate*>* predicates,
+                                  std::set<uint32_t>* load_bf_columns, Conditions* conditions,
+                                  RowsetReaderContext* rowset_reader_context) {
     rowset_reader_context->reader_type = READER_ALTER_TABLE;
     rowset_reader_context->tablet_schema = tablet_schema;
     rowset_reader_context->need_ordered_result = true;
@@ -131,7 +135,7 @@ void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
     column_2->set_is_key(true);
     column_2->set_is_nullable(false);
     column_2->set_is_bf_column(false);
-    
+
     ColumnPB* column_3 = tablet_schema_pb.add_column();
     column_3->set_unique_id(3);
     column_3->set_name("v1");
@@ -153,9 +157,7 @@ public:
         _mem_pool.reset(new MemPool(_mem_tracker.get()));
     }
 
-    virtual void TearDown() {
-        tear_down();
-    }
+    virtual void TearDown() { tear_down(); }
 
 private:
     std::unique_ptr<RowsetWriter> _alpha_rowset_writer;
@@ -168,7 +170,8 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetWriter) {
     create_tablet_schema(AGG_KEYS, &tablet_schema);
     RowsetWriterContext rowset_writer_context;
     create_rowset_writer_context(&tablet_schema, &rowset_writer_context);
-    ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset_writer(rowset_writer_context, &_alpha_rowset_writer));
+    ASSERT_EQ(OLAP_SUCCESS,
+              RowsetFactory::create_rowset_writer(rowset_writer_context, &_alpha_rowset_writer));
     RowCursor row;
     OLAPStatus res = row.init(tablet_schema);
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -195,12 +198,13 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     RowsetWriterContext rowset_writer_context;
     create_rowset_writer_context(&tablet_schema, &rowset_writer_context);
 
-    ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset_writer(rowset_writer_context, &_alpha_rowset_writer));
+    ASSERT_EQ(OLAP_SUCCESS,
+              RowsetFactory::create_rowset_writer(rowset_writer_context, &_alpha_rowset_writer));
 
     RowCursor row;
     OLAPStatus res = row.init(tablet_schema);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    
+
     int32_t field_0 = 10;
     row.set_not_null(0);
     row.set_field_content(0, reinterpret_cast<char*>(&field_0), _mem_pool.get());
@@ -224,7 +228,7 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     res = alpha_rowset->create_reader(&rowset_reader);
     ASSERT_EQ(OLAP_SUCCESS, res);
     std::vector<uint32_t> return_columns;
-    for (int i = 0;  i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
     DeleteHandler delete_handler;
@@ -236,8 +240,8 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     std::set<uint32_t> load_bf_columns;
     std::vector<ColumnPredicate*> predicates;
     Conditions conditions;
-    create_rowset_reader_context(&tablet_schema, &return_columns, &delete_handler,
-            &predicates, &load_bf_columns, &conditions, &rowset_reader_context);
+    create_rowset_reader_context(&tablet_schema, &return_columns, &delete_handler, &predicates,
+                                 &load_bf_columns, &conditions, &rowset_reader_context);
     res = rowset_reader->init(&rowset_reader_context);
     ASSERT_EQ(OLAP_SUCCESS, res);
     RowBlock* row_block = nullptr;
@@ -286,7 +290,9 @@ TEST_F(AlphaRowsetTest, TestRowCursorWithOrdinal) {
     row3->set_not_null(2);
     row3->set_field_content(2, reinterpret_cast<char*>(&field3_2), _mem_pool.get());
 
-    std::priority_queue<AlphaMergeContext*, std::vector<AlphaMergeContext*>, AlphaMergeContextComparator> queue;
+    std::priority_queue<AlphaMergeContext*, std::vector<AlphaMergeContext*>,
+                        AlphaMergeContextComparator>
+            queue;
     AlphaMergeContext ctx1;
     ctx1.row_cursor.reset(row1);
     AlphaMergeContext ctx2;
@@ -312,9 +318,9 @@ TEST_F(AlphaRowsetTest, TestRowCursorWithOrdinal) {
     ASSERT_TRUE(queue.empty());
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

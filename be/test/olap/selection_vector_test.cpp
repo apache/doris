@@ -15,15 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
-
 #include "olap/selection_vector.h"
+
+#include <gtest/gtest.h>
 
 namespace doris {
 
-class SelectionVectorTest : public testing::Test {
-
-};
+class SelectionVectorTest : public testing::Test {};
 
 TEST_F(SelectionVectorTest, Normal) {
     SelectionVector sel_vel(10);
@@ -40,10 +38,9 @@ TEST_F(SelectionVectorTest, Normal) {
     ASSERT_EQ("   0: 00000000 00 \n", sel_vel.to_string());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

@@ -17,10 +17,11 @@
 
 #include "util/internal_queue.h"
 
-#include <boost/thread.hpp>
-#include <boost/thread/mutex.hpp>
 #include <gtest/gtest.h>
 #include <unistd.h>
+
+#include <boost/thread.hpp>
+#include <boost/thread/mutex.hpp>
 
 #include "common/configbase.h"
 #include "util/logging.h"
@@ -155,12 +156,8 @@ TEST(InternalQueue, TestRemove) {
 const int VALIDATE_INTERVAL = 10000;
 
 // CHECK() is not thread safe so return the result in *failed.
-void ProducerThread(
-        InternalQueue<IntNode>* queue,
-        int num_inserts,
-        vector<IntNode>* nodes,
-        AtomicInt<int32_t>* counter,
-        bool* failed) {
+void ProducerThread(InternalQueue<IntNode>* queue, int num_inserts, vector<IntNode>* nodes,
+                    AtomicInt<int32_t>* counter, bool* failed) {
     for (int i = 0; i < num_inserts && !*failed; ++i) {
         // Get the next index to queue.
         AtomicInt<int32_t> value = (*counter)++;
@@ -174,17 +171,13 @@ void ProducerThread(
     }
 }
 
-void ConsumerThread(
-        InternalQueue<IntNode>* queue,
-        int num_consumes,
-        int delta,
-        vector<int>* results,
-        bool* failed) {
+void ConsumerThread(InternalQueue<IntNode>* queue, int num_consumes, int delta,
+                    vector<int>* results, bool* failed) {
     // Dequeued nodes should be strictly increasing.
     int previous_value = -1;
     for (int i = 0; i < num_consumes && !*failed;) {
         IntNode* node = queue->dequeue();
-        if (node == NULL){
+        if (node == NULL) {
             continue;
         }
         ++i;
@@ -200,7 +193,7 @@ void ConsumerThread(
         results->push_back(node->value);
         previous_value = node->value;
         if (i % VALIDATE_INTERVAL == 0) {
-            if (!queue->validate()){
+            if (!queue->validate()) {
                 *failed = true;
             }
         }
@@ -287,13 +280,13 @@ TEST(InternalQueue, TestMultiProducerMultiConsumer) {
         thread_group producers;
 
         for (int i = 0; i < num_producers; ++i) {
-            producers.add_thread(new thread(
-                    ProducerThread, &queue, num_per_producer, &nodes, &counter, &failed));
+            producers.add_thread(new thread(ProducerThread, &queue, num_per_producer, &nodes,
+                                            &counter, &failed));
         }
 
         for (int i = 0; i < NUM_CONSUMERS; ++i) {
-            consumers.add_thread(new thread(ConsumerThread,
-                    &queue, num_per_consumer, expected_delta, &results[i], &failed));
+            consumers.add_thread(new thread(ConsumerThread, &queue, num_per_consumer,
+                                            expected_delta, &results[i], &failed));
         }
 
         producers.join_all();
@@ -309,7 +302,7 @@ TEST(InternalQueue, TestMultiProducerMultiConsumer) {
         ASSERT_EQ(all_results.size(), nodes.size());
         sort(all_results.begin(), all_results.end());
         for (int i = 0; i < all_results.size(); ++i) {
-            ASSERT_EQ(i, all_results[i]) << all_results[i -1] << " " << all_results[i + 1];
+            ASSERT_EQ(i, all_results[i]) << all_results[i - 1] << " " << all_results[i + 1];
         }
     }
 }

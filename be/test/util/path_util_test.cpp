@@ -17,10 +17,10 @@
 
 #include "util/path_util.h"
 
+#include <gtest/gtest.h>
+
 #include <string>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "common/config.h"
 #include "util/logging.h"

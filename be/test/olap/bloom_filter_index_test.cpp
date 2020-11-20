@@ -41,14 +41,14 @@ TEST_F(TestBloomFilterIndex, normal_read_and_write) {
     BloomFilterIndexReader reader;
     BloomFilterIndexWriter writer;
 
-    BloomFilter* bf_0 = new(std::nothrow) BloomFilter();
+    BloomFilter* bf_0 = new (std::nothrow) BloomFilter();
     bf_0->init(1024);
     bytes = "hello";
     bf_0->add_bytes(NULL, 0);
     bf_0->add_bytes(bytes.c_str(), bytes.size());
     writer.add_bloom_filter(bf_0);
 
-    BloomFilter* bf_1 = new(std::nothrow) BloomFilter();
+    BloomFilter* bf_1 = new (std::nothrow) BloomFilter();
     bf_1->init(1024);
     bytes = "doris";
     bf_1->add_bytes(bytes.c_str(), bytes.size());
@@ -61,8 +61,8 @@ TEST_F(TestBloomFilterIndex, normal_read_and_write) {
     memset(buffer, 0, expect_size);
     ASSERT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, expect_size));
 
-    ASSERT_EQ(OLAP_SUCCESS, reader.init(buffer,
-            expect_size, true, bf_0->hash_function_num(), bf_0->bit_num()));
+    ASSERT_EQ(OLAP_SUCCESS,
+              reader.init(buffer, expect_size, true, bf_0->hash_function_num(), bf_0->bit_num()));
     ASSERT_EQ(2, reader.entry_count());
 
     bytes = "hello";
@@ -99,12 +99,12 @@ TEST_F(TestBloomFilterIndex, abnormal_read) {
 
     header->block_count = 3;
     ASSERT_EQ(OLAP_ERR_INPUT_PARAMETER_ERROR,
-            reader.init(buffer, buffer_size, true, hash_function_num, bit_num));
+              reader.init(buffer, buffer_size, true, hash_function_num, bit_num));
 }
 
 } // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

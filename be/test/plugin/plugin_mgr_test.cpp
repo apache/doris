@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "string"
+#include "plugin/plugin_mgr.h"
 
 #include <gtest/gtest.h>
 #include <libgen.h>
 
 #include "plugin/plugin.h"
-#include "plugin/plugin_mgr.h"
 #include "plugin/plugin_loader.h"
+#include "string"
 
 namespace doris {
 
@@ -39,27 +39,22 @@ private:
 
 int init_plugin(void* ptr) {
     // handler
-    void** p = (void**) ptr;
+    void** p = (void**)ptr;
     *p = new DemoPluginHandler();
 
     return 0;
 }
 
 int close_plugin(void* ptr) {
-    void** p = (void**) ptr;
-    delete (DemoPluginHandler*) (*p);
+    void** p = (void**)ptr;
+    delete (DemoPluginHandler*)(*p);
     LOG(INFO) << "close demo plugin";
     return 1;
 }
 
 //declare_builtin_plugin(demo_plugin) {
 Plugin demo_plugin = {
-    nullptr,
-    &init_plugin,
-    &close_plugin,
-    PLUGIN_DEFAULT_FLAG,
-    nullptr,
-    nullptr,
+        nullptr, &init_plugin, &close_plugin, PLUGIN_DEFAULT_FLAG, nullptr, nullptr,
 };
 
 class PluginMgrTest : public testing::Test {
@@ -71,33 +66,31 @@ public:
         _path = std::string(dir_path);
     }
 
-    ~PluginMgrTest() { }
+    ~PluginMgrTest() {}
 
 public:
     std::string _path;
 };
 
 TEST_F(PluginMgrTest, normal) {
-
     PluginMgr mgr;
-    
+
     mgr.register_builtin_plugin("demo", PLUGIN_TYPE_AUDIT, &demo_plugin);
-    
+
     std::shared_ptr<Plugin> re;
     ASSERT_TRUE(mgr.get_plugin("demo", PLUGIN_TYPE_AUDIT, &re).ok());
     ASSERT_NE(nullptr, re.get());
-    ASSERT_EQ("test", ((DemoPluginHandler*) re->handler)->hello("test"));
+    ASSERT_EQ("test", ((DemoPluginHandler*)re->handler)->hello("test"));
 
-    
     ASSERT_TRUE(mgr.get_plugin("demo", &re).ok());
-    ASSERT_EQ("test", ((DemoPluginHandler*) re->handler)->hello("test"));
+    ASSERT_EQ("test", ((DemoPluginHandler*)re->handler)->hello("test"));
 
     std::vector<std::shared_ptr<Plugin>> list;
     ASSERT_TRUE(mgr.get_plugin_list(PLUGIN_TYPE_AUDIT, &list).ok());
-    ASSERT_EQ(1, list.size()); 
+    ASSERT_EQ(1, list.size());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
