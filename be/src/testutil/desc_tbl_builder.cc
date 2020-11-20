@@ -26,8 +26,7 @@ using std::vector;
 
 namespace doris {
 
-DescriptorTblBuilder::DescriptorTblBuilder(ObjectPool* obj_pool) : _obj_pool(obj_pool) {
-}
+DescriptorTblBuilder::DescriptorTblBuilder(ObjectPool* obj_pool) : _obj_pool(obj_pool) {}
 
 TupleDescBuilder& DescriptorTblBuilder::declare_tuple() {
     TupleDescBuilder* tuple_builder = _obj_pool->add(new TupleDescBuilder());
@@ -36,9 +35,8 @@ TupleDescBuilder& DescriptorTblBuilder::declare_tuple() {
 }
 
 // item_id of -1 indicates no itemTupleId
-static TSlotDescriptor make_slot_descriptor(
-        int id, int parent_id, const TypeDescriptor& type,
-        int slot_idx, int byte_offset, int item_id) {
+static TSlotDescriptor make_slot_descriptor(int id, int parent_id, const TypeDescriptor& type,
+                                            int slot_idx, int byte_offset, int item_id) {
     int null_byte = slot_idx / 8;
     int null_bit = slot_idx % 8;
     TSlotDescriptor slot_desc;
@@ -81,9 +79,9 @@ DescriptorTbl* DescriptorTblBuilder::build() {
     return desc_tbl;
 }
 
-TTupleDescriptor DescriptorTblBuilder::build_tuple(
-        const vector<TypeDescriptor>& slot_types, TDescriptorTable* thrift_desc_tbl,
-        int* next_tuple_id, int* slot_id) {
+TTupleDescriptor DescriptorTblBuilder::build_tuple(const vector<TypeDescriptor>& slot_types,
+                                                   TDescriptorTable* thrift_desc_tbl,
+                                                   int* next_tuple_id, int* slot_id) {
     // We never materialize struct slots (there's no in-memory representation of structs,
     // instead the materialized fields appear directly in the tuple), but array types can
     // still have a struct item type. In this case, the array item tuple contains the
