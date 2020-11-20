@@ -19,9 +19,9 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_INTEGER_READER_H
 
 #include "olap/file_stream.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/run_length_integer_writer.h"
 #include "olap/stream_index_reader.h"
-#include "olap/olap_define.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -33,9 +33,7 @@ class RunLengthIntegerReader {
 public:
     explicit RunLengthIntegerReader(ReadOnlyFileStream* input, bool is_singed);
     ~RunLengthIntegerReader() {}
-    inline bool has_next() const {
-        return _used != _num_literals || !_input->eof();
-    }
+    inline bool has_next() const { return _used != _num_literals || !_input->eof(); }
     // 获取下一条数据, 如果没有更多的数据了, 返回OLAP_ERR_DATA_EOF
     inline OLAPStatus next(int64_t* value) {
         OLAPStatus res = OLAP_SUCCESS;
@@ -72,6 +70,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(RunLengthIntegerReader);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_INTEGER_READER_H

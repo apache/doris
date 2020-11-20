@@ -18,10 +18,10 @@
 #include "olap/memtable.h"
 
 #include "common/logging.h"
+#include "olap/row.h"
+#include "olap/row_cursor.h"
 #include "olap/rowset/column_data_writer.h"
 #include "olap/rowset/rowset_writer.h"
-#include "olap/row_cursor.h"
-#include "olap/row.h"
 #include "olap/schema.h"
 #include "runtime/tuple.h"
 #include "util/debug_util.h"
@@ -44,7 +44,8 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
           _buffer_mem_pool(new MemPool(_mem_tracker.get())),
           _table_mem_pool(new MemPool(_mem_tracker.get())),
           _schema_size(_schema->schema_size()),
-          _skip_list(new Table(_row_comparator, _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS)),
+          _skip_list(new Table(_row_comparator, _table_mem_pool.get(),
+                               _keys_type == KeysType::DUP_KEYS)),
           _rowset_writer(rowset_writer) {}
 
 MemTable::~MemTable() {
@@ -101,15 +102,16 @@ void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* me
 
         bool is_null = tuple->is_null(slot->null_indicator_offset());
         const void* value = tuple->get_slot(slot->tuple_offset());
-        _schema->column(i)->consume(
-                &cell, (const char*)value, is_null, mem_pool, &_agg_object_pool);
+        _schema->column(i)->consume(&cell, (const char*)value, is_null, mem_pool,
+                                    &_agg_object_pool);
     }
 }
 
 void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_skiplist) {
     ContiguousRow dst_row(_schema, row_in_skiplist);
     if (_tablet_schema->has_sequence_col()) {
-        agg_update_row_with_sequence(&dst_row, src_row, _tablet_schema->sequence_col_idx(), _table_mem_pool.get());
+        agg_update_row_with_sequence(&dst_row, src_row, _tablet_schema->sequence_col_idx(),
+                                     _table_mem_pool.get());
     } else {
         agg_update_row(&dst_row, src_row, _table_mem_pool.get());
     }

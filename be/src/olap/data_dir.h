@@ -145,8 +145,8 @@ private:
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
     OLAPStatus _clean_unfinished_converting_data();
     OLAPStatus _convert_old_tablet();
-    // Check whether has old format (hdr_ start) in olap. When doris updating to current version, 
-    // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true, 
+    // Check whether has old format (hdr_ start) in olap. When doris updating to current version,
+    // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true,
     // process will log fatal.
     OLAPStatus _check_incompatible_old_format_tablet();
 

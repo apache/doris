@@ -19,22 +19,21 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H
 
 #include <unordered_map>
+
+#include "common/object_pool.h"
 #include "common/status.h"
+#include "exprs/hybrid_set.h"
+#include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
-#include "runtime/datetime_value.h"
-#include "common/object_pool.h"
-#include "exprs/hybrid_set.h"
 
 namespace doris {
 
 class HybridMap {
 public:
-    HybridMap(PrimitiveType type) : _type(type) {
-    }
+    HybridMap(PrimitiveType type) : _type(type) {}
 
-    virtual ~HybridMap() {
-    }
+    virtual ~HybridMap() {}
 
     virtual HybridSetBase* find_or_insert_set(uint64_t dst, bool* is_add_buckets) {
         HybridSetBase* _set_ptr;
@@ -58,6 +57,6 @@ private:
     PrimitiveType _type;
     ObjectPool _pool;
 };
-}
+} // namespace doris
 
-#endif  // DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H
+#endif // DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H

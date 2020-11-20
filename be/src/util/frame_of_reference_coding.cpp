@@ -25,16 +25,16 @@
 
 namespace doris {
 
-template<typename T>
-const T* ForEncoder<T>::copy_value(const T *p_data, size_t count) {
+template <typename T>
+const T* ForEncoder<T>::copy_value(const T* p_data, size_t count) {
     memcpy(&_buffered_values[_buffered_values_num], p_data, count * sizeof(T));
     _buffered_values_num += count;
     p_data += count;
     return p_data;
 }
 
-template<typename T>
-void ForEncoder<T>::put_batch(const T *in_data, size_t count) {
+template <typename T>
+void ForEncoder<T>::put_batch(const T* in_data, size_t count) {
     if (_buffered_values_num + count < FRAME_VALUE_NUM) {
         copy_value(in_data, count);
         _values_num += count;
@@ -48,7 +48,7 @@ void ForEncoder<T>::put_batch(const T *in_data, size_t count) {
 
     // 2. process frame by frame
     size_t frame_size = (count - padding_num) / FRAME_VALUE_NUM;
-    for (size_t i = 0; i < frame_size; i ++) {
+    for (size_t i = 0; i < frame_size; i++) {
         // directly encode value to the bit_writer, don't buffer the value
         _buffered_values_num = FRAME_VALUE_NUM;
         bit_packing_one_frame_value(in_data);
@@ -75,8 +75,8 @@ void ForEncoder<T>::put_batch(const T *in_data, size_t count) {
 // For example:
 // The input is int32 list: 1, 2, 4, 8 and bit_width is 4
 // The output will be: 0001 0010 0100 1000
-template<typename T>
-void ForEncoder<T>::bit_pack(const T *input, uint8_t in_num, int bit_width, uint8_t *output) {
+template <typename T>
+void ForEncoder<T>::bit_pack(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
     if (in_num == 0 || bit_width == 0) {
         return;
     }
@@ -99,7 +99,7 @@ void ForEncoder<T>::bit_pack(const T *input, uint8_t in_num, int bit_width, uint
     }
 }
 
-template<typename T>
+template <typename T>
 void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
     T min = input[0];
     T max = input[0];
@@ -117,7 +117,7 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
                 if ((input[i] >> 1) - (input[i - 1] >> 1) > half_max_delta) { // overflow
                     is_keep_original_value = true;
                 } else {
-                    bit_width = std::max(bit_width, bits(input[i]- input[i - 1])) ;
+                    bit_width = std::max(bit_width, bits(input[i] - input[i - 1]));
                 }
             }
         }
@@ -189,7 +189,7 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
     _buffered_values_num = 0;
 }
 
-template<typename T>
+template <typename T>
 uint32_t ForEncoder<T>::flush() {
     if (_buffered_values_num != 0) {
         bit_packing_one_frame_value(_buffered_values);
@@ -197,7 +197,8 @@ uint32_t ForEncoder<T>::flush() {
 
     // write the footer:
     // 1 _storage_formats and bit_widths
-    DCHECK(_storage_formats.size() == _bit_widths.size()) << "Size of _storage_formats and _bit_widths should be equal.";
+    DCHECK(_storage_formats.size() == _bit_widths.size())
+            << "Size of _storage_formats and _bit_widths should be equal.";
     for (size_t i = 0; i < _storage_formats.size(); i++) {
         _buffer->append(&_storage_formats[i], 1);
         _buffer->append(&_bit_widths[i], 1);
@@ -210,18 +211,17 @@ uint32_t ForEncoder<T>::flush() {
     return _buffer->size();
 }
 
-template<typename T>
+template <typename T>
 const T ForEncoder<T>::numeric_limits_max() {
     return std::numeric_limits<T>::max();
 }
 
-template<>
-const uint24_t ForEncoder<uint24_t>::numeric_limits_max()  {
+template <>
+const uint24_t ForEncoder<uint24_t>::numeric_limits_max() {
     return 0XFFFFFF;
 }
 
-
-template<typename T>
+template <typename T>
 bool ForDecoder<T>::init() {
     // When row count is zero, the minimum footer size is 5:
     // only has ValuesNum(4) + FrameValueNum(1)
@@ -241,7 +241,7 @@ bool ForDecoder<T>::init() {
 
     // read _storage_formats, bit_widths and compute frame_offsets
     u_int32_t frame_start_offset = 0;
-    for (uint32_t i = 0; i < _frame_count; i++ ) {
+    for (uint32_t i = 0; i < _frame_count; i++) {
         uint8_t order_flag = decode_fixed8(_buffer + bit_width_offset);
         uint8_t bit_width = decode_fixed8(_buffer + bit_width_offset + 1);
         _bit_widths.push_back(bit_width);
@@ -251,11 +251,11 @@ bool ForDecoder<T>::init() {
 
         _frame_offsets.push_back(frame_start_offset);
         if (sizeof(T) == 16) {
-            frame_start_offset +=  bit_width * _max_frame_size / 8 + 16;
+            frame_start_offset += bit_width * _max_frame_size / 8 + 16;
         } else if (sizeof(T) == 8) {
-            frame_start_offset +=  bit_width * _max_frame_size / 8 + 8;
+            frame_start_offset += bit_width * _max_frame_size / 8 + 8;
         } else {
-            frame_start_offset +=  bit_width * _max_frame_size / 8 + 4;
+            frame_start_offset += bit_width * _max_frame_size / 8 + 4;
         }
     }
 
@@ -271,8 +271,8 @@ bool ForDecoder<T>::init() {
 // param[in] in_num: the integer number in packed bits
 // param[in] bit_width: how many bit we used to store each integer data
 // param[out] output: the original integer data list
-template<typename T>
-void ForDecoder<T>::bit_unpack(const uint8_t *input, uint8_t in_num, int bit_width, T *output) {
+template <typename T>
+void ForDecoder<T>::bit_unpack(const uint8_t* input, uint8_t in_num, int bit_width, T* output) {
     unsigned char in_mask = 0x80;
     int bit_index = 0;
     while (in_num > 0) {
@@ -282,7 +282,8 @@ void ForDecoder<T>::bit_unpack(const uint8_t *input, uint8_t in_num, int bit_wid
                 input++;
                 bit_index = 0;
             }
-            *output |= ((T)((*input & (in_mask >> bit_index)) >> (7 - bit_index))) << (bit_width - i - 1);
+            *output |= ((T)((*input & (in_mask >> bit_index)) >> (7 - bit_index)))
+                       << (bit_width - i - 1);
             bit_index++;
         }
         output++;
@@ -290,7 +291,7 @@ void ForDecoder<T>::bit_unpack(const uint8_t *input, uint8_t in_num, int bit_wid
     }
 }
 
-template<typename T>
+template <typename T>
 void ForDecoder<T>::decode_current_frame(T* output) {
     uint32_t frame_index = _current_index / _max_frame_size;
     if (frame_index == _current_decoded_frame) {
@@ -324,20 +325,20 @@ void ForDecoder<T>::decode_current_frame(T* output) {
         bit_unpack(_buffer + delta_offset, current_frame_size, bit_width, delta_values.data());
         if (is_ascending) {
             T pre_value = min;
-            for (uint8_t i = 0; i < current_frame_size; i ++) {
+            for (uint8_t i = 0; i < current_frame_size; i++) {
                 T value = delta_values[i] + pre_value;
                 output[i] = value;
                 pre_value = value;
             }
         } else {
-            for (uint8_t i = 0; i < current_frame_size; i ++) {
+            for (uint8_t i = 0; i < current_frame_size; i++) {
                 output[i] = delta_values[i] + min;
             }
         }
     }
 }
 
-template<typename T>
+template <typename T>
 T ForDecoder<T>::decode_frame_min_value(uint32_t frame_index) {
     uint32_t min_offset = _frame_offsets[frame_index];
     T min = 0;
@@ -351,7 +352,7 @@ T ForDecoder<T>::decode_frame_min_value(uint32_t frame_index) {
     return min;
 }
 
-template<typename T>
+template <typename T>
 T* ForDecoder<T>::copy_value(T* val, size_t count) {
     memcpy(val, &_out_buffer[_current_index % _max_frame_size], sizeof(T) * count);
     _current_index += count;
@@ -359,7 +360,7 @@ T* ForDecoder<T>::copy_value(T* val, size_t count) {
     return val;
 }
 
-template<typename T>
+template <typename T>
 bool ForDecoder<T>::get_batch(T* val, size_t count) {
     if (_current_index + count > _values_num) {
         return false;
@@ -395,7 +396,7 @@ bool ForDecoder<T>::get_batch(T* val, size_t count) {
     return true;
 }
 
-template<typename T>
+template <typename T>
 bool ForDecoder<T>::skip(int32_t skip_num) {
     if (_current_index + skip_num >= _values_num || _current_index + skip_num < 0) {
         return false;
@@ -404,7 +405,7 @@ bool ForDecoder<T>::skip(int32_t skip_num) {
     return true;
 }
 
-template<typename T>
+template <typename T>
 uint32_t ForDecoder<T>::seek_last_frame_before_value(T target) {
     // first of all, find the first frame >= target
     uint32_t left = 0;
@@ -427,8 +428,9 @@ uint32_t ForDecoder<T>::seek_last_frame_before_value(T target) {
     return left - 1;
 }
 
-template<typename T>
-bool ForDecoder<T>::seek_lower_bound_inside_frame(uint32_t frame_index, T target, bool* exact_match) {
+template <typename T>
+bool ForDecoder<T>::seek_lower_bound_inside_frame(uint32_t frame_index, T target,
+                                                  bool* exact_match) {
     _current_index = frame_index * _max_frame_size;
     decode_current_frame(_out_buffer.data());
     auto end = _out_buffer.begin() + frame_size(frame_index);
@@ -442,8 +444,7 @@ bool ForDecoder<T>::seek_lower_bound_inside_frame(uint32_t frame_index, T target
     return false;
 }
 
-
-template<typename T>
+template <typename T>
 bool ForDecoder<T>::seek_at_or_after_value(const void* value, bool* exact_match) {
     T target = *reinterpret_cast<const T*>(value);
     uint32_t frame_to_search = seek_last_frame_before_value(target);
@@ -461,7 +462,7 @@ bool ForDecoder<T>::seek_at_or_after_value(const void* value, bool* exact_match)
     if (!found && frame_to_search < _frame_count - 1) {
         _current_index = (frame_to_search + 1) * _max_frame_size;
         decode_current_frame(_out_buffer.data());
-        *exact_match = _out_buffer[0]  == target;
+        *exact_match = _out_buffer[0] == target;
         return true;
     }
     return found;
@@ -479,8 +480,6 @@ template class ForEncoder<uint64_t>;
 template class ForEncoder<uint24_t>;
 template class ForEncoder<uint128_t>;
 
-
-
 template class ForDecoder<int8_t>;
 template class ForDecoder<int16_t>;
 template class ForDecoder<int32_t>;
@@ -492,4 +491,4 @@ template class ForDecoder<uint32_t>;
 template class ForDecoder<uint64_t>;
 template class ForDecoder<uint24_t>;
 template class ForDecoder<uint128_t>;
-}
+} // namespace doris

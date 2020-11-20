@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_HTTP_ACTION_META_ACTION_H
-#define  DORIS_BE_SRC_HTTP_ACTION_META_ACTION_H
+#ifndef DORIS_BE_SRC_HTTP_ACTION_META_ACTION_H
+#define DORIS_BE_SRC_HTTP_ACTION_META_ACTION_H
 
-#include "http/http_handler.h"
 #include "common/status.h"
+#include "http/http_handler.h"
 
 namespace doris {
 
@@ -32,14 +32,14 @@ enum META_TYPE {
 // Get Meta Info
 class MetaAction : public HttpHandler {
 public:
-    MetaAction(META_TYPE meta_type)     : _meta_type(meta_type) {}
+    MetaAction(META_TYPE meta_type) : _meta_type(meta_type) {}
 
     virtual ~MetaAction() {}
 
-    void handle(HttpRequest *req) override;
+    void handle(HttpRequest* req) override;
 
 private:
-    Status _handle_header(HttpRequest *req, std::string* json_header);
+    Status _handle_header(HttpRequest* req, std::string* json_header);
 
 private:
     META_TYPE _meta_type;

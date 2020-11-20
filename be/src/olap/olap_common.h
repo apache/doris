@@ -20,6 +20,7 @@
 
 #include <netinet/in.h>
 
+#include <functional>
 #include <list>
 #include <map>
 #include <memory>
@@ -29,7 +30,6 @@
 #include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
-#include <functional>
 
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_define.h"
@@ -49,33 +49,24 @@ typedef unsigned __int128 uint128_t;
 
 typedef UniqueId TabletUid;
 
-enum CompactionType {
-    BASE_COMPACTION = 1,
-    CUMULATIVE_COMPACTION = 2
-};
+enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2 };
 
 struct DataDirInfo {
-    DataDirInfo():
-            path_hash(0),
-            disk_capacity(1),
-            available(0),
-            data_used_capacity(0),
-            is_used(false) { }
+    DataDirInfo()
+            : path_hash(0), disk_capacity(1), available(0), data_used_capacity(0), is_used(false) {}
 
     std::string path;
     size_t path_hash;
-    int64_t disk_capacity;             // actual disk capacity
-    int64_t available;                 // 可用空间，单位字节
+    int64_t disk_capacity; // actual disk capacity
+    int64_t available;     // 可用空间，单位字节
     int64_t data_used_capacity;
-    bool is_used;                       // 是否可用标识
-    TStorageMedium::type storage_medium;  // 存储介质类型：SSD|HDD
+    bool is_used;                        // 是否可用标识
+    TStorageMedium::type storage_medium; // 存储介质类型：SSD|HDD
 };
 
 struct TabletInfo {
-    TabletInfo(TTabletId in_tablet_id, TSchemaHash in_schema_hash, UniqueId in_uid) :
-            tablet_id(in_tablet_id),
-            schema_hash(in_schema_hash),
-            tablet_uid(in_uid) {}
+    TabletInfo(TTabletId in_tablet_id, TSchemaHash in_schema_hash, UniqueId in_uid)
+            : tablet_id(in_tablet_id), schema_hash(in_schema_hash), tablet_uid(in_uid) {}
 
     bool operator<(const TabletInfo& right) const {
         if (tablet_id != right.tablet_id) {
@@ -99,42 +90,42 @@ struct TabletInfo {
 };
 
 enum RangeCondition {
-    GT = 0,     // greater than
-    GE = 1,     // greater or equal
-    LT = 2,     // less than
-    LE = 3,     // less or equal
+    GT = 0, // greater than
+    GE = 1, // greater or equal
+    LT = 2, // less than
+    LE = 3, // less or equal
 };
 
 enum DelCondSatisfied {
-    DEL_SATISFIED = 0, //satisfy delete condition
-    DEL_NOT_SATISFIED = 1, //not satisfy delete condition
+    DEL_SATISFIED = 0,         //satisfy delete condition
+    DEL_NOT_SATISFIED = 1,     //not satisfy delete condition
     DEL_PARTIAL_SATISFIED = 2, //partially satisfy delete condition
 };
 
 // 定义Field支持的所有数据类型
 enum FieldType {
-    OLAP_FIELD_TYPE_TINYINT = 1,           // MYSQL_TYPE_TINY
+    OLAP_FIELD_TYPE_TINYINT = 1, // MYSQL_TYPE_TINY
     OLAP_FIELD_TYPE_UNSIGNED_TINYINT = 2,
-    OLAP_FIELD_TYPE_SMALLINT = 3,          // MYSQL_TYPE_SHORT
+    OLAP_FIELD_TYPE_SMALLINT = 3, // MYSQL_TYPE_SHORT
     OLAP_FIELD_TYPE_UNSIGNED_SMALLINT = 4,
-    OLAP_FIELD_TYPE_INT = 5,            // MYSQL_TYPE_LONG
+    OLAP_FIELD_TYPE_INT = 5, // MYSQL_TYPE_LONG
     OLAP_FIELD_TYPE_UNSIGNED_INT = 6,
-    OLAP_FIELD_TYPE_BIGINT = 7,           // MYSQL_TYPE_LONGLONG
+    OLAP_FIELD_TYPE_BIGINT = 7, // MYSQL_TYPE_LONGLONG
     OLAP_FIELD_TYPE_UNSIGNED_BIGINT = 8,
     OLAP_FIELD_TYPE_LARGEINT = 9,
-    OLAP_FIELD_TYPE_FLOAT = 10,          // MYSQL_TYPE_FLOAT
-    OLAP_FIELD_TYPE_DOUBLE = 11,        // MYSQL_TYPE_DOUBLE
+    OLAP_FIELD_TYPE_FLOAT = 10,  // MYSQL_TYPE_FLOAT
+    OLAP_FIELD_TYPE_DOUBLE = 11, // MYSQL_TYPE_DOUBLE
     OLAP_FIELD_TYPE_DISCRETE_DOUBLE = 12,
-    OLAP_FIELD_TYPE_CHAR = 13,        // MYSQL_TYPE_STRING
-    OLAP_FIELD_TYPE_DATE = 14,          // MySQL_TYPE_NEWDATE
-    OLAP_FIELD_TYPE_DATETIME = 15,      // MySQL_TYPE_DATETIME
-    OLAP_FIELD_TYPE_DECIMAL = 16,       // DECIMAL, using different store format against MySQL
+    OLAP_FIELD_TYPE_CHAR = 13,     // MYSQL_TYPE_STRING
+    OLAP_FIELD_TYPE_DATE = 14,     // MySQL_TYPE_NEWDATE
+    OLAP_FIELD_TYPE_DATETIME = 15, // MySQL_TYPE_DATETIME
+    OLAP_FIELD_TYPE_DECIMAL = 16,  // DECIMAL, using different store format against MySQL
     OLAP_FIELD_TYPE_VARCHAR = 17,
 
-    OLAP_FIELD_TYPE_STRUCT = 18,        // Struct
-    OLAP_FIELD_TYPE_ARRAY = 19,          // ARRAY
-    OLAP_FIELD_TYPE_MAP = 20,           // Map
-    OLAP_FIELD_TYPE_UNKNOWN = 21,       // UNKNOW Type
+    OLAP_FIELD_TYPE_STRUCT = 18,  // Struct
+    OLAP_FIELD_TYPE_ARRAY = 19,   // ARRAY
+    OLAP_FIELD_TYPE_MAP = 20,     // Map
+    OLAP_FIELD_TYPE_UNKNOWN = 21, // UNKNOW Type
     OLAP_FIELD_TYPE_NONE = 22,
     OLAP_FIELD_TYPE_HLL = 23,
     OLAP_FIELD_TYPE_BOOL = 24,
@@ -160,16 +151,16 @@ enum FieldAggregationMethod {
 
 // 压缩算法类型
 enum OLAPCompressionType {
-    OLAP_COMP_TRANSPORT = 1,    // 用于网络传输的压缩算法，压缩率低，cpu开销低
-    OLAP_COMP_STORAGE = 2,      // 用于硬盘数据的压缩算法，压缩率高，cpu开销大
-    OLAP_COMP_LZ4 = 3,          // 用于储存的压缩算法，压缩率低，cpu开销低
+    OLAP_COMP_TRANSPORT = 1, // 用于网络传输的压缩算法，压缩率低，cpu开销低
+    OLAP_COMP_STORAGE = 2,   // 用于硬盘数据的压缩算法，压缩率高，cpu开销大
+    OLAP_COMP_LZ4 = 3,       // 用于储存的压缩算法，压缩率低，cpu开销低
 };
 
 enum PushType {
-    PUSH_NORMAL = 1,            // for broker/hadoop load
-    PUSH_FOR_DELETE = 2,        // for delete
-    PUSH_FOR_LOAD_DELETE = 3,   // not use
-    PUSH_NORMAL_V2 = 4,         // for spark load
+    PUSH_NORMAL = 1,          // for broker/hadoop load
+    PUSH_FOR_DELETE = 2,      // for delete
+    PUSH_FOR_LOAD_DELETE = 3, // not use
+    PUSH_NORMAL_V2 = 4,       // for spark load
 };
 
 enum ReaderType {
@@ -192,13 +183,9 @@ struct Version {
 
     friend std::ostream& operator<<(std::ostream& os, const Version& version);
 
-    bool operator!=(const Version& rhs) const {
-        return first != rhs.first || second != rhs.second;
-    }
+    bool operator!=(const Version& rhs) const { return first != rhs.first || second != rhs.second; }
 
-    bool operator==(const Version& rhs) const {
-        return first == rhs.first && second == rhs.second;
-    }
+    bool operator==(const Version& rhs) const { return first == rhs.first && second == rhs.second; }
 
     bool contains(const Version& other) const {
         return first <= other.first && second >= other.second;
@@ -208,7 +195,7 @@ struct Version {
 typedef std::vector<Version> Versions;
 
 inline std::ostream& operator<<(std::ostream& os, const Version& version) {
-    return os << "["<< version.first << "-" << version.second << "]";
+    return os << "[" << version.first << "-" << version.second << "]";
 }
 
 // used for hash-struct of hash_map<Version, Rowset*>.
@@ -244,9 +231,9 @@ struct OlapReaderStatistics {
     // total read bytes in memory
     int64_t bytes_read = 0;
 
-    int64_t block_load_ns = 0; 
+    int64_t block_load_ns = 0;
     int64_t blocks_load = 0;
-    int64_t block_fetch_ns = 0;  // time of rowset reader's `next_batch()` call
+    int64_t block_fetch_ns = 0; // time of rowset reader's `next_batch()` call
     int64_t block_seek_num = 0;
     int64_t block_seek_ns = 0;
     int64_t block_convert_ns = 0;
@@ -259,11 +246,11 @@ struct OlapReaderStatistics {
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
     int64_t rows_bf_filtered = 0;
-    // Including the number of rows filtered out according to the Delete information in the Tablet, 
+    // Including the number of rows filtered out according to the Delete information in the Tablet,
     // and the number of rows filtered for marked deleted rows under the unique key model.
-    int64_t rows_del_filtered = 0; 
+    int64_t rows_del_filtered = 0;
     // the number of rows filtered by various column indexes.
-    int64_t rows_conditions_filtered = 0; 
+    int64_t rows_conditions_filtered = 0;
 
     int64_t index_load_ns = 0;
 
@@ -311,9 +298,7 @@ struct RowsetId {
     }
 
     // to compatible with old version
-    void init(int64_t rowset_id) {
-        init(1, rowset_id, 0, 0);
-    }
+    void init(int64_t rowset_id) { init(1, rowset_id, 0, 0); }
 
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
         version = id_version;
@@ -362,6 +347,6 @@ struct RowsetId {
     }
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_OLAP_COMMON_H

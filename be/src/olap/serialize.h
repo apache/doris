@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_SERIALIZE_H
 #define DORIS_BE_SRC_OLAP_COLUMN_FILE_SERIALIZE_H
 
-#include "olap/olap_define.h"
 #include "olap/byte_buffer.h"
+#include "olap/olap_define.h"
 
 namespace doris {
 
@@ -70,10 +70,38 @@ inline OLAPStatus read_var_signed(ReadOnlyFileStream* stream, int64_t* value) {
 // 其他剩余32个不在这32种的比特长度向上对齐到最接近的一个比特位长.
 // FixedBitSize给出了32种比特位长
 enum FixedBitSize {
-    ONE = 0, TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, NINE, TEN, ELEVEN, TWELVE,
-    THIRTEEN, FOURTEEN, FIFTEEN, SIXTEEN, SEVENTEEN, EIGHTEEN, NINETEEN,
-    TWENTY, TWENTYONE, TWENTYTWO, TWENTYTHREE, TWENTYFOUR, TWENTYSIX,
-    TWENTYEIGHT, THIRTY, THIRTYTWO, FORTY, FORTYEIGHT, FIFTYSIX, SIXTYFOUR
+    ONE = 0,
+    TWO,
+    THREE,
+    FOUR,
+    FIVE,
+    SIX,
+    SEVEN,
+    EIGHT,
+    NINE,
+    TEN,
+    ELEVEN,
+    TWELVE,
+    THIRTEEN,
+    FOURTEEN,
+    FIFTEEN,
+    SIXTEEN,
+    SEVENTEEN,
+    EIGHTEEN,
+    NINETEEN,
+    TWENTY,
+    TWENTYONE,
+    TWENTYTWO,
+    TWENTYTHREE,
+    TWENTYFOUR,
+    TWENTYSIX,
+    TWENTYEIGHT,
+    THIRTY,
+    THIRTYTWO,
+    FORTY,
+    FORTYEIGHT,
+    FIFTYSIX,
+    SIXTYFOUR
 };
 
 inline uint32_t used_bits(uint64_t value) {
@@ -96,15 +124,15 @@ inline void compute_hists(int64_t* data, uint16_t count, uint16_t hists[65]) {
 // 返回大于等于n且最接近n的FixedBiteSize
 inline uint32_t get_closet_fixed_bits(uint32_t n) {
     static uint8_t bits_map[65] = {
-        1, // 0
-        1, 2, 3, 4, 5, 6, 7, 8, // 1 - 8
-        9, 10, 11, 12, 13, 14, 15, 16, // 9 - 16
-        17, 18, 19, 20, 21, 22, 23, 24, // 17 - 24
-        26, 26, 28, 28, 30, 30, 32, 32, // 25 - 32
-        40, 40, 40, 40, 40, 40, 40, 40, // 33 - 40
-        48, 48, 48, 48, 48, 48, 48, 48, // 41 - 48
-        56, 56, 56, 56, 56, 56, 56, 56, // 49 - 56
-        64, 64, 64, 64, 64, 64, 64, 64, // 57 - 64
+            1,                              // 0
+            1,  2,  3,  4,  5,  6,  7,  8,  // 1 - 8
+            9,  10, 11, 12, 13, 14, 15, 16, // 9 - 16
+            17, 18, 19, 20, 21, 22, 23, 24, // 17 - 24
+            26, 26, 28, 28, 30, 30, 32, 32, // 25 - 32
+            40, 40, 40, 40, 40, 40, 40, 40, // 33 - 40
+            48, 48, 48, 48, 48, 48, 48, 48, // 41 - 48
+            56, 56, 56, 56, 56, 56, 56, 56, // 49 - 56
+            64, 64, 64, 64, 64, 64, 64, 64, // 57 - 64
     };
     return bits_map[n];
 }

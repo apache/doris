@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
-#define  DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
+#define DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
 
-#include <boost/variant/static_visitor.hpp>
 #include <boost/thread.hpp>
+#include <boost/variant/static_visitor.hpp>
 #include <condition_variable>
 #include <queue>
 
@@ -55,9 +55,8 @@ public:
     Status collect_query_statistics(QueryStatistics* statistics) override;
     virtual Status close(RuntimeState* state);
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges);
-    inline void set_no_agg_finalize() {
-        _need_agg_finalize = false;
-    }
+    inline void set_no_agg_finalize() { _need_agg_finalize = false; }
+
 protected:
     typedef struct {
         Tuple* tuple;
@@ -65,7 +64,7 @@ protected:
     } HeapType;
     class IsFixedValueRangeVisitor : public boost::static_visitor<bool> {
     public:
-        template<class T>
+        template <class T>
         bool operator()(T& v) const {
             return v.is_fixed_value_range();
         }
@@ -73,7 +72,7 @@ protected:
 
     class GetFixedValueSizeVisitor : public boost::static_visitor<size_t> {
     public:
-        template<class T>
+        template <class T>
         size_t operator()(T& v) const {
             return v.get_fixed_value_size();
         }
@@ -82,12 +81,12 @@ protected:
     class ExtendScanKeyVisitor : public boost::static_visitor<Status> {
     public:
         ExtendScanKeyVisitor(OlapScanKeys& scan_keys, int32_t max_scan_key_num)
-            : _scan_keys(scan_keys),
-              _max_scan_key_num(max_scan_key_num) { }
-        template<class T>
+                : _scan_keys(scan_keys), _max_scan_key_num(max_scan_key_num) {}
+        template <class T>
         Status operator()(T& v) {
             return _scan_keys.extend_scan_key(v, _max_scan_key_num);
         }
+
     private:
         OlapScanKeys& _scan_keys;
         int32_t _max_scan_key_num;
@@ -97,7 +96,7 @@ protected:
 
     class ToOlapFilterVisitor : public boost::static_visitor<void> {
     public:
-        template<class T, class P>
+        template <class T, class P>
         void operator()(T& v, P& v2) const {
             v.to_olap_filter(v2);
         }
@@ -112,6 +111,7 @@ protected:
         bool operator()(const HeapType& lhs, const HeapType& rhs) const {
             return (*_compute_fn)(lhs.tuple->get_slot(_offset), rhs.tuple->get_slot(_offset));
         }
+
     private:
         CompareLargeFunc _compute_fn;
         int _offset;
@@ -139,13 +139,13 @@ protected:
     Status build_scan_key();
     Status start_scan_thread(RuntimeState* state);
 
-    template<class T>
+    template <class T>
     Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
 
-    template<class T>
+    template <class T>
     Status normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
-    template<class T>
+    template <class T>
     Status normalize_noneq_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
     void transfer_thread(RuntimeState* state);
@@ -158,11 +158,12 @@ protected:
 
 private:
     void _init_counter(RuntimeState* state);
-    // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator 
+    // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator
     // according to the calling relationship
     void init_scan_profile();
 
-    void construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, const std::string& is_null_str);
+    void construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot,
+                                              const std::string& is_null_str);
 
     friend class OlapScanner;
 

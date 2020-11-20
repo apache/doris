@@ -18,6 +18,7 @@
 #include "util/os_util.h"
 
 #include <fcntl.h>
+#include <glog/logging.h>
 #include <sys/resource.h>
 #include <unistd.h>
 
@@ -26,8 +27,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-#include <glog/logging.h>
 
 #include "env/env_util.h"
 #include "gutil/macros.h"

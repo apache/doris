@@ -16,13 +16,13 @@
 // under the License.
 
 #include "exec/local_file_writer.h"
+
 #include "util/error_util.h"
 
 namespace doris {
 
 LocalFileWriter::LocalFileWriter(const std::string& path, int64_t start_offset)
-        : _path(path), _start_offset(start_offset), _fp(nullptr) {
-}
+        : _path(path), _start_offset(start_offset), _fp(nullptr) {}
 
 LocalFileWriter::~LocalFileWriter() {
     close();
@@ -32,9 +32,8 @@ Status LocalFileWriter::open() {
     _fp = fopen(_path.c_str(), "w+");
     if (_fp == nullptr) {
         std::stringstream ss;
-        ss << "Open file failed. path=" << _path
-            << ", errno= " << errno
-            << ", description=" << get_str_err_msg();
+        ss << "Open file failed. path=" << _path << ", errno= " << errno
+           << ", description=" << get_str_err_msg();
         return Status::InternalError(ss.str());
     }
 
@@ -42,9 +41,8 @@ Status LocalFileWriter::open() {
         int success = fseek(_fp, _start_offset, SEEK_SET);
         if (success != 0) {
             std::stringstream ss;
-            ss << "Seek to start_offset failed. offset=" << _start_offset
-                << ", errno= " << errno
-                << ", description=" << get_str_err_msg();
+            ss << "Seek to start_offset failed. offset=" << _start_offset << ", errno= " << errno
+               << ", description=" << get_str_err_msg();
             return Status::InternalError(ss.str());
         }
     }
@@ -57,10 +55,8 @@ Status LocalFileWriter::write(const uint8_t* buf, size_t buf_len, size_t* writte
     if (bytes_written < buf_len) {
         std::stringstream error_msg;
         error_msg << "fail to write to file. "
-                << " len=" << buf_len
-                << ", path=" << _path
-                << ", failed with errno=" << errno
-                << ", description=" << get_str_err_msg();
+                  << " len=" << buf_len << ", path=" << _path << ", failed with errno=" << errno
+                  << ", description=" << get_str_err_msg();
         return Status::InternalError(error_msg.str());
     }
 

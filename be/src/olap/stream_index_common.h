@@ -21,22 +21,19 @@
 #include <functional>
 
 #include "olap/field.h"
-#include "olap/wrapper_field.h"
 #include "olap/olap_define.h"
+#include "olap/wrapper_field.h"
 
 namespace doris {
 
-
 // 描述streamindex的格式
 struct StreamIndexHeader {
-    uint64_t block_count;           // 本index中block的个数
-    uint32_t position_format;       // position的个数，每个长度为sizeof(uint32_t)
-    uint32_t statistic_format;      // 统计信息格式，实际上就是OLAP_FIELD_TYPE_XXX
+    uint64_t block_count;      // 本index中block的个数
+    uint32_t position_format;  // position的个数，每个长度为sizeof(uint32_t)
+    uint32_t statistic_format; // 统计信息格式，实际上就是OLAP_FIELD_TYPE_XXX
     // 为OLAP_FIELD_TYPE_NONE时, 表示无索引
-    StreamIndexHeader() : 
-            block_count(0),
-            position_format(0),
-            statistic_format(OLAP_FIELD_TYPE_NONE) {}
+    StreamIndexHeader()
+            : block_count(0), position_format(0), statistic_format(OLAP_FIELD_TYPE_NONE) {}
 } __attribute__((packed));
 
 // TODO: string type(char, varchar) has no columnar statistics at present.
@@ -54,7 +51,7 @@ public:
     // 只是reset最大和最小值，将最小值设置为MAX，将最大值设置为MIN。
     void reset();
 
-    template<typename CellType>
+    template <typename CellType>
     inline void add(const CellType& cell) {
         if (_ignored) {
             return;
@@ -78,18 +75,13 @@ public:
     OLAPStatus write_to_buffer(char* buffer, size_t size);
 
     // 属性
-    const WrapperField* minimum() const {
-        return _minimum;
-    }
-    const WrapperField* maximum() const {
-        return _maximum;
-    }
+    const WrapperField* minimum() const { return _minimum; }
+    const WrapperField* maximum() const { return _maximum; }
     std::pair<WrapperField*, WrapperField*> pair() const {
         return std::make_pair(_minimum, _maximum);
     }
-    bool ignored() const {
-        return _ignored;
-    }
+    bool ignored() const { return _ignored; }
+
 protected:
     WrapperField* _minimum;
     WrapperField* _maximum;
@@ -99,7 +91,6 @@ protected:
     bool _null_supported;
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_COMMON_H
-

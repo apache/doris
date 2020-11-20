@@ -60,13 +60,12 @@ ChunkAllocator* ChunkAllocator::instance() {
 }
 #endif
 
-
 // Keep free chunk's ptr in size separated free list.
 // This class is thread-safe.
 class ChunkArena {
 public:
-    ChunkArena() : _chunk_lists(64) { }
-    
+    ChunkArena() : _chunk_lists(64) {}
+
     ~ChunkArena() {
         for (int i = 0; i < 64; ++i) {
             if (_chunk_lists[i].empty()) continue;
@@ -100,6 +99,7 @@ public:
         std::lock_guard<SpinLock> l(_lock);
         _chunk_lists[idx].push_back(ptr);
     }
+
 private:
     SpinLock _lock;
     std::vector<std::vector<uint8_t*>> _chunk_lists;
@@ -112,13 +112,14 @@ void ChunkAllocator::init_instance(size_t reserve_limit) {
 
 ChunkAllocator::ChunkAllocator(size_t reserve_limit)
         : _reserve_bytes_limit(reserve_limit),
-        _reserved_bytes(0),
-        _arenas(CpuInfo::get_max_num_cores()) {
+          _reserved_bytes(0),
+          _arenas(CpuInfo::get_max_num_cores()) {
     for (int i = 0; i < _arenas.size(); ++i) {
         _arenas[i].reset(new ChunkArena());
     }
 
-    _chunk_allocator_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity("chunk_allocator");
+    _chunk_allocator_metric_entity =
+            DorisMetrics::instance()->metric_registry()->register_entity("chunk_allocator");
     INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_local_core_alloc_count);
     INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_other_core_alloc_count);
     INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_system_alloc_count);
@@ -179,7 +180,7 @@ void ChunkAllocator::free(const Chunk& chunk) {
             }
             chunk_pool_system_free_count->increment(1);
             chunk_pool_system_free_cost_ns->increment(cost_ns);
-            
+
             return;
         }
     } while (!_reserved_bytes.compare_exchange_weak(old_reserved_bytes, new_reserved_bytes));
@@ -187,4 +188,4 @@ void ChunkAllocator::free(const Chunk& chunk) {
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
 }
 
-}
+} // namespace doris

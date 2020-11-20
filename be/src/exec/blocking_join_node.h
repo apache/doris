@@ -35,8 +35,8 @@ class TupleRow;
 // right child in open().
 class BlockingJoinNode : public ExecNode {
 public:
-    BlockingJoinNode(const std::string& node_name, const TJoinOp::type join_op,
-                     ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    BlockingJoinNode(const std::string& node_name, const TJoinOp::type join_op, ObjectPool* pool,
+                     const TPlanNode& tnode, const DescriptorTbl& descs);
 
     virtual ~BlockingJoinNode();
 
@@ -60,15 +60,15 @@ public:
 private:
     const std::string _node_name;
     TJoinOp::type _join_op;
-    bool _eos;  // if true, nothing left to return in get_next()
-    boost::scoped_ptr<MemPool> _build_pool;  // holds everything referenced from build side
+    bool _eos;                              // if true, nothing left to return in get_next()
+    boost::scoped_ptr<MemPool> _build_pool; // holds everything referenced from build side
 
     // _left_batch must be cleared before calling get_next().  The child node
     // does not initialize all tuple ptrs in the row, only the ones that it
     // is responsible for.
     boost::scoped_ptr<RowBatch> _left_batch;
-    int _left_batch_pos;  // current scan pos in _left_batch
-    bool _left_side_eos;  // if true, left child has no more rows to process
+    int _left_batch_pos; // current scan pos in _left_batch
+    bool _left_side_eos; // if true, left child has no more rows to process
     TupleRow* _current_left_child_row;
 
     // _build_tuple_idx[i] is the tuple index of child(1)'s tuple[i] in the output row
@@ -84,10 +84,10 @@ private:
     // This should be the same size as the left child tuple row.
     int _result_tuple_row_size;
 
-    RuntimeProfile::Counter* _build_timer;   // time to prepare build side
-    RuntimeProfile::Counter* _left_child_timer;   // time to process left child batch
-    RuntimeProfile::Counter* _build_row_counter;   // num build rows
-    RuntimeProfile::Counter* _left_child_row_counter;   // num left child rows
+    RuntimeProfile::Counter* _build_timer;            // time to prepare build side
+    RuntimeProfile::Counter* _left_child_timer;       // time to process left child batch
+    RuntimeProfile::Counter* _build_row_counter;      // num build rows
+    RuntimeProfile::Counter* _left_child_row_counter; // num left child rows
 
     // Init the build-side state for a new left child row (e.g. hash table iterator or list
     // iterator) given the first row. Used in open() to prepare for get_next().
@@ -102,8 +102,7 @@ private:
 
     // Gives subclasses an opportunity to add debug output to the debug string printed by
     // debug_string().
-    virtual void add_to_debug_string(int indentation_level, std::stringstream* out) const {
-    }
+    virtual void add_to_debug_string(int indentation_level, std::stringstream* out) const {}
 
     // Subclasses should not override, use add_to_debug_string() to add to the result.
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
@@ -122,12 +121,13 @@ private:
     void create_output_row(TupleRow* out_row, TupleRow* left_row, TupleRow* build_row);
 
     friend class CrossJoinNode;
+
 private:
     // Supervises ConstructBuildSide in a separate thread, and returns its status in the
     // promise parameter.
     void build_side_thread(RuntimeState* state, boost::promise<Status>* status);
 };
 
-}
+} // namespace doris
 
 #endif

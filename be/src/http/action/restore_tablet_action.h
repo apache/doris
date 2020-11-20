@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
-#define  DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
+#ifndef DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
+#define DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
 
 #include <boost/scoped_ptr.hpp>
 #include <map>
 #include <mutex>
 
-#include "http/http_handler.h"
-#include "gen_cpp/AgentService_types.h"
 #include "common/status.h"
+#include "gen_cpp/AgentService_types.h"
+#include "http/http_handler.h"
 
 namespace doris {
 
@@ -34,21 +34,24 @@ class RestoreTabletAction : public HttpHandler {
 public:
     RestoreTabletAction(ExecEnv* exec_env);
 
-    virtual ~RestoreTabletAction() { }
+    virtual ~RestoreTabletAction() {}
 
-    void handle(HttpRequest *req) override;
+    void handle(HttpRequest* req) override;
+
 private:
-    Status _handle(HttpRequest *req);
+    Status _handle(HttpRequest* req);
 
     Status _restore(const std::string& key, int64_t tablet_id, int32_t schema_hash);
 
-    Status _reload_tablet(const std::string& key, const std::string& shard_path, int64_t tablet_id, int32_t schema_hash);
+    Status _reload_tablet(const std::string& key, const std::string& shard_path, int64_t tablet_id,
+                          int32_t schema_hash);
 
-    bool _get_latest_tablet_path_from_trash(int64_t tablet_id, int32_t schema_hash, std::string* path);
+    bool _get_latest_tablet_path_from_trash(int64_t tablet_id, int32_t schema_hash,
+                                            std::string* path);
 
-    bool _get_timestamp_and_count_from_schema_hash_path(
-            const std::string& time_label, uint64_t* timestamp, uint64_t* counter);
-    
+    bool _get_timestamp_and_count_from_schema_hash_path(const std::string& time_label,
+                                                        uint64_t* timestamp, uint64_t* counter);
+
     void _clear_key(const std::string& key);
 
     Status _create_hard_link_recursive(const std::string& src, const std::string& dst);

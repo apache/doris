@@ -18,8 +18,9 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_INFO_FUNC_H
 #define DORIS_BE_SRC_QUERY_EXPRS_INFO_FUNC_H
 
-#include <string>
 #include <iostream>
+#include <string>
+
 #include "common/object_pool.h"
 #include "exprs/expr.h"
 #include "gen_cpp/Exprs_types.h"
@@ -28,11 +29,9 @@ namespace doris {
 
 class InfoFunc : public Expr {
 public:
-    virtual ~InfoFunc() { }
+    virtual ~InfoFunc() {}
 
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new InfoFunc(*this));
-    }
+    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new InfoFunc(*this)); }
 
 protected:
     friend class Expr;
@@ -43,12 +42,13 @@ protected:
     virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow*);
 
     virtual std::string debug_string() const;
+
 private:
     static void* compute_fn(Expr* e, TupleRow* row);
     int64_t _int_value;
     std::string _str_value;
 };
 
-}
+} // namespace doris
 
 #endif

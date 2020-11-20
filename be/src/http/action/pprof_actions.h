@@ -30,6 +30,6 @@ public:
     static Status setup(ExecEnv* exec_env, EvHttpServer* http_server);
 };
 
-}
+} // namespace doris
 
 #endif

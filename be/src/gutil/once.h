@@ -25,52 +25,51 @@
 #define BASE_ONCE_H_
 
 #include "gutil/atomicops.h"
-#include "gutil/integral_types.h"
 #include "gutil/dynamic_annotations.h"
+#include "gutil/integral_types.h"
 #include "gutil/macros.h"
 #include "gutil/port.h"
 #include "gutil/type_traits.h"
 
 // The following enum values are not for use by clients
 enum {
-  GOOGLE_ONCE_INTERNAL_INIT  = 0,
-  GOOGLE_ONCE_INTERNAL_RUNNING = 0x65C2937B,  // an improbable 32-bit value
-  GOOGLE_ONCE_INTERNAL_WAITER = 0x05A308D2,  // a different improbable value
-  GOOGLE_ONCE_INTERNAL_DONE = 0x3F2D8AB0,  // yet another improbable value
+    GOOGLE_ONCE_INTERNAL_INIT = 0,
+    GOOGLE_ONCE_INTERNAL_RUNNING = 0x65C2937B, // an improbable 32-bit value
+    GOOGLE_ONCE_INTERNAL_WAITER = 0x05A308D2,  // a different improbable value
+    GOOGLE_ONCE_INTERNAL_DONE = 0x3F2D8AB0,    // yet another improbable value
 };
 
 struct GoogleOnceType {
-  Atomic32 state;
+    Atomic32 state;
 };
 
-#define GOOGLE_ONCE_INIT { GOOGLE_ONCE_INTERNAL_INIT }
+#define GOOGLE_ONCE_INIT \
+    { GOOGLE_ONCE_INTERNAL_INIT }
 
 // For internal use only.
-extern void GoogleOnceInternalInit(Atomic32* state, void (*func)(),
-                                   void (*func_with_arg)(void*), void* arg);
+extern void GoogleOnceInternalInit(Atomic32* state, void (*func)(), void (*func_with_arg)(void*),
+                                   void* arg);
 
 inline void GoogleOnceInit(GoogleOnceType* state, void (*func)()) {
-  Atomic32 s = Acquire_Load(&state->state);
-  if (PREDICT_FALSE(s != GOOGLE_ONCE_INTERNAL_DONE)) {
-    GoogleOnceInternalInit(&state->state, func, 0, 0);
-  }
-  ANNOTATE_HAPPENS_AFTER(&state->state);
+    Atomic32 s = Acquire_Load(&state->state);
+    if (PREDICT_FALSE(s != GOOGLE_ONCE_INTERNAL_DONE)) {
+        GoogleOnceInternalInit(&state->state, func, 0, 0);
+    }
+    ANNOTATE_HAPPENS_AFTER(&state->state);
 }
 
 // A version of GoogleOnceInit where the function argument takes a pointer
 // of arbitrary type.
-template<typename T>
-inline void GoogleOnceInitArg(GoogleOnceType* state,
-                              void (*func_with_arg)(T*), T* arg) {
-  Atomic32 s = Acquire_Load(&state->state);
-  if (PREDICT_FALSE(s != GOOGLE_ONCE_INTERNAL_DONE)) {
-    // Deal with const T as well as non-const T.
-    typedef typename base::remove_const<T>::type mutable_T;
-    GoogleOnceInternalInit(&state->state, 0,
-                           reinterpret_cast<void(*)(void*)>(func_with_arg),
-                           const_cast<mutable_T*>(arg));
-  }
-  ANNOTATE_HAPPENS_AFTER(&state->state);
+template <typename T>
+inline void GoogleOnceInitArg(GoogleOnceType* state, void (*func_with_arg)(T*), T* arg) {
+    Atomic32 s = Acquire_Load(&state->state);
+    if (PREDICT_FALSE(s != GOOGLE_ONCE_INTERNAL_DONE)) {
+        // Deal with const T as well as non-const T.
+        typedef typename base::remove_const<T>::type mutable_T;
+        GoogleOnceInternalInit(&state->state, 0, reinterpret_cast<void (*)(void*)>(func_with_arg),
+                               const_cast<mutable_T*>(arg));
+    }
+    ANNOTATE_HAPPENS_AFTER(&state->state);
 }
 
 // GoogleOnceDynamic is like GoogleOnceType, but is dynamically
@@ -92,28 +91,29 @@ inline void GoogleOnceInitArg(GoogleOnceType* state,
 //     }
 //   }
 class GoogleOnceDynamic {
- public:
-  GoogleOnceDynamic() : state_(GOOGLE_ONCE_INTERNAL_INIT) { }
+public:
+    GoogleOnceDynamic() : state_(GOOGLE_ONCE_INTERNAL_INIT) {}
 
-  // If this->Init() has not been called before by any thread,
-  // execute (*func_with_arg)(arg) then return.
-  // Otherwise, wait until that prior invocation has finished
-  // executing its function, then return.
-  template<typename T>
-  void Init(void (*func_with_arg)(T*), T* arg) {
-    Atomic32 s = Acquire_Load(&this->state_);
-    if (PREDICT_FALSE(s != GOOGLE_ONCE_INTERNAL_DONE)) {
-      // Deal with const T as well as non-const T.
-      typedef typename base::remove_const<T>::type mutable_T;
-      GoogleOnceInternalInit(&this->state_, 0,
-                             reinterpret_cast<void (*)(void*)>(func_with_arg),
-                             const_cast<mutable_T*>(arg));
+    // If this->Init() has not been called before by any thread,
+    // execute (*func_with_arg)(arg) then return.
+    // Otherwise, wait until that prior invocation has finished
+    // executing its function, then return.
+    template <typename T>
+    void Init(void (*func_with_arg)(T*), T* arg) {
+        Atomic32 s = Acquire_Load(&this->state_);
+        if (PREDICT_FALSE(s != GOOGLE_ONCE_INTERNAL_DONE)) {
+            // Deal with const T as well as non-const T.
+            typedef typename base::remove_const<T>::type mutable_T;
+            GoogleOnceInternalInit(&this->state_, 0,
+                                   reinterpret_cast<void (*)(void*)>(func_with_arg),
+                                   const_cast<mutable_T*>(arg));
+        }
+        ANNOTATE_HAPPENS_AFTER(&this->state_);
     }
-    ANNOTATE_HAPPENS_AFTER(&this->state_);
-  }
- private:
-  Atomic32 state_;
-  DISALLOW_COPY_AND_ASSIGN(GoogleOnceDynamic);
+
+private:
+    Atomic32 state_;
+    DISALLOW_COPY_AND_ASSIGN(GoogleOnceDynamic);
 };
 
-#endif  // BASE_ONCE_H_
+#endif // BASE_ONCE_H_

@@ -27,12 +27,9 @@ OLAPStatus lzo_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* sma
     size_t out_length = 0;
     OLAPStatus res = OLAP_SUCCESS;
     *smaller = false;
-    res = olap_compress(&(in->array()[in->position()]),
-            in->remaining(),
-            &(out->array()[out->position()]),
-            out->remaining(),
-            &out_length,
-            OLAP_COMP_STORAGE);
+    res = olap_compress(&(in->array()[in->position()]), in->remaining(),
+                        &(out->array()[out->position()]), out->remaining(), &out_length,
+                        OLAP_COMP_STORAGE);
 
     if (OLAP_SUCCESS == res) {
         if (out_length < in->remaining()) {
@@ -47,12 +44,9 @@ OLAPStatus lzo_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* sma
 OLAPStatus lzo_decompress(StorageByteBuffer* in, StorageByteBuffer* out) {
     size_t out_length = 0;
     OLAPStatus res = OLAP_SUCCESS;
-    res = olap_decompress(&(in->array()[in->position()]),
-            in->remaining(),
-            &(out->array()[out->position()]),
-            out->remaining(),
-            &out_length,
-            OLAP_COMP_STORAGE);
+    res = olap_decompress(&(in->array()[in->position()]), in->remaining(),
+                          &(out->array()[out->position()]), out->remaining(), &out_length,
+                          OLAP_COMP_STORAGE);
 
     if (OLAP_SUCCESS == res) {
         out->set_limit(out_length);
@@ -66,12 +60,9 @@ OLAPStatus lz4_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* sma
     size_t out_length = 0;
     OLAPStatus res = OLAP_SUCCESS;
     *smaller = false;
-    res = olap_compress(&(in->array()[in->position()]),
-            in->remaining(),
-            &(out->array()[out->position()]),
-            out->remaining(),
-            &out_length,
-            OLAP_COMP_LZ4);
+    res = olap_compress(&(in->array()[in->position()]), in->remaining(),
+                        &(out->array()[out->position()]), out->remaining(), &out_length,
+                        OLAP_COMP_LZ4);
 
     if (OLAP_SUCCESS == res) {
         if (out_length < in->remaining()) {
@@ -86,12 +77,9 @@ OLAPStatus lz4_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* sma
 OLAPStatus lz4_decompress(StorageByteBuffer* in, StorageByteBuffer* out) {
     size_t out_length = 0;
     OLAPStatus res = OLAP_SUCCESS;
-    res = olap_decompress(&(in->array()[in->position()]),
-            in->remaining(),
-            &(out->array()[out->position()]),
-            out->remaining(),
-            &out_length,
-            OLAP_COMP_LZ4);
+    res = olap_decompress(&(in->array()[in->position()]), in->remaining(),
+                          &(out->array()[out->position()]), out->remaining(), &out_length,
+                          OLAP_COMP_LZ4);
 
     if (OLAP_SUCCESS == res) {
         out->set_limit(out_length);
@@ -100,4 +88,4 @@ OLAPStatus lz4_decompress(StorageByteBuffer* in, StorageByteBuffer* out) {
     return res;
 }
 
-}  // namespace doris
+} // namespace doris

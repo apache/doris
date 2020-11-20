@@ -39,12 +39,12 @@ public:
     // Create a RuntimeState for a query with a new block manager. The RuntimeState is
     // owned by the TestEnv.
     Status create_query_state(int64_t query_id, int max_buffers, int block_size,
-            RuntimeState** runtime_state);
+                              RuntimeState** runtime_state);
 
     // Create multiple separate RuntimeStates with associated block managers, e.g. as if
     // multiple queries were executing. The RuntimeStates are owned by TestEnv.
     Status create_query_states(int64_t start_query_id, int num_mgrs, int buffers_per_mgr,
-            int block_size, std::vector<RuntimeState*>* runtime_states);
+                               int block_size, std::vector<RuntimeState*>* runtime_states);
 
     // Destroy all RuntimeStates and block managers created by this TestEnv.
     void tear_down_query_states();
@@ -53,21 +53,12 @@ public:
     // If max_buffers is -1, no memory limit will apply.
     int64_t calculate_mem_tracker(int max_buffers, int block_size);
 
-    ExecEnv* exec_env() {
-        return _exec_env.get();
-    }
-    std::shared_ptr<MemTracker> block_mgr_parent_tracker() {
-        return _block_mgr_parent_tracker;
-    }
-    MemTracker* io_mgr_tracker() {
-        return _io_mgr_tracker.get();
-    }
-    TmpFileMgr* tmp_file_mgr() {
-        return _tmp_file_mgr.get();
-    }
+    ExecEnv* exec_env() { return _exec_env.get(); }
+    std::shared_ptr<MemTracker> block_mgr_parent_tracker() { return _block_mgr_parent_tracker; }
+    MemTracker* io_mgr_tracker() { return _io_mgr_tracker.get(); }
+    TmpFileMgr* tmp_file_mgr() { return _tmp_file_mgr.get(); }
 
 private:
-
     // Recreate global metric groups.
     void init_metrics();
 

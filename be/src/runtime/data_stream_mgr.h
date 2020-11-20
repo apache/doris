@@ -18,28 +18,28 @@
 #ifndef DORIS_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
 #define DORIS_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
 
-#include <list>
-#include <set>
-#include <boost/thread/mutex.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/thread/condition_variable.hpp>
+#include <boost/thread/mutex.hpp>
 #include <boost/unordered_map.hpp>
 #include <boost/unordered_set.hpp>
+#include <list>
+#include <set>
 
-#include "common/status.h"
 #include "common/object_pool.h"
-#include "runtime/descriptors.h"  // for PlanNodeId
+#include "common/status.h"
+#include "gen_cpp/Types_types.h" // for TUniqueId
+#include "gen_cpp/palo_internal_service.pb.h"
+#include "runtime/descriptors.h" // for PlanNodeId
 #include "runtime/mem_tracker.h"
 #include "runtime/query_statistics.h"
 #include "util/runtime_profile.h"
-#include "gen_cpp/palo_internal_service.pb.h"
-#include "gen_cpp/Types_types.h"  // for TUniqueId
 
 namespace google {
 namespace protobuf {
 class Closure;
 }
-}
+} // namespace google
 
 namespace doris {
 
@@ -77,9 +77,9 @@ public:
     // caller.
     boost::shared_ptr<DataStreamRecvr> create_recvr(
             RuntimeState* state, const RowDescriptor& row_desc,
-            const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-            int num_senders, int buffer_size, RuntimeProfile* profile,
-            bool is_merging, std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr);
+            const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
+            int buffer_size, RuntimeProfile* profile, bool is_merging,
+            std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr);
 
     Status transmit_data(const PTransmitDataParams* request, ::google::protobuf::Closure** done);
 
@@ -97,14 +97,13 @@ private:
     // create_recvr().
     // we don't want to create a map<pair<TUniqueId, PlanNodeId>, DataStreamRecvr*>,
     // because that requires a bunch of copying of ids for lookup
-    typedef boost::unordered_multimap<uint32_t,
-            boost::shared_ptr<DataStreamRecvr>> StreamMap;
+    typedef boost::unordered_multimap<uint32_t, boost::shared_ptr<DataStreamRecvr>> StreamMap;
     StreamMap _receiver_map;
 
     // less-than ordering for pair<TUniqueId, PlanNodeId>
     struct ComparisonOp {
         bool operator()(const std::pair<doris::TUniqueId, PlanNodeId>& a,
-                const std::pair<doris::TUniqueId, PlanNodeId>& b) {
+                        const std::pair<doris::TUniqueId, PlanNodeId>& b) {
             if (a.first.hi < b.first.hi) {
                 return true;
             } else if (a.first.hi > b.first.hi) {
@@ -119,15 +118,14 @@ private:
     };
 
     // ordered set of registered streams' fragment instance id/node id
-    typedef std::set<std::pair<TUniqueId, PlanNodeId>, ComparisonOp > FragmentStreamSet;
+    typedef std::set<std::pair<TUniqueId, PlanNodeId>, ComparisonOp> FragmentStreamSet;
     FragmentStreamSet _fragment_stream_set;
 
     // Return the receiver for given fragment_instance_id/node_id,
     // or NULL if not found. If 'acquire_lock' is false, assumes _lock is already being
     // held and won't try to acquire it.
-    boost::shared_ptr<DataStreamRecvr> find_recvr(
-            const TUniqueId& fragment_instance_id, PlanNodeId node_id,
-            bool acquire_lock = true);
+    boost::shared_ptr<DataStreamRecvr> find_recvr(const TUniqueId& fragment_instance_id,
+                                                  PlanNodeId node_id, bool acquire_lock = true);
 
     // Remove receiver block for fragment_instance_id/node_id from the map.
     Status deregister_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
@@ -135,6 +133,6 @@ private:
     inline uint32_t get_hash_value(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 };
 
-}
+} // namespace doris
 
 #endif

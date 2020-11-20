@@ -21,12 +21,11 @@
 
 namespace doris {
 
-template<typename TraitsType>
+template <typename TraitsType>
 KeyCoder::KeyCoder(TraitsType traits)
         : _full_encode_ascending(traits.full_encode_ascending),
           _encode_ascending(traits.encode_ascending),
-          _decode_ascending(traits.decode_ascending) {
-}
+          _decode_ascending(traits.decode_ascending) {}
 
 struct EnumClassHash {
     template <typename T>
@@ -75,7 +74,7 @@ private:
         add_mapping<OLAP_FIELD_TYPE_BOOL>();
     }
 
-    template<FieldType field_type>
+    template <FieldType field_type>
     void add_mapping() {
         _coder_map.emplace(field_type, new KeyCoder(KeyCoderTraits<field_type>()));
     }
@@ -87,4 +86,4 @@ const KeyCoder* get_key_coder(FieldType type) {
     return KeyCoderResolver::instance()->get_coder(type);
 }
 
-}
+} // namespace doris

@@ -55,8 +55,7 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
         return *reinterpret_cast<const int8_t*>(v1) - *reinterpret_cast<const int8_t*>(v2);
 
     case TYPE_SMALLINT:
-        return *reinterpret_cast<const int16_t*>(v1) -
-               *reinterpret_cast<const int16_t*>(v2);
+        return *reinterpret_cast<const int16_t*>(v1) - *reinterpret_cast<const int16_t*>(v2);
 
     case TYPE_INT:
         i1 = *reinterpret_cast<const int32_t*>(v1);
@@ -82,7 +81,7 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
 
     case TYPE_CHAR:
     case TYPE_VARCHAR:
-    case TYPE_HLL: 
+    case TYPE_HLL:
         string_value1 = reinterpret_cast<const StringValue*>(v1);
         string_value2 = reinterpret_cast<const StringValue*>(v2);
         return string_value1->compare(*string_value2);
@@ -96,21 +95,20 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
     case TYPE_DECIMAL:
         decimal_value1 = reinterpret_cast<const DecimalValue*>(v1);
         decimal_value2 = reinterpret_cast<const DecimalValue*>(v2);
-        return (*decimal_value1 > *decimal_value2)
-                ? 1 : (*decimal_value1 < *decimal_value2 ? -1 : 0);
+        return (*decimal_value1 > *decimal_value2) ? 1
+                                                   : (*decimal_value1 < *decimal_value2 ? -1 : 0);
 
     case TYPE_DECIMALV2: {
         DecimalV2Value decimal_value1(reinterpret_cast<const PackedInt128*>(v1)->value);
         DecimalV2Value decimal_value2(reinterpret_cast<const PackedInt128*>(v2)->value);
-        return (decimal_value1 > decimal_value2)
-                ? 1 : (decimal_value1 < decimal_value2 ? -1 : 0);
+        return (decimal_value1 > decimal_value2) ? 1 : (decimal_value1 < decimal_value2 ? -1 : 0);
     }
 
     case TYPE_LARGEINT: {
         __int128 large_int_value1 = reinterpret_cast<const PackedInt128*>(v1)->value;
         __int128 large_int_value2 = reinterpret_cast<const PackedInt128*>(v2)->value;
-        return large_int_value1 > large_int_value2 ? 1 : 
-                (large_int_value1 < large_int_value2 ? -1 : 0);
+        return large_int_value1 > large_int_value2 ? 1
+                                                   : (large_int_value1 < large_int_value2 ? -1 : 0);
     }
 
     default:
@@ -119,4 +117,4 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
     };
 }
 
-}
+} // namespace doris

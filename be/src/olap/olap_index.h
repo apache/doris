@@ -26,8 +26,8 @@
 #include <utility>
 #include <vector>
 
-#include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/column_data_file.pb.h"
+#include "gen_cpp/olap_file.pb.h"
 #include "olap/field.h"
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
@@ -69,9 +69,8 @@ struct IDRange {
 // 2-Dimension Offset, the first is segment id, the second is offset inside segment
 struct OLAPIndexOffset {
     OLAPIndexOffset() : segment(0), offset(0) {}
-    OLAPIndexOffset(const iterator_offset_t& seg, const iterator_offset_t& off) :
-            segment(seg),
-            offset(off) {}
+    OLAPIndexOffset(const iterator_offset_t& seg, const iterator_offset_t& off)
+            : segment(seg), offset(off) {}
     OLAPIndexOffset(const OLAPIndexOffset& off) : segment(off.segment), offset(off.offset) {}
 
     bool operator==(const OLAPIndexOffset& other) const {
@@ -87,15 +86,11 @@ struct RowBlockPosition {
     RowBlockPosition() : segment(0), block_size(0), data_offset(0), index_offset(0) {}
 
     bool operator==(const RowBlockPosition& other) const {
-        return (segment == other.segment
-                    && data_offset == other.data_offset
-                    && block_size == other.block_size
-                    && index_offset == other.index_offset);
+        return (segment == other.segment && data_offset == other.data_offset &&
+                block_size == other.block_size && index_offset == other.index_offset);
     }
 
-    bool operator!=(const RowBlockPosition& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const RowBlockPosition& other) const { return !(*this == other); }
 
     bool operator>(const RowBlockPosition& other) const {
         if (segment < other.segment) {
@@ -128,20 +123,16 @@ struct RowBlockPosition {
     // 供日志输出
     std::string to_string() const {
         char message[1024] = {'\0'};
-        snprintf(message,
-                 sizeof(message),
-                 "{segment=%u block_size=%u data_offset=%u index_offset=%u}",
-                 segment,
-                 block_size,
-                 data_offset,
-                 index_offset);
+        snprintf(message, sizeof(message),
+                 "{segment=%u block_size=%u data_offset=%u index_offset=%u}", segment, block_size,
+                 data_offset, index_offset);
         return std::string(message);
     }
 
     uint32_t segment;
     uint32_t block_size;
-    uint32_t data_offset;   // offset in data file
-    uint32_t index_offset;  // offset in index file
+    uint32_t data_offset;  // offset in data file
+    uint32_t index_offset; // offset in index file
 };
 
 // In memory presentation of index meta information
@@ -152,13 +143,11 @@ struct SegmentMetaInfo {
         buffer.data = NULL;
     }
 
-    const size_t count() const {
-        return range.last - range.first;
-    }
+    const size_t count() const { return range.last - range.first; }
 
-    IDRange     range;
-    EntrySlice       buffer;
-    FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>  file_header;
+    IDRange range;
+    EntrySlice buffer;
+    FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader> file_header;
 };
 
 // In memory index structure, all index hold here
@@ -172,11 +161,12 @@ public:
     ~MemIndex();
 
     // 初始化MemIndex, 传入short_key的总长度和对应的Field数组
-    OLAPStatus init(size_t short_key_len, size_t new_short_key_len,
-                    size_t short_key_num, std::vector<TabletColumn>* short_key_columns);
+    OLAPStatus init(size_t short_key_len, size_t new_short_key_len, size_t short_key_num,
+                    std::vector<TabletColumn>* short_key_columns);
 
     // 加载一个segment到内存
-    OLAPStatus load_segment(const char* file, size_t *current_num_rows_per_row_block, bool use_cache = true);
+    OLAPStatus load_segment(const char* file, size_t* current_num_rows_per_row_block,
+                            bool use_cache = true);
 
     // Return the IndexOffset of the first element, physically, it's (0, 0)
     const OLAPIndexOffset begin() const {
@@ -197,14 +187,11 @@ public:
     // not less than(find_last is false) or greater than (find_last is true) 'key';
     // or, return the IndexOffset of last element inside MemIndex
     // in case of nothing matched with 'key'
-    const OLAPIndexOffset find(const RowCursor& key,
-                               RowCursor* helper_cursor,
+    const OLAPIndexOffset find(const RowCursor& key, RowCursor* helper_cursor,
                                bool find_last) const;
 
     // Same with begin()
-    const OLAPIndexOffset find_first() const {
-        return begin();
-    }
+    const OLAPIndexOffset find_first() const { return begin(); }
 
     // Return IndexOffset of last element if exists, or return (0, 0) if MemIndex is empty()
     const OLAPIndexOffset find_last() const {
@@ -248,60 +235,36 @@ public:
     // Return RowBlockPosition from IndexOffset
     OLAPStatus get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosition* rbp) const;
 
-    const size_t short_key_num() const {
-        return _key_num;
-    }
+    const size_t short_key_num() const { return _key_num; }
 
     // Return length of short keys in bytes, for example, there're two short key columns:
     // uint32_t/uint64_t the length is sizeof(uint32_t) + sizeof(uint64_t)
-    const size_t short_key_length() const {
-        return _key_length;
-    }
+    const size_t short_key_length() const { return _key_length; }
 
-    const size_t new_short_key_length() const {
-        return _new_key_length;
-    }
+    const size_t new_short_key_length() const { return _new_key_length; }
 
     // Return length of full index item,
     // which actually equals to short_key_length() plus sizeof(data_file_offset_t)
-    const size_t entry_length() const {
-        return short_key_length() + sizeof(data_file_offset_t);
-    }
+    const size_t entry_length() const { return short_key_length() + sizeof(data_file_offset_t); }
 
-    const size_t new_entry_length() const {
-        return _new_key_length + sizeof(data_file_offset_t);
-    }
+    const size_t new_entry_length() const { return _new_key_length + sizeof(data_file_offset_t); }
 
     // Return short key FieldInfo array
-    const std::vector<TabletColumn>& short_key_columns() const {
-        return *_short_key_columns;
-    }
+    const std::vector<TabletColumn>& short_key_columns() const { return *_short_key_columns; }
 
     // Return the number of indices in MemIndex
-    size_t count() const {
-        return _num_entries;
-    }
+    size_t count() const { return _num_entries; }
 
     // Return the number of segments in MemIndex
-    size_t segment_count() const {
-        return _meta.size();
-    }
-    
-    bool zero_num_rows() const {
-        return _num_entries == 0;
-    }
-    
-    const size_t index_size() const {
-        return _index_size;
-    };
-    
-    const size_t data_size() const {
-        return _data_size;
-    };
+    size_t segment_count() const { return _meta.size(); }
 
-    const size_t num_rows() const {
-        return _num_rows;
-    }
+    bool zero_num_rows() const { return _num_entries == 0; }
+
+    const size_t index_size() const { return _index_size; };
+
+    const size_t data_size() const { return _data_size; };
+
+    const size_t num_rows() const { return _num_rows; }
 
     bool delete_flag() const {
         if (_meta[0].file_header.message().has_delete_flag()) {
@@ -338,10 +301,8 @@ private:
 // 在同一个Segment内进行二分查找的比较类
 class IndexComparator {
 public:
-    IndexComparator(const MemIndex* index, RowCursor* cursor) :
-            _index(index),
-            _cur_seg(0),
-            _helper_cursor(cursor) {}
+    IndexComparator(const MemIndex* index, RowCursor* cursor)
+            : _index(index), _cur_seg(0), _helper_cursor(cursor) {}
 
     // Destructor do nothing
     ~IndexComparator() {}
@@ -364,9 +325,7 @@ public:
     }
 
 private:
-    bool _compare(const iterator_offset_t& index,
-                  const RowCursor& key,
-                  ComparatorEnum comparator) {
+    bool _compare(const iterator_offset_t& index, const RowCursor& key, ComparatorEnum comparator) {
         EntrySlice slice;
         OLAPIndexOffset offset(_cur_seg, index);
         _index->get_entry(offset, &slice);
@@ -388,13 +347,12 @@ private:
 // 用于寻找索引所在的Segment的比较类
 class SegmentComparator {
 public:
-    SegmentComparator(const MemIndex* index, RowCursor* cursor) :
-            _index(index),
-            _helper_cursor(cursor) {}
+    SegmentComparator(const MemIndex* index, RowCursor* cursor)
+            : _index(index), _helper_cursor(cursor) {}
 
     // Destructor do nothing
     ~SegmentComparator() {}
-    
+
     bool operator()(const iterator_offset_t index, const RowCursor& key) {
         return _compare(index, key, COMPARATOR_LESS);
     }
@@ -404,9 +362,7 @@ public:
     }
 
 private:
-    bool _compare(const iterator_offset_t& index,
-                  const RowCursor& key,
-                  ComparatorEnum comparator) {
+    bool _compare(const iterator_offset_t& index, const RowCursor& key, ComparatorEnum comparator) {
         EntrySlice slice;
         slice.data = _index->_meta[index].buffer.data;
         //slice.length = _index->short_key_length();
@@ -425,6 +381,6 @@ private:
     RowCursor* _helper_cursor;
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_OLAP_INDEX_H

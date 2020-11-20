@@ -20,10 +20,10 @@
 #include <atomic>
 #include <condition_variable>
 #include <map>
-#include <string>
-#include <vector>
 #include <mutex>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include "base_scanner.h"
 #include "common/status.h"
@@ -64,8 +64,7 @@ public:
     // If there is no partition information, return -1
     // Return partition id if we find the partition match this row,
     // return -1, if there is no such partition.
-    int64_t get_partition_id(
-        const std::vector<ExprContext*>& partition_exprs, TupleRow* row) const;
+    int64_t get_partition_id(const std::vector<ExprContext*>& partition_exprs, TupleRow* row) const;
 
 protected:
     // Write debug string of this into out.
@@ -98,7 +97,7 @@ private:
     int64_t binary_find_partition_id(const PartRangeKey& key) const;
 
     std::unique_ptr<BaseScanner> create_scanner(const TBrokerScanRange& scan_range,
-                                                     ScannerCounter* counter);
+                                                ScannerCounter* counter);
 
 private:
     TupleId _tuple_id;
@@ -133,4 +132,4 @@ private:
     RuntimeProfile::Counter* _wait_scanner_timer;
 };
 
-}
+} // namespace doris

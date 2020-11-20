@@ -21,28 +21,25 @@
 #include "exec/local_file_writer.h"
 #include "exec/parquet_writer.h"
 #include "exprs/expr.h"
+#include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/primitive_type.h"
 #include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
 #include "runtime/runtime_state.h"
-#include "util/types.h"
+#include "runtime/tuple_row.h"
 #include "util/date_func.h"
+#include "util/types.h"
 #include "util/uid_util.h"
-
-#include "gen_cpp/PaloInternalService_types.h"
 
 namespace doris {
 
 const size_t FileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 
-FileResultWriter::FileResultWriter(
-        const ResultFileOptions* file_opts,
-        const std::vector<ExprContext*>& output_expr_ctxs,
-        RuntimeProfile* parent_profile) :
-            _file_opts(file_opts),
-            _output_expr_ctxs(output_expr_ctxs),
-            _parent_profile(parent_profile) {
-}
+FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
+                                   const std::vector<ExprContext*>& output_expr_ctxs,
+                                   RuntimeProfile* parent_profile)
+        : _file_opts(file_opts),
+          _output_expr_ctxs(output_expr_ctxs),
+          _parent_profile(parent_profile) {}
 
 FileResultWriter::~FileResultWriter() {
     _close_file_writer(true);
@@ -71,26 +68,25 @@ Status FileResultWriter::_create_file_writer() {
     if (_file_opts->is_local_file) {
         _file_writer = new LocalFileWriter(file_name, 0 /* start offset */);
     } else {
-        _file_writer = new BrokerWriter(_state->exec_env(),
-                _file_opts->broker_addresses,
-                _file_opts->broker_properties,
-                file_name,
-                0 /*start offset*/);
+        _file_writer =
+                new BrokerWriter(_state->exec_env(), _file_opts->broker_addresses,
+                                 _file_opts->broker_properties, file_name, 0 /*start offset*/);
     }
     RETURN_IF_ERROR(_file_writer->open());
 
     switch (_file_opts->file_format) {
-        case TFileFormatType::FORMAT_CSV_PLAIN:
-            // just use file writer is enough
-            break;
-        case TFileFormatType::FORMAT_PARQUET:
-            _parquet_writer = new ParquetWriterWrapper(_file_writer, _output_expr_ctxs);
-            break;
-        default:
-            return Status::InternalError(strings::Substitute("unsupported file format: $0", _file_opts->file_format));
+    case TFileFormatType::FORMAT_CSV_PLAIN:
+        // just use file writer is enough
+        break;
+    case TFileFormatType::FORMAT_PARQUET:
+        _parquet_writer = new ParquetWriterWrapper(_file_writer, _output_expr_ctxs);
+        break;
+    default:
+        return Status::InternalError(
+                strings::Substitute("unsupported file format: $0", _file_opts->file_format));
     }
     LOG(INFO) << "create file for exporting query result. file name: " << file_name
-            << ". query id: " << print_id(_state->query_id());
+              << ". query id: " << print_id(_state->query_id());
     return Status::OK();
 }
 
@@ -103,12 +99,12 @@ std::string FileResultWriter::_get_next_file_name() {
 
 std::string FileResultWriter::_file_format_to_name() {
     switch (_file_opts->file_format) {
-        case TFileFormatType::FORMAT_CSV_PLAIN:
-            return "csv";
-        case TFileFormatType::FORMAT_PARQUET:
-            return "parquet";
-        default:
-            return "unknown";
+    case TFileFormatType::FORMAT_CSV_PLAIN:
+        return "csv";
+    case TFileFormatType::FORMAT_PARQUET:
+        return "parquet";
+    default:
+        return "unknown";
     }
 }
 
@@ -156,93 +152,94 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
             }
 
             switch (_output_expr_ctxs[i]->root()->type().type) {
-                case TYPE_BOOLEAN:
-                case TYPE_TINYINT:
-                    _plain_text_outstream << (int)*static_cast<int8_t*>(item);
-                    break;
-                case TYPE_SMALLINT:
-                    _plain_text_outstream << *static_cast<int16_t*>(item);
-                    break;
-                case TYPE_INT:
-                    _plain_text_outstream << *static_cast<int32_t*>(item);
-                    break;
-                case TYPE_BIGINT:
-                    _plain_text_outstream << *static_cast<int64_t*>(item);
-                    break;
-                case TYPE_LARGEINT:
-                    _plain_text_outstream << reinterpret_cast<PackedInt128*>(item)->value;
-                    break;
-                case TYPE_FLOAT: {
-                    char buffer[MAX_FLOAT_STR_LENGTH + 2];
-                    float float_value = *static_cast<float*>(item);
-                    buffer[0] = '\0';
-                    int length = FloatToBuffer(float_value, MAX_FLOAT_STR_LENGTH, buffer);
-                    DCHECK(length >= 0) << "gcvt float failed, float value=" << float_value;
-                    _plain_text_outstream << buffer;
-                    break;
-                }
-                case TYPE_DOUBLE: {
-                    // To prevent loss of precision on float and double types,
-                    // they are converted to strings before output.
-                    // For example: For a double value 27361919854.929001,
-                    // the direct output of using std::stringstream is 2.73619e+10,
-                    // and after conversion to a string, it outputs 27361919854.929001
-                    char buffer[MAX_DOUBLE_STR_LENGTH + 2];
-                    double double_value = *static_cast<double*>(item);
-                    buffer[0] = '\0';
-                    int length = DoubleToBuffer(double_value, MAX_DOUBLE_STR_LENGTH, buffer);
-                    DCHECK(length >= 0) << "gcvt double failed, double value=" << double_value;
-                    _plain_text_outstream << buffer;
-                    break;
-                }
-                case TYPE_DATE:
-                case TYPE_DATETIME: {
-                    char buf[64];
-                    const DateTimeValue* time_val = (const DateTimeValue*)(item);
-                    time_val->to_string(buf);
-                    _plain_text_outstream << buf;
-                    break;
-                }
-                case TYPE_VARCHAR:
-                case TYPE_CHAR: {
-                    const StringValue* string_val = (const StringValue*)(item);
-                    if (string_val->ptr == NULL) {
-                        if (string_val->len != 0) {
-                            _plain_text_outstream << NULL_IN_CSV;
-                        }
-                    } else {
-                        _plain_text_outstream << std::string(string_val->ptr, string_val->len);
+            case TYPE_BOOLEAN:
+            case TYPE_TINYINT:
+                _plain_text_outstream << (int)*static_cast<int8_t*>(item);
+                break;
+            case TYPE_SMALLINT:
+                _plain_text_outstream << *static_cast<int16_t*>(item);
+                break;
+            case TYPE_INT:
+                _plain_text_outstream << *static_cast<int32_t*>(item);
+                break;
+            case TYPE_BIGINT:
+                _plain_text_outstream << *static_cast<int64_t*>(item);
+                break;
+            case TYPE_LARGEINT:
+                _plain_text_outstream << reinterpret_cast<PackedInt128*>(item)->value;
+                break;
+            case TYPE_FLOAT: {
+                char buffer[MAX_FLOAT_STR_LENGTH + 2];
+                float float_value = *static_cast<float*>(item);
+                buffer[0] = '\0';
+                int length = FloatToBuffer(float_value, MAX_FLOAT_STR_LENGTH, buffer);
+                DCHECK(length >= 0) << "gcvt float failed, float value=" << float_value;
+                _plain_text_outstream << buffer;
+                break;
+            }
+            case TYPE_DOUBLE: {
+                // To prevent loss of precision on float and double types,
+                // they are converted to strings before output.
+                // For example: For a double value 27361919854.929001,
+                // the direct output of using std::stringstream is 2.73619e+10,
+                // and after conversion to a string, it outputs 27361919854.929001
+                char buffer[MAX_DOUBLE_STR_LENGTH + 2];
+                double double_value = *static_cast<double*>(item);
+                buffer[0] = '\0';
+                int length = DoubleToBuffer(double_value, MAX_DOUBLE_STR_LENGTH, buffer);
+                DCHECK(length >= 0) << "gcvt double failed, double value=" << double_value;
+                _plain_text_outstream << buffer;
+                break;
+            }
+            case TYPE_DATE:
+            case TYPE_DATETIME: {
+                char buf[64];
+                const DateTimeValue* time_val = (const DateTimeValue*)(item);
+                time_val->to_string(buf);
+                _plain_text_outstream << buf;
+                break;
+            }
+            case TYPE_VARCHAR:
+            case TYPE_CHAR: {
+                const StringValue* string_val = (const StringValue*)(item);
+                if (string_val->ptr == NULL) {
+                    if (string_val->len != 0) {
+                        _plain_text_outstream << NULL_IN_CSV;
                     }
-                    break;
+                } else {
+                    _plain_text_outstream << std::string(string_val->ptr, string_val->len);
                 }
-                case TYPE_DECIMAL: {
-                    const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
-                    std::string decimal_str;
-                    int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-                    if (output_scale > 0 && output_scale <= 30) {
-                        decimal_str = decimal_val->to_string(output_scale);
-                    } else {
-                        decimal_str = decimal_val->to_string();
-                    }
-                    _plain_text_outstream << decimal_str;
-                    break;
+                break;
+            }
+            case TYPE_DECIMAL: {
+                const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
+                std::string decimal_str;
+                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+                if (output_scale > 0 && output_scale <= 30) {
+                    decimal_str = decimal_val->to_string(output_scale);
+                } else {
+                    decimal_str = decimal_val->to_string();
                 }
-                case TYPE_DECIMALV2: {
-                    const DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
-                    std::string decimal_str;
-                    int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-                    if (output_scale > 0 && output_scale <= 30) {
-                        decimal_str = decimal_val.to_string(output_scale);
-                    } else {
-                        decimal_str = decimal_val.to_string();
-                    }
-                    _plain_text_outstream << decimal_str;
-                    break;
+                _plain_text_outstream << decimal_str;
+                break;
+            }
+            case TYPE_DECIMALV2: {
+                const DecimalV2Value decimal_val(
+                        reinterpret_cast<const PackedInt128*>(item)->value);
+                std::string decimal_str;
+                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+                if (output_scale > 0 && output_scale <= 30) {
+                    decimal_str = decimal_val.to_string(output_scale);
+                } else {
+                    decimal_str = decimal_val.to_string();
                 }
-                default: {
-                    // not supported type, like BITMAP, HLL, just export null
-                    _plain_text_outstream << NULL_IN_CSV;
-                }
+                _plain_text_outstream << decimal_str;
+                break;
+            }
+            default: {
+                // not supported type, like BITMAP, HLL, just export null
+                _plain_text_outstream << NULL_IN_CSV;
+            }
             }
             if (i < num_columns - 1) {
                 _plain_text_outstream << _file_opts->column_separator;
@@ -261,11 +258,11 @@ Status FileResultWriter::_flush_plain_text_outstream(bool eos) {
     if (pos == 0 || (pos < OUTSTREAM_BUFFER_SIZE_BYTES && !eos)) {
         return Status::OK();
     }
-    
+
     const std::string& buf = _plain_text_outstream.str();
     size_t written_len = 0;
-    RETURN_IF_ERROR(_file_writer->write(reinterpret_cast<const uint8_t*>(buf.c_str()),
-            buf.size(), &written_len));
+    RETURN_IF_ERROR(_file_writer->write(reinterpret_cast<const uint8_t*>(buf.c_str()), buf.size(),
+                                        &written_len));
     COUNTER_UPDATE(_written_data_bytes, written_len);
     _current_written_bytes += written_len;
 
@@ -326,5 +323,4 @@ Status FileResultWriter::close() {
     return Status::OK();
 }
 
-}
-
+} // namespace doris

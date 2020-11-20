@@ -31,9 +31,7 @@ class SlotRef : public Expr {
 public:
     SlotRef(const TExprNode& node);
     SlotRef(const SlotDescriptor* desc);
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new SlotRef(*this));
-    }
+    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new SlotRef(*this)); }
 
     // TODO: this is a hack to allow aggregation nodes to work around NULL slot
     // descriptors. Ideally the FE would dictate the type of the intermediate SlotRefs.
@@ -42,11 +40,9 @@ public:
     // Used for testing.  get_value will return tuple + offset interpreted as 'type'
     SlotRef(const TypeDescriptor& type, int offset);
 
-    Status prepare(const SlotDescriptor* slot_desc,
-                   const RowDescriptor& row_desc);
+    Status prepare(const SlotDescriptor* slot_desc, const RowDescriptor& row_desc);
 
-    virtual Status prepare(
-        RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx);
+    virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx);
     static void* get_value(Expr* expr, TupleRow* row);
     void* get_slot(TupleRow* row);
     Tuple* get_tuple(TupleRow* row);
@@ -54,20 +50,12 @@ public:
     static bool vector_compute_fn(Expr* expr, VectorizedRowBatch* batch);
     static bool is_nullable(Expr* expr);
     virtual std::string debug_string() const;
-    virtual bool is_constant() const {
-        return false;
-    }
-    virtual bool is_vectorized() const {
-        return true;
-    }
+    virtual bool is_constant() const { return false; }
+    virtual bool is_vectorized() const { return true; }
     virtual bool is_bound(std::vector<TupleId>* tuple_ids) const;
     virtual int get_slot_ids(std::vector<SlotId>* slot_ids) const;
-    SlotId slot_id() const {
-        return _slot_id;
-    }
-    inline NullIndicatorOffset null_indicator_offset() const {
-        return _null_indicator_offset;
-    }
+    SlotId slot_id() const { return _slot_id; }
+    inline NullIndicatorOffset null_indicator_offset() const { return _null_indicator_offset; }
 
     virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
     virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
@@ -84,12 +72,12 @@ public:
     // virtual doris_udf::ArrayVal GetArrayVal(ExprContext* context, TupleRow*);
 
 private:
-    int _tuple_idx;  // within row
-    int _slot_offset;  // within tuple
-    NullIndicatorOffset _null_indicator_offset;  // within tuple
+    int _tuple_idx;                             // within row
+    int _slot_offset;                           // within tuple
+    NullIndicatorOffset _null_indicator_offset; // within tuple
     const SlotId _slot_id;
     bool _tuple_is_nullable; // true if the tuple is nullable.
-    TupleId _tuple_id; // used for desc this slot from
+    TupleId _tuple_id;       // used for desc this slot from
     bool _is_nullable;
 };
 
@@ -128,6 +116,6 @@ inline bool SlotRef::is_nullable(Expr* expr) {
     return ref->_is_nullable;
 }
 
-}
+} // namespace doris
 
 #endif

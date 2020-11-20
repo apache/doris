@@ -18,14 +18,14 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 
 #include "common/logging.h" // LOG
-#include "env/env.h" // Env
+#include "env/env.h"        // Env
 #include "olap/fs/block_manager.h"
-#include "olap/row.h" // ContiguousRow
-#include "olap/row_cursor.h" // RowCursor
+#include "olap/row.h"                             // ContiguousRow
+#include "olap/row_cursor.h"                      // RowCursor
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/page_io.h"
-#include "olap/short_key_index.h"
 #include "olap/schema.h"
+#include "olap/short_key_index.h"
 #include "util/crc32c.h"
 #include "util/faststring.h"
 
@@ -35,20 +35,16 @@ namespace segment_v2 {
 const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
-SegmentWriter::SegmentWriter(fs::WritableBlock* wblock,
-                             uint32_t segment_id,
-                             const TabletSchema* tablet_schema,
-                             const SegmentWriterOptions& opts) :
-        _segment_id(segment_id),
-        _tablet_schema(tablet_schema),
-        _opts(opts),
-        _wblock(wblock) {
+SegmentWriter::SegmentWriter(fs::WritableBlock* wblock, uint32_t segment_id,
+                             const TabletSchema* tablet_schema, const SegmentWriterOptions& opts)
+        : _segment_id(segment_id), _tablet_schema(tablet_schema), _opts(opts), _wblock(wblock) {
     CHECK_NOTNULL(_wblock);
 }
 
 SegmentWriter::~SegmentWriter() = default;
 
-void SegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t* column_id, const TabletColumn& column) {
+void SegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
+                                      const TabletColumn& column) {
     // TODO(zc): Do we need this column_id??
     meta->set_column_id((*column_id)++);
     meta->set_unique_id(column.unique_id());
@@ -83,10 +79,10 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
         opts.need_bitmap_index = column.has_bitmap_index();
         if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             if (opts.need_bloom_filter) {
-                return Status::NotSupported("Do not support bloom filter for array type" );
+                return Status::NotSupported("Do not support bloom filter for array type");
             }
             if (opts.need_bitmap_index) {
-                return Status::NotSupported("Do not support bitmap index for array type" );
+                return Status::NotSupported("Do not support bitmap index for array type");
             }
         }
 
@@ -99,7 +95,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
     return Status::OK();
 }
 
-template<typename RowType>
+template <typename RowType>
 Status SegmentWriter::append_row(const RowType& row) {
     for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
         auto cell = row.cell(cid);
@@ -227,5 +223,5 @@ Status SegmentWriter::_write_raw_data(const std::vector<Slice>& slices) {
     return Status::OK();
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

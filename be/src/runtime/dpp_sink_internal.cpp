@@ -20,11 +20,11 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "common/object_pool.h"
-#include "exprs/expr.h"
-#include "runtime/runtime_state.h"
-#include "runtime/descriptors.h"
 #include "exec/text_converter.hpp"
+#include "exprs/expr.h"
 #include "gen_cpp/DataSinks_types.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -32,25 +32,22 @@ PartRangeKey PartRangeKey::_s_pos_infinite(1);
 PartRangeKey PartRangeKey::_s_neg_infinite(-1);
 
 PartRange PartRange::_s_all_range = {
-    ._start_key = PartRangeKey::neg_infinite(),
-    ._end_key = PartRangeKey::pos_infinite(),
-    ._include_start_key = true,
-    ._include_end_key = true,
+        ._start_key = PartRangeKey::neg_infinite(),
+        ._end_key = PartRangeKey::pos_infinite(),
+        ._include_start_key = true,
+        ._include_end_key = true,
 };
 
-RollupSchema::RollupSchema() {
-}
+RollupSchema::RollupSchema() {}
 
-RollupSchema::~RollupSchema() {
-}
+RollupSchema::~RollupSchema() {}
 
-Status RollupSchema::from_thrift(
-        ObjectPool* pool, const TRollupSchema& t_schema, RollupSchema* schema) {
-
+Status RollupSchema::from_thrift(ObjectPool* pool, const TRollupSchema& t_schema,
+                                 RollupSchema* schema) {
     if (t_schema.values.size() != t_schema.value_ops.size()) {
         std::stringstream ss;
         ss << "values size(" << t_schema.values.size() << ") not equal with value_ops size("
-            << t_schema.value_ops.size() << ")";
+           << t_schema.value_ops.size() << ")";
         return Status::InternalError(ss.str());
     }
     schema->_keys_type = t_schema.keys_type;
@@ -60,17 +57,15 @@ Status RollupSchema::from_thrift(
     } else {
         schema->_keys_type = t_schema.keys_type;
     }
-    RETURN_IF_ERROR(Expr::create_expr_trees(
-            pool, t_schema.keys, &schema->_key_ctxs));
-    RETURN_IF_ERROR(Expr::create_expr_trees(
-            pool, t_schema.values, &schema->_value_ctxs));
+    RETURN_IF_ERROR(Expr::create_expr_trees(pool, t_schema.keys, &schema->_key_ctxs));
+    RETURN_IF_ERROR(Expr::create_expr_trees(pool, t_schema.values, &schema->_value_ctxs));
     schema->_value_ops.assign(t_schema.value_ops.begin(), t_schema.value_ops.end());
 
     return Status::OK();
 }
 
-Status RollupSchema::prepare(
-        RuntimeState* state, const RowDescriptor& row_desc, const std::shared_ptr<MemTracker>& mem_tracker) {
+Status RollupSchema::prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                             const std::shared_ptr<MemTracker>& mem_tracker) {
     RETURN_IF_ERROR(Expr::prepare(_key_ctxs, state, row_desc, mem_tracker));
     RETURN_IF_ERROR(Expr::prepare(_value_ctxs, state, row_desc, mem_tracker));
     return Status::OK();
@@ -87,10 +82,7 @@ void RollupSchema::close(RuntimeState* state) {
     Expr::close(_value_ctxs, state);
 }
 
-Status PartRangeKey::from_thrift(
-        ObjectPool* pool,
-        const TPartitionKey& t_key,
-        PartRangeKey* key) {
+Status PartRangeKey::from_thrift(ObjectPool* pool, const TPartitionKey& t_key, PartRangeKey* key) {
     key->_sign = t_key.sign;
     if (key->_sign != 0) {
         return Status::OK();
@@ -104,40 +96,40 @@ Status PartRangeKey::from_thrift(
     case TYPE_TINYINT: {
         key->_key = pool->add(new int8_t());
         int8_t* int_value = reinterpret_cast<int8_t*>(key->_key);
-        *int_value = StringParser::string_to_int<int8_t>(
-                t_key.key.c_str(), t_key.key.length(), &parse_result);
+        *int_value = StringParser::string_to_int<int8_t>(t_key.key.c_str(), t_key.key.length(),
+                                                         &parse_result);
         break;
     }
 
     case TYPE_SMALLINT: {
         key->_key = pool->add(new int16_t());
         int16_t* int_value = reinterpret_cast<int16_t*>(key->_key);
-        *int_value = StringParser::string_to_int<int16_t>(
-                t_key.key.c_str(), t_key.key.length(), &parse_result);
+        *int_value = StringParser::string_to_int<int16_t>(t_key.key.c_str(), t_key.key.length(),
+                                                          &parse_result);
         break;
     }
 
     case TYPE_INT: {
         key->_key = pool->add(new int32_t());
         int32_t* int_value = reinterpret_cast<int32_t*>(key->_key);
-        *int_value = StringParser::string_to_int<int32_t>(
-                t_key.key.c_str(), t_key.key.length(), &parse_result);
+        *int_value = StringParser::string_to_int<int32_t>(t_key.key.c_str(), t_key.key.length(),
+                                                          &parse_result);
         break;
     }
 
     case TYPE_BIGINT: {
         key->_key = pool->add(new int64_t());
         int64_t* int_value = reinterpret_cast<int64_t*>(key->_key);
-        *int_value = StringParser::string_to_int<int64_t>(
-                t_key.key.c_str(), t_key.key.length(), &parse_result);
+        *int_value = StringParser::string_to_int<int64_t>(t_key.key.c_str(), t_key.key.length(),
+                                                          &parse_result);
         break;
     }
 
     case TYPE_LARGEINT: {
         key->_key = pool->add(new __int128());
         __int128* int_value = reinterpret_cast<__int128*>(key->_key);
-        *int_value = StringParser::string_to_int<__int128>(
-                t_key.key.c_str(), t_key.key.length(), &parse_result);
+        *int_value = StringParser::string_to_int<__int128>(t_key.key.c_str(), t_key.key.length(),
+                                                           &parse_result);
         break;
     }
 
@@ -178,10 +170,7 @@ Status PartRangeKey::from_thrift(
     return Status::OK();
 }
 
-Status PartRangeKey::from_value(
-        PrimitiveType type,
-        void* value,
-        PartRangeKey* key) {
+Status PartRangeKey::from_value(PrimitiveType type, void* value, PartRangeKey* key) {
     key->_sign = 0;
     key->_type = type;
     key->_key = value;
@@ -189,25 +178,19 @@ Status PartRangeKey::from_value(
     return Status::OK();
 }
 
-Status PartRange::from_thrift(
-        ObjectPool* pool,
-        const TPartitionRange& t_part_range,
-        PartRange* range) {
+Status PartRange::from_thrift(ObjectPool* pool, const TPartitionRange& t_part_range,
+                              PartRange* range) {
     VLOG_ROW << "construct from thrift: " << apache::thrift::ThriftDebugString(t_part_range);
-    RETURN_IF_ERROR(PartRangeKey::from_thrift(
-            pool, t_part_range.start_key, &range->_start_key));
-    RETURN_IF_ERROR(PartRangeKey::from_thrift(
-            pool, t_part_range.end_key, &range->_end_key));
+    RETURN_IF_ERROR(PartRangeKey::from_thrift(pool, t_part_range.start_key, &range->_start_key));
+    RETURN_IF_ERROR(PartRangeKey::from_thrift(pool, t_part_range.end_key, &range->_end_key));
     range->_include_start_key = t_part_range.include_start_key;
     range->_include_end_key = t_part_range.include_end_key;
     VLOG_ROW << "after construct: " << range->debug_string();
     return Status::OK();
 }
 
-Status PartitionInfo::from_thrift(
-        ObjectPool* pool,
-        const TRangePartition& t_partition,
-        PartitionInfo* partition) {
+Status PartitionInfo::from_thrift(ObjectPool* pool, const TRangePartition& t_partition,
+                                  PartitionInfo* partition) {
     partition->_id = t_partition.partition_id;
     RETURN_IF_ERROR(PartRange::from_thrift(pool, t_partition.range, &partition->_range));
     if (t_partition.__isset.distributed_exprs) {
@@ -215,8 +198,8 @@ Status PartitionInfo::from_thrift(
         if (partition->_distributed_bucket == 0) {
             return Status::InternalError("Distributed bucket is 0.");
         }
-        RETURN_IF_ERROR(Expr::create_expr_trees(
-                pool, t_partition.distributed_exprs, &partition->_distributed_expr_ctxs));
+        RETURN_IF_ERROR(Expr::create_expr_trees(pool, t_partition.distributed_exprs,
+                                                &partition->_distributed_expr_ctxs));
     }
     return Status::OK();
 }
@@ -242,4 +225,4 @@ void PartitionInfo::close(RuntimeState* state) {
     }
 }
 
-}
+} // namespace doris

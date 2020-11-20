@@ -35,4 +35,4 @@ void RecordBatchQueue::shutdown() {
     _queue.shutdown();
 }
 
-}
+} // namespace doris

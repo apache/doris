@@ -27,16 +27,16 @@
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/olap_file.pb.h"
+#include "olap/base_tablet.h"
+#include "olap/cumulative_compaction_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_define.h"
-#include "olap/tuple.h"
-#include "olap/version_graph.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet_meta.h"
+#include "olap/tuple.h"
 #include "olap/utils.h"
-#include "olap/base_tablet.h"
-#include "olap/cumulative_compaction_policy.h"
+#include "olap/version_graph.h"
 #include "util/once.h"
 
 namespace doris {
@@ -107,7 +107,7 @@ public:
     OLAPStatus add_inc_rowset(const RowsetSharedPtr& rowset);
     void delete_expired_inc_rowsets();
     /// Delete stale rowset by timing. This delete policy uses now() minutes
-    /// config::tablet_rowset_expired_stale_sweep_time_sec to compute the deadline of expired rowset 
+    /// config::tablet_rowset_expired_stale_sweep_time_sec to compute the deadline of expired rowset
     /// to delete.  When rowset is deleted, it will be added to StorageEngine unused map and record
     /// need to delete flag.
     void delete_expired_stale_rowset();
@@ -133,8 +133,7 @@ public:
     // message for alter task
     AlterTabletTaskSharedPtr alter_task();
     void add_alter_task(int64_t related_tablet_id, int32_t related_schema_hash,
-                        const vector<Version>& versions_to_alter,
-                        const AlterTabletType alter_type);
+                        const vector<Version>& versions_to_alter, const AlterTabletType alter_type);
     void delete_alter_task();
     OLAPStatus set_alter_state(AlterTabletState state);
 
@@ -177,25 +176,30 @@ public:
     void max_continuous_version_from_beginning(Version* version, VersionHash* v_hash);
 
     // operation for query
-    OLAPStatus split_range(
-            const OlapTuple& start_key_strings,
-            const OlapTuple& end_key_strings,
-            uint64_t request_block_row_count,
-            vector<OlapTuple>* ranges);
+    OLAPStatus split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
+                           uint64_t request_block_row_count, vector<OlapTuple>* ranges);
 
     void set_bad(bool is_bad) { _is_bad = is_bad; }
 
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
-    void set_last_cumu_compaction_failure_time(int64_t millis) { _last_cumu_compaction_failure_millis = millis; }
+    void set_last_cumu_compaction_failure_time(int64_t millis) {
+        _last_cumu_compaction_failure_millis = millis;
+    }
 
     int64_t last_base_compaction_failure_time() { return _last_base_compaction_failure_millis; }
-    void set_last_base_compaction_failure_time(int64_t millis) { _last_base_compaction_failure_millis = millis; }
+    void set_last_base_compaction_failure_time(int64_t millis) {
+        _last_base_compaction_failure_millis = millis;
+    }
 
     int64_t last_cumu_compaction_success_time() { return _last_cumu_compaction_success_millis; }
-    void set_last_cumu_compaction_success_time(int64_t millis) { _last_cumu_compaction_success_millis = millis; }
+    void set_last_cumu_compaction_success_time(int64_t millis) {
+        _last_cumu_compaction_success_millis = millis;
+    }
 
     int64_t last_base_compaction_success_time() { return _last_base_compaction_success_millis; }
-    void set_last_base_compaction_success_time(int64_t millis) { _last_base_compaction_success_millis = millis; }
+    void set_last_base_compaction_success_time(int64_t millis) {
+        _last_base_compaction_success_millis = millis;
+    }
 
     void delete_all_files();
 
@@ -240,7 +244,7 @@ private:
     bool _contains_rowset(const RowsetId rowset_id);
     OLAPStatus _contains_version(const Version& version);
     void _max_continuous_version_from_beginning_unlocked(Version* version,
-                                                        VersionHash* v_hash) const ;
+                                                         VersionHash* v_hash) const;
     RowsetSharedPtr _rowset_with_largest_size();
     void _delete_inc_rowset_by_version(const Version& version, const VersionHash& version_hash);
     /// Delete stale rowset by version. This method not only delete the version in expired rowset map,
@@ -257,7 +261,7 @@ public:
 
 private:
     TimestampedVersionTracker _timestamped_version_tracker;
-    
+
     DorisCallOnce<OLAPStatus> _init_once;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently
     // it will be used in econ-mode in the future
@@ -283,7 +287,7 @@ private:
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _inc_rs_version_map;
     // This variable _stale_rs_version_map is used to record these rowsets which are be compacted.
-    // These _stale rowsets are been removed when rowsets' pathVersion is expired, 
+    // These _stale rowsets are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
     // if this tablet is broken, set to true. default is false
@@ -340,7 +344,6 @@ inline void Tablet::deregister_tablet_from_dir() {
     _data_dir->deregister_tablet(this);
 }
 
-
 inline const int64_t Tablet::cumulative_layer_point() const {
     return _cumulative_point;
 }
@@ -348,7 +351,6 @@ inline const int64_t Tablet::cumulative_layer_point() const {
 inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
     _cumulative_point = new_point;
 }
-
 
 // TODO(lingbin): Why other methods that need to get information from _tablet_meta
 // are not locked, here needs a comment to explain.
@@ -416,6 +418,6 @@ inline size_t Tablet::row_size() const {
     return _schema.row_size();
 }
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_TABLET_H

@@ -34,7 +34,6 @@ class RowCursor;
 
 class DeleteConditionHandler {
 public:
-
     DeleteConditionHandler() {}
     ~DeleteConditionHandler() {}
 
@@ -51,13 +50,14 @@ public:
     std::string construct_sub_predicates(const TCondition& condition);
 
 private:
-    bool is_condition_value_valid(const TabletColumn& column, const TCondition& cond, const string& value);
+    bool is_condition_value_valid(const TabletColumn& column, const TCondition& cond,
+                                  const string& value);
 };
 
 // 表示一个删除条件
 struct DeleteConditions {
-    int32_t filter_version = 0; // 删除条件版本号
-    Conditions* del_cond = nullptr;   // 删除条件
+    int32_t filter_version = 0;     // 删除条件版本号
+    Conditions* del_cond = nullptr; // 删除条件
 };
 
 // 这个类主要用于判定一条数据(RowCursor)是否符合删除条件。这个类的使用流程如下：
@@ -91,8 +91,8 @@ public:
     //     * OLAP_SUCCESS: 调用成功
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS: 参数不符合要求
     //     * OLAP_ERR_MALLOC_ERROR: 在填充_del_conds时，分配内存失败
-    OLAPStatus init(const TabletSchema& schema,
-        const DelPredicateArray& delete_conditions, int32_t version);
+    OLAPStatus init(const TabletSchema& schema, const DelPredicateArray& delete_conditions,
+                    int32_t version);
 
     // 判定一条数据是否符合删除条件
     //
@@ -105,13 +105,9 @@ public:
     bool is_filter_data(const int32_t data_version, const RowCursor& row) const;
 
     // 返回handler中有存有多少条删除条件
-    cond_num_t conditions_num() const{
-        return _del_conds.size();
-    }
+    cond_num_t conditions_num() const { return _del_conds.size(); }
 
-    bool empty() const {
-        return _del_conds.empty();
-    }
+    bool empty() const { return _del_conds.empty(); }
 
     // 返回handler中存有的所有删除条件的版本号
     std::vector<int32_t> get_conds_version();
@@ -120,12 +116,10 @@ public:
     void finalize();
 
     // 获取只读删除条件
-    const std::vector<DeleteConditions>& get_delete_conditions() const {
-        return _del_conds;
-    }
+    const std::vector<DeleteConditions>& get_delete_conditions() const { return _del_conds; }
 
-    void get_delete_conditions_after_version(int32_t version,
-            std::vector<const Conditions*>* delete_conditions) const;
+    void get_delete_conditions_after_version(
+            int32_t version, std::vector<const Conditions*>* delete_conditions) const;
 
 private:
     // Use regular expression to extract 'column_name', 'op' and 'operands'
@@ -135,5 +129,5 @@ private:
     std::vector<DeleteConditions> _del_conds;
 };
 
-}  // namespace doris
+} // namespace doris
 #endif // DORIS_BE_SRC_OLAP_DELETE_HANDLER_H

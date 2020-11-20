@@ -17,14 +17,14 @@
 
 #include "http/action/pprof_actions.h"
 
+#include <gperftools/heap-profiler.h>
+#include <gperftools/malloc_extension.h>
+#include <gperftools/profiler.h>
+
 #include <fstream>
 #include <iostream>
 #include <mutex>
 #include <sstream>
-
-#include <gperftools/heap-profiler.h>
-#include <gperftools/malloc_extension.h>
-#include <gperftools/profiler.h>
 
 #include "agent/utils.h"
 #include "common/config.h"
@@ -148,7 +148,8 @@ void ProfileAction::handle(HttpRequest* req) {
     if (type_str != "flamegraph") {
         // use pprof the sample the CPU
         std::ostringstream tmp_prof_file_name;
-        tmp_prof_file_name << config::pprof_profile_dir << "/doris_profile." << getpid() << "." << rand();
+        tmp_prof_file_name << config::pprof_profile_dir << "/doris_profile." << getpid() << "."
+                           << rand();
         ProfilerStart(tmp_prof_file_name.str().c_str());
         sleep(seconds);
         ProfilerStop();
@@ -180,8 +181,10 @@ void ProfileAction::handle(HttpRequest* req) {
     } else {
         // generate flamegraph
         std::string svg_file_content;
-        std::string flamegraph_install_dir = std::string(std::getenv("DORIS_HOME")) + "/tools/FlameGraph/";
-        Status st = PprofUtils::generate_flamegraph(30, flamegraph_install_dir, false, &svg_file_content);
+        std::string flamegraph_install_dir =
+                std::string(std::getenv("DORIS_HOME")) + "/tools/FlameGraph/";
+        Status st = PprofUtils::generate_flamegraph(30, flamegraph_install_dir, false,
+                                                    &svg_file_content);
         if (!st.ok()) {
             HttpChannel::send_reply(req, st.to_string());
         } else {

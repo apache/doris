@@ -30,7 +30,7 @@ class MemoryPool;
 class RecordBatch;
 class Schema;
 
-}
+} // namespace arrow
 
 namespace doris {
 
@@ -47,13 +47,12 @@ class TupleRow;
 
 // used to push data to blocking queue
 class MemoryScratchSink : public DataSink {
-
 public:
     // construct a buffer for the result need send to blocking queue.
     // row_desc used for convert RowBatch to TRowBatch
     // buffer_size is the buffer size allocated to each scan
     MemoryScratchSink(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
-               const TMemoryScratchSink& sink);
+                      const TMemoryScratchSink& sink);
 
     virtual ~MemoryScratchSink();
 
@@ -67,14 +66,11 @@ public:
 
     virtual Status close(RuntimeState* state, Status exec_status);
 
-    virtual RuntimeProfile* profile() {
-        return _profile;
-    }
+    virtual RuntimeProfile* profile() { return _profile; }
 
 private:
-
     Status prepare_exprs(RuntimeState* state);
-    
+
     ObjectPool* _obj_pool;
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;
@@ -88,4 +84,4 @@ private:
     const std::vector<TExpr>& _t_output_expr;
     std::vector<ExprContext*> _output_expr_ctxs;
 };
-}
+} // namespace doris

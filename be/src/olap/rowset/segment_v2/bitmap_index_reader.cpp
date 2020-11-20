@@ -50,7 +50,8 @@ Status BitmapIndexIterator::read_bitmap(rowid_t ordinal, Roaring* result) {
 
     size_t num_to_read = 1;
     std::unique_ptr<ColumnVectorBatch> cvb;
-    RETURN_IF_ERROR(ColumnVectorBatch::create(num_to_read, false, _reader->type_info(), nullptr, &cvb));
+    RETURN_IF_ERROR(
+            ColumnVectorBatch::create(num_to_read, false, _reader->type_info(), nullptr, &cvb));
     ColumnBlock block(cvb.get(), _pool.get());
     ColumnBlockView column_block_view(&block);
 

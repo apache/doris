@@ -973,36 +973,36 @@ public:
     // Construct a bitmap from given elements.
     explicit BitmapValue(const std::vector<uint64_t>& bits) {
         switch (bits.size()) {
-            case 0:
-                _type = EMPTY;
-                break;
-            case 1:
-                _type = SINGLE;
-                _sv = bits[0];
-                break;
-            default:
-                _type = BITMAP;
-                _bitmap.addMany(bits.size(), &bits[0]);
+        case 0:
+            _type = EMPTY;
+            break;
+        case 1:
+            _type = SINGLE;
+            _sv = bits[0];
+            break;
+        default:
+            _type = BITMAP;
+            _bitmap.addMany(bits.size(), &bits[0]);
         }
     }
 
     void add(uint64_t value) {
         switch (_type) {
-            case EMPTY:
-                _sv = value;
-                _type = SINGLE;
+        case EMPTY:
+            _sv = value;
+            _type = SINGLE;
+            break;
+        case SINGLE:
+            //there is no need to convert the type if two variables are equal
+            if (_sv == value) {
                 break;
-            case SINGLE:
-                //there is no need to convert the type if two variables are equal
-                if (_sv == value) {
-                    break;
-                }
-                _bitmap.add(_sv);
-                _bitmap.add(value);
-                _type = BITMAP;
-                break;
-            case BITMAP:
-                _bitmap.add(value);
+            }
+            _bitmap.add(_sv);
+            _bitmap.add(value);
+            _type = BITMAP;
+            break;
+        case BITMAP:
+            _bitmap.add(value);
         }
     }
 
@@ -1013,26 +1013,26 @@ public:
     // SINGLE -> BITMAP
     BitmapValue& operator|=(const BitmapValue& rhs) {
         switch (rhs._type) {
+        case EMPTY:
+            break;
+        case SINGLE:
+            add(rhs._sv);
+            break;
+        case BITMAP:
+            switch (_type) {
             case EMPTY:
+                _bitmap = rhs._bitmap;
+                _type = BITMAP;
                 break;
             case SINGLE:
-                add(rhs._sv);
+                _bitmap = rhs._bitmap;
+                _bitmap.add(_sv);
+                _type = BITMAP;
                 break;
             case BITMAP:
-                switch (_type) {
-                    case EMPTY:
-                        _bitmap = rhs._bitmap;
-                        _type = BITMAP;
-                        break;
-                    case SINGLE:
-                        _bitmap = rhs._bitmap;
-                        _bitmap.add(_sv);
-                        _type = BITMAP;
-                        break;
-                    case BITMAP:
-                        _bitmap |= rhs._bitmap;
-                }
-                break;
+                _bitmap |= rhs._bitmap;
+            }
+            break;
         }
         return *this;
     }
@@ -1044,45 +1044,45 @@ public:
     // BITMAP -> SINGLE
     BitmapValue& operator&=(const BitmapValue& rhs) {
         switch (rhs._type) {
+        case EMPTY:
+            _type = EMPTY;
+            _bitmap.clear();
+            break;
+        case SINGLE:
+            switch (_type) {
             case EMPTY:
-                _type = EMPTY;
-                _bitmap.clear();
                 break;
             case SINGLE:
-                switch (_type) {
-                    case EMPTY:
-                        break;
-                    case SINGLE:
-                        if (_sv != rhs._sv) {
-                            _type = EMPTY;
-                        }
-                        break;
-                    case BITMAP:
-                        if (!_bitmap.contains(rhs._sv)) {
-                            _type = EMPTY;
-                        } else {
-                            _type = SINGLE;
-                            _sv = rhs._sv;
-                        }
-                        _bitmap.clear();
-                        break;
+                if (_sv != rhs._sv) {
+                    _type = EMPTY;
                 }
                 break;
             case BITMAP:
-                switch (_type) {
-                    case EMPTY:
-                        break;
-                    case SINGLE:
-                        if (!rhs._bitmap.contains(_sv)) {
-                            _type = EMPTY;
-                        }
-                        break;
-                    case BITMAP:
-                        _bitmap &= rhs._bitmap;
-                        _convert_to_smaller_type();
-                        break;
+                if (!_bitmap.contains(rhs._sv)) {
+                    _type = EMPTY;
+                } else {
+                    _type = SINGLE;
+                    _sv = rhs._sv;
+                }
+                _bitmap.clear();
+                break;
+            }
+            break;
+        case BITMAP:
+            switch (_type) {
+            case EMPTY:
+                break;
+            case SINGLE:
+                if (!rhs._bitmap.contains(_sv)) {
+                    _type = EMPTY;
                 }
                 break;
+            case BITMAP:
+                _bitmap &= rhs._bitmap;
+                _convert_to_smaller_type();
+                break;
+            }
+            break;
         }
         return *this;
     }
@@ -1090,12 +1090,12 @@ public:
     // check if value x is present
     bool contains(uint64_t x) {
         switch (_type) {
-            case EMPTY:
-                return false;
-            case SINGLE:
-                return _sv == x;
-            case BITMAP:
-                return _bitmap.contains(x);
+        case EMPTY:
+            return false;
+        case SINGLE:
+            return _sv == x;
+        case BITMAP:
+            return _bitmap.contains(x);
         }
         return false;
     }
@@ -1103,12 +1103,12 @@ public:
     // TODO should the return type be uint64_t?
     int64_t cardinality() const {
         switch (_type) {
-            case EMPTY:
-                return 0;
-            case SINGLE:
-                return 1;
-            case BITMAP:
-                return _bitmap.cardinality();
+        case EMPTY:
+            return 0;
+        case SINGLE:
+            return 1;
+        case BITMAP:
+            return _bitmap.cardinality();
         }
         return 0;
     }
@@ -1118,22 +1118,22 @@ public:
     size_t getSizeInBytes() {
         size_t res = 0;
         switch (_type) {
-            case EMPTY:
-                res = 1;
-                break;
-            case SINGLE:
-                if (_sv <= std::numeric_limits<uint32_t>::max()) {
-                    res = 1 + sizeof(uint32_t);
-                } else {
-                    res = 1 + sizeof(uint64_t);
-                }
-                break;
-            case BITMAP:
-                DCHECK(_bitmap.cardinality() > 1);
-                _bitmap.runOptimize();
-                _bitmap.shrinkToFit();
-                res = _bitmap.getSizeInBytes();
-                break;
+        case EMPTY:
+            res = 1;
+            break;
+        case SINGLE:
+            if (_sv <= std::numeric_limits<uint32_t>::max()) {
+                res = 1 + sizeof(uint32_t);
+            } else {
+                res = 1 + sizeof(uint64_t);
+            }
+            break;
+        case BITMAP:
+            DCHECK(_bitmap.cardinality() > 1);
+            _bitmap.runOptimize();
+            _bitmap.shrinkToFit();
+            res = _bitmap.getSizeInBytes();
+            break;
         }
         return res;
     }
@@ -1142,21 +1142,21 @@ public:
     // Client should call `getSizeInBytes` first to get the serialized size.
     void write(char* dst) {
         switch (_type) {
-            case EMPTY:
-                *dst = BitmapTypeCode::EMPTY;
-                break;
-            case SINGLE:
-                if (_sv <= std::numeric_limits<uint32_t>::max()) {
-                    *(dst++) = BitmapTypeCode::SINGLE32;
-                    encode_fixed32_le(reinterpret_cast<uint8_t*>(dst), static_cast<uint32_t>(_sv));
-                } else {
-                    *(dst++) = BitmapTypeCode::SINGLE64;
-                    encode_fixed64_le(reinterpret_cast<uint8_t*>(dst), _sv);
-                }
-                break;
-            case BITMAP:
-                _bitmap.write(dst);
-                break;
+        case EMPTY:
+            *dst = BitmapTypeCode::EMPTY;
+            break;
+        case SINGLE:
+            if (_sv <= std::numeric_limits<uint32_t>::max()) {
+                *(dst++) = BitmapTypeCode::SINGLE32;
+                encode_fixed32_le(reinterpret_cast<uint8_t*>(dst), static_cast<uint32_t>(_sv));
+            } else {
+                *(dst++) = BitmapTypeCode::SINGLE64;
+                encode_fixed64_le(reinterpret_cast<uint8_t*>(dst), _sv);
+            }
+            break;
+        case BITMAP:
+            _bitmap.write(dst);
+            break;
         }
     }
 
@@ -1165,24 +1165,24 @@ public:
     bool deserialize(const char* src) {
         DCHECK(*src >= BitmapTypeCode::EMPTY && *src <= BitmapTypeCode::BITMAP64);
         switch (*src) {
-            case BitmapTypeCode::EMPTY:
-                _type = EMPTY;
-                break;
-            case BitmapTypeCode::SINGLE32:
-                _type = SINGLE;
-                _sv = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
-                break;
-            case BitmapTypeCode::SINGLE64:
-                _type = SINGLE;
-                _sv = decode_fixed64_le(reinterpret_cast<const uint8_t*>(src + 1));
-                break;
-            case BitmapTypeCode::BITMAP32:
-            case BitmapTypeCode::BITMAP64:
-                _type = BITMAP;
-                _bitmap = detail::Roaring64Map::read(src);
-                break;
-            default:
-                return false;
+        case BitmapTypeCode::EMPTY:
+            _type = EMPTY;
+            break;
+        case BitmapTypeCode::SINGLE32:
+            _type = SINGLE;
+            _sv = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
+            break;
+        case BitmapTypeCode::SINGLE64:
+            _type = SINGLE;
+            _sv = decode_fixed64_le(reinterpret_cast<const uint8_t*>(src + 1));
+            break;
+        case BitmapTypeCode::BITMAP32:
+        case BitmapTypeCode::BITMAP64:
+            _type = BITMAP;
+            _bitmap = detail::Roaring64Map::read(src);
+            break;
+        default:
+            return false;
         }
         return true;
     }
@@ -1191,32 +1191,32 @@ public:
     std::string to_string() const {
         std::stringstream ss;
         switch (_type) {
-            case EMPTY:
-                break;
-            case SINGLE:
-                ss << _sv;
-                break;
-            case BITMAP: {
-                struct IterCtx {
-                    std::stringstream* ss = nullptr;
-                    bool first = true;
-                } iter_ctx;
-                iter_ctx.ss = &ss;
+        case EMPTY:
+            break;
+        case SINGLE:
+            ss << _sv;
+            break;
+        case BITMAP: {
+            struct IterCtx {
+                std::stringstream* ss = nullptr;
+                bool first = true;
+            } iter_ctx;
+            iter_ctx.ss = &ss;
 
-                _bitmap.iterate(
-                        [](uint64_t value, void* c) -> bool {
-                            auto ctx = reinterpret_cast<IterCtx*>(c);
-                            if (ctx->first) {
-                                ctx->first = false;
-                            } else {
-                                (*ctx->ss) << ",";
-                            }
-                            (*ctx->ss) << value;
-                            return true;
-                        },
-                        &iter_ctx);
-                break;
-            }
+            _bitmap.iterate(
+                    [](uint64_t value, void* c) -> bool {
+                        auto ctx = reinterpret_cast<IterCtx*>(c);
+                        if (ctx->first) {
+                            ctx->first = false;
+                        } else {
+                            (*ctx->ss) << ",";
+                        }
+                        (*ctx->ss) << value;
+                        return true;
+                    },
+                    &iter_ctx);
+            break;
+        }
         }
         return ss.str();
     }
@@ -1239,9 +1239,9 @@ private:
     enum BitmapDataType {
         EMPTY = 0,
         SINGLE = 1, // single element
-        BITMAP = 2 // more than one elements
+        BITMAP = 2  // more than one elements
     };
-    uint64_t _sv = 0; // store the single value when _type == SINGLE
+    uint64_t _sv = 0;             // store the single value when _type == SINGLE
     detail::Roaring64Map _bitmap; // used when _type == BITMAP
     BitmapDataType _type;
 };
