@@ -24,6 +24,7 @@ import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -53,6 +54,7 @@ public class AlterJobV2Test {
         FeConstants.runningUnitTest = true;
 
         UtFrameUtils.createMinDorisCluster(runningDir);
+        Config.enable_alpha_rowset = true;
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -128,7 +130,9 @@ public class AlterJobV2Test {
     }
     
     @Test
+    @Deprecated
     public void testAlterSegmentV2() throws Exception {
+        // TODO this test should remove after we disable segment v1 completely
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
         Assert.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTable("segmentv2");
