@@ -42,7 +42,7 @@ under the License.
 mysql> select page_id, bitmap_union(user_id) from table group by page_id;
 ```
 
-和 bitmap_count 函数组合使用可以求得网页的 PV 数据
+和 bitmap_count 函数组合使用可以求得网页的 UV 数据
 
 ```
 mysql> select page_id, bitmap_count(bitmap_union(user_id)) from table group by page_id;
