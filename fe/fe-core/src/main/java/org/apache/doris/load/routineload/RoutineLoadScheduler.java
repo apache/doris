@@ -77,7 +77,7 @@ public class RoutineLoadScheduler extends MasterDaemon {
             UserException userException = null;
             try {
                 routineLoadJob.prepare();
-                // judge nums of tasks more then max concurrent tasks of cluster
+                // judge nums of tasks more than max concurrent tasks of cluster
                 int desiredConcurrentTaskNum = routineLoadJob.calculateCurrentConcurrentTaskNum();
                 if (desiredConcurrentTaskNum <= 0) {
                     // the job will be rescheduled later.
