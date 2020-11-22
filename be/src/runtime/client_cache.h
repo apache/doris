@@ -270,11 +270,22 @@ private:
 
     // Factory method to produce a new ThriftClient<T> for the wrapped cache
     ThriftClientImpl* make_client(const TNetworkAddress& hostport, void** client_key) {
-        Client* client = new Client(hostport.hostname, hostport.port);
+        static ThriftServer::ServerType server_type = get_thrift_server_type();
+        Client* client = new Client(hostport.hostname, hostport.port, server_type);
         *client_key = reinterpret_cast<void*>(client->iface());
         return client;
     }
 
+    // since service type is multiple, we should set thrift server type here for be thrift client
+    ThriftServer::ServerType get_thrift_server_type() {
+        auto &thrift_server_type = config::thrift_server_type_of_fe;
+        transform(thrift_server_type.begin(), thrift_server_type.end(), thrift_server_type.begin(), toupper);
+        if (strcmp(typeid(T).name(), "N5doris21FrontendServiceClientE") == 0 && thrift_server_type == "THREADED") {
+            return ThriftServer::ServerType::THREADED;
+        } else {
+            return ThriftServer::ServerType::THREAD_POOL;
+        }
+    }
 };
 
 // Doris backend client cache, used by a backend to send requests

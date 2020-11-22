@@ -139,17 +139,12 @@ ThriftClient<InterfaceType>::ThriftClient(
             _iface(new InterfaceType(_protocol)) {
     switch (server_type) {
     case ThriftServer::NON_BLOCKING:
-        // The Nonblocking server is disabled at this time.  There are
-        // issues with the framed protocol throwing negative frame size errors.
-        LOG(WARNING) << "Nonblocking server usage is experimental";
+    case ThriftServer::THREADED:
         _transport.reset(new apache::thrift::transport::TFramedTransport(_socket));
         break;
-
     case ThriftServer::THREAD_POOL:
-    case ThriftServer::THREADED:
         _transport.reset(new apache::thrift::transport::TBufferedTransport(_socket));
         break;
-
     default:
         std::stringstream error_msg;
         error_msg << "Unsupported server type: " << server_type;
