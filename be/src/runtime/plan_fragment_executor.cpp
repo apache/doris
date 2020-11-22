@@ -68,7 +68,9 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
     DCHECK(!_report_thread_active);
 }
 
-Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
+Status PlanFragmentExecutor::prepare(
+        const TExecPlanFragmentParams& request,
+        const QueryFragmentsCtx* fragments_ctx) {
     const TPlanFragmentExecParams& params = request.params;
     _query_id = params.query_id;
 
@@ -77,8 +79,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
                << " backend_num=" << request.backend_num;
     // VLOG(2) << "request:\n" << apache::thrift::ThriftDebugString(request);
 
+    const TQueryGlobals& query_globals = fragments_ctx == nullptr ? request.query_globals : fragments_ctx->query_globals;
     _runtime_state.reset(new RuntimeState(
-            request, request.query_options, request.query_globals, _exec_env));
+            params, request.query_options, query_globals, _exec_env));
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
     _runtime_state->set_be_number(request.backend_num);
@@ -139,9 +142,13 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     RETURN_IF_ERROR(_runtime_state->create_block_mgr());
 
     // set up desc tbl
-    DescriptorTbl* desc_tbl = NULL;
-    DCHECK(request.__isset.desc_tbl);
-    RETURN_IF_ERROR(DescriptorTbl::create(obj_pool(), request.desc_tbl, &desc_tbl));
+    DescriptorTbl* desc_tbl = nullptr;
+    if (fragments_ctx != nullptr) {
+        desc_tbl = fragments_ctx->desc_tbl;
+    } else {
+        DCHECK(request.__isset.desc_tbl);
+        RETURN_IF_ERROR(DescriptorTbl::create(obj_pool(), request.desc_tbl, &desc_tbl));
+    }
     _runtime_state->set_desc_tbl(desc_tbl);
 
     // set up plan
@@ -150,12 +157,12 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
             ExecNode::create_tree(_runtime_state.get(), obj_pool(), request.fragment.plan, *desc_tbl, &_plan));
     _runtime_state->set_fragment_root_id(_plan->id());
 
-    if (request.params.__isset.debug_node_id) {
-        DCHECK(request.params.__isset.debug_action);
-        DCHECK(request.params.__isset.debug_phase);
+    if (params.__isset.debug_node_id) {
+        DCHECK(params.__isset.debug_action);
+        DCHECK(params.__isset.debug_phase);
         ExecNode::set_debug_options(
-            request.params.debug_node_id, request.params.debug_phase,
-            request.params.debug_action, _plan);
+            params.debug_node_id, params.debug_phase,
+            params.debug_action, _plan);
     }
 
     // set #senders of exchange nodes before calling Prepare()
@@ -167,7 +174,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         DCHECK_GT(num_senders, 0);
         static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
     }
-
  
     RETURN_IF_ERROR(_plan->prepare(_runtime_state.get()));
     // set scan ranges

@@ -81,17 +81,19 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
 import org.apache.commons.collections.map.HashedMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.HashMultiset;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Multiset;
+import com.google.common.collect.Sets;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -133,6 +135,8 @@ public class Coordinator {
 
     // copied from TQueryExecRequest; constant across all fragments
     private TDescriptorTable descTable;
+
+    private Set<Long> alreadySentBackendIds = Sets.newHashSet();
 
     // Why we use query global?
     // When `NOW()` function is in sql, we need only one now(),
@@ -440,22 +444,35 @@ public class Coordinator {
         for (TUniqueId instanceId : instanceIds) {
             profileDoneSignal.addMark(instanceId, -1L /* value is meaningless */);
         }
+
+        sendFragment();
+    }
+
+    private void sendFragment() throws TException, RpcException, UserException {
         lock();
         try {
-            // execute all instances from up to bottom
-            int backendId = 0;
+            Multiset<TNetworkAddress> hostCounter = HashMultiset.create();
+            for (FragmentExecParams params : fragmentExecParamsMap.values()) {
+                for (FInstanceExecParam fi : params.instanceExecParams) {
+                    hostCounter.add(fi.host);
+                }
+            }
+            // Execute all instances from up to bottom
+            // NOTICE: We must ensure that these fragments are executed sequentially,
+            // otherwise the data dependency between the fragments will be destroyed.
+            int backendIdx = 0;
             int profileFragmentId = 0;
             long memoryLimit = queryOptions.getMemLimit();
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
-                
+
                 // set up exec states
                 int instanceNum = params.instanceExecParams.size();
                 Preconditions.checkState(instanceNum > 0);
-                List<TExecPlanFragmentParams> tParams = params.toThrift(backendId);
+                List<TExecPlanFragmentParams> tParams = params.toThrift(backendIdx);
                 List<Pair<BackendExecState, Future<PExecPlanFragmentResult>>> futures = Lists.newArrayList();
 
-                //update memory limit for colocate join
+                // update memory limit for colocate join
                 if (colocateFragmentIds.contains(fragment.getFragmentId().asInt())) {
                     int rate = Math.min(Config.query_colocate_join_memory_limit_penalty_factor, instanceNum);
                     long newmemory = memoryLimit / rate;
@@ -464,7 +481,7 @@ public class Coordinator {
                         tParam.query_options.setMemLimit(newmemory);
                     }
                 }
-                
+
                 boolean needCheckBackendState = false;
                 if (queryOptions.getQueryType() == TQueryType.LOAD && profileFragmentId == 0) {
                     // this is a load process, and it is the first fragment.
@@ -475,9 +492,13 @@ public class Coordinator {
 
                 int instanceId = 0;
                 for (TExecPlanFragmentParams tParam : tParams) {
-                    // TODO: pool of pre-formatted BackendExecStates?
                     BackendExecState execState = new BackendExecState(fragment.getFragmentId(), instanceId++,
-                                    profileFragmentId, tParam, this.addressToBackendID);
+                            profileFragmentId, tParam, this.addressToBackendID);
+                    execState.unsetFields();
+                    // Each tParam will set the total number of Fragments that need to be executed on the same BE,
+                    // and the BE will determine whether all Fragments have been executed based on this information.
+                    tParam.setFragmentNumOnHost(hostCounter.count(execState.address));
+
                     backendExecStates.add(execState);
                     if (needCheckBackendState) {
                         needCheckBackendExecStates.add(execState);
@@ -486,18 +507,18 @@ public class Coordinator {
                                     fragment.getFragmentId().asInt(), jobId);
                         }
                     }
-
                     futures.add(Pair.create(execState, execState.execRemoteFragmentAsync()));
 
-                    backendId++;
+                    backendIdx++;
                 }
+
                 for (Pair<BackendExecState, Future<PExecPlanFragmentResult>> pair : futures) {
-                    TStatusCode code = TStatusCode.INTERNAL_ERROR;
+                    TStatusCode code;
                     String errMsg = null;
                     Exception exception = null;
                     try {
                         PExecPlanFragmentResult result = pair.second.get(Config.remote_fragment_exec_timeout_ms,
-                                                                         TimeUnit.MILLISECONDS);
+                                TimeUnit.MILLISECONDS);
                         code = TStatusCode.findByValue(result.status.status_code);
                         if (result.status.error_msgs != null && !result.status.error_msgs.isEmpty()) {
                             errMsg = result.status.error_msgs.get(0);
@@ -526,22 +547,27 @@ public class Coordinator {
                         }
                         queryStatus.setStatus(errMsg);
                         LOG.warn("exec plan fragment failed, errmsg={}, code: {}, fragmentId={}, backend={}:{}",
-                                 errMsg, code, fragment.getFragmentId(),
-                                 pair.first.address.hostname, pair.first.address.port);
+                                errMsg, code, fragment.getFragmentId(),
+                                pair.first.address.hostname, pair.first.address.port);
                         cancelInternal(PPlanFragmentCancelReason.INTERNAL_ERROR);
                         switch (code) {
-                        case TIMEOUT:
-                            throw new UserException("query timeout. backend id: " + pair.first.backend.getId());
-                        case THRIFT_RPC_ERROR:
-                            SimpleScheduler.addToBlacklist(pair.first.backend.getId(), errMsg);
-                            throw new RpcException(pair.first.backend.getHost(), "rpc failed");
-                        default:
-                            throw new UserException(errMsg);
+                            case TIMEOUT:
+                                throw new UserException("query timeout. backend id: " + pair.first.backend.getId());
+                            case THRIFT_RPC_ERROR:
+                                SimpleScheduler.addToBlacklist(pair.first.backend.getId(), errMsg);
+                                throw new RpcException(pair.first.backend.getHost(), "rpc failed");
+                            default:
+                                throw new UserException(errMsg);
                         }
                     }
+
+                    // succeed to send the plan fragment, update the "alreadySentBackendIds"
+                    alreadySentBackendIds.add(pair.first.backend.getId());
                 }
+
                 profileFragmentId += 1;
             }
+
             attachInstanceProfileToFragmentProfile();
         } finally {
             unlock();
@@ -1663,14 +1689,32 @@ public class Coordinator {
             this.rpcParams = rpcParams;
             this.initiated = false;
             this.done = false;
-            this.address = fragmentExecParamsMap.get(fragmentId).instanceExecParams.get(instanceId).host;
+            FInstanceExecParam fi = fragmentExecParamsMap.get(fragmentId).instanceExecParams.get(instanceId);
+            this.address = fi.host;
             this.backend = idToBackend.get(addressToBackendID.get(address));
 
-            String name = "Instance " + DebugUtil.printId(fragmentExecParamsMap.get(fragmentId)
-                    .instanceExecParams.get(instanceId).instanceId) + " (host=" + address + ")";
+            String name = "Instance " + DebugUtil.printId(fi.instanceId) + " (host=" + address + ")";
             this.profile = new RuntimeProfile(name);
             this.hasCanceled = false;
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
+        }
+
+        /**
+         * Some information common to all Fragments does not need to be sent repeatedly.
+         * Therefore, when we confirm that a certain BE has accepted the information,
+         * we will delete the information in the subsequent Fragment to avoid repeated sending.
+         * This information can be obtained from the cache of BE.
+         */
+        public void unsetFields() {
+            if (alreadySentBackendIds.contains(backend.getId())) {
+                this.rpcParams.unsetDescTbl();
+                this.rpcParams.unsetCoord();
+                this.rpcParams.unsetQueryGlobals();
+                this.rpcParams.unsetResourceInfo();
+                this.rpcParams.setIsSimplifiedParam(true);
+            } else {
+                this.rpcParams.setIsSimplifiedParam(false);
+            }
         }
 
         // update profile.
@@ -1809,12 +1853,12 @@ public class Coordinator {
 
     // execution parameters for a single fragment,
     // per-fragment can have multiple FInstanceExecParam,
-    // used to assemble TPlanFragmentExecParas  
+    // used to assemble TPlanFragmentExecParas
     protected class FragmentExecParams {
         public PlanFragment fragment;
         public List<TPlanFragmentDestination> destinations      = Lists.newArrayList();
         public Map<Integer, Integer>          perExchNumSenders = Maps.newHashMap();
-        
+
         public List<PlanFragmentId> inputFragments = Lists.newArrayList();
         public List<FInstanceExecParam> instanceExecParams = Lists.newArrayList();
         public FragmentScanRangeAssignment scanRangeAssignment = new FragmentScanRangeAssignment();
@@ -1929,19 +1973,19 @@ public class Coordinator {
         }
     }
 
-    // fragment instance exec param, it is used to assemble 
-    // the per-instance TPlanFragmentExecParas, as a member of 
+    // fragment instance exec param, it is used to assemble
+    // the per-instance TPlanFragmentExecParas, as a member of
     // FragmentExecParams
     static class FInstanceExecParam {
         TUniqueId instanceId;
         TNetworkAddress host;
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newHashMap();
-        
+
         int perFragmentInstanceIdx;
         int senderId;
 
         Set<Integer> bucketSeqSet = Sets.newHashSet();
-  
+
         FragmentExecParams fragmentExecParams;
 
         public void addBucketSeq(int bucketSeq) {
@@ -1955,7 +1999,7 @@ public class Coordinator {
             this.perFragmentInstanceIdx = perFragmentInstanceIdx;
             this.fragmentExecParams = fragmentExecParams;
         }
-     
+
         public PlanFragment fragment() {
             return fragmentExecParams.fragment;
         }

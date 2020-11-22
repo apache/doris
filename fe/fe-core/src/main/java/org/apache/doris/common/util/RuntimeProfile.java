@@ -240,8 +240,8 @@ public class RuntimeProfile {
             this.printChildCounters(prefix + "  ", childCounterName, builder);
         }
     }
-    
-    private String printCounter(long value, TUnit type) {
+
+    public static String printCounter(long value, TUnit type) {
         StringBuilder builder = new StringBuilder();
         long tmpValue = value;
         switch (type) {
