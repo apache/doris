@@ -19,9 +19,13 @@ package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.JdkUtils;
+import org.apache.doris.proto.PCacheResponse;
 import org.apache.doris.proto.PCancelPlanFragmentRequest;
 import org.apache.doris.proto.PCancelPlanFragmentResult;
+import org.apache.doris.proto.PClearCacheRequest;
 import org.apache.doris.proto.PExecPlanFragmentResult;
+import org.apache.doris.proto.PFetchCacheRequest;
+import org.apache.doris.proto.PFetchCacheResult;
 import org.apache.doris.proto.PFetchDataResult;
 import org.apache.doris.proto.PPlanFragmentCancelReason;
 import org.apache.doris.proto.PProxyRequest;
@@ -29,13 +33,13 @@ import org.apache.doris.proto.PProxyResult;
 import org.apache.doris.proto.PTriggerProfileReportResult;
 import org.apache.doris.proto.PUniqueId;
 import org.apache.doris.proto.PUpdateCacheRequest;
-import org.apache.doris.proto.PCacheResponse;
-import org.apache.doris.proto.PFetchCacheRequest;
-import org.apache.doris.proto.PFetchCacheResult;
-import org.apache.doris.proto.PClearCacheRequest;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import com.baidu.bjf.remoting.protobuf.utils.JDKCompilerHelper;
 import com.baidu.bjf.remoting.protobuf.utils.compiler.JdkCompiler;
@@ -43,10 +47,6 @@ import com.baidu.jprotobuf.pbrpc.client.ProtobufRpcProxy;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClient;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClientOptions;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
 
 import java.util.Map;
 import java.util.NoSuchElementException;
