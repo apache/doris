@@ -553,8 +553,6 @@ protected:
         const int num_threads = 4;
         boost::thread_group workers;
         // Create a shared RuntimeState with no BufferedBlockMgr2.
-        // RuntimeState* shared_state = new RuntimeState(TExecPlanFragmentParams(), "",
-        //     _test_env->exec_env());
         RuntimeState* shared_state = new RuntimeState(TUniqueId(), TQueryOptions(), TQueryGlobals(),
                                                       _test_env->exec_env());
         for (int i = 0; i < num_threads; ++i) {

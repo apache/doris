@@ -38,12 +38,14 @@
 
 namespace doris {
 
+class QueryFragmentsCtx;
 class ExecEnv;
 class FragmentExecState;
-class TExecPlanFragmentParams;
-class TUniqueId;
 class PlanFragmentExecutor;
 class ThreadPool;
+class TExecPlanFragmentParams;
+class TExecPlanFragmentParamsList;
+class TUniqueId;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
@@ -79,7 +81,7 @@ public:
     Status exec_external_plan_fragment(const TScanOpenParams& params, const TUniqueId& fragment_instance_id, std::vector<TScanColumnDesc>* selected_columns);
 
 private:
-    void exec_actual(std::shared_ptr<FragmentExecState> exec_state,
+    void _exec_actual(std::shared_ptr<FragmentExecState> exec_state,
                      FinishCallback cb);
 
     // This is input params
@@ -89,6 +91,8 @@ private:
 
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
+    // query id -> QueryFragmentsCtx
+    std::unordered_map<TUniqueId, std::shared_ptr<QueryFragmentsCtx>> _fragments_ctx_map;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _cancel_thread;
