@@ -16,33 +16,10 @@
 # specific language governing permissions and limitations
 # under the License.
 
-curdir=`dirname "$0"`
-curdir=`cd "$curdir"; pwd`
-
-export DORIS_HOME=`cd "$curdir/.."; pwd`
-export PID_DIR=`cd "$curdir"; pwd`
-
-while read line; do
-    envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`
-    envline=`eval "echo $envline"`
-    if [[ $envline == *"="* ]]; then
-        eval 'export "$envline"'
-    fi
-done < $DORIS_HOME/conf/fe.conf
-
-pidfile=$PID_DIR/fe.pid
-
-if [ -f $pidfile ]; then
-   pid=`cat $pidfile`
-   pidcomm=`ps -p $pid -o comm=`
-   
-   if [ "java" != "$pidcomm" ]; then
-       echo "ERROR: pid process may not be fe. "
-   fi
-
-   if kill -9 $pid > /dev/null 2>&1; then
-        echo "stop $pidcomm, and remove pid file. "
-        rm $pidfile
-   fi
-fi
-
+CUR_DIR=$(dirname "$0")
+CUR_DIR=$(
+  cd "$CUR_DIR" || exit
+  pwd
+)
+FE_CMD=${CUR_DIR}/fe.sh
+${FE_CMD} --stop
