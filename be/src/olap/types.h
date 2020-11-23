@@ -507,18 +507,17 @@ static void prepare_char_before_convert(const void* src) {
 }
 
 template <typename T>
-T convert_from_varchar(const Slice* src_value, StringParser::ParseResult& parse_res , std::true_type) {
+T convert_from_varchar(const Slice* src_value, StringParser::ParseResult& parse_res, std::true_type) {
     return StringParser::string_to_int<T>(src_value->get_data(), src_value->get_size(), &parse_res);
 }
 
 template <typename T>
-T convert_from_varchar(const Slice* src_value, StringParser::ParseResult& parse_res , std::false_type) {
+T convert_from_varchar(const Slice* src_value, StringParser::ParseResult& parse_res, std::false_type) {
     return StringParser::string_to_float<T>(src_value->get_data(), src_value->get_size(), &parse_res);
 }
 
 template <typename T>
 OLAPStatus arithmetic_convert_from_varchar(void* dest, const void* src) {
-    prepare_char_before_convert(src);
     auto src_value = reinterpret_cast<const Slice*>(src);
     StringParser::ParseResult parse_res;
     //TODO: use C++17 if constexpr to replace label assignment
@@ -531,15 +530,15 @@ OLAPStatus arithmetic_convert_from_varchar(void* dest, const void* src) {
 }
 
 template <typename T>
-OLAPStatus arithmetic_convert_from_char(void* dest, const void* src) {
+OLAPStatus numeric_convert_from_char(void *dest, const void *src) {
     prepare_char_before_convert(src);
     return arithmetic_convert_from_varchar<T>(dest, src);
 }
 
-// Using ArithmeTicFieldtypeTraits to Derived code for OLAP_FIELD_TYPE_XXXINT, OLAP_FIELD_TYPE_FLOAT,
+// Using NumericFieldtypeTraits to Derived code for OLAP_FIELD_TYPE_XXXINT, OLAP_FIELD_TYPE_FLOAT,
 // OLAP_FIELD_TYPE_DOUBLE, to reduce redundant code
 template <FieldType fieldType, bool isArithmetic>
-struct ArithmeTicFieldtypeTraits : public BaseFieldtypeTraits<fieldType> {
+struct NumericFieldtypeTraits : public BaseFieldtypeTraits<fieldType> {
     using CppType = typename CppTypeTraits<fieldType>::CppType;
 
     static std::string to_string(const void* src) {
@@ -550,17 +549,17 @@ struct ArithmeTicFieldtypeTraits : public BaseFieldtypeTraits<fieldType> {
         if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
             return arithmetic_convert_from_varchar<CppType>(dest, src);
         } else if (src_type->type() == OLAP_FIELD_TYPE_CHAR) {
-            return arithmetic_convert_from_char<CppType>(dest, src);
+            return numeric_convert_from_char<CppType>(dest, src);
         }
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
 };
 
 template <FieldType fieldType>
-struct ArithmeTicFieldtypeTraits<fieldType, false> : public BaseFieldtypeTraits<fieldType> {};
+struct NumericFieldtypeTraits<fieldType, false> : public BaseFieldtypeTraits<fieldType> {};
 
 template <FieldType fieldType>
-struct FieldTypeTraits : public ArithmeTicFieldtypeTraits<fieldType,
+struct FieldTypeTraits : public NumericFieldtypeTraits<fieldType,
         std::is_arithmetic<typename BaseFieldtypeTraits<fieldType>::CppType>::value && std::is_signed<typename BaseFieldtypeTraits<fieldType>::CppType>::value> {};
 
 template<>
@@ -579,7 +578,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_BOOL> : public BaseFieldtypeTraits<OLAP_F
 };
 
 template<>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public ArithmeTicFieldtypeTraits<OLAP_FIELD_TYPE_LARGEINT, true> {
+struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public NumericFieldtypeTraits<OLAP_FIELD_TYPE_LARGEINT, true> {
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         int128_t value = 0;
 
@@ -681,7 +680,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public ArithmeTicFieldtypeTra
 };
 
 template<>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT> : public ArithmeTicFieldtypeTraits<OLAP_FIELD_TYPE_FLOAT, true> {
+struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT> : public NumericFieldtypeTraits<OLAP_FIELD_TYPE_FLOAT, true> {
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         CppType value = 0.0f;
         if (scan_key.length() > 0) {
@@ -699,7 +698,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT> : public ArithmeTicFieldtypeTraits
 };
 
 template<>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public ArithmeTicFieldtypeTraits<OLAP_FIELD_TYPE_DOUBLE, true> {
+struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public NumericFieldtypeTraits<OLAP_FIELD_TYPE_DOUBLE, true> {
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         CppType value = 0.0;
         if (scan_key.length() > 0) {
@@ -735,7 +734,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public ArithmeTicFieldtypeTrait
             return OLAPStatus::OLAP_SUCCESS;
         }
 
-        return ArithmeTicFieldtypeTraits<OLAP_FIELD_TYPE_DOUBLE, true>::convert_from(dest, src, src_type, mem_pool);
+        return NumericFieldtypeTraits<OLAP_FIELD_TYPE_DOUBLE, true>::convert_from(dest, src, src_type, mem_pool);
     }
 };
 
