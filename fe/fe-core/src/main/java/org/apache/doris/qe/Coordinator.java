@@ -1287,7 +1287,7 @@ public class Coordinator {
             Reference<Long> backendIdRef = new Reference<Long>();
             TNetworkAddress execHostPort = SimpleScheduler.getHost(minLocation.backend_id,
                     scanRangeLocations.getLocations(), this.idToBackend, backendIdRef);
-            if (execHostPort.hostname != minLocation.server.hostname ||
+            if (!execHostPort.hostname.equals(minLocation.server.hostname) ||
                     execHostPort.port != minLocation.server.port) {
                 assignedBytesPerHost.put(minLocation.server,
                         assignedBytesPerHost.get(minLocation.server) - scanRangeLength);
