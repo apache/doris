@@ -28,6 +28,7 @@
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
 #include "olap/collection.h"
 #include "olap/decimal12.h"
+
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_schema.h" // for TabletColumn
@@ -495,12 +496,33 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     }
 };
 
+static void prepare_char_before_convert(const void* src) {
+    Slice* slice = const_cast<Slice*>(reinterpret_cast<const Slice*>(src));
+    char* buf = slice->data;
+    auto p = slice->size - 1;
+    while (p >= 0 && buf[p] == '\0') {
+        p--;
+    }
+    slice->size = p + 1;
+}
+
 template <typename T>
-OLAPStatus convert_int_from_varchar(void* dest, const void* src) {
-    using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR>::CppType;
-    auto src_value = reinterpret_cast<const SrcType*>(src);
+T convert_from_varchar(const Slice* src_value, StringParser::ParseResult& parse_res , std::true_type) {
+    return StringParser::string_to_int<T>(src_value->get_data(), src_value->get_size(), &parse_res);
+}
+
+template <typename T>
+T convert_from_varchar(const Slice* src_value, StringParser::ParseResult& parse_res , std::false_type) {
+    return StringParser::string_to_float<T>(src_value->get_data(), src_value->get_size(), &parse_res);
+}
+
+template <typename T>
+OLAPStatus arithmetic_convert_from_varchar(void* dest, const void* src) {
+    prepare_char_before_convert(src);
+    auto src_value = reinterpret_cast<const Slice*>(src);
     StringParser::ParseResult parse_res;
-    T result = StringParser::string_to_int<T>(src_value->get_data(), src_value->get_size(), &parse_res);
+    //TODO: use C++17 if constexpr to replace label assignment
+    auto result = convert_from_varchar<T>(src_value, parse_res, std::is_integral<T>());
     if (UNLIKELY(parse_res != StringParser::PARSE_SUCCESS)) {
         return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
     }
@@ -509,20 +531,37 @@ OLAPStatus convert_int_from_varchar(void* dest, const void* src) {
 }
 
 template <typename T>
-OLAPStatus convert_float_from_varchar(void* dest, const void* src) {
-    using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR>::CppType;
-    auto src_value = reinterpret_cast<const SrcType *>(src);
-    StringParser::ParseResult parse_res;
-    T result = StringParser::string_to_float<T>(src_value->get_data(), src_value->get_size(), &parse_res);
-    if (UNLIKELY(parse_res != StringParser::PARSE_SUCCESS)) {
-        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
-    }
-    *reinterpret_cast<T*>(dest) = result;
-    return OLAPStatus::OLAP_SUCCESS;
+OLAPStatus arithmetic_convert_from_char(void* dest, const void* src) {
+    prepare_char_before_convert(src);
+    return arithmetic_convert_from_varchar<T>(dest, src);
 }
 
-template<FieldType field_type>
-struct FieldTypeTraits : public BaseFieldtypeTraits<field_type> { };
+// Using ArithmeTicFieldtypeTraits to Derived code for OLAP_FIELD_TYPE_XXXINT, OLAP_FIELD_TYPE_FLOAT,
+// OLAP_FIELD_TYPE_DOUBLE, to reduce redundant code
+template <FieldType fieldType, bool isArithmetic>
+struct ArithmeTicFieldtypeTraits : public BaseFieldtypeTraits<fieldType> {
+    using CppType = typename CppTypeTraits<fieldType>::CppType;
+
+    static std::string to_string(const void* src) {
+        return std::to_string(*reinterpret_cast<const CppType*>(src));
+    }
+
+    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
+        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
+            return arithmetic_convert_from_varchar<CppType>(dest, src);
+        } else if (src_type->type() == OLAP_FIELD_TYPE_CHAR) {
+            return arithmetic_convert_from_char<CppType>(dest, src);
+        }
+        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
+    }
+};
+
+template <FieldType fieldType>
+struct ArithmeTicFieldtypeTraits<fieldType, false> : public BaseFieldtypeTraits<fieldType> {};
+
+template <FieldType fieldType>
+struct FieldTypeTraits : public ArithmeTicFieldtypeTraits<fieldType,
+        std::is_arithmetic<typename BaseFieldtypeTraits<fieldType>::CppType>::value && std::is_signed<typename BaseFieldtypeTraits<fieldType>::CppType>::value> {};
 
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_BOOL> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_BOOL> {
@@ -540,67 +579,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_BOOL> : public BaseFieldtypeTraits<OLAP_F
 };
 
 template<>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_TINYINT> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_TINYINT> {
-    static std::string to_string(const void* src) {
-        char buf[1024] = {'\0'};
-        snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<const int8_t*>(src));
-        return std::string(buf);
-    }
-    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
-        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
-            return convert_int_from_varchar<CppType>(dest, src);
-        }
-        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
-    }
-};
-
-template<>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_SMALLINT> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_SMALLINT> {
-    static std::string to_string(const void* src) {
-        char buf[1024] = {'\0'};
-        snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<const int16_t*>(src));
-        return std::string(buf);
-    }
-    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
-        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
-            return convert_int_from_varchar<CppType>(dest, src);
-        }
-        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
-    }
-};
-
-template<>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_INT> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_INT> {
-    static std::string to_string(const void* src) {
-        char buf[1024] = {'\0'};
-        snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<const int32_t *>(src));
-        return std::string(buf);
-    }
-    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
-        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
-            return convert_int_from_varchar<CppType>(dest, src);
-        }
-        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
-    }
-};
-
-template<>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_BIGINT> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_BIGINT> {
-    static std::string to_string(const void* src) {
-        char buf[1024] = {'\0'};
-        snprintf(buf, sizeof(buf), "%ld", *reinterpret_cast<const int64_t*>(src));
-        return std::string(buf);
-    }
-    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
-        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
-            return convert_int_from_varchar<CppType>(dest, src);
-        }
-        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
-    }
-};
-
-template<>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_LARGEINT> {
+struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public ArithmeTicFieldtypeTraits<OLAP_FIELD_TYPE_LARGEINT, true> {
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         int128_t value = 0;
 
@@ -699,16 +678,10 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT> : public BaseFieldtypeTraits<OL
     static void set_to_min(void* buf) {
         *reinterpret_cast<PackedInt128*>(buf) = (int128_t)(1) << 127;
     }
-    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
-        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
-            return convert_int_from_varchar<CppType>(dest, src);
-        }
-        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
-    }
 };
 
 template<>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_FLOAT> {
+struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT> : public ArithmeTicFieldtypeTraits<OLAP_FIELD_TYPE_FLOAT, true> {
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         CppType value = 0.0f;
         if (scan_key.length() > 0) {
@@ -723,16 +696,10 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT> : public BaseFieldtypeTraits<OLAP_
         DCHECK(length >= 0) << "gcvt float failed, float value=" << *reinterpret_cast<const CppType *>(src);
         return std::string(buf);
     }
-    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
-        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
-            return convert_float_from_varchar<CppType>(dest, src);
-        }
-        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
-    }
 };
 
 template<>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DOUBLE> {
+struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public ArithmeTicFieldtypeTraits<OLAP_FIELD_TYPE_DOUBLE, true> {
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         CppType value = 0.0;
         if (scan_key.length() > 0) {
@@ -767,10 +734,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public BaseFieldtypeTraits<OLAP
             *reinterpret_cast<CppType*>(dest) = strtod(buf,&tg);
             return OLAPStatus::OLAP_SUCCESS;
         }
-        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
-            return convert_float_from_varchar<CppType>(dest, src);
-        }
-        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
+
+        return ArithmeTicFieldtypeTraits<OLAP_FIELD_TYPE_DOUBLE, true>::convert_from(dest, src, src_type, mem_pool);
     }
 };
 
@@ -844,7 +809,10 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
             return OLAPStatus::OLAP_SUCCESS;
         }
 
-        if (src_type->type() == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
+        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR || src_type->type() == OLAP_FIELD_TYPE_CHAR) {
+            if (src_type->type() == OLAP_FIELD_TYPE_CHAR) {
+                prepare_char_before_convert(src);
+            }
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR>::CppType;
             auto src_value = *reinterpret_cast<const SrcType*>(src);
             DateTimeValue dt;
@@ -1032,6 +1000,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
 	    memcpy(slice->data, result.c_str(), result.size());
 	    slice->size = result.size();
             return OLAP_SUCCESS;
+        } else if (src_type->type() == OLAP_FIELD_TYPE_CHAR) {
+            prepare_char_before_convert(src);
+            deep_copy(dest, src, mem_pool);
         }
         return OLAP_ERR_INVALID_SCHEMA;
     }
