@@ -221,6 +221,10 @@ public:
 
     void do_tablet_meta_checkpoint();
 
+    // Check whether the rowset is useful or not, unuseful rowset can be swept up then.
+    // Rowset which is under tablet's management is useful, i.e. rowset is in
+    // _rs_version_map, _inc_rs_version_map, or _stale_rs_version_map.
+    // Rowset whose version range is not covered by this tablet is also useful.
     bool rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta);
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
