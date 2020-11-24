@@ -108,7 +108,7 @@ protected:
         static int seg_id = 0;
         // must use unique filename for each segment, otherwise page cache kicks in and produces
         // the wrong answer (it use (filename,offset) as cache key)
-        string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, seg_id++);
+        std::string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, seg_id++);
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions block_opts({ filename });
         Status st = fs::fs_util::block_manager()->create_block(block_opts, &wblock);
@@ -140,7 +140,7 @@ protected:
         ASSERT_EQ(nrows, (*res)->num_rows());
     }
 private:
-    const string kSegmentDir = "./ut_dir/segment_test";
+    const std::string kSegmentDir = "./ut_dir/segment_test";
 };
 
 TEST_F(SegmentReaderWriterTest, normal) {

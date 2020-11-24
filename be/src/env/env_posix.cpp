@@ -252,7 +252,7 @@ public:
     const string& filename() const override { return _filename; }
 
 private:
-    const string _filename;
+    const std::string _filename;
     FILE* const _file;
 };
 
@@ -494,7 +494,7 @@ public:
     }
 
 private:
-    const string _filename;
+    const std::string _filename;
     const int _fd;
     const bool _sync_on_close = false;
     bool _closed = false;

@@ -254,7 +254,7 @@ OlapTuple RowCursor::to_tuple() const {
 }
 
 string RowCursor::to_string() const {
-    string result;
+    std::string result;
     size_t i = 0;
     for (auto cid : _schema->column_ids()) {
         if (i++ > 0) {

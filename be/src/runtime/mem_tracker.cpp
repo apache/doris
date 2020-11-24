@@ -53,10 +53,10 @@ using strings::Substitute;
 
 namespace doris {
 
-const string MemTracker::COUNTER_NAME = "PeakMemoryUsage";
+const std::string MemTracker::COUNTER_NAME = "PeakMemoryUsage";
 
 // Name for request pool MemTrackers. '$0' is replaced with the pool name.
-const string REQUEST_POOL_MEM_TRACKER_LABEL_FORMAT = "RequestPool=$0";
+const std::string REQUEST_POOL_MEM_TRACKER_LABEL_FORMAT = "RequestPool=$0";
 
 /// Calculate the soft limit for a MemTracker based on the hard limit 'limit'.
 static int64_t CalcSoftLimit(int64_t limit) {
@@ -363,9 +363,9 @@ string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
   if (max_recursive_depth == 0) return ss.str();
 
   // Recurse and get information about the children
-  string new_prefix = Substitute("  $0", prefix);
+  std::string new_prefix = Substitute("  $0", prefix);
   int64_t child_consumption;
-  string child_trackers_usage;
+  std::string child_trackers_usage;
   list<weak_ptr<MemTracker>> children;
   {
     lock_guard<SpinLock> l(child_trackers_lock_);
@@ -395,7 +395,7 @@ string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
     shared_ptr<MemTracker> tracker = tracker_weak.lock();
     if (tracker) {
       int64_t tracker_consumption;
-      string usage_string = tracker->LogUsage(max_recursive_depth, prefix,
+      std::string usage_string = tracker->LogUsage(max_recursive_depth, prefix,
           &tracker_consumption);
       if (!usage_string.empty()) usage_strings.push_back(usage_string);
       *logged_consumption += tracker_consumption;

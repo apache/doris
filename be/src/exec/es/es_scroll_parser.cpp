@@ -71,12 +71,12 @@ std::string json_value_to_string(const rapidjson::Value& value) {
     return scratch_buffer.GetString();
 }
 
-static const string ERROR_INVALID_COL_DATA = "Data source returned inconsistent column data. "
+static const std::string ERROR_INVALID_COL_DATA = "Data source returned inconsistent column data. "
     "Expected value of type $0 based on column metadata. This likely indicates a "
     "problem with the data source library.";
-static const string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed to allocate "
+static const std::string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed to allocate "
     "$1 bytes for $2.";
-static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for the type $0"
+static const std::string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for the type $0"
     "based on column metadata.";
 
 #define RETURN_ERROR_IF_COL_IS_ARRAY(col, type) \
@@ -301,7 +301,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             size_t len = _id.length();
             char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(len));
             if (UNLIKELY(buffer == NULL)) {
-                string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
+                std::string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
                             len, "string slot");
                 return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, len);
             }
@@ -351,7 +351,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 size_t val_size = val.length();
                 char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
                 if (UNLIKELY(buffer == NULL)) {
-                    string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
+                    std::string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
                                 val_size, "string slot");
                     return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, val_size);
                 }

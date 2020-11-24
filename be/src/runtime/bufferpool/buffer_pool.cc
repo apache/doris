@@ -21,7 +21,7 @@
 #include <sstream>
 #include <boost/bind.hpp>
 
-#include "common/names.h"
+
 #include "gutil/strings/substitute.h"
 #include "runtime/bufferpool/buffer_allocator.h"
 #include "util/bit_util.h"

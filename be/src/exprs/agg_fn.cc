@@ -22,8 +22,6 @@
 #include "runtime/user_function_cache.h"
 #include "runtime/runtime_state.h"
 
-#include "common/names.h"
-
 using namespace doris_udf;
 
 namespace doris {

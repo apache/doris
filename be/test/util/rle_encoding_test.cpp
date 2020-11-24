@@ -344,10 +344,10 @@ TEST_F(TestRle, TestRoundTripRandomSequencesWithRuns) {
   // through the encode/decode sequence.
   for (int rep = 0; rep < 100; rep++) {
     faststring buf;
-    string string_rep;
+    std::string string_rep;
     int num_bits = GenerateRandomBitString(10, &buf, &string_rep);
     RleDecoder<bool> decoder(buf.data(), buf.size(), 1);
-    string roundtrip_str;
+    std::string roundtrip_str;
     int rem_to_read = num_bits;
     size_t run_len;
     bool val;

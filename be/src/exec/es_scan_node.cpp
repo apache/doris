@@ -41,10 +41,10 @@
 namespace doris {
 
 // $0 = column type (e.g. INT)
-const string ERROR_INVALID_COL_DATA = "Data source returned inconsistent column data. "
+const std::string ERROR_INVALID_COL_DATA = "Data source returned inconsistent column data. "
     "Expected value of type $0 based on column metadata. This likely indicates a "
     "problem with the data source library.";
-const string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed to allocate "
+const std::string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed to allocate "
     "$1 bytes for $2.";
 
 EsScanNode::EsScanNode(
@@ -786,7 +786,7 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
           size_t val_size = val.size();
           char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
           if (UNLIKELY(buffer == NULL)) {
-            string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
+            std::string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
                 val_size, "string slot");
             return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, val_size);
           }

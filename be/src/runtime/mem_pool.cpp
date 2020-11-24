@@ -25,7 +25,7 @@
 #include <stdio.h>
 #include <sstream>
 
-#include "common/names.h"
+
 
 namespace doris {
 

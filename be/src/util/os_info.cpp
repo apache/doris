@@ -25,7 +25,7 @@
 
 #include <unistd.h>
 
-#include "common/names.h"
+
 
 namespace doris {
 

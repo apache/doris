@@ -31,7 +31,7 @@ namespace doris {
 
 class FileBlockManagerTest : public testing::Test {
 protected:
-    const string kBlockManagerDir = "./ut_dir/file_block_manager";
+    const std::string kBlockManagerDir = "./ut_dir/file_block_manager";
 
     void SetUp() override {
         if (FileUtils::check_exist(kBlockManagerDir)) {
@@ -55,12 +55,12 @@ TEST_F(FileBlockManagerTest, NormalTest) {
     std::unique_ptr<fs::FileBlockManager> fbm(new fs::FileBlockManager(env, std::move(bm_opts)));
 
     std::unique_ptr<fs::WritableBlock> wblock;
-    string fname = kBlockManagerDir + "/test_file";
+    std::string fname = kBlockManagerDir + "/test_file";
     fs::CreateBlockOptions wblock_opts({ fname  });
     Status st = fbm->create_block(wblock_opts, &wblock);
     ASSERT_TRUE(st.ok()) << st.get_error_msg();
 
-    string data = "abcdefghijklmnopqrstuvwxyz";
+    std::string data = "abcdefghijklmnopqrstuvwxyz";
     wblock->append(data);
     wblock->close();
 
@@ -69,7 +69,7 @@ TEST_F(FileBlockManagerTest, NormalTest) {
     uint64_t file_size = 0;
     ASSERT_TRUE(rblock->size(&file_size).ok());
     ASSERT_EQ(data.size(), file_size);
-    string read_buff(data.size(), 'a');
+    std::string read_buff(data.size(), 'a');
     Slice read_slice(read_buff);
     rblock->read(0, read_slice);
     ASSERT_EQ(data, read_buff);

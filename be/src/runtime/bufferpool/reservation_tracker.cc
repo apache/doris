@@ -26,7 +26,7 @@
 #include "util/dummy_runtime_profile.h"
 #include "util/runtime_profile.h"
 
-#include "common/names.h"
+
 #include "olap/utils.h"
 
 namespace doris {

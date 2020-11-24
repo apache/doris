@@ -28,7 +28,6 @@
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 
-#include "common/names.h"
 #include "common/config.h"
 
 //DECLARE_bool(disable_mem_pools);

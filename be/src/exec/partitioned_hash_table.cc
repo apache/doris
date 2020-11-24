@@ -32,7 +32,7 @@
 #include "runtime/string_value.h"
 #include "util/doris_metrics.h"
 
-#include "common/names.h"
+
 
 using namespace doris;
 using namespace strings;

@@ -70,7 +70,7 @@ protected:
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_storage_engine(k_engine);
 
-        const string rowset_dir = "./data_test/data/beta_rowset_test";
+        const std::string rowset_dir = "./data_test/data/beta_rowset_test";
         ASSERT_TRUE(FileUtils::create_dir(rowset_dir).ok());
     }
 

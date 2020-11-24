@@ -22,7 +22,7 @@
 #include "runtime/bufferpool/reservation_tracker.h"
 #include "util/bit_util.h"
 
-#include "common/names.h"
+
 #include "gutil/strings/substitute.h"
 
 namespace doris {

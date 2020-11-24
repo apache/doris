@@ -27,7 +27,7 @@
 #include "util/runtime_profile.h"
 #include "gen_cpp/PlanNodes_types.h"
 
-// #include "common/names.h"
+//
 
 namespace doris {
 
