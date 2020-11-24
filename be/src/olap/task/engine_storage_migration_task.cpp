@@ -77,7 +77,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
         }
 
         int32_t end_version = last_version->end_version();
-        vector<RowsetSharedPtr> consistent_rowsets;
+        std::vector<RowsetSharedPtr> consistent_rowsets;
         res = _tablet->capture_consistent_rowsets(Version(0, end_version), &consistent_rowsets);
         if (consistent_rowsets.empty()) {
             _tablet->release_header_lock();
@@ -94,7 +94,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
             LOG(WARNING) << "fail to get shard from store: " << _dest_store->path();
             break;
         }
-        stringstream root_path_stream;
+        std::stringstream root_path_stream;
         root_path_stream << _dest_store->path() << DATA_PREFIX << "/" << shard;
         string full_path = SnapshotManager::instance()->get_schema_hash_full_path(_tablet, root_path_stream.str());
         // if dir already exist then return err, it should not happen.
@@ -189,7 +189,7 @@ void EngineStorageMigrationTask::_generate_new_header(
         TabletMetaSharedPtr new_tablet_meta) {
     _tablet->generate_tablet_meta_copy_unlocked(new_tablet_meta);
 
-    vector<RowsetMetaSharedPtr> rs_metas;
+    std::vector<RowsetMetaSharedPtr> rs_metas;
     for (auto& rs : consistent_rowsets) {
         rs_metas.push_back(rs->rowset_meta());
     }

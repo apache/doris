@@ -30,7 +30,7 @@
 namespace doris {
 
 bool OsInfo::initialized_ = false;
-string OsInfo::os_version_ = "Unknown";
+std::string OsInfo::os_version_ = "Unknown";
 clockid_t OsInfo::fast_clock_ = CLOCK_MONOTONIC;
 std::string OsInfo::clock_name_ =
     "Unknown clocksource, clockid_t defaulting to CLOCK_MONOTONIC";
@@ -47,7 +47,7 @@ std::string OsInfo::clock_name_ =
 void OsInfo::Init() {
   DCHECK(!initialized_);
   // Read from /proc/version
-  ifstream version("/proc/version", ios::in);
+  std::ifstream version("/proc/version", std::ios::in);
   if (version.good()) getline(version, os_version_);
   if (version.is_open()) version.close();
 
@@ -73,11 +73,10 @@ void OsInfo::Init() {
   initialized_ = true;
 }
 
-string OsInfo::DebugString() {
+std::string OsInfo::DebugString() {
   DCHECK(initialized_);
-  stringstream stream;
-  stream << "OS version: " << os_version_ << endl
-         << "Clock: " << clock_name_ << endl;
+  std::stringstream stream;
+  stream << "OS version: " << os_version_ << std::endl << "Clock: " << clock_name_ << std::endl;
   return stream.str();
 }
 

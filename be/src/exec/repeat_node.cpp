@@ -78,9 +78,9 @@ Status RepeatNode::get_repeated_batch(
 
     // Fill all slots according to child
     MemPool* tuple_pool = row_batch->tuple_data_pool();
-    const vector<TupleDescriptor*>& src_tuple_descs = child_row_batch->row_desc().tuple_descriptors();
-    const vector<TupleDescriptor*>& dst_tuple_descs = row_batch->row_desc().tuple_descriptors();
-    vector<Tuple*> dst_tuples(src_tuple_descs.size(), nullptr);
+    const std::vector<TupleDescriptor*>& src_tuple_descs = child_row_batch->row_desc().tuple_descriptors();
+    const std::vector<TupleDescriptor*>& dst_tuple_descs = row_batch->row_desc().tuple_descriptors();
+    std::vector<Tuple*> dst_tuples(src_tuple_descs.size(), nullptr);
     for (int i = 0; i < child_row_batch->num_rows(); ++i) {
         int row_idx = row_batch->add_row();
         TupleRow* dst_row = row_batch->get_row(row_idx);

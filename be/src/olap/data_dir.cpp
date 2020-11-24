@@ -97,7 +97,7 @@ DataDir::~DataDir() {
 
 Status DataDir::init() {
     if (!FileUtils::check_exist(_path)) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(Substitute("opendir failed, path=$0", _path)),
+        RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute("opendir failed, path=$0", _path)),
                                        "check file exist failed");
     }
 
@@ -123,7 +123,7 @@ Status DataDir::_init_cluster_id() {
                       S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
         if (fd < 0 || close(fd) < 0) {
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(Substitute("failed to create cluster id file $0, err=$1",
+                Status::IOError(strings::Substitute("failed to create cluster id file $0, err=$1",
                     cluster_id_path, errno_to_string(errno))),
                 "create file failed");
         }
@@ -134,7 +134,7 @@ Status DataDir::_init_cluster_id() {
     fp = fopen(cluster_id_path.c_str(), "r+b");
     if (fp == NULL) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-            Status::IOError(Substitute("failed to open cluster id file $0", cluster_id_path)),
+            Status::IOError(strings::Substitute("failed to open cluster id file $0", cluster_id_path)),
             "open file failed");
     }
 
@@ -143,7 +143,7 @@ Status DataDir::_init_cluster_id() {
         fclose(fp);
         fp = NULL;
         RETURN_NOT_OK_STATUS_WITH_WARN(
-            Status::IOError(Substitute("failed to flock cluster id file $0", cluster_id_path)),
+            Status::IOError(strings::Substitute("failed to flock cluster id file $0", cluster_id_path)),
             "flock file failed");
     }
 
@@ -159,7 +159,7 @@ Status DataDir::_read_cluster_id(const std::string& cluster_id_path, int32_t* cl
     std::fstream fs(cluster_id_path.c_str(), std::fstream::in);
     if (!fs.is_open()) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-            Status::IOError(Substitute("failed to open cluster id file $0", cluster_id_path)),
+            Status::IOError(strings::Substitute("failed to open cluster id file $0", cluster_id_path)),
             "open file failed");
     }
 
@@ -173,7 +173,7 @@ Status DataDir::_read_cluster_id(const std::string& cluster_id_path, int32_t* cl
     } else {
         RETURN_NOT_OK_STATUS_WITH_WARN(
             Status::Corruption(
-                Substitute("cluster id file $0 is corrupt. [id=$1 eofbit=$2 failbit=$3 badbit=$4]",
+                strings::Substitute("cluster id file $0 is corrupt. [id=$1 eofbit=$2 failbit=$3 badbit=$4]",
                            cluster_id_path, tmp_cluster_id, fs.rdstate() & std::fstream::eofbit,
                            fs.rdstate() & std::fstream::failbit, fs.rdstate() & std::fstream::badbit)),
             "file content is error");
@@ -189,7 +189,7 @@ Status DataDir::_init_capacity() {
     } else if (_capacity_bytes > disk_capacity) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
             Status::InvalidArgument(
-                Substitute("root path $0's capacity $1 should not larger than disk capacity $2",
+                strings::Substitute("root path $0's capacity $1 should not larger than disk capacity $2",
                            _path, _capacity_bytes, disk_capacity)),
             "init capacity failed");
     }
@@ -197,7 +197,7 @@ Status DataDir::_init_capacity() {
     std::string data_path = _path + DATA_PREFIX;
     if (!FileUtils::check_exist(data_path) && !FileUtils::create_dir(data_path).ok()) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-            Status::IOError(Substitute("failed to create data root path $0", data_path)),
+            Status::IOError(strings::Substitute("failed to create data root path $0", data_path)),
             "check_exist failed");
     }
 
@@ -209,7 +209,7 @@ Status DataDir::_init_file_system() {
     if (stat(_path.c_str(), &s) != 0) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
             Status::IOError(
-                Substitute("stat file $0 failed, err=$1", _path, errno_to_string(errno))),
+                strings::Substitute("stat file $0 failed, err=$1", _path, errno_to_string(errno))),
             "stat file failed");
     }
 
@@ -224,7 +224,7 @@ Status DataDir::_init_file_system() {
     if ((mount_tablet = setmntent(kMtabPath, "r")) == NULL) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
             Status::IOError(
-                Substitute("setmntent file $0 failed, err=$1", _path, errno_to_string(errno))),
+                strings::Substitute("setmntent file $0 failed, err=$1", _path, errno_to_string(errno))),
             "setmntent file failed");
     }
 
@@ -254,7 +254,7 @@ Status DataDir::_init_file_system() {
 
     if (!is_find) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-            Status::IOError(Substitute("file system $0 not found", _path)),
+            Status::IOError(strings::Substitute("file system $0 not found", _path)),
             "find file system failed");
     }
 
@@ -278,7 +278,7 @@ Status DataDir::_init_meta() {
     OLAPStatus res = _meta->init();
     if (res != OLAP_SUCCESS) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-            Status::IOError(Substitute("open rocksdb failed, path=$0", _path)),
+            Status::IOError(strings::Substitute("open rocksdb failed, path=$0", _path)),
             "init OlapMeta failed");
     }
     return Status::OK();
@@ -367,12 +367,12 @@ void DataDir::clear_tablets(std::vector<TabletInfo>* tablet_infos) {
 }
 
 std::string DataDir::get_absolute_shard_path(int64_t shard_id) {
-    return Substitute("$0$1/$2", _path, DATA_PREFIX, shard_id);
+    return strings::Substitute("$0$1/$2", _path, DATA_PREFIX, shard_id);
 }
 
 std::string DataDir::get_absolute_tablet_path(int64_t shard_id, int64_t tablet_id,
                                               int32_t schema_hash) {
-    return Substitute("$0/$1/$2", get_absolute_shard_path(shard_id), tablet_id, schema_hash);
+    return strings::Substitute("$0/$1/$2", get_absolute_shard_path(shard_id), tablet_id, schema_hash);
 }
 
 void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths) {
@@ -447,7 +447,7 @@ OLAPStatus DataDir::_convert_old_tablet() {
         // convert olap header and files
         OLAPHeaderMessage olap_header_msg;
         TabletMetaPB tablet_meta_pb;
-        vector<RowsetMetaPB> pending_rowsets;
+        std::vector<RowsetMetaPB> pending_rowsets;
         bool parsed = olap_header_msg.ParseFromString(value);
         if (!parsed) {
             LOG(FATAL) << "convert olap header to tablet meta failed when load olap header tablet="
@@ -514,7 +514,7 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
         // convert olap header and files
         OLAPHeaderMessage olap_header_msg;
         TabletMetaPB tablet_meta_pb;
-        vector<RowsetMetaPB> pending_rowsets;
+        std::vector<RowsetMetaPB> pending_rowsets;
         bool parsed = olap_header_msg.ParseFromString(value);
         if (!parsed) {
             LOG(FATAL) << "convert olap header to tablet meta failed when load olap header tablet="
@@ -971,7 +971,7 @@ Status DataDir::update_capacity() {
     } catch (boost::filesystem::filesystem_error& e) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
             Status::IOError(
-                Substitute("get path $0 available capacity failed, error=$1", _path, e.what())),
+                strings::Substitute("get path $0 available capacity failed, error=$1", _path, e.what())),
             "boost::filesystem::space failed");
     }
 

@@ -121,7 +121,7 @@ TEST(InternalQueue, TestBasic) {
 
 // Add all the nodes and then remove every other one.
 TEST(InternalQueue, TestRemove) {
-    vector<IntNode> nodes;
+    std::vector<IntNode> nodes;
     nodes.resize(100);
 
     InternalQueue<IntNode> queue;
@@ -158,7 +158,7 @@ const int VALIDATE_INTERVAL = 10000;
 void ProducerThread(
         InternalQueue<IntNode>* queue,
         int num_inserts,
-        vector<IntNode>* nodes,
+        std::vector<IntNode>* nodes,
         AtomicInt<int32_t>* counter,
         bool* failed) {
     for (int i = 0; i < num_inserts && !*failed; ++i) {
@@ -178,7 +178,7 @@ void ConsumerThread(
         InternalQueue<IntNode>* queue,
         int num_consumes,
         int delta,
-        vector<int>* results,
+        std::vector<int>* results,
         bool* failed) {
     // Dequeued nodes should be strictly increasing.
     int previous_value = -1;
@@ -208,7 +208,7 @@ void ConsumerThread(
 }
 
 TEST(InternalQueue, TestClear) {
-    vector<IntNode> nodes;
+    std::vector<IntNode> nodes;
     nodes.resize(100);
     InternalQueue<IntNode> queue;
     queue.enqueue(&nodes[0]);
@@ -227,10 +227,10 @@ TEST(InternalQueue, TestClear) {
 }
 
 TEST(InternalQueue, TestSingleProducerSingleConsumer) {
-    vector<IntNode> nodes;
+    std::vector<IntNode> nodes;
     AtomicInt<int32_t> counter;
     nodes.resize(1000000);
-    vector<int> results;
+    std::vector<int> results;
 
     InternalQueue<IntNode> queue;
     bool failed = false;
@@ -252,7 +252,7 @@ TEST(InternalQueue, TestSingleProducerSingleConsumer) {
 }
 
 TEST(InternalQueue, TestMultiProducerMultiConsumer) {
-    vector<IntNode> nodes;
+    std::vector<IntNode> nodes;
     nodes.resize(1000000);
 
     bool failed = false;
@@ -264,7 +264,7 @@ TEST(InternalQueue, TestMultiProducerMultiConsumer) {
         const int num_per_consumer = nodes.size() / NUM_CONSUMERS;
         const int num_per_producer = nodes.size() / num_producers;
 
-        vector<vector<int>> results;
+        std::vector<vector<int>> results;
         results.resize(NUM_CONSUMERS);
 
         int expected_delta = -1;
@@ -301,7 +301,7 @@ TEST(InternalQueue, TestMultiProducerMultiConsumer) {
         ASSERT_TRUE(queue.empty());
         ASSERT_TRUE(!failed);
 
-        vector<int> all_results;
+        std::vector<int> all_results;
         for (int i = 0; i < NUM_CONSUMERS; ++i) {
             ASSERT_EQ(results[i].size(), num_per_consumer);
             all_results.insert(all_results.end(), results[i].begin(), results[i].end());

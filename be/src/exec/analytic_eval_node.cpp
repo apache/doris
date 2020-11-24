@@ -164,10 +164,10 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
 
     if (_partition_by_eq_expr_ctx != NULL || _order_by_eq_expr_ctx != NULL) {
         DCHECK(_buffered_tuple_desc != NULL);
-        vector<TTupleId> tuple_ids;
+        std::vector<TTupleId> tuple_ids;
         tuple_ids.push_back(child(0)->row_desc().tuple_descriptors()[0]->id());
         tuple_ids.push_back(_buffered_tuple_desc->id());
-        RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids, vector<bool>(2, false));
+        RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids, std::vector<bool>(2, false));
 
         if (_partition_by_eq_expr_ctx != NULL) {
             RETURN_IF_ERROR(
@@ -261,12 +261,12 @@ Status AnalyticEvalNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-string debug_window_bound_string(const TAnalyticWindowBoundary& b) {
+std::string debug_window_bound_string(const TAnalyticWindowBoundary& b) {
     if (b.type == TAnalyticWindowBoundaryType::CURRENT_ROW) {
         return "CURRENT_ROW";
     }
 
-    stringstream ss;
+    std::stringstream ss;
 
     if (b.__isset.rows_offset_value) {
         ss << b.rows_offset_value;
@@ -321,7 +321,7 @@ std::string AnalyticEvalNode::debug_window_string() const {
 }
 
 std::string AnalyticEvalNode::debug_state_string(bool detailed) const {
-    stringstream ss;
+    std::stringstream ss;
     ss << "num_returned=" << _input_stream->rows_returned()
        << " num_rows=" << _input_stream->num_rows()
        << " _curr_partition_idx=" << _curr_partition_idx
@@ -910,7 +910,7 @@ Status AnalyticEvalNode::close(RuntimeState* state) {
     return Status::OK();
 }
 
-void AnalyticEvalNode::debug_string(int indentation_level, stringstream* out) const {
+void AnalyticEvalNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "AnalyticEvalNode("
          << " window=" << debug_window_string();

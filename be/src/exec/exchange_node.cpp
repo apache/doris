@@ -37,7 +37,7 @@ ExchangeNode::ExchangeNode(
             _num_senders(0),
             _stream_recvr(NULL),
             _input_row_desc(descs, tnode.exchange_node.input_row_tuples,
-                vector<bool>(
+                std::vector<bool>(
                     tnode.nullable_tuples.begin(),
                     tnode.nullable_tuples.begin() + tnode.exchange_node.input_row_tuples.size())),
             _next_row_idx(0),

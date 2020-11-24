@@ -89,7 +89,7 @@ OLAPStatus DeleteConditionHandler::generate_delete_predicate(
     return OLAP_SUCCESS;
 }
 
-string DeleteConditionHandler::construct_sub_predicates(const TCondition& condition) {
+std::string DeleteConditionHandler::construct_sub_predicates(const TCondition& condition) {
     string op = condition.condition_op;
     if (op == "<") {
         op += "<";
@@ -298,7 +298,7 @@ bool DeleteHandler::is_filter_data(const int32_t data_version,
 
     // 根据语义，存储在_del_conds的删除条件应该是OR关系
     // 因此，只要数据符合其中一条过滤条件，则返回true
-    vector<DeleteConditions>::const_iterator it = _del_conds.begin();
+    std::vector<DeleteConditions>::const_iterator it = _del_conds.begin();
 
     for (; it != _del_conds.end(); ++it) {
         if (data_version <= it->filter_version && it->del_cond->delete_conditions_eval(row)) {
@@ -309,9 +309,9 @@ bool DeleteHandler::is_filter_data(const int32_t data_version,
     return false;
 }
 
-vector<int32_t> DeleteHandler::get_conds_version() {
-    vector<int32_t> conds_version;
-    vector<DeleteConditions>::const_iterator cond_iter = _del_conds.begin();
+std::vector<int32_t> DeleteHandler::get_conds_version() {
+    std::vector<int32_t> conds_version;
+    std::vector<DeleteConditions>::const_iterator cond_iter = _del_conds.begin();
 
     for (; cond_iter != _del_conds.end(); ++cond_iter) {
         conds_version.push_back(cond_iter->filter_version);
@@ -325,7 +325,7 @@ void DeleteHandler::finalize() {
         return;
     }
 
-    vector<DeleteConditions>::iterator it = _del_conds.begin();
+    std::vector<DeleteConditions>::iterator it = _del_conds.begin();
 
     for (; it != _del_conds.end(); ++it) {
         it->del_cond->finalize();

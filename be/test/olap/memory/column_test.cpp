@@ -38,7 +38,7 @@ struct ColumnTest {
         scoped_refptr<Column> c(new Column(cs, CT, 1));
         std::unique_ptr<ColumnWriter> writer;
         ASSERT_TRUE(c->create_writer(&writer).ok());
-        vector<CppType> values(InsertCount, 0);
+        std::vector<CppType> values(InsertCount, 0);
         for (size_t i = 0; i < values.size(); i++) {
             values[i] = (CppType)rand();
             EXPECT_TRUE(writer->insert((uint32_t)i, &values[i]).ok());
@@ -60,7 +60,7 @@ struct ColumnTest {
         scoped_refptr<Column> c(new Column(cs, CT, 1));
         std::unique_ptr<ColumnWriter> writer;
         ASSERT_TRUE(c->create_writer(&writer).ok());
-        vector<CppType> values(InsertCount, 0);
+        std::vector<CppType> values(InsertCount, 0);
         for (size_t i = 0; i < values.size(); i++) {
             values[i] = (CppType)rand();
             if (is_null(values[i])) {
@@ -94,7 +94,7 @@ struct ColumnTest {
         scoped_refptr<Column> c(new Column(cs, CT, 1));
         std::unique_ptr<ColumnWriter> writer;
         ASSERT_TRUE(c->create_writer(&writer).ok());
-        vector<CppType> values(InsertCount, 0);
+        std::vector<CppType> values(InsertCount, 0);
         for (size_t i = 0; i < values.size(); i++) {
             values[i] = (CppType)rand();
             EXPECT_TRUE(writer->insert((uint32_t)i, &values[i]).ok());
@@ -105,7 +105,7 @@ struct ColumnTest {
         scoped_refptr<Column> oldc = c;
         for (size_t u = 0; u < UpdateTime; u++) {
             ASSERT_TRUE(c->create_writer(&writer).ok());
-            vector<uint32_t> update_idxs;
+            std::vector<uint32_t> update_idxs;
             for (size_t i = 0; i < UpdateCount; i++) {
                 uint32_t idx = rand() % values.size();
                 //CppType oldv = values[idx];
@@ -138,7 +138,7 @@ struct ColumnTest {
         scoped_refptr<Column> c(new Column(cs, CT, 1));
         std::unique_ptr<ColumnWriter> writer;
         ASSERT_TRUE(c->create_writer(&writer).ok());
-        vector<CppType> values(InsertCount, 0);
+        std::vector<CppType> values(InsertCount, 0);
         for (size_t i = 0; i < values.size(); i++) {
             values[i] = (CppType)rand();
             if (is_null(values[i])) {
@@ -154,7 +154,7 @@ struct ColumnTest {
         scoped_refptr<Column> oldc = c;
         for (size_t u = 0; u < UpdateTime; u++) {
             ASSERT_TRUE(c->create_writer(&writer).ok());
-            vector<uint32_t> update_idxs;
+            std::vector<uint32_t> update_idxs;
             for (size_t i = 0; i < UpdateCount; i++) {
                 uint32_t idx = rand() % values.size();
                 //CppType oldv = values[idx];

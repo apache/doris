@@ -45,7 +45,7 @@ Status PluginLoader::open_valid() {
 
 Status PluginLoader::close_valid() {
     if (_plugin.get() != nullptr && (_plugin->flags & PLUGIN_NOT_DYNAMIC_UNINSTALL)) {
-        return Status::InternalError(Substitute("plugin $0 not allow dynamic uninstall", _name));
+        return Status::InternalError(strings::Substitute("plugin $0 not allow dynamic uninstall", _name));
     }
 
     return Status::OK();

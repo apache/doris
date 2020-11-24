@@ -325,7 +325,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
         }
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         std::vector<TTabletInfo> finish_tablet_infos;
@@ -388,7 +388,7 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         }
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
         TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
@@ -468,7 +468,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
                                    TFinishTaskRequest* finish_task_request) {
     AgentStatus status = DORIS_SUCCESS;
     TStatus task_status;
-    vector<string> error_msgs;
+    std::vector<string> error_msgs;
 
     string process_name;
     switch (task_type) {
@@ -516,7 +516,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
     finish_task_request->__set_task_type(task_type);
     finish_task_request->__set_signature(signature);
 
-    vector<TTabletInfo> finish_tablet_infos;
+    std::vector<TTabletInfo> finish_tablet_infos;
     if (status == DORIS_SUCCESS) {
         TTabletInfo tablet_info;
         status = _get_tablet_info(new_tablet_id, new_schema_hash, signature, &tablet_info);
@@ -602,7 +602,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
 
         LOG(INFO) << "get push task. signature: " << agent_task_req.signature
                   << " priority: " << priority << " push_type: " << push_req.push_type;
-        vector<TTabletInfo> tablet_infos;
+        std::vector<TTabletInfo> tablet_infos;
 
         EngineBatchLoadTask engine_task(push_req, &tablet_infos, agent_task_req.signature, &status);
         _env->storage_engine()->execute_task(&engine_task);
@@ -613,7 +613,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
             continue;
         }
         // Return result to fe
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         TFinishTaskRequest finish_task_request;
@@ -676,7 +676,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         LOG(INFO) << "get publish version task, signature:" << agent_task_req.signature;
 
         Status st;
-        vector<TTabletId> error_tablet_ids;
+        std::vector<TTabletId> error_tablet_ids;
         uint32_t retry_time = 0;
         OLAPStatus res = OLAP_SUCCESS;
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
@@ -740,7 +740,7 @@ void TaskWorkerPool::_clear_transaction_task_worker_thread_callback() {
                   << ", partition id size: " << clear_transaction_task_req.partition_id.size();
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         if (clear_transaction_task_req.transaction_id > 0) {
@@ -796,7 +796,7 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
         LOG(INFO) << "get update tablet meta task, signature:" << agent_task_req.signature;
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         for (auto tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
@@ -865,8 +865,8 @@ void TaskWorkerPool::_clone_worker_thread_callback() {
         DorisMetrics::instance()->clone_requests_total->increment(1);
         LOG(INFO) << "get clone task. signature:" << agent_task_req.signature;
 
-        vector<string> error_msgs;
-        vector<TTabletInfo> tablet_infos;
+        std::vector<string> error_msgs;
+        std::vector<TTabletInfo> tablet_infos;
         EngineCloneTask engine_task(clone_req, _master_info,
                                     agent_task_req.signature, &error_msgs, &tablet_infos, &status);
         _env->storage_engine()->execute_task(&engine_task);
@@ -935,7 +935,7 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
         }
 
         TStatus task_status;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
 
@@ -1030,7 +1030,7 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         }
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         uint32_t checksum = 0;
@@ -1113,7 +1113,7 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             break;
         }
 
-        vector<DataDirInfo> data_dir_infos;
+        std::vector<DataDirInfo> data_dir_infos;
         _env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
 
         map<string, TDisk> disks;
@@ -1332,7 +1332,7 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
         LOG(INFO) << "get snapshot task, signature:" << agent_task_req.signature;
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         string snapshot_path;
@@ -1413,7 +1413,7 @@ void TaskWorkerPool::_release_snapshot_thread_callback() {
         LOG(INFO) << "get release snapshot task, signature:" << agent_task_req.signature;
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         string& snapshot_path = release_snapshot_request.snapshot_path;
@@ -1482,7 +1482,7 @@ void TaskWorkerPool::_move_dir_thread_callback() {
                   << ", job id:" << move_dir_req.job_id;
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         // TODO: move dir

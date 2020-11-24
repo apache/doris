@@ -46,7 +46,7 @@ using std::pair;
 using std::priority_queue;
 using std::shared_ptr;
 using std::string;
-using std::unique_ptr;
+;
 using std::vector;
 using std::weak_ptr;
 using strings::Substitute;
@@ -225,7 +225,7 @@ std::shared_ptr<MemTracker> PoolMemTrackerRegistry::GetRequestPoolMemTracker(
   if (!create_if_not_present) return nullptr;
   // First time this pool_name registered, make a new object.
   std::shared_ptr<MemTracker> tracker = MemTracker::CreateTracker(
-            -1, Substitute(REQUEST_POOL_MEM_TRACKER_LABEL_FORMAT, pool_name),
+            -1, strings::Substitute(REQUEST_POOL_MEM_TRACKER_LABEL_FORMAT, pool_name),
             ExecEnv::GetInstance()->process_mem_tracker());
   tracker->pool_name_ = pool_name;
   pool_to_mem_trackers_.emplace(pool_name, std::shared_ptr<MemTracker>(tracker));
@@ -272,16 +272,16 @@ void MemTracker::ListTrackers(vector<shared_ptr<MemTracker>>* trackers) {
 }
 
 //void MemTracker::RegisterMetrics(MetricGroup* metrics, const string& prefix) {
-//  num_gcs_metric_ = metrics->AddCounter(Substitute("$0.num-gcs", prefix), 0);
+//  num_gcs_metric_ = metrics->AddCounter(strings::Substitute("$0.num-gcs", prefix), 0);
 //
 //  // TODO: Consider a total amount of bytes freed counter
 //  bytes_freed_by_last_gc_metric_ = metrics->AddGauge(
-//      Substitute("$0.bytes-freed-by-last-gc", prefix), -1);
+//      strings::Substitute("$0.bytes-freed-by-last-gc", prefix), -1);
 //
 //  bytes_over_limit_metric_ = metrics->AddGauge(
-//      Substitute("$0.bytes-over-limit", prefix), -1);
+//      strings::Substitute("$0.bytes-over-limit", prefix), -1);
 //
-//  limit_metric_ = metrics->AddGauge(Substitute("$0.limit", prefix), limit_);
+//  limit_metric_ = metrics->AddGauge(strings::Substitute("$0.limit", prefix), limit_);
 //}
 
 void MemTracker::TransferTo(MemTracker* dst, int64_t bytes) {
@@ -324,7 +324,7 @@ void MemTracker::TransferTo(MemTracker* dst, int64_t bytes) {
 //   TrackerName: Limit=5.00 MB Reservation=5.00 MB OtherMemory=1.04 MB
 //                Total=6.04 MB Peak=6.45 MB
 //
-string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
+std::string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
     int64_t* logged_consumption) {
   // Make sure the consumption is up to date.
   if (consumption_metric_ != nullptr) RefreshConsumptionFromMetric();
@@ -334,7 +334,7 @@ string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
 
   if (!log_usage_if_zero_ && curr_consumption == 0) return "";
 
-  stringstream ss;
+  std::stringstream ss;
   ss << prefix << label_ << ":";
   if (CheckLimitExceeded(MemLimit::HARD)) ss << " memory limit exceeded.";
   if (limit_ > 0) ss << " Limit=" << PrettyPrinter::print(limit_, TUnit::BYTES);
@@ -363,7 +363,7 @@ string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
   if (max_recursive_depth == 0) return ss.str();
 
   // Recurse and get information about the children
-  std::string new_prefix = Substitute("  $0", prefix);
+  std::string new_prefix = strings::Substitute("  $0", prefix);
   int64_t child_consumption;
   std::string child_trackers_usage;
   list<weak_ptr<MemTracker>> children;
@@ -387,10 +387,10 @@ string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
   return ss.str();
 }
 
-string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
+std::string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
     const list<weak_ptr<MemTracker>>& trackers, int64_t* logged_consumption) {
   *logged_consumption = 0;
-  vector<string> usage_strings;
+  std::vector<string> usage_strings;
   for (const auto& tracker_weak : trackers) {
     shared_ptr<MemTracker> tracker = tracker_weak.lock();
     if (tracker) {
@@ -404,14 +404,14 @@ string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
   return join(usage_strings, "\n");
 }
 
-string MemTracker::LogTopNQueries(int limit) {
+std::string MemTracker::LogTopNQueries(int limit) {
   if (limit == 0) return "";
   if (this->is_query_mem_tracker_) return LogUsage(0);
-  priority_queue<pair<int64_t, string>, vector<pair<int64_t, string>>,
+  priority_queue<pair<int64_t, string>, std::vector<pair<int64_t, string>>,
       std::greater<pair<int64_t, string>>>
       min_pq;
   GetTopNQueries(min_pq, limit);
-  vector<string> usage_strings(min_pq.size());
+  std::vector<string> usage_strings(min_pq.size());
   while (!min_pq.empty()) {
     usage_strings.push_back(min_pq.top().second);
     min_pq.pop();
@@ -421,7 +421,7 @@ string MemTracker::LogTopNQueries(int limit) {
 }
 
 void MemTracker::GetTopNQueries(
-    priority_queue<pair<int64_t, string>, vector<pair<int64_t, string>>,
+    priority_queue<pair<int64_t, string>, std::vector<pair<int64_t, string>>,
         greater<pair<int64_t, string>>>& min_pq,
     int limit) {
   list<weak_ptr<MemTracker>> children;
@@ -453,22 +453,22 @@ MemTracker* MemTracker::GetQueryMemTracker() {
 Status MemTracker::MemLimitExceeded(MemTracker* mtracker, RuntimeState* state,
     const std::string& details, int64_t failed_allocation_size) {
   DCHECK_GE(failed_allocation_size, 0);
-  stringstream ss;
-  if (!details.empty()) ss << details << endl;
+  std::stringstream ss;
+  if (!details.empty()) ss << details << std::endl;
   if (failed_allocation_size != 0) {
     if (mtracker != nullptr) ss << mtracker->label();
     ss << " could not allocate "
        << PrettyPrinter::print(failed_allocation_size, TUnit::BYTES)
-       << " without exceeding limit." << endl;
+       << " without exceeding limit." << std::endl;
   }
   ss << "Error occurred on backend " << BackendOptions::get_localhost();
   if (state != nullptr) ss << " by fragment " << print_id(state->fragment_instance_id());
-  ss << endl;
+  ss << std::endl;
   ExecEnv* exec_env = ExecEnv::GetInstance();
   MemTracker* process_tracker = exec_env->process_mem_tracker().get();
   const int64_t process_capacity = process_tracker->SpareCapacity(MemLimit::HARD);
   ss << "Memory left in process limit: "
-     << PrettyPrinter::print(process_capacity, TUnit::BYTES) << endl;
+     << PrettyPrinter::print(process_capacity, TUnit::BYTES) << std::endl;
 
   // Always log the query tracker (if available).
   MemTracker* query_tracker = nullptr;
@@ -479,7 +479,7 @@ Status MemTracker::MemLimitExceeded(MemTracker* mtracker, RuntimeState* state,
         const int64_t query_capacity =
             query_tracker->limit() - query_tracker->consumption();
         ss << "Memory left in query limit: "
-           << PrettyPrinter::print(query_capacity, TUnit::BYTES) << endl;
+           << PrettyPrinter::print(query_capacity, TUnit::BYTES) << std::endl;
       }
       ss << query_tracker->LogUsage(UNLIMITED_DEPTH);
     }

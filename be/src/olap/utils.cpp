@@ -56,7 +56,7 @@
 using std::string;
 using std::set;
 using std::vector;
-using std::unique_ptr;
+;
 
 namespace doris {
 
@@ -1014,12 +1014,12 @@ OLAPStatus read_write_test_file(const string& test_file_path) {
         LOG(WARNING) << "fail to allocate write buffer memory. size=" <<  TEST_FILE_BUF_SIZE;
         return OLAP_ERR_MALLOC_ERROR;
     }
-    unique_ptr<char, decltype(&std::free)> write_buff (write_test_buff, &std::free);
+    std::unique_ptr<char, decltype(&std::free)> write_buff (write_test_buff, &std::free);
     if (posix_memalign((void**) &read_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE)!= 0) {
         LOG(WARNING) << "fail to allocate read buffer memory. size=" <<  TEST_FILE_BUF_SIZE;
         return OLAP_ERR_MALLOC_ERROR;
     }
-    unique_ptr<char, decltype(&std::free)> read_buff (read_test_buff, &std::free);
+    std::unique_ptr<char, decltype(&std::free)> read_buff (read_test_buff, &std::free);
     // generate random numbers
     uint32_t rand_seed = static_cast<uint32_t>(time(NULL));
     for (size_t i = 0; i < TEST_FILE_BUF_SIZE; ++i) {

@@ -70,12 +70,12 @@ namespace doris {
 // first line. If the file cannot be opened, no error is reported.
 void WarnIfFileNotEqual(
     const string& filename, const string& expected, const string& warning_text) {
-  ifstream file(filename);
+  std::ifstream file(filename);
   if (!file) return;
   string line;
   getline(file, line);
   if (line != expected) {
-    LOG(ERROR) << "Expected " << expected << ", actual " << line << endl << warning_text;
+    LOG(ERROR) << "Expected " << expected << ", actual " << line << std::endl << warning_text;
   }
 }
 } // end anonymous namespace
@@ -88,11 +88,11 @@ int64_t CpuInfo::original_hardware_flags_;
 int64_t CpuInfo::cycles_per_ms_;
 int CpuInfo::num_cores_ = 1;
 int CpuInfo::max_num_cores_ = 1;
-string CpuInfo::model_name_ = "unknown";
+std::string CpuInfo::model_name_ = "unknown";
 int CpuInfo::max_num_numa_nodes_;
-unique_ptr<int[]> CpuInfo::core_to_numa_node_;
-vector<vector<int>> CpuInfo::numa_node_to_cores_;
-vector<int> CpuInfo::numa_node_core_idx_;
+std::unique_ptr<int[]> CpuInfo::core_to_numa_node_;
+std::vector<vector<int>> CpuInfo::numa_node_to_cores_;
+std::vector<int> CpuInfo::numa_node_core_idx_;
 
 static struct {
   string name;
@@ -132,7 +132,7 @@ void CpuInfo::init() {
   int num_cores = 0;
 
   // Read from /proc/cpuinfo
-  ifstream cpuinfo("/proc/cpuinfo");
+  std::ifstream cpuinfo("/proc/cpuinfo");
   while (cpuinfo) {
     getline(cpuinfo, line);
     size_t colon = line.find(':');
@@ -221,7 +221,7 @@ void CpuInfo::_init_numa() {
   for (int core = 0; core < max_num_cores_; ++core) {
     bool found_numa_node = false;
     for (int node = 0; node < max_num_numa_nodes_; ++node) {
-      if (fs::exists(Substitute("/sys/devices/system/cpu/cpu$0/node$1", core, node))) {
+      if (fs::exists(strings::Substitute("/sys/devices/system/cpu/cpu$0/node$1", core, node))) {
         core_to_numa_node_[core] = node;
         found_numa_node = true;
         break;
@@ -237,7 +237,7 @@ void CpuInfo::_init_numa() {
 }
 
 void CpuInfo::_init_fake_numa_for_test(
-    int max_num_numa_nodes, const vector<int>& core_to_numa_node) {
+    int max_num_numa_nodes, const std::vector<int>& core_to_numa_node) {
   DCHECK_EQ(max_num_cores_, core_to_numa_node.size());
   max_num_numa_nodes_ = max_num_numa_nodes;
   for (int i = 0; i < max_num_cores_; ++i) {
@@ -252,7 +252,7 @@ void CpuInfo::_init_numa_node_to_cores() {
   numa_node_to_cores_.resize(max_num_numa_nodes_);
   numa_node_core_idx_.resize(max_num_cores_);
   for (int core = 0; core < max_num_cores_; ++core) {
-    vector<int>* cores_of_node = &numa_node_to_cores_[core_to_numa_node_[core]];
+    std::vector<int>* cores_of_node = &numa_node_to_cores_[core_to_numa_node_[core]];
     numa_node_core_idx_[core] = cores_of_node->size();
     cores_of_node->push_back(core);
   }
@@ -268,8 +268,8 @@ void CpuInfo::verify_cpu_requirements() {
 void CpuInfo::verify_performance_governor() {
   for (int cpu_id = 0; cpu_id < CpuInfo::num_cores(); ++cpu_id) {
     const string governor_file =
-        Substitute("/sys/devices/system/cpu/cpu$0/cpufreq/scaling_governor", cpu_id);
-    const string warning_text = Substitute(
+        strings::Substitute("/sys/devices/system/cpu/cpu$0/cpufreq/scaling_governor", cpu_id);
+    const string warning_text = strings::Substitute(
         "WARNING: CPU $0 is not using 'performance' governor. Note that changing the "
         "governor to 'performance' will reset the no_turbo setting to 0.",
         cpu_id);
@@ -346,41 +346,41 @@ void CpuInfo::_get_cache_info(long cache_sizes[NUM_CACHE_LEVELS],
 #endif
 }
 
-string CpuInfo::debug_string() {
+std::string CpuInfo::debug_string() {
   DCHECK(initialized_);
-  stringstream stream;
+  std::stringstream stream;
   long cache_sizes[NUM_CACHE_LEVELS];
   long cache_line_sizes[NUM_CACHE_LEVELS];
   _get_cache_info(cache_sizes, cache_line_sizes);
 
-  string L1 = Substitute("L1 Cache: $0 (Line: $1)",
+  string L1 = strings::Substitute("L1 Cache: $0 (Line: $1)",
       PrettyPrinter::print(cache_sizes[L1_CACHE], TUnit::BYTES),
       PrettyPrinter::print(cache_line_sizes[L1_CACHE], TUnit::BYTES));
-  string L2 = Substitute("L2 Cache: $0 (Line: $1)",
+  string L2 = strings::Substitute("L2 Cache: $0 (Line: $1)",
       PrettyPrinter::print(cache_sizes[L2_CACHE], TUnit::BYTES),
       PrettyPrinter::print(cache_line_sizes[L2_CACHE], TUnit::BYTES));
-  string L3 = Substitute("L3 Cache: $0 (Line: $1)",
+  string L3 = strings::Substitute("L3 Cache: $0 (Line: $1)",
       PrettyPrinter::print(cache_sizes[L3_CACHE], TUnit::BYTES),
       PrettyPrinter::print(cache_line_sizes[L3_CACHE], TUnit::BYTES));
-  stream << "Cpu Info:" << endl
-         << "  Model: " << model_name_ << endl
-         << "  Cores: " << num_cores_ << endl
-         << "  Max Possible Cores: " << max_num_cores_ << endl
-         << "  " << L1 << endl
-         << "  " << L2 << endl
-         << "  " << L3 << endl
-         << "  Hardware Supports:" << endl;
+  stream << "Cpu Info:" << std::endl
+<< "  Model: " << model_name_ << std::endl
+<< "  Cores: " << num_cores_ << std::endl
+<< "  Max Possible Cores: " << max_num_cores_ << std::endl
+<< "  " << L1 << std::endl
+<< "  " << L2 << std::endl
+<< "  " << L3 << std::endl
+<< "  Hardware Supports:" << std::endl;
   for (int i = 0; i < num_flags; ++i) {
     if (is_supported(flag_mappings[i].flag)) {
-      stream << "    " << flag_mappings[i].name << endl;
+      stream << "    " << flag_mappings[i].name << std::endl;
     }
   }
-  stream << "  Numa Nodes: " << max_num_numa_nodes_ << endl;
+  stream << "  Numa Nodes: " << max_num_numa_nodes_ << std::endl;
   stream << "  Numa Nodes of Cores:";
   for (int core = 0; core < max_num_cores_; ++core) {
     stream << " " << core << "->" << core_to_numa_node_[core] << " |";
   }
-  stream << endl;
+  stream << std::endl;
   return stream.str();
 }
 

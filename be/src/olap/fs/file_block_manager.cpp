@@ -42,7 +42,7 @@
 using std::accumulate;
 using std::shared_ptr;
 using std::string;
-using std::unique_ptr;
+;
 using strings::Substitute;
 
 namespace doris {
@@ -137,7 +137,7 @@ FileWritableBlock::FileWritableBlock(FileBlockManager* block_manager,
 
 FileWritableBlock::~FileWritableBlock() {
     if (_state != CLOSED) {
-        WARN_IF_ERROR(abort(), Substitute("Failed to close block $0", _path));
+        WARN_IF_ERROR(abort(), strings::Substitute("Failed to close block $0", _path));
     }
 }
 
@@ -229,7 +229,7 @@ Status FileWritableBlock::_close(SyncMode mode) {
         if (sync.ok()) {
             sync = _block_manager->_sync_metadata(_path);
         }
-        WARN_IF_ERROR(sync, Substitute("Failed to sync when closing block $0", _path));
+        WARN_IF_ERROR(sync, strings::Substitute("Failed to sync when closing block $0", _path));
     }
     Status close = _writer->close();
 
@@ -316,7 +316,7 @@ FileReadableBlock::FileReadableBlock(FileBlockManager* block_manager,
 }
 
 FileReadableBlock::~FileReadableBlock() {
-    WARN_IF_ERROR(close(), Substitute("Failed to close block $0", _path));
+    WARN_IF_ERROR(close(), strings::Substitute("Failed to close block $0", _path));
 }
 
 Status FileReadableBlock::close() {
@@ -402,7 +402,7 @@ Status FileBlockManager::open() {
 }
 
 Status FileBlockManager::create_block(const CreateBlockOptions& opts,
-                                      unique_ptr<WritableBlock>* block) {
+                                      std::unique_ptr<WritableBlock>* block) {
     CHECK(!_opts.read_only);
 
     shared_ptr<WritableFile> writer;
@@ -415,7 +415,7 @@ Status FileBlockManager::create_block(const CreateBlockOptions& opts,
     return Status::OK();
 }
 
-Status FileBlockManager::open_block(const std::string& path, unique_ptr<ReadableBlock>* block) {
+Status FileBlockManager::open_block(const std::string& path, std::unique_ptr<ReadableBlock>* block) {
     VLOG(1) << "Opening block with path at " << path;
     std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle(new OpenedFileHandle<RandomAccessFile>());
     bool found = _file_cache->lookup(path, file_handle.get());

@@ -90,7 +90,7 @@ static Status do_open(const string& filename, Env::OpenMode mode, int* fd) {
     case Env::MUST_EXIST:
         break;
     default:
-        return Status::NotSupported(Substitute("Unknown create mode $0", mode));
+        return Status::NotSupported(strings::Substitute("Unknown create mode $0", mode));
     }
     int f;
     RETRY_ON_EINTR(f, open(filename.c_str(), flags, 0666));
@@ -128,7 +128,7 @@ static Status do_readv_at(int fd, const std::string& filename, uint64_t offset,
 
         if (PREDICT_FALSE(r == 0)) {
             return Status::EndOfFile(
-                Substitute("EOF trying to read $0 bytes at offset $1", bytes_req, offset));
+                strings::Substitute("EOF trying to read $0 bytes at offset $1", bytes_req, offset));
         }
 
         if (PREDICT_TRUE(r == rem)) {
@@ -675,7 +675,7 @@ public:
         // because the buffer is allocated by malloc(), see `man 3 realpath`.
         std::unique_ptr<char[], FreeDeleter> r(realpath(path.c_str(), nullptr));
         if (r == nullptr) {
-            return io_error(Substitute("Unable to canonicalize $0", path), errno);
+            return io_error(strings::Substitute("Unable to canonicalize $0", path), errno);
         }
         *result = std::string(r.get());
         return Status::OK();

@@ -55,7 +55,7 @@ HashJoinNode::~HashJoinNode() {
 Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.hash_join_node);
-    const vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
+    const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
 
     for (int i = 0; i < eq_join_conjuncts.size(); ++i) {
         ExprContext* ctx = NULL;
@@ -681,7 +681,7 @@ Status HashJoinNode::left_join_get_next(RuntimeState* state,
     return Status::OK();
 }
 
-string HashJoinNode::get_probe_row_output_string(TupleRow* probe_row) {
+std::string HashJoinNode::get_probe_row_output_string(TupleRow* probe_row) {
     std::stringstream out;
     out << "[";
     int* _build_tuple_idx_ptr = &_build_tuple_idx[0];

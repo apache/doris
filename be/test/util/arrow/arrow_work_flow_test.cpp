@@ -247,10 +247,10 @@ void ArrowWorkFlowTest::init_desc_tbl() {
 
     DescriptorTbl::create(&_obj_pool, _t_desc_table, &_desc_tbl);
 
-    vector<TTupleId> row_tids;
+    std::vector<TTupleId> row_tids;
     row_tids.push_back(0);
 
-    vector<bool> nullable_tuples;
+    std::vector<bool> nullable_tuples;
     nullable_tuples.push_back(false);
 
     // node

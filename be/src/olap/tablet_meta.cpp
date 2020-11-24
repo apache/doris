@@ -236,7 +236,7 @@ OLAPStatus TabletMeta::reset_tablet_uid(const string& header_file) {
     return res;
 }
 
-string TabletMeta::construct_header_file_path(const string& schema_hash_path,
+std::string TabletMeta::construct_header_file_path(const string& schema_hash_path,
                                              int64_t tablet_id) {
     std::stringstream header_name_stream;
     header_name_stream << schema_hash_path << "/" << tablet_id << ".hdr";
@@ -495,7 +495,7 @@ OLAPStatus TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
 }
 
 void TabletMeta::delete_rs_meta_by_version(const Version& version,
-                                           vector<RowsetMetaSharedPtr>* deleted_rs_metas) {
+                                           std::vector<RowsetMetaSharedPtr>* deleted_rs_metas) {
     auto it = _rs_metas.begin();
     while (it != _rs_metas.end()) {
         if ((*it)->version() == version) {
@@ -510,8 +510,8 @@ void TabletMeta::delete_rs_meta_by_version(const Version& version,
     }
 }
 
-void TabletMeta::modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add,
-                                 const vector<RowsetMetaSharedPtr>& to_delete) {
+void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
+                                 const std::vector<RowsetMetaSharedPtr>& to_delete) {
     // Remove to_delete rowsets from _rs_metas                                 
     for (auto rs_to_del : to_delete) {
         auto it = _rs_metas.begin();
@@ -691,7 +691,7 @@ OLAPStatus TabletMeta::set_alter_state(AlterTabletState alter_state) {
     }
 }
 
-string TabletMeta::full_name() const {
+std::string TabletMeta::full_name() const {
     std::stringstream ss;
     ss << _tablet_id
        << "." << _schema_hash

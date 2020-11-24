@@ -272,7 +272,7 @@ OLAPStatus SnapshotManager::_calc_snapshot_id_path(
         return res;
     }
 
-    stringstream snapshot_id_path_stream;
+    std::stringstream snapshot_id_path_stream;
     MutexLock auto_lock(&_snapshot_mutex); // will automatically unlock when function return.
     snapshot_id_path_stream << tablet->data_dir()->path() << SNAPSHOT_PREFIX
                             << "/" << time_str << "." << _snapshot_base_id++
@@ -283,10 +283,10 @@ OLAPStatus SnapshotManager::_calc_snapshot_id_path(
 
 // location: /path/to/data/DATA_PREFIX/shard_id
 // return: /path/to/data/DATA_PREFIX/shard_id/tablet_id/schema_hash
-string SnapshotManager::get_schema_hash_full_path(
+std::string SnapshotManager::get_schema_hash_full_path(
         const TabletSharedPtr& ref_tablet,
         const string& location) const {
-    stringstream schema_full_path_stream;
+    std::stringstream schema_full_path_stream;
     schema_full_path_stream << location
                             << "/" << ref_tablet->tablet_id()
                             << "/" << ref_tablet->schema_hash();
@@ -295,10 +295,10 @@ string SnapshotManager::get_schema_hash_full_path(
     return schema_full_path;
 }
 
-string SnapshotManager::_get_header_full_path(
+std::string SnapshotManager::_get_header_full_path(
         const TabletSharedPtr& ref_tablet,
         const std::string& schema_hash_path) const {
-    stringstream header_name_stream;
+    std::stringstream header_name_stream;
     header_name_stream << schema_hash_path << "/" << ref_tablet->tablet_id() << ".hdr";
     return header_name_stream.str();
 }
@@ -364,7 +364,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             res = OLAP_ERR_MALLOC_ERROR;
             break;
         }
-        vector<RowsetSharedPtr> consistent_rowsets;
+        std::vector<RowsetSharedPtr> consistent_rowsets;
         if (request.__isset.missing_version) {
             ReadLock rdlock(ref_tablet->get_header_lock_ptr());
             for (int64_t missed_version : request.missing_version) {
@@ -419,7 +419,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             ref_tablet->generate_tablet_meta_copy_unlocked(new_tablet_meta);
         }
 
-        vector<RowsetMetaSharedPtr> rs_metas;
+        std::vector<RowsetMetaSharedPtr> rs_metas;
         for (auto& rs : consistent_rowsets) {
             res = rs->link_files_to(schema_full_path, rs->rowset_id());
             if (res != OLAP_SUCCESS) { break; }
@@ -519,7 +519,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
 }
 
 OLAPStatus SnapshotManager::_convert_beta_rowsets_to_alpha(const TabletMetaSharedPtr& new_tablet_meta,
-                const vector<RowsetMetaSharedPtr>& rowset_metas, const std::string& dst_path, bool is_incremental) {
+                const std::vector<RowsetMetaSharedPtr>& rowset_metas, const std::string& dst_path, bool is_incremental) {
     OLAPStatus res = OLAP_SUCCESS;
     RowsetConverter rowset_converter(new_tablet_meta);
     std::vector<RowsetMetaSharedPtr> new_rowset_metas;

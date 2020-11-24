@@ -102,7 +102,7 @@ OLAPStatus RowCursor::init(const std::vector<TabletColumn>& schema, size_t colum
 }
 
 OLAPStatus RowCursor::init(const TabletSchema& schema,
-                           const vector<uint32_t>& columns) {
+                           const std::vector<uint32_t>& columns) {
     RETURN_NOT_OK(_init(schema.columns(), columns));
     return OLAP_SUCCESS;
 }
@@ -253,7 +253,7 @@ OlapTuple RowCursor::to_tuple() const {
     return tuple;
 }
 
-string RowCursor::to_string() const {
+std::string RowCursor::to_string() const {
     std::string result;
     size_t i = 0;
     for (auto cid : _schema->column_ids()) {

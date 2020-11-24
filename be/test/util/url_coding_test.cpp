@@ -39,7 +39,7 @@ void test_url(const string& input, const string& expected_encoded, bool hive_com
     EXPECT_EQ(input, output);
 
     // Convert string to vector and try that also
-    vector<uint8_t> input_vector;
+    std::vector<uint8_t> input_vector;
     input_vector.resize(input.size());
     memcpy(&input_vector[0], input.c_str(), input.size());
     std::string intermediate2;
@@ -60,7 +60,7 @@ void test_base64(const string& input, const string& expected_encoded) {
     EXPECT_EQ(input, output);
 
     // Convert string to vector and try that also
-    vector<uint8_t> input_vector;
+    std::vector<uint8_t> input_vector;
     input_vector.resize(input.size());
     memcpy(&input_vector[0], input.c_str(), input.size());
     std::string intermediate2;
@@ -101,7 +101,7 @@ TEST(Base64Test, Basic) {
 
 TEST(HtmlEscapingTest, Basic) {
     std::string before = "<html><body>&amp";
-    stringstream after;
+    std::stringstream after;
     EscapeForHtml(before, &after);
     EXPECT_EQ(after.str(), "&lt;html&gt;&lt;body&gt;&amp;amp");
 }

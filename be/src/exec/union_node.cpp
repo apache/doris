@@ -76,7 +76,7 @@ Status UnionNode::prepare(RuntimeState* state) {
     _materialize_exprs_evaluate_timer = ADD_TIMER(_runtime_profile, "MaterializeExprsEvaluateTimer");
     _codegend_union_materialize_batch_fns.resize(_child_expr_lists.size());
     // Prepare const expr lists.
-    for (const vector<ExprContext*>& exprs : _const_expr_lists) {
+    for (const std::vector<ExprContext*>& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(Expr::prepare(exprs, state, row_desc(), expr_mem_tracker()));
         // TODO(zc)
         // AddExprCtxsToFree(exprs);
@@ -98,11 +98,11 @@ Status UnionNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     // open const expr lists.
-    for (const vector<ExprContext*>& exprs : _const_expr_lists) {
+    for (const std::vector<ExprContext*>& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(Expr::open(exprs, state));
     }
     // open result expr lists.
-    for (const vector<ExprContext*>& exprs : _child_expr_lists) {
+    for (const std::vector<ExprContext*>& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(Expr::open(exprs, state));
     }
 

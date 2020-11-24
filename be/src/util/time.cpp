@@ -57,7 +57,7 @@ static string TimepointToString(const chrono::system_clock::time_point& t,
 // i.e., times before the Unix epoch.
 static string FormatSubSecond(const chrono::system_clock::time_point& t,
     TimePrecision p) {
-  stringstream ss;
+  std::stringstream ss;
   auto frac = t.time_since_epoch();
   if (p == TimePrecision::Millisecond) {
     auto subsec = chrono::duration_cast<chrono::milliseconds>(frac) % MILLIS_PER_SEC;
@@ -82,7 +82,7 @@ static string FormatSubSecond(const chrono::system_clock::time_point& t,
 static string ToString(const chrono::system_clock::time_point& t, TimePrecision p,
     bool utc)
 {
-  stringstream ss;
+  std::stringstream ss;
   ss << TimepointToString(t, utc);
   ss << FormatSubSecond(t, p);
   return ss.str();
@@ -106,32 +106,32 @@ static chrono::system_clock::time_point TimepointFromUnixMicros(int64_t us) {
   return chrono::system_clock::time_point(chrono::microseconds(us));
 }
 
-string doris::ToStringFromUnix(int64_t s, TimePrecision p) {
+std::string doris::ToStringFromUnix(int64_t s, TimePrecision p) {
   chrono::system_clock::time_point t = TimepointFromUnix(s);
   return ToString(t, p, false);
 }
 
-string doris::ToUtcStringFromUnix(int64_t s, TimePrecision p) {
+std::string doris::ToUtcStringFromUnix(int64_t s, TimePrecision p) {
   chrono::system_clock::time_point t = TimepointFromUnix(s);
   return ToString(t, p, true);
 }
 
-string doris::ToStringFromUnixMillis(int64_t ms, TimePrecision p) {
+std::string doris::ToStringFromUnixMillis(int64_t ms, TimePrecision p) {
   chrono::system_clock::time_point t = TimepointFromUnixMillis(ms);
   return ToString(t, p, false);
 }
 
-string doris::ToUtcStringFromUnixMillis(int64_t ms, TimePrecision p) {
+std::string doris::ToUtcStringFromUnixMillis(int64_t ms, TimePrecision p) {
   chrono::system_clock::time_point t = TimepointFromUnixMillis(ms);
   return ToString(t, p, true);
 }
 
-string doris::ToStringFromUnixMicros(int64_t us, TimePrecision p) {
+std::string doris::ToStringFromUnixMicros(int64_t us, TimePrecision p) {
   chrono::system_clock::time_point t = TimepointFromUnixMicros(us);
   return ToString(t, p, false);
 }
 
-string doris::ToUtcStringFromUnixMicros(int64_t us, TimePrecision p) {
+std::string doris::ToUtcStringFromUnixMicros(int64_t us, TimePrecision p) {
   chrono::system_clock::time_point t = TimepointFromUnixMicros(us);
   return ToString(t, p, true);
 }

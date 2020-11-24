@@ -337,7 +337,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 compaction_type = CompactionType::BASE_COMPACTION;
                 round = 0;
             }
-            vector<TabletSharedPtr> tablets_compaction =
+            std::vector<TabletSharedPtr> tablets_compaction =
                     _compaction_tasks_generator(compaction_type, data_dirs);
             if (tablets_compaction.size() == 0) {
                 _wakeup_producer_flag = 0;
@@ -363,7 +363,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                             _perform_cumulative_compaction(tablet);
                             _permit_limiter.release(permits);
                             std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-                            vector<TTabletId>::iterator it_tablet =
+                            std::vector<TTabletId>::iterator it_tablet =
                                     find(_tablet_submitted_compaction[tablet->data_dir()].begin(),
                                          _tablet_submitted_compaction[tablet->data_dir()].end(),
                                          tablet->tablet_id());
@@ -380,7 +380,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                             _perform_base_compaction(tablet);
                             _permit_limiter.release(permits);
                             std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-                            vector<TTabletId>::iterator it_tablet =
+                            std::vector<TTabletId>::iterator it_tablet =
                                     find(_tablet_submitted_compaction[tablet->data_dir()].begin(),
                                          _tablet_submitted_compaction[tablet->data_dir()].end(),
                                          tablet->tablet_id());
@@ -400,9 +400,9 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     }
 }
 
-vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
+std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
         CompactionType compaction_type, std::vector<DataDir*> data_dirs) {
-    vector<TabletSharedPtr> tablets_compaction;
+    std::vector<TabletSharedPtr> tablets_compaction;
     std::random_shuffle(data_dirs.begin(), data_dirs.end());
     for (auto data_dir : data_dirs) {
         std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);

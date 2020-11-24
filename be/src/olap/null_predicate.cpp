@@ -78,7 +78,7 @@ void NullPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) 
     *size = new_size;
 }
 
-Status NullPredicate::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators,
+Status NullPredicate::evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,
     uint32_t num_rows, Roaring* roaring) const {
     if (iterators[_column_id] != nullptr) {
         Roaring null_bitmap;

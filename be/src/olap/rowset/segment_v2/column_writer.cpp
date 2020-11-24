@@ -193,7 +193,7 @@ Status ScalarColumnWriter::init() {
     RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
     if (page_builder == nullptr) {
         return Status::NotSupported(
-                Substitute("Failed to create page builder for type $0 and encoding $1",
+                strings::Substitute("Failed to create page builder for type $0 and encoding $1",
                            get_field()->type(), _opts.meta->encoding()));
     }
     // should store more concrete encoding type instead of DEFAULT_ENCODING
@@ -372,7 +372,7 @@ Status ScalarColumnWriter::finish_current_page() {
     }
 
     // build data page body : encoded values + [nullmap]
-    vector<Slice> body;
+    std::vector<Slice> body;
     OwnedSlice encoded_values = _page_builder->finish();
     _page_builder->reset();
     body.push_back(encoded_values.slice());
