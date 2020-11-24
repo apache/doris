@@ -39,7 +39,7 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {}
 
 Status PlanFragmentExecutor::prepare(
         const TExecPlanFragmentParams& request,
-        const BatchFragmentsCtx* batch_ctx) {
+        const QueryFragmentsCtx* batch_ctx) {
     return s_prepare_status;
 }
 
