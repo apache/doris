@@ -48,7 +48,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * Routine load task scheduler is a function which allocate task to be.
- * Step1: update backend slot if interval more then BACKEND_SLOT_UPDATE_INTERVAL_MS
+ * Step1: update backend slot if interval more than BACKEND_SLOT_UPDATE_INTERVAL_MS
  * Step2: submit beIdToBatchTask when queue is empty
  * Step3: take a task from queue and schedule this task
  *

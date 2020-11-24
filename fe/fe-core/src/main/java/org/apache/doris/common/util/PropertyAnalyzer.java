@@ -411,6 +411,10 @@ public class PropertyAnalyzer {
         }
 
         if (storageFormat.equalsIgnoreCase("v1")) {
+            if (!Config.enable_alpha_rowset) {
+                throw new AnalysisException("Storage format V1 has been deprecated since version 0.14," +
+                        " please use V2 instead");
+            }
             return TStorageFormat.V1;
         } else if (storageFormat.equalsIgnoreCase("v2")) {
             return TStorageFormat.V2;

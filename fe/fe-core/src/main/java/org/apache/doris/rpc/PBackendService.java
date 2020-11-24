@@ -17,18 +17,18 @@
 
 package org.apache.doris.rpc;
 
+import org.apache.doris.proto.PCacheResponse;
 import org.apache.doris.proto.PCancelPlanFragmentRequest;
 import org.apache.doris.proto.PCancelPlanFragmentResult;
+import org.apache.doris.proto.PClearCacheRequest;
 import org.apache.doris.proto.PExecPlanFragmentResult;
+import org.apache.doris.proto.PFetchCacheRequest;
+import org.apache.doris.proto.PFetchCacheResult;
 import org.apache.doris.proto.PFetchDataResult;
 import org.apache.doris.proto.PProxyRequest;
 import org.apache.doris.proto.PProxyResult;
 import org.apache.doris.proto.PTriggerProfileReportResult;
 import org.apache.doris.proto.PUpdateCacheRequest;
-import org.apache.doris.proto.PClearCacheRequest;
-import org.apache.doris.proto.PCacheResponse;
-import org.apache.doris.proto.PFetchCacheRequest;
-import org.apache.doris.proto.PFetchCacheResult;
 
 import com.baidu.jprotobuf.pbrpc.ProtobufRPC;
 

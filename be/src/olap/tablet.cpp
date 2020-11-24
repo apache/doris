@@ -66,7 +66,9 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
         _last_cumu_compaction_success_millis(0),
         _last_base_compaction_success_millis(0),
         _cumulative_point(K_INVALID_CUMULATIVE_POINT),
-        _cumulative_compaction_type(cumulative_compaction_type) {
+        _cumulative_compaction_type(cumulative_compaction_type),
+        _last_record_scan_count(0),
+        _last_record_scan_count_timestamp(time(nullptr)) {
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
@@ -1212,11 +1214,10 @@ void Tablet::do_tablet_meta_checkpoint() {
 
 bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
     ReadLock rdlock(&_meta_lock);
-    bool find_rowset_id = false;
     bool find_version = false;
     for (auto& version_rowset : _rs_version_map) {
         if (version_rowset.second->rowset_id() == rowset_meta->rowset_id()) {
-            find_rowset_id = true;
+            return true;
         }
         if (version_rowset.second->contains_version(rowset_meta->version())) {
             find_version = true;
@@ -1224,7 +1225,7 @@ bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
     }
     for (auto& inc_version_rowset : _inc_rs_version_map) {
         if (inc_version_rowset.second->rowset_id() == rowset_meta->rowset_id()) {
-            find_rowset_id = true;
+            return true;
         }
         if (inc_version_rowset.second->contains_version(rowset_meta->version())) {
             find_version = true;
@@ -1232,13 +1233,13 @@ bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
     }
     for (auto& stale_version_rowset : _stale_rs_version_map) {
         if (stale_version_rowset.second->rowset_id() == rowset_meta->rowset_id()) {
-            find_rowset_id = true;
+            return true;
         }
         if (stale_version_rowset.second->contains_version(rowset_meta->version())) {
             find_version = true;
         }
     }
-    return find_rowset_id || !find_version;
+    return !find_version;
 }
 
 bool Tablet::_contains_rowset(const RowsetId rowset_id) {
@@ -1309,6 +1310,18 @@ void Tablet::generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_m
     TabletMetaPB tablet_meta_pb;
     _tablet_meta->to_meta_pb(&tablet_meta_pb);
     new_tablet_meta->init_from_pb(tablet_meta_pb);
+}
+
+double Tablet::calculate_scan_frequency() {
+    time_t now = time(nullptr);
+    int64_t current_count = query_scan_count->value();
+    double interval = difftime(now, _last_record_scan_count_timestamp);
+    double scan_frequency = (current_count - _last_record_scan_count) * 60 / interval;
+    if (interval >= config::tablet_scan_frequency_time_node_interval_second) {
+        _last_record_scan_count = current_count;
+        _last_record_scan_count_timestamp = now;
+    }
+    return scan_frequency;
 }
 
 }  // namespace doris

@@ -163,7 +163,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected LoadDataSourceType dataSourceType;
     // max number of error data in max batch rows * 10
     // maxErrorNum / (maxBatchRows * 10) = max error rate of routine load job
-    // if current error rate is more then max error rate, the job will be paused
+    // if current error rate is more than max error rate, the job will be paused
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
     protected long execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
     // include strict mode
@@ -670,7 +670,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
-    // if rate of error data is more then max_filter_ratio, pause job
+    // if rate of error data is more than max_filter_ratio, pause job
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
                 attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(),
@@ -700,13 +700,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                  .add("current_total_rows", currentTotalRows)
                                  .add("current_error_rows", currentErrorRows)
                                  .add("max_error_num", maxErrorNum)
-                                 .add("msg", "current error rows is more then max error num, begin to pause job")
+                                 .add("msg", "current error rows is more than max error num, begin to pause job")
                                  .build());
                 // if this is a replay thread, the update state should already be replayed by OP_CHANGE_ROUTINE_LOAD_JOB
                 if (!isReplay) {
                     // remove all of task in jobs and change job state to paused
                     updateState(JobState.PAUSED,
-                            new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR, "current error rows of job is more then max error num"),
+                            new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR, "current error rows of job is more than max error num"),
                             isReplay);
                 }
             }
@@ -717,7 +717,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                   .add("current_error_rows", currentErrorRows)
                                   .add("max_error_num", maxErrorNum)
                                   .add("msg", "reset current total rows and current error rows "
-                                          + "when current total rows is more then base")
+                                          + "when current total rows is more than base")
                                   .build());
             }
             // reset currentTotalNum and currentErrorNum
@@ -728,12 +728,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                              .add("current_total_rows", currentTotalRows)
                              .add("current_error_rows", currentErrorRows)
                              .add("max_error_num", maxErrorNum)
-                             .add("msg", "current error rows is more then max error rows, begin to pause job")
+                             .add("msg", "current error rows is more than max error rows, begin to pause job")
                              .build());
             if (!isReplay) {
                 // remove all of task in jobs and change job state to paused
                 updateState(JobState.PAUSED,
-                        new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR, "current error rows is more then max error num"),
+                        new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR, "current error rows is more than max error num"),
                         isReplay);
             }
             // reset currentTotalNum and currentErrorNum
@@ -949,7 +949,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
-    // the task is aborted when the correct number of rows is more then 0
+    // the task is aborted when the correct number of rows is more than 0
     // be will abort txn when all of kafka data is wrong or total consume data is 0
     // txn will be aborted but progress will be update
     // progress will be update otherwise the progress will be hung

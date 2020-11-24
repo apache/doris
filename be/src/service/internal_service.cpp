@@ -148,8 +148,8 @@ Status PInternalServiceImpl<T>::_exec_plan_fragment(brpc::Controller* cntl) {
         uint32_t len = ser_request.size();
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
-    LOG(INFO) << "exec plan fragment, fragment_instance_id=" << print_id(t_request.params.fragment_instance_id)
-        << ", coord=" << t_request.coord << ", backend=" << t_request.backend_num;
+    // LOG(INFO) << "exec plan fragment, fragment_instance_id=" << print_id(t_request.params.fragment_instance_id)
+       //  << ", coord=" << t_request.coord << ", backend=" << t_request.backend_num;
     return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
 }
 

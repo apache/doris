@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
@@ -33,14 +34,19 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 import java.text.SimpleDateFormat;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 public class PropertyAnalyzerTest {
+    @Rule
+    public ExpectedException expectedEx = ExpectedException.none();
 
     @Test
     public void testBfColumns() throws AnalysisException {
@@ -143,5 +149,22 @@ public class PropertyAnalyzerTest {
         // avoid UT fail because time zone different
         DateLiteral dateLiteral = new DateLiteral(tomorrowTimeStr, Type.DATETIME);
         Assert.assertEquals(dateLiteral.unixTimestamp(TimeUtils.getTimeZone()), dataProperty.getCooldownTimeMs());
+    }
+
+    @Test
+    public void testStorageFormat() throws AnalysisException {
+        HashMap<String, String> propertiesV1 = Maps.newHashMap();
+        HashMap<String, String>  propertiesV2 = Maps.newHashMap();
+        HashMap<String, String>  propertiesDefault = Maps.newHashMap();
+        propertiesV1.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "v1");
+        propertiesV2.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "v2");
+        propertiesDefault.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "default");
+        Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(null));
+        Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesV2));
+        Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesDefault));
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage("Storage format V1 has been deprecated since version 0.14," +
+                " please use V2 instead");
+        PropertyAnalyzer.analyzeStorageFormat(propertiesV1);
     }
 }

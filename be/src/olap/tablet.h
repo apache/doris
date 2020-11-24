@@ -221,6 +221,10 @@ public:
 
     void do_tablet_meta_checkpoint();
 
+    // Check whether the rowset is useful or not, unuseful rowset can be swept up then.
+    // Rowset which is under tablet's management is useful, i.e. rowset is in
+    // _rs_version_map, _inc_rs_version_map, or _stale_rs_version_map.
+    // Rowset whose version range is not covered by this tablet is also useful.
     bool rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta);
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
@@ -231,6 +235,8 @@ public:
 
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
+
+    double calculate_scan_frequency();
 
 private:
     OLAPStatus _init_once_action();
@@ -302,6 +308,15 @@ private:
     // cumulative compaction policy
     std::unique_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string _cumulative_compaction_type;
+
+    // the value of metric 'query_scan_count' and timestamp will be recorded when every time
+    // 'config::tablet_scan_frequency_time_node_interval_second' passed to calculate tablet
+    // scan frequency.
+    // the value of metric 'query_scan_count' for the last record.
+    int64_t _last_record_scan_count;
+    // the timestamp of the last record.
+    time_t _last_record_scan_count_timestamp;
+
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 
 public:

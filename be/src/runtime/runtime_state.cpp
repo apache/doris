@@ -73,15 +73,15 @@ RuntimeState::RuntimeState(
 }
 
 RuntimeState::RuntimeState(
-        const TExecPlanFragmentParams& fragment_params,
+        const TPlanFragmentExecParams& fragment_exec_params,
         const TQueryOptions& query_options,
         const TQueryGlobals& query_globals, ExecEnv* exec_env) :
             _fragment_mem_tracker(nullptr),
-            _profile("Fragment " + print_id(fragment_params.params.fragment_instance_id)),
+            _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
             _obj_pool(new ObjectPool()),
             _data_stream_recvrs_pool(new ObjectPool()),
             _unreported_error_idx(0),
-            _query_id(fragment_params.params.query_id),
+            _query_id(fragment_exec_params.query_id),
             _is_cancelled(false),
             _per_fragment_instance_idx(0),
             _root_node_id(-1),
@@ -94,7 +94,7 @@ RuntimeState::RuntimeState(
             _error_log_file_path(""),
             _error_log_file(nullptr),
             _instance_buffer_reservation(new ReservationTracker) {
-    Status status = init(fragment_params.params.fragment_instance_id, query_options, query_globals, exec_env);
+    Status status = init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
 }
 
