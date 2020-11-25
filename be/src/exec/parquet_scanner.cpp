@@ -152,7 +152,6 @@ Status ParquetScanner::open_next_reader() {
         }
 
         Status status = _cur_file_reader->init_parquet_reader(_src_slot_descs, _state->timezone());
-        
         if (status.is_end_of_file()) {
             continue;
         } else {
