@@ -151,10 +151,10 @@ public class ColocateTableBalancer extends MasterDaemon {
                 continue;
             }
 
-            Set<Long> unavailableBeIds = getUnavailableBeIdsInGroup(infoService, colocateIndex, groupId);
-            List<Long> availableBeIds = getAvailableBeIdsInGroup(db.getClusterName(), infoService, unavailableBeIds);
+            Set<Long> unavailableBeIdsInGroup = getUnavailableBeIdsInGroup(infoService, colocateIndex, groupId);
+            List<Long> availableBeIds = getAvailableBeIds(db.getClusterName(), infoService);
             List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
-            if (relocateAndBalance(groupId, unavailableBeIds, availableBeIds, colocateIndex, infoService, statistic, balancedBackendsPerBucketSeq)) {
+            if (relocateAndBalance(groupId, unavailableBeIdsInGroup, availableBeIds, colocateIndex, infoService, statistic, balancedBackendsPerBucketSeq)) {
                 colocateIndex.addBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeq);
                 ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeq);
                 catalog.getEditLog().logColocateBackendsPerBucketSeq(info);
@@ -484,27 +484,44 @@ public class ColocateTableBalancer extends MasterDaemon {
     private Set<Long> getUnavailableBeIdsInGroup(SystemInfoService infoService, ColocateTableIndex colocateIndex, GroupId groupId) {
         Set<Long> backends = colocateIndex.getBackendsByGroup(groupId);
         Set<Long> unavailableBeIds = Sets.newHashSet();
-        long currTime = System.currentTimeMillis();
         for (Long backendId : backends) {
-            Backend be = infoService.getBackend(backendId);
-            if (be == null) {
+            if (!checkBackendAvailable(backendId, infoService)) {
                 unavailableBeIds.add(backendId);
-            } else if (!be.isAvailable()) {
-                // 1. BE is dead for a long time
-                // 2. BE is under decommission
-                if ((!be.isAlive() && (currTime - be.getLastUpdateMs()) > Config.tablet_repair_delay_factor_second * 1000 * 2)
-                        || be.isDecommissioned()) {
-                    unavailableBeIds.add(backendId);
-                }
             }
         }
         return unavailableBeIds;
     }
 
-    private List<Long> getAvailableBeIdsInGroup(String cluster, SystemInfoService infoService, Set<Long> unavailableBeIds) {
-        List<Long> allBackendIds = infoService.getClusterBackendIds(cluster, true);
-        return allBackendIds.stream()
-                .filter(id -> !unavailableBeIds.contains(id))
-                .collect(Collectors.toList());
+    private List<Long> getAvailableBeIds(String cluster, SystemInfoService infoService) {
+        // get all backends to allBackendIds, and check be availability using checkBackendAvailable
+        // backend stopped for a short period of time is still considered available
+        List<Long> allBackendIds = infoService.getClusterBackendIds(cluster, false);
+        List<Long> availableBeIds = Lists.newArrayList();
+        for (Long backendId : allBackendIds) {
+            if (checkBackendAvailable(backendId, infoService)) {
+                availableBeIds.add(backendId);
+            }
+        }
+        return availableBeIds;
+    }
+
+    /**
+     * check backend available
+     * backend stopped for a short period of time is still considered available
+     */
+    private boolean checkBackendAvailable(Long backendId, SystemInfoService infoService) {
+        long currTime = System.currentTimeMillis();
+        Backend be = infoService.getBackend(backendId);
+        if (be == null) {
+            return false;
+        } else if (!be.isAvailable()) {
+            // 1. BE is dead for a long time
+            // 2. BE is under decommission
+            if ((!be.isAlive() && (currTime - be.getLastUpdateMs()) > Config.tablet_repair_delay_factor_second * 1000 * 2)
+                    || be.isDecommissioned()) {
+                return false;
+            }
+        }
+        return true;
     }
 }
