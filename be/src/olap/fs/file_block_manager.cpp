@@ -42,7 +42,7 @@
 using std::accumulate;
 using std::shared_ptr;
 using std::string;
-;
+
 using strings::Substitute;
 
 namespace doris {

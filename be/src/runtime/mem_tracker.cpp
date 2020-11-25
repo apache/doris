@@ -46,7 +46,7 @@ using std::pair;
 using std::priority_queue;
 using std::shared_ptr;
 using std::string;
-;
+
 using std::vector;
 using std::weak_ptr;
 using strings::Substitute;

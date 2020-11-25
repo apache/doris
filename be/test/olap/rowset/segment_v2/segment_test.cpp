@@ -47,7 +47,7 @@ namespace segment_v2 {
 
 using std::string;
 using std::shared_ptr;
-;
+
 using std::vector;
 
 using ValueGenerator = std::function<void(size_t rid, int cid, int block_id, RowCursorCell& cell)>;

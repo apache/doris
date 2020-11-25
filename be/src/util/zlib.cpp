@@ -30,7 +30,7 @@
 
 using std::ostream;
 using std::string;
-;
+
 
 #define ZRETURN_NOT_OK(call) \
   RETURN_IF_ERROR(ZlibResultToStatus(call))

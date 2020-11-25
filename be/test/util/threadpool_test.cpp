@@ -54,7 +54,7 @@ using std::atomic;
 using std::shared_ptr;
 using std::string;
 using std::thread;
-;
+
 using std::vector;
 
 using strings::Substitute;
