@@ -70,9 +70,11 @@ void set_up() {
 }
 
 void tear_down() {
-    k_engine->stop();
-    delete k_engine;
-    k_engine = nullptr;
+    if (k_engine != nullptr) {
+        k_engine->stop();
+        delete k_engine;
+        k_engine = nullptr;
+    }
     system("rm -rf ./data_test");
     FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
