@@ -25,3 +25,4 @@ BE_CMD=${CUR_DIR}/be.sh
 # In order to be compatible with the previous version, start in non-daemon mode by default
 # for new user please use be.sh directly
 ${BE_CMD} --start --nodeamon "$@"
+

@@ -23,3 +23,4 @@ CUR_DIR=$(
 )
 FE_CMD=${CUR_DIR}/fe.sh
 ${FE_CMD} --stop
+

@@ -23,3 +23,4 @@ CUR_DIR=$(
 )
 BE_CMD=${CUR_DIR}/be.sh
 ${BE_CMD} --stop
+
