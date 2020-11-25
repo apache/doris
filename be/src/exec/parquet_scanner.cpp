@@ -152,7 +152,11 @@ Status ParquetScanner::open_next_reader() {
         }
 
         Status status = _cur_file_reader->init_parquet_reader(_src_slot_descs, _state->timezone());
-
+        if (!status.ok()) {
+            std::stringstream ss;
+            ss << " file: " << range.path << " error:" << status.get_error_msg();
+            return Status::InternalError(ss.str());
+        }
         if (status.is_end_of_file()) {
             continue;
         } else {
