@@ -27,7 +27,7 @@ public class ExecuteEnv {
     private MultiLoadMgr multiLoadMgr;
     private ConnectScheduler scheduler;
 
-    public ExecuteEnv() {
+    private ExecuteEnv() {
         multiLoadMgr = new MultiLoadMgr();
     }
 
