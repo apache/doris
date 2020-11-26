@@ -212,7 +212,7 @@ Status StorageEngine::_init_store_map() {
         for (auto store : tmp_stores) {
             delete store;
         }
-        return Status::InternalError(Substitute("init path failed, error=$0", error_msg));
+        return Status::InternalError(strings::Substitute("init path failed, error=$0", error_msg));
     }
 
     for (auto store : tmp_stores) {
@@ -247,7 +247,7 @@ Status StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id)
     } else {
         if (cluster_id != _effective_cluster_id) {
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::Corruption(Substitute("multiple cluster ids is not equal. one=$0, other=",
+                Status::Corruption(strings::Substitute("multiple cluster ids is not equal. one=$0, other=",
                                               _effective_cluster_id, cluster_id)),
                 "cluster id not equal");
         }
@@ -380,7 +380,7 @@ Status StorageEngine::_check_all_root_path_cluster_id() {
             cluster_id = tmp_cluster_id;
         } else {
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::Corruption(Substitute("multiple cluster ids is not equal. one=$0, other=",
+                Status::Corruption(strings::Substitute("multiple cluster ids is not equal. one=$0, other=",
                                               cluster_id, tmp_cluster_id)),
                 "cluster id not equal");
         }
@@ -455,7 +455,7 @@ static bool too_many_disks_are_failed(uint32_t unused_num, uint32_t total_num) {
 }
 
 bool StorageEngine::_delete_tablets_on_unused_root_path() {
-    vector<TabletInfo> tablet_info_vec;
+    std::vector<TabletInfo> tablet_info_vec;
     uint32_t unused_root_path_num = 0;
     uint32_t total_root_path_num = 0;
 
@@ -542,7 +542,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id) 
 }
 
 void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
-        const vector<TPartitionId>& partition_ids) {
+        const std::vector<TPartitionId>& partition_ids) {
     LOG(INFO) << "begin to clear transaction task. transaction_id=" <<  transaction_id;
 
     for (const TPartitionId& partition_id : partition_ids) {
@@ -881,7 +881,7 @@ OLAPStatus StorageEngine::obtain_shard_path(
         return res;
     }
 
-    stringstream root_path_stream;
+    std::stringstream root_path_stream;
     root_path_stream << stores[0]->path() << DATA_PREFIX << "/" << shard;
     *shard_path = root_path_stream.str();
     *store = stores[0];
@@ -916,7 +916,7 @@ OLAPStatus StorageEngine::load_header(
         }
     }
 
-    stringstream schema_hash_path_stream;
+    std::stringstream schema_hash_path_stream;
     schema_hash_path_stream << shard_path
                             << "/" << request.tablet_id
                             << "/" << request.schema_hash;
@@ -966,10 +966,10 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
     // 2. do prepare work
     // 3. release wlock
     {
-        vector<TabletInfo> tablet_infos;
+        std::vector<TabletInfo> tablet_infos;
         task->get_related_tablets(&tablet_infos);
         sort(tablet_infos.begin(), tablet_infos.end());
-        vector<TabletSharedPtr> related_tablets;
+        std::vector<TabletSharedPtr> related_tablets;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = _tablet_manager->get_tablet(
                 tablet_info.tablet_id, tablet_info.schema_hash);
@@ -1001,11 +1001,11 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
     // 2. do finish work
     // 3. release wlock
     {
-        vector<TabletInfo> tablet_infos;
+        std::vector<TabletInfo> tablet_infos;
         // related tablets may be changed after execute task, so that get them here again
         task->get_related_tablets(&tablet_infos);
         sort(tablet_infos.begin(), tablet_infos.end());
-        vector<TabletSharedPtr> related_tablets;
+        std::vector<TabletSharedPtr> related_tablets;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = _tablet_manager->get_tablet(
                 tablet_info.tablet_id, tablet_info.schema_hash);

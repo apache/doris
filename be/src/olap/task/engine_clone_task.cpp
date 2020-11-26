@@ -52,8 +52,8 @@ const uint32_t GET_LENGTH_TIMEOUT = 10;
 EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req,
                     const TMasterInfo& master_info,
                     int64_t signature,
-                    vector<string>* error_msgs,
-                    vector<TTabletInfo>* tablet_infos,
+                    std::vector<string>* error_msgs,
+                    std::vector<TTabletInfo>* tablet_infos,
                     AgentStatus* res_status) :
     _clone_req(clone_req),
     _error_msgs(error_msgs),
@@ -100,7 +100,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
         RowsetSharedPtr clone_rowset = tablet->get_rowset_by_version(clone_version);
         if (clone_rowset == nullptr) {
             // try to incremental clone
-            vector<Version> missed_versions;
+            std::vector<Version> missed_versions;
             tablet->calc_missed_versions(_clone_req.committed_version, &missed_versions);
             LOG(INFO) << "finish to calculate missed versions when clone. "
                     << "tablet=" << tablet->full_name()
@@ -169,7 +169,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
             _error_msgs->push_back("clone get local root path failed.");
             status = DORIS_ERROR;
         }
-        stringstream tablet_dir_stream;
+        std::stringstream tablet_dir_stream;
         tablet_dir_stream << local_shard_root_path
                             << "/" << _clone_req.tablet_id
                             << "/" << _clone_req.schema_hash;
@@ -187,7 +187,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
         if (status == DORIS_SUCCESS) {
             LOG(INFO) << "clone copy done. src_host: " << src_host.host
                         << " src_file_path: " << src_file_path;
-            stringstream schema_hash_path_stream;
+            std::stringstream schema_hash_path_stream;
             schema_hash_path_stream << local_shard_root_path
                                     << "/" << _clone_req.tablet_id
                                     << "/" << _clone_req.schema_hash;
@@ -215,7 +215,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
         }
         // Clean useless dir, if failed, ignore it.
         if (status != DORIS_SUCCESS && status != DORIS_CREATE_TABLE_EXIST) {
-            stringstream local_data_path_stream;
+            std::stringstream local_data_path_stream;
             local_data_path_stream << local_shard_root_path
                                     << "/" << _clone_req.tablet_id;
             string local_data_path = local_data_path_stream.str();
@@ -295,8 +295,8 @@ AgentStatus EngineCloneTask::_clone_copy(
         const string& local_data_path,
         TBackend* src_host,
         string* snapshot_path,
-        vector<string>* error_msgs,
-        const vector<Version>* missed_versions,
+        std::vector<string>* error_msgs,
+        const std::vector<Version>* missed_versions,
         bool* allow_incremental_clone) {
     AgentStatus status = DORIS_SUCCESS;
 
@@ -485,7 +485,7 @@ Status EngineCloneTask::_download_files(
         return Status::OK();
     };
     RETURN_IF_ERROR(HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, list_files_cb));
-    vector<string> file_name_list = strings::Split(file_list_str, "\n", strings::SkipWhitespace());
+    std::vector<string> file_name_list = strings::Split(file_list_str, "\n", strings::SkipWhitespace());
 
     // If the header file is not exist, the table couldn't loaded by olap engine.
     // Avoid of data is not complete, we copy the header file at last.
@@ -609,14 +609,14 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(const string& clone_dir, in
     }
     OlapSnapshotConverter converter;
     TabletMetaPB tablet_meta_pb;
-    vector<RowsetMetaPB> pending_rowsets;
+    std::vector<RowsetMetaPB> pending_rowsets;
     res = converter.to_new_snapshot(olap_header_msg, clone_dir, clone_dir,
                                     &tablet_meta_pb, &pending_rowsets, false);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to convert snapshot to new format. dir='" << clone_dir;
         return res;
     }
-    vector<string> files_to_delete;
+    std::vector<string> files_to_delete;
     for (auto file_name : clone_files) {
         string full_file_path = clone_dir + "/" + file_name;
         files_to_delete.push_back(full_file_path);
@@ -638,7 +638,7 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(const string& clone_dir, in
 OLAPStatus EngineCloneTask::_finish_clone(Tablet* tablet, const string& clone_dir,
                                          int64_t committed_version, bool is_incremental_clone) {
     OLAPStatus res = OLAP_SUCCESS;
-    vector<string> linked_success_files;
+    std::vector<string> linked_success_files;
 
     // clone and compaction operation should be performed sequentially
     tablet->obtain_base_compaction_lock();
@@ -749,11 +749,11 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(Tablet* tablet, const Tablet
     LOG(INFO) << "begin to incremental clone. tablet=" << tablet->full_name()
               << ", committed_version=" << committed_version;
 
-    vector<Version> missed_versions;
+    std::vector<Version> missed_versions;
     tablet->calc_missed_versions_unlocked(committed_version, &missed_versions);
 
-    vector<Version> versions_to_delete;
-    vector<RowsetMetaSharedPtr> rowsets_to_clone;
+    std::vector<Version> versions_to_delete;
+    std::vector<RowsetMetaSharedPtr> rowsets_to_clone;
 
     VLOG(3) << "get missed versions again when finish incremental clone. "
             << "tablet=" << tablet->full_name()
@@ -783,8 +783,8 @@ OLAPStatus EngineCloneTask::_clone_full_data(Tablet* tablet, TabletMeta* cloned_
     LOG(INFO) << "begin to full clone. tablet=" << tablet->full_name()
               << ", cloned_max_version=" << cloned_max_version.first
               << "-" << cloned_max_version.second;
-    vector<Version> versions_to_delete;
-    vector<RowsetMetaSharedPtr> rs_metas_found_in_src;
+    std::vector<Version> versions_to_delete;
+    std::vector<RowsetMetaSharedPtr> rs_metas_found_in_src;
     // check local versions
     for (auto& rs_meta : tablet->tablet_meta()->all_rs_metas()) {
         Version local_version(rs_meta->start_version(), rs_meta->end_version());
@@ -835,7 +835,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(Tablet* tablet, TabletMeta* cloned_
             }
         }
     }
-    vector<RowsetMetaSharedPtr> rowsets_to_clone;
+    std::vector<RowsetMetaSharedPtr> rowsets_to_clone;
     for (auto& rs_meta : cloned_tablet_meta->all_rs_metas()) {
         rowsets_to_clone.push_back(rs_meta);
         LOG(INFO) << "Delta to clone."

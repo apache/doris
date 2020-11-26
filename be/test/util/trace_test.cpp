@@ -55,8 +55,8 @@ class TraceTest : public ::testing::Test {
 };
 
 // Replace all digits in 's' with the character 'X'.
-static string XOutDigits(const string& s) {
-  string ret;
+static std::string XOutDigits(const string& s) {
+  std::string ret;
   ret.reserve(s.size());
   for (char c : s) {
     if (isdigit(c)) {
@@ -73,7 +73,7 @@ TEST_F(TraceTest, TestBasic) {
   TRACE_TO(t, "hello $0, $1", "world", 12345);
   TRACE_TO(t, "goodbye $0, $1", "cruel world", 54321);
 
-  string result = XOutDigits(t->DumpToString(Trace::NO_FLAGS));
+  std::string result = XOutDigits(t->DumpToString(Trace::NO_FLAGS));
   ASSERT_EQ("XXXX XX:XX:XX.XXXXXX trace_test.cpp:XX] hello world, XXXXX\n"
             "XXXX XX:XX:XX.XXXXXX trace_test.cpp:XX] goodbye cruel world, XXXXX\n",
             result);

@@ -24,7 +24,7 @@ namespace doris {
 using std::to_string;
 
 EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request,
-        int64_t signature, const TTaskType::type task_type, vector<string>* error_msgs,
+        int64_t signature, const TTaskType::type task_type, std::vector<string>* error_msgs,
         const string& process_name):
         _alter_tablet_req(request),
         _signature(signature),

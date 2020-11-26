@@ -120,7 +120,7 @@ Status ScalarFnCall::prepare(
                 return status;
             } else {
                 DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::NATIVE);
-                return Status::InternalError(Substitute("Problem loading UDF '$0':\n$1",
+                return Status::InternalError(strings::Substitute("Problem loading UDF '$0':\n$1",
                                          _fn.name.function_name, status.GetDetail()));
                 return status;
             }

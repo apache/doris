@@ -131,7 +131,7 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     return OLAP_ERR_BE_NO_SUITABLE_VERSION;
 }
 
-OLAPStatus BaseCompaction::_check_rowset_overlapping(const vector<RowsetSharedPtr>& rowsets) {
+OLAPStatus BaseCompaction::_check_rowset_overlapping(const std::vector<RowsetSharedPtr>& rowsets) {
     for (auto& rs : rowsets) {
         if (rs->rowset_meta()->is_segments_overlapping()) {
             LOG(WARNING) << "There is overlapping rowset before cumulative point, "

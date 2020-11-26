@@ -26,7 +26,7 @@ namespace doris {
 using std::map;
 
 EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publish_version_req,
-                                                   vector<TTabletId>* error_tablet_ids) :
+                                                   std::vector<TTabletId>* error_tablet_ids) :
         _publish_version_req(publish_version_req),
         _error_tablet_ids(error_tablet_ids) {}
 

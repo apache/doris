@@ -41,10 +41,10 @@
 namespace doris {
 
 // $0 = column type (e.g. INT)
-const string ERROR_INVALID_COL_DATA = "Data source returned inconsistent column data. "
+const std::string ERROR_INVALID_COL_DATA = "Data source returned inconsistent column data. "
     "Expected value of type $0 based on column metadata. This likely indicates a "
     "problem with the data source library.";
-const string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed to allocate "
+const std::string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed to allocate "
     "$1 bytes for $2.";
 
 EsScanNode::EsScanNode(
@@ -87,7 +87,7 @@ Status EsScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
 
     // TExtOpenParams.row_schema
-    vector<TExtColumnDesc> cols;
+    std::vector<TExtColumnDesc> cols;
     for (const SlotDescriptor* slot : _tuple_desc->slots()) {
         TExtColumnDesc col;
         col.__set_name(slot->col_name());
@@ -99,11 +99,11 @@ Status EsScanNode::open(RuntimeState* state) {
     row_schema.__isset.cols = true;
 
     // TExtOpenParams.predicates
-    vector<vector<TExtPredicate>> predicates;
-    vector<int> predicate_to_conjunct;
+    std::vector<vector<TExtPredicate>> predicates;
+    std::vector<int> predicate_to_conjunct;
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
         VLOG(1) << "conjunct: " << _conjunct_ctxs[i]->root()->debug_string();
-        vector<TExtPredicate> disjuncts;
+        std::vector<TExtPredicate> disjuncts;
         if (get_disjuncts(_conjunct_ctxs[i], _conjunct_ctxs[i]->root(), disjuncts)) {
             predicates.emplace_back(std::move(disjuncts));
             predicate_to_conjunct.push_back(i);
@@ -111,7 +111,7 @@ Status EsScanNode::open(RuntimeState* state) {
     }
 
     // open every scan range
-    vector<int> conjunct_accepted_times(_conjunct_ctxs.size(), 0); 
+    std::vector<int> conjunct_accepted_times(_conjunct_ctxs.size(), 0);
     for (int i = 0; i < _scan_ranges.size(); ++i) {
         TEsScanRange& es_scan_range = _scan_ranges[i];
 
@@ -222,9 +222,9 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
     // convert
     VLOG(1) << "begin to convert: scan_range_idx=" << _scan_range_idx
             << ", num_rows=" << result.rows.num_rows;
-    vector<TExtColumnData>& cols = result.rows.cols;
+    std::vector<TExtColumnData>& cols = result.rows.cols;
     // indexes of the next non-null value in the row batch, per column. 
-    vector<int> cols_next_val_idx(_tuple_desc->slots().size(), 0);
+    std::vector<int> cols_next_val_idx(_tuple_desc->slots().size(), 0);
     for (int row_idx = 0; row_idx < result.rows.num_rows; row_idx++) {
         if (reached_limit()) {
             *eos = true;
@@ -311,7 +311,7 @@ Status EsScanNode::close(RuntimeState* state) {
     return Status::OK();
 }
 
-void EsScanNode::debug_string(int indentation_level, stringstream* out) const {
+void EsScanNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "EsScanNode(tupleid=" << _tuple_id;
     *out << ")" << std::endl;
@@ -321,7 +321,7 @@ void EsScanNode::debug_string(int indentation_level, stringstream* out) const {
     }
 }
 
-Status EsScanNode::set_scan_ranges(const vector<TScanRangeParams>& scan_ranges) {
+Status EsScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     for (int i = 0; i < scan_ranges.size(); ++i) {
         TScanRangeParams scan_range = scan_ranges[i];
         DCHECK(scan_range.scan_range.__isset.es_scan_range);
@@ -396,7 +396,7 @@ bool EsScanNode::ignore_cast(SlotDescriptor* slot, Expr* expr) {
 }
 
 bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
-                               vector<TExtPredicate>& disjuncts) {
+                               std::vector<TExtPredicate>& disjuncts) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
             VLOG(1) << "get disjuncts fail: number of children is not 2";
@@ -448,7 +448,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         // down it to es
         TExtFunction match_function;
         match_function.__set_func_name(conjunct->fn().name.function_name);
-        vector<TExtLiteral> query_conditions;
+        std::vector<TExtLiteral> query_conditions;
 
 
         TExtLiteral literal;
@@ -473,7 +473,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
             return false;
         }
         TExtInPredicate ext_in_predicate;
-        vector<TExtLiteral> in_pred_values;
+        std::vector<TExtLiteral> in_pred_values;
         InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
         ext_in_predicate.__set_is_not_in(pred->is_not_in());
         if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
@@ -754,8 +754,8 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
 }
 
 Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
-                                   const vector<TExtColumnData>& cols, int row_idx,
-                                   vector<int>& cols_next_val_idx) {
+                                   const std::vector<TExtColumnData>& cols, int row_idx,
+                                   std::vector<int>& cols_next_val_idx) {
   tuple->init(_tuple_desc->byte_size());
 
   for (int i = 0; i < _tuple_desc->slots().size(); ++i) {
@@ -786,7 +786,7 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
           size_t val_size = val.size();
           char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
           if (UNLIKELY(buffer == NULL)) {
-            string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
+            std::string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
                 val_size, "string slot");
             return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, val_size);
           }

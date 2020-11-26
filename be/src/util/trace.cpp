@@ -140,8 +140,8 @@ void Trace::Dump(std::ostream* out, int flags) const {
   // enough that we aren't worried about stalling concurrent tracers
   // (whereas doing the logging itself while holding the lock might be
   // too slow, if the output stream is a file, for example).
-  vector<TraceEntry*> entries;
-  vector<pair<StringPiece, scoped_refptr<Trace>>> child_traces;
+  std::vector<TraceEntry*> entries;
+  std::vector<pair<StringPiece, scoped_refptr<Trace>>> child_traces;
   {
     std::lock_guard<SpinLock> l(lock_);
     for (TraceEntry* cur = entries_head_;
@@ -193,13 +193,13 @@ void Trace::Dump(std::ostream* out, int flags) const {
   out->flags(save_flags);
 }
 
-string Trace::DumpToString(int flags) const {
+std::string Trace::DumpToString(int flags) const {
   std::ostringstream s;
   Dump(&s, flags);
   return s.str();
 }
 
-string Trace::MetricsAsJSON() const {
+std::string Trace::MetricsAsJSON() const {
   // TODO(yingchun): simplify implement here, we could import JsonWriter in the future.
   rapidjson::StringBuffer buf;
   rapidjson::Writer<rapidjson::StringBuffer> jw(buf);
@@ -220,7 +220,7 @@ void Trace::MetricsToJSON(rapidjson::Writer<rapidjson::StringBuffer>* jw) const 
     jw->String(e.first.c_str());
     jw->Int64(e.second);
   }
-  vector<pair<StringPiece, scoped_refptr<Trace>>> child_traces;
+  std::vector<pair<StringPiece, scoped_refptr<Trace>>> child_traces;
   {
     std::lock_guard<SpinLock> l(lock_);
     child_traces = child_traces_;

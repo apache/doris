@@ -28,8 +28,8 @@ namespace doris {
 
 const float HashTable::MAX_BUCKET_OCCUPANCY_FRACTION = 0.75f;
 
-HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
-                     const vector<ExprContext*>& probe_expr_ctxs,
+HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
+                     const std::vector<ExprContext*>& probe_expr_ctxs,
                      int num_build_tuples, bool stores_nulls, 
                      const std::vector<bool>& finds_nulls,
                      int32_t initial_seed,
@@ -85,7 +85,7 @@ void HashTable::close() {
     _mem_tracker->Release(_buckets.size() * sizeof(Bucket));
 }
 
-bool HashTable::eval_row(TupleRow* row, const vector<ExprContext*>& ctxs) {
+bool HashTable::eval_row(TupleRow* row, const std::vector<ExprContext*>& ctxs) {
     // Put a non-zero constant in the result location for NULL.
     // We don't want(NULL, 1) to hash to the same as (0, 1).
     // This needs to be as big as the biggest primitive type since the bytes

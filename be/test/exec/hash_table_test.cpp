@@ -44,8 +44,8 @@ public:
 protected:
     ObjectPool _pool;
     MemPool _mem_pool;
-    vector<Expr*> _build_expr;
-    vector<Expr*> _probe_expr;
+    std::vector<Expr*> _build_expr;
+    std::vector<Expr*> _probe_expr;
 
     virtual void SetUp() {
         RowDescriptor desc;
@@ -106,7 +106,7 @@ protected:
 
     struct ProbeTestData {
         TupleRow* probe_row;
-        vector<TupleRow*> expected_build_rows;
+        std::vector<TupleRow*> expected_build_rows;
     };
 
     void probe_test(HashTable* table, ProbeTestData* data, int num_data, bool scan) {
@@ -234,7 +234,7 @@ TEST_F(HashTableTest, BasicTest) {
 TEST_F(HashTableTest, ScanTest) {
     HashTable hash_table(_build_expr, _probe_expr, 1, false, 0);
     // Add 1 row with val 1, 2 with val 2, etc
-    vector<TupleRow*> build_rows;
+    std::vector<TupleRow*> build_rows;
     ProbeTestData probe_rows[15];
     probe_rows[0].probe_row = create_tuple_row(0);
 

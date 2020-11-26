@@ -136,7 +136,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
     // TODO: how many buckets?
     _hash_tbl.reset(new HashTable(
             _build_expr_ctxs, _probe_expr_ctxs, 1, true, 
-            vector<bool>(_build_expr_ctxs.size(), false), id(), mem_tracker(), 1024));
+            std::vector<bool>(_build_expr_ctxs.size(), false), id(), mem_tracker(), 1024));
 
     if (_probe_expr_ctxs.empty()) {
         // create single output tuple now; we need to output something
@@ -328,7 +328,7 @@ Status AggregationNode::close(RuntimeState* state) {
 
 Tuple* AggregationNode::construct_intermediate_tuple() {
     Tuple* agg_tuple = Tuple::create(_intermediate_tuple_desc->byte_size(), _tuple_pool.get());
-    vector<SlotDescriptor*>::const_iterator slot_desc = _intermediate_tuple_desc->slots().begin();
+    std::vector<SlotDescriptor*>::const_iterator slot_desc = _intermediate_tuple_desc->slots().begin();
 
     // copy grouping values
     for (int i = 0; i < _probe_expr_ctxs.size(); ++i, ++slot_desc) {
@@ -389,7 +389,7 @@ void AggregationNode::update_tuple(Tuple* tuple, TupleRow* row) {
 
     AggFnEvaluator::add(_aggregate_evaluators, _agg_fn_ctxs, row, tuple);
 #if 0
-    vector<AggFnEvaluator*>::const_iterator evaluator;
+    std::vector<AggFnEvaluator*>::const_iterator evaluator;
     int i = 0;
     for (evaluator = _aggregate_evaluators.begin();
             evaluator != _aggregate_evaluators.end(); ++evaluator, ++i) {

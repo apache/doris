@@ -21,10 +21,10 @@
 
 namespace doris {
 
-const string ScanNode::_s_bytes_read_counter = "BytesRead";
-const string ScanNode::_s_rows_read_counter = "RowsRead";
-const string ScanNode::_s_total_throughput_counter = "TotalReadThroughput";
-const string ScanNode::_s_num_disks_accessed_counter = "NumDiskAccess";
+const std::string ScanNode::_s_bytes_read_counter = "BytesRead";
+const std::string ScanNode::_s_rows_read_counter = "RowsRead";
+const std::string ScanNode::_s_total_throughput_counter = "TotalReadThroughput";
+const std::string ScanNode::_s_num_disks_accessed_counter = "NumDiskAccess";
 
 Status ScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));

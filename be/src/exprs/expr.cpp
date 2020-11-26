@@ -279,7 +279,7 @@ Status Expr::create_expr_trees(
 
 Status Expr::create_tree_from_thrift(
         ObjectPool* pool,
-        const vector<TExprNode>& nodes,
+        const std::vector<TExprNode>& nodes,
         Expr* parent,
         int* node_idx,
         Expr** root_expr,
@@ -892,8 +892,8 @@ Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeSt
   return Status::OK();
 }
 
-Status Expr::create(const vector<TExpr>& texprs, const RowDescriptor& row_desc, RuntimeState* state,
-                    ObjectPool* pool, vector<Expr*>* exprs,
+Status Expr::create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc, RuntimeState* state,
+                    ObjectPool* pool, std::vector<Expr*>* exprs,
                     const std::shared_ptr<MemTracker>& tracker) {
     exprs->clear();
   for (const TExpr& texpr: texprs) {
@@ -910,8 +910,8 @@ Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc,
   return Expr::create(texpr, row_desc, state, state->obj_pool(), scalar_expr, tracker);
 }
 
-Status Expr::create(const vector<TExpr>& texprs, const RowDescriptor& row_desc,
-    RuntimeState* state, vector<Expr*>* exprs, const std::shared_ptr<MemTracker>& tracker) {
+Status Expr::create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
+    RuntimeState* state, std::vector<Expr*>* exprs, const std::shared_ptr<MemTracker>& tracker) {
   return Expr::create(texprs, row_desc, state, state->obj_pool(), exprs, tracker);
 }
 
@@ -937,7 +937,7 @@ Status Expr::create_tree(const TExpr& texpr, ObjectPool* pool, Expr* root) {
   return Status::OK();
 }
 
-Status Expr::create_tree_internal(const vector<TExprNode>& nodes, ObjectPool* pool,
+Status Expr::create_tree_internal(const std::vector<TExprNode>& nodes, ObjectPool* pool,
     Expr* root, int* child_node_idx) {
   // propagate error case
   if (*child_node_idx >= nodes.size()) {
@@ -972,7 +972,7 @@ void Expr::close() {
     }
 }
 
-void Expr::close(const vector<Expr*>& exprs) {
+void Expr::close(const std::vector<Expr*>& exprs) {
   for (Expr* expr : exprs) expr->close();
 }
 

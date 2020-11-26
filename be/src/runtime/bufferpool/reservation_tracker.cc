@@ -26,7 +26,7 @@
 #include "util/dummy_runtime_profile.h"
 #include "util/runtime_profile.h"
 
-#include "common/names.h"
+
 #include "olap/utils.h"
 
 namespace doris {
@@ -39,7 +39,7 @@ ReservationTracker::~ReservationTracker() {
 
 void ReservationTracker::InitRootTracker(
     RuntimeProfile* profile, int64_t reservation_limit) {
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   DCHECK(!initialized_);
   parent_ = nullptr;
   mem_tracker_ = nullptr;
@@ -60,7 +60,7 @@ void ReservationTracker::InitChildTracker(RuntimeProfile* profile,
   DCHECK(parent != nullptr);
   DCHECK_GE(reservation_limit, 0);
 
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   DCHECK(!initialized_);
   parent_ = parent;
   mem_tracker_ = mem_tracker;
@@ -118,7 +118,7 @@ void ReservationTracker::InitCounters(
 }
 
 void ReservationTracker::Close() {
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   if (!initialized_) return;
   CheckConsistency();
   DCHECK_EQ(used_reservation_, 0);
@@ -131,12 +131,12 @@ void ReservationTracker::Close() {
 }
 
 bool ReservationTracker::IncreaseReservation(int64_t bytes) {
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   return IncreaseReservationInternalLocked(bytes, false, false);
 }
 
 bool ReservationTracker::IncreaseReservationToFit(int64_t bytes) {
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   return IncreaseReservationInternalLocked(bytes, true, false);
 }
 
@@ -144,7 +144,7 @@ bool ReservationTracker::IncreaseReservationInternalLocked(
     int64_t bytes, bool use_existing_reservation, bool is_child_reservation) {
   DCHECK(initialized_);
   int64_t reservation_increase =
-      use_existing_reservation ? max<int64_t>(0, bytes - unused_reservation()) : bytes;
+      use_existing_reservation ? std::max<int64_t>(0, bytes - unused_reservation()) : bytes;
   DCHECK_GE(reservation_increase, 0);
 
   bool granted;
@@ -163,7 +163,7 @@ bool ReservationTracker::IncreaseReservationInternalLocked(
     if (parent_ == nullptr) {
       granted = true;
     } else {
-      lock_guard<SpinLock> l(parent_->lock_);
+      std::lock_guard<SpinLock> l(parent_->lock_);
       granted =
           parent_->IncreaseReservationInternalLocked(reservation_increase, true, true);
     }
@@ -212,7 +212,7 @@ void ReservationTracker::ReleaseToMemTracker(int64_t reservation_decrease) {
 }
 
 void ReservationTracker::DecreaseReservation(int64_t bytes, bool is_child_reservation) {
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   DecreaseReservationLocked(bytes, is_child_reservation);
 }
 
@@ -232,8 +232,8 @@ void ReservationTracker::DecreaseReservationLocked(
 bool ReservationTracker::TransferReservationTo(ReservationTracker* other, int64_t bytes) {
   if (other == this) return true;
   // Find the path to the root from both. The root is guaranteed to be a common ancestor.
-  vector<ReservationTracker*> path_to_common = FindPathToRoot();
-  vector<ReservationTracker*> other_path_to_common = other->FindPathToRoot();
+  std::vector<ReservationTracker*> path_to_common = FindPathToRoot();
+  std::vector<ReservationTracker*> other_path_to_common = other->FindPathToRoot();
   DCHECK_EQ(path_to_common.back(), other_path_to_common.back());
   ReservationTracker* common_ancestor = path_to_common.back();
   // Remove any common ancestors - they do not need to be updated for this transfer.
@@ -259,7 +259,7 @@ bool ReservationTracker::TransferReservationTo(ReservationTracker* other, int64_
 
   // Lock all of the trackers so we can do the update atomically. Need to be careful to
   // lock subtrees in the correct order.
-  vector<unique_lock<SpinLock>> locks;
+  std::vector<std::unique_lock<SpinLock>> locks;
   bool lock_first = path_to_common.empty() || other_path_to_common.empty()
       || lock_sibling_subtree_first(path_to_common.back(), other_path_to_common.back());
   if (lock_first) {
@@ -298,21 +298,21 @@ bool ReservationTracker::TransferReservationTo(ReservationTracker* other, int64_
   // Update the 'child_reservations_' on the common ancestor if needed.
   // Case 1: reservation was pushed up to 'other'.
   if (common_ancestor == other) {
-    lock_guard<SpinLock> l(other->lock_);
+    std::lock_guard<SpinLock> l(other->lock_);
     other->child_reservations_ -= bytes;
     other->CheckConsistency();
   }
   // Case 2: reservation was pushed down below 'this'.
   if (common_ancestor == this) {
-    lock_guard<SpinLock> l(lock_);
+    std::lock_guard<SpinLock> l(lock_);
     child_reservations_ += bytes;
     CheckConsistency();
   }
   return true;
 }
 
-vector<ReservationTracker*> ReservationTracker::FindPathToRoot() {
-  vector<ReservationTracker*> path_to_root;
+std::vector<ReservationTracker*> ReservationTracker::FindPathToRoot() {
+  std::vector<ReservationTracker*> path_to_root;
   ReservationTracker* curr = this;
   do {
     path_to_root.push_back(curr);
@@ -322,7 +322,7 @@ vector<ReservationTracker*> ReservationTracker::FindPathToRoot() {
 }
 
 void ReservationTracker::AllocateFrom(int64_t bytes) {
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   DCHECK(initialized_);
   DCHECK_GE(bytes, 0);
   DCHECK_LE(bytes, unused_reservation());
@@ -331,7 +331,7 @@ void ReservationTracker::AllocateFrom(int64_t bytes) {
 }
 
 void ReservationTracker::ReleaseTo(int64_t bytes) {
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   DCHECK(initialized_);
   DCHECK_GE(bytes, 0);
   DCHECK_LE(bytes, used_reservation_);
@@ -340,25 +340,25 @@ void ReservationTracker::ReleaseTo(int64_t bytes) {
 }
 
 int64_t ReservationTracker::GetReservation() {
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   DCHECK(initialized_);
   return reservation_;
 }
 
 int64_t ReservationTracker::GetUsedReservation() {
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   DCHECK(initialized_);
   return used_reservation_;
 }
 
 int64_t ReservationTracker::GetUnusedReservation() {
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   DCHECK(initialized_);
   return unused_reservation();
 }
 
 int64_t ReservationTracker::GetChildReservations() {
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   DCHECK(initialized_);
   return child_reservations_;
 }
@@ -397,11 +397,11 @@ void ReservationTracker::UpdateReservation(int64_t delta) {
   CheckConsistency();
 }
 
-string ReservationTracker::DebugString() {
-  //lock_guard<SpinLock> l(lock_);
+std::string ReservationTracker::DebugString() {
+  //std::lock_guard<SpinLock> l(lock_);
   if (!initialized_) return "<ReservationTracker>: uninitialized";
 
-  string parent_debug_string = parent_ == nullptr ? "NULL" : parent_->DebugString();
+  std::string parent_debug_string = parent_ == nullptr ? "NULL" : parent_->DebugString();
   std::stringstream ss;
   ss << "<ReservationTracker>: reservation_limit " << reservation_limit_
      << " reservation " << reservation_ << " used_reservation " << used_reservation_

@@ -25,7 +25,7 @@
 #include <stdio.h>
 #include <sstream>
 
-#include "common/names.h"
+
 
 namespace doris {
 
@@ -114,7 +114,7 @@ bool MemPool::find_chunk(size_t min_size, bool check_limits) {
         chunk_size = std::max<size_t>(min_size, alignof(max_align_t));
     } else {
         DCHECK_GE(next_chunk_size_, INITIAL_CHUNK_SIZE);
-        chunk_size = max<size_t>(min_size, next_chunk_size_);
+        chunk_size = std::max<size_t>(min_size, next_chunk_size_);
     }
 
     chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
@@ -141,7 +141,7 @@ bool MemPool::find_chunk(size_t min_size, bool check_limits) {
     total_reserved_bytes_ += chunk_size;
     // Don't increment the chunk size until the allocation succeeds: if an attempted
     // large allocation fails we don't want to increase the chunk size further.
-    next_chunk_size_ = static_cast<int>(min<int64_t>(chunk_size * 2, MAX_CHUNK_SIZE));
+    next_chunk_size_ = static_cast<int>(std::min<int64_t>(chunk_size * 2, MAX_CHUNK_SIZE));
 
     DCHECK(check_integrity(true));
     return true;
@@ -217,8 +217,8 @@ void MemPool::exchange_data(MemPool* other) {
     other->mem_tracker_->Release(delta_size);
 }
 
-string MemPool::debug_string() {
-    stringstream out;
+std::string MemPool::debug_string() {
+    std::stringstream out;
     char str[16];
     out << "MemPool(#chunks=" << chunks_.size() << " [";
     for (int i = 0; i < chunks_.size(); ++i) {

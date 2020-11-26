@@ -32,7 +32,7 @@
 #include "runtime/string_value.h"
 #include "util/doris_metrics.h"
 
-#include "common/names.h"
+
 
 using namespace doris;
 using namespace strings;
@@ -155,7 +155,7 @@ Status PartitionedHashTableCtx::Create(ObjectPool* pool, RuntimeState* state,
     int num_build_tuples, MemPool* mem_pool, MemPool* expr_results_pool, 
     const std::shared_ptr<MemTracker>& tracker, const RowDescriptor& row_desc,
     const RowDescriptor& row_desc_probe,
-    scoped_ptr<PartitionedHashTableCtx>* ht_ctx) {
+    boost::scoped_ptr<PartitionedHashTableCtx>* ht_ctx) {
   ht_ctx->reset(new PartitionedHashTableCtx(build_exprs, probe_exprs, stores_nulls,
       finds_nulls, initial_seed, max_levels, mem_pool, expr_results_pool, tracker));
   return (*ht_ctx)->Init(pool, state, num_build_tuples, row_desc, row_desc_probe);

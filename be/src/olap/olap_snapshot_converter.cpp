@@ -95,7 +95,7 @@ OLAPStatus OlapSnapshotConverter::to_olap_header(const TabletMetaPB& tablet_meta
 }
 
 OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& olap_header,
-        TabletMetaPB* tablet_meta_pb, vector<RowsetMetaPB>* pending_rowsets) {
+        TabletMetaPB* tablet_meta_pb, std::vector<RowsetMetaPB>* pending_rowsets) {
     if (olap_header.has_tablet_id()) {
         tablet_meta_pb->set_tablet_id(olap_header.tablet_id());
     }
@@ -442,7 +442,7 @@ OLAPStatus OlapSnapshotConverter::to_alter_tablet_pb(const SchemaChangeStatusMes
 // from olap header to tablet meta
 OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix,
     const string& new_data_path_prefix, TabletMetaPB* tablet_meta_pb, 
-    vector<RowsetMetaPB>* pending_rowsets, bool is_startup) {
+    std::vector<RowsetMetaPB>* pending_rowsets, bool is_startup) {
     RETURN_NOT_OK(to_tablet_meta_pb(olap_header, tablet_meta_pb, pending_rowsets));
 
     TabletSchema tablet_schema;

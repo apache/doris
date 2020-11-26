@@ -237,13 +237,13 @@ public:
         }
     }
 
-    void read_data(int version, vector<string>* data) {
+    void read_data(int version, std::vector<string>* data) {
         data->clear();
 
         int row[21];
 
         for (int i = 0; i <= version; ++i) {
-            stringstream ss;
+            std::stringstream ss;
             ss << "./testrun/case3/_fc_dayhour" << i << ".txt";
             fstream f(ss.str());
 
@@ -256,7 +256,7 @@ public:
                     break;
                 }
 
-                stringstream str;
+                std::stringstream str;
                 str << "[(";
                 str << row[0] << " ";
                 str << row[2] << " ";
@@ -277,7 +277,7 @@ private:
     ObjectPool _obj_pool;
     DescriptorTbl* _desc_tbl;
     RuntimeState _runtime_stat;
-    vector<TScanRangeParams> _scan_ranges;
+    std::vector<TScanRangeParams> _scan_ranges;
 };
 
 TEST_F(TestOlapScanNode, SimpleTest) {
@@ -307,7 +307,7 @@ TEST_F(TestOlapScanNode, SimpleTest) {
 TEST_F(TestOlapScanNode, MultiColumnSingleVersionTest) {
     _scan_ranges[0].scan_range.doris_scan_range.__set_version("0");
     _scan_ranges[0].scan_range.doris_scan_range.__set_version_hash("0");
-    vector<string> data;
+    std::vector<string> data;
     read_data(0, &data);
 
     OlapScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
@@ -345,7 +345,7 @@ TEST_F(TestOlapScanNode, MultiColumnSingleVersionTest) {
 TEST_F(TestOlapScanNode, MultiColumnMultiVersionTest) {
     _scan_ranges[0].scan_range.doris_scan_range.__set_version("9");
     _scan_ranges[0].scan_range.doris_scan_range.__set_version_hash("0");
-    vector<string> data;
+    std::vector<string> data;
     read_data(9, &data);
 
     OlapScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);

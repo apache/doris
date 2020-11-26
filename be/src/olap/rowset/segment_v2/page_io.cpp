@@ -136,7 +136,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts,
     // every page contains 4 bytes footer length and 4 bytes checksum
     const uint32_t page_size = opts.page_pointer.size;
     if (page_size < 8) {
-        return Status::Corruption(Substitute("Bad page: too small size ($0)", page_size));
+        return Status::Corruption(strings::Substitute("Bad page: too small size ($0)", page_size));
     }
 
     // hold compressed page at first, reset to decompressed page later
@@ -152,7 +152,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts,
         uint32_t expect = decode_fixed32_le((uint8_t*) page_slice.data + page_slice.size - 4);
         uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
         if (expect != actual) {
-            return Status::Corruption(Substitute(
+            return Status::Corruption(strings::Substitute(
                     "Bad page: checksum mismatch (actual=$0 vs expect=$1)", actual, expect));
         }
     }
@@ -179,7 +179,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts,
         Slice decompressed_body(decompressed_page.get(), footer->uncompressed_size());
         RETURN_IF_ERROR(opts.codec->decompress(compressed_body, &decompressed_body));
         if (decompressed_body.size != footer->uncompressed_size()) {
-            return Status::Corruption(Substitute(
+            return Status::Corruption(strings::Substitute(
                     "Bad page: record uncompressed size=$0 vs real decompressed size=$1",
                     footer->uncompressed_size(), decompressed_body.size));
         }

@@ -24,7 +24,7 @@
 #include "gutil/strings/substitute.h"
 #include "util/bit_util.h"
 
-#include "common/names.h"
+
 #include "common/config.h"
 #include "util/error_util.h"
 

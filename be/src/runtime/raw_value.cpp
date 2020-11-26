@@ -195,7 +195,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
     std::string tmp;
     bool val = false;
 
-    // Special case types that we can print more efficiently without using a stringstream
+    // Special case types that we can print more efficiently without using a std::stringstream
     switch (type.type) {
     case TYPE_BOOLEAN:
         val = *reinterpret_cast<const bool*>(value);

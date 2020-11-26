@@ -198,7 +198,7 @@ Status AggFnEvaluator::prepare(
         (!_is_analytic_fn && _fn.aggregate_fn.merge_fn_symbol.empty())) {
         // This path is only for partially implemented builtins.
         DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::BUILTIN);
-        stringstream ss;
+        std::stringstream ss;
         ss << "Function " << _fn.name.function_name << " is not implemented.";
         return Status::InternalError(ss.str());
     }
@@ -244,7 +244,7 @@ Status AggFnEvaluator::prepare(
                 NULL));
     }
 
-    vector<FunctionContext::TypeDesc> arg_types;
+    std::vector<FunctionContext::TypeDesc> arg_types;
     for (int j = 0; j < _input_exprs_ctxs.size(); ++j) {
         arg_types.push_back(
             AnyValUtil::column_type_to_type_desc(_input_exprs_ctxs[j]->root()->type()));
@@ -265,7 +265,7 @@ Status AggFnEvaluator::open(RuntimeState* state, FunctionContext* agg_fn_ctx) {
     // Now that we have opened all our input exprs, it is safe to evaluate any constant
     // values for the UDA's FunctionContext (we cannot evaluate exprs before calling Open()
     // on them).
-    vector<AnyVal*> constant_args(_input_exprs_ctxs.size());
+    std::vector<AnyVal*> constant_args(_input_exprs_ctxs.size());
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
         constant_args[i] = _input_exprs_ctxs[i]->root()->get_const_val(_input_exprs_ctxs[i]);
     }
