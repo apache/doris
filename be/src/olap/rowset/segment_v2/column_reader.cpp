@@ -86,7 +86,7 @@ ColumnReader::~ColumnReader() = default;
 Status ColumnReader::init() {
     _type_info = get_type_info(&_meta);
     if (_type_info == nullptr) {
-        return Status::NotSupported(Substitute("unsupported typeinfo, type=$0", _meta.type()));
+        return Status::NotSupported(strings::Substitute("unsupported typeinfo, type=$0", _meta.type()));
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info, _meta.encoding(), &_encoding_info));
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
@@ -107,12 +107,12 @@ Status ColumnReader::init() {
             _bf_index_meta = &index_meta.bloom_filter_index();
             break;
         default:
-            return Status::Corruption(Substitute(
+            return Status::Corruption(strings::Substitute(
                     "Bad file $0: invalid column index type $1", _file_name, index_meta.type()));
         }
     }
     if (_ordinal_index_meta == nullptr) {
-        return Status::Corruption(Substitute(
+        return Status::Corruption(strings::Substitute(
                 "Bad file $0: missing ordinal index for column $1", _file_name, _meta.column_id()));
     }
     return Status::OK();
@@ -312,7 +312,7 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
     RETURN_IF_ERROR(_ensure_index_loaded());
     *iter = _ordinal_index->seek_at_or_before(ordinal);
     if (!iter->valid()) {
-        return Status::NotFound(Substitute("Failed to seek to ordinal $0, ", ordinal));
+        return Status::NotFound(strings::Substitute("Failed to seek to ordinal $0, ", ordinal));
     }
     return Status::OK();
 }

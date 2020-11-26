@@ -49,7 +49,7 @@ class TestRle : public testing::Test {};
 // exactly 'expected_encoding'.
 // if expected_len is not -1, it will validate the encoded size is correct.
 template<typename T>
-void ValidateRle(const vector<T>& values, int bit_width,
+void ValidateRle(const std::vector<T>& values, int bit_width,
     uint8_t* expected_encoding, int expected_len) {
   faststring buffer;
   RleEncoder<T> encoder(&buffer, bit_width);
@@ -82,7 +82,7 @@ void ValidateRle(const vector<T>& values, int bit_width,
 TEST(Rle, SpecificSequences) {
   const int kTestLen = 1024;
   uint8_t expected_buffer[kTestLen];
-  vector<uint64_t> values;
+  std::vector<uint64_t> values;
 
   // Test 50 0' followed by 50 1's
   values.resize(100);
@@ -129,7 +129,7 @@ TEST(Rle, SpecificSequences) {
 // is used, otherwise alternating values are used.
 void TestRleValues(int bit_width, int num_vals, int value = -1) {
   const uint64_t mod = bit_width == 64 ? 1ULL : 1ULL << bit_width;
-  vector<uint64_t> values;
+  std::vector<uint64_t> values;
   for (uint64_t v = 0; v < num_vals; ++v) {
     values.push_back((value != -1) ? value : (bit_width == 64 ? v : (v % mod)));
   }
@@ -157,7 +157,7 @@ public:
 // Tests all true/false values
 TEST_F(BitRle, AllSame) {
   const int kTestLen = 1024;
-  vector<bool> values;
+  std::vector<bool> values;
 
   for (int v = 0; v < 2; ++v) {
     values.clear();
@@ -172,7 +172,7 @@ TEST_F(BitRle, AllSame) {
 // Test that writes out a repeated group and then a literal
 // group but flush before finishing.
 TEST_F(BitRle, Flush) {
-  vector<bool> values;
+  std::vector<bool> values;
   for (int i = 0; i < 16; ++i) values.push_back(1);
   values.push_back(false);
   ValidateRle(values, 1, nullptr, -1);
@@ -191,7 +191,7 @@ TEST_F(BitRle, RandomBools) {
   while (iters < n_iters) {
     srand(iters++);
     if (iters % 10000 == 0) LOG(ERROR) << "Seed: " << iters;
-    vector<uint64_t > values;
+    std::vector<uint64_t > values;
     bool parity = 0;
     for (int i = 0; i < 1000; ++i) {
       int group_size = rand() % 20 + 1; // NOLINT(*)
@@ -214,7 +214,7 @@ TEST_F(BitRle, Random64Bit) {
   while (iters < n_iters) {
     srand(iters++);
     if (iters % 10000 == 0) LOG(ERROR) << "Seed: " << iters;
-    vector<uint64_t > values;
+    std::vector<uint64_t > values;
     for (int i = 0; i < 1000; ++i) {
       int group_size = rand() % 20 + 1; // NOLINT(*)
       uint64_t cur_value = (static_cast<uint64_t>(rand()) << 32) + static_cast<uint64_t>(rand());
@@ -233,7 +233,7 @@ TEST_F(BitRle, Random64Bit) {
 // Test a sequence of 1 0's, 2 1's, 3 0's. etc
 // e.g. 011000111100000
 TEST_F(BitRle, RepeatedPattern) {
-  vector<bool> values;
+  std::vector<bool> values;
   const int min_run = 1;
   const int max_run = 32;
 
@@ -344,10 +344,10 @@ TEST_F(TestRle, TestRoundTripRandomSequencesWithRuns) {
   // through the encode/decode sequence.
   for (int rep = 0; rep < 100; rep++) {
     faststring buf;
-    string string_rep;
+    std::string string_rep;
     int num_bits = GenerateRandomBitString(10, &buf, &string_rep);
     RleDecoder<bool> decoder(buf.data(), buf.size(), 1);
-    string roundtrip_str;
+    std::string roundtrip_str;
     int rem_to_read = num_bits;
     size_t run_len;
     bool val;

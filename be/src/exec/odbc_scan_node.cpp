@@ -239,7 +239,7 @@ Status OdbcScanNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-void OdbcScanNode::debug_string(int indentation_level, stringstream* out) const {
+void OdbcScanNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "OdbcScanNode(tupleid=" << _tuple_id << " table=" << _table_name;
     *out << ")" << std::endl;
@@ -249,7 +249,7 @@ void OdbcScanNode::debug_string(int indentation_level, stringstream* out) const 
     }
 }
 
-Status OdbcScanNode::set_scan_ranges(const vector<TScanRangeParams>& scan_ranges) {
+Status OdbcScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     return Status::OK();
 }
 

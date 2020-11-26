@@ -310,7 +310,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     if (fixed_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        string value = fixed_array->GetString(_current_line_of_batch);
+                        std::string value = fixed_array->GetString(_current_line_of_batch);
                         fill_slot(tuple, slot_desc, mem_pool, (uint8_t*)value.c_str(), value.length());
                     }
                     break;

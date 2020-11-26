@@ -42,7 +42,7 @@ protected:
 
     // Check that metric values are consistent with TmpFileMgr state.
     void check_metrics(TmpFileMgr* tmp_file_mgr) {
-        vector<TmpFileMgr::DeviceId> active = tmp_file_mgr->active_tmp_devices();
+        std::vector<TmpFileMgr::DeviceId> active = tmp_file_mgr->active_tmp_devices();
         int64_t active_metric =
             DorisMetrics::instance()->metric_registry()->get_entity("server")->get_metric("active_scratch_dirs").value();
         EXPECT_EQ(active.size(), active_metric);
@@ -56,7 +56,7 @@ TEST_F(TmpFileMgrTest, TestFileAllocation) {
     EXPECT_TRUE(tmp_file_mgr.init().ok());
     // Default configuration should give us one temporary device.
     EXPECT_EQ(1, tmp_file_mgr.num_active_tmp_devices());
-    vector<TmpFileMgr::DeviceId> tmp_devices = tmp_file_mgr.active_tmp_devices();
+    std::vector<TmpFileMgr::DeviceId> tmp_devices = tmp_file_mgr.active_tmp_devices();
     EXPECT_EQ(1, tmp_devices.size());
     TUniqueId id;
     TmpFileMgr::File *file;
@@ -86,7 +86,7 @@ TEST_F(TmpFileMgrTest, TestFileAllocation) {
 // Test that we can do initialization with two directories on same device and
 // that validations prevents duplication of directories.
 TEST_F(TmpFileMgrTest, TestOneDirPerDevice) {
-    vector<string> tmp_dirs;
+    std::vector<string> tmp_dirs;
     tmp_dirs.push_back("/tmp/tmp-file-mgr-test.1");
     tmp_dirs.push_back("/tmp/tmp-file-mgr-test.2");
     for (int i = 0; i < tmp_dirs.size(); ++i) {
@@ -97,7 +97,7 @@ TEST_F(TmpFileMgrTest, TestOneDirPerDevice) {
 
     // Only the first directory should be used.
     EXPECT_EQ(1, tmp_file_mgr.num_active_tmp_devices());
-    vector<TmpFileMgr::DeviceId> devices = tmp_file_mgr.active_tmp_devices();
+    std::vector<TmpFileMgr::DeviceId> devices = tmp_file_mgr.active_tmp_devices();
     EXPECT_EQ(1, devices.size());
     TUniqueId id;
     TmpFileMgr::File *file;
@@ -110,7 +110,7 @@ TEST_F(TmpFileMgrTest, TestOneDirPerDevice) {
 
 // Test that we can do custom initialization with two dirs on same device.
 TEST_F(TmpFileMgrTest, TestMultiDirsPerDevice) {
-    vector<string> tmp_dirs;
+    std::vector<string> tmp_dirs;
     tmp_dirs.push_back("/tmp/tmp-file-mgr-test.1");
     tmp_dirs.push_back("/tmp/tmp-file-mgr-test.2");
     for (int i = 0; i < tmp_dirs.size(); ++i) {
@@ -121,7 +121,7 @@ TEST_F(TmpFileMgrTest, TestMultiDirsPerDevice) {
 
     // Both directories should be used.
     EXPECT_EQ(2, tmp_file_mgr.num_active_tmp_devices());
-    vector<TmpFileMgr::DeviceId> devices = tmp_file_mgr.active_tmp_devices();
+    std::vector<TmpFileMgr::DeviceId> devices = tmp_file_mgr.active_tmp_devices();
     EXPECT_EQ(2, devices.size());
     for (int i = 0; i < tmp_dirs.size(); ++i) {
         EXPECT_EQ(0, tmp_file_mgr.get_tmp_dir_path(devices[i]).find(tmp_dirs[i]));
@@ -138,7 +138,7 @@ TEST_F(TmpFileMgrTest, TestMultiDirsPerDevice) {
 // Test that reporting a write error is possible but does not result in
 // blacklisting, which is disabled.
 TEST_F(TmpFileMgrTest, TestReportError) {
-    vector<string> tmp_dirs;
+    std::vector<string> tmp_dirs;
     tmp_dirs.push_back("/tmp/tmp-file-mgr-test.1");
     tmp_dirs.push_back("/tmp/tmp-file-mgr-test.2");
     for (int i = 0; i < tmp_dirs.size(); ++i) {
@@ -148,7 +148,7 @@ TEST_F(TmpFileMgrTest, TestReportError) {
     tmp_file_mgr.init_custom(tmp_dirs, false);
 
     // Both directories should be used.
-    vector<TmpFileMgr::DeviceId> devices = tmp_file_mgr.active_tmp_devices();
+    std::vector<TmpFileMgr::DeviceId> devices = tmp_file_mgr.active_tmp_devices();
     EXPECT_EQ(2, devices.size());
     // check_metrics(&tmp_file_mgr);
 
@@ -166,7 +166,7 @@ TEST_F(TmpFileMgrTest, TestReportError) {
     EXPECT_FALSE(bad_file->is_blacklisted());
     // The second device should still be active.
     EXPECT_EQ(2, tmp_file_mgr.num_active_tmp_devices());
-    vector<TmpFileMgr::DeviceId> devices_after = tmp_file_mgr.active_tmp_devices();
+    std::vector<TmpFileMgr::DeviceId> devices_after = tmp_file_mgr.active_tmp_devices();
     EXPECT_EQ(2, devices_after.size());
     // check_metrics(&tmp_file_mgr);
 
@@ -188,7 +188,7 @@ TEST_F(TmpFileMgrTest, TestReportError) {
 TEST_F(TmpFileMgrTest, TestAllocateFails) {
     string tmp_dir("/tmp/tmp-file-mgr-test.1");
     string scratch_subdir = tmp_dir + "/doris-scratch";
-    vector<string> tmp_dirs(1, tmp_dir);
+    std::vector<string> tmp_dirs(1, tmp_dir);
     EXPECT_TRUE(FileSystemUtil::create_directory(tmp_dir).ok());
     TmpFileMgr tmp_file_mgr;
     tmp_file_mgr.init_custom(tmp_dirs, false);

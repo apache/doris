@@ -30,7 +30,7 @@
 
 using std::ostream;
 using std::string;
-using std::unique_ptr;
+
 
 #define ZRETURN_NOT_OK(call) \
   RETURN_IF_ERROR(ZlibResultToStatus(call))
@@ -81,7 +81,7 @@ Status CompressLevel(Slice input, int level, ostream* out) {
   zs.avail_in = input.get_size();
   zs.next_in = (unsigned char*)(input.mutable_data());
   const int kChunkSize = 256 * 1024;
-  unique_ptr<unsigned char[]> chunk(new unsigned char[kChunkSize]);
+  std::unique_ptr<unsigned char[]> chunk(new unsigned char[kChunkSize]);
   int flush;
   do {
     zs.avail_out = kChunkSize;

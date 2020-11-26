@@ -130,7 +130,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc,
     if (!_row_desc.has_varlen_slots()) {
         return;
     }
-    const vector<TupleDescriptor*>& tuple_descs = _row_desc.tuple_descriptors();
+    const std::vector<TupleDescriptor*>& tuple_descs = _row_desc.tuple_descriptors();
 
     // For every unique tuple, convert string offsets contained in tuple data into
     // pointers. Tuples were serialized in the order we are deserializing them in,
@@ -138,7 +138,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc,
     // we already converted.
     for (int i = 0; i < _num_rows; ++i) {
         TupleRow* row = get_row(i);
-        vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
+        std::vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
         for (int j = 0; desc != tuple_descs.end(); ++desc, ++j) {
             if ((*desc)->string_slots().empty()) {
                 continue;
@@ -231,7 +231,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
     if (!_row_desc.has_varlen_slots()) {
         return;
     }
-    const vector<TupleDescriptor*>& tuple_descs = _row_desc.tuple_descriptors();
+    const std::vector<TupleDescriptor*>& tuple_descs = _row_desc.tuple_descriptors();
 
     // For every unique tuple, convert string offsets contained in tuple data into
     // pointers. Tuples were serialized in the order we are deserializing them in,
@@ -239,7 +239,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
     // we already converted.
     for (int i = 0; i < _num_rows; ++i) {
         TupleRow* row = get_row(i);
-        vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
+        std::vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
         for (int j = 0; desc != tuple_descs.end(); ++desc, ++j) {
             if ((*desc)->string_slots().empty()) {
                 continue;
@@ -250,7 +250,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
                 continue;
             }
 
-            vector<SlotDescriptor*>::const_iterator slot = (*desc)->string_slots().begin();
+            std::vector<SlotDescriptor*>::const_iterator slot = (*desc)->string_slots().begin();
             for (; slot != (*desc)->string_slots().end(); ++slot) {
                 DCHECK((*slot)->type().is_string_type());
                 StringValue* string_val = tuple->get_string_slot((*slot)->tuple_offset());
@@ -321,8 +321,8 @@ int RowBatch::serialize(TRowBatch* output_batch) {
 
     for (int i = 0; i < _num_rows; ++i) {
         TupleRow* row = get_row(i);
-        const vector<TupleDescriptor*>& tuple_descs = _row_desc.tuple_descriptors();
-        vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
+        const std::vector<TupleDescriptor*>& tuple_descs = _row_desc.tuple_descriptors();
+        std::vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
 
         for (int j = 0; desc != tuple_descs.end(); ++desc, ++j) {
             if (row->get_tuple(j) == NULL) {
@@ -389,8 +389,8 @@ int RowBatch::serialize(PRowBatch* output_batch) {
     char* tuple_data = const_cast<char*>(mutable_tuple_data->data());
     for (int i = 0; i < _num_rows; ++i) {
         TupleRow* row = get_row(i);
-        const vector<TupleDescriptor*>& tuple_descs = _row_desc.tuple_descriptors();
-        vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
+        const std::vector<TupleDescriptor*>& tuple_descs = _row_desc.tuple_descriptors();
+        std::vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
         for (int j = 0; desc != tuple_descs.end(); ++desc, ++j) {
             if (row->get_tuple(j) == nullptr) {
                 // NULLs are encoded as -1
@@ -615,8 +615,8 @@ int RowBatch::total_byte_size() {
     // Sum total variable length byte sizes.
     for (int i = 0; i < _num_rows; ++i) {
         TupleRow* row = get_row(i);
-        const vector<TupleDescriptor*>& tuple_descs = _row_desc.tuple_descriptors();
-        vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
+        const std::vector<TupleDescriptor*>& tuple_descs = _row_desc.tuple_descriptors();
+        std::vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
 
         for (int j = 0; desc != tuple_descs.end(); ++desc, ++j) {
             Tuple* tuple = row->get_tuple(j);
@@ -624,7 +624,7 @@ int RowBatch::total_byte_size() {
                 continue;
             }
             result += (*desc)->byte_size();
-            vector<SlotDescriptor*>::const_iterator slot = (*desc)->string_slots().begin();
+            std::vector<SlotDescriptor*>::const_iterator slot = (*desc)->string_slots().begin();
             for (; slot != (*desc)->string_slots().end(); ++slot) {
                 DCHECK((*slot)->type().is_string_type());
                 if (tuple->is_null((*slot)->null_indicator_offset())) {

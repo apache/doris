@@ -179,10 +179,10 @@ void MemoryScratchSinkTest::init_desc_tbl() {
     DescriptorTbl::create(&_obj_pool, _t_desc_table, &_desc_tbl);
 
 
-    vector<TTupleId> row_tids;
+    std::vector<TTupleId> row_tids;
     row_tids.push_back(0);
 
-    vector<bool> nullable_tuples;
+    std::vector<bool> nullable_tuples;
     nullable_tuples.push_back(false);
     _row_desc = _obj_pool.add(new RowDescriptor(*_desc_tbl, row_tids, nullable_tuples));
 

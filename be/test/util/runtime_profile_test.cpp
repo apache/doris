@@ -159,7 +159,7 @@ TEST(CountersTest, MergeAndUpdate) {
     ValidateCounter(merged_profile, "Parent 1 Only", 2);
     ValidateCounter(merged_profile, "Parent 2 Only", 5);
 
-    vector<RuntimeProfile*> children;
+    std::vector<RuntimeProfile*> children;
     merged_profile->GetChildren(&children);
     EXPECT_EQ(children.size(), 3);
 
@@ -183,7 +183,7 @@ TEST(CountersTest, MergeAndUpdate) {
     }
 
     // make sure we can print
-    stringstream dummy;
+    std::stringstream dummy;
     merged_profile->PrettyPrint(&dummy);
 
     // Update profile2 w/ profile1 and validate
@@ -330,7 +330,7 @@ TEST(CountersTest, BucketCounters) {
     unit_counter->Set(1L);
 
     // Create the bucket counters and start sampling
-    vector<RuntimeProfile::Counter*> buckets;
+    std::vector<RuntimeProfile::Counter*> buckets;
     profile.AddBucketingCounters("BucketCounters", "", unit_counter, 2, &buckets);
 
     // Wait two seconds.

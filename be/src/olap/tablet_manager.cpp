@@ -175,7 +175,7 @@ OLAPStatus TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id, Schem
     if (drop_old) {
         // If the new tablet is fresher than the existing one, then replace
         // the existing tablet with the new one.
-        RETURN_NOT_OK_LOG(_drop_tablet_unlocked(tablet_id, schema_hash, keep_files), Substitute(
+        RETURN_NOT_OK_LOG(_drop_tablet_unlocked(tablet_id, schema_hash, keep_files), strings::Substitute(
                 "failed to drop old tablet when add new tablet. tablet_id=$0, schema_hash=$1",
                 tablet_id, schema_hash));
     }
@@ -332,7 +332,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
             } else {
                 // add alter task to new tablet if it is a new tablet during schema change
                 tablet->add_alter_task(base_tablet->tablet_id(), base_tablet->schema_hash(),
-                                       vector<Version>(), alter_type);
+                                       std::vector<Version>(), alter_type);
             }
             // 有可能出现以下2种特殊情况：
             // 1. 因为操作系统时间跳变，导致新生成的表的creation_time小于旧表的creation_time时间
@@ -542,7 +542,7 @@ OLAPStatus TabletManager::_drop_tablet_unlocked(
 }
 
 OLAPStatus TabletManager::drop_tablets_on_error_root_path(
-        const vector<TabletInfo>& tablet_info_vec) {
+        const std::vector<TabletInfo>& tablet_info_vec) {
     OLAPStatus res = OLAP_SUCCESS;
     for (int32 i = 0; i < _tablet_map_lock_shard_size; i++) {
         RWMutex& tablet_map_lock = _tablet_map_lock_array[i];
@@ -681,7 +681,7 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
-        vector<TTabletId> &tablet_submitted_compaction) {
+        std::vector<TTabletId> &tablet_submitted_compaction) {
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str = compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
     double highest_score = 0.0;
@@ -693,7 +693,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         tablet_map_t& tablet_map = _tablet_map_array[i];
         for (tablet_map_t::value_type& table_ins : tablet_map){
             for (TabletSharedPtr& tablet_ptr : table_ins.second.table_arr) {
-                vector<TTabletId>::iterator it_tablet =
+                std::vector<TTabletId>::iterator it_tablet =
                         find(tablet_submitted_compaction.begin(), tablet_submitted_compaction.end(),
                              tablet_ptr->tablet_id());
                 if (it_tablet != tablet_submitted_compaction.end()) {
@@ -850,10 +850,10 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
     }
 
-    RETURN_NOT_OK_LOG(tablet->init(), Substitute("tablet init failed. tablet=$0",
+    RETURN_NOT_OK_LOG(tablet->init(), strings::Substitute("tablet init failed. tablet=$0",
                                                  tablet->full_name()));
     RETURN_NOT_OK_LOG(_add_tablet_unlocked(tablet_id, schema_hash, tablet, update_meta, force),
-                      Substitute("fail to add tablet. tablet=$0", tablet->full_name()));
+                      strings::Substitute("fail to add tablet. tablet=$0", tablet->full_name()));
 
     return OLAP_SUCCESS;
 }
@@ -877,7 +877,7 @@ OLAPStatus TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_
     int32_t shard = stol(shard_str);
     // load dir is called by clone, restore, storage migration
     // should change tablet uid when tablet object changed
-    RETURN_NOT_OK_LOG(TabletMeta::reset_tablet_uid(header_path), Substitute(
+    RETURN_NOT_OK_LOG(TabletMeta::reset_tablet_uid(header_path), strings::Substitute(
             "failed to set tablet uid when copied meta file. header_path=%0", header_path));;
 
     if (!Env::Default()->path_exists(header_path).ok()) {
@@ -897,7 +897,7 @@ OLAPStatus TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_
     tablet_meta->serialize(&meta_binary);
     RETURN_NOT_OK_LOG(load_tablet_from_meta(store, tablet_id, schema_hash,
                                             meta_binary, true, force, restore),
-            Substitute("fail to load tablet. header_path=$0", header_path));
+            strings::Substitute("fail to load tablet. header_path=$0", header_path));
 
     return OLAP_SUCCESS;
 }
@@ -1200,7 +1200,7 @@ void TabletManager::get_partition_related_tablets(int64_t partition_id,
 }
 
 void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
-    vector<TabletSharedPtr> related_tablets;
+    std::vector<TabletSharedPtr> related_tablets;
     {
         for (int32 i = 0 ; i < _tablet_map_lock_shard_size; i++) {
             ReadLock tablet_map_rdlock(&_tablet_map_lock_array[i]);

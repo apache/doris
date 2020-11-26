@@ -27,7 +27,7 @@ using namespace strings;
 
 #define PLUGIN_TYPE_CHECK(_type) {   \
     if (_type >= PLUGIN_TYPE_MAX) {   \
-        return Status::InvalidArgument(Substitute("error plugin type: $0", _type));  \
+        return Status::InvalidArgument(strings::Substitute("error plugin type: $0", _type));  \
     }   \
 }
 
@@ -92,7 +92,7 @@ Status PluginMgr::get_plugin(const std::string& name, int type, std::shared_ptr<
         return Status::OK();
     }
 
-    return Status::NotFound(Substitute("not found type $0 plugin $1", type, name));
+    return Status::NotFound(strings::Substitute("not found type $0 plugin $1", type, name));
 }
 
 Status PluginMgr::get_plugin(const std::string& name, std::shared_ptr<Plugin>* plugin) {
@@ -107,7 +107,7 @@ Status PluginMgr::get_plugin(const std::string& name, std::shared_ptr<Plugin>* p
         }
     }
 
-    return Status::NotFound(Substitute("not found plugin $0", name));
+    return Status::NotFound(strings::Substitute("not found plugin $0", name));
 }
 
 Status PluginMgr::get_plugin_list(int type, std::vector<std::shared_ptr<Plugin>>* plugin_list) {
@@ -129,7 +129,7 @@ Status PluginMgr::register_builtin_plugin(const std::string& name, int type, con
 
     auto iter = _plugins[type].find(name);
     if (iter != _plugins[type].end()) {
-        return Status::AlreadyExist(Substitute("the type $0 plugin $1 already register", type, name));
+        return Status::AlreadyExist(strings::Substitute("the type $0 plugin $1 already register", type, name));
     }
 
     std::unique_ptr<PluginLoader> loader = std::unique_ptr<PluginLoader>(new BuiltinPluginLoader(name, type, plugin));

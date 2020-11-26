@@ -22,8 +22,6 @@
 #include "runtime/user_function_cache.h"
 #include "runtime/runtime_state.h"
 
-#include "common/names.h"
-
 using namespace doris_udf;
 
 namespace doris {
@@ -44,7 +42,7 @@ AggFn::AggFn(const TExprNode& tnode, const SlotDescriptor& intermediate_slot_des
   DCHECK_EQ(tnode.node_type, TExprNodeType::AGG_EXPR);
   DCHECK_EQ(TypeDescriptor::from_thrift(tnode.type).type,
       TypeDescriptor::from_thrift(_fn.ret_type).type);
-  const string& fn_name = _fn.name.function_name;
+  const std::string& fn_name = _fn.name.function_name;
   if (fn_name == "count") {
     agg_op_ = COUNT;
   } else if (fn_name == "min") {
@@ -85,7 +83,7 @@ Status AggFn::Init(const RowDescriptor& row_desc, RuntimeState* state) {
       (aggregate_fn.merge_fn_symbol.empty() && !aggregate_fn.is_analytic_only_fn)) {
     // This path is only for partially implemented builtins.
     DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::BUILTIN);
-    stringstream ss;
+    std::stringstream ss;
     ss << "Function " << _fn.name.function_name << " is not implemented.";
     return Status::InternalError(ss.str());
   }
@@ -170,12 +168,12 @@ void AggFn::Close() {
   Expr::close();
 }
 
-void AggFn::Close(const vector<AggFn*>& exprs) {
+void AggFn::Close(const std::vector<AggFn*>& exprs) {
   for (AggFn* expr : exprs) expr->Close();
 }
 
-string AggFn::DebugString() const {
-  stringstream out;
+std::string AggFn::DebugString() const {
+  std::stringstream out;
   out << "AggFn(op=" << agg_op_;
   for (Expr* input_expr : children()) {
     out << " " << input_expr->debug_string() << ")";
@@ -184,8 +182,8 @@ string AggFn::DebugString() const {
   return out.str();
 }
 
-string AggFn::DebugString(const vector<AggFn*>& agg_fns) {
-  stringstream out;
+std::string AggFn::DebugString(const std::vector<AggFn*>& agg_fns) {
+  std::stringstream out;
   out << "[";
   for (int i = 0; i < agg_fns.size(); ++i) {
     out << (i == 0 ? "" : " ") << agg_fns[i]->DebugString();

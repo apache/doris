@@ -196,7 +196,7 @@ Status EsPredicate::build_disjuncts_list() {
 }
 
 // make sure to build by build_disjuncts_list
-const vector<ExtPredicate*>& EsPredicate::get_predicate_list(){
+const std::vector<ExtPredicate*>& EsPredicate::get_predicate_list(){
     return _disjuncts;
 }
 
@@ -292,9 +292,9 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             }
             Expr* expr = conjunct->get_child(1);
             ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
-            vector<ExtLiteral> query_conditions;
+            std::vector<ExtLiteral> query_conditions;
             query_conditions.emplace_back(literal);
-            vector<ExtColumnDesc> cols;
+            std::vector<ExtColumnDesc> cols;
             ExtPredicate* predicate = new ExtFunction(
                             TExprNodeType::FUNCTION_CALL,
                             "esquery",
@@ -383,7 +383,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
                         "opcode in IN_PRED is neither FILTER_IN nor FILTER_NOT_IN");
         }
 
-        vector<ExtLiteral> in_pred_values;
+        std::vector<ExtLiteral> in_pred_values;
         const InPredicate* pred = dynamic_cast<const InPredicate*>(conjunct);
         const Expr* expr = Expr::expr_without_cast(pred->get_child(0));
         if (expr->node_type() != TExprNodeType::SLOT_REF) {

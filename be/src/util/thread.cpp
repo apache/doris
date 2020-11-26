@@ -184,7 +184,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
 
         // The critical section is as short as possible so as to minimize the delay
         // imposed on new threads that acquire the lock in write mode.
-        vector<ThreadDescriptor> descriptors_to_print;
+        std::vector<ThreadDescriptor> descriptors_to_print;
         if (!requested_all) {
             MutexLock l(&_lock);
             const auto* category = FindOrNull(_thread_categories, *category_name);
@@ -210,7 +210,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
         }
     } else {
         // List all thread groups and the number of threads running in each.
-        vector<pair<string, uint64_t>> thread_categories_info;
+        std::vector<pair<string, uint64_t>> thread_categories_info;
         uint64_t running;
         {
             MutexLock l(&_lock);

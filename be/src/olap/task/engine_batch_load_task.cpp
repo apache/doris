@@ -286,7 +286,7 @@ AgentStatus EngineBatchLoadTask::_process() {
 }
 
 OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
-                        vector<TTabletInfo>* tablet_info_vec) {
+                        std::vector<TTabletInfo>* tablet_info_vec) {
     OLAPStatus res = OLAP_SUCCESS;
     LOG(INFO) << "begin to process push. " 
               << " transaction_id=" << request.transaction_id
@@ -350,7 +350,7 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
 
 OLAPStatus EngineBatchLoadTask::_delete_data(
         const TPushReq& request,
-        vector<TTabletInfo>* tablet_info_vec) {
+        std::vector<TTabletInfo>* tablet_info_vec) {
     LOG(INFO) << "begin to process delete data. request=" << ThriftDebugString(request);
     DorisMetrics::instance()->delete_requests_total->increment(1);
 

@@ -21,7 +21,7 @@
 #include <sstream>
 #include <boost/bind.hpp>
 
-#include "common/names.h"
+
 #include "gutil/strings/substitute.h"
 #include "runtime/bufferpool/buffer_allocator.h"
 #include "util/bit_util.h"
@@ -145,7 +145,7 @@ Status BufferPool::CreatePage(
   BufferHandle new_buffer;
   // No changes have been made to state yet, so we can cleanly return on error.
   RETURN_IF_ERROR(AllocateBuffer(client, len, &new_buffer));
-  Page* page = client->impl_->CreatePinnedPage(move(new_buffer));
+  Page* page = client->impl_->CreatePinnedPage(std::move(new_buffer));
   handle->Open(page, client);
   if (buffer != nullptr) *buffer = &page->buffer;
   return Status::OK();
@@ -243,7 +243,7 @@ void BufferPool::FreeBuffer(ClientHandle* client, BufferHandle* handle) {
   if (!handle->is_open()) return; // Should be idempotent.
   DCHECK_EQ(client, handle->client_);
   int64_t len = handle->len_;
-  allocator_->Free(move(*handle));
+  allocator_->Free(std::move(*handle));
   client->impl_->FreedBuffer(len);
 }
 
@@ -398,10 +398,10 @@ BufferPool::Client::Client(BufferPool* pool, //TmpFileMgr::FileGroup* file_group
 
 BufferPool::Page* BufferPool::Client::CreatePinnedPage(BufferHandle&& buffer) {
   Page* page = new Page(this, buffer.len());
-  page->buffer = move(buffer);
+  page->buffer = std::move(buffer);
   page->pin_count = 1;
 
-  boost::lock_guard<boost::mutex> lock(lock_);
+  std::lock_guard<std::mutex> lock(lock_);
   // The buffer is transferred to the page so will be accounted for in
   // pinned_pages_.bytes() instead of buffers_allocated_bytes_.
   buffers_allocated_bytes_ -= page->len;
@@ -418,7 +418,7 @@ void BufferPool::Client::DestroyPageInternal(
   Page* page = handle->page_;
   // Remove the page from the list that it is currently present in (if any).
   {
-    unique_lock<mutex> cl(lock_);
+    std::unique_lock<std::mutex> cl(lock_);
     // First try to remove from the pinned or dirty unpinned lists.
     if (!pinned_pages_.remove(page) && !dirty_unpinned_pages_.remove(page)) {
       // The page either has a write in flight, is clean, or is evicted.
@@ -441,7 +441,7 @@ void BufferPool::Client::DestroyPageInternal(
     *out_buffer = std::move(page->buffer);
     buffers_allocated_bytes_ += out_buffer->len();
   } else if (page->buffer.is_open()) {
-    pool_->allocator_->Free(move(page->buffer));
+    pool_->allocator_->Free(std::move(page->buffer));
   }
   delete page;
   handle->Reset();
@@ -453,7 +453,7 @@ void BufferPool::Client::MoveToDirtyUnpinned(Page* page) {
   // DCHECK(spilling_enabled());
   DCHECK_EQ(0, page->pin_count);
 
-  unique_lock<mutex> lock(lock_);
+  std::unique_lock<std::mutex> lock(lock_);
   DCHECK_CONSISTENCY();
   DCHECK(pinned_pages_.contains(page));
   pinned_pages_.remove(page);
@@ -464,7 +464,7 @@ void BufferPool::Client::MoveToDirtyUnpinned(Page* page) {
 }
 
 Status BufferPool::Client::StartMoveToPinned(ClientHandle* client, Page* page) {
-  unique_lock<mutex> cl(lock_);
+  std::unique_lock<std::mutex> cl(lock_);
   DCHECK_CONSISTENCY();
   // Propagate any write errors that occurred for this client.
   //RETURN_IF_ERROR(write_status_i;
@@ -503,7 +503,7 @@ Status BufferPool::Client::StartMoveToPinned(ClientHandle* client, Page* page) {
 }
 /*
 Status BufferPool::Client::StartMoveEvictedToPinned(
-    unique_lock<mutex>* client_lock, ClientHandle* client, Page* page) {
+    unique_lock<std::mutex>* client_lock, ClientHandle* client, Page* page) {
   DCHECK(!page->buffer.is_open());
 
   // Safe to modify the page's buffer handle without holding the page lock because no
@@ -529,7 +529,7 @@ void BufferPool::Client::UndoMoveEvictedToPinned(Page* page) {
   page->write_handle->CancelRead();
   page->pin_in_flight = false;
 
-  unique_lock<mutex> lock(lock_);
+  unique_lock<std::mutex> lock(lock_);
   DCHECK_CONSISTENCY();
   DCHECK(pinned_pages_.contains(page));
   pinned_pages_.remove(page);
@@ -553,7 +553,7 @@ Status BufferPool::Client::FinishMoveEvictedToPinned(Page* page) {
 }
 */
 Status BufferPool::Client::PrepareToAllocateBuffer(int64_t len) {
-  unique_lock<mutex> lock(lock_);
+  std::unique_lock<std::mutex> lock(lock_);
   // Clean enough pages to allow allocation to proceed without violating our eviction
   // policy. This can fail, so only update the accounting once success is ensured.
   //RETURN_IF_ERROR(CleanPages(&lock, len));
@@ -564,11 +564,11 @@ Status BufferPool::Client::PrepareToAllocateBuffer(int64_t len) {
 }
 
 Status BufferPool::Client::DecreaseReservationTo(int64_t target_bytes) {
-  unique_lock<mutex> lock(lock_);
+  std::unique_lock<std::mutex> lock(lock_);
   int64_t current_reservation = reservation_.GetReservation();
   DCHECK_GE(current_reservation, target_bytes);
   int64_t amount_to_free =
-      min(reservation_.GetUnusedReservation(), current_reservation - target_bytes);
+      std::min(reservation_.GetUnusedReservation(), current_reservation - target_bytes);
   if (amount_to_free == 0) return Status::OK();
   // Clean enough pages to allow us to safely release reservation.
   //RETURN_IF_ERROR(CleanPages(&lock, amount_to_free));
@@ -576,7 +576,7 @@ Status BufferPool::Client::DecreaseReservationTo(int64_t target_bytes) {
   return Status::OK();
 }
 
-Status BufferPool::Client::CleanPages(unique_lock<mutex>* client_lock, int64_t len) {
+Status BufferPool::Client::CleanPages(std::unique_lock<std::mutex>* client_lock, int64_t len) {
   DCheckHoldsLock(*client_lock);
   DCHECK_CONSISTENCY();
   /*
@@ -635,7 +635,7 @@ void BufferPool::Client::WriteDirtyPagesAsync(int64_t min_bytes_to_write) {
     Page* page = dirty_unpinned_pages_.tail(); // LIFO.
     DCHECK(page != NULL) << "Should have been enough dirty unpinned pages";
     {
-      lock_guard<SpinLock> pl(page->buffer_lock);
+      std::lock_guard<SpinLock> pl(page->buffer_lock);
       DCHECK(file_group_ != NULL);
       DCHECK(page->buffer.is_open());
       COUNTER_ADD(counters().bytes_written, page->len);
@@ -665,7 +665,7 @@ void BufferPool::Client::WriteCompleteCallback(Page* page, const Status& write_s
   if (debug_write_delay_ms_ > 0) SleepForMs(debug_write_delay_ms_);
 #endif
   {
-    unique_lock<mutex> cl(lock_);
+    std::unique_lock<std::mutex> cl(lock_);
     DCHECK(in_flight_write_pages_.contains(page));
     // The status should always be propagated.
     // TODO: if we add cancellation support to TmpFileMgr, consider cancellation path.
@@ -683,7 +683,7 @@ void BufferPool::Client::WriteCompleteCallback(Page* page, const Status& write_s
   }
 }
 
-void BufferPool::Client::WaitForWrite(unique_lock<mutex>* client_lock, Page* page) {
+void BufferPool::Client::WaitForWrite(std::unique_lock<std::mutex>* client_lock, Page* page) {
   DCheckHoldsLock(*client_lock);
   while (in_flight_write_pages_.contains(page)) {
     SCOPED_TIMER(counters().write_wait_time);
@@ -692,26 +692,26 @@ void BufferPool::Client::WaitForWrite(unique_lock<mutex>* client_lock, Page* pag
 }
 
 void BufferPool::Client::WaitForAllWrites() {
-  unique_lock<mutex> cl(lock_);
+  std::unique_lock<std::mutex> cl(lock_);
   while (in_flight_write_pages_.size() > 0) {
     write_complete_cv_.Wait(cl);
   }
 }
 */
 string BufferPool::Client::DebugString() {
-  lock_guard<mutex> lock(lock_);
-  stringstream ss;
+  std::lock_guard<std::mutex> lock(lock_);
+  std::stringstream ss;
   ss << "<BufferPool::Client> " << this << " name: " << name_ << " write_status: "
      << write_status_.get_error_msg() << " buffers allocated " << buffers_allocated_bytes_
      << " num_pages: " << num_pages_ << " pinned_bytes: " << pinned_pages_.bytes()
      << " dirty_unpinned_bytes: " << dirty_unpinned_pages_.bytes() << " in_flight_write_bytes: "
      << in_flight_write_pages_.bytes() << " reservation: " << reservation_.DebugString();
   ss << "\n  " << pinned_pages_.size() << " pinned pages: ";
-  pinned_pages_.iterate(bind<bool>(Page::DebugStringCallback, &ss, _1));
+  pinned_pages_.iterate(boost::bind<bool>(Page::DebugStringCallback, &ss, _1));
   ss << "\n  " << dirty_unpinned_pages_.size() << " dirty unpinned pages: ";
-  dirty_unpinned_pages_.iterate(bind<bool>(Page::DebugStringCallback, &ss, _1));
+  dirty_unpinned_pages_.iterate(boost::bind<bool>(Page::DebugStringCallback, &ss, _1));
   ss << "\n  " << in_flight_write_pages_.size() << " in flight write pages: ";
-  in_flight_write_pages_.iterate(bind<bool>(Page::DebugStringCallback, &ss, _1));
+  in_flight_write_pages_.iterate(boost::bind<bool>(Page::DebugStringCallback, &ss, _1));
   return ss.str();
 }
 
@@ -729,7 +729,7 @@ string BufferPool::ClientHandle::DebugString() const {
 /*
 string BufferPool::PageHandle::DebugString() const {
   if (is_open()) {
-    lock_guard<SpinLock> pl(page_->buffer_lock);
+    std::lock_guard<SpinLock> pl(page_->buffer_lock);
     return Substitute("<BufferPool::PageHandle> $0 client: $1/$2 page: {$3}", this,
         client_, client_->impl_, page_->DebugString());
   } else {
@@ -744,8 +744,8 @@ string BufferPool::Page::DebugString() {
   return ss.str();
 }
 
-bool BufferPool::Page::DebugStringCallback(stringstream* ss, BufferPool::Page* page) {
-  lock_guard<SpinLock> pl(page->buffer_lock);
+bool BufferPool::Page::DebugStringCallback(std::stringstream* ss, BufferPool::Page* page) {
+  std::lock_guard<SpinLock> pl(page->buffer_lock);
   (*ss) << page->DebugString() << "\n";
   return true;
 }
@@ -762,7 +762,7 @@ string BufferPool::BufferHandle::DebugString() const {
 }
 
 string BufferPool::DebugString() {
-  stringstream ss;
+  std::stringstream ss;
   ss << "<BufferPool> " << this << " min_buffer_len: " << min_buffer_len_ << "\n"
      << allocator_->DebugString();
   return ss.str();

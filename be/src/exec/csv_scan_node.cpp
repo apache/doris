@@ -361,7 +361,7 @@ Status CsvScanNode::close(RuntimeState* state) {
     return Status::OK();
 }
 
-void CsvScanNode::debug_string(int indentation_level, stringstream* out) const {
+void CsvScanNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "csvScanNode(tupleid=" << _tuple_id;
     *out << ")" << std::endl;
@@ -371,7 +371,7 @@ void CsvScanNode::debug_string(int indentation_level, stringstream* out) const {
     }
 }
 
-Status CsvScanNode::set_scan_ranges(const vector<TScanRangeParams>& scan_ranges) {
+Status CsvScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     return Status::OK();
 }
 

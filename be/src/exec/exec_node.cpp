@@ -285,7 +285,7 @@ Status ExecNode::create_tree(RuntimeState* state, ObjectPool* pool, const TPlan&
 Status ExecNode::create_tree_helper(
     RuntimeState* state,
     ObjectPool* pool,
-    const vector<TPlanNode>& tnodes,
+    const std::vector<TPlanNode>& tnodes,
     const DescriptorTbl& descs,
     ExecNode* parent,
     int* node_idx,
@@ -509,7 +509,7 @@ bool ExecNode::eval_conjuncts(ExprContext* const* ctxs, int num_ctxs, TupleRow* 
     return true;
 }
 
-void ExecNode::collect_nodes(TPlanNodeType::type node_type, vector<ExecNode*>* nodes) {
+void ExecNode::collect_nodes(TPlanNodeType::type node_type, std::vector<ExecNode*>* nodes) {
     if (_type == node_type) {
         nodes->push_back(this);
     }
@@ -617,7 +617,7 @@ Status ExecNode::enable_deny_reservation_debug_action() {
       debug_action_param_.c_str(), debug_action_param_.size(), &parse_result);
   if (parse_result != StringParser::PARSE_SUCCESS || probability < 0.0
       || probability > 1.0) {
-    return Status::InternalError(Substitute(
+    return Status::InternalError(strings::Substitute(
         "Invalid SET_DENY_RESERVATION_PROBABILITY param: '$0'", debug_action_param_));
   }
   _buffer_pool_client.SetDebugDenyIncreaseReservation(probability);

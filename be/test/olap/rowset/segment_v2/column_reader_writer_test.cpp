@@ -38,7 +38,7 @@ using std::string;
 namespace doris {
 namespace segment_v2 {
 
-static const string TEST_DIR = "./ut_dir/column_reader_writer_test";
+static const std::string TEST_DIR = "./ut_dir/column_reader_writer_test";
 
 class ColumnReaderWriterTest : public testing::Test {
 public:
@@ -65,14 +65,14 @@ private:
 };
 
 template<FieldType type, EncodingTypePB encoding>
-void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, string test_name) {
+void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, std::string test_name) {
     using Type = typename TypeTraits<type>::CppType;
     Type* src = (Type*)src_data;
 
     ColumnMetaPB meta;
 
     // write data
-    string fname = TEST_DIR + "/" + test_name;
+    std::string fname = TEST_DIR + "/" + test_name;
     {
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions opts({ fname });
@@ -217,7 +217,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
 }
 
 template<FieldType item_type, EncodingTypePB item_encoding, EncodingTypePB array_encoding>
-void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int num_rows, string test_name) {
+void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int num_rows, std::string test_name) {
     Collection* src = src_data;
     ColumnMetaPB meta;
     TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
@@ -230,7 +230,7 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
     Field* field = FieldFactory::create(list_column);
 
     // write data
-    string fname = TEST_DIR + "/" + test_name;
+    std::string fname = TEST_DIR + "/" + test_name;
     {
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions opts({ fname });
@@ -603,48 +603,48 @@ TEST_F(ColumnReaderWriterTest, test_types) {
 }
 
 TEST_F(ColumnReaderWriterTest, test_default_value) {
-    string v_int("1");
+    std::string v_int("1");
     int32_t result = 1;
     test_read_default_value<OLAP_FIELD_TYPE_TINYINT>(v_int, &result);
     test_read_default_value<OLAP_FIELD_TYPE_SMALLINT>(v_int, &result);
     test_read_default_value<OLAP_FIELD_TYPE_INT>(v_int, &result);
 
-    string v_bigint("9223372036854775807");
+    std::string v_bigint("9223372036854775807");
     int64_t result_bigint =  std::numeric_limits<int64_t>::max();
     test_read_default_value<OLAP_FIELD_TYPE_BIGINT>(v_bigint, &result_bigint);
     int128_t result_largeint =  std::numeric_limits<int64_t>::max();
     test_read_default_value<OLAP_FIELD_TYPE_LARGEINT>(v_bigint, &result_largeint);
 
-    string v_float("1.00");
+    std::string v_float("1.00");
     float result2 = 1.00;
     test_read_default_value<OLAP_FIELD_TYPE_FLOAT>(v_float, &result2);
 
-    string v_double("1.00");
+    std::string v_double("1.00");
     double result3 = 1.00;
     test_read_default_value<OLAP_FIELD_TYPE_DOUBLE>(v_double, &result3);
 
-    string v_varchar("varchar");
+    std::string v_varchar("varchar");
     test_read_default_value<OLAP_FIELD_TYPE_VARCHAR>(v_varchar, &v_varchar);
 
-    string v_char("char");
+    std::string v_char("char");
     test_read_default_value<OLAP_FIELD_TYPE_CHAR>(v_char, &v_char);
 
     char* c = (char *)malloc(1);
     c[0] = 0;
-    string v_object(c, 1);
+    std::string v_object(c, 1);
     test_read_default_value<OLAP_FIELD_TYPE_HLL>(v_object, &v_object);
     test_read_default_value<OLAP_FIELD_TYPE_OBJECT>(v_object, &v_object);
     free(c);
 
-    string v_date("2019-11-12");
+    std::string v_date("2019-11-12");
     uint24_t result_date(1034092);
     test_read_default_value<OLAP_FIELD_TYPE_DATE>(v_date, &result_date);
 
-    string v_datetime("2019-11-12 12:01:08");
+    std::string v_datetime("2019-11-12 12:01:08");
     int64_t result_datetime = 20191112120108;
     test_read_default_value<OLAP_FIELD_TYPE_DATETIME>(v_datetime, &result_datetime);
 
-    string v_decimal("102418.000000002");
+    std::string v_decimal("102418.000000002");
     decimal12_t decimal(102418, 2);
     test_read_default_value<OLAP_FIELD_TYPE_DECIMAL>(v_decimal, &decimal);
 }

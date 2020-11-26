@@ -129,7 +129,7 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     ASSERT_TRUE(ret);
     OlapSnapshotConverter converter;
     TabletMetaPB tablet_meta_pb;
-    vector<RowsetMetaPB> pending_rowsets;
+    std::vector<RowsetMetaPB> pending_rowsets;
     OLAPStatus status = converter.to_new_snapshot(header_msg, _tablet_data_path, _tablet_data_path,
                                                   &tablet_meta_pb, &pending_rowsets, true);
     ASSERT_TRUE(status == OLAP_SUCCESS);

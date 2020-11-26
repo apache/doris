@@ -122,7 +122,7 @@ Status BinaryPrefixPageDecoder::_read_next_value() {
     uint32_t non_shared_len;
     auto data_ptr = _decode_value_lengths(_next_ptr, &shared_len, &non_shared_len);
     if (data_ptr == nullptr) {
-        return Status::Corruption(Substitute("Failed to decode value at position $0", _cur_pos));
+        return Status::Corruption(strings::Substitute("Failed to decode value at position $0", _cur_pos));
     }
     _current_value.resize(shared_len);
     _current_value.append(data_ptr, non_shared_len);
@@ -214,7 +214,7 @@ Status BinaryPrefixPageDecoder::_read_next_value_to_output(Slice prev, MemPool* 
     uint32_t non_shared_len;
     auto data_ptr = _decode_value_lengths(_next_ptr, &shared_len, &non_shared_len);
     if (data_ptr == nullptr) {
-        return Status::Corruption(Substitute("Failed to decode value at position $0", _cur_pos));
+        return Status::Corruption(strings::Substitute("Failed to decode value at position $0", _cur_pos));
     }
 
     output->size = shared_len + non_shared_len;
@@ -234,7 +234,7 @@ Status BinaryPrefixPageDecoder::_copy_current_to_output(MemPool* mem_pool, Slice
         output->data = (char*) mem_pool->allocate(output->size);
         if (output->data == nullptr) {
             return Status::MemoryAllocFailed(
-                Substitute("failed to allocate $0 bytes", output->size));
+                strings::Substitute("failed to allocate $0 bytes", output->size));
         }
         memcpy(output->data, _current_value.data(), output->size);
     }

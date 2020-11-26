@@ -111,7 +111,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
 
 #define IN_LIST_PRED_BITMAP_EVALUATE(CLASS, OP) \
     template<class type> \
-    Status CLASS<type>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* result) const { \
+    Status CLASS<type>::evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* result) const { \
         BitmapIndexIterator *iterator = iterators[_column_id]; \
         if (iterator == nullptr) { \
             return Status::OK(); \
@@ -191,17 +191,17 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(InListPredicate)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(NotInListPredicate)
 
 #define IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(CLASS) \
-    template Status CLASS<int8_t>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
-    template Status CLASS<int16_t>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
-    template Status CLASS<int32_t>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
-    template Status CLASS<int64_t>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
-    template Status CLASS<int128_t>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
-    template Status CLASS<float>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
-    template Status CLASS<double>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
-    template Status CLASS<decimal12_t>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
-    template Status CLASS<StringValue>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
-    template Status CLASS<uint24_t>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
-    template Status CLASS<uint64_t>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
+    template Status CLASS<int8_t>::evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
+    template Status CLASS<int16_t>::evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
+    template Status CLASS<int32_t>::evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
+    template Status CLASS<int64_t>::evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
+    template Status CLASS<int128_t>::evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
+    template Status CLASS<float>::evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
+    template Status CLASS<double>::evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
+    template Status CLASS<decimal12_t>::evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
+    template Status CLASS<StringValue>::evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
+    template Status CLASS<uint24_t>::evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
+    template Status CLASS<uint64_t>::evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
 
 IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(InListPredicate)
 IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(NotInListPredicate)

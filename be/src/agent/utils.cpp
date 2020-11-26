@@ -147,11 +147,11 @@ AgentStatus AgentUtils::rsync_from_remote(
         const string& remote_host,
         const string& remote_file_path,
         const string& local_file_path,
-        const vector<string>& exclude_file_patterns,
+        const std::vector<string>& exclude_file_patterns,
         uint32_t transport_speed_limit_kbps,
         uint32_t timeout_second) {
     int ret_code = 0;
-    stringstream cmd_stream;
+    std::stringstream cmd_stream;
     cmd_stream << "rsync -r -q -e \"ssh -o StrictHostKeyChecking=no\"";
     for (auto exclude_file_pattern : exclude_file_patterns) {
         cmd_stream << " --exclude=" << exclude_file_pattern;
@@ -240,7 +240,7 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
     // Execute command.
     FILE *fp = popen(cmd.c_str(), "r");
     if (fp == NULL) {
-        stringstream err_stream;
+        std::stringstream err_stream;
         err_stream << "popen failed. " << strerror(errno) << ", with errno: " << errno << ".\n";
         *errmsg = err_stream.str();
         return false;
@@ -258,7 +258,7 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
         if (errno == ECHILD) {
             *errmsg += "pclose cannot obtain the child status.\n";
         } else {
-            stringstream err_stream;
+            std::stringstream err_stream;
             err_stream << "Close popen failed. " << strerror(errno) << ", with errno: "
                        << errno << "\n";
             *errmsg += err_stream.str();
