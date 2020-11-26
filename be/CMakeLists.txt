@@ -568,6 +568,7 @@ install(DIRECTORY DESTINATION ${OUTPUT_DIR}/bin)
 install(DIRECTORY DESTINATION ${OUTPUT_DIR}/conf)
 
 install(FILES
+    ${BASE_DIR}/../bin/be.sh
     ${BASE_DIR}/../bin/start_be.sh
     ${BASE_DIR}/../bin/stop_be.sh
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
