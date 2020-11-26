@@ -68,7 +68,7 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
         auto *schemaDescriptor = _file_metadata->schema();
         for (int i = 0; i < _file_metadata->num_columns(); ++i) {
             // Get the Column Reader for the boolean column
-            if (schemaDescriptor->Column(i)->max_repetition_level() > 0) {
+            if (schemaDescriptor->Column(i)->max_definition_level() > 1) {
                 _map_column.emplace(schemaDescriptor->Column(i)->path()->ToDotVector()[0], i);
             } else {
                 _map_column.emplace(schemaDescriptor->Column(i)->name(), i);
