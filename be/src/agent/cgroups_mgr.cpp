@@ -193,7 +193,7 @@ AgentStatus CgroupsMgr::_config_disk_throttle(std::string user_name,
     // buld load data path, it is alreay in data path
     // _exec_env->load_path_mgr()->get_load_data_path(&data_paths);
 
-    stringstream ctrl_cmd;
+    std::stringstream ctrl_cmd;
     for (auto store : stores) {
         // check disk type
         int64_t read_iops = hdd_read_iops;

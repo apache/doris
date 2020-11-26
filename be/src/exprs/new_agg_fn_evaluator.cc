@@ -36,7 +36,7 @@
 
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include "common/names.h"
+
 
 using namespace doris;
 using namespace doris_udf;

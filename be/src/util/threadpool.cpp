@@ -254,7 +254,7 @@ ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
 
 ThreadPool::~ThreadPool() {
     // There should only be one live token: the one used in tokenless submission.
-    CHECK_EQ(1, _tokens.size()) << Substitute(
+    CHECK_EQ(1, _tokens.size()) << strings::Substitute(
             "Threadpool $0 destroyed with $1 allocated tokens",
             _name, _tokens.size());
     shutdown();
@@ -343,7 +343,7 @@ std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode) {
 
 void ThreadPool::release_token(ThreadPoolToken* t) {
     MutexLock unique_lock(&_lock);
-    CHECK(!t->is_active()) << Substitute("Token with state $0 may not be released",
+    CHECK(!t->is_active()) << strings::Substitute("Token with state $0 may not be released",
             ThreadPoolToken::state_to_string(t->state()));
     CHECK_EQ(1, _tokens.erase(t));
 }
@@ -376,7 +376,7 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
                                - _total_queued_tasks;
     if (capacity_remaining < 1) {
         return Status::ServiceUnavailable(
-                 Substitute("Thread pool is at capacity ($0/$1 tasks running, $2/$3 tasks queued)",
+                 strings::Substitute("Thread pool is at capacity ($0/$1 tasks running, $2/$3 tasks queued)",
                    _num_threads + _num_threads_pending_start, _max_threads,
                    _total_queued_tasks, _max_queue_size));
     }
@@ -599,14 +599,14 @@ void ThreadPool::dispatch_thread() {
 }
 
 Status ThreadPool::create_thread() {
-    return Thread::create("thread pool", Substitute("$0 [worker]", _name),
+    return Thread::create("thread pool", strings::Substitute("$0 [worker]", _name),
             &ThreadPool::dispatch_thread, this, nullptr);
 }
 
 void ThreadPool::check_not_pool_thread_unlocked() {
     Thread* current = Thread::current_thread();
     if (ContainsKey(_threads, current)) {
-        LOG(FATAL) << Substitute("Thread belonging to thread pool '$0' with "
+        LOG(FATAL) << strings::Substitute("Thread belonging to thread pool '$0' with "
                 "name '$1' called pool function that would result in deadlock",
                 _name, current->name());
     }

@@ -54,7 +54,7 @@ using std::atomic;
 using std::shared_ptr;
 using std::string;
 using std::thread;
-using std::unique_ptr;
+
 using std::vector;
 
 using strings::Substitute;
@@ -83,7 +83,7 @@ public:
     }
 
 protected:
-    unique_ptr<ThreadPool> _pool;
+    std::unique_ptr<ThreadPool> _pool;
 };
 
 TEST_F(ThreadPoolTest, TestNoTaskOpenClose) {
@@ -194,8 +194,8 @@ TEST_F(ThreadPoolTest, TestThreadPoolWithNoMaxThreads) {
     ASSERT_EQ((kNumCPUs * 2), _pool->num_threads());
 
     // submit tasks on two tokens. Only two threads should be created.
-    unique_ptr<ThreadPoolToken> t1 = _pool->new_token(ThreadPool::ExecutionMode::SERIAL);
-    unique_ptr<ThreadPoolToken> t2 = _pool->new_token(ThreadPool::ExecutionMode::SERIAL);
+    std::unique_ptr<ThreadPoolToken> t1 = _pool->new_token(ThreadPool::ExecutionMode::SERIAL);
+    std::unique_ptr<ThreadPoolToken> t2 = _pool->new_token(ThreadPool::ExecutionMode::SERIAL);
     for (int i = 0; i < kNumCPUs * 2; i++) {
         ThreadPoolToken* t = (i % 2 == 0) ? t1.get() : t2.get();
         ASSERT_TRUE(t->submit(SlowTask::new_slow_task(&latch)).ok());
@@ -363,7 +363,7 @@ INSTANTIATE_TEST_CASE_P(Tokens, ThreadPoolTestTokenTypes,
             ThreadPool::ExecutionMode::CONCURRENT));
 
 TEST_P(ThreadPoolTestTokenTypes, TestTokenSubmitAndWait) {
-    unique_ptr<ThreadPoolToken> t = _pool->new_token(GetParam());
+    std::unique_ptr<ThreadPoolToken> t = _pool->new_token(GetParam());
     int i = 0;
     Status status = t->submit_func([&]() {
         SleepFor(MonoDelta::FromMilliseconds(1));
@@ -375,7 +375,7 @@ TEST_P(ThreadPoolTestTokenTypes, TestTokenSubmitAndWait) {
 }
 
 TEST_F(ThreadPoolTest, TestTokenSubmitsProcessedSerially) {
-    unique_ptr<ThreadPoolToken> t = _pool->new_token(ThreadPool::ExecutionMode::SERIAL);
+    std::unique_ptr<ThreadPoolToken> t = _pool->new_token(ThreadPool::ExecutionMode::SERIAL);
     int32_t seed = static_cast<int32_t>(GetCurrentTimeMicros());
     srand(seed);
     Random r(seed);
@@ -398,7 +398,7 @@ TEST_P(ThreadPoolTestTokenTypes, TestTokenSubmitsProcessedConcurrently) {
     const int kNumTokens = 5;
     ASSERT_TRUE(rebuild_pool_with_builder(ThreadPoolBuilder(kDefaultPoolName)
                   .set_max_threads(kNumTokens)).ok());
-    vector<unique_ptr<ThreadPoolToken>> tokens;
+    std::vector<std::unique_ptr<ThreadPoolToken>> tokens;
 
     // A violation to the tested invariant would yield a deadlock, so let's set
     // up an alarm to bail us out.
@@ -430,7 +430,7 @@ TEST_F(ThreadPoolTest, TestTokenSubmitsNonSequential) {
             alarm(0); // Disable alarm on test exit.
             });
     shared_ptr<Barrier> b = std::make_shared<Barrier>(kNumSubmissions + 1);
-    unique_ptr<ThreadPoolToken> t = _pool->new_token(ThreadPool::ExecutionMode::CONCURRENT);
+    std::unique_ptr<ThreadPoolToken> t = _pool->new_token(ThreadPool::ExecutionMode::CONCURRENT);
     for (int i = 0; i < kNumSubmissions; i++) {
         ASSERT_TRUE(t->submit_func([b]() {
                         b->wait();
@@ -445,8 +445,8 @@ TEST_P(ThreadPoolTestTokenTypes, TestTokenShutdown) {
     ASSERT_TRUE(rebuild_pool_with_builder(ThreadPoolBuilder(kDefaultPoolName)
                   .set_max_threads(4)).ok());
 
-    unique_ptr<ThreadPoolToken> t1(_pool->new_token(GetParam()));
-    unique_ptr<ThreadPoolToken> t2(_pool->new_token(GetParam()));
+    std::unique_ptr<ThreadPoolToken> t1(_pool->new_token(GetParam()));
+    std::unique_ptr<ThreadPoolToken> t2(_pool->new_token(GetParam()));
     CountDownLatch l1(1);
     CountDownLatch l2(1);
 
@@ -489,7 +489,7 @@ TEST_P(ThreadPoolTestTokenTypes, TestTokenWaitForAll) {
     int32_t seed = static_cast<int32_t>(GetCurrentTimeMicros());
     srand(seed);
     Random r(seed);
-    vector<unique_ptr<ThreadPoolToken>> tokens;
+    std::vector<std::unique_ptr<ThreadPoolToken>> tokens;
     for (int i = 0; i < kNumTokens; i++) {
         tokens.emplace_back(_pool->new_token(GetParam()));
     }
@@ -522,7 +522,7 @@ TEST_F(ThreadPoolTest, TestFuzz) {
     int32_t seed = static_cast<int32_t>(GetCurrentTimeMicros());
     srand(seed);
     Random r(seed);
-    vector<unique_ptr<ThreadPoolToken>> tokens;
+    std::vector<std::unique_ptr<ThreadPoolToken>> tokens;
 
     for (int i = 0; i < kNumOperations; i++) {
         // Operation distribution:
@@ -605,7 +605,7 @@ TEST_P(ThreadPoolTestTokenTypes, TestTokenSubmissionsAdhereToMaxQueueSize) {
                   .set_max_queue_size(1)).ok());
 
     CountDownLatch latch(1);
-    unique_ptr<ThreadPoolToken> t = _pool->new_token(GetParam());
+    std::unique_ptr<ThreadPoolToken> t = _pool->new_token(GetParam());
     SCOPED_CLEANUP({
             latch.count_down();
             });
@@ -625,7 +625,7 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
     const int kWaitThreads = 2;
     const int kSubmitThreads = 8;
 
-    vector<shared_ptr<ThreadPoolToken>> tokens;
+    std::vector<shared_ptr<ThreadPoolToken>> tokens;
     int32_t seed = static_cast<int32_t>(GetCurrentTimeMicros());
     srand(seed);
     Random rng(seed);
@@ -658,7 +658,7 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
     atomic<int64_t> total_num_tokens_submitted(0);
 
     CountDownLatch latch(1);
-    vector<thread> threads;
+    std::vector<thread> threads;
 
     for (int i = 0; i < kCycleThreads; i++) {
         // Pick a token at random and replace it.
@@ -737,13 +737,13 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
         t.join();
     }
 
-    LOG(INFO) << Substitute("Tokens cycled ($0 threads): $1",
+    LOG(INFO) << strings::Substitute("Tokens cycled ($0 threads): $1",
             kCycleThreads, total_num_tokens_cycled.load());
-    LOG(INFO) << Substitute("Tokens shutdown ($0 threads): $1",
+    LOG(INFO) << strings::Substitute("Tokens shutdown ($0 threads): $1",
             kShutdownThreads, total_num_tokens_shutdown.load());
-    LOG(INFO) << Substitute("Tokens waited ($0 threads): $1",
+    LOG(INFO) << strings::Substitute("Tokens waited ($0 threads): $1",
             kWaitThreads, total_num_tokens_waited.load());
-    LOG(INFO) << Substitute("Tokens submitted ($0 threads): $1",
+    LOG(INFO) << strings::Substitute("Tokens submitted ($0 threads): $1",
             kSubmitThreads, total_num_tokens_submitted.load());
 }
 

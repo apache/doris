@@ -57,7 +57,7 @@ MergeJoinNode::~MergeJoinNode() {
 Status MergeJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     DCHECK(tnode.__isset.merge_join_node);
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    const vector<TEqJoinCondition>& cmp_conjuncts =
+    const std::vector<TEqJoinCondition>& cmp_conjuncts =
         tnode.merge_join_node.cmp_conjuncts;
 
     for (int i = 0; i < cmp_conjuncts.size(); ++i) {
@@ -326,7 +326,7 @@ Status MergeJoinNode::get_input_row(RuntimeState* state, int child_idx) {
     return Status::OK();
 }
 
-void MergeJoinNode::debug_string(int indentation_level, stringstream* out) const {
+void MergeJoinNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "MergeJoin(eos=" << (_eos ? "true" : "false")
          << " _left_child_pos=" << (_left_child_ctx.get() ? _left_child_ctx->row_idx : -1)

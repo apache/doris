@@ -119,7 +119,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_tablet_req.__set_tablet_id(111);
     create_tablet_req.__set_version(2);
     create_tablet_req.__set_version_hash(3333);
-    vector<DataDir*> data_dirs;
+    std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_SUCCESS);
@@ -180,7 +180,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     create_tablet_req.__set_tablet_id(111);
     create_tablet_req.__set_version(2);
     create_tablet_req.__set_version_hash(3333);
-    vector<DataDir*> data_dirs;
+    std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_SUCCESS);
@@ -215,7 +215,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     create_tablet_req.__set_tablet_id(111);
     create_tablet_req.__set_version(2);
     create_tablet_req.__set_version_hash(3333);
-    vector<DataDir*> data_dirs;
+    std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_SUCCESS);

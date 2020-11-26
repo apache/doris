@@ -34,7 +34,7 @@
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 
-#include "common/names.h"
+
 
 #ifdef NDEBUG
 #define CHECK_CONSISTENCY_FAST()
@@ -51,7 +51,7 @@ using BufferHandle = BufferPool::BufferHandle;
 
 BufferedTupleStream3::BufferedTupleStream3(RuntimeState* state,
     const RowDescriptor* row_desc, BufferPool::ClientHandle* buffer_pool_client,
-    int64_t default_page_len, int64_t max_page_len, const set<SlotId>& ext_varlen_slots)
+    int64_t default_page_len, int64_t max_page_len, const std::set<SlotId>& ext_varlen_slots)
   : state_(state),
     desc_(row_desc),
     node_id_(-1),
@@ -169,7 +169,7 @@ void BufferedTupleStream3::CheckPageConsistency(const Page* page) const {
 }
 
 string BufferedTupleStream3::DebugString() const {
-  stringstream ss;
+  std::stringstream ss;
   ss << "BufferedTupleStream3 num_rows=" << num_rows_
      << " rows_returned=" << rows_returned_ << " pinned=" << pinned_
      << " delete_on_read=" << delete_on_read_ << " closed=" << closed_ << "\n"
@@ -259,7 +259,7 @@ void BufferedTupleStream3::Close(RowBatch* batch, RowBatch::FlushMode flush) {
       BufferPool::BufferHandle buffer;
       Status status = buffer_pool_->ExtractBuffer(buffer_pool_client_, &page.handle, &buffer);
       DCHECK(status.ok());
-      batch->add_buffer(buffer_pool_client_, move(buffer), flush);
+      batch->add_buffer(buffer_pool_client_, std::move(buffer), flush);
     } else {
       buffer_pool_->DestroyPage(buffer_pool_client_, &page.handle);
     }
@@ -393,7 +393,7 @@ Status BufferedTupleStream3::CalcPageLenForRow(int64_t row_size, int64_t* page_l
        //    (state_->query_options().max_row_size, TUnit::BYTES);
     return Status::InternalError(ss.str());
   }
-  *page_len = max(default_page_len_, BitUtil::RoundUpToPowerOfTwo(row_size));
+  *page_len = std::max(default_page_len_, BitUtil::RoundUpToPowerOfTwo(row_size));
   return Status::OK();
 }
 
@@ -695,7 +695,7 @@ void BufferedTupleStream3::UnpinStream(UnpinMode mode) {
 }
 */
 Status BufferedTupleStream3::GetRows(
-    const std::shared_ptr<MemTracker>& tracker, scoped_ptr<RowBatch>* batch, bool* got_rows) {
+    const std::shared_ptr<MemTracker>& tracker, boost::scoped_ptr<RowBatch>* batch, bool* got_rows) {
   if (num_rows() > numeric_limits<int>::max()) {
     // RowBatch::num_rows_ is a 32-bit int, avoid an overflow.
     return Status::InternalError(Substitute("Trying to read $0 rows into in-memory batch failed. Limit "

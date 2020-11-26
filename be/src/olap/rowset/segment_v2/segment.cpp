@@ -97,7 +97,7 @@ Status Segment::_parse_footer() {
     RETURN_IF_ERROR(rblock->size(&file_size));
 
     if (file_size < 12) {
-        return Status::Corruption(Substitute("Bad segment file $0: file size $1 < 12", _fname, file_size));
+        return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < 12", _fname, file_size));
     }
 
     uint8_t fixed_buf[12];
@@ -105,14 +105,14 @@ Status Segment::_parse_footer() {
 
     // validate magic number
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
-        return Status::Corruption(Substitute("Bad segment file $0: magic number not match", _fname));
+        return Status::Corruption(strings::Substitute("Bad segment file $0: magic number not match", _fname));
     }
 
     // read footer PB
     uint32_t footer_length = decode_fixed32_le(fixed_buf);
     if (file_size < 12 + footer_length) {
         return Status::Corruption(
-            Substitute("Bad segment file $0: file size $1 < $2", _fname, file_size, 12 + footer_length));
+            strings::Substitute("Bad segment file $0: file size $1 < $2", _fname, file_size, 12 + footer_length));
     }
     std::string footer_buf;
     footer_buf.resize(footer_length);
@@ -123,13 +123,13 @@ Status Segment::_parse_footer() {
     uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         return Status::Corruption(
-            Substitute("Bad segment file $0: footer checksum not match, actual=$1 vs expect=$2",
+            strings::Substitute("Bad segment file $0: footer checksum not match, actual=$1 vs expect=$2",
                        _fname, actual_checksum, expect_checksum));
     }
 
     // deserialize footer PB
     if (!_footer.ParseFromString(footer_buf)) {
-        return Status::Corruption(Substitute("Bad segment file $0: failed to parse SegmentFooterPB", _fname));
+        return Status::Corruption(strings::Substitute("Bad segment file $0: failed to parse SegmentFooterPB", _fname));
     }
     return Status::OK();
 }

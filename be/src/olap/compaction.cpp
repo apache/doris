@@ -181,8 +181,8 @@ OLAPStatus Compaction::gc_unused_rowsets() {
 // Two versions before and after the missing version will be saved in missing_version,
 // if missing_version is not null.
 OLAPStatus Compaction::find_longest_consecutive_version(
-        vector<RowsetSharedPtr>* rowsets,
-        vector<Version>* missing_version) {
+        std::vector<RowsetSharedPtr>* rowsets,
+        std::vector<Version>* missing_version) {
     if (rowsets->empty()) {
         return OLAP_SUCCESS;
     }
@@ -204,7 +204,7 @@ OLAPStatus Compaction::find_longest_consecutive_version(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Compaction::check_version_continuity(const vector<RowsetSharedPtr>& rowsets) {
+OLAPStatus Compaction::check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
     RowsetSharedPtr prev_rowset = rowsets.front();
     for (size_t i = 1; i < rowsets.size(); ++i) {
         RowsetSharedPtr rowset = rowsets[i];

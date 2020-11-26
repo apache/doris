@@ -47,7 +47,7 @@ namespace segment_v2 {
 
 using std::string;
 using std::shared_ptr;
-using std::unique_ptr;
+
 using std::vector;
 
 using ValueGenerator = std::function<void(size_t rid, int cid, int block_id, RowCursorCell& cell)>;
@@ -84,7 +84,7 @@ protected:
         }
     }
 
-    TabletSchema create_schema(const vector<TabletColumn>& columns, int num_short_key_columns = -1) {
+    TabletSchema create_schema(const std::vector<TabletColumn>& columns, int num_short_key_columns = -1) {
         TabletSchema res;
         int num_key_columns = 0;
         for (auto& col : columns) {
@@ -108,7 +108,7 @@ protected:
         static int seg_id = 0;
         // must use unique filename for each segment, otherwise page cache kicks in and produces
         // the wrong answer (it use (filename,offset) as cache key)
-        string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, seg_id++);
+        std::string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, seg_id++);
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions block_opts({ filename });
         Status st = fs::fs_util::block_manager()->create_block(block_opts, &wblock);
@@ -140,7 +140,7 @@ protected:
         ASSERT_EQ(nrows, (*res)->num_rows());
     }
 private:
-    const string kSegmentDir = "./ut_dir/segment_test";
+    const std::string kSegmentDir = "./ut_dir/segment_test";
 };
 
 TEST_F(SegmentReaderWriterTest, normal) {
@@ -300,15 +300,15 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             // lazy enabled when predicate is subset of returned columns:
             // select c1, c2 where c2 = 30;
             Schema read_schema(tablet_schema);
-            unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(1, 30));
-            const vector<ColumnPredicate*> predicates = {predicate.get()};
+            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(1, 30));
+            const std::vector<ColumnPredicate*> predicates = {predicate.get()};
 
             OlapReaderStatistics stats;
             StorageReadOptions read_opts;
             read_opts.column_predicates = &predicates;
             read_opts.stats = &stats;
 
-            unique_ptr<RowwiseIterator> iter;
+            std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
 
             RowBlockV2 block(read_schema, 1024);
@@ -323,16 +323,16 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             // lazy disabled when all return columns have predicates:
             // select c1, c2 where c1 = 10 and c2 = 100;
             Schema read_schema(tablet_schema);
-            unique_ptr<ColumnPredicate> p0(new EqualPredicate<int32_t>(0, 10));
-            unique_ptr<ColumnPredicate> p1(new EqualPredicate<int32_t>(1, 100));
-            const vector<ColumnPredicate*> predicates = {p0.get(), p1.get()};
+            std::unique_ptr<ColumnPredicate> p0(new EqualPredicate<int32_t>(0, 10));
+            std::unique_ptr<ColumnPredicate> p1(new EqualPredicate<int32_t>(1, 100));
+            const std::vector<ColumnPredicate*> predicates = {p0.get(), p1.get()};
 
             OlapReaderStatistics stats;
             StorageReadOptions read_opts;
             read_opts.column_predicates = &predicates;
             read_opts.stats = &stats;
 
-            unique_ptr<RowwiseIterator> iter;
+            std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
 
             RowBlockV2 block(read_schema, 1024);
@@ -346,13 +346,13 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
         {
             // lazy disabled when no predicate:
             // select c2
-            vector<ColumnId> read_cols = {1};
+            std::vector<ColumnId> read_cols = {1};
             Schema read_schema(tablet_schema.columns(), read_cols);
             OlapReaderStatistics stats;
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
 
-            unique_ptr<RowwiseIterator> iter;
+            std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
 
             RowBlockV2 block(read_schema, 1024);
@@ -376,15 +376,15 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             // lazy disabled when all predicates are removed by bitmap index:
             // select c1, c2 where c2 = 30;
             Schema read_schema(tablet_schema);
-            unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 20));
-            const vector<ColumnPredicate*> predicates = { predicate.get() };
+            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 20));
+            const std::vector<ColumnPredicate*> predicates = { predicate.get() };
 
             OlapReaderStatistics stats;
             StorageReadOptions read_opts;
             read_opts.column_predicates = &predicates;
             read_opts.stats = &stats;
 
-            unique_ptr<RowwiseIterator> iter;
+            std::unique_ptr<RowwiseIterator> iter;
             ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
 
             RowBlockV2 block(read_schema, 1024);
@@ -649,12 +649,12 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
 }
 
 TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
-    vector<TabletColumn> columns = { create_int_key(1), create_int_key(2), create_int_value(3), create_int_value(4) };
+    std::vector<TabletColumn> columns = { create_int_key(1), create_int_key(2), create_int_value(3), create_int_value(4) };
     TabletSchema build_schema = create_schema(columns);
 
     // add a column with null default value
     {
-        vector<TabletColumn> read_columns = columns;
+        std::vector<TabletColumn> read_columns = columns;
         read_columns.push_back(create_int_value(5, OLAP_FIELD_AGGREGATION_SUM, true, "NULL"));
         TabletSchema query_schema = create_schema(read_columns);
 
@@ -703,7 +703,7 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
 
     // add a column with non-null default value
     {
-        vector<TabletColumn> read_columns = columns;
+        std::vector<TabletColumn> read_columns = columns;
         read_columns.push_back(create_int_value(5, OLAP_FIELD_AGGREGATION_SUM, true, "10086"));
         TabletSchema query_schema = create_schema(read_columns);
 

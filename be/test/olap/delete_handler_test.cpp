@@ -850,7 +850,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(4, _delete_handler.conditions_num());
-    vector<int32_t> conds_version = _delete_handler.get_conds_version();
+    std::vector<int32_t> conds_version = _delete_handler.get_conds_version();
     EXPECT_EQ(4, conds_version.size());
     sort(conds_version.begin(), conds_version.end());
     EXPECT_EQ(1, conds_version[0]);
@@ -894,7 +894,7 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     ASSERT_EQ(1, _delete_handler.conditions_num());
 
     // 构造一行测试数据
-    vector<string> data_str;
+    std::vector<string> data_str;
     data_str.push_back("1");
     data_str.push_back("6");
     data_str.push_back("8");
@@ -980,7 +980,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(3, _delete_handler.conditions_num());
 
-    vector<string> data_str;
+    std::vector<string> data_str;
     data_str.push_back("4");
     data_str.push_back("5");
     data_str.push_back("8");
@@ -1046,7 +1046,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     ASSERT_EQ(2, _delete_handler.conditions_num());
 
     // 构造一行测试数据
-    vector<string> data_str;
+    std::vector<string> data_str;
     data_str.push_back("1");
     data_str.push_back("6");
     data_str.push_back("8");

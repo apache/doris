@@ -51,10 +51,10 @@ PluginZip::~PluginZip() {
 
 Status PluginZip::extract(const std::string& target_dir, const std::string& plugin_name) {
     // check plugin install path
-    std::string plugin_install_path = Substitute("$0/$1", target_dir, plugin_name);
+    std::string plugin_install_path = strings::Substitute("$0/$1", target_dir, plugin_name);
 
     if (FileUtils::check_exist(plugin_install_path)) {
-        return Status::AlreadyExist(Substitute("plugin $0 already install!", plugin_name));
+        return Status::AlreadyExist(strings::Substitute("plugin $0 already install!", plugin_name));
     }
 
     if (!FileUtils::check_exist(target_dir)) {
@@ -63,7 +63,7 @@ Status PluginZip::extract(const std::string& target_dir, const std::string& plug
     
     std::string zip_path = _source;
     if (!is_local_source(_source)) {
-        zip_path = Substitute("$0/.temp_$1_$2.zip", target_dir, GetCurrentTimeMicros(), plugin_name);
+        zip_path = strings::Substitute("$0/.temp_$1_$2.zip", target_dir, GetCurrentTimeMicros(), plugin_name);
         _clean_paths.push_back(zip_path);
 
         RETURN_IF_ERROR(download(zip_path));
@@ -122,7 +122,7 @@ Status PluginZip::download(const std::string& zip_path) {
     digest.digest();
     if (0 != strncmp(digest.hex().c_str(), expect.c_str(), 32)) {
         return Status::InternalError(
-                Substitute("plugin install checksum failed. expect: $0, actual:$1", expect, digest.hex()));
+                strings::Substitute("plugin install checksum failed. expect: $0, actual:$1", expect, digest.hex()));
     }
 
     return Status::OK();

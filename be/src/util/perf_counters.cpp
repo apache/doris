@@ -307,7 +307,7 @@ bool PerfCounters::get_sys_counters(vector<int64_t>& buffer) {
 //    write_bytes: 0
 //    cancelled_write_bytes: 0
 bool PerfCounters::get_proc_self_io_counters(vector<int64_t>& buffer) {
-    std::ifstream file("/proc/self/io", ios::in);
+    std::ifstream file("/proc/self/io", std::ios::in);
     std::string buf;
     int64_t values[PROC_IO_LAST_COUNTER];
     int ret = 0;
@@ -347,7 +347,7 @@ bool PerfCounters::get_proc_self_io_counters(vector<int64_t>& buffer) {
 }
 
 bool PerfCounters::get_proc_self_status_counters(vector<int64_t>& buffer) {
-    ifstream file("/proc/self/status", ios::in);
+    std::ifstream file("/proc/self/status", std::ios::in);
     string buf;
 
     while (file) {
@@ -467,12 +467,12 @@ void PerfCounters::snapshot(const string& name) {
     string fixed_name = name;
 
     if (fixed_name.size() == 0) {
-        stringstream ss;
+        std::stringstream ss;
         ss << _snapshots.size() + 1;
         fixed_name = ss.str();
     }
 
-    vector<int64_t> buffer(_counters.size());
+    std::vector<int64_t> buffer(_counters.size());
 
     get_sys_counters(buffer);
     get_proc_self_io_counters(buffer);
@@ -482,7 +482,7 @@ void PerfCounters::snapshot(const string& name) {
     _snapshot_names.push_back(fixed_name);
 }
 
-const vector<int64_t>* PerfCounters::counters(int snapshot) const {
+const std::vector<int64_t>* PerfCounters::counters(int snapshot) const {
     if (snapshot < 0 || snapshot >= _snapshots.size()) {
         return NULL;
     }
@@ -498,7 +498,7 @@ void PerfCounters::pretty_print(ostream* s) const {
         stream << setw(PRETTY_PRINT_WIDTH) << _counter_names[i];
     }
 
-    stream << endl;
+    stream << std::endl;
 
     for (int s = 0; s < _snapshots.size(); s++) {
         stream << setw(8) << _snapshot_names[s];
@@ -509,10 +509,10 @@ void PerfCounters::pretty_print(ostream* s) const {
                     << PrettyPrinter::print(snapshot[i], _counters[i].type);
         }
 
-        stream << endl;
+        stream << std::endl;
     }
 
-    stream << endl;
+    stream << std::endl;
 }
 
 }

@@ -85,7 +85,7 @@ Status SetOperationNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-string SetOperationNode::get_row_output_string(TupleRow* row, const RowDescriptor& row_desc) {
+std::string SetOperationNode::get_row_output_string(TupleRow* row, const RowDescriptor& row_desc) {
     std::stringstream out;
     out << "[";
     for (int i = 0; i < row_desc.tuple_descriptors().size(); ++i) {
@@ -136,7 +136,7 @@ Status SetOperationNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     // open result expr lists.
-    for (const vector<ExprContext*>& exprs : _child_expr_lists) {
+    for (const std::vector<ExprContext*>& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(Expr::open(exprs, state));
     }
     // initial build hash table used for remove duplicated

@@ -83,7 +83,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type,
         *result = std::make_shared<arrow::Decimal128Type>(27, 9);
         break;
     default:
-        return Status::InvalidArgument(Substitute("Unknown primitive type($0)", type.type));
+        return Status::InvalidArgument(strings::Substitute("Unknown primitive type($0)", type.type));
     }
     return Status::OK();
 }
@@ -133,7 +133,7 @@ Status convert_to_doris_type(const arrow::DataType& type,
         builder->type(TYPE_DOUBLE);
         break;
     default:
-        return Status::InvalidArgument(Substitute("Unknown arrow type id($0)", type.id()));
+        return Status::InvalidArgument(strings::Substitute("Unknown arrow type id($0)", type.id()));
     }
     return Status::OK();
 }

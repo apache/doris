@@ -99,7 +99,7 @@ AgentServer::~AgentServer() { }
 
 // TODO(lingbin): each task in the batch may have it own status or FE must check and
 // resend request when something is wrong(BE may need some logic to guarantee idempotence.
-void AgentServer::submit_tasks(TAgentResult& agent_result, const vector<TAgentTaskRequest>& tasks) {
+void AgentServer::submit_tasks(TAgentResult& agent_result, const std::vector<TAgentTaskRequest>& tasks) {
     Status ret_st;
 
     // TODO check master_info here if it is the same with that of heartbeat rpc

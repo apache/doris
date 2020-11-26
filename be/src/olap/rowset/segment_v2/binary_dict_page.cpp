@@ -78,7 +78,7 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                 if (src->size > 0) {
                     char* item_mem = (char*)_pool.allocate(src->size);
                     if (item_mem == nullptr) {
-                        return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", src->size));
+                        return Status::MemoryAllocFailed(strings::Substitute("memory allocate failed, size:$0", src->size));
                     }
                     dict_item.relocate(item_mem);
                 }
@@ -190,7 +190,7 @@ BinaryDictPageDecoder::BinaryDictPageDecoder(Slice data, const PageDecoderOption
 Status BinaryDictPageDecoder::init() {
     CHECK(!_parsed);
     if (_data.size < BINARY_DICT_PAGE_HEADER_SIZE) {
-        return Status::Corruption(Substitute("invalid data size:$0, header size:$1",
+        return Status::Corruption(strings::Substitute("invalid data size:$0, header size:$1",
                 _data.size, BINARY_DICT_PAGE_HEADER_SIZE));
     }
     size_t type = decode_fixed32_le((const uint8_t*)&_data.data[0]);
@@ -213,7 +213,7 @@ Status BinaryDictPageDecoder::init() {
         _data_page_decoder.reset(new BinaryPlainPageDecoder(_data, _options));
     } else {
         LOG(WARNING) << "invalid encoding type:" << _encoding_type;
-        return Status::Corruption(Substitute("invalid encoding type:$0", _encoding_type));
+        return Status::Corruption(strings::Substitute("invalid encoding type:$0", _encoding_type));
     }
 
     RETURN_IF_ERROR(_data_page_decoder->init());
@@ -257,7 +257,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
         if (element.size > 0) {
             char* destination = (char*)dst->column_block()->pool()->allocate(element.size);
             if (destination == nullptr) {
-                return Status::MemoryAllocFailed(Substitute(
+                return Status::MemoryAllocFailed(strings::Substitute(
                     "memory allocate failed, size:$0", element.size));
             }
             element.relocate(destination);

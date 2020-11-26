@@ -46,8 +46,8 @@ protected:
     }
 
     void RunTest(THdfsCompression::type format) {
-        scoped_ptr<Codec> compressor;
-        scoped_ptr<Codec> decompressor;
+        boost::scoped_ptr<Codec> compressor;
+        boost::scoped_ptr<Codec> decompressor;
         MemPool* mem_pool = new MemPool;
 
         EXPECT_TRUE(
