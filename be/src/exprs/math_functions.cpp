@@ -366,7 +366,7 @@ StringVal MathFunctions::hex_string(FunctionContext* ctx, const StringVal& s) {
     std::stringstream ss;
     ss << std::hex << std::uppercase << std::setfill('0');
     for (int i = 0; i < s.len; ++i) {
-        // setw is not sticky. stringstream only converts integral values,
+        // setw is not sticky. std::stringstream only converts integral values,
         // so a cast to int is required, but only convert the least significant byte to hex.
         ss << std::setw(2) << (static_cast<int32_t>(s.ptr[i]) & 0xFF);
     }

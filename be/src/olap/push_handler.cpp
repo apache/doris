@@ -56,13 +56,13 @@ namespace doris {
 //           very useful in rollup action.
 OLAPStatus PushHandler::process_streaming_ingestion(
     TabletSharedPtr tablet, const TPushReq& request, PushType push_type,
-    vector<TTabletInfo>* tablet_info_vec) {
+    std::vector<TTabletInfo>* tablet_info_vec) {
   LOG(INFO) << "begin to realtime push. tablet=" << tablet->full_name()
             << ", transaction_id=" << request.transaction_id;
 
   OLAPStatus res = OLAP_SUCCESS;
   _request = request;
-  vector<TabletVars> tablet_vars(1);
+  std::vector<TabletVars> tablet_vars(1);
   tablet_vars[0].tablet = tablet;
   res = _do_streaming_ingestion(tablet, request, push_type, &tablet_vars,
                                 tablet_info_vec);
@@ -82,7 +82,7 @@ OLAPStatus PushHandler::process_streaming_ingestion(
 
 OLAPStatus PushHandler::_do_streaming_ingestion(
     TabletSharedPtr tablet, const TPushReq& request, PushType push_type,
-    vector<TabletVars>* tablet_vars,
+    std::vector<TabletVars>* tablet_vars,
     std::vector<TTabletInfo>* tablet_info_vec) {
   // add transaction in engine, then check sc status
   // lock, prevent sc handler checking transaction concurrently
@@ -251,8 +251,8 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
   return res;
 }
 
-void PushHandler::_get_tablet_infos(const vector<TabletVars>& tablet_vars,
-                                    vector<TTabletInfo>* tablet_info_vec) {
+void PushHandler::_get_tablet_infos(const std::vector<TabletVars>& tablet_vars,
+                                    std::vector<TTabletInfo>* tablet_info_vec) {
   for (const TabletVars& tablet_var : tablet_vars) {
     if (tablet_var.tablet.get() == NULL) {
       continue;
@@ -1052,7 +1052,7 @@ void PushBrokerReader::print_profile() {
     LOG(INFO) << ss.str();
 }
 
-string PushHandler::_debug_version_list(const Versions& versions) const {
+std::string PushHandler::_debug_version_list(const Versions& versions) const {
   std::ostringstream txt;
   txt << "Versions: ";
 

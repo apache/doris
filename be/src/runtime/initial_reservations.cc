@@ -29,7 +29,7 @@
 #include "util/uid_util.h"
 #include "util/pretty_printer.h"
 
-#include "common/names.h"
+
 
 using std::numeric_limits;
 
@@ -62,7 +62,7 @@ Status InitialReservations::Init(
 
 void InitialReservations::Claim(BufferPool::ClientHandle* dst, int64_t bytes) {
   DCHECK_GE(bytes, 0);
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   DCHECK_LE(bytes, remaining_initial_reservation_claims_);
   bool success = dst->TransferReservationFrom(&initial_reservations_, bytes);
   DCHECK(success) << "Planner computation should ensure enough initial reservations";
@@ -70,7 +70,7 @@ void InitialReservations::Claim(BufferPool::ClientHandle* dst, int64_t bytes) {
 }
 
 void InitialReservations::Return(BufferPool::ClientHandle* src, int64_t bytes) {
-  lock_guard<SpinLock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   bool success = src->TransferReservationTo(&initial_reservations_, bytes);
   // No limits on our tracker - no way this should fail.
   DCHECK(success);

@@ -84,7 +84,7 @@ OLAPStatus AlphaRowset::remove() {
 void AlphaRowset::make_visible_extra(Version version,  VersionHash version_hash) {
     AlphaRowsetMetaSharedPtr alpha_rowset_meta =
             std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
-    vector<SegmentGroupPB> published_segment_groups;
+    std::vector<SegmentGroupPB> published_segment_groups;
     alpha_rowset_meta->get_segment_groups(&published_segment_groups);
     int32_t segment_group_idx = 0;
     for (auto& segment_group : _segment_groups) {
@@ -167,7 +167,7 @@ OLAPStatus AlphaRowset::split_range(
             const RowCursor& start_key,
             const RowCursor& end_key,
             uint64_t request_block_row_count,
-            vector<OlapTuple>* ranges) {
+            std::vector<OlapTuple>* ranges) {
     EntrySlice entry;
     RowBlockPosition start_pos;
     RowBlockPosition end_pos;

@@ -34,7 +34,7 @@ namespace doris {
 
 TEST(SubmitTasksTest, TestSubmitTasks){
     TAgentResult return_value;
-    vector<TAgentTaskRequest> tasks;
+    std::vector<TAgentTaskRequest> tasks;
     
     ExecEnv env;
     TMasterInfo master_info;

@@ -45,7 +45,7 @@ using strings::Substitute;
 
 Status FileUtils::create_dir(const std::string& path, Env* env) {
     if (path.empty()) {
-        return Status::InvalidArgument(Substitute("Unknown primitive type($0)", path));
+        return Status::InvalidArgument(strings::Substitute("Unknown primitive type($0)", path));
     }
 
     boost::filesystem::path p(path);

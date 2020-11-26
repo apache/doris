@@ -61,7 +61,7 @@ WebPageHandler::~WebPageHandler() {
 void WebPageHandler::register_template_page(const std::string& path, const string& alias,
                                             const TemplatePageHandlerCallback& callback, bool is_on_nav_bar) {
     // Relative path which will be used to find .mustache file in _www_path
-    string render_path = (path == "/") ? "/home" : path;
+    std::string render_path = (path == "/") ? "/home" : path;
     auto wrapped_cb = [=](const ArgumentMap& args, std::stringstream* output) {
         EasyJson ej;
         callback(args, &ej);
@@ -166,7 +166,7 @@ static const std::string kMainTemplate = R"(
 )";
 
 std::string WebPageHandler::mustache_partial_tag(const std::string& path) const {
-    return Substitute("{{> $0.mustache}}", path);
+    return strings::Substitute("{{> $0.mustache}}", path);
 }
 
 bool WebPageHandler::static_pages_available() const {
@@ -178,7 +178,7 @@ bool WebPageHandler::mustache_template_available(const std::string& path) const 
     if (!static_pages_available()) {
         return false;
     }
-    return Env::Default()->path_exists(Substitute("$0/$1.mustache", _www_path, path)).ok();
+    return Env::Default()->path_exists(strings::Substitute("$0/$1.mustache", _www_path, path)).ok();
 }
 
 void WebPageHandler::render_main_template(const std::string& content, std::stringstream* output) {

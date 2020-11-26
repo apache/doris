@@ -161,9 +161,9 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
             auto insert_result = operand_set.insert(f.get());
             if (!insert_result.second) {
                 LOG(WARNING) << "Duplicate operand in in-predicate.[condition=" << operand << "]";
-                // Duplicated, let unique_ptr delete field
+                // Duplicated, let std::unique_ptr delete field
             } else {
-                // Normal case, release this unique_ptr
+                // Normal case, release this std::unique_ptr
                 f.release();
             }
         }

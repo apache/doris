@@ -49,7 +49,7 @@ static std::string to_upper(const std::string& str) {
 //   format 1:   /home/disk1/palo.HDD,50
 //   format 2:   /home/disk1/palo,medium:ssd,capacity:50
 OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
-    vector<string> tmp_vec = strings::Split(root_path, ",", strings::SkipWhitespace());
+    std::vector<string> tmp_vec = strings::Split(root_path, ",", strings::SkipWhitespace());
 
     // parse root path name
     StripWhiteSpace(&tmp_vec[0]);
@@ -131,8 +131,8 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus parse_conf_store_paths(const string& config_path, vector<StorePath>* paths) {
-    vector<string> path_vec = strings::Split(config_path, ";", strings::SkipWhitespace());
+OLAPStatus parse_conf_store_paths(const string& config_path, std::vector<StorePath>* paths) {
+    std::vector<string> path_vec = strings::Split(config_path, ";", strings::SkipWhitespace());
     for (auto& item : path_vec) {
         StorePath path;
         auto res = parse_root_path(item, &path);

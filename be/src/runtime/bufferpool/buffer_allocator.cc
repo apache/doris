@@ -28,7 +28,6 @@
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 
-#include "common/names.h"
 #include "common/config.h"
 
 //DECLARE_bool(disable_mem_pools);
@@ -72,7 +71,7 @@ class BufferPool::FreeBufferArena : public CacheLineAligned {
   ///
   /// Caller should not hold 'lock_'. If 'arena_lock' is non-null, ownership of the
   /// arena lock is transferred to the caller. Uses std::unique_lock instead of
-  /// boost::unique_lock because it is movable.
+  /// boost::std::unique_lock because it is movable.
   std::pair<int64_t, int64_t> FreeSystemMemory(int64_t target_bytes_to_free,
       int64_t target_bytes_to_claim, std::unique_lock<SpinLock>* arena_lock);
 
@@ -106,7 +105,7 @@ class BufferPool::FreeBufferArena : public CacheLineAligned {
   /// it doesn't acquire the arena lock.
   int64_t GetNumCleanPages();
 
-  string DebugString();
+  std::string DebugString();
 
  private:
   /// The data structures for each power-of-two size of buffers/pages.
@@ -119,7 +118,7 @@ class BufferPool::FreeBufferArena : public CacheLineAligned {
     void AddFreeBuffer(BufferHandle&& buffer) {
       DCHECK_EQ(num_free_buffers.load(), free_buffers.Size());
       num_free_buffers.add(1);
-      free_buffers.AddFreeBuffer(move(buffer));
+      free_buffers.AddFreeBuffer(std::move(buffer));
     }
 
     /// The number of entries in 'free_buffers'. Can be read without holding a lock to
@@ -178,8 +177,8 @@ int64_t BufferPool::BufferAllocator::CalcMaxBufferLen(
   // Find largest power of 2 smaller than 'system_bytes_limit'.
   int64_t upper_bound = system_bytes_limit == 0 ? 1L : 1L
           << BitUtil::Log2Floor64(system_bytes_limit);
-  upper_bound = min(MAX_BUFFER_BYTES, upper_bound);
-  return max(min_buffer_len, upper_bound); // Can't be < min_buffer_len.
+  upper_bound = std::min(MAX_BUFFER_BYTES, upper_bound);
+  return std::max(min_buffer_len, upper_bound); // Can't be < min_buffer_len.
 }
 
 BufferPool::BufferAllocator::BufferAllocator(
@@ -202,9 +201,9 @@ BufferPool::BufferAllocator::BufferAllocator(
   DCHECK_LE(0, min_buffer_len_);
   DCHECK_LE(min_buffer_len_, max_buffer_len_);
   DCHECK_LE(max_buffer_len_, MAX_BUFFER_BYTES);
-  DCHECK_LE(max_buffer_len_, max(system_bytes_limit_, min_buffer_len_));
+  DCHECK_LE(max_buffer_len_, std::max(system_bytes_limit_, min_buffer_len_));
 
-  for (unique_ptr<FreeBufferArena>& arena : per_core_arenas_) {
+  for (std::unique_ptr<FreeBufferArena>& arena : per_core_arenas_) {
     arena.reset(new FreeBufferArena(this));
   }
 }
@@ -254,7 +253,7 @@ Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* 
   int64_t delta = DecreaseBytesRemaining(len, true, &system_bytes_remaining_);
   if (delta != len) {
     DCHECK_EQ(0, delta);
-    const vector<int>& numa_node_cores = CpuInfo::get_cores_of_same_numa_node(current_core);
+    const std::vector<int>& numa_node_cores = CpuInfo::get_cores_of_same_numa_node(current_core);
     const int numa_node_core_idx = CpuInfo::get_numa_node_core_idx(current_core);
 
     // Fast-ish path: find a buffer of the right size from another core on the same
@@ -314,7 +313,7 @@ int64_t DecreaseBytesRemaining(
   while (true) {
     int64_t old_value = bytes_remaining->load();
     if (require_full_decrease && old_value < max_decrease) return 0;
-    int64_t decrease = min(old_value, max_decrease);
+    int64_t decrease = std::min(old_value, max_decrease);
     int64_t new_value = old_value - decrease;
     if (bytes_remaining->compare_and_swap(old_value, new_value)) {
       return decrease;
@@ -347,7 +346,7 @@ int64_t BufferPool::BufferAllocator::ScavengeBuffers(
   // therefore must start at 0 to respect the lock order. Otherwise we start with the
   // current core's arena for locality and to avoid excessive contention on arena 0.
   int start_core = slow_but_sure ? 0 : current_core;
-  vector<std::unique_lock<SpinLock>> arena_locks;
+  std::vector<std::unique_lock<SpinLock>> arena_locks;
   if (slow_but_sure) arena_locks.resize(per_core_arenas_.size());
 
   for (int i = 0; i < per_core_arenas_.size(); ++i) {
@@ -378,11 +377,11 @@ void BufferPool::BufferAllocator::Free(BufferHandle&& handle) {
   handle.client_ = nullptr; // Buffer is no longer associated with a client.
   FreeBufferArena* arena = per_core_arenas_[handle.home_core_].get();
   handle.Poison();
-  arena->AddFreeBuffer(move(handle));
+  arena->AddFreeBuffer(std::move(handle));
 }
 
 void BufferPool::BufferAllocator::AddCleanPage(
-    const unique_lock<mutex>& client_lock, Page* page) {
+    const std::unique_lock<std::mutex>& client_lock, Page* page) {
   page->client->DCheckHoldsLock(client_lock);
   FreeBufferArena* arena = per_core_arenas_[page->buffer.home_core_].get();
   arena->AddCleanPage(page);
@@ -390,11 +389,11 @@ void BufferPool::BufferAllocator::AddCleanPage(
 
 
 bool BufferPool::BufferAllocator::RemoveCleanPage(
-    const unique_lock<mutex>& client_lock, bool claim_buffer, Page* page) {
+    const std::unique_lock<std::mutex>& client_lock, bool claim_buffer, Page* page) {
   page->client->DCheckHoldsLock(client_lock);
   FreeBufferArena* arena;
   {
-    lock_guard<SpinLock> pl(page->buffer_lock);
+    std::lock_guard<SpinLock> pl(page->buffer_lock);
     // Page may be evicted - in which case it has no home core and is not in an arena.
     if (!page->buffer.is_open()) return false;
     arena = per_core_arenas_[page->buffer.home_core_].get();
@@ -403,7 +402,7 @@ bool BufferPool::BufferAllocator::RemoveCleanPage(
 }
 
 void BufferPool::BufferAllocator::Maintenance() {
-  for (unique_ptr<FreeBufferArena>& arena : per_core_arenas_) arena->Maintenance();
+  for (std::unique_ptr<FreeBufferArena>& arena : per_core_arenas_) arena->Maintenance();
 }
 
 void BufferPool::BufferAllocator::ReleaseMemory(int64_t bytes_to_free) {
@@ -422,13 +421,13 @@ int BufferPool::BufferAllocator::GetFreeListSize(int core, int64_t len) {
   return per_core_arenas_[core]->GetFreeListSize(len);
 }
 
-int64_t BufferPool::BufferAllocator::FreeToSystem(vector<BufferHandle>&& buffers) {
+int64_t BufferPool::BufferAllocator::FreeToSystem(std::vector<BufferHandle>&& buffers) {
   int64_t bytes_freed = 0;
   for (BufferHandle& buffer : buffers) {
     bytes_freed += buffer.len();
     // Ensure that the memory is unpoisoned when it's next allocated by the system.
     buffer.Unpoison();
-    system_allocator_->Free(move(buffer));
+    system_allocator_->Free(std::move(buffer));
   }
   return bytes_freed;
 }
@@ -436,7 +435,7 @@ int64_t BufferPool::BufferAllocator::FreeToSystem(vector<BufferHandle>&& buffers
 int64_t BufferPool::BufferAllocator::SumOverArenas(
     std::function<int64_t(FreeBufferArena* arena)> compute_fn) const {
   int64_t total = 0;
-  for (const unique_ptr<FreeBufferArena>& arena : per_core_arenas_) {
+  for (const std::unique_ptr<FreeBufferArena>& arena : per_core_arenas_) {
     total += compute_fn(arena.get());
   }
   return total;
@@ -463,8 +462,8 @@ int64_t BufferPool::BufferAllocator::GetCleanPageBytes() const {
   return clean_page_bytes_limit_ - clean_page_bytes_remaining_.load();
 }
 
-string BufferPool::BufferAllocator::DebugString() {
-  stringstream ss;
+std::string BufferPool::BufferAllocator::DebugString() {
+  std::stringstream ss;
   ss << "<BufferAllocator> " << this << " min_buffer_len: " << min_buffer_len_
      << " system_bytes_limit: " << system_bytes_limit_
      << " system_bytes_remaining: " << system_bytes_remaining_.load() << "\n"
@@ -482,8 +481,8 @@ BufferPool::FreeBufferArena::~FreeBufferArena() {
   for (int i = 0; i < NumBufferSizes(); ++i) {
     // Clear out the free lists.
     FreeList* list = &buffer_sizes_[i].free_buffers;
-    vector<BufferHandle> buffers = list->GetBuffersToFree(list->Size());
-    parent_->system_bytes_remaining_.add(parent_->FreeToSystem(move(buffers)));
+    std::vector<BufferHandle> buffers = list->GetBuffersToFree(list->Size());
+    parent_->system_bytes_remaining_.add(parent_->FreeToSystem(std::move(buffers)));
 
     // All pages should have been destroyed.
     DCHECK_EQ(0, buffer_sizes_[i].clean_pages.size());
@@ -491,19 +490,19 @@ BufferPool::FreeBufferArena::~FreeBufferArena() {
 }
 
 void BufferPool::FreeBufferArena::AddFreeBuffer(BufferHandle&& buffer) {
-  lock_guard<SpinLock> al(lock_);
+  std::lock_guard<SpinLock> al(lock_);
   if (config::disable_mem_pools) {
     int64_t len = buffer.len();
-    parent_->system_allocator_->Free(move(buffer));
+    parent_->system_allocator_->Free(std::move(buffer));
     parent_->system_bytes_remaining_.add(len);
     return;
   }
   PerSizeLists* lists = GetListsForSize(buffer.len());
-  lists->AddFreeBuffer(move(buffer));
+  lists->AddFreeBuffer(std::move(buffer));
 }
 
 bool BufferPool::FreeBufferArena::RemoveCleanPage(bool claim_buffer, Page* page) {
-  lock_guard<SpinLock> al(lock_);
+  std::lock_guard<SpinLock> al(lock_);
   PerSizeLists* lists = GetListsForSize(page->len);
   DCHECK_EQ(lists->num_clean_pages.load(), lists->clean_pages.size());
   if (!lists->clean_pages.remove(page)) return false;
@@ -512,10 +511,10 @@ bool BufferPool::FreeBufferArena::RemoveCleanPage(bool claim_buffer, Page* page)
   if (!claim_buffer) {
     BufferHandle buffer;
     {
-      lock_guard<SpinLock> pl(page->buffer_lock);
-      buffer = move(page->buffer);
+      std::lock_guard<SpinLock> pl(page->buffer_lock);
+      buffer = std::move(page->buffer);
     }
-    lists->AddFreeBuffer(move(buffer));
+    lists->AddFreeBuffer(std::move(buffer));
   }
   return true;
 }
@@ -526,13 +525,13 @@ bool BufferPool::FreeBufferArena::PopFreeBuffer(
   // Check before acquiring lock.
   if (lists->num_free_buffers.load() == 0) return false;
 
-  lock_guard<SpinLock> al(lock_);
+  std::lock_guard<SpinLock> al(lock_);
   FreeList* list = &lists->free_buffers;
   DCHECK_EQ(lists->num_free_buffers.load(), list->Size());
   if (!list->PopFreeBuffer(buffer)) return false;
   buffer->Unpoison();
   lists->num_free_buffers.add(-1);
-  lists->low_water_mark = min<int>(lists->low_water_mark, list->Size());
+  lists->low_water_mark = std::min<int>(lists->low_water_mark, list->Size());
   return true;
 }
 /*
@@ -542,14 +541,14 @@ bool BufferPool::FreeBufferArena::EvictCleanPage(
   // Check before acquiring lock.
   if (lists->num_clean_pages.Load() == 0) return false;
 
-  lock_guard<SpinLock> al(lock_);
+  std::lock_guard<SpinLock> al(lock_);
   DCHECK_EQ(lists->num_clean_pages.Load(), lists->clean_pages.size());
   Page* page = lists->clean_pages.dequeue();
   if (page == nullptr) return false;
   lists->num_clean_pages.Add(-1);
   parent_->clean_page_bytes_remaining_.Add(buffer_len);
-  lock_guard<SpinLock> pl(page->buffer_lock);
-  *buffer = move(page->buffer);
+  std::lock_guard<SpinLock> pl(page->buffer_lock);
+  *buffer = std::move(page->buffer);
   return true;
 }
 */
@@ -565,7 +564,7 @@ std::pair<int64_t, int64_t> BufferPool::FreeBufferArena::FreeSystemMemory(
   std::unique_lock<SpinLock> al(lock_, std::defer_lock_t());
   if (arena_lock != nullptr) al.lock();
 
-  vector<BufferHandle> buffers;
+  std::vector<BufferHandle> buffers;
   // Search from largest to smallest to avoid freeing many small buffers unless
   // necessary.
   for (int i = NumBufferSizes() - 1; i >= 0; --i) {
@@ -584,7 +583,7 @@ std::pair<int64_t, int64_t> BufferPool::FreeBufferArena::FreeSystemMemory(
     // Figure out how many of the buffers in the free list we should free.
     DCHECK_GT(target_bytes_to_free, bytes_freed);
     const int64_t buffer_len = 1L << (i + parent_->log_min_buffer_len_);
-    int64_t buffers_to_free = min(free_buffers->Size(),
+    int64_t buffers_to_free = std::min(free_buffers->Size(),
         BitUtil::Ceil(target_bytes_to_free - bytes_freed, buffer_len));
     int64_t buffer_bytes_to_free = buffers_to_free * buffer_len;
 
@@ -598,14 +597,14 @@ std::pair<int64_t, int64_t> BufferPool::FreeBufferArena::FreeSystemMemory(
       if (page == nullptr) break;
       BufferHandle page_buffer;
       {
-        lock_guard<SpinLock> pl(page->buffer_lock);
-        page_buffer = move(page->buffer);
+        std::lock_guard<SpinLock> pl(page->buffer_lock);
+        page_buffer = std::move(page->buffer);
       }
       ++buffers_to_free;
       buffer_bytes_to_free += page_buffer.len();
       ++num_pages_evicted;
       page_bytes_evicted += page_buffer.len();
-      free_buffers->AddFreeBuffer(move(page_buffer));
+      free_buffers->AddFreeBuffer(std::move(page_buffer));
     }
     lists->num_free_buffers.add(num_pages_evicted);
     lists->num_clean_pages.add(-num_pages_evicted);
@@ -617,20 +616,20 @@ std::pair<int64_t, int64_t> BufferPool::FreeBufferArena::FreeSystemMemory(
       DCHECK_EQ(buffer_bytes_to_free, buffer_bytes_freed);
       bytes_freed += buffer_bytes_to_free;
       lists->num_free_buffers.add(-buffers_to_free);
-      lists->low_water_mark = min<int>(lists->low_water_mark, free_buffers->Size());
+      lists->low_water_mark = std::min<int>(lists->low_water_mark, free_buffers->Size());
       if (bytes_freed >= target_bytes_to_free) break;
     }
     // Should have cleared out all lists if we don't have enough memory at this point.
     DCHECK_EQ(0, free_buffers->Size());
     DCHECK_EQ(0, clean_pages->size());
   }
-  int64_t bytes_claimed = min(bytes_freed, target_bytes_to_claim);
+  int64_t bytes_claimed = std::min(bytes_freed, target_bytes_to_claim);
   if (bytes_freed > bytes_claimed) {
     // Add back the extra for other threads before releasing the lock to avoid race
     // where the other thread may not be able to find enough buffers.
     parent_->system_bytes_remaining_.add(bytes_freed - bytes_claimed);
   }
-  if (arena_lock != nullptr) *arena_lock = move(al);
+  if (arena_lock != nullptr) *arena_lock = std::move(al);
   return std::make_pair(bytes_freed, bytes_claimed);
 }
 
@@ -638,23 +637,23 @@ void BufferPool::FreeBufferArena::AddCleanPage(Page* page) {
   bool eviction_needed = config::disable_mem_pools
     || DecreaseBytesRemaining(
         page->len, true, &parent_->clean_page_bytes_remaining_) == 0;
-  lock_guard<SpinLock> al(lock_);
+  std::lock_guard<SpinLock> al(lock_);
   PerSizeLists* lists = GetListsForSize(page->len);
   DCHECK_EQ(lists->num_clean_pages.load(), lists->clean_pages.size());
   if (eviction_needed) {
     if (lists->clean_pages.empty()) {
       // No other pages to evict, must evict 'page' instead of adding it.
-      lists->AddFreeBuffer(move(page->buffer));
+      lists->AddFreeBuffer(std::move(page->buffer));
     } else {
       // Evict an older page (FIFO eviction) to make space for this one.
       Page* page_to_evict = lists->clean_pages.dequeue();
       lists->clean_pages.enqueue(page);
       BufferHandle page_to_evict_buffer;
       {
-        lock_guard<SpinLock> pl(page_to_evict->buffer_lock);
-        page_to_evict_buffer = move(page_to_evict->buffer);
+        std::lock_guard<SpinLock> pl(page_to_evict->buffer_lock);
+        page_to_evict_buffer = std::move(page_to_evict->buffer);
       }
-      lists->AddFreeBuffer(move(page_to_evict_buffer));
+      lists->AddFreeBuffer(std::move(page_to_evict_buffer));
     }
   } else {
     lists->clean_pages.enqueue(page);
@@ -663,7 +662,7 @@ void BufferPool::FreeBufferArena::AddCleanPage(Page* page) {
 }
 
 void BufferPool::FreeBufferArena::Maintenance() {
-  lock_guard<SpinLock> al(lock_);
+  std::lock_guard<SpinLock> al(lock_);
   for (int i = 0; i < NumBufferSizes(); ++i) {
     PerSizeLists* lists = &buffer_sizes_[i];
     DCHECK_LE(lists->low_water_mark, lists->free_buffers.Size());
@@ -671,7 +670,7 @@ void BufferPool::FreeBufferArena::Maintenance() {
       // We haven't needed the buffers below the low water mark since the previous
       // Maintenance() call. Discard half of them to free up memory. By always discarding
       // at least one, we guarantee that an idle list will shrink to zero entries.
-      int num_to_free = max(1, lists->low_water_mark / 2);
+      int num_to_free = std::max(1, lists->low_water_mark / 2);
       parent_->system_bytes_remaining_.add(
           parent_->FreeToSystem(lists->free_buffers.GetBuffersToFree(num_to_free)));
       lists->num_free_buffers.add(-num_to_free);
@@ -681,7 +680,7 @@ void BufferPool::FreeBufferArena::Maintenance() {
 }
 
 int BufferPool::FreeBufferArena::GetFreeListSize(int64_t len) {
-  lock_guard<SpinLock> al(lock_);
+  std::lock_guard<SpinLock> al(lock_);
   PerSizeLists* lists = GetListsForSize(len);
   DCHECK_EQ(lists->num_free_buffers.load(), lists->free_buffers.Size());
   return lists->free_buffers.Size();
@@ -715,9 +714,9 @@ int64_t BufferPool::FreeBufferArena::GetNumCleanPages() {
   });
 }
 
-string BufferPool::FreeBufferArena::DebugString() {
-  lock_guard<SpinLock> al(lock_);
-  stringstream ss;
+std::string BufferPool::FreeBufferArena::DebugString() {
+  std::lock_guard<SpinLock> al(lock_);
+  std::stringstream ss;
   ss << "<FreeBufferArena> " << this << "\n";
   for (int i = 0; i < NumBufferSizes(); ++i) {
     int64_t buffer_len = 1L << (parent_->log_min_buffer_len_ + i);
@@ -726,7 +725,7 @@ string BufferPool::FreeBufferArena::DebugString() {
        << " free buffers: " << lists.num_free_buffers.load()
        << " low water mark: " << lists.low_water_mark
        << " clean pages: " << lists.num_clean_pages.load() << " ";
-    lists.clean_pages.iterate(bind<bool>(Page::DebugStringCallback, &ss, _1));
+    lists.clean_pages.iterate(boost::bind<bool>(Page::DebugStringCallback, &ss, _1));
 
     ss << "\n";
   }

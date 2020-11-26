@@ -140,7 +140,7 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
                ">Peak Consumption</th>";
     (*output) << "<tbody>\n";
 
-    vector<shared_ptr<MemTracker>> trackers;
+    std::vector<shared_ptr<MemTracker>> trackers;
     MemTracker::ListTrackers(&trackers);
     for (const shared_ptr<MemTracker>& tracker : trackers) {
         string parent = tracker->parent() == nullptr ? "none" : tracker->parent()->label();

@@ -75,8 +75,8 @@ protected:
     }
 
     virtual void create_descriptors() {
-        vector<bool> nullable_tuples(1, false);
-        vector<TTupleId> tuple_ids(1, static_cast<TTupleId>(0));
+        std::vector<bool> nullable_tuples(1, false);
+        std::vector<TTupleId> tuple_ids(1, static_cast<TTupleId>(0));
 
         DescriptorTblBuilder int_builder(&_pool);
         int_builder.declare_tuple() << TYPE_INT;
@@ -170,7 +170,7 @@ protected:
         return batch;
     }
 
-    void AppendRowTuples(TupleRow* row, vector<int>* results) {
+    void AppendRowTuples(TupleRow* row, std::vector<int>* results) {
         DCHECK(row != NULL);
         const int int_tuples = _int_desc->tuple_descriptors().size();
         for (int i = 0; i < int_tuples; ++i) {
@@ -178,7 +178,7 @@ protected:
         }
     }
 
-    void AppendRowTuples(TupleRow* row, vector<StringValue>* results) {
+    void AppendRowTuples(TupleRow* row, std::vector<StringValue>* results) {
         DCHECK(row != NULL);
         const int string_tuples = _string_desc->tuple_descriptors().size();
         for (int i = 0; i < string_tuples; ++i) {
@@ -186,7 +186,7 @@ protected:
         }
     }
 
-    void AppendValue(Tuple* t, vector<int>* results) {
+    void AppendValue(Tuple* t, std::vector<int>* results) {
         if (t == NULL) {
             // For the tests indicate null-ability using the max int value
             results->push_back(std::numeric_limits<int>::max());
@@ -195,7 +195,7 @@ protected:
         }
     }
 
-    void AppendValue(Tuple* t, vector<StringValue>* results) {
+    void AppendValue(Tuple* t, std::vector<StringValue>* results) {
         if (t == NULL) {
             results->push_back(StringValue());
         } else {
@@ -209,7 +209,7 @@ protected:
     }
 
     template <typename T>
-    void ReadValues(BufferedTupleStream2* stream, RowDescriptor* desc, vector<T>* results,
+    void ReadValues(BufferedTupleStream2* stream, RowDescriptor* desc, std::vector<T>* results,
             int num_batches = -1) {
         bool eos = false;
         RowBatch batch(*desc, BATCH_SIZE, _tracker.get());
@@ -225,7 +225,7 @@ protected:
         } while (!eos && (num_batches < 0 || batches_read <= num_batches));
     }
 
-    virtual void VerifyResults(const vector<int>& results, int exp_rows, bool gen_null) {
+    virtual void VerifyResults(const std::vector<int>& results, int exp_rows, bool gen_null) {
         const int int_tuples = _int_desc->tuple_descriptors().size();
         EXPECT_EQ(results.size(), exp_rows * int_tuples);
         for (int i = 0; i < exp_rows; ++i) {
@@ -244,7 +244,7 @@ protected:
         }
     }
 
-    virtual void VerifyResults(const vector<StringValue>& results, int exp_rows,
+    virtual void VerifyResults(const std::vector<StringValue>& results, int exp_rows,
             bool gen_null) {
         const int string_tuples = _string_desc->tuple_descriptors().size();
         EXPECT_EQ(results.size(), exp_rows * string_tuples);
@@ -308,7 +308,7 @@ protected:
         ASSERT_TRUE(status.ok());
 
         // Read all the rows back
-        vector<T> results;
+        std::vector<T> results;
         ReadValues(&stream, desc, &results);
 
         // Verify result
@@ -329,7 +329,7 @@ protected:
             status = stream.unpin_stream();
             ASSERT_TRUE(status.ok());
 
-            vector<int> results;
+            std::vector<int> results;
 
             for (int i = 0; i < num_batches; ++i) {
                 RowBatch* batch = CreateIntBatch(i * BATCH_SIZE, BATCH_SIZE, false);
@@ -353,7 +353,7 @@ protected:
         }
     }
 
-    scoped_ptr<TestEnv> _test_env;
+    boost::scoped_ptr<TestEnv> _test_env;
     RuntimeState* _runtime_state;
     BufferedBlockMgr2::Client* _client;
 
@@ -361,7 +361,7 @@ protected:
     ObjectPool _pool;
     RowDescriptor* _int_desc;
     RowDescriptor* _string_desc;
-    scoped_ptr<MemPool> _mem_pool;
+    boost::scoped_ptr<MemPool> _mem_pool;
 };
 
 
@@ -369,8 +369,8 @@ protected:
 class SimpleNullStreamTest : public SimpleTupleStreamTest {
 protected:
     virtual void create_descriptors() {
-        vector<bool> nullable_tuples(1, true);
-        vector<TTupleId> tuple_ids(1, static_cast<TTupleId>(0));
+        std::vector<bool> nullable_tuples(1, true);
+        std::vector<TTupleId> tuple_ids(1, static_cast<TTupleId>(0));
 
         DescriptorTblBuilder int_builder(&_pool);
         int_builder.declare_tuple() << TYPE_INT;
@@ -388,12 +388,12 @@ protected:
 class MultiTupleStreamTest : public SimpleTupleStreamTest {
 protected:
     virtual void create_descriptors() {
-        vector<bool> nullable_tuples;
+        std::vector<bool> nullable_tuples;
         nullable_tuples.push_back(false);
         nullable_tuples.push_back(false);
         nullable_tuples.push_back(false);
 
-        vector<TTupleId> tuple_ids;
+        std::vector<TTupleId> tuple_ids;
         tuple_ids.push_back(static_cast<TTupleId>(0));
         tuple_ids.push_back(static_cast<TTupleId>(1));
         tuple_ids.push_back(static_cast<TTupleId>(2));
@@ -418,12 +418,12 @@ protected:
 class MultiNullableTupleStreamTest : public SimpleTupleStreamTest {
 protected:
     virtual void create_descriptors() {
-        vector<bool> nullable_tuples;
+        std::vector<bool> nullable_tuples;
         nullable_tuples.push_back(false);
         nullable_tuples.push_back(true);
         nullable_tuples.push_back(true);
 
-        vector<TTupleId> tuple_ids;
+        std::vector<TTupleId> tuple_ids;
         tuple_ids.push_back(static_cast<TTupleId>(0));
         tuple_ids.push_back(static_cast<TTupleId>(1));
         tuple_ids.push_back(static_cast<TTupleId>(2));
@@ -452,8 +452,8 @@ protected:
 
     virtual void create_descriptors() {
         // tuples: (array<string>, array<array<int>>) (array<int>)
-        vector<bool> nullable_tuples(2, true);
-        vector<TTupleId> tuple_ids;
+        std::vector<bool> nullable_tuples(2, true);
+        std::vector<TTupleId> tuple_ids;
         tuple_ids.push_back(static_cast<TTupleId>(0));
         tuple_ids.push_back(static_cast<TTupleId>(1));
         TypeDescriptor string_array_type;
@@ -555,7 +555,7 @@ TEST_F(SimpleTupleStreamTest, UnpinPin) {
     ASSERT_TRUE(status.ok());
     ASSERT_TRUE(pinned);
 
-    vector<int> results;
+    std::vector<int> results;
 
     // Read and verify result a few times. We should be able to reread the stream if
     // we don't use delete on read mode.
@@ -727,7 +727,7 @@ TEST_F(ArrayTupleStreamTest, TestArrayDeepCopy) {
     const int NUM_ROWS = 4000;
     BufferedTupleStream2 stream(_runtime_state, *_array_desc, _runtime_state->block_mgr2(),
             _client, false, false);
-    const vector<TupleDescriptor*>& tuple_descs = _array_desc->tuple_descriptors();
+    const std::vector<TupleDescriptor*>& tuple_descs = _array_desc->tuple_descriptors();
     // Write out a predictable pattern of data by iterating over arrays of constants.
     int strings_index = 0; // we take the mod of this as index into STRINGS.
     int array_lens[] = { 0, 1, 5, 10, 1000, 2, 49, 20 };
@@ -741,11 +741,11 @@ TEST_F(ArrayTupleStreamTest, TestArrayDeepCopy) {
         //             malloc(tuple_descs[0]->byte_size())));
         // gscoped_ptr<Tuple, FreeDeleter> tuple1(reinterpret_cast<Tuple*>(
         //             malloc(tuple_descs[1]->byte_size())));
-        scoped_ptr<TupleRow> row(reinterpret_cast<TupleRow*>(
+        boost::scoped_ptr<TupleRow> row(reinterpret_cast<TupleRow*>(
                     malloc(tuple_descs.size() * sizeof(Tuple*))));
-        scoped_ptr<Tuple> tuple0(reinterpret_cast<Tuple*>(
+        boost::scoped_ptr<Tuple> tuple0(reinterpret_cast<Tuple*>(
                     malloc(tuple_descs[0]->byte_size())));
-        scoped_ptr<Tuple> tuple1(reinterpret_cast<Tuple*>(
+        boost::scoped_ptr<Tuple> tuple1(reinterpret_cast<Tuple*>(
                     malloc(tuple_descs[1]->byte_size())));
         memset(tuple0.get(), 0, tuple_descs[0]->byte_size());
         memset(tuple1.get(), 0, tuple_descs[1]->byte_size());

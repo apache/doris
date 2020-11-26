@@ -60,10 +60,10 @@ TEST(CpuInfoTest, Basic) {
 
 TEST(DiskInfoTest, Basic) {
     cout << DiskInfo::DebugString();
-    cout << "Device name for disk 0: " << DiskInfo::device_name(0) << endl;
+    cout << "Device name for disk 0: " << DiskInfo::device_name(0) << std::endl;
 
     int disk_id_home_dir = DiskInfo::disk_id("/home");
-    cout << "Device name for '/home': " << DiskInfo::device_name(disk_id_home_dir) << endl;
+    cout << "Device name for '/home': " << DiskInfo::device_name(disk_id_home_dir) << std::endl;
 }
 
 }
