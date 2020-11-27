@@ -56,7 +56,7 @@ OLAPStatus CollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
     return OLAP_SUCCESS;
 }
 
-// Build a merge heap. If _merge is true, a rowset with the max rownum and nonoverlapping
+// Build a merge heap. If _merge is true, a rowset with the max rownum
 // status will be used as the base rowset, and the other rowsets will be merged first and
 // then merged with the base rowset.
 void CollectIterator::build_heap() {
@@ -67,13 +67,11 @@ void CollectIterator::build_heap() {
         return;
     } else if (_merge) {
         DCHECK(!_rs_readers.empty());
-        // find base rowset(max rownum and non-overlapping),
+        // find base rowset(max rownum),
         RowsetReaderSharedPtr base_reader = _rs_readers[0];
-        int base_reader_idx = base_reader->rowset()->rowset_meta()->is_segments_overlapping() ? -1 : 0;
+        int base_reader_idx = 0;
         for (size_t i = 1; i < _rs_readers.size(); ++i) {
-            if (_rs_readers[i]->rowset()->rowset_meta()->is_segments_overlapping()) {
-                continue;
-            }
+
             if (_rs_readers[i]->rowset()->rowset_meta()->num_rows() > base_reader->rowset()->rowset_meta()->num_rows()) {
                 base_reader = _rs_readers[i];
                 base_reader_idx = i;
@@ -202,10 +200,6 @@ OLAPStatus CollectIterator::Level0Iterator::_refresh_current_row() {
     return OLAP_ERR_DATA_EOF;
 }
 
-bool CollectIterator::Level0Iterator::overlapping() {
-    return _rs_reader->rowset()->rowset_meta()->is_segments_overlapping();
-}
-
 OLAPStatus CollectIterator::Level0Iterator::next(const RowCursor** row, bool* delete_flag) {
     _row_block->pos_inc();
     auto res = _refresh_current_row();
@@ -220,9 +214,6 @@ OLAPStatus CollectIterator::Level0Iterator::next(const RowCursor** row, bool* de
 CollectIterator::Level1Iterator::Level1Iterator(
         const std::vector<CollectIterator::LevelIterator*>& children, bool merge, bool reverse)
         : _children(children), _merge(merge), _reverse(reverse) {
-    for (const auto child : _children) {
-        _overlapping |= child->overlapping();
-    }
 }
 
 CollectIterator::LevelIterator::~LevelIterator() {}
@@ -243,10 +234,6 @@ OLAPStatus CollectIterator::Level1Iterator::next(const RowCursor** row, bool* de
     } else {
         return _normal_next(row, delete_flag);
     }
-}
-
-bool CollectIterator::Level1Iterator::overlapping() {
-    return _overlapping;
 }
 
 // Get top row of the heap, nullptr if reach end.
@@ -276,11 +263,8 @@ OLAPStatus CollectIterator::Level1Iterator::init() {
     if (_children.size() == 0) {
         return OLAP_SUCCESS;
     }
-    // Only when there are multiple children that need to be merged,
-    // or there is only one child, but the rowset status of this child is overlapping,
-    // the mergeheap needs to be really established. If there is only one child and the
-    // child status is nonoverlapping, it only needs to be read in the order, without merging
-    if (_merge && (_children.size() > 1 || _overlapping)) {
+    // Only when there are multiple children that need to be merged
+    if (_merge && _children.size() > 1) {
         _heap.reset(new MergeHeap(LevelIteratorComparator(_reverse)));
         for (auto child : _children) {
             if (child == nullptr || child->current_row() == nullptr) {

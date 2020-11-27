@@ -68,7 +68,6 @@ private:
         virtual int32_t version() const = 0;
 
         virtual OLAPStatus next(const RowCursor** row, bool* delete_flag) = 0;
-        virtual bool overlapping() = 0;
         virtual ~LevelIterator() = 0;
     };
     // Compare row cursors between multiple merge elements,
@@ -100,7 +99,6 @@ private:
         int32_t version() const;
 
         OLAPStatus next(const RowCursor** row, bool* delete_flag);
-        bool overlapping();
 
         ~Level0Iterator();
 
@@ -130,7 +128,6 @@ private:
         int32_t version() const;
 
         OLAPStatus next(const RowCursor** row, bool* delete_flag);
-        bool overlapping();
 
         ~Level1Iterator();
 
@@ -151,7 +148,6 @@ private:
         // *partially* ordered.
         bool _merge = true;
         bool _reverse = false;
-        bool _overlapping = false;
         // used when `_merge == true`
         std::unique_ptr<MergeHeap> _heap;
         // used when `_merge == false`
