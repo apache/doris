@@ -136,32 +136,36 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             if (table == null) {
                 throw new LoadException("table does not exist. id: " + tableId);
             }
-
-            // columns
-            Map<String, EtlColumn> etlColumns = createEtlColumns(table);
-
-            // partitions
-            Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = tableLoadInfo.getIdToPartitionLoadInfo();
-            for (Entry<Long, PartitionLoadInfo> partitionEntry : idToPartitionLoadInfo.entrySet()) {
-                long partitionId = partitionEntry.getKey();
-                PartitionLoadInfo partitionLoadInfo = partitionEntry.getValue();
-
-                EtlPartitionConf etlPartitionConf = new EtlPartitionConf();
+            table.readLock();
+            try {
                 // columns
-                etlPartitionConf.setColumns(etlColumns);
+                Map<String, EtlColumn> etlColumns = createEtlColumns(table);
 
-                // indices (views)
-                Map<String, EtlIndex> etlIndices = createEtlIndices(table, partitionId);
-                Preconditions.checkNotNull(etlIndices);
-                etlPartitionConf.setIndices(etlIndices);
+                // partitions
+                Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = tableLoadInfo.getIdToPartitionLoadInfo();
+                for (Entry<Long, PartitionLoadInfo> partitionEntry : idToPartitionLoadInfo.entrySet()) {
+                    long partitionId = partitionEntry.getKey();
+                    PartitionLoadInfo partitionLoadInfo = partitionEntry.getValue();
 
-                // source file schema
-                etlPartitionConf.setSources(createSources(partitionLoadInfo));
+                    EtlPartitionConf etlPartitionConf = new EtlPartitionConf();
+                    // columns
+                    etlPartitionConf.setColumns(etlColumns);
 
-                // partition info
-                etlPartitionConf.setPartitionInfo(createPartitionInfo(table, partitionId));
+                    // indices (views)
+                    Map<String, EtlIndex> etlIndices = createEtlIndices(table, partitionId);
+                    Preconditions.checkNotNull(etlIndices);
+                    etlPartitionConf.setIndices(etlIndices);
 
-                etlPartitions.put(String.valueOf(partitionId), etlPartitionConf);
+                    // source file schema
+                    etlPartitionConf.setSources(createSources(partitionLoadInfo));
+
+                    // partition info
+                    etlPartitionConf.setPartitionInfo(createPartitionInfo(table, partitionId));
+
+                    etlPartitions.put(String.valueOf(partitionId), etlPartitionConf);
+                }
+            } finally {
+                table.readUnlock();
             }
         }
 

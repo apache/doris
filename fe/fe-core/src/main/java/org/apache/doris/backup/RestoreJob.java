@@ -1392,12 +1392,7 @@ public class RestoreJob extends AbstractJob {
                 } finally {
                     restoreTbl.writeUnlock();
                 }
-                db.writeLock();
-                try {
-                    db.dropTable(restoreTbl.getName());
-                } finally {
-                    db.writeUnlock();
-                }
+                db.dropTableWithLock(restoreTbl.getName());
             }
 
             // remove restored partitions

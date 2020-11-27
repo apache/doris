@@ -5078,39 +5078,44 @@ public class Catalog {
 
     // entry of rename table operation
     public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
-        Preconditions.checkState(db.isWriteLockHeldByCurrentThread());
-        Preconditions.checkState(table.isWriteLockHeldByCurrentThread());
-        if (table instanceof OlapTable) {
-            OlapTable olapTable = (OlapTable) table;
-            if ( olapTable.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table[" + olapTable.getName() + "] is under " + olapTable.getState());
+        db.writeLock();
+        table.writeLock();
+        try {
+            if (table instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) table;
+                if ( olapTable.getState() != OlapTableState.NORMAL) {
+                    throw new DdlException("Table[" + olapTable.getName() + "] is under " + olapTable.getState());
+                }
             }
+
+            String oldTableName = table.getName();
+            String newTableName = tableRenameClause.getNewTableName();
+            if (oldTableName.equals(newTableName)) {
+                throw new DdlException("Same table name");
+            }
+
+            // check if name is already used
+            if (db.getTable(newTableName) != null) {
+                throw new DdlException("Table name[" + newTableName + "] is already used");
+            }
+
+            if (table.getType() == TableType.OLAP) {
+                // olap table should also check if any rollup has same name as "newTableName"
+                ((OlapTable) table).checkAndSetName(newTableName, false);
+            } else {
+                table.setName(newTableName);
+            }
+
+            db.dropTable(oldTableName);
+            db.createTable(table);
+
+            TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
+            editLog.logTableRename(tableInfo);
+            LOG.info("rename table[{}] to {}", oldTableName, newTableName);
+        } finally {
+            table.writeUnlock();
+            db.writeUnlock();
         }
-
-        String oldTableName = table.getName();
-        String newTableName = tableRenameClause.getNewTableName();
-        if (oldTableName.equals(newTableName)) {
-            throw new DdlException("Same table name");
-        }
-
-        // check if name is already used
-        if (db.getTable(newTableName) != null) {
-            throw new DdlException("Table name[" + newTableName + "] is already used");
-        }
-
-        if (table.getType() == TableType.OLAP) {
-            // olap table should also check if any rollup has same name as "newTableName"
-            ((OlapTable) table).checkAndSetName(newTableName, false);
-        } else {
-            table.setName(newTableName);
-        }
-
-        db.dropTable(oldTableName);
-        db.createTable(table);
-
-        TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
-        editLog.logTableRename(tableInfo);
-        LOG.info("rename table[{}] to {}", oldTableName, newTableName);
     }
 
     public void refreshExternalTableSchema(Database db, Table table, List<Column> newSchema) {
@@ -5242,38 +5247,43 @@ public class Catalog {
     }
 
     public void renameRollup(Database db, OlapTable table, RollupRenameClause renameClause) throws DdlException {
-        if (table.getState() != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
+        table.writeLock();
+        try {
+            if (table.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
+            }
+
+            String rollupName = renameClause.getRollupName();
+            // check if it is base table name
+            if (rollupName.equals(table.getName())) {
+                throw new DdlException("Using ALTER TABLE RENAME to change table name");
+            }
+
+            String newRollupName = renameClause.getNewRollupName();
+            if (rollupName.equals(newRollupName)) {
+                throw new DdlException("Same rollup name");
+            }
+
+            Map<String, Long> indexNameToIdMap = table.getIndexNameToId();
+            if (indexNameToIdMap.get(rollupName) == null) {
+                throw new DdlException("Rollup index[" + rollupName + "] does not exists");
+            }
+
+            // check if name is already used
+            if (indexNameToIdMap.get(newRollupName) != null) {
+                throw new DdlException("Rollup name[" + newRollupName + "] is already used");
+            }
+
+            long indexId = indexNameToIdMap.remove(rollupName);
+            indexNameToIdMap.put(newRollupName, indexId);
+
+            // log
+            TableInfo tableInfo = TableInfo.createForRollupRename(db.getId(), table.getId(), indexId, newRollupName);
+            editLog.logRollupRename(tableInfo);
+            LOG.info("rename rollup[{}] to {}", rollupName, newRollupName);
+        } finally {
+            table.writeUnlock();
         }
-
-        String rollupName = renameClause.getRollupName();
-        // check if it is base table name
-        if (rollupName.equals(table.getName())) {
-            throw new DdlException("Using ALTER TABLE RENAME to change table name");
-        }
-
-        String newRollupName = renameClause.getNewRollupName();
-        if (rollupName.equals(newRollupName)) {
-            throw new DdlException("Same rollup name");
-        }
-
-        Map<String, Long> indexNameToIdMap = table.getIndexNameToId();
-        if (indexNameToIdMap.get(rollupName) == null) {
-            throw new DdlException("Rollup index[" + rollupName + "] does not exists");
-        }
-
-        // check if name is already used
-        if (indexNameToIdMap.get(newRollupName) != null) {
-            throw new DdlException("Rollup name[" + newRollupName + "] is already used");
-        }
-
-        long indexId = indexNameToIdMap.remove(rollupName);
-        indexNameToIdMap.put(newRollupName, indexId);
-
-        // log
-        TableInfo tableInfo = TableInfo.createForRollupRename(db.getId(), table.getId(), indexId, newRollupName);
-        editLog.logRollupRename(tableInfo);
-        LOG.info("rename rollup[{}] to {}", rollupName, newRollupName);
     }
 
     public void replayRenameRollup(TableInfo tableInfo) throws DdlException {
@@ -5298,38 +5308,43 @@ public class Catalog {
     }
 
     public void renamePartition(Database db, OlapTable table, PartitionRenameClause renameClause) throws DdlException {
-        if (table.getState() != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
+        table.writeLock();
+        try {
+            if (table.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
+            }
+
+            if (table.getPartitionInfo().getType() != PartitionType.RANGE) {
+                throw new DdlException("Table[" + table.getName() + "] is single partitioned. "
+                        + "no need to rename partition name.");
+            }
+
+            String partitionName = renameClause.getPartitionName();
+            String newPartitionName = renameClause.getNewPartitionName();
+            if (partitionName.equalsIgnoreCase(newPartitionName)) {
+                throw new DdlException("Same partition name");
+            }
+
+            Partition partition = table.getPartition(partitionName);
+            if (partition == null) {
+                throw new DdlException("Partition[" + partitionName + "] does not exists");
+            }
+
+            // check if name is already used
+            if (table.checkPartitionNameExist(newPartitionName)) {
+                throw new DdlException("Partition name[" + newPartitionName + "] is already used");
+            }
+
+            table.renamePartition(partitionName, newPartitionName);
+
+            // log
+            TableInfo tableInfo = TableInfo.createForPartitionRename(db.getId(), table.getId(), partition.getId(),
+                    newPartitionName);
+            editLog.logPartitionRename(tableInfo);
+            LOG.info("rename partition[{}] to {}", partitionName, newPartitionName);
+        } finally {
+            table.writeUnlock();
         }
-
-        if (table.getPartitionInfo().getType() != PartitionType.RANGE) {
-            throw new DdlException("Table[" + table.getName() + "] is single partitioned. "
-                    + "no need to rename partition name.");
-        }
-
-        String partitionName = renameClause.getPartitionName();
-        String newPartitionName = renameClause.getNewPartitionName();
-        if (partitionName.equalsIgnoreCase(newPartitionName)) {
-            throw new DdlException("Same partition name");
-        }
-
-        Partition partition = table.getPartition(partitionName);
-        if (partition == null) {
-            throw new DdlException("Partition[" + partitionName + "] does not exists");
-        }
-
-        // check if name is already used
-        if (table.checkPartitionNameExist(newPartitionName)) {
-            throw new DdlException("Partition name[" + newPartitionName + "] is already used");
-        }
-
-        table.renamePartition(partitionName, newPartitionName);
-
-        // log
-        TableInfo tableInfo = TableInfo.createForPartitionRename(db.getId(), table.getId(), partition.getId(),
-                newPartitionName);
-        editLog.logPartitionRename(tableInfo);
-        LOG.info("rename partition[{}] to {}", partitionName, newPartitionName);
     }
 
     public void replayRenamePartition(TableInfo tableInfo) throws DdlException {
@@ -6691,9 +6706,6 @@ public class Catalog {
     public void replayConvertDistributionType(TableInfo tableInfo) {
         Database db = getDb(tableInfo.getDbId());
         OlapTable tbl = (OlapTable) db.getTable(tableInfo.getTableId());
-        if (tbl == null) {
-            return;
-        }
         tbl.writeLock();
         try {
             tbl.convertRandomDistributionToHashDistribution();

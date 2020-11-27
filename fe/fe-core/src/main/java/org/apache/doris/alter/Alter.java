@@ -105,15 +105,8 @@ public class Alter {
         db.checkQuota();
 
         OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableName, TableType.OLAP);
-
-        olapTable.writeLock();
-        try {
-            olapTable.checkStableAndNormal(db.getClusterName());
-            ((MaterializedViewHandler)materializedViewHandler).processCreateMaterializedView(stmt, db,
+        ((MaterializedViewHandler)materializedViewHandler).processCreateMaterializedView(stmt, db,
                     olapTable);
-        } finally {
-            olapTable.writeUnlock();
-        }
     }
 
     public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
@@ -153,19 +146,9 @@ public class Alter {
         boolean needProcessOutsideTableLock = false;
         if (currentAlterOps.hasSchemaChangeOp()) {
             // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
-            olapTable.writeLock();
-            try {
-                schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
-            } finally {
-                olapTable.writeUnlock();
-            }
+            schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
         } else if (currentAlterOps.hasRollupOp()) {
-            olapTable.writeLock();
-            try {
-                materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
-            } finally {
-                olapTable.writeUnlock();
-            }
+            materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
         } else if (currentAlterOps.hasPartitionOp()) {
             Preconditions.checkState(alterClauses.size() == 1);
             AlterClause alterClause = alterClauses.get(0);
@@ -226,12 +209,7 @@ public class Alter {
         if (currentAlterOps.hasRenameOp()) {
             processRename(db, externalTable, alterClauses);
         } else if (currentAlterOps.hasSchemaChangeOp()) {
-            externalTable.writeLock();
-            try {
-                schemaChangeHandler.processExternalTable(alterClauses, db, externalTable);
-            } finally {
-                externalTable.writeUnlock();
-            }
+            schemaChangeHandler.processExternalTable(alterClauses, db, externalTable);
         }
     }
 
@@ -464,32 +442,20 @@ public class Alter {
     private void processRename(Database db, OlapTable table, List<AlterClause> alterClauses) throws DdlException {
         for (AlterClause alterClause : alterClauses) {
             if (alterClause instanceof TableRenameClause) {
-                db.writeLock();
-                table.writeLock();
-                try {
-                    Catalog.getCurrentCatalog().renameTable(db, table, (TableRenameClause) alterClause);
-                } finally {
-                    table.writeUnlock();
-                    db.writeUnlock();
-                }
+                Catalog.getCurrentCatalog().renameTable(db, table, (TableRenameClause) alterClause);
                 break;
             } else {
-                table.writeLock();
-                try {
-                    if (alterClause instanceof RollupRenameClause) {
-                        Catalog.getCurrentCatalog().renameRollup(db, table, (RollupRenameClause) alterClause);
-                        break;
-                    } else if (alterClause instanceof PartitionRenameClause) {
-                        Catalog.getCurrentCatalog().renamePartition(db, table, (PartitionRenameClause) alterClause);
-                        break;
-                    } else if (alterClause instanceof ColumnRenameClause) {
-                        Catalog.getCurrentCatalog().renameColumn(db, table, (ColumnRenameClause) alterClause);
-                        break;
-                    } else {
-                        Preconditions.checkState(false);
-                    }
-                } finally {
-                    table.writeUnlock();
+                if (alterClause instanceof RollupRenameClause) {
+                    Catalog.getCurrentCatalog().renameRollup(db, table, (RollupRenameClause) alterClause);
+                    break;
+                } else if (alterClause instanceof PartitionRenameClause) {
+                    Catalog.getCurrentCatalog().renamePartition(db, table, (PartitionRenameClause) alterClause);
+                    break;
+                } else if (alterClause instanceof ColumnRenameClause) {
+                    Catalog.getCurrentCatalog().renameColumn(db, table, (ColumnRenameClause) alterClause);
+                    break;
+                } else {
+                    Preconditions.checkState(false);
                 }
             }
         }
@@ -498,14 +464,7 @@ public class Alter {
     private void processRename(Database db, Table table, List<AlterClause> alterClauses) throws DdlException {
         for (AlterClause alterClause : alterClauses) {
             if (alterClause instanceof TableRenameClause) {
-                db.writeLock();
-                table.writeLock();
-                try {
-                    Catalog.getCurrentCatalog().renameTable(db, table, (TableRenameClause) alterClause);
-                } finally {
-                    table.writeUnlock();
-                    db.writeUnlock();
-                }
+                Catalog.getCurrentCatalog().renameTable(db, table, (TableRenameClause) alterClause);
                 break;
             } else {
                 Preconditions.checkState(false);

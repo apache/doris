@@ -1586,128 +1586,137 @@ public class SchemaChangeHandler extends AlterHandler {
     @Override
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws UserException {
-        Preconditions.checkState(olapTable.isWriteLockHeldByCurrentThread());
-        // index id -> index schema
-        Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
-        for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
-            indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
-        }
-        List<Index> newIndexes = olapTable.getCopiedIndexes();
-        Map<String, String> propertyMap = new HashMap<>();
-        for (AlterClause alterClause : alterClauses) {
-            Map<String, String> properties = alterClause.getProperties();
-            if (properties != null) {
-                if (propertyMap.isEmpty()) {
-                    propertyMap.putAll(properties);
-                } else {
-                    throw new DdlException("reduplicated PROPERTIES");
-                }
+        olapTable.writeLock();
+        try {
+            // index id -> index schema
+            Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
+            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
+                indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
+            }
+            List<Index> newIndexes = olapTable.getCopiedIndexes();
+            Map<String, String> propertyMap = new HashMap<>();
+            for (AlterClause alterClause : alterClauses) {
+                Map<String, String> properties = alterClause.getProperties();
+                if (properties != null) {
+                    if (propertyMap.isEmpty()) {
+                        propertyMap.putAll(properties);
+                    } else {
+                        throw new DdlException("reduplicated PROPERTIES");
+                    }
 
-                // modification of colocate property is handle alone.
-                // And because there should be only one colocate property modification clause in stmt,
-                // so just return after finished handling.
-                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
-                    String colocateGroup = properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
-                    Catalog.getCurrentCatalog().modifyTableColocate(db, olapTable, colocateGroup, false, null);
-                    return;
-                } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE)) {
-                    Catalog.getCurrentCatalog().convertDistributionType(db, olapTable);
-                    return;
-                } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK)) {
+                    // modification of colocate property is handle alone.
+                    // And because there should be only one colocate property modification clause in stmt,
+                    // so just return after finished handling.
+                    if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
+                        String colocateGroup = properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
+                        Catalog.getCurrentCatalog().modifyTableColocate(db, olapTable, colocateGroup, false, null);
+                        return;
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE)) {
+                        Catalog.getCurrentCatalog().convertDistributionType(db, olapTable);
+                        return;
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK)) {
                     /*
                      * This is only for fixing bug when upgrading Doris from 0.9.x to 0.10.x.
                      */
-                    sendClearAlterTask(db, olapTable);
-                    return;
-                } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
-                    if (!olapTable.dynamicPartitionExists()) {
-                        try {
-                            DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo());
-                        } catch (DdlException e) {
-                            // This table is not a dynamic partition table and didn't supply all dynamic partition properties
-                            throw new DdlException("Table " + db.getFullName() + "." +
-                                    olapTable.getName() + " is not a dynamic partition table. Use command `HELP ALTER TABLE` " +
-                                    "to see how to change a normal table to a dynamic partition table.");
+                        sendClearAlterTask(db, olapTable);
+                        return;
+                    } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+                        if (!olapTable.dynamicPartitionExists()) {
+                            try {
+                                DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo());
+                            } catch (DdlException e) {
+                                // This table is not a dynamic partition table and didn't supply all dynamic partition properties
+                                throw new DdlException("Table " + db.getFullName() + "." +
+                                        olapTable.getName() + " is not a dynamic partition table. Use command `HELP ALTER TABLE` " +
+                                        "to see how to change a normal table to a dynamic partition table.");
+                            }
                         }
+                        Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
+                        return;
+                    } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+                        Preconditions.checkNotNull(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+                        Catalog.getCurrentCatalog().modifyTableDefaultReplicationNum(db, olapTable, properties);
+                        return;
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+                        Catalog.getCurrentCatalog().modifyTableReplicationNum(db, olapTable, properties);
+                        return;
                     }
-                    Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
-                    return;
-                } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-                    Preconditions.checkNotNull(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
-                    Catalog.getCurrentCatalog().modifyTableDefaultReplicationNum(db, olapTable, properties);
-                    return;
-                } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-                    Catalog.getCurrentCatalog().modifyTableReplicationNum(db, olapTable, properties);
-                    return;
                 }
-            }
 
-            // the following operations can not be done when there are temp partitions exist.
-            if (olapTable.existTempPartitions()) {
-                throw new DdlException("Can not alter table when there are temp partitions in table");
-            }
+                // the following operations can not be done when there are temp partitions exist.
+                if (olapTable.existTempPartitions()) {
+                    throw new DdlException("Can not alter table when there are temp partitions in table");
+                }
 
-            if (alterClause instanceof AddColumnClause) {
-                // add column
-                processAddColumn((AddColumnClause) alterClause, olapTable, indexSchemaMap);
-            } else if (alterClause instanceof AddColumnsClause) {
-                // add columns
-                processAddColumns((AddColumnsClause) alterClause, olapTable, indexSchemaMap);
-            } else if (alterClause instanceof DropColumnClause) {
-                // drop column and drop indexes on this column
-                processDropColumn((DropColumnClause) alterClause, olapTable, indexSchemaMap, newIndexes);
-            } else if (alterClause instanceof ModifyColumnClause) {
-                // modify column
-                processModifyColumn((ModifyColumnClause) alterClause, olapTable, indexSchemaMap);
-            } else if (alterClause instanceof ReorderColumnsClause) {
-                // reorder column
-                processReorderColumn((ReorderColumnsClause) alterClause, olapTable, indexSchemaMap);
-            } else if (alterClause instanceof ModifyTablePropertiesClause) {
-                // modify table properties
-                // do nothing, properties are already in propertyMap
-            } else if (alterClause instanceof CreateIndexClause) {
-                processAddIndex((CreateIndexClause) alterClause, olapTable, newIndexes);
-            } else if (alterClause instanceof DropIndexClause) {
-                processDropIndex((DropIndexClause) alterClause, olapTable, newIndexes);
-            } else {
-                Preconditions.checkState(false);
-            }
-        } // end for alter clauses
+                if (alterClause instanceof AddColumnClause) {
+                    // add column
+                    processAddColumn((AddColumnClause) alterClause, olapTable, indexSchemaMap);
+                } else if (alterClause instanceof AddColumnsClause) {
+                    // add columns
+                    processAddColumns((AddColumnsClause) alterClause, olapTable, indexSchemaMap);
+                } else if (alterClause instanceof DropColumnClause) {
+                    // drop column and drop indexes on this column
+                    processDropColumn((DropColumnClause) alterClause, olapTable, indexSchemaMap, newIndexes);
+                } else if (alterClause instanceof ModifyColumnClause) {
+                    // modify column
+                    processModifyColumn((ModifyColumnClause) alterClause, olapTable, indexSchemaMap);
+                } else if (alterClause instanceof ReorderColumnsClause) {
+                    // reorder column
+                    processReorderColumn((ReorderColumnsClause) alterClause, olapTable, indexSchemaMap);
+                } else if (alterClause instanceof ModifyTablePropertiesClause) {
+                    // modify table properties
+                    // do nothing, properties are already in propertyMap
+                } else if (alterClause instanceof CreateIndexClause) {
+                    processAddIndex((CreateIndexClause) alterClause, olapTable, newIndexes);
+                } else if (alterClause instanceof DropIndexClause) {
+                    processDropIndex((DropIndexClause) alterClause, olapTable, newIndexes);
+                } else {
+                    Preconditions.checkState(false);
+                }
+            } // end for alter clauses
 
-        createJob(db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
+            createJob(db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
+        } finally {
+            olapTable.writeUnlock();
+        }
     }
 
     @Override
     public void processExternalTable(List<AlterClause> alterClauses, Database db, Table externalTable)
             throws UserException {
-        // copy the external table schema columns
-        List<Column> newSchema = Lists.newArrayList();
-        newSchema.addAll(externalTable.getBaseSchema(true));
+        externalTable.writeLock();
+        try {
+            // copy the external table schema columns
+            List<Column> newSchema = Lists.newArrayList();
+            newSchema.addAll(externalTable.getBaseSchema(true));
 
-        for (AlterClause alterClause : alterClauses) {
-            if (alterClause instanceof AddColumnClause) {
-                // add column
-                processAddColumn((AddColumnClause) alterClause, externalTable, newSchema);
-            } else if (alterClause instanceof AddColumnsClause) {
-                // add columns
-                processAddColumns((AddColumnsClause) alterClause, externalTable, newSchema);
-            } else if (alterClause instanceof DropColumnClause) {
-                // drop column and drop indexes on this column
-                processDropColumn((DropColumnClause) alterClause, externalTable, newSchema);
-            } else if (alterClause instanceof ModifyColumnClause) {
-                // modify column
-                processModifyColumn((ModifyColumnClause) alterClause, externalTable, newSchema);
-            } else if (alterClause instanceof ReorderColumnsClause) {
-                // reorder column
-                processReorderColumn((ReorderColumnsClause) alterClause, externalTable, newSchema);
-            } else {
-                Preconditions.checkState(false);
-            }
-        } // end for alter clauses
-        // replace the old column list
-        externalTable.setNewFullSchema(newSchema);
-        // refresh external table column in edit log
-        Catalog.getCurrentCatalog().refreshExternalTableSchema(db, externalTable, newSchema);
+            for (AlterClause alterClause : alterClauses) {
+                if (alterClause instanceof AddColumnClause) {
+                    // add column
+                    processAddColumn((AddColumnClause) alterClause, externalTable, newSchema);
+                } else if (alterClause instanceof AddColumnsClause) {
+                    // add columns
+                    processAddColumns((AddColumnsClause) alterClause, externalTable, newSchema);
+                } else if (alterClause instanceof DropColumnClause) {
+                    // drop column and drop indexes on this column
+                    processDropColumn((DropColumnClause) alterClause, externalTable, newSchema);
+                } else if (alterClause instanceof ModifyColumnClause) {
+                    // modify column
+                    processModifyColumn((ModifyColumnClause) alterClause, externalTable, newSchema);
+                } else if (alterClause instanceof ReorderColumnsClause) {
+                    // reorder column
+                    processReorderColumn((ReorderColumnsClause) alterClause, externalTable, newSchema);
+                } else {
+                    Preconditions.checkState(false);
+                }
+            } // end for alter clauses
+            // replace the old column list
+            externalTable.setNewFullSchema(newSchema);
+            // refresh external table column in edit log
+            Catalog.getCurrentCatalog().refreshExternalTableSchema(db, externalTable, newSchema);
+        } finally {
+            externalTable.writeUnlock();
+        }
     }
 
     private void sendClearAlterTask(Database db, OlapTable olapTable) {

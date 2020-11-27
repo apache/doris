@@ -1930,31 +1930,6 @@ public class Load {
         return dbToDeleteInfos;
     }
 
-    public Set<Long> getTxnIdsByDb(Long dbId) {
-        Set<Long> txnIds = Sets.newHashSet();
-        readLock();
-        try {
-            List<LoadJob> jobs = dbToLoadJobs.get(dbId);
-            if (jobs != null) {
-                for (LoadJob loadJob : jobs) {
-                    txnIds.add(loadJob.getTransactionId());
-                }
-            }
-        } finally {
-            readUnlock();
-        }
-        return txnIds;
-    }
-
-    public List<LoadJob> getDbLoadJobs(long dbId) {
-        readLock();
-        try {
-            return dbToLoadJobs.get(dbId);
-        } finally {
-            readUnlock();
-        }
-    }
-
     public List<LoadJob> getLoadJobs(JobState jobState) {
         List<LoadJob> jobs = new ArrayList<LoadJob>();
         Collection<LoadJob> stateJobs = null;
@@ -3287,19 +3262,14 @@ public class Load {
 
     public void replayFinishAsyncDeleteJob(AsyncDeleteJob deleteJob, Catalog catalog) {
         Database db = catalog.getDb(deleteJob.getDbId());
-        writeLock();
+        OlapTable table = (OlapTable) db.getTable(deleteJob.getTableId());
+        table.writeLock();
+        readLock();
         try {
             // Update database information
             Map<Long, ReplicaPersistInfo> replicaInfos = deleteJob.getReplicaPersistInfos();
             if (replicaInfos != null) {
                 for (ReplicaPersistInfo info : replicaInfos.values()) {
-                    OlapTable table = (OlapTable) db.getTable(info.getTableId());
-                    if (table == null) {
-                        LOG.warn("the table[{}] is missing", info.getIndexId());
-                        continue;
-                    }
-                    table.writeLock();
-                    try {
                         Partition partition = table.getPartition(info.getPartitionId());
                         if (partition == null) {
                             LOG.warn("the partition[{}] is missing", info.getIndexId());
@@ -3323,14 +3293,11 @@ public class Load {
                         }
                         replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
                                 info.getDataSize(), info.getRowCount());
-
-                    } finally {
-                        table.writeUnlock();
-                    }
                 }
             }
         } finally {
-            writeUnlock();
+            readUnlock();
+            table.writeUnlock();
         }
         removeDeleteJobAndSetState(deleteJob);
         LOG.info("unprotected finish asyncDeleteJob: {}", deleteJob.getJobId());
@@ -3342,16 +3309,13 @@ public class Load {
         if (table == null) {
             return;
         }
+        table.writeLock();
         writeLock();
         try {
-            table.writeLock();
-            try {
-                unprotectDelete(deleteInfo, db);
-            } finally {
-                table.writeUnlock();
-            }
+            unprotectDelete(deleteInfo, db);
         } finally {
             writeUnlock();
+            table.writeUnlock();
         }
     }
 
@@ -3514,11 +3478,6 @@ public class Load {
         } finally {
             readUnlock();
         }
-    }
-
-    public void checkHashRunningDeleteJob(long partitionId, String partitionName) throws DdlException {
-        checkHasRunningSyncDeleteJob(partitionId, partitionName);
-        checkHasRunningAsyncDeleteJob(partitionId, partitionName);
     }
 
     public void delete(DeleteStmt stmt) throws DdlException {

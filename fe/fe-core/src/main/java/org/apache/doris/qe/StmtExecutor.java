@@ -468,6 +468,7 @@ public class StmtExecutor {
                 }
                 insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
             }
+            // table id in tableList is in ascending order because that table map is a sorted map
             List<Table> tables = Lists.newArrayList(tableMap.values());
             MetaLockUtils.readLockTables(tables);
             try {
