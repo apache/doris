@@ -572,6 +572,7 @@ struct TStreamLoadPutRequest {
     27: optional Types.TMergeType merge_type
     28: optional string delete_condition
     29: optional string sequence_col
+    30: optional bool num_as_string
 }
 
 struct TStreamLoadPutResult {
