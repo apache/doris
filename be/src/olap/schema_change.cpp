@@ -149,7 +149,7 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
 
 #define CONVERT_FROM_TYPE(from_type)                                                            \
     {                                                                                           \
-        switch (mutable_block->tablet_schema().column(i).type()) {                              \
+        switch (newtype) {                                                                      \
         case OLAP_FIELD_TYPE_TINYINT:                                                           \
             TYPE_REINTERPRET_CAST(from_type, int8_t);                                           \
         case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:                                                  \
@@ -168,6 +168,8 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
             TYPE_REINTERPRET_CAST(from_type, uint64_t);                                         \
         case OLAP_FIELD_TYPE_LARGEINT:                                                          \
             LARGEINT_REINTERPRET_CAST(from_type, int128_t);                                     \
+        case OLAP_FIELD_TYPE_FLOAT:                                                             \
+            TYPE_REINTERPRET_CAST(from_type, float);                                            \
         case OLAP_FIELD_TYPE_DOUBLE:                                                            \
             TYPE_REINTERPRET_CAST(from_type, double);                                           \
         default:                                                                                \
@@ -217,6 +219,16 @@ private:
 };
 
 ConvertTypeResolver::ConvertTypeResolver() {
+    // from char type
+    add_convert_type_mapping<OLAP_FIELD_TYPE_CHAR, OLAP_FIELD_TYPE_TINYINT>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_CHAR, OLAP_FIELD_TYPE_SMALLINT>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_CHAR, OLAP_FIELD_TYPE_INT>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_CHAR, OLAP_FIELD_TYPE_BIGINT>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_CHAR, OLAP_FIELD_TYPE_LARGEINT>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_CHAR, OLAP_FIELD_TYPE_FLOAT>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_CHAR, OLAP_FIELD_TYPE_DOUBLE>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_CHAR, OLAP_FIELD_TYPE_DATE>();
+
     // supported type convert should annotate in doc:
     // http://doris.incubator.apache.org/master/zh-CN/sql-reference/sql-statements/Data%20Definition/ALTER%20TABLE.html#description
     // If type convert is supported here, you should check fe/src/main/java/org/apache/doris/catalog/ColumnType.java to supported it either
@@ -239,6 +251,7 @@ ConvertTypeResolver::ConvertTypeResolver() {
     add_convert_type_mapping<OLAP_FIELD_TYPE_FLOAT, OLAP_FIELD_TYPE_VARCHAR>();
     add_convert_type_mapping<OLAP_FIELD_TYPE_DOUBLE, OLAP_FIELD_TYPE_VARCHAR>();
     add_convert_type_mapping<OLAP_FIELD_TYPE_DECIMAL, OLAP_FIELD_TYPE_VARCHAR>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_CHAR, OLAP_FIELD_TYPE_VARCHAR>();
 
     add_convert_type_mapping<OLAP_FIELD_TYPE_DATE, OLAP_FIELD_TYPE_DATETIME>();
 
@@ -452,7 +465,6 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
     for (size_t i = 0, len = mutable_block->tablet_schema().num_columns(); !filter_all && i < len;
          ++i) {
         int32_t ref_column = _schema_mapping[i].ref_column;
-
         if (_schema_mapping[i].ref_column >= 0) {
             if (!_schema_mapping[i].materialized_function.empty()) {
                 bool (*_do_materialized_transform) (RowCursor*, RowCursor*, const TabletColumn&, int, int, MemPool* );
@@ -523,38 +535,6 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
                         }
                     }
                 }
-
-                // 从ref_column 写入 i列。
-            } else if (newtype == OLAP_FIELD_TYPE_VARCHAR && reftype == OLAP_FIELD_TYPE_CHAR) {
-                // 效率低下，也可以直接计算变长域拷贝，但仍然会破坏封装
-                for (size_t row_index = 0, new_row_index = 0;
-                     row_index < ref_block->row_block_info().row_num; ++row_index) {
-                    // 不需要的row，每次处理到这个row时就跳过
-                    if (need_filter_data && is_data_left_vec[row_index] == 0) {
-                        continue;
-                    }
-
-                    // 指定新的要写入的row index（不同于读的row_index）
-                    mutable_block->get_row(new_row_index++, &write_helper);
-
-                    ref_block->get_row(row_index, &read_helper);
-
-                    if (true == read_helper.is_null(ref_column)) {
-                        write_helper.set_null(i);
-                    } else {
-                        // 要写入的
-
-                        write_helper.set_not_null(i);
-                        int p = ref_block->tablet_schema().column(ref_column).length() - 1;
-                        Slice* slice = reinterpret_cast<Slice*>(read_helper.cell_ptr(ref_column));
-                        char* buf = slice->data;
-                        while (p >= 0 && buf[p] == '\0') {
-                            p--;
-                        }
-                        slice->size = p + 1;
-                        write_helper.set_field_content(i, reinterpret_cast<char*>(slice), mem_pool);
-                    }
-                }
             } else if (ConvertTypeResolver::instance()->get_convert_type_info(reftype, newtype)) {
                 for (size_t row_index = 0, new_row_index = 0;
                      row_index < ref_block->row_block_info().row_num; ++row_index) {
@@ -602,6 +582,8 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
                     CONVERT_FROM_TYPE(int64_t);
                 case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
                     CONVERT_FROM_TYPE(uint64_t);
+                case OLAP_FIELD_TYPE_LARGEINT:
+                    CONVERT_FROM_TYPE(int128_t);
                 default:
                     LOG(WARNING) << "the column type which was altered from was unsupported."
                                  << " from_type="
@@ -736,10 +718,8 @@ SORT_ERR_EXIT:
 RowBlockAllocator::RowBlockAllocator(const TabletSchema& tablet_schema, size_t memory_limitation)
         : _tablet_schema(tablet_schema),
           _memory_allocated(0),
+          _row_len(tablet_schema.row_size()),
           _memory_limitation(memory_limitation) {
-    _row_len = 0;
-    _row_len = tablet_schema.row_size();
-
     VLOG(3) << "RowBlockAllocator(). row_len=" << _row_len;
 }
 
