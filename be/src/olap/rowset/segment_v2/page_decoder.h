@@ -17,8 +17,8 @@
 
 #pragma once
 
+#include "common/status.h"     // for Status
 #include "olap/column_block.h" // for ColumnBlockView
-#include "common/status.h" // for Status
 
 namespace doris {
 namespace segment_v2 {
@@ -26,9 +26,9 @@ namespace segment_v2 {
 // PageDecoder is used to decode page.
 class PageDecoder {
 public:
-    PageDecoder() { }
+    PageDecoder() {}
 
-    virtual ~PageDecoder() { }
+    virtual ~PageDecoder() {}
 
     // Call this to do some preparation for decoder.
     // eg: parse data page header
@@ -84,7 +84,7 @@ public:
     // Same as `next_batch` except for not moving forward the cursor.
     // When read array's ordinals in `ArrayFileColumnIterator`, we want to read one extra ordinal
     // but do not want to move forward the cursor.
-    virtual Status peek_next_batch(size_t *n, ColumnBlockView* dst) {
+    virtual Status peek_next_batch(size_t* n, ColumnBlockView* dst) {
         return Status::NotSupported("peek_next_batch");
     }
 

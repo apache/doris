@@ -69,4 +69,4 @@ std::string ReadWriteUtil::hex_dump(const uint8_t* buf, int64_t length) {
 std::string ReadWriteUtil::hex_dump(const char* buf, int64_t length) {
     return hex_dump(reinterpret_cast<const uint8_t*>(buf), length);
 }
-}
+} // namespace doris

@@ -15,20 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/rowset/segment_v2/binary_dict_page.h"
+
 #include <gtest/gtest.h>
-#include <iostream>
+
 #include <fstream>
+#include <iostream>
 
 #include "common/logging.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
-#include "olap/rowset/segment_v2/binary_plain_page.h"
-#include "olap/rowset/segment_v2/binary_dict_page.h"
-#include "olap/olap_common.h"
 #include "olap/types.h"
-#include "util/debug_util.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
+#include "util/debug_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -43,8 +45,8 @@ public:
         BinaryDictPageBuilder page_builder(options);
         size_t count = slices.size();
 
-        const Slice *ptr = &slices[0];
-        Status ret = page_builder.add(reinterpret_cast<const uint8_t *>(ptr), &count);
+        const Slice* ptr = &slices[0];
+        Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
 
         OwnedSlice s = page_builder.finish();
         ASSERT_EQ(slices.size(), page_builder.count());
@@ -111,7 +113,7 @@ public:
         ASSERT_EQ("Captain", values[1].to_string());
         ASSERT_EQ("Xmas", values[2].to_string());
     }
-    
+
     void test_with_large_data_size(const std::vector<Slice>& contents) {
         // encode
         PageBuilderOptions options;
@@ -127,7 +129,7 @@ public:
         for (int i = 0; i < count;) {
             size_t add_num = 1;
             const Slice* ptr = &contents[i];
-            Status ret = page_builder.add(reinterpret_cast<const uint8_t *>(ptr), &add_num);
+            Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &add_num);
             if (page_builder.is_page_full()) {
                 OwnedSlice s = page_builder.finish();
                 total_size += s.slice().size;
@@ -149,9 +151,9 @@ public:
         total_size += dict_slice.slice().size;
         ASSERT_TRUE(status.ok());
         LOG(INFO) << "total size:" << total_size << ", data size:" << data_size
-                << ", dict size:" << dict_slice.slice().size
-                << " result page size:" << results.size();
-        
+                  << ", dict size:" << dict_slice.slice().size
+                  << " result page size:" << results.size();
+
         // validate
         // random 100 times to validate
         srand(time(nullptr));
@@ -189,12 +191,11 @@ public:
             ASSERT_TRUE(status.ok());
             std::string expect = contents[page_start_ids[slice_index] + pos].to_string();
             std::string actual = values[0].to_string();
-            ASSERT_EQ(expect, actual) << "slice index:" << slice_index
-                    << ", pos:" << pos << ", expect:" << hexdump((char*)expect.data(), expect.size())
-                    << ", actual:" << hexdump((char*)actual.data(), actual.size())
-                    << ", line number:" << page_start_ids[slice_index] + pos + 1;
+            ASSERT_EQ(expect, actual) << "slice index:" << slice_index << ", pos:" << pos
+                                      << ", expect:" << hexdump((char*)expect.data(), expect.size())
+                                      << ", actual:" << hexdump((char*)actual.data(), actual.size())
+                                      << ", line number:" << page_start_ids[slice_index] + pos + 1;
         }
-
     }
 };
 
@@ -217,7 +218,7 @@ TEST_F(BinaryDictPageTest, TestEncodingRatio) {
     std::string file = "./be/test/olap/test_data/dict_encoding_data.dat";
     std::string line;
     std::ifstream infile(file.c_str());
-    while(getline(infile, line)) {
+    while (getline(infile, line)) {
         src_strings.emplace_back(line);
     }
     for (int i = 0; i < 10000; ++i) {
@@ -225,7 +226,7 @@ TEST_F(BinaryDictPageTest, TestEncodingRatio) {
             slices.push_back(src_string);
         }
     }
-    
+
     LOG(INFO) << "source line number:" << slices.size();
     test_with_large_data_size(slices);
 }
@@ -233,7 +234,7 @@ TEST_F(BinaryDictPageTest, TestEncodingRatio) {
 } // namespace segment_v2
 } // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

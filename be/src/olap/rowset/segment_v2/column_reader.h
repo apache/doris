@@ -17,24 +17,24 @@
 
 #pragma once
 
-#include <cstdint> // for uint32_t
 #include <cstddef> // for size_t
-#include <memory> // for unique_ptr
+#include <cstdint> // for uint32_t
+#include <memory>  // for unique_ptr
 
 #include "common/logging.h"
-#include "common/status.h" // for Status
-#include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
-#include "olap/olap_cond.h" // for CondColumn
-#include "olap/tablet_schema.h"
+#include "common/status.h"                              // for Status
+#include "gen_cpp/segment_v2.pb.h"                      // for ColumnMetaPB
+#include "olap/olap_cond.h"                             // for CondColumn
 #include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
-#include "olap/rowset/segment_v2/row_ranges.h" // for RowRanges
-#include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
-#include "olap/rowset/segment_v2/parsed_page.h" // for ParsedPage
+#include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
+#include "olap/rowset/segment_v2/parsed_page.h"        // for ParsedPage
+#include "olap/rowset/segment_v2/row_ranges.h"         // for RowRanges
 #include "olap/rowset/segment_v2/zone_map_index.h"
-#include "util/once.h"
+#include "olap/tablet_schema.h"
 #include "util/file_cache.h"
+#include "util/once.h"
 
 namespace doris {
 
@@ -82,10 +82,8 @@ class ColumnReader {
 public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
-    static Status create(const ColumnReaderOptions& opts,
-                         const ColumnMetaPB& meta,
-                         uint64_t num_rows,
-                         const std::string& file_name,
+    static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                         uint64_t num_rows, const std::string& file_name,
                          std::unique_ptr<ColumnReader>* reader);
 
     ~ColumnReader();
@@ -119,8 +117,7 @@ public:
     // get row ranges with zone map
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
-    Status get_row_ranges_by_zone_map(CondColumn* cond_column,
-                                      CondColumn* delete_condition,
+    Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
                                       std::unordered_set<uint32_t>* delete_partial_filtered_pages,
                                       RowRanges* row_ranges);
 
@@ -130,12 +127,9 @@ public:
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
 
 private:
-    ColumnReader(const ColumnReaderOptions& opts,
-                 const ColumnMetaPB& meta,
-                 uint64_t num_rows,
+    ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  const std::string& file_name);
     Status init();
-
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
     // May be called multiple times, subsequent calls will no op.
@@ -155,17 +149,13 @@ private:
     Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
     Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory);
 
-    bool _zone_map_match_condition(const ZoneMapPB& zone_map,
-                                   WrapperField* min_value_container,
-                                   WrapperField* max_value_container,
-                                   CondColumn* cond) const;
+    bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
+                                   WrapperField* max_value_container, CondColumn* cond) const;
 
-    void _parse_zone_map(const ZoneMapPB& zone_map,
-                         WrapperField* min_value_container,
+    void _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                          WrapperField* max_value_container) const;
 
-    Status _get_filtered_pages(CondColumn* cond_column,
-                               CondColumn* delete_conditions,
+    Status _get_filtered_pages(CondColumn* cond_column, CondColumn* delete_conditions,
                                std::unordered_set<uint32_t>* delete_partial_filtered_pages,
                                std::vector<uint32_t>* page_indexes);
 
@@ -178,7 +168,8 @@ private:
     std::string _file_name;
 
     const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
-    const EncodingInfo* _encoding_info = nullptr; // initialized in init(), used for create PageDecoder
+    const EncodingInfo* _encoding_info =
+            nullptr; // initialized in init(), used for create PageDecoder
     const BlockCompressionCodec* _compress_codec = nullptr; // initialized in init()
 
     // meta for various column indexes (null if the index is absent)
@@ -228,9 +219,10 @@ public:
 
     virtual ordinal_t get_current_ordinal() const = 0;
 
-    virtual Status get_row_ranges_by_zone_map(CondColumn* cond_column,
-                                              CondColumn* delete_condition,
-                                              RowRanges* row_ranges) { return Status::OK(); }
+    virtual Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
+                                              RowRanges* row_ranges) {
+        return Status::OK();
+    }
 
     virtual Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) {
         return Status::OK();
@@ -276,8 +268,7 @@ public:
     // get row ranges by zone map
     // - cond_column is user's query predicate
     // - delete_condition is delete predicate of one version
-    Status get_row_ranges_by_zone_map(CondColumn* cond_column,
-                                      CondColumn* delete_condition,
+    Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
                                       RowRanges* row_ranges) override;
 
     Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) override;
@@ -319,7 +310,8 @@ private:
 
 class ArrayFileColumnIterator final : public ColumnIterator {
 public:
-    explicit ArrayFileColumnIterator(FileColumnIterator* offset_iterator, ColumnIterator* item_iterator);
+    explicit ArrayFileColumnIterator(FileColumnIterator* offset_iterator,
+                                     ColumnIterator* item_iterator);
 
     ~ArrayFileColumnIterator() override = default;
 
@@ -329,9 +321,13 @@ public:
 
     Status seek_to_first() override { return _offset_iterator->seek_to_first(); };
 
-    Status seek_to_ordinal(ordinal_t ord) override { return _offset_iterator->seek_to_ordinal(ord); };
+    Status seek_to_ordinal(ordinal_t ord) override {
+        return _offset_iterator->seek_to_ordinal(ord);
+    };
 
-    ordinal_t get_current_ordinal() const override { return _offset_iterator->get_current_ordinal(); }
+    ordinal_t get_current_ordinal() const override {
+        return _offset_iterator->get_current_ordinal();
+    }
 
 private:
     std::unique_ptr<FileColumnIterator> _offset_iterator;
@@ -386,5 +382,5 @@ private:
     ordinal_t _current_rowid = 0;
 };
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

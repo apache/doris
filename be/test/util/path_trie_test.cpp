@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "util/path_trie.hpp"
+
 #include <gtest/gtest.h>
 
 #include "common/config.h"
 #include "util/logging.h"
-#include "util/path_trie.hpp"
 
 namespace doris {
 
-class PathTrieTest : public testing::Test {
-};
+class PathTrieTest : public testing::Test {};
 
 TEST_F(PathTrieTest, SplitTest) {
     PathTrie<int> root;
@@ -167,7 +167,7 @@ TEST_F(PathTrieTest, EmptyTest) {
     ASSERT_EQ(100, value);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

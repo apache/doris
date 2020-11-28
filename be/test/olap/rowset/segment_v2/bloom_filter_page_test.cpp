@@ -15,32 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/rowset/segment_v2/bloom_filter_page.h"
+
 #include <gtest/gtest.h>
+
 #include <memory>
 
+#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
-#include "olap/rowset/segment_v2/bloom_filter.h"
-#include "olap/rowset/segment_v2/bloom_filter_page.h"
-#include "util/logging.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
+#include "util/logging.h"
 
 using doris::segment_v2::PageBuilderOptions;
 using doris::segment_v2::PageDecoderOptions;
 
 namespace doris {
 
-namespace segment_v2{
+namespace segment_v2 {
 
 class BloomFilterPageTest : public testing::Test {
 public:
-    virtual ~BloomFilterPageTest() { }
+    virtual ~BloomFilterPageTest() {}
 
     template <FieldType Type, class PageBuilderType>
-    void test_encode_decode_page_template(typename TypeTraits<Type>::CppType* src,
-            size_t size, bool has_null, bool is_slice_type = false) {
+    void test_encode_decode_page_template(typename TypeTraits<Type>::CppType* src, size_t size,
+                                          bool has_null, bool is_slice_type = false) {
         typedef typename TypeTraits<Type>::CppType CppType;
         PageBuilderOptions builder_options;
         builder_options.data_page_size = 256 * 1024;
@@ -65,7 +67,8 @@ public:
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
         Slice* values = reinterpret_cast<Slice*>(pool.allocate(sizeof(Slice)));
-        ColumnBlock block(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values, nullptr, 2, &pool);
+        ColumnBlock block(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values, nullptr, 2,
+                          &pool);
         ColumnBlockView column_block_view(&block);
         size_t size_to_fetch = 1;
         status = bf_page_decoder.next_batch(&size_to_fetch, &column_block_view);
@@ -100,10 +103,12 @@ TEST_F(BloomFilterPageTest, TestIntFieldBloomFilterPage) {
 
     // without null
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
-            segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_INT>>(ints.get(), size, false);
+                                     segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_INT>>(
+            ints.get(), size, false);
     // with null
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
-            segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_INT>>(ints.get(), size, true);
+                                     segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_INT>>(
+            ints.get(), size, true);
 }
 
 TEST_F(BloomFilterPageTest, TestBigIntFieldBloomFilterPage) {
@@ -116,10 +121,12 @@ TEST_F(BloomFilterPageTest, TestBigIntFieldBloomFilterPage) {
 
     // without null
     test_encode_decode_page_template<OLAP_FIELD_TYPE_BIGINT,
-            segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_BIGINT>>(big_ints.get(), size, false);
+                                     segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_BIGINT>>(
+            big_ints.get(), size, false);
     // with null
     test_encode_decode_page_template<OLAP_FIELD_TYPE_BIGINT,
-            segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_BIGINT>>(big_ints.get(), size, true);
+                                     segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_BIGINT>>(
+            big_ints.get(), size, true);
 }
 
 TEST_F(BloomFilterPageTest, TestVarcharFieldBloomFilterPage) {
@@ -138,10 +145,12 @@ TEST_F(BloomFilterPageTest, TestVarcharFieldBloomFilterPage) {
 
     // without null
     test_encode_decode_page_template<OLAP_FIELD_TYPE_VARCHAR,
-            segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_VARCHAR>>(slices.get(), size, false, true);
+                                     segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_VARCHAR>>(
+            slices.get(), size, false, true);
     // with null
     test_encode_decode_page_template<OLAP_FIELD_TYPE_VARCHAR,
-            segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_VARCHAR>>(slices.get(), size, true, true);
+                                     segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_VARCHAR>>(
+            slices.get(), size, true, true);
 }
 
 TEST_F(BloomFilterPageTest, TestCharFieldBloomFilterPage) {
@@ -160,14 +169,16 @@ TEST_F(BloomFilterPageTest, TestCharFieldBloomFilterPage) {
 
     // without null
     test_encode_decode_page_template<OLAP_FIELD_TYPE_CHAR,
-            segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_CHAR>>(slices.get(), size, false, true);
+                                     segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_CHAR>>(
+            slices.get(), size, false, true);
     // with null
     test_encode_decode_page_template<OLAP_FIELD_TYPE_CHAR,
-            segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_CHAR>>(slices.get(), size, true, true);
+                                     segment_v2::BloomFilterPageBuilder<OLAP_FIELD_TYPE_CHAR>>(
+            slices.get(), size, true, true);
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris
 
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);

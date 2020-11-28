@@ -20,8 +20,8 @@
 
 #include <string>
 
-#include "util/minizip/unzip.h"
 #include "common/status.h"
+#include "util/minizip/unzip.h"
 
 namespace doris {
 
@@ -47,30 +47,28 @@ namespace doris {
  *  --two/
  */
 class ZipFile {
-
 public:
-    ZipFile(const std::string& zip_path) : _zip_path(zip_path), _zip_file(nullptr), _open_current_file(false) {}
+    ZipFile(const std::string& zip_path)
+            : _zip_path(zip_path), _zip_file(nullptr), _open_current_file(false) {}
 
-    ~ZipFile() {
-        WARN_IF_ERROR(close(), "failed to close zip file: " + _zip_path);
-    }
+    ~ZipFile() { WARN_IF_ERROR(close(), "failed to close zip file: " + _zip_path); }
 
     Status extract(const std::string& target_path, const std::string& target_directory);
 
 private:
     Status close();
-    
+
     Status extract_file(const std::string& target_path);
 
 private:
     std::string _zip_path;
 
     unzFile _zip_file;
-  
+
     bool _open_current_file;
-    
+
     std::vector<std::string> _clean_paths;
 };
-}
+} // namespace doris
 
 #endif //CORE_ZIP_UTIL_H

@@ -18,12 +18,11 @@
 #ifndef DORIS_BE_UDF_UDA_TEST_HARNESS_H
 #define DORIS_BE_UDF_UDA_TEST_HARNESS_H
 
-#include <string>
-#include <sstream>
-#include <vector>
-
 #include <boost/scoped_ptr.hpp>
 #include <boost/shared_ptr.hpp>
+#include <sstream>
+#include <string>
+#include <vector>
 
 #include "udf/udf.h"
 #include "udf/udf_debug.h"
@@ -37,48 +36,39 @@ enum UdaExecutionMode {
     TWO_LEVEL = 3,
 };
 
-template<typename RESULT, typename INTERMEDIATE>
+template <typename RESULT, typename INTERMEDIATE>
 class UdaTestHarnessBase {
 public:
     typedef void (*InitFn)(FunctionContext* context, INTERMEDIATE* result);
 
-    typedef void (*MergeFn)(FunctionContext* context, const INTERMEDIATE& src,
-                            INTERMEDIATE* dst);
+    typedef void (*MergeFn)(FunctionContext* context, const INTERMEDIATE& src, INTERMEDIATE* dst);
 
-    typedef const INTERMEDIATE(*SerializeFn)(FunctionContext* context,
-            const INTERMEDIATE& type);
+    typedef const INTERMEDIATE (*SerializeFn)(FunctionContext* context, const INTERMEDIATE& type);
 
-    typedef RESULT(*FinalizeFn)(FunctionContext* context, const INTERMEDIATE& value);
+    typedef RESULT (*FinalizeFn)(FunctionContext* context, const INTERMEDIATE& value);
 
     // UDA test harness allows for custom comparator to validate results. UDAs
     // can specify a custom comparator to, for example, tolerate numerical imprecision.
     // Returns true if x and y should be treated as equal.
     typedef bool (*ResultComparator)(const RESULT& x, const RESULT& y);
 
-    void set_result_comparator(ResultComparator fn) {
-        _result_comparator_fn = fn;
-    }
+    void set_result_comparator(ResultComparator fn) { _result_comparator_fn = fn; }
 
     // This must be called if the INTERMEDIATE is TYPE_FIXED_BUFFER
-    void set_intermediate_size(int byte_size) {
-        _fixed_buffer_byte_size = byte_size;
-    }
+    void set_intermediate_size(int byte_size) { _fixed_buffer_byte_size = byte_size; }
 
     // Returns the failure string if any.
-    const std::string& get_error_msg() const {
-        return _error_msg;
-    }
+    const std::string& get_error_msg() const { return _error_msg; }
 
 protected:
-    UdaTestHarnessBase(InitFn init_fn, MergeFn merge_fn,
-                       SerializeFn serialize_fn, FinalizeFn finalize_fn)
-        : _init_fn(init_fn),
-          _merge_fn(merge_fn),
-          _serialize_fn(serialize_fn),
-          _finalize_fn(finalize_fn),
-          _result_comparator_fn(NULL),
-          _num_input_values(0) {
-    }
+    UdaTestHarnessBase(InitFn init_fn, MergeFn merge_fn, SerializeFn serialize_fn,
+                       FinalizeFn finalize_fn)
+            : _init_fn(init_fn),
+              _merge_fn(merge_fn),
+              _serialize_fn(serialize_fn),
+              _finalize_fn(finalize_fn),
+              _result_comparator_fn(NULL),
+              _num_input_values(0) {}
 
     // Runs the UDA in all the modes, validating the result is 'expected' each time.
     bool execute(const RESULT& expected, UdaExecutionMode mode);
@@ -124,40 +114,33 @@ private:
     std::string _error_msg;
 };
 
-template<typename RESULT, typename INTERMEDIATE, typename INPUT>
+template <typename RESULT, typename INTERMEDIATE, typename INPUT>
 class UdaTestHarness : public UdaTestHarnessBase<RESULT, INTERMEDIATE> {
 public:
-    typedef void (*UpdateFn)(FunctionContext* context, const INPUT& input,
-                             INTERMEDIATE* result);
+    typedef void (*UpdateFn)(FunctionContext* context, const INPUT& input, INTERMEDIATE* result);
 
     typedef UdaTestHarnessBase<RESULT, INTERMEDIATE> BaseClass;
 
-    UdaTestHarness(
-        typename BaseClass::InitFn init_fn,
-        UpdateFn update_fn,
-        typename BaseClass::MergeFn merge_fn,
-        typename BaseClass::SerializeFn serialize_fn,
-        typename BaseClass::FinalizeFn finalize_fn)
-        : BaseClass(init_fn, merge_fn, serialize_fn, finalize_fn),
-          _update_fn(update_fn) {
-    }
+    UdaTestHarness(typename BaseClass::InitFn init_fn, UpdateFn update_fn,
+                   typename BaseClass::MergeFn merge_fn,
+                   typename BaseClass::SerializeFn serialize_fn,
+                   typename BaseClass::FinalizeFn finalize_fn)
+            : BaseClass(init_fn, merge_fn, serialize_fn, finalize_fn), _update_fn(update_fn) {}
 
     bool execute(const std::vector<INPUT>& values, const RESULT& expected) {
         return execute(values, expected, ALL);
     }
     // Runs the UDA in all the modes, validating the result is 'expected' each time.
-    bool execute(const std::vector<INPUT>& values, const RESULT& expected,
-                 UdaExecutionMode mode);
+    bool execute(const std::vector<INPUT>& values, const RESULT& expected, UdaExecutionMode mode);
 
     // Runs the UDA in all the modes, validating the result is 'expected' each time.
     // T needs to be compatible (i.e. castable to) with INPUT
-    template<typename T>
+    template <typename T>
     bool execute(const std::vector<T>& values, const RESULT& expected) {
         return execute(values, expected, ALL);
     }
-    template<typename T>
-    bool execute(const std::vector<T>& values, const RESULT& expected, 
-                 UdaExecutionMode mode) {
+    template <typename T>
+    bool execute(const std::vector<T>& values, const RESULT& expected, UdaExecutionMode mode) {
         _input.resize(values.size());
         BaseClass::_num_input_values = _input.size();
 
@@ -177,31 +160,26 @@ private:
     std::vector<const INPUT*> _input;
 };
 
-template<typename RESULT, typename INTERMEDIATE, typename INPUT1, typename INPUT2>
+template <typename RESULT, typename INTERMEDIATE, typename INPUT1, typename INPUT2>
 class UdaTestHarness2 : public UdaTestHarnessBase<RESULT, INTERMEDIATE> {
 public:
-    typedef void (*UpdateFn)(FunctionContext* context, const INPUT1& input1,
-                             const INPUT2& input2, INTERMEDIATE* result);
+    typedef void (*UpdateFn)(FunctionContext* context, const INPUT1& input1, const INPUT2& input2,
+                             INTERMEDIATE* result);
 
     typedef UdaTestHarnessBase<RESULT, INTERMEDIATE> BaseClass;
 
-    ~UdaTestHarness2() {
-    }
-    UdaTestHarness2(
-        typename BaseClass::InitFn init_fn,
-        UpdateFn update_fn,
-        typename BaseClass::MergeFn merge_fn,
-        typename BaseClass::SerializeFn serialize_fn,
-        typename BaseClass::FinalizeFn finalize_fn)
-        : BaseClass(init_fn, merge_fn, serialize_fn, finalize_fn),
-          _update_fn(update_fn) {
-    }
+    ~UdaTestHarness2() {}
+    UdaTestHarness2(typename BaseClass::InitFn init_fn, UpdateFn update_fn,
+                    typename BaseClass::MergeFn merge_fn,
+                    typename BaseClass::SerializeFn serialize_fn,
+                    typename BaseClass::FinalizeFn finalize_fn)
+            : BaseClass(init_fn, merge_fn, serialize_fn, finalize_fn), _update_fn(update_fn) {}
 
     // Runs the UDA in all the modes, validating the result is 'expected' each time.
     bool execute(const std::vector<INPUT1>& values1, const std::vector<INPUT2>& values2,
                  const RESULT& expected, UdaExecutionMode mode);
 
-    bool execute(const std::vector<INPUT1>& values1, const std::vector<INPUT2>& values2, 
+    bool execute(const std::vector<INPUT1>& values1, const std::vector<INPUT2>& values2,
                  const RESULT& expected) {
         return execute(values1, values2, expected, ALL);
     }
@@ -215,37 +193,29 @@ private:
     const std::vector<INPUT2>* _input2;
 };
 
-template < typename RESULT, typename INTERMEDIATE, typename INPUT1, typename INPUT2,
-         typename INPUT3 >
+template <typename RESULT, typename INTERMEDIATE, typename INPUT1, typename INPUT2, typename INPUT3>
 class UdaTestHarness3 : public UdaTestHarnessBase<RESULT, INTERMEDIATE> {
 public:
-    typedef void (*UpdateFn)(FunctionContext* context, const INPUT1& input1,
-                             const INPUT2& input2, const INPUT3& input3, INTERMEDIATE* result);
+    typedef void (*UpdateFn)(FunctionContext* context, const INPUT1& input1, const INPUT2& input2,
+                             const INPUT3& input3, INTERMEDIATE* result);
 
     typedef UdaTestHarnessBase<RESULT, INTERMEDIATE> BaseClass;
 
-    ~UdaTestHarness3() {
-    }
-    UdaTestHarness3(
-        typename BaseClass::InitFn init_fn,
-        UpdateFn update_fn,
-        typename BaseClass::MergeFn merge_fn,
-        typename BaseClass::SerializeFn serialize_fn,
-        typename BaseClass::FinalizeFn finalize_fn)
-        : BaseClass(init_fn, merge_fn, serialize_fn, finalize_fn),
-          _update_fn(update_fn) {
-    }
+    ~UdaTestHarness3() {}
+    UdaTestHarness3(typename BaseClass::InitFn init_fn, UpdateFn update_fn,
+                    typename BaseClass::MergeFn merge_fn,
+                    typename BaseClass::SerializeFn serialize_fn,
+                    typename BaseClass::FinalizeFn finalize_fn)
+            : BaseClass(init_fn, merge_fn, serialize_fn, finalize_fn), _update_fn(update_fn) {}
 
     // Runs the UDA in all the modes, validating the result is 'expected' each time.
     bool execute(const std::vector<INPUT1>& values1, const std::vector<INPUT2>& values2,
-                 const std::vector<INPUT3>& values3,
-                 const RESULT& expected) {
+                 const std::vector<INPUT3>& values3, const RESULT& expected) {
         return execute(values1, values2, values3, expected, ALL);
     }
     // Runs the UDA in all the modes, validating the result is 'expected' each time.
     bool execute(const std::vector<INPUT1>& values1, const std::vector<INPUT2>& values2,
-                 const std::vector<INPUT3>& values3,
-                 const RESULT& expected, UdaExecutionMode mode);
+                 const std::vector<INPUT3>& values3, const RESULT& expected, UdaExecutionMode mode);
 
 protected:
     virtual void update(int idx, FunctionContext* context, INTERMEDIATE* dst);
@@ -257,26 +227,21 @@ private:
     const std::vector<INPUT3>* _input3;
 };
 
-template < typename RESULT, typename INTERMEDIATE, typename INPUT1, typename INPUT2,
-         typename INPUT3, typename INPUT4 >
+template <typename RESULT, typename INTERMEDIATE, typename INPUT1, typename INPUT2, typename INPUT3,
+          typename INPUT4>
 class UdaTestHarness4 : public UdaTestHarnessBase<RESULT, INTERMEDIATE> {
 public:
-    typedef void (*UpdateFn)(FunctionContext* context, const INPUT1& input1,
-                             const INPUT2& input2, const INPUT3& input3, const INPUT4& input4,
-                             INTERMEDIATE* result);
+    typedef void (*UpdateFn)(FunctionContext* context, const INPUT1& input1, const INPUT2& input2,
+                             const INPUT3& input3, const INPUT4& input4, INTERMEDIATE* result);
 
     typedef UdaTestHarnessBase<RESULT, INTERMEDIATE> BaseClass;
 
-    ~UdaTestHarness4() { }
-    UdaTestHarness4(
-        typename BaseClass::InitFn init_fn,
-        UpdateFn update_fn,
-        typename BaseClass::MergeFn merge_fn,
-        typename BaseClass::SerializeFn serialize_fn,
-        typename BaseClass::FinalizeFn finalize_fn)
-        : BaseClass(init_fn, merge_fn, serialize_fn, finalize_fn),
-          _update_fn(update_fn) {
-    }
+    ~UdaTestHarness4() {}
+    UdaTestHarness4(typename BaseClass::InitFn init_fn, UpdateFn update_fn,
+                    typename BaseClass::MergeFn merge_fn,
+                    typename BaseClass::SerializeFn serialize_fn,
+                    typename BaseClass::FinalizeFn finalize_fn)
+            : BaseClass(init_fn, merge_fn, serialize_fn, finalize_fn), _update_fn(update_fn) {}
 
     // Runs the UDA in all the modes, validating the result is 'expected' each time.
     bool execute(const std::vector<INPUT1>& values1, const std::vector<INPUT2>& values2,
@@ -300,9 +265,8 @@ private:
     const std::vector<INPUT4>* _input4;
 };
 
-}
+} // namespace doris_udf
 
 #include "udf/uda_test_harness_impl.hpp"
 
 #endif
-

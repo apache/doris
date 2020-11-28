@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_HTTP_RELOAD_TABLET_ACTION_H
-#define  DORIS_BE_SRC_HTTP_RELOAD_TABLET_ACTION_H
+#ifndef DORIS_BE_SRC_HTTP_RELOAD_TABLET_ACTION_H
+#define DORIS_BE_SRC_HTTP_RELOAD_TABLET_ACTION_H
 
 #include <boost/scoped_ptr.hpp>
 
-#include "http/http_handler.h"
 #include "gen_cpp/AgentService_types.h"
+#include "http/http_handler.h"
 
 namespace doris {
 
@@ -31,12 +31,12 @@ class ReloadTabletAction : public HttpHandler {
 public:
     ReloadTabletAction(ExecEnv* exec_env);
 
-    virtual ~ReloadTabletAction() { }
+    virtual ~ReloadTabletAction() {}
 
-    void handle(HttpRequest *req) override;
+    void handle(HttpRequest* req) override;
+
 private:
-    void reload(const std::string& path, int64_t tablet_id, int32_t schema_hash, 
-                HttpRequest *req);
+    void reload(const std::string& path, int64_t tablet_id, int32_t schema_hash, HttpRequest* req);
 
     ExecEnv* _exec_env;
 
@@ -44,4 +44,3 @@ private:
 
 } // end namespace doris
 #endif // DORIS_BE_SRC_COMMON_UTIL_DOWNLOAD_ACTION_H
-

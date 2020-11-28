@@ -20,22 +20,17 @@
 #include <sstream>
 
 #include "exprs/expr.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 
-BlockingJoinNode::BlockingJoinNode(const std::string& node_name,
-                                   const TJoinOp::type join_op,
-                                   ObjectPool* pool,
-                                   const TPlanNode& tnode,
+BlockingJoinNode::BlockingJoinNode(const std::string& node_name, const TJoinOp::type join_op,
+                                   ObjectPool* pool, const TPlanNode& tnode,
                                    const DescriptorTbl& descs)
-    : ExecNode(pool, tnode, descs),
-      _node_name(node_name),
-      _join_op(join_op) {
-}
+        : ExecNode(pool, tnode, descs), _node_name(node_name), _join_op(join_op) {}
 
 Status BlockingJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     return ExecNode::init(tnode, state);
@@ -54,8 +49,7 @@ Status BlockingJoinNode::prepare(RuntimeState* state) {
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _left_child_timer = ADD_TIMER(runtime_profile(), "LeftChildTime");
     _build_row_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
-    _left_child_row_counter = ADD_COUNTER(runtime_profile(), "LeftChildRows",
-                                          TUnit::UNIT);
+    _left_child_row_counter = ADD_COUNTER(runtime_profile(), "LeftChildRows", TUnit::UNIT);
 
     _result_tuple_row_size = _row_descriptor.tuple_descriptors().size() * sizeof(Tuple*);
 
@@ -167,8 +161,7 @@ Status BlockingJoinNode::open(RuntimeState* state) {
 void BlockingJoinNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << std::string(indentation_level * 2, ' ');
     *out << _node_name;
-    *out << "(eos=" << (_eos ? "true" : "false")
-         << " left_batch_pos=" << _left_batch_pos;
+    *out << "(eos=" << (_eos ? "true" : "false") << " left_batch_pos=" << _left_batch_pos;
     add_to_debug_string(indentation_level, out);
     ExecNode::debug_string(indentation_level, out);
     *out << ")";
@@ -185,7 +178,7 @@ std::string BlockingJoinNode::get_left_child_row_string(TupleRow* row) {
         }
 
         int* is_build_tuple =
-            std::find(_build_tuple_idx_ptr, _build_tuple_idx_ptr + _build_tuple_size, i);
+                std::find(_build_tuple_idx_ptr, _build_tuple_idx_ptr + _build_tuple_size, i);
 
         if (is_build_tuple != _build_tuple_idx_ptr + _build_tuple_size) {
             out << Tuple::to_string(NULL, *row_desc().tuple_descriptors()[i]);
@@ -214,4 +207,4 @@ void BlockingJoinNode::create_output_row(TupleRow* out, TupleRow* left, TupleRow
     }
 }
 
-}
+} // namespace doris

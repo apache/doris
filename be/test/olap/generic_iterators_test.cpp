@@ -18,22 +18,21 @@
 
 #include "olap/generic_iterators.h"
 
-#include <vector>
-
 #include <gtest/gtest.h>
 
+#include <vector>
+
 #include "olap/olap_common.h"
-#include "olap/schema.h"
 #include "olap/row_block2.h"
+#include "olap/schema.h"
 #include "util/slice.h"
 
 namespace doris {
 
 class GenericIteratorsTest : public testing::Test {
 public:
-    GenericIteratorsTest() { }
-    virtual ~GenericIteratorsTest() {
-    }
+    GenericIteratorsTest() {}
+    virtual ~GenericIteratorsTest() {}
 };
 
 Schema create_schema() {
@@ -157,9 +156,9 @@ TEST(GenericIteratorsTest, Merge) {
     delete iter;
 }
 
-}
+} // namespace doris
 
-int main(int argc, char **argv) {
-    testing::InitGoogleTest(&argc, argv); 
+int main(int argc, char** argv) {
+    testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

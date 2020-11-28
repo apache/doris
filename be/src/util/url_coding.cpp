@@ -18,6 +18,7 @@
 #include "util/url_coding.h"
 
 #include <math.h>
+
 #include <exception>
 #include <memory>
 #include <sstream>
@@ -288,4 +289,4 @@ std::string escape_for_html_to_string(const std::string& in) {
     escape_for_html(in, &str);
     return str.str();
 }
-}
+} // namespace doris

@@ -37,5 +37,5 @@ struct ColumnMapping {
 
 typedef std::vector<ColumnMapping> SchemaMapping;
 
-}  // namespace doris
+} // namespace doris
 #endif // DORIS_BE_SRC_COLUMN_MAPPING_H

@@ -21,8 +21,8 @@
 #include <ostream>
 
 #include "common/object_pool.h"
-#include "olap/skiplist.h"
 #include "olap/olap_define.h"
+#include "olap/skiplist.h"
 #include "runtime/mem_tracker.h"
 
 namespace doris {
@@ -92,7 +92,8 @@ private:
 }; // class MemTable
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {
-    os << "MemTable(addr=" << &table << ", tablet=" << table.tablet_id() << ", mem=" << table.memory_usage();
+    os << "MemTable(addr=" << &table << ", tablet=" << table.tablet_id()
+       << ", mem=" << table.memory_usage();
     return os;
 }
 

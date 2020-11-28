@@ -18,52 +18,47 @@
 #ifndef DORIS_BE_PLUGIN_PLUGIN_MGR_H
 #define DORIS_BE_PLUGIN_PLUGIN_MGR_H
 
-
-#include <string>
-#include <unordered_map>
 #include <memory>
 #include <mutex>
-
-#include "gen_cpp/MasterService_types.h"
-#include "gen_cpp/AgentService_types.h"
+#include <string>
+#include <unordered_map>
 
 #include "common/status.h"
-#include "plugin/plugin_loader.h"
+#include "gen_cpp/AgentService_types.h"
+#include "gen_cpp/MasterService_types.h"
 #include "plugin/plugin.h"
-
+#include "plugin/plugin_loader.h"
 
 namespace doris {
 
 typedef std::unordered_map<std::string, std::unique_ptr<PluginLoader>> PluginLoaderMap;
 
 class PluginMgr {
-
 public:
-    
     PluginMgr() {}
-    
+
     ~PluginMgr() {}
-    
+
     Status install_plugin(const TPluginMetaInfo& info);
-    
+
     Status uninstall_plugin(const TPluginMetaInfo& info);
 
     Status register_builtin_plugin(const std::string& name, int type, const Plugin* plugin);
-    
+
     Status get_plugin(const std::string& name, int type, std::shared_ptr<Plugin>* plugin);
-    
+
     Status get_plugin(const std::string& name, std::shared_ptr<Plugin>* plugin);
 
     Status get_plugin_list(int type, std::vector<std::shared_ptr<Plugin>>* plugin_list);
-    
+
     Status get_all_plugin_info(std::vector<TPluginInfo>* plugin_info_list);
 
 private:
     PluginLoaderMap _plugins[PLUGIN_TYPE_MAX];
-  
+
     std::mutex _lock;
 };
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_PLUGIN_PLUGIN_LOADER_H

@@ -30,33 +30,33 @@
 
 #include "common/logging.h"
 #include "common/utils.h"
-#include "util/thrift_rpc_helper.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "http/http_channel.h"
 #include "http/http_common.h"
+#include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
-#include "http/http_headers.h"
 #include "http/utils.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/plan_fragment_executor.h"
+#include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/stream_load/stream_load_pipe.h"
-#include "runtime/stream_load/stream_load_context.h"
-#include "runtime/stream_load/load_stream_mgr.h"
 #include "util/byte_buffer.h"
 #include "util/debug_util.h"
+#include "util/doris_metrics.h"
 #include "util/json_util.h"
 #include "util/metrics.h"
-#include "util/doris_metrics.h"
+#include "util/string_util.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 #include "util/uid_util.h"
-#include "util/string_util.h"
 
 namespace doris {
 
@@ -89,7 +89,8 @@ static bool is_format_support_streaming(TFileFormatType::type format) {
 }
 
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
-    _stream_load_entity = DorisMetrics::instance()->metric_registry()->register_entity("stream_load");
+    _stream_load_entity =
+            DorisMetrics::instance()->metric_registry()->register_entity("stream_load");
     INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
     INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_bytes);
     INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_duration_ms);
@@ -101,7 +102,7 @@ StreamLoadAction::~StreamLoadAction() {
 }
 
 void StreamLoadAction::handle(HttpRequest* req) {
-    StreamLoadContext* ctx = (StreamLoadContext*) req->handler_ctx();
+    StreamLoadContext* ctx = (StreamLoadContext*)req->handler_ctx();
     if (ctx == nullptr) {
         return;
     }
@@ -111,7 +112,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
         ctx->status = _handle(ctx);
         if (!ctx->status.ok() && ctx->status.code() != TStatusCode::PUBLISH_TIMEOUT) {
             LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
-                << ", errmsg=" << ctx->status.get_error_msg();
+                         << ", errmsg=" << ctx->status.get_error_msg();
         }
     }
     ctx->load_cost_nanos = MonotonicNanos() - ctx->start_nanos;
@@ -138,9 +139,8 @@ void StreamLoadAction::handle(HttpRequest* req) {
 
 Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
     if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
-        LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes="
-            << ctx->body_bytes << ", receive_bytes=" << ctx->receive_bytes
-            << ", id=" << ctx->id;
+        LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
+                     << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
         return Status::InternalError("receive body don't equal with body bytes");
     }
     if (!ctx->use_streaming) {
@@ -181,8 +181,8 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         ctx->label = generate_uuid_string();
     }
 
-    LOG(INFO) << "new income streaming load request." << ctx->brief()
-              << ", db=" << ctx->db << ", tbl=" << ctx->table;
+    LOG(INFO) << "new income streaming load request." << ctx->brief() << ", db=" << ctx->db
+              << ", tbl=" << ctx->table;
 
     auto st = _on_header(req, ctx);
     if (!st.ok()) {
@@ -228,12 +228,14 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
         ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
         // json max body size
-        if ((ctx->format == TFileFormatType::FORMAT_JSON) && (ctx->body_bytes > json_max_body_bytes)) {
+        if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
+            (ctx->body_bytes > json_max_body_bytes)) {
             std::stringstream ss;
             ss << "The size of this batch exceed the max size [" << json_max_body_bytes
-                << "]  of json type data " << " data [ " << ctx->body_bytes << " ]";
+               << "]  of json type data "
+               << " data [ " << ctx->body_bytes << " ]";
             return Status::InternalError(ss.str());
-        } 
+        }
         // csv max body size
         else if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
@@ -244,8 +246,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     } else {
 #ifndef BE_TEST
         evhttp_connection_set_max_body_size(
-            evhttp_request_get_connection(http_req->get_evhttp_request()),
-            csv_max_body_bytes);
+                evhttp_request_get_connection(http_req->get_evhttp_request()), csv_max_body_bytes);
 #endif
     }
 
@@ -284,7 +285,7 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
         auto st = ctx->body_sink->append(bb);
         if (!st.ok()) {
             LOG(WARNING) << "append body content failed. errmsg=" << st.get_error_msg()
-                    << ctx->brief();
+                         << ctx->brief();
             ctx->status = st;
             return;
         }
@@ -294,7 +295,7 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
 }
 
 void StreamLoadAction::free_handler_ctx(void* param) {
-    StreamLoadContext* ctx = (StreamLoadContext*) param;
+    StreamLoadContext* ctx = (StreamLoadContext*)param;
     if (ctx == nullptr) {
         return;
     }
@@ -320,10 +321,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     request.formatType = ctx->format;
     request.__set_loadId(ctx->id.to_thrift());
     if (ctx->use_streaming) {
-        auto pipe = std::make_shared<StreamLoadPipe>(
-                1024 * 1024 /* max_buffered_bytes */,
-                64 * 1024 /* min_chunk_size */,
-                ctx->body_bytes /* total_length */);
+        auto pipe = std::make_shared<StreamLoadPipe>(1024 * 1024 /* max_buffered_bytes */,
+                                                     64 * 1024 /* min_chunk_size */,
+                                                     ctx->body_bytes /* total_length */);
         RETURN_IF_ERROR(_exec_env->load_stream_mgr()->put(ctx->id, pipe));
         request.fileType = TFileType::FILE_STREAM;
         ctx->body_sink = pipe;
@@ -348,16 +348,18 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         request.__set_partitions(http_req->header(HTTP_PARTITIONS));
         request.__set_isTempPartition(false);
         if (!http_req->header(HTTP_TEMP_PARTITIONS).empty()) {
-            return Status::InvalidArgument("Can not specify both partitions and temporary partitions");
+            return Status::InvalidArgument(
+                    "Can not specify both partitions and temporary partitions");
         }
-    } 
+    }
     if (!http_req->header(HTTP_TEMP_PARTITIONS).empty()) {
         request.__set_partitions(http_req->header(HTTP_TEMP_PARTITIONS));
         request.__set_isTempPartition(true);
         if (!http_req->header(HTTP_PARTITIONS).empty()) {
-            return Status::InvalidArgument("Can not specify both partitions and temporary partitions");
+            return Status::InvalidArgument(
+                    "Can not specify both partitions and temporary partitions");
         }
-    } 
+    }
     if (!http_req->header(HTTP_NEGATIVE).empty() && http_req->header(HTTP_NEGATIVE) == "true") {
         request.__set_negative(true);
     } else {
@@ -386,7 +388,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         request.__set_jsonpaths(http_req->header(HTTP_JSONPATHS));
     }
     if (!http_req->header(HTTP_JSONROOT).empty()) {
-       request.__set_json_root(http_req->header(HTTP_JSONROOT));
+        request.__set_json_root(http_req->header(HTTP_JSONROOT));
     }
     if (!http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
         if (boost::iequals(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true")) {
@@ -398,7 +400,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         request.__set_strip_outer_array(false);
     }
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
-        request.__set_sequence_col(http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL));
+        request.__set_sequence_col(
+                http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL));
     }
 
     if (ctx->timeout_second != -1) {
@@ -406,22 +409,22 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     }
     request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
     TMergeType::type merge_type = TMergeType::APPEND;
-    StringCaseMap<TMergeType::type> merge_type_map = {
-        { "APPEND", TMergeType::APPEND },
-        { "DELETE", TMergeType::DELETE },
-        { "MERGE", TMergeType::MERGE }
-    };
+    StringCaseMap<TMergeType::type> merge_type_map = {{"APPEND", TMergeType::APPEND},
+                                                      {"DELETE", TMergeType::DELETE},
+                                                      {"MERGE", TMergeType::MERGE}};
     if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
         std::string merge_type_str = http_req->header(HTTP_MERGE_TYPE);
-        if (merge_type_map.find(merge_type_str) != merge_type_map.end() ) {
+        if (merge_type_map.find(merge_type_str) != merge_type_map.end()) {
             merge_type = merge_type_map.find(merge_type_str)->second;
         } else {
             return Status::InvalidArgument("Invalid merge type " + merge_type_str);
         }
         if (merge_type == TMergeType::MERGE && http_req->header(HTTP_DELETE_CONDITION).empty()) {
             return Status::InvalidArgument("Excepted DELETE ON clause when merge type is MERGE.");
-        } else if (merge_type != TMergeType::MERGE && !http_req->header(HTTP_DELETE_CONDITION).empty()) {
-            return Status::InvalidArgument("Not support DELETE ON clause when merge type is not MERGE.");
+        } else if (merge_type != TMergeType::MERGE &&
+                   !http_req->header(HTTP_DELETE_CONDITION).empty()) {
+            return Status::InvalidArgument(
+                    "Not support DELETE ON clause when merge type is not MERGE.");
         }
     }
     request.__set_merge_type(merge_type);
@@ -438,7 +441,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     int64_t stream_load_put_start_time = MonotonicNanos();
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
-            [&request, ctx] (FrontendServiceConnection& client) {
+            [&request, ctx](FrontendServiceConnection& client) {
                 client->streamLoadPut(ctx->put_result, request);
             }));
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
@@ -448,7 +451,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     Status plan_status(ctx->put_result.status);
     if (!plan_status.ok()) {
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status.get_error_msg()
-                << ctx->brief();
+                     << ctx->brief();
         return plan_status;
     }
     VLOG(3) << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
@@ -477,5 +480,4 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
     return Status::OK();
 }
 
-}
-
+} // namespace doris

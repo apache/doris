@@ -19,13 +19,13 @@
 
 #include <memory> // for unique_ptr
 
-#include "common/status.h" // for Status
+#include "common/status.h"         // for Status
 #include "gen_cpp/segment_v2.pb.h" // for EncodingTypePB
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
-#include "olap/tablet_schema.h" // for TabletColumn
-#include "util/bitmap.h" // for BitmapChange
-#include "util/slice.h" // for OwnedSlice
+#include "olap/tablet_schema.h"                  // for TabletColumn
+#include "util/bitmap.h"                         // for BitmapChange
+#include "util/slice.h"                          // for OwnedSlice
 
 namespace doris {
 
@@ -62,19 +62,17 @@ class ZoneMapIndexWriter;
 
 class ColumnWriter {
 public:
-    static Status create(const ColumnWriterOptions& opts,
-                         const TabletColumn* column,
-                         fs::WritableBlock* _wblock,
-                         std::unique_ptr<ColumnWriter>* writer);
+    static Status create(const ColumnWriterOptions& opts, const TabletColumn* column,
+                         fs::WritableBlock* _wblock, std::unique_ptr<ColumnWriter>* writer);
 
     explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable)
-    : _field(std::move(field)), _is_nullable(is_nullable) {}
+            : _field(std::move(field)), _is_nullable(is_nullable) {}
 
     virtual ~ColumnWriter() = default;
 
     virtual Status init() = 0;
 
-    template<typename CellType>
+    template <typename CellType>
     Status append(const CellType& cell) {
         if (_is_nullable) {
             uint8_t nullmap = 0;
@@ -142,15 +140,14 @@ public:
 // to file
 class ScalarColumnWriter final : public ColumnWriter {
 public:
-    ScalarColumnWriter(const ColumnWriterOptions& opts,
-                           std::unique_ptr<Field> field,
-                           fs::WritableBlock* output_file);
+    ScalarColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
+                       fs::WritableBlock* output_file);
 
     ~ScalarColumnWriter() override;
 
     Status init() override;
 
-    inline Status append_nulls(size_t num_rows) override ;
+    inline Status append_nulls(size_t num_rows) override;
 
     Status finish_current_page() override;
 
@@ -239,22 +236,21 @@ private:
 
 class ArrayColumnWriter final : public ColumnWriter, public FlushPageCallback {
 public:
-    explicit ArrayColumnWriter(const ColumnWriterOptions& opts,
-                      std::unique_ptr<Field> field,
+    explicit ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
                                ScalarColumnWriter* offset_writer,
-                      std::unique_ptr<ColumnWriter> item_writer);
+                               std::unique_ptr<ColumnWriter> item_writer);
     ~ArrayColumnWriter() override = default;
 
-    Status init() override ;
+    Status init() override;
 
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
 
-    uint64_t estimate_buffer_size() override ;
+    uint64_t estimate_buffer_size() override;
 
-    Status finish() override ;
-    Status write_data() override ;
-    Status write_ordinal_index() override ;
-    inline Status append_nulls(size_t num_rows) override ;
+    Status finish() override;
+    Status write_data() override;
+    Status write_ordinal_index() override;
+    inline Status append_nulls(size_t num_rows) override;
 
     Status finish_current_page() override;
 
@@ -267,12 +263,12 @@ public:
     ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
 
 private:
-    Status put_extra_info_in_page(DataPageFooterPB* header) override ;
+    Status put_extra_info_in_page(DataPageFooterPB* header) override;
 
 private:
     std::unique_ptr<ScalarColumnWriter> _offset_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
 };
 
-}  // namespace segment_v2
-}  // namespace doris
+} // namespace segment_v2
+} // namespace doris

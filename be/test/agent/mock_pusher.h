@@ -27,6 +27,6 @@ public:
     MockPusher(const TPushReq& push_req);
     MOCK_METHOD0(init, AgentStatus());
     MOCK_METHOD1(process, AgentStatus(std::vector<TTabletInfo>* tablet_infos));
-};  // class MockPusher
-}  // namespace doris
-#endif  // DORIS_BE_SRC_AGENT_SERVICE_PUSHER_H
+}; // class MockPusher
+} // namespace doris
+#endif // DORIS_BE_SRC_AGENT_SERVICE_PUSHER_H

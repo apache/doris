@@ -96,39 +96,94 @@ OLAPStatus bytes_to_long_be(ReadOnlyFileStream* stream, int32_t n, int64_t* valu
 
 uint32_t encode_bit_width(uint32_t n) {
     static uint8_t bits_map[65] = {
-        ONE, // 0
-        ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, // 1 - 8
-        NINE, TEN, ELEVEN, TWELVE, THIRTEEN, FOURTEEN, FIFTEEN, SIXTEEN, // 9 - 16
-        // 17 - 24
-        SEVENTEEN, EIGHTEEN, NINETEEN, TWENTY, TWENTYONE, TWENTYTWO, TWENTYTHREE, TWENTYFOUR,
-        // 25 - 32
-        TWENTYSIX, TWENTYSIX, TWENTYEIGHT, TWENTYEIGHT, THIRTY, THIRTY, THIRTYTWO, THIRTYTWO,
-        // 33 - 40
-        FORTY, FORTY, FORTY, FORTY, FORTY, FORTY, FORTY, FORTY,
-        // 41 - 48
-        FORTYEIGHT, FORTYEIGHT, FORTYEIGHT, FORTYEIGHT, FORTYEIGHT, FORTYEIGHT,
-        FORTYEIGHT, FORTYEIGHT,
-        // 49 - 56
-        FIFTYSIX, FIFTYSIX, FIFTYSIX, FIFTYSIX, FIFTYSIX, FIFTYSIX, FIFTYSIX, FIFTYSIX,
-        // 57 - 64
-        SIXTYFOUR, SIXTYFOUR, SIXTYFOUR, SIXTYFOUR, SIXTYFOUR, SIXTYFOUR, SIXTYFOUR, SIXTYFOUR,
+            ONE, // 0
+            ONE,
+            TWO,
+            THREE,
+            FOUR,
+            FIVE,
+            SIX,
+            SEVEN,
+            EIGHT, // 1 - 8
+            NINE,
+            TEN,
+            ELEVEN,
+            TWELVE,
+            THIRTEEN,
+            FOURTEEN,
+            FIFTEEN,
+            SIXTEEN, // 9 - 16
+            // 17 - 24
+            SEVENTEEN,
+            EIGHTEEN,
+            NINETEEN,
+            TWENTY,
+            TWENTYONE,
+            TWENTYTWO,
+            TWENTYTHREE,
+            TWENTYFOUR,
+            // 25 - 32
+            TWENTYSIX,
+            TWENTYSIX,
+            TWENTYEIGHT,
+            TWENTYEIGHT,
+            THIRTY,
+            THIRTY,
+            THIRTYTWO,
+            THIRTYTWO,
+            // 33 - 40
+            FORTY,
+            FORTY,
+            FORTY,
+            FORTY,
+            FORTY,
+            FORTY,
+            FORTY,
+            FORTY,
+            // 41 - 48
+            FORTYEIGHT,
+            FORTYEIGHT,
+            FORTYEIGHT,
+            FORTYEIGHT,
+            FORTYEIGHT,
+            FORTYEIGHT,
+            FORTYEIGHT,
+            FORTYEIGHT,
+            // 49 - 56
+            FIFTYSIX,
+            FIFTYSIX,
+            FIFTYSIX,
+            FIFTYSIX,
+            FIFTYSIX,
+            FIFTYSIX,
+            FIFTYSIX,
+            FIFTYSIX,
+            // 57 - 64
+            SIXTYFOUR,
+            SIXTYFOUR,
+            SIXTYFOUR,
+            SIXTYFOUR,
+            SIXTYFOUR,
+            SIXTYFOUR,
+            SIXTYFOUR,
+            SIXTYFOUR,
     };
     return bits_map[n];
 }
 
 uint32_t decode_bit_width(uint32_t n) {
     static uint8_t bits_map[SIXTYFOUR + 1] = {
-        1, 2, 3, 4, 5, 6, 7, 8, // ONE - EIGHT
-        9, 10, 11, 12, 13, 14, 15, 16, // NINE - SIXTEEN
-        17, 18, 19, 20, 21, 22, 23, 24, // SEVENTEEN - TWENTYFOUR
-        26, // TWENTYSIX
-        28, // TWENTYEIGHT
-        30, // THIRTY
-        32, // THIRTYTWO
-        40, // FORTY
-        48, // FORTYEIGHT
-        56, // FIFTYSIX
-        64 // SIXTYFOUR
+            1,  2,  3,  4,  5,  6,  7,  8,  // ONE - EIGHT
+            9,  10, 11, 12, 13, 14, 15, 16, // NINE - SIXTEEN
+            17, 18, 19, 20, 21, 22, 23, 24, // SEVENTEEN - TWENTYFOUR
+            26,                             // TWENTYSIX
+            28,                             // TWENTYEIGHT
+            30,                             // THIRTY
+            32,                             // THIRTYTWO
+            40,                             // FORTY
+            48,                             // FORTYEIGHT
+            56,                             // FIFTYSIX
+            64                              // SIXTYFOUR
     };
     return bits_map[n];
 }
@@ -277,4 +332,3 @@ OLAPStatus read_ints(ReadOnlyFileStream* input, int64_t* data, uint32_t count, u
 
 } // namespace ser
 } // namespace doris
-

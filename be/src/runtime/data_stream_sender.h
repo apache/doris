@@ -18,15 +18,15 @@
 #ifndef DORIS_BE_RUNTIME_DATA_STREAM_SENDER_H
 #define DORIS_BE_RUNTIME_DATA_STREAM_SENDER_H
 
-#include <vector>
 #include <string>
+#include <vector>
 
-#include "exec/data_sink.h"
 #include "common/global_types.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "exec/data_sink.h"
+#include "gen_cpp/data.pb.h" // for PRowBatch
 #include "util/runtime_profile.h"
-#include "gen_cpp/data.pb.h"  // for PRowBatch
 
 namespace doris {
 
@@ -56,8 +56,8 @@ public:
     // and is specified in bytes.
     // The RowDescriptor must live until close() is called.
     // NOTE: supported partition types are UNPARTITIONED (broadcast) and HASH_PARTITIONED
-    DataStreamSender(ObjectPool* pool, int sender_id,
-                     const RowDescriptor& row_desc, const TDataStreamSink& sink,
+    DataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
+                     const TDataStreamSink& sink,
                      const std::vector<TPlanFragmentDestination>& destinations,
                      int per_channel_buffer_size, bool send_query_statistics_with_every_batch);
     virtual ~DataStreamSender();
@@ -86,34 +86,27 @@ public:
     /// Serializes the src batch into the dest thrift batch. Maintains metrics.
     /// num_receivers is the number of receivers this batch will be sent to. Only
     /// used to maintain metrics.
-    template<class T>
+    template <class T>
     Status serialize_batch(RowBatch* src, T* dest, int num_receivers = 1);
 
     // Return total number of bytes sent in TRowBatch.data. If batches are
     // broadcast to multiple receivers, they are counted once per receiver.
     int64_t get_num_data_bytes_sent() const;
 
-    virtual RuntimeProfile* profile() {
-        return _profile;
-    }
+    virtual RuntimeProfile* profile() { return _profile; }
 
 private:
     class Channel;
 
-    Status compute_range_part_code(
-        RuntimeState* state,
-        TupleRow* row,
-        size_t* hash_value,
-        bool* ignore);
+    Status compute_range_part_code(RuntimeState* state, TupleRow* row, size_t* hash_value,
+                                   bool* ignore);
 
     int binary_find_partition(const PartRangeKey& key) const;
 
-    Status find_partition(
-        RuntimeState* state, TupleRow* row, PartitionInfo** info, bool* ignore);
+    Status find_partition(RuntimeState* state, TupleRow* row, PartitionInfo** info, bool* ignore);
 
-    Status process_distribute(
-        RuntimeState* state, TupleRow* row,
-        const PartitionInfo* part, size_t* hash_val);
+    Status process_distribute(RuntimeState* state, TupleRow* row, const PartitionInfo* part,
+                              size_t* hash_val);
 
     // Sender instance id, unique within a fragment.
     int _sender_id;
@@ -136,7 +129,7 @@ private:
     PRowBatch _pb_batch2;
     PRowBatch* _current_pb_batch = nullptr;
 
-    std::vector<ExprContext*> _partition_expr_ctxs;  // compute per-row partition values
+    std::vector<ExprContext*> _partition_expr_ctxs; // compute per-row partition values
 
     std::vector<Channel*> _channels;
     std::vector<std::shared_ptr<Channel>> _channel_shared_ptrs;
@@ -160,6 +153,6 @@ private:
     PlanNodeId _dest_node_id;
 };
 
-}
+} // namespace doris
 
 #endif

@@ -37,7 +37,6 @@ Status dynamic_open(const char* library, void** handle);
 // Closes the handle.
 void dynamic_close(void* handle);
 
-}
+} // namespace doris
 
 #endif
-

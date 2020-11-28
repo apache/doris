@@ -8,8 +8,8 @@
 
 namespace doris {
 
-inline const char* assemble_state(
-        TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2) {
+inline const char* assemble_state(TStatusCode::type code, const Slice& msg, int16_t precise_code,
+                                  const Slice& msg2) {
     DCHECK(code != TStatusCode::OK);
 
     const uint32_t len1 = msg.size;
@@ -58,8 +58,7 @@ Status::Status(const PStatus& s) : _state(nullptr) {
 }
 
 Status::Status(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2)
-        : _state(assemble_state(code, msg, precise_code, msg2)) {
-}
+        : _state(assemble_state(code, msg, precise_code, msg2)) {}
 
 void Status::to_thrift(TStatus* s) const {
     s->error_msgs.clear();
@@ -196,4 +195,4 @@ Status Status::clone_and_append(const Slice& msg) const {
     return Status(code(), message(), precise_code(), msg);
 }
 
-}
+} // namespace doris

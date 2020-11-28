@@ -19,17 +19,17 @@
 
 #include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
+
 #include <sstream>
 
 #include "common/logging.h"
 #include "exprs/expr.h"
-
 #include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
-#include "runtime/row_batch.h"
 #include "runtime/exec_env.h"
 #include "runtime/primitive_type.h"
 #include "runtime/result_queue_mgr.h"
+#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
 #include "util/arrow/row_batch.h"
@@ -38,20 +38,19 @@
 
 namespace doris {
 
-MemoryScratchSink::MemoryScratchSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr,
-                       const TMemoryScratchSink& sink) : _row_desc(row_desc),_t_output_expr(t_output_expr) {
-}
+MemoryScratchSink::MemoryScratchSink(const RowDescriptor& row_desc,
+                                     const std::vector<TExpr>& t_output_expr,
+                                     const TMemoryScratchSink& sink)
+        : _row_desc(row_desc), _t_output_expr(t_output_expr) {}
 
-MemoryScratchSink::~MemoryScratchSink() {
-}
+MemoryScratchSink::~MemoryScratchSink() {}
 
 Status MemoryScratchSink::prepare_exprs(RuntimeState* state) {
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(Expr::create_expr_trees(
-            state->obj_pool(), _t_output_expr, &_output_expr_ctxs));
+    RETURN_IF_ERROR(Expr::create_expr_trees(state->obj_pool(), _t_output_expr, &_output_expr_ctxs));
     // Prepare the exprs to run.
     RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _expr_mem_tracker));
-    // generate the arrow schema 
+    // generate the arrow schema
     RETURN_IF_ERROR(convert_to_arrow_schema(_row_desc, &_arrow_schema));
     return Status::OK();
 }
@@ -76,7 +75,8 @@ Status MemoryScratchSink::send(RuntimeState* state, RowBatch* batch) {
         return Status::OK();
     }
     std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(convert_to_arrow_batch(*batch, _arrow_schema, arrow::default_memory_pool(), &result));
+    RETURN_IF_ERROR(
+            convert_to_arrow_batch(*batch, _arrow_schema, arrow::default_memory_pool(), &result));
     _queue->blocking_put(result);
     return Status::OK();
 }
@@ -98,4 +98,4 @@ Status MemoryScratchSink::close(RuntimeState* state, Status exec_status) {
     return Status::OK();
 }
 
-}
+} // namespace doris

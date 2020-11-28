@@ -16,14 +16,15 @@
 // under the License.
 
 #include "aes_util.h"
-#include  <cstring>
-#include  <string>
-#include  <memory>
-#include  <iostream>
 
 #include <openssl/aes.h>
-#include <openssl/evp.h>
 #include <openssl/err.h>
+#include <openssl/evp.h>
+
+#include <cstring>
+#include <iostream>
+#include <memory>
+#include <string>
 
 namespace doris {
 
@@ -48,29 +49,25 @@ const EVP_CIPHER* get_evp_type(const AesMode mode) {
     }
 }
 
-static uint aes_mode_key_sizes[]= {
-    128 /* AES_128_ECB */,
-    192 /* AES_192_ECB */,
-    256 /* AES_256_ECB */,
-    128 /* AES_128_CBC */,
-    192 /* AES_192_CBC */,
-    256 /* AES_256_CBC */
+static uint aes_mode_key_sizes[] = {
+        128 /* AES_128_ECB */, 192 /* AES_192_ECB */, 256 /* AES_256_ECB */,
+        128 /* AES_128_CBC */, 192 /* AES_192_CBC */, 256 /* AES_256_CBC */
 };
 
 static void aes_create_key(const unsigned char* origin_key, uint32_t key_length,
-        uint8_t* encrypt_key, AesMode mode) {
-    const uint key_size= aes_mode_key_sizes[mode] / 8;
-    uint8_t *origin_key_end= ((uint8_t*)origin_key) + key_length; /* origin key boundary*/
+                           uint8_t* encrypt_key, AesMode mode) {
+    const uint key_size = aes_mode_key_sizes[mode] / 8;
+    uint8_t* origin_key_end = ((uint8_t*)origin_key) + key_length; /* origin key boundary*/
 
-    uint8_t *encrypt_key_end; /* encrypt key boundary */
-    encrypt_key_end= encrypt_key + key_size;
+    uint8_t* encrypt_key_end; /* encrypt key boundary */
+    encrypt_key_end = encrypt_key + key_size;
 
-    std::memset(encrypt_key, 0, key_size);          /* initialize key  */
+    std::memset(encrypt_key, 0, key_size); /* initialize key  */
 
-    uint8_t *ptr; /* Start of the encrypt key*/
-    uint8_t *origin_ptr; /* Start of the origin key */
-    for (ptr = encrypt_key, origin_ptr = (uint8_t*)origin_key;
-            origin_ptr < origin_key_end; ptr++, origin_ptr++) {
+    uint8_t* ptr;        /* Start of the encrypt key*/
+    uint8_t* origin_ptr; /* Start of the origin key */
+    for (ptr = encrypt_key, origin_ptr = (uint8_t*)origin_key; origin_ptr < origin_key_end;
+         ptr++, origin_ptr++) {
         if (ptr == encrypt_key_end) {
             /* loop over origin key until we used all key */
             ptr = encrypt_key;
@@ -80,8 +77,9 @@ static void aes_create_key(const unsigned char* origin_key, uint32_t key_length,
 }
 
 static int do_encrypt(EVP_CIPHER_CTX* aes_ctx, const EVP_CIPHER* cipher,
-        const unsigned char* source, uint32_t source_length, const unsigned char* encrypt_key,
-        const unsigned char* iv, bool padding, unsigned char* encrypt, int* length_ptr) {
+                      const unsigned char* source, uint32_t source_length,
+                      const unsigned char* encrypt_key, const unsigned char* iv, bool padding,
+                      unsigned char* encrypt, int* length_ptr) {
     int ret = EVP_EncryptInit(aes_ctx, cipher, encrypt_key, iv);
     if (ret == 0) {
         return ret;
@@ -102,21 +100,21 @@ static int do_encrypt(EVP_CIPHER_CTX* aes_ctx, const EVP_CIPHER* cipher,
 }
 
 int AesUtil::encrypt(AesMode mode, const unsigned char* source, uint32_t source_length,
-        const unsigned char* key, uint32_t key_length, const unsigned char* iv,
-        bool padding, unsigned char* encrypt) {
+                     const unsigned char* key, uint32_t key_length, const unsigned char* iv,
+                     bool padding, unsigned char* encrypt) {
     EVP_CIPHER_CTX aes_ctx;
     const EVP_CIPHER* cipher = get_evp_type(mode);
     /* The encrypt key to be used for encryption */
     unsigned char encrypt_key[AES_MAX_KEY_LENGTH / 8];
     aes_create_key(key, key_length, encrypt_key, mode);
-    
+
     if (cipher == nullptr || (EVP_CIPHER_iv_length(cipher) > 0 && !iv)) {
         return AES_BAD_DATA;
     }
     EVP_CIPHER_CTX_init(&aes_ctx);
     int length = 0;
-    int ret = do_encrypt(&aes_ctx, cipher, source,
-            source_length, encrypt_key, iv, padding, encrypt, &length);
+    int ret = do_encrypt(&aes_ctx, cipher, source, source_length, encrypt_key, iv, padding, encrypt,
+                         &length);
     EVP_CIPHER_CTX_cleanup(&aes_ctx);
     if (ret == 0) {
         ERR_clear_error();
@@ -127,8 +125,9 @@ int AesUtil::encrypt(AesMode mode, const unsigned char* source, uint32_t source_
 }
 
 static int do_decrypt(EVP_CIPHER_CTX* aes_ctx, const EVP_CIPHER* cipher,
-        const unsigned char* encrypt, uint32_t encrypt_length, const unsigned char* encrypt_key,
-        const unsigned char* iv, bool padding, unsigned char* decrypt_content, int* length_ptr) {
+                      const unsigned char* encrypt, uint32_t encrypt_length,
+                      const unsigned char* encrypt_key, const unsigned char* iv, bool padding,
+                      unsigned char* decrypt_content, int* length_ptr) {
     int ret = EVP_DecryptInit(aes_ctx, cipher, encrypt_key, iv);
     if (ret == 0) {
         return ret;
@@ -149,8 +148,8 @@ static int do_decrypt(EVP_CIPHER_CTX* aes_ctx, const EVP_CIPHER* cipher,
 }
 
 int AesUtil::decrypt(AesMode mode, const unsigned char* encrypt, uint32_t encrypt_length,
-        const unsigned char* key, uint32_t key_length, const unsigned char* iv,
-        bool padding, unsigned char* decrypt_content) {
+                     const unsigned char* key, uint32_t key_length, const unsigned char* iv,
+                     bool padding, unsigned char* decrypt_content) {
     EVP_CIPHER_CTX aes_ctx;
     const EVP_CIPHER* cipher = get_evp_type(mode);
 
@@ -164,8 +163,8 @@ int AesUtil::decrypt(AesMode mode, const unsigned char* encrypt, uint32_t encryp
 
     EVP_CIPHER_CTX_init(&aes_ctx);
     int length = 0;
-    int ret = do_decrypt(&aes_ctx, cipher, encrypt, encrypt_length,
-            encrypt_key, iv, padding, decrypt_content, &length);
+    int ret = do_decrypt(&aes_ctx, cipher, encrypt, encrypt_length, encrypt_key, iv, padding,
+                         decrypt_content, &length);
     EVP_CIPHER_CTX_cleanup(&aes_ctx);
     if (ret > 0) {
         return length;
@@ -175,4 +174,4 @@ int AesUtil::decrypt(AesMode mode, const unsigned char* encrypt, uint32_t encryp
     }
 }
 
-}
+} // namespace doris

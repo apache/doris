@@ -10,18 +10,17 @@
 #include <sys/syscall.h>
 #endif
 
+#include <glog/logging.h>
 #include <unistd.h>
 
 #include <cstdint>
 #include <ostream>
 
-#include <glog/logging.h>
-
 namespace base {
 
 void DCheckAsserter::warn(int64_t previous_thread_id, int64_t current_thread_id) {
-  LOG(FATAL) << "Thread Collision! Previous thread id: " << previous_thread_id
-             << ", current thread id: " << current_thread_id;
+    LOG(FATAL) << "Thread Collision! Previous thread id: " << previous_thread_id
+               << ", current thread id: " << current_thread_id;
 }
 
 #if 0
@@ -42,52 +41,50 @@ static subtle::Atomic32 CurrentThread() {
 
 static subtle::Atomic64 CurrentThread() {
 #if defined(__APPLE__)
-  uint64_t tid;
-  CHECK_EQ(0, pthread_threadid_np(NULL, &tid));
-  return tid;
+    uint64_t tid;
+    CHECK_EQ(0, pthread_threadid_np(NULL, &tid));
+    return tid;
 #elif defined(__linux__)
-  return syscall(__NR_gettid);
+    return syscall(__NR_gettid);
 #endif
 }
 
 #endif
 
 void ThreadCollisionWarner::EnterSelf() {
-  // If the active thread is 0 then I'll write the current thread ID
-  // if two or more threads arrive here only one will succeed to
-  // write on valid_thread_id_ the current thread ID.
-  subtle::Atomic64 current_thread_id = CurrentThread();
+    // If the active thread is 0 then I'll write the current thread ID
+    // if two or more threads arrive here only one will succeed to
+    // write on valid_thread_id_ the current thread ID.
+    subtle::Atomic64 current_thread_id = CurrentThread();
 
-  int64_t previous_thread_id = subtle::NoBarrier_CompareAndSwap(&valid_thread_id_,
-                                                                0,
-                                                                current_thread_id);
-  if (previous_thread_id != 0 && previous_thread_id != current_thread_id) {
-    // gotcha! a thread is trying to use the same class and that is
-    // not current thread.
-    asserter_->warn(previous_thread_id, current_thread_id);
-  }
+    int64_t previous_thread_id =
+            subtle::NoBarrier_CompareAndSwap(&valid_thread_id_, 0, current_thread_id);
+    if (previous_thread_id != 0 && previous_thread_id != current_thread_id) {
+        // gotcha! a thread is trying to use the same class and that is
+        // not current thread.
+        asserter_->warn(previous_thread_id, current_thread_id);
+    }
 
-  subtle::NoBarrier_AtomicIncrement(&counter_, 1);
+    subtle::NoBarrier_AtomicIncrement(&counter_, 1);
 }
 
 void ThreadCollisionWarner::Enter() {
-  subtle::Atomic64 current_thread_id = CurrentThread();
+    subtle::Atomic64 current_thread_id = CurrentThread();
 
-  int64_t previous_thread_id = subtle::NoBarrier_CompareAndSwap(&valid_thread_id_,
-                                                                0,
-                                                                current_thread_id);
-  if (previous_thread_id != 0) {
-    // gotcha! another thread is trying to use the same class.
-    asserter_->warn(previous_thread_id, current_thread_id);
-  }
+    int64_t previous_thread_id =
+            subtle::NoBarrier_CompareAndSwap(&valid_thread_id_, 0, current_thread_id);
+    if (previous_thread_id != 0) {
+        // gotcha! another thread is trying to use the same class.
+        asserter_->warn(previous_thread_id, current_thread_id);
+    }
 
-  subtle::NoBarrier_AtomicIncrement(&counter_, 1);
+    subtle::NoBarrier_AtomicIncrement(&counter_, 1);
 }
 
 void ThreadCollisionWarner::Leave() {
-  if (subtle::Barrier_AtomicIncrement(&counter_, -1) == 0) {
-    subtle::NoBarrier_Store(&valid_thread_id_, 0);
-  }
+    if (subtle::Barrier_AtomicIncrement(&counter_, -1) == 0) {
+        subtle::NoBarrier_Store(&valid_thread_id_, 0);
+    }
 }
 
-}  // namespace base
+} // namespace base

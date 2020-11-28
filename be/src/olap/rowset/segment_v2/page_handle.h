@@ -18,8 +18,8 @@
 #pragma once
 
 #include "gutil/macros.h" // for DISALLOW_COPY_AND_ASSIGN
-#include "util/slice.h" // for Slice
 #include "olap/page_cache.h"
+#include "util/slice.h" // for Slice
 
 namespace doris {
 namespace segment_v2 {
@@ -31,23 +31,22 @@ namespace segment_v2 {
 // will free data's memory when it is destroyed.
 class PageHandle {
 public:
-    PageHandle() : _is_data_owner(false) { }
+    PageHandle() : _is_data_owner(false) {}
 
     // This class will take the ownership of input data's memory. It will
     // free it when deconstructs.
-    PageHandle(const Slice& data) : _is_data_owner(true), _data(data) { }
+    PageHandle(const Slice& data) : _is_data_owner(true), _data(data) {}
 
     // This class will take the content of cache data, and will make input
     // cache_data to a invalid cache handle.
     PageHandle(PageCacheHandle cache_data)
-        : _is_data_owner(false), _cache_data(std::move(cache_data)) {
-    }
+            : _is_data_owner(false), _cache_data(std::move(cache_data)) {}
 
     // Move constructor
     PageHandle(PageHandle&& other) noexcept
             : _is_data_owner(false),
-            _data(std::move(other._data)),
-            _cache_data(std::move(other._cache_data)) {
+              _data(std::move(other._data)),
+              _cache_data(std::move(other._cache_data)) {
         // we can use std::exchange if we switch c++14 on
         std::swap(_is_data_owner, other._is_data_owner);
     }
@@ -75,7 +74,6 @@ public:
     }
 
 private:
-
     // when this is true, it means this struct own data and _data is valid.
     // otherwise _cache_data is valid, and data is belong to cache.
     bool _is_data_owner = false;
@@ -86,5 +84,5 @@ private:
     DISALLOW_COPY_AND_ASSIGN(PageHandle);
 };
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

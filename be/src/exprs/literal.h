@@ -29,9 +29,7 @@ class Literal : public Expr {
 public:
     virtual ~Literal();
 
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new Literal(*this));
-    }
+    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new Literal(*this)); }
 
     virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
@@ -54,6 +52,6 @@ private:
     ExprValue _value;
 };
 
-}
+} // namespace doris
 
 #endif

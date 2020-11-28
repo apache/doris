@@ -21,7 +21,7 @@ namespace google {
 namespace glog_internal_namespace_ {
 void DumpStackTraceToString(std::string* stacktrace);
 }
-}
+} // namespace google
 
 namespace doris {
 
@@ -31,4 +31,4 @@ std::string get_stack_trace() {
     return s;
 }
 
-}
+} // namespace doris

@@ -28,12 +28,13 @@ class MetricRegistry;
 
 class MetricsAction : public HttpHandler {
 public:
-    MetricsAction(MetricRegistry* metric_registry) :_metric_registry(metric_registry) { }
-    virtual ~MetricsAction() { }
+    MetricsAction(MetricRegistry* metric_registry) : _metric_registry(metric_registry) {}
+    virtual ~MetricsAction() {}
 
-    void handle(HttpRequest *req) override;
+    void handle(HttpRequest* req) override;
+
 private:
     MetricRegistry* _metric_registry;
 };
 
-}
+} // namespace doris

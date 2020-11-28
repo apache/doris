@@ -4,13 +4,12 @@
 
 #include "olap/lru_cache.h"
 
+#include <rapidjson/document.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <sstream>
 #include <string>
-
-#include <rapidjson/document.h>
 
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -49,29 +48,28 @@ uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
 
     // Pick up remaining bytes
     switch (limit - data) {
-        case 3:
-            h += static_cast<unsigned char>(data[2]) << 16;
+    case 3:
+        h += static_cast<unsigned char>(data[2]) << 16;
 
-            // fall through
-        case 2:
-            h += static_cast<unsigned char>(data[1]) << 8;
+        // fall through
+    case 2:
+        h += static_cast<unsigned char>(data[1]) << 8;
 
-            // fall through
-        case 1:
-            h += static_cast<unsigned char>(data[0]);
-            h *= m;
-            h ^= (h >> r);
-            break;
+        // fall through
+    case 1:
+        h += static_cast<unsigned char>(data[0]);
+        h *= m;
+        h ^= (h >> r);
+        break;
 
-        default:
-            break;
+    default:
+        break;
     }
 
     return h;
 }
 
-Cache::~Cache() {
-}
+Cache::~Cache() {}
 
 HandleTable::~HandleTable() {
     for (uint32_t i = 0; i < _length; i++) {
@@ -125,8 +123,7 @@ void HandleTable::remove(const LRUHandle* h) {
 
 LRUHandle** HandleTable::_find_pointer(const CacheKey& key, uint32_t hash) {
     LRUHandle** ptr = &(_list[hash & (_length - 1)]->next_hash);
-    while (*ptr != NULL &&
-            ((*ptr)->hash != hash || key != (*ptr)->key())) {
+    while (*ptr != NULL && ((*ptr)->hash != hash || key != (*ptr)->key())) {
         ptr = &(*ptr)->next_hash;
     }
 
@@ -148,7 +145,7 @@ void HandleTable::_resize() {
         new_length *= 2;
     }
 
-    LRUHandle** new_list = new(std::nothrow) LRUHandle*[new_length];
+    LRUHandle** new_list = new (std::nothrow) LRUHandle*[new_length];
     memset(new_list, 0, sizeof(new_list[0]) * new_length);
     for (uint32_t i = 0; i < new_length; i++) {
         // The first node in the linked-list is a dummy node used for
@@ -173,7 +170,7 @@ void HandleTable::_resize() {
     for (uint32_t i = 0; i < _length; i++) {
         delete _list[i];
     }
-    delete [] _list;
+    delete[] _list;
     _list = new_list;
     _length = new_length;
 }
@@ -291,19 +288,16 @@ void LRUCache::_evict_one_entry(LRUHandle* e) {
     _usage -= e->charge;
 }
 
-Cache::Handle* LRUCache::insert(
-        const CacheKey& key, uint32_t hash, void* value, size_t charge,
-        void (*deleter)(const CacheKey& key, void* value),
-        CachePriority priority) {
-
-    LRUHandle* e = reinterpret_cast<LRUHandle*>(
-            malloc(sizeof(LRUHandle) - 1 + key.size()));
+Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
+                                void (*deleter)(const CacheKey& key, void* value),
+                                CachePriority priority) {
+    LRUHandle* e = reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
     e->value = value;
     e->deleter = deleter;
     e->charge = charge;
     e->key_length = key.size();
     e->hash = hash;
-    e->refs = 2;  // one for the returned handle, one for LRUCache.
+    e->refs = 2; // one for the returned handle, one for LRUCache.
     e->next = e->prev = nullptr;
     e->in_cache = true;
     e->priority = priority;
@@ -376,7 +370,7 @@ int LRUCache::prune() {
         while (_lru.next != &_lru) {
             LRUHandle* old = _lru.next;
             DCHECK(old->in_cache);
-            DCHECK(old->refs == 1);  // LRU list contains elements which may be evicted
+            DCHECK(old->refs == 1); // LRU list contains elements which may be evicted
             _lru_remove(old);
             _table.remove(old);
             old->in_cache = false;
@@ -405,14 +399,14 @@ uint32_t ShardedLRUCache::_shard(uint32_t hash) {
 }
 
 ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity)
-    : _name(name), _last_id(1) {
+        : _name(name), _last_id(1) {
     const size_t per_shard = (total_capacity + (kNumShards - 1)) / kNumShards;
     for (int s = 0; s < kNumShards; s++) {
         _shards[s].set_capacity(per_shard);
     }
 
-    _entity = DorisMetrics::instance()->metric_registry()
-        ->register_entity(std::string("lru_cache:") + name, {{"name", name}});
+    _entity = DorisMetrics::instance()->metric_registry()->register_entity(
+            std::string("lru_cache:") + name, {{"name", name}});
     _entity->register_hook(name, std::bind(&ShardedLRUCache::update_cache_metrics, this));
     INT_GAUGE_METRIC_REGISTER(_entity, capacity);
     INT_GAUGE_METRIC_REGISTER(_entity, usage);
@@ -427,12 +421,9 @@ ShardedLRUCache::~ShardedLRUCache() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }
 
-Cache::Handle* ShardedLRUCache::insert(
-        const CacheKey& key,
-        void* value,
-        size_t charge,
-        void (*deleter)(const CacheKey& key, void* value),
-        CachePriority priority) {
+Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t charge,
+                                       void (*deleter)(const CacheKey& key, void* value),
+                                       CachePriority priority) {
     const uint32_t hash = _hash_slice(key);
     return _shards[_shard(hash)].insert(key, hash, value, charge, deleter, priority);
 }
@@ -497,4 +488,4 @@ Cache* new_lru_cache(const std::string& name, size_t capacity) {
     return new ShardedLRUCache(name, capacity);
 }
 
-}  // namespace doris
+} // namespace doris

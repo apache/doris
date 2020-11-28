@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_QUERY_EXEC_EXCHANGE_NODE_H
 
 #include <boost/scoped_ptr.hpp>
+
 #include "exec/exec_node.h"
 #include "exec/sort_exec_exprs.h"
 #include "runtime/data_stream_recvr.h"
@@ -54,15 +55,12 @@ public:
 
     // the number of senders needs to be set after the c'tor, because it's not
     // recorded in TPlanNode, and before calling prepare()
-    void set_num_senders(int num_senders) {
-        _num_senders = num_senders;
-    }
+    void set_num_senders(int num_senders) { _num_senders = num_senders; }
 
 protected:
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
 
 private:
-
     // Implements GetNext() for the case where _is_merging is true. Delegates the GetNext()
     // call to the underlying DataStreamRecvr.
     Status get_next_merging(RuntimeState* state, RowBatch* output_batch, bool* eos);
@@ -71,7 +69,7 @@ private:
     // Only used when _is_merging is false.
     Status fill_input_row_batch(RuntimeState* state);
 
-    int _num_senders;  // needed for _stream_recvr construction
+    int _num_senders; // needed for _stream_recvr construction
 
     // created in prepare() and owned by the RuntimeState
     boost::shared_ptr<DataStreamRecvr> _stream_recvr;
@@ -110,12 +108,12 @@ private:
     // Number of rows skipped so far.
     int64_t _num_rows_skipped;
 
-    // Sub plan query statistics receiver. It is shared with DataStreamRecvr and will be 
+    // Sub plan query statistics receiver. It is shared with DataStreamRecvr and will be
     // called in two different threads. When ExchangeNode is destructed, this may be accessed
     // by recvr thread in DataStreamMgr's transmit_data.
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 };
 
-};
+}; // namespace doris
 
 #endif

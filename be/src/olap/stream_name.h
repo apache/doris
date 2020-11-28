@@ -30,20 +30,17 @@ class StreamName {
 public:
     StreamName(uint32_t unique_column_id, StreamInfoMessage::Kind kind);
 
-    uint32_t unique_column_id() const {
-        return _unique_column_id;
-    }
-    StreamInfoMessage::Kind kind() const {
-        return _kind;
-    }
+    uint32_t unique_column_id() const { return _unique_column_id; }
+    StreamInfoMessage::Kind kind() const { return _kind; }
 
-    bool operator < (const StreamName& another) const;
-    bool operator == (const StreamName& another) const;
+    bool operator<(const StreamName& another) const;
+    bool operator==(const StreamName& another) const;
+
 private:
     uint32_t _unique_column_id;
     StreamInfoMessage::Kind _kind;
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_NAME_H

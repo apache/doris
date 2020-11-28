@@ -15,15 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <random>
+#include "util/radix_sort.h"
+
 #include <gtest/gtest.h>
+
 #include <algorithm>
-#include <iterator>
-#include <iostream>
 #include <cstdlib>
+#include <iostream>
+#include <iterator>
+#include <random>
 
 #include "util/tdigest.h"
-#include "util/radix_sort.h"
 
 namespace doris {
 
@@ -190,7 +192,7 @@ struct RadixSortTestTraits {
     using Transform = RadixSortFloatTransform<KeyBits>;
     using Allocator = RadixSortMallocAllocator;
 
-    static Key & extractKey(Element& elem) { return elem.d1;    }
+    static Key& extractKey(Element& elem) { return elem.d1; }
 };
 
 TEST_F(RadixSortTest, TestObjectSort) {
@@ -229,8 +231,7 @@ TEST_F(RadixSortTest, TestObjectSort) {
     }
 }
 
-
-}  // namespace stesting
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

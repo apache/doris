@@ -18,9 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_WRITER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_WRITER_H
 
-#include "vector"
-
 #include "olap/rowset/rowset_writer.h"
+#include "vector"
 
 namespace doris {
 
@@ -40,19 +39,15 @@ public:
 
     OLAPStatus init(const RowsetWriterContext& rowset_writer_context) override;
 
-    OLAPStatus add_row(const RowCursor& row) override {
-        return _add_row(row);
-    }
+    OLAPStatus add_row(const RowCursor& row) override { return _add_row(row); }
     // For Memtable::flush()
-    OLAPStatus add_row(const ContiguousRow& row) override {
-        return _add_row(row);
-    }
+    OLAPStatus add_row(const ContiguousRow& row) override { return _add_row(row); }
 
     // add rowset by create hard link
     OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
 
-    OLAPStatus add_rowset_for_linked_schema_change(
-            RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) override;
+    OLAPStatus add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
+                                                   const SchemaMapping& schema_mapping) override;
 
     OLAPStatus flush() override;
 
@@ -65,7 +60,7 @@ public:
     RowsetId rowset_id() override { return _context.rowset_id; }
 
 private:
-    template<typename RowType>
+    template <typename RowType>
     OLAPStatus _add_row(const RowType& row);
 
     OLAPStatus _create_segment_writer();

@@ -49,7 +49,8 @@ void UpdateConfigAction::handle(HttpRequest* req) {
     // So the number of query params should at most be 2.
     if (req->params()->size() > 2 || req->params()->size() < 1) {
         s = Status::InvalidArgument("");
-        msg = "Now only support to set a single config once, via 'config_name=new_value', and with an optional parameter 'persist'.";
+        msg = "Now only support to set a single config once, via 'config_name=new_value', and with "
+              "an optional parameter 'persist'.";
     } else {
         if (req->params()->size() == 1) {
             const std::string& config = req->params()->begin()->first;
@@ -60,12 +61,13 @@ void UpdateConfigAction::handle(HttpRequest* req) {
             } else {
                 LOG(WARNING) << "set_config " << config << "=" << new_value << " failed";
                 msg = strings::Substitute("set $0=$1 failed, reason: $2", config, new_value,
-                        s.to_string());
+                                          s.to_string());
             }
         } else if (req->params()->size() == 2) {
             if (req->params()->find(PERSIST_PARAM) == req->params()->end()) {
                 s = Status::InvalidArgument("");
-                msg = "Now only support to set a single config once, via 'config_name=new_value', and with an optional parameter 'persist'.";
+                msg = "Now only support to set a single config once, via 'config_name=new_value', "
+                      "and with an optional parameter 'persist'.";
             } else {
                 bool need_persist = false;
                 if (req->params()->find(PERSIST_PARAM)->second.compare("true") == 0) {
@@ -77,11 +79,13 @@ void UpdateConfigAction::handle(HttpRequest* req) {
                     }
                     s = config::set_config(iter.first, iter.second, need_persist);
                     if (s.ok()) {
-                        LOG(INFO) << "set_config " << iter.first << "=" << iter.second << " success. persist: " << need_persist;
+                        LOG(INFO) << "set_config " << iter.first << "=" << iter.second
+                                  << " success. persist: " << need_persist;
                     } else {
-                        LOG(WARNING) << "set_config " << iter.first << "=" << iter.second << " failed";
-                        msg = strings::Substitute("set $0=$1 failed, reason: $2", iter.first, iter.second,
-                                s.to_string());
+                        LOG(WARNING)
+                                << "set_config " << iter.first << "=" << iter.second << " failed";
+                        msg = strings::Substitute("set $0=$1 failed, reason: $2", iter.first,
+                                                  iter.second, s.to_string());
                     }
                 }
             }

@@ -16,8 +16,9 @@
 // under the License.
 
 #include "olap/rowset/alpha_rowset_reader.h"
-#include "olap/rowset/alpha_rowset.h"
+
 #include "olap/row.h"
+#include "olap/rowset/alpha_rowset.h"
 
 namespace doris {
 
@@ -56,9 +57,11 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
     // needs to sort merge only when
     // 1) we are told to return sorted result (need_ordered_result)
     // 2) we have several segment groups (_is_segments_overlapping && _merge_ctxs.size() > 1)
-    if (_current_read_context->need_ordered_result && _is_segments_overlapping && _merge_ctxs.size() > 1) {
+    if (_current_read_context->need_ordered_result && _is_segments_overlapping &&
+        _merge_ctxs.size() > 1) {
         _next_block = &AlphaRowsetReader::_merge_block;
-        _read_block.reset(new (std::nothrow) RowBlock(_current_read_context->tablet_schema, _parent_tracker));
+        _read_block.reset(new (std::nothrow)
+                                  RowBlock(_current_read_context->tablet_schema, _parent_tracker));
         if (_read_block == nullptr) {
             LOG(WARNING) << "new row block failed in reader";
             return OLAP_ERR_MALLOC_ERROR;
@@ -193,7 +196,7 @@ OLAPStatus AlphaRowsetReader::_update_merge_ctx_and_build_merge_heap(AlphaMergeC
     if (merge_ctx->is_eof) {
         // nothing in this merge ctx, just return
         return OLAP_SUCCESS;
-    }  
+    }
 
     // get next row block of this merge ctx
     if (merge_ctx->row_block == nullptr || !merge_ctx->row_block->has_remaining()) {
@@ -250,7 +253,7 @@ OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset(RowCursor** row) {
         }
         RowCursor* current_row = merge_ctx->row_cursor.get();
         merge_ctx->row_block->get_row(merge_ctx->row_block->pos(), current_row);
-        if (min_row == nullptr || compare_row(*min_row, *current_row) >  0) {
+        if (min_row == nullptr || compare_row(*min_row, *current_row) > 0) {
             min_row = current_row;
             min_index = ordinal;
         }
@@ -295,11 +298,11 @@ OLAPStatus AlphaRowsetReader::_pull_first_block(AlphaMergeContext* merge_ctx) {
     merge_ctx->key_range_index++;
     while (merge_ctx->key_range_index < _key_range_size) {
         status = merge_ctx->column_data->prepare_block_read(
-                    _current_read_context->lower_bound_keys->at(merge_ctx->key_range_index),
-                    _current_read_context->is_lower_keys_included->at(merge_ctx->key_range_index),
-                    _current_read_context->upper_bound_keys->at(merge_ctx->key_range_index),
-                    _current_read_context->is_upper_keys_included->at(merge_ctx->key_range_index),
-                    &(merge_ctx->row_block));
+                _current_read_context->lower_bound_keys->at(merge_ctx->key_range_index),
+                _current_read_context->is_lower_keys_included->at(merge_ctx->key_range_index),
+                _current_read_context->upper_bound_keys->at(merge_ctx->key_range_index),
+                _current_read_context->is_upper_keys_included->at(merge_ctx->key_range_index),
+                &(merge_ctx->row_block));
         if (status == OLAP_ERR_DATA_EOF) {
             merge_ctx->key_range_index++;
             continue;
@@ -319,9 +322,11 @@ OLAPStatus AlphaRowsetReader::_pull_first_block(AlphaMergeContext* merge_ctx) {
 
 OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context) {
     if (read_context->reader_type == READER_QUERY) {
-        if (read_context->lower_bound_keys->size() != read_context->is_lower_keys_included->size()
-                || read_context->lower_bound_keys->size() != read_context->upper_bound_keys->size()
-                || read_context->upper_bound_keys->size() != read_context->is_upper_keys_included->size()) {
+        if (read_context->lower_bound_keys->size() !=
+                    read_context->is_lower_keys_included->size() ||
+            read_context->lower_bound_keys->size() != read_context->upper_bound_keys->size() ||
+            read_context->upper_bound_keys->size() !=
+                    read_context->is_upper_keys_included->size()) {
             std::string error_msg = "invalid key range arguments";
             LOG(WARNING) << error_msg;
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -333,7 +338,8 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
     const bool use_index_stream_cache = read_context->reader_type == READER_QUERY;
 
     for (auto& segment_group : _segment_groups) {
-        std::unique_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get(), _parent_tracker));
+        std::unique_ptr<ColumnData> new_column_data(
+                ColumnData::create(segment_group.get(), _parent_tracker));
         OLAPStatus status = new_column_data->init();
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "init column data failed";
@@ -348,13 +354,10 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
                 continue;
             }
         } else {
-            new_column_data->set_read_params(*read_context->return_columns,
-                    *read_context->seek_columns,
-                    *read_context->load_bf_columns,
-                    *read_context->conditions,
-                    *read_context->predicates,
-                    use_index_stream_cache,
-                    read_context->runtime_state);
+            new_column_data->set_read_params(
+                    *read_context->return_columns, *read_context->seek_columns,
+                    *read_context->load_bf_columns, *read_context->conditions,
+                    *read_context->predicates, use_index_stream_cache, read_context->runtime_state);
             // filter
             if (new_column_data->rowset_pruning_filter()) {
                 _stats->rows_stats_filtered += new_column_data->num_rows();
@@ -367,8 +370,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
         int ret = new_column_data->delete_pruning_filter();
         if (ret == DEL_SATISFIED) {
             _stats->rows_del_filtered += new_column_data->num_rows();
-            VLOG(3) << "filter segment group in delete predicate:"
-                    << new_column_data->version();
+            VLOG(3) << "filter segment group in delete predicate:" << new_column_data->version();
             continue;
         } else if (ret == DEL_PARTIAL_SATISFIED) {
             VLOG(3) << "filter segment group partially in delete predicate:"
@@ -396,8 +398,9 @@ RowsetSharedPtr AlphaRowsetReader::rowset() {
     return std::static_pointer_cast<Rowset>(_rowset);
 }
 
-bool AlphaMergeContextComparator::operator() (const AlphaMergeContext* x, const AlphaMergeContext* y) const {
+bool AlphaMergeContextComparator::operator()(const AlphaMergeContext* x,
+                                             const AlphaMergeContext* y) const {
     return compare_row(*(x->row_cursor.get()), *(y->row_cursor.get())) > 0;
 }
 
-}  // namespace doris
+} // namespace doris

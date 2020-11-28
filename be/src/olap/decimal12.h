@@ -18,8 +18,8 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 #include <iostream>
+#include <string>
 
 #include "olap/utils.h"
 
@@ -69,29 +69,17 @@ struct decimal12_t {
         return *this;
     }
 
-    bool operator<(const decimal12_t& value) const {
-        return cmp(value) < 0;
-    }
+    bool operator<(const decimal12_t& value) const { return cmp(value) < 0; }
 
-    bool operator<=(const decimal12_t& value) const {
-        return cmp(value) <= 0;
-    }
+    bool operator<=(const decimal12_t& value) const { return cmp(value) <= 0; }
 
-    bool operator>(const decimal12_t& value) const {
-        return cmp(value) > 0;
-    }
+    bool operator>(const decimal12_t& value) const { return cmp(value) > 0; }
 
-    bool operator>=(const decimal12_t& value) const {
-        return cmp(value) >= 0;
-    }
+    bool operator>=(const decimal12_t& value) const { return cmp(value) >= 0; }
 
-    bool operator==(const decimal12_t& value) const {
-        return cmp(value) == 0;
-    }
+    bool operator==(const decimal12_t& value) const { return cmp(value) == 0; }
 
-    bool operator!=(const decimal12_t& value) const {
-        return cmp(value) != 0;
-    }
+    bool operator!=(const decimal12_t& value) const { return cmp(value) != 0; }
 
     int32_t cmp(const decimal12_t& other) const {
         if (integer > other.integer) {
@@ -111,11 +99,9 @@ struct decimal12_t {
         char buf[128] = {'\0'};
 
         if (integer < 0 || fraction < 0) {
-            snprintf(buf, sizeof(buf), "-%lu.%09u",
-                     std::abs(integer), std::abs(fraction));
+            snprintf(buf, sizeof(buf), "-%lu.%09u", std::abs(integer), std::abs(fraction));
         } else {
-            snprintf(buf, sizeof(buf), "%lu.%09u",
-                     std::abs(integer), std::abs(fraction));
+            snprintf(buf, sizeof(buf), "%lu.%09u", std::abs(integer), std::abs(fraction));
         }
 
         return std::string(buf);
@@ -136,8 +122,8 @@ struct decimal12_t {
         }
 
         const char* sepr = strchr(value_string, '.');
-        if ((sepr != NULL && sepr - value_string > MAX_INT_DIGITS_NUM)
-                || (sepr == NULL && strlen(value_string) > MAX_INT_DIGITS_NUM)) {
+        if ((sepr != NULL && sepr - value_string > MAX_INT_DIGITS_NUM) ||
+            (sepr == NULL && strlen(value_string) > MAX_INT_DIGITS_NUM)) {
             integer = 999999999999999999;
             fraction = 999999999;
         } else {
@@ -148,8 +134,8 @@ struct decimal12_t {
                 sscanf(value_string, "%18ld.%9d", &integer, &fraction);
             }
 
-            int32_t frac_len = (NULL != sepr) ?
-                               MAX_FRAC_DIGITS_NUM - strlen(sepr + 1) : MAX_FRAC_DIGITS_NUM;
+            int32_t frac_len =
+                    (NULL != sepr) ? MAX_FRAC_DIGITS_NUM - strlen(sepr + 1) : MAX_FRAC_DIGITS_NUM;
             frac_len = frac_len > 0 ? frac_len : 0;
             fraction *= g_power_table[frac_len];
         }
@@ -175,4 +161,4 @@ inline std::ostream& operator<<(std::ostream& os, const decimal12_t& val) {
     return os;
 }
 
-}
+} // namespace doris

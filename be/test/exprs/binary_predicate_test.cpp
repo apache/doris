@@ -19,23 +19,21 @@
 
 #include <gtest/gtest.h>
 
-#include "exprs/expr.h"
 #include "common/object_pool.h"
+#include "exec/exec_node.h"
+#include "exprs/expr.h"
 #include "exprs/int_literal.h"
 #include "gen_cpp/Exprs_types.h"
-#include "runtime/runtime_state.h"
+#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/vectorized_row_batch.h"
-#include "runtime/row_batch.h"
-#include "exec/exec_node.h"
 #include "util/debug_util.h"
 
 namespace doris {
 
 class BinaryOpTest : public ::testing::Test {
 public:
-    ~BinaryOpTest() {
-    }
+    ~BinaryOpTest() {}
 
     virtual void SetUp() {
         _object_pool = new ObjectPool();
@@ -70,8 +68,7 @@ public:
         row_tuples.push_back(0);
         std::vector<bool> nullable_tuples;
         nullable_tuples.push_back(false);
-        _row_desc = _object_pool->add(
-                        new RowDescriptor(*desc_tbl, row_tuples, nullable_tuples));
+        _row_desc = _object_pool->add(new RowDescriptor(*desc_tbl, row_tuples, nullable_tuples));
 
         FieldInfo field;
         field.name = "col1";
@@ -99,8 +96,7 @@ public:
             expr_node.__isset.opcode = true;
             expr_node.__set_opcode(TExprOpcode::LT_INT_INT);
             expr_node.__isset.vector_opcode = true;
-            expr_node.__set_vector_opcode(
-                TExprOpcode::FILTER_LT_INT_INT);
+            expr_node.__set_vector_opcode(TExprOpcode::FILTER_LT_INT_INT);
             exprs.nodes.push_back(expr_node);
         }
         {
@@ -140,16 +136,11 @@ public:
             return NULL;
         }
     }
+
 public:
-    ObjectPool* object_pool() {
-        return _object_pool;
-    }
-    RuntimeState* runtime_state() {
-        return _runtime_state;
-    }
-    RowDescriptor* row_desc() {
-        return _row_desc;
-    }
+    ObjectPool* object_pool() { return _object_pool; }
+    RuntimeState* runtime_state() { return _runtime_state; }
+    RowDescriptor* row_desc() { return _row_desc; }
 
 private:
     ObjectPool* _object_pool;
@@ -169,8 +160,8 @@ TEST_F(BinaryOpTest, NormalTest) {
     ASSERT_TRUE(expr != NULL);
     ASSERT_TRUE(expr->prepare(runtime_state(), *row_desc()).ok());
     int capacity = 256;
-    VectorizedRowBatch* vec_row_batch = object_pool()->add(
-            new VectorizedRowBatch(_schema, capacity));
+    VectorizedRowBatch* vec_row_batch =
+            object_pool()->add(new VectorizedRowBatch(_schema, capacity));
     MemPool* mem_pool = vec_row_batch->mem_pool();
     int32_t* vec_data = reinterpret_cast<int32_t*>(mem_pool->allocate(sizeof(int32_t) * capacity));
     vec_row_batch->column(0)->set_col_data(vec_data);
@@ -186,9 +177,8 @@ TEST_F(BinaryOpTest, NormalTest) {
     Tuple tuple;
     int vv = 0;
 
-    while (vec_row_batch->get_next_tuple(
-                &tuple,
-                *runtime_state()->desc_tbl().get_tuple_descriptor(0))) {
+    while (vec_row_batch->get_next_tuple(&tuple,
+                                         *runtime_state()->desc_tbl().get_tuple_descriptor(0))) {
         ASSERT_EQ(vv++, *reinterpret_cast<int32_t*>(tuple.get_slot(4)));
     }
 }
@@ -204,11 +194,10 @@ TEST_F(BinaryOpTest, SimplePerformanceTest) {
         srand(time(NULL));
 
         for (int i = 0; i < size; ++i) {
-            vec_row_batches[i] = object_pool()->add(
-                    new VectorizedRowBatch(_schema, capacity));
+            vec_row_batches[i] = object_pool()->add(new VectorizedRowBatch(_schema, capacity));
             MemPool* mem_pool = vec_row_batches[i]->mem_pool();
-            int32_t* vec_data = reinterpret_cast<int32_t*>(
-                    mem_pool->allocate(sizeof(int32_t) * capacity));
+            int32_t* vec_data =
+                    reinterpret_cast<int32_t*>(mem_pool->allocate(sizeof(int32_t) * capacity));
             vec_row_batches[i]->column(0)->set_col_data(vec_data);
 
             for (int i = 0; i < capacity; ++i) {
@@ -222,9 +211,8 @@ TEST_F(BinaryOpTest, SimplePerformanceTest) {
 
         for (int i = 0; i < size; ++i) {
             row_batches[i] = object_pool()->add(new RowBatch(*row_desc(), capacity));
-            vec_row_batches[i]->to_row_batch(
-                    row_batches[i], 
-                    *runtime_state()->desc_tbl().get_tuple_descriptor(0));
+            vec_row_batches[i]->to_row_batch(row_batches[i],
+                                             *runtime_state()->desc_tbl().get_tuple_descriptor(0));
         }
 
         MonotonicStopWatch stopwatch;
@@ -252,6 +240,6 @@ TEST_F(BinaryOpTest, SimplePerformanceTest) {
     }
 }
 
-}
+} // namespace doris
 
 /* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

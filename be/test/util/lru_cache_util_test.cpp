@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <memory>
 #include <gtest/gtest.h>
+
+#include <memory>
 
 #include "common/config.h"
 #include "util/logging.h"
@@ -24,11 +25,10 @@
 
 namespace doris {
 
-class LruCacheTest : public testing::Test {
-};
+class LruCacheTest : public testing::Test {};
 
 struct Foo {
-    Foo(int num_param): num(num_param) { }
+    Foo(int num_param) : num(num_param) {}
     int num;
 };
 
@@ -90,7 +90,7 @@ TEST_F(LruCacheTest, OverSize) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

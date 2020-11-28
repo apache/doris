@@ -17,19 +17,17 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/options.h" // for PageBuilderOptions/PageDecoderOptions
+#include "olap/rowset/segment_v2/options.h"      // for PageBuilderOptions/PageDecoderOptions
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
 #include "olap/rowset/segment_v2/page_decoder.h" // for PageDecoder
-#include "util/coding.h" // for encode_fixed32_le/decode_fixed32_le
-#include "util/rle_encoding.h" // for RleEncoder/RleDecoder
-#include "util/slice.h" // for OwnedSlice
+#include "util/coding.h"                         // for encode_fixed32_le/decode_fixed32_le
+#include "util/rle_encoding.h"                   // for RleEncoder/RleDecoder
+#include "util/slice.h"                          // for OwnedSlice
 
 namespace doris {
 namespace segment_v2 {
 
-enum {
-    RLE_PAGE_HEADER_SIZE = 4
-};
+enum { RLE_PAGE_HEADER_SIZE = 4 };
 
 // RLE builder for generic integer and bool types. What is missing is some way
 // to enforce that this can only be instantiated for INT and BOOL types.
@@ -51,37 +49,29 @@ enum {
 // It is not good for sequence number or random number. BitshufflePage is recommended
 // for these case.
 //
-// TODO(hkp): optimize rle algorithm 
-template<FieldType Type>
+// TODO(hkp): optimize rle algorithm
+template <FieldType Type>
 class RlePageBuilder : public PageBuilder {
 public:
-    RlePageBuilder(const PageBuilderOptions& options) :
-        _options(options),
-        _count(0),
-        _finished(false),
-        _bit_width(0),
-        _rle_encoder(nullptr) {
-        switch(Type) {
-            case OLAP_FIELD_TYPE_BOOL: {
-                _bit_width = 1;
-                break;
-            }
-            default: {
-                _bit_width = SIZE_OF_TYPE * 8;
-                break;
-            }
+    RlePageBuilder(const PageBuilderOptions& options)
+            : _options(options), _count(0), _finished(false), _bit_width(0), _rle_encoder(nullptr) {
+        switch (Type) {
+        case OLAP_FIELD_TYPE_BOOL: {
+            _bit_width = 1;
+            break;
+        }
+        default: {
+            _bit_width = SIZE_OF_TYPE * 8;
+            break;
+        }
         }
         _rle_encoder = new RleEncoder<CppType>(&_buf, _bit_width);
         reset();
     }
 
-    ~RlePageBuilder() {
-        delete _rle_encoder;
-    }
+    ~RlePageBuilder() { delete _rle_encoder; }
 
-    bool is_page_full() override {
-        return _rle_encoder->len() >= _options.data_page_size;
-    }
+    bool is_page_full() override { return _rle_encoder->len() >= _options.data_page_size; }
 
     Status add(const uint8_t* vals, size_t* count) override {
         DCHECK(!_finished);
@@ -118,13 +108,9 @@ public:
         _rle_encoder->Reserve(RLE_PAGE_HEADER_SIZE, 0);
     }
 
-    size_t count() const override {
-        return _count;
-    }
+    size_t count() const override { return _count; }
 
-    uint64_t size() const override {
-        return _rle_encoder->len();
-    }
+    uint64_t size() const override { return _rle_encoder->len(); }
 
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
@@ -146,9 +132,7 @@ public:
 
 private:
     typedef typename TypeTraits<Type>::CppType CppType;
-    enum {
-        SIZE_OF_TYPE = TypeTraits<Type>::size
-    };
+    enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
 
     PageBuilderOptions _options;
     size_t _count;
@@ -160,41 +144,40 @@ private:
     CppType _last_value;
 };
 
-template<FieldType Type>
+template <FieldType Type>
 class RlePageDecoder : public PageDecoder {
 public:
-    RlePageDecoder(Slice slice, const PageDecoderOptions& options) :
-        _data(slice),
-        _options(options),
-        _parsed(false),
-        _num_elements(0),
-        _cur_index(0),
-        _bit_width(0) { }
+    RlePageDecoder(Slice slice, const PageDecoderOptions& options)
+            : _data(slice),
+              _options(options),
+              _parsed(false),
+              _num_elements(0),
+              _cur_index(0),
+              _bit_width(0) {}
 
     Status init() override {
         CHECK(!_parsed);
 
         if (_data.size < RLE_PAGE_HEADER_SIZE) {
-            return Status::Corruption(
-                "not enough bytes for header in RleBitMapBlockDecoder");
+            return Status::Corruption("not enough bytes for header in RleBitMapBlockDecoder");
         }
         _num_elements = decode_fixed32_le((const uint8_t*)&_data[0]);
 
         _parsed = true;
 
-        switch(Type) {
-            case OLAP_FIELD_TYPE_BOOL: {
-                _bit_width = 1;
-                break;
-            }
-            default: {
-                _bit_width = SIZE_OF_TYPE * 8;
-                break;
-            }
+        switch (Type) {
+        case OLAP_FIELD_TYPE_BOOL: {
+            _bit_width = 1;
+            break;
+        }
+        default: {
+            _bit_width = SIZE_OF_TYPE * 8;
+            break;
+        }
         }
 
         _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
-                 _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
+                                           _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
 
         seek_to_position_in_page(0);
         return Status::OK();
@@ -202,8 +185,9 @@ public:
 
     Status seek_to_position_in_page(size_t pos) override {
         DCHECK(_parsed) << "Must call init()";
-        DCHECK_LE(pos, _num_elements) << "Tried to seek to " << pos << " which is > number of elements ("
-                << _num_elements << ") in the block!";
+        DCHECK_LE(pos, _num_elements)
+                << "Tried to seek to " << pos << " which is > number of elements (" << _num_elements
+                << ") in the block!";
         // If the block is empty (e.g. the column is filled with nulls), there is no data to seek.
         if (PREDICT_FALSE(_num_elements == 0)) {
             return Status::OK();
@@ -216,7 +200,7 @@ public:
             _rle_decoder.Skip(nskip);
         } else {
             _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
-                    _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
+                                               _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
             _rle_decoder.Skip(pos);
         }
         _cur_index = pos;
@@ -246,19 +230,13 @@ public:
         return Status::OK();
     }
 
-    size_t count() const override {
-        return _num_elements;
-    }
+    size_t count() const override { return _num_elements; }
 
-    size_t current_index() const override {
-        return _cur_index;
-    }
+    size_t current_index() const override { return _cur_index; }
 
 private:
     typedef typename TypeTraits<Type>::CppType CppType;
-    enum {
-        SIZE_OF_TYPE = TypeTraits<Type>::size
-    };
+    enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
 
     Slice _data;
     PageDecoderOptions _options;

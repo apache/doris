@@ -24,20 +24,20 @@ namespace doris {
 
 /// A set of counters for each buffer pool client.
 struct BufferPoolClientCounters {
- public:
-  /// Total amount of time spent inside BufferAllocator::AllocateBuffer().
-  RuntimeProfile::Counter* alloc_time;
+public:
+    /// Total amount of time spent inside BufferAllocator::AllocateBuffer().
+    RuntimeProfile::Counter* alloc_time;
 
-  /// Number of buffers allocated via BufferAllocator::AllocateBuffer().
-  RuntimeProfile::Counter* cumulative_allocations;
+    /// Number of buffers allocated via BufferAllocator::AllocateBuffer().
+    RuntimeProfile::Counter* cumulative_allocations;
 
-  /// Bytes of buffers allocated via BufferAllocator::AllocateBuffer().
-  RuntimeProfile::Counter* cumulative_bytes_alloced;
+    /// Bytes of buffers allocated via BufferAllocator::AllocateBuffer().
+    RuntimeProfile::Counter* cumulative_bytes_alloced;
 
-  /// The peak total size of unpinned pages.
-  RuntimeProfile::HighWaterMarkCounter* peak_unpinned_bytes;
+    /// The peak total size of unpinned pages.
+    RuntimeProfile::HighWaterMarkCounter* peak_unpinned_bytes;
 };
 
-}
+} // namespace doris
 
 #endif

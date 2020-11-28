@@ -15,15 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_USER_RESOURCE_LISTENER_H 
+#ifndef DORIS_BE_SRC_AGENT_USER_RESOURCE_LISTENER_H
 #define DORIS_BE_SRC_AGENT_USER_RESOURCE_LISTENER_H
 
 #include <string>
-#include "agent/topic_listener.h"
+
 #include "agent/cgroups_mgr.h"
+#include "agent/topic_listener.h"
 #include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "gen_cpp/MasterService_types.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
@@ -31,22 +32,22 @@ namespace doris {
 class ExecEnv;
 
 class UserResourceListener : public TopicListener {
-
 public:
     ~UserResourceListener();
     // Input parameters:
     //   root_cgroups_path: root cgroups allocated by admin to doris
     UserResourceListener(ExecEnv* exec_env, const TMasterInfo& master_info);
     // This method should be async
-    virtual void handle_update(const TAgentServiceVersion::type& protocol_version, 
+    virtual void handle_update(const TAgentServiceVersion::type& protocol_version,
                                const TTopicUpdate& topic_update);
+
 private:
     const TMasterInfo& _master_info;
     ExecEnv* _exec_env;
-    CgroupsMgr& _cgroups_mgr;  
+    CgroupsMgr& _cgroups_mgr;
     // Call cgroups mgr to update user's cgroups resource share
     // Also refresh local user resource's cache
     void update_users_resource(int64_t new_version);
-}; 
-}
+};
+} // namespace doris
 #endif

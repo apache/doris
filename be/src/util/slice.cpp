@@ -22,7 +22,9 @@
 namespace doris {
 
 // NOTE(zc): we define this function here to make compile work.
-Slice::Slice(const faststring& s) : // NOLINT(runtime/explicit)
-    data((char*)(s.data())), size(s.size()) { }
+Slice::Slice(const faststring& s)
+        : // NOLINT(runtime/explicit)
+          data((char*)(s.data())),
+          size(s.size()) {}
 
-}
+} // namespace doris

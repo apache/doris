@@ -19,9 +19,8 @@
 
 namespace doris {
 
-Status Decompressor::create_decompressor(CompressType type,
-                                         Decompressor** decompressor) {
-    switch(type) {
+Status Decompressor::create_decompressor(CompressType type, Decompressor** decompressor) {
+    switch (type) {
     case CompressType::UNCOMPRESSED:
         *decompressor = nullptr;
         break;
@@ -52,25 +51,23 @@ Status Decompressor::create_decompressor(CompressType type,
     if (*decompressor != nullptr) {
         st = (*decompressor)->init();
     }
-    
+
     return st;
 }
 
-Decompressor::~Decompressor() {
-}
+Decompressor::~Decompressor() {}
 
 std::string Decompressor::debug_info() {
     return "Decompressor";
 }
 
 // Gzip
-GzipDecompressor::GzipDecompressor(bool is_deflate):
-    Decompressor(_is_deflate ? CompressType::DEFLATE : CompressType::GZIP),
-    _is_deflate(is_deflate) {
-}
+GzipDecompressor::GzipDecompressor(bool is_deflate)
+        : Decompressor(_is_deflate ? CompressType::DEFLATE : CompressType::GZIP),
+          _is_deflate(is_deflate) {}
 
 GzipDecompressor::~GzipDecompressor() {
-    (void) inflateEnd(&_z_strm);
+    (void)inflateEnd(&_z_strm);
 }
 
 Status GzipDecompressor::init() {
@@ -90,11 +87,10 @@ Status GzipDecompressor::init() {
     return Status::OK();
 }
 
-Status GzipDecompressor::decompress(
-        uint8_t* input, size_t input_len, size_t* input_bytes_read,
-        uint8_t* output, size_t output_max_len,
-        size_t* decompressed_len, bool* stream_end,
-       size_t* more_input_bytes, size_t* more_output_bytes) {
+Status GzipDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
+                                    uint8_t* output, size_t output_max_len,
+                                    size_t* decompressed_len, bool* stream_end,
+                                    size_t* more_input_bytes, size_t* more_output_bytes) {
     // 1. set input and output
     _z_strm.next_in = input;
     _z_strm.avail_in = input_len;
@@ -109,14 +105,13 @@ Status GzipDecompressor::decompress(
         //   Provide more output starting at next_out and update next_out and avail_out
         //       accordingly.
         // inflate() returns Z_OK if some progress has been made (more input processed
-        // or more output produced) 
+        // or more output produced)
 
         int ret = inflate(&_z_strm, Z_NO_FLUSH);
         *input_bytes_read = input_len - _z_strm.avail_in;
         *decompressed_len = output_max_len - _z_strm.avail_out;
 
-        VLOG(10) << "gzip dec ret: " << ret
-                 << " input_bytes_read: " << *input_bytes_read
+        VLOG(10) << "gzip dec ret: " << ret << " input_bytes_read: " << *input_bytes_read
                  << " decompressed_len: " << *decompressed_len;
 
         if (ret == Z_BUF_ERROR) {
@@ -150,7 +145,8 @@ Status GzipDecompressor::decompress(
 
 std::string GzipDecompressor::debug_info() {
     std::stringstream ss;
-    ss << "GzipDecompressor." << " is_deflate: " << _is_deflate;
+    ss << "GzipDecompressor."
+       << " is_deflate: " << _is_deflate;
     return ss.str();
 }
 
@@ -171,12 +167,10 @@ Status Bzip2Decompressor::init() {
     return Status::OK();
 }
 
-Status Bzip2Decompressor::decompress(
-        uint8_t* input, size_t input_len, size_t* input_bytes_read,
-        uint8_t* output, size_t output_max_len,
-        size_t* decompressed_len, bool* stream_end,
-        size_t* more_input_bytes, size_t* more_output_bytes) {
-
+Status Bzip2Decompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
+                                     uint8_t* output, size_t output_max_len,
+                                     size_t* decompressed_len, bool* stream_end,
+                                     size_t* more_input_bytes, size_t* more_output_bytes) {
     // 1. set input and output
     _bz_strm.next_in = const_cast<char*>(reinterpret_cast<const char*>(input));
     _bz_strm.avail_in = input_len;
@@ -252,17 +246,15 @@ Status Lz4FrameDecompressor::init() {
     return Status::OK();
 }
 
-Status Lz4FrameDecompressor::decompress(
-        uint8_t* input, size_t input_len, size_t* input_bytes_read,
-        uint8_t* output, size_t output_max_len,
-        size_t* decompressed_len, bool* stream_end,
-        size_t* more_input_bytes, size_t* more_output_bytes) {
-
+Status Lz4FrameDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
+                                        uint8_t* output, size_t output_max_len,
+                                        size_t* decompressed_len, bool* stream_end,
+                                        size_t* more_input_bytes, size_t* more_output_bytes) {
     uint8_t* src = input;
     size_t src_size = input_len;
     size_t ret = 1;
     *input_bytes_read = 0;
-    
+
     if (_expect_dec_buf_size == -1) {
         // init expected decompress buf size, and check if output_max_len is large enough
         // ATTN: _expect_dec_buf_size is uninit, which means this is the first time to call
@@ -277,7 +269,7 @@ Status Lz4FrameDecompressor::decompress(
         }
 
         LZ4F_frameInfo_t info;
-        ret = LZ4F_getFrameInfo(_dctx, &info, (void*) src, &src_size);
+        ret = LZ4F_getFrameInfo(_dctx, &info, (void*)src, &src_size);
         if (LZ4F_isError(ret)) {
             std::stringstream ss;
             ss << "LZ4F_getFrameInfo error: " << std::string(LZ4F_getErrorName(ret));
@@ -298,11 +290,11 @@ Status Lz4FrameDecompressor::decompress(
         src_size = input_len - src_size;
 
         LOG(INFO) << "lz4 block size: " << _expect_dec_buf_size;
-    } 
-    
+    }
+
     // decompress
     size_t output_len = output_max_len;
-    ret = LZ4F_decompress(_dctx, (void*) output, &output_len, (void*) src, &src_size,
+    ret = LZ4F_decompress(_dctx, (void*)output, &output_len, (void*)src, &src_size,
                           /* LZ4F_decompressOptions_t */ NULL);
     if (LZ4F_isError(ret)) {
         std::stringstream ss;
@@ -332,15 +324,19 @@ std::string Lz4FrameDecompressor::debug_info() {
 
 size_t Lz4FrameDecompressor::get_block_size(const LZ4F_frameInfo_t* info) {
     switch (info->blockSizeID) {
-        case LZ4F_default:
-        case LZ4F_max64KB:  return 1 << 16;
-        case LZ4F_max256KB: return 1 << 18;
-        case LZ4F_max1MB:   return 1 << 20;
-        case LZ4F_max4MB:   return 1 << 22;
-        default:
-            // error
-            return -1;
+    case LZ4F_default:
+    case LZ4F_max64KB:
+        return 1 << 16;
+    case LZ4F_max256KB:
+        return 1 << 18;
+    case LZ4F_max1MB:
+        return 1 << 20;
+    case LZ4F_max4MB:
+        return 1 << 22;
+    default:
+        // error
+        return -1;
     }
 }
 
-} // namespace
+} // namespace doris

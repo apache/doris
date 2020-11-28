@@ -18,14 +18,14 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_H
 
+#include <memory>
+#include <vector>
+
 #include "olap/data_dir.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/segment_group.h"
 #include "olap/tuple.h"
-
-#include <memory>
-#include <vector>
 
 namespace doris {
 

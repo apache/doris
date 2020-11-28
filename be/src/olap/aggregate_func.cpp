@@ -19,13 +19,12 @@
 
 namespace doris {
 
-template<typename Traits>
-AggregateInfo::AggregateInfo(const Traits& traits) 
+template <typename Traits>
+AggregateInfo::AggregateInfo(const Traits& traits)
         : _init_fn(traits.init),
-        _update_fn(traits.update),
-        _finalize_fn(traits.finalize),
-        _agg_method(traits.agg_method) {
-}
+          _update_fn(traits.update),
+          _finalize_fn(traits.finalize),
+          _agg_method(traits.agg_method) {}
 
 struct AggregateFuncMapHash {
     size_t operator()(const std::pair<FieldAggregationMethod, FieldType>& pair) const {
@@ -35,6 +34,7 @@ struct AggregateFuncMapHash {
 
 class AggregateFuncResolver {
     DECLARE_SINGLETON(AggregateFuncResolver);
+
 public:
     const AggregateInfo* get_aggregate_info(const FieldAggregationMethod agg_method,
                                             const FieldType field_type) const {
@@ -46,7 +46,7 @@ public:
         }
     }
 
-    template<FieldAggregationMethod agg_method, FieldType field_type>
+    template <FieldAggregationMethod agg_method, FieldType field_type>
     void add_aggregate_mapping() {
         _infos_mapping.emplace(std::make_pair(agg_method, field_type),
                                new AggregateInfo(AggregateTraits<agg_method, field_type>()));
@@ -148,7 +148,8 @@ AggregateFuncResolver::AggregateFuncResolver() {
 
     // Bitmap Aggregate Function
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT>();
-    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_VARCHAR>(); //for backward compatibility
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_BITMAP_UNION,
+                          OLAP_FIELD_TYPE_VARCHAR>(); //for backward compatibility
 }
 
 AggregateFuncResolver::~AggregateFuncResolver() {

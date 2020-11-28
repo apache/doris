@@ -16,29 +16,28 @@
 // under the License.
 
 #include "exec/schema_scanner/schema_variables_scanner.h"
-#include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
-#include "runtime/runtime_state.h"
+
 #include "exec/schema_scanner/schema_helper.h"
+#include "runtime/primitive_type.h"
+#include "runtime/runtime_state.h"
+#include "runtime/string_value.h"
 
 namespace doris {
 
 SchemaScanner::ColumnDesc SchemaVariablesScanner::_s_vars_columns[] = {
-    //   name,       type,          size
-    { "VARIABLE_NAME",  TYPE_VARCHAR,    sizeof(StringValue),    false},
-    { "VARIABLE_VALUE", TYPE_VARCHAR,    sizeof(StringValue),    false},
+        //   name,       type,          size
+        {"VARIABLE_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"VARIABLE_VALUE", TYPE_VARCHAR, sizeof(StringValue), false},
 };
 
-SchemaVariablesScanner::SchemaVariablesScanner(TVarType::type type) :
-        SchemaScanner(_s_vars_columns, 
-                      sizeof(_s_vars_columns) / sizeof(SchemaScanner::ColumnDesc)),
-        _type(type) {
-}
+SchemaVariablesScanner::SchemaVariablesScanner(TVarType::type type)
+        : SchemaScanner(_s_vars_columns,
+                        sizeof(_s_vars_columns) / sizeof(SchemaScanner::ColumnDesc)),
+          _type(type) {}
 
-SchemaVariablesScanner::~SchemaVariablesScanner() {
-}
+SchemaVariablesScanner::~SchemaVariablesScanner() {}
 
-Status SchemaVariablesScanner::start(RuntimeState *state) {
+Status SchemaVariablesScanner::start(RuntimeState* state) {
     TShowVariableRequest var_params;
     // Use db to save type
     if (_param->db != nullptr) {
@@ -51,10 +50,10 @@ Status SchemaVariablesScanner::start(RuntimeState *state) {
         var_params.__set_varType(_type);
     }
     var_params.__set_threadId(_param->thread_id);
-    
+
     if (NULL != _param->ip && 0 != _param->port) {
-        RETURN_IF_ERROR(SchemaHelper::show_variables(*(_param->ip),
-                    _param->port, var_params, &_var_result)); 
+        RETURN_IF_ERROR(SchemaHelper::show_variables(*(_param->ip), _param->port, var_params,
+                                                     &_var_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
@@ -62,13 +61,13 @@ Status SchemaVariablesScanner::start(RuntimeState *state) {
     return Status::OK();
 }
 
-Status SchemaVariablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
+Status SchemaVariablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // variables names
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-        StringValue *str_slot = reinterpret_cast<StringValue*>(slot);
+        void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         int len = strlen(_begin->first.c_str());
-        str_slot->ptr = (char *)pool->allocate(len + 1);
+        str_slot->ptr = (char*)pool->allocate(len + 1);
         if (NULL == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
@@ -77,10 +76,10 @@ Status SchemaVariablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     }
     // value
     {
-        void *slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringValue *str_slot = reinterpret_cast<StringValue*>(slot);
+        void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
+        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         int len = strlen(_begin->second.c_str());
-        str_slot->ptr = (char *)pool->allocate(len + 1);
+        str_slot->ptr = (char*)pool->allocate(len + 1);
         if (NULL == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
@@ -91,7 +90,7 @@ Status SchemaVariablesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     return Status::OK();
 }
 
-Status SchemaVariablesScanner::get_next_row(Tuple *tuple, MemPool *pool, bool *eos) {
+Status SchemaVariablesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
@@ -106,4 +105,4 @@ Status SchemaVariablesScanner::get_next_row(Tuple *tuple, MemPool *pool, bool *e
     return fill_one_row(tuple, pool);
 }
 
-}
+} // namespace doris

@@ -18,17 +18,17 @@
 #ifndef DORIS_BE_RUNTIME_ROW_BATCH_H
 #define DORIS_BE_RUNTIME_ROW_BATCH_H
 
-#include <vector>
-#include <cstring>
 #include <boost/scoped_ptr.hpp>
+#include <cstring>
+#include <vector>
 
-#include "common/logging.h"
 #include "codegen/doris_ir.h"
+#include "common/logging.h"
 #include "runtime/buffered_block_mgr2.h" // for BufferedBlockMgr2::Block
 // #include "runtime/buffered_tuple_stream2.inline.h"
 #include "runtime/bufferpool/buffer_pool.h"
-#include "runtime/disk_io_mgr.h"
 #include "runtime/descriptors.h"
+#include "runtime/disk_io_mgr.h"
 #include "runtime/mem_pool.h"
 #include "runtime/row_batch_interface.hpp"
 
@@ -119,9 +119,7 @@ public:
         return _num_rows;
     }
 
-    int add_row() {
-        return add_rows(1);
-    }
+    int add_row() { return add_rows(1); }
 
     void commit_rows(int n) {
         DCHECK_GE(n, 0);
@@ -130,13 +128,9 @@ public:
         _has_in_flight_row = false;
     }
 
-    void commit_last_row() {
-        commit_rows(1);
-    }
+    void commit_last_row() { commit_rows(1); }
 
-    bool in_flight() const {
-        return _has_in_flight_row;
-    }
+    bool in_flight() const { return _has_in_flight_row; }
 
     // Set function can be used to reduce the number of rows in the batch.  This is only
     // used in the limit case where more rows were added than necessary.
@@ -148,10 +142,8 @@ public:
     // Returns true if the row batch has filled all the rows or has accumulated
     // enough memory.
     bool at_capacity() {
-        return _num_rows == _capacity
-                || _auxiliary_mem_usage >= AT_CAPACITY_MEM_USAGE
-                || num_tuple_streams() > 0
-                ||  _need_to_return;
+        return _num_rows == _capacity || _auxiliary_mem_usage >= AT_CAPACITY_MEM_USAGE ||
+               num_tuple_streams() > 0 || _need_to_return;
     }
 
     // Returns true if the row batch has filled all the rows or has accumulated
@@ -164,9 +156,7 @@ public:
     }
 
     // Returns true if row_batch has reached capacity.
-    bool is_full() {
-        return _num_rows == _capacity;
-    }
+    bool is_full() { return _num_rows == _capacity; }
 
     // Returns true if the row batch has accumulated enough external memory (in MemPools
     // and io buffers).  This would be a trigger to compact the row batch or reclaim
@@ -193,19 +183,21 @@ public:
     /// the row batch state and doing multiplication on each loop with GetRow().
     class Iterator {
     public:
-        Iterator(RowBatch* parent, int row_idx, int limit = -1) :
-            _num_tuples_per_row(parent->_num_tuples_per_row),
-            _row(parent->_tuple_ptrs + _num_tuples_per_row * row_idx),
-            _row_batch_end(parent->_tuple_ptrs + _num_tuples_per_row *
-                           (limit == -1 ? parent->_num_rows :
-                            std::min<int>(row_idx + limit, parent->_num_rows))),
-            _parent(parent) {
-                DCHECK_GE(row_idx, 0);
-                DCHECK_GT(_num_tuples_per_row, 0);
-                /// We allow empty row batches with _num_rows == capacity_ == 0.
-                /// That's why we cannot call GetRow() above to initialize '_row'.
-                DCHECK_LE(row_idx, parent->_capacity);
-            }
+        Iterator(RowBatch* parent, int row_idx, int limit = -1)
+                : _num_tuples_per_row(parent->_num_tuples_per_row),
+                  _row(parent->_tuple_ptrs + _num_tuples_per_row * row_idx),
+                  _row_batch_end(parent->_tuple_ptrs +
+                                 _num_tuples_per_row *
+                                         (limit == -1 ? parent->_num_rows
+                                                      : std::min<int>(row_idx + limit,
+                                                                      parent->_num_rows))),
+                  _parent(parent) {
+            DCHECK_GE(row_idx, 0);
+            DCHECK_GT(_num_tuples_per_row, 0);
+            /// We allow empty row batches with _num_rows == capacity_ == 0.
+            /// That's why we cannot call GetRow() above to initialize '_row'.
+            DCHECK_LE(row_idx, parent->_capacity);
+        }
 
         /// Return the current row pointed to by the row pointer.
         TupleRow* IR_ALWAYS_INLINE get() { return reinterpret_cast<TupleRow*>(_row); }
@@ -239,24 +231,12 @@ public:
         RowBatch* const _parent;
     };
 
-    int num_tuples_per_row() const {
-        return _num_tuples_per_row;
-    }
-    int row_byte_size() {
-        return _num_tuples_per_row * sizeof(Tuple*);
-    }
-    MemPool* tuple_data_pool() {
-        return _tuple_data_pool.get();
-    }
-    ObjectPool* agg_object_pool() {
-        return _agg_object_pool.get();
-    }
-    int num_io_buffers() const {
-        return _io_buffers.size();
-    }
-    int num_tuple_streams() const {
-        return _tuple_streams.size();
-    }
+    int num_tuples_per_row() const { return _num_tuples_per_row; }
+    int row_byte_size() { return _num_tuples_per_row * sizeof(Tuple*); }
+    MemPool* tuple_data_pool() { return _tuple_data_pool.get(); }
+    ObjectPool* agg_object_pool() { return _agg_object_pool.get(); }
+    int num_io_buffers() const { return _io_buffers.size(); }
+    int num_tuple_streams() const { return _tuple_streams.size(); }
 
     // Resets the row batch, returning all resources it has accumulated.
     void reset();
@@ -276,7 +256,7 @@ public:
     /// TODO: IMPALA-4179: after IMPALA-3200, simplify the ownership transfer model and
     /// make it consistent between buffers and I/O buffers.
     void add_buffer(BufferPool::ClientHandle* client, BufferPool::BufferHandle&& buffer,
-        FlushMode flush);
+                    FlushMode flush);
 
     // Adds a block to this row batch. The block must be pinned. The blocks must be
     // deleted when freeing resources.
@@ -287,13 +267,9 @@ public:
     // TODO: consider using this mechanism instead of add_io_buffer/add_tuple_stream. This is
     // the property we need rather than meticulously passing resources up so the operator
     // tree.
-    void mark_need_to_return() {
-        _need_to_return = true;
-    }
+    void mark_need_to_return() { _need_to_return = true; }
 
-    bool need_to_return() {
-        return _need_to_return;
-    }
+    bool need_to_return() { return _need_to_return; }
 
     /// Used by an operator to indicate that it cannot produce more rows until the
     /// resources that it has attached to the row batch are freed or acquired by an
@@ -340,14 +316,11 @@ public:
     void copy_rows(int dest, int src, int num_rows) {
         DCHECK_LE(dest, src);
         DCHECK_LE(src + num_rows, _capacity);
-        memmove(_tuple_ptrs + _num_tuples_per_row * dest,
-                _tuple_ptrs + _num_tuples_per_row * src,
+        memmove(_tuple_ptrs + _num_tuples_per_row * dest, _tuple_ptrs + _num_tuples_per_row * src,
                 num_rows * _num_tuples_per_row * sizeof(Tuple*));
     }
 
-    void clear_row(TupleRow* row) {
-        memset(row, 0, _num_tuples_per_row * sizeof(Tuple*));
-    }
+    void clear_row(TupleRow* row) { memset(row, 0, _num_tuples_per_row * sizeof(Tuple*)); }
 
     // Acquires state from the 'src' row batch into this row batch. This includes all IO
     // buffers and tuple data.
@@ -381,20 +354,12 @@ public:
     static int get_batch_size(const TRowBatch& batch);
     static int get_batch_size(const PRowBatch& batch);
 
-    int num_rows() const {
-        return _num_rows;
-    }
-    int capacity() const {
-        return _capacity;
-    }
+    int num_rows() const { return _num_rows; }
+    int capacity() const { return _capacity; }
 
-    int num_buffers() const { 
-        return _buffers.size(); 
-    }
+    int num_buffers() const { return _buffers.size(); }
 
-    const RowDescriptor& row_desc() const {
-        return _row_desc;
-    }
+    const RowDescriptor& row_desc() const { return _row_desc; }
 
     // Max memory that this row batch can accumulate in _tuple_data_pool before it
     // is considered at capacity.
@@ -413,14 +378,10 @@ public:
     /// have been exceeded. 'state' is used to log the error.
     /// On success, sets 'buffer_size' to the size in bytes and 'buffer' to the buffer.
     Status resize_and_allocate_tuple_buffer(RuntimeState* state, int64_t* buffer_size,
-         uint8_t** buffer);
+                                            uint8_t** buffer);
 
-    void set_scanner_id(int id) {
-        _scanner_id = id;
-    }
-    int scanner_id() {
-        return _scanner_id;
-    }
+    void set_scanner_id(int id) { _scanner_id = id; }
+    int scanner_id() { return _scanner_id; }
 
     // Computes the maximum size needed to store tuple data for this row batch.
     int max_tuple_buffer_size();
@@ -429,16 +390,16 @@ public:
     std::string to_string();
 
 private:
-    MemTracker* _mem_tracker;  // not owned
+    MemTracker* _mem_tracker; // not owned
 
     // Close owned tuple streams and delete if needed.
     void close_tuple_streams();
 
     // All members need to be handled in RowBatch::swap()
 
-    bool _has_in_flight_row;  // if true, last row hasn't been committed yet
-    int _num_rows;  // # of committed rows
-    int _capacity;  // maximum # of rows
+    bool _has_in_flight_row; // if true, last row hasn't been committed yet
+    int _num_rows;           // # of committed rows
+    int _capacity;           // maximum # of rows
 
     /// If FLUSH_RESOURCES, the resources attached to this batch should be freed or
     /// acquired by a new owner as soon as possible. See MarkFlushResources(). If
@@ -522,14 +483,13 @@ private:
 /// '_start_row_idx' is the starting row index.
 /// '_iter' is the iterator.
 /// '_limit' is the max number of rows to iterate over.
-#define FOREACH_ROW(_row_batch, _start_row_idx, _iter)                  \
-    for (RowBatch::Iterator _iter(_row_batch, _start_row_idx);          \
-         !_iter.at_end(); _iter.next())
+#define FOREACH_ROW(_row_batch, _start_row_idx, _iter) \
+    for (RowBatch::Iterator _iter(_row_batch, _start_row_idx); !_iter.at_end(); _iter.next())
 
-#define FOREACH_ROW_LIMIT(_row_batch, _start_row_idx, _limit, _iter)    \
-    for (RowBatch::Iterator _iter(_row_batch, _start_row_idx, _limit);  \
-         !_iter.at_end(); _iter.next())
+#define FOREACH_ROW_LIMIT(_row_batch, _start_row_idx, _limit, _iter)                    \
+    for (RowBatch::Iterator _iter(_row_batch, _start_row_idx, _limit); !_iter.at_end(); \
+         _iter.next())
 
-}
+} // namespace doris
 
 #endif

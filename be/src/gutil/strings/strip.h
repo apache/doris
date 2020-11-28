@@ -8,6 +8,7 @@
 #define STRINGS_STRIP_H_
 
 #include <stddef.h>
+
 #include <string>
 using std::string;
 
@@ -22,20 +23,17 @@ string StripPrefixString(StringPiece str, const StringPiece& prefix);
 // Like StripPrefixString, but return true if the prefix was
 // successfully matched.  Write the output to *result.
 // It is safe for result to point back to the input string.
-bool TryStripPrefixString(StringPiece str, const StringPiece& prefix,
-                          string* result);
+bool TryStripPrefixString(StringPiece str, const StringPiece& prefix, string* result);
 
 // Given a string and a putative suffix, returns the string minus the
 // suffix string if the suffix matches, otherwise the original
 // string.
 string StripSuffixString(StringPiece str, const StringPiece& suffix);
 
-
 // Like StripSuffixString, but return true if the suffix was
 // successfully matched.  Write the output to *result.
 // It is safe for result to point back to the input string.
-bool TryStripSuffixString(StringPiece str, const StringPiece& suffix,
-                          string* result);
+bool TryStripSuffixString(StringPiece str, const StringPiece& suffix, string* result);
 
 // ----------------------------------------------------------------------
 // StripString
@@ -45,10 +43,9 @@ bool TryStripSuffixString(StringPiece str, const StringPiece& suffix,
 //    of places where they might cause a problem.
 // ----------------------------------------------------------------------
 inline void StripString(char* str, char remove, char replacewith) {
-  for (; *str; str++) {
-    if (*str == remove)
-      *str = replacewith;
-  }
+    for (; *str; str++) {
+        if (*str == remove) *str = replacewith;
+    }
 }
 
 void StripString(char* str, StringPiece remove, char replacewith);
@@ -100,18 +97,18 @@ void StripTrailingWhitespace(string* s);
 bool StripTrailingNewline(string* s);
 
 inline void StripWhiteSpace(char** str, int* len) {
-  // The "real" type for StripWhiteSpace is ForAll char types C, take
-  // (C, int) as input and return (C, int) as output.  We're using the
-  // cast here to assert that we can take a char*, even though the
-  // function thinks it's assigning to const char*.
-  StripWhiteSpace(const_cast<const char**>(str), len);
+    // The "real" type for StripWhiteSpace is ForAll char types C, take
+    // (C, int) as input and return (C, int) as output.  We're using the
+    // cast here to assert that we can take a char*, even though the
+    // function thinks it's assigning to const char*.
+    StripWhiteSpace(const_cast<const char**>(str), len);
 }
 
 inline void StripWhiteSpace(StringPiece* str) {
-  const char* data = str->data();
-  int len = str->size();
-  StripWhiteSpace(&data, &len);
-  str->set(data, len);
+    const char* data = str->data();
+    int len = str->size();
+    StripWhiteSpace(&data, &len);
+    str->set(data, len);
 }
 
 void StripWhiteSpace(string* str);
@@ -120,12 +117,11 @@ namespace strings {
 
 template <typename Collection>
 inline void StripWhiteSpaceInCollection(Collection* collection) {
-  for (typename Collection::iterator it = collection->begin();
-       it != collection->end(); ++it)
-    StripWhiteSpace(&(*it));
+    for (typename Collection::iterator it = collection->begin(); it != collection->end(); ++it)
+        StripWhiteSpace(&(*it));
 }
 
-}  // namespace strings
+} // namespace strings
 
 // ----------------------------------------------------------------------
 // StripLeadingWhiteSpace
@@ -135,20 +131,18 @@ inline void StripWhiteSpaceInCollection(Collection* collection) {
 // ----------------------------------------------------------------------
 
 inline const char* StripLeadingWhiteSpace(const char* line) {
-  // skip leading whitespace
-  while (ascii_isspace(*line))
-    ++line;
+    // skip leading whitespace
+    while (ascii_isspace(*line)) ++line;
 
-  if ('\0' == *line)  // end of line, no non-whitespace
-    return NULL;
+    if ('\0' == *line) // end of line, no non-whitespace
+        return NULL;
 
-  return line;
+    return line;
 }
 
 // StripLeadingWhiteSpace for non-const strings.
 inline char* StripLeadingWhiteSpace(char* line) {
-  return const_cast<char*>(
-      StripLeadingWhiteSpace(const_cast<const char*>(line)));
+    return const_cast<char*>(StripLeadingWhiteSpace(const_cast<const char*>(line)));
 }
 
 void StripLeadingWhiteSpace(string* str);
@@ -156,22 +150,19 @@ void StripLeadingWhiteSpace(string* str);
 // Remove leading, trailing, and duplicate internal whitespace.
 void RemoveExtraWhitespace(string* s);
 
-
 // ----------------------------------------------------------------------
 // SkipLeadingWhiteSpace
 //    Returns str advanced past white space characters, if any.
 //    Never returns NULL.  "str" must be terminated by a null character.
 // ----------------------------------------------------------------------
 inline const char* SkipLeadingWhiteSpace(const char* str) {
-  while (ascii_isspace(*str))
-    ++str;
-  return str;
+    while (ascii_isspace(*str)) ++str;
+    return str;
 }
 
 inline char* SkipLeadingWhiteSpace(char* str) {
-  while (ascii_isspace(*str))
-    ++str;
-  return str;
+    while (ascii_isspace(*str)) ++str;
+    return str;
 }
 
 // ----------------------------------------------------------------------
@@ -186,7 +177,6 @@ inline char* SkipLeadingWhiteSpace(char* str) {
 
 void StripCurlyBraces(string* s);
 void StripBrackets(char left, char right, string* s);
-
 
 // ----------------------------------------------------------------------
 // StripMarkupTags
@@ -228,7 +218,7 @@ int TrimStringRight(string* s, const StringPiece& remove);
 //    end of the string.
 // ----------------------------------------------------------------------
 inline int TrimString(string* s, const StringPiece& remove) {
-  return TrimStringRight(s, remove) + TrimStringLeft(s, remove);
+    return TrimStringRight(s, remove) + TrimStringLeft(s, remove);
 }
 
 // ----------------------------------------------------------------------
@@ -269,4 +259,4 @@ int memrm(char* str, int strlen, char c);
 int strrmm(char* str, const char* chars);
 int strrmm(string* str, const string& chars);
 
-#endif  // STRINGS_STRIP_H_
+#endif // STRINGS_STRIP_H_

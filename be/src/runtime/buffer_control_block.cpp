@@ -16,11 +16,12 @@
 // under the License.
 
 #include "runtime/buffer_control_block.h"
-#include "runtime/raw_value.h"
+
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "util/thrift_util.h"
+#include "runtime/raw_value.h"
 #include "service/brpc.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -31,8 +32,7 @@ void GetResultBatchCtx::on_failure(const Status& status) {
     delete this;
 }
 
-void GetResultBatchCtx::on_close(int64_t packet_seq,
-                 QueryStatistics* statistics) {
+void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics) {
     Status status;
     status.to_protobuf(result->mutable_status());
     if (statistics != nullptr) {
@@ -62,13 +62,12 @@ void GetResultBatchCtx::on_data(TFetchDataResult* t_result, int64_t packet_seq, 
 }
 
 BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size)
-    : _fragment_id(id),
-      _is_close(false),
-      _is_cancelled(false),
-      _buffer_rows(0),
-      _buffer_limit(buffer_size),
-      _packet_num(0) {
-}
+        : _fragment_id(id),
+          _is_close(false),
+          _is_cancelled(false),
+          _buffer_rows(0),
+          _buffer_limit(buffer_size),
+          _packet_num(0) {}
 
 BufferControlBlock::~BufferControlBlock() {
     cancel();
@@ -92,8 +91,7 @@ Status BufferControlBlock::add_batch(TFetchDataResult* result) {
 
     int num_rows = result->result_batch.rows.size();
 
-    while ((!_batch_queue.empty() && (num_rows + _buffer_rows) > _buffer_limit)
-            && !_is_cancelled) {
+    while ((!_batch_queue.empty() && (num_rows + _buffer_rows) > _buffer_limit) && !_is_cancelled) {
         _data_removal.wait(l);
     }
 
@@ -228,4 +226,4 @@ Status BufferControlBlock::cancel() {
     return Status::OK();
 }
 
-}
+} // namespace doris
