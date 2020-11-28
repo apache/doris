@@ -101,6 +101,6 @@ public:
     static const std::string JsonType;
 };
 
-}
+} // namespace doris
 
 #endif

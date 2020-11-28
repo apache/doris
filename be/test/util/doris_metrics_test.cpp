@@ -15,19 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "util/doris_metrics.h"
+
 #include <gtest/gtest.h>
 
 #include "common/config.h"
 #include "util/logging.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 
 class DorisMetricsTest : public testing::Test {
 public:
-    DorisMetricsTest() { }
-    virtual ~DorisMetricsTest() {
-    }
+    DorisMetricsTest() {}
+    virtual ~DorisMetricsTest() {}
 };
 
 TEST_F(DorisMetricsTest, Normal) {
@@ -71,7 +71,8 @@ TEST_F(DorisMetricsTest, Normal) {
     }
     {
         DorisMetrics::instance()->push_requests_success_total->increment(106);
-        auto metric = server_entity->get_metric("push_requests_success_total", "push_requests_total");
+        auto metric =
+                server_entity->get_metric("push_requests_success_total", "push_requests_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("106", metric->to_string().c_str());
     }
@@ -102,43 +103,50 @@ TEST_F(DorisMetricsTest, Normal) {
     // engine request
     {
         DorisMetrics::instance()->create_tablet_requests_total->increment(15);
-        auto metric = server_entity->get_metric("create_tablet_requests_total", "engine_requests_total");
+        auto metric =
+                server_entity->get_metric("create_tablet_requests_total", "engine_requests_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("15", metric->to_string().c_str());
     }
     {
         DorisMetrics::instance()->drop_tablet_requests_total->increment(16);
-        auto metric = server_entity->get_metric("drop_tablet_requests_total", "engine_requests_total");
+        auto metric =
+                server_entity->get_metric("drop_tablet_requests_total", "engine_requests_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("16", metric->to_string().c_str());
     }
     {
         DorisMetrics::instance()->report_all_tablets_requests_total->increment(17);
-        auto metric = server_entity->get_metric("report_all_tablets_requests_total", "engine_requests_total");
+        auto metric = server_entity->get_metric("report_all_tablets_requests_total",
+                                                "engine_requests_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("17", metric->to_string().c_str());
     }
     {
         DorisMetrics::instance()->report_tablet_requests_total->increment(18);
-        auto metric = server_entity->get_metric("report_tablet_requests_total", "engine_requests_total");
+        auto metric =
+                server_entity->get_metric("report_tablet_requests_total", "engine_requests_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("18", metric->to_string().c_str());
     }
     {
         DorisMetrics::instance()->schema_change_requests_total->increment(19);
-        auto metric = server_entity->get_metric("schema_change_requests_total", "engine_requests_total");
+        auto metric =
+                server_entity->get_metric("schema_change_requests_total", "engine_requests_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("19", metric->to_string().c_str());
     }
     {
         DorisMetrics::instance()->create_rollup_requests_total->increment(20);
-        auto metric = server_entity->get_metric("create_rollup_requests_total", "engine_requests_total");
+        auto metric =
+                server_entity->get_metric("create_rollup_requests_total", "engine_requests_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("20", metric->to_string().c_str());
     }
     {
         DorisMetrics::instance()->storage_migrate_requests_total->increment(21);
-        auto metric = server_entity->get_metric("storage_migrate_requests_total", "engine_requests_total");
+        auto metric = server_entity->get_metric("storage_migrate_requests_total",
+                                                "engine_requests_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("21", metric->to_string().c_str());
     }
@@ -151,25 +159,29 @@ TEST_F(DorisMetricsTest, Normal) {
     //  compaction
     {
         DorisMetrics::instance()->base_compaction_deltas_total->increment(30);
-        auto metric = server_entity->get_metric("base_compaction_deltas_total", "compaction_deltas_total");
+        auto metric = server_entity->get_metric("base_compaction_deltas_total",
+                                                "compaction_deltas_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("30", metric->to_string().c_str());
     }
     {
         DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(31);
-        auto metric = server_entity->get_metric("cumulative_compaction_deltas_total", "compaction_deltas_total");
+        auto metric = server_entity->get_metric("cumulative_compaction_deltas_total",
+                                                "compaction_deltas_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("31", metric->to_string().c_str());
     }
     {
         DorisMetrics::instance()->base_compaction_bytes_total->increment(32);
-        auto metric = server_entity->get_metric("base_compaction_bytes_total", "compaction_bytes_total");
+        auto metric =
+                server_entity->get_metric("base_compaction_bytes_total", "compaction_bytes_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("32", metric->to_string().c_str());
     }
     {
         DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(33);
-        auto metric = server_entity->get_metric("cumulative_compaction_bytes_total", "compaction_bytes_total");
+        auto metric = server_entity->get_metric("cumulative_compaction_bytes_total",
+                                                "compaction_bytes_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("33", metric->to_string().c_str());
     }
@@ -182,7 +194,7 @@ TEST_F(DorisMetricsTest, Normal) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
 #if 0

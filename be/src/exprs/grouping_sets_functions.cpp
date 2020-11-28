@@ -19,18 +19,16 @@
 
 namespace doris {
 
-void GroupingSetsFunctions::init() {
-}
+void GroupingSetsFunctions::init() {}
 
-doris_udf::BigIntVal GroupingSetsFunctions::grouping_id(
-            doris_udf::FunctionContext* ctx, const doris_udf::BigIntVal& grouping_id) {
+doris_udf::BigIntVal GroupingSetsFunctions::grouping_id(doris_udf::FunctionContext* ctx,
+                                                        const doris_udf::BigIntVal& grouping_id) {
     return grouping_id;
 }
 
-BigIntVal GroupingSetsFunctions::grouping(
-        doris_udf::FunctionContext* ctx, const doris_udf::BigIntVal& grouping) {
+BigIntVal GroupingSetsFunctions::grouping(doris_udf::FunctionContext* ctx,
+                                          const doris_udf::BigIntVal& grouping) {
     return grouping;
 }
 
-} // doris
-
+} // namespace doris

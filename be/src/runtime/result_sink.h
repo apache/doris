@@ -16,11 +16,10 @@
 // under the License.
 
 #ifndef DORIS_BE_RUNTIME_RESULT_SINK_H
-#define  DORIS_BE_RUNTIME_RESULT_SINK_H
+#define DORIS_BE_RUNTIME_RESULT_SINK_H
 
 #include "common/status.h"
 #include "exec/data_sink.h"
-
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 
@@ -53,9 +52,7 @@ public:
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().
     virtual Status close(RuntimeState* state, Status exec_status);
-    virtual RuntimeProfile* profile() {
-        return _profile;
-    }
+    virtual RuntimeProfile* profile() { return _profile; }
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
 
@@ -76,9 +73,8 @@ private:
     boost::shared_ptr<BufferControlBlock> _sender;
     boost::shared_ptr<ResultWriter> _writer;
     RuntimeProfile* _profile; // Allocated from _pool
-    int _buf_size; // Allocated from _pool
-
+    int _buf_size;            // Allocated from _pool
 };
 
-}
+} // namespace doris
 #endif

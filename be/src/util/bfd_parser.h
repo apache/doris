@@ -26,11 +26,11 @@
 #define PACKAGE_VERSION
 #endif
 
+#include <bfd.h>
+
 #include <mutex>
 #include <string>
 #include <vector>
-
-#include <bfd.h>
 
 namespace doris {
 
@@ -48,16 +48,14 @@ public:
     // Call parse before call this function
     // Return 0 if found and fill file_name, function_name, lineno
     //  -1 otherwise
-    int decode_address(const char* str, const char** end, 
-                       std::string* file_name, std::string* function_name,
-                       unsigned int* lineno);
+    int decode_address(const char* str, const char** end, std::string* file_name,
+                       std::string* function_name, unsigned int* lineno);
 
-    long num_symbols() const {
-        return _num_symbols;
-    }
+    long num_symbols() const { return _num_symbols; }
 
     static void list_targets(std::vector<std::string>* targets);
     void list_sections(std::string* ss);
+
 private:
     static void init_bfd();
 
@@ -75,6 +73,6 @@ private:
     unsigned int _symbol_size;
 };
 
-}
+} // namespace doris
 
 #endif

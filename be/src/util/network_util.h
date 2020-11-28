@@ -18,9 +18,10 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_NETWORK_UTIL_H
 #define DORIS_BE_SRC_COMMON_UTIL_NETWORK_UTIL_H
 
+#include <vector>
+
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
-#include <vector>
 
 namespace doris {
 
@@ -31,6 +32,7 @@ public:
     bool is_address_v4() const;
     bool is_loopback_v4();
     std::string get_host_address_v4();
+
 private:
     struct sockaddr_in addr;
 };
@@ -55,6 +57,6 @@ TNetworkAddress make_network_address(const std::string& hostname, int port);
 
 Status get_inet_interfaces(std::vector<std::string>* interfaces, bool include_ipv6 = false);
 
-}
+} // namespace doris
 
 #endif

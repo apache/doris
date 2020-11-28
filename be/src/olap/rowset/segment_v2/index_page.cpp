@@ -34,7 +34,7 @@ void IndexPageBuilder::add(const Slice& key, const PagePointer& ptr) {
 
 bool IndexPageBuilder::is_full() const {
     // estimate size of IndexPageFooterPB to be 16
-    return _buffer.size()  + 16 > _index_page_size;
+    return _buffer.size() + 16 > _index_page_size;
 }
 
 void IndexPageBuilder::finish(OwnedSlice* body, PageFooterPB* footer) {
@@ -44,8 +44,8 @@ void IndexPageBuilder::finish(OwnedSlice* body, PageFooterPB* footer) {
     footer->set_type(INDEX_PAGE);
     footer->set_uncompressed_size(body->slice().get_size());
     footer->mutable_index_page_footer()->set_num_entries(_count);
-    footer->mutable_index_page_footer()->set_type(
-            _is_leaf ? IndexPageFooterPB::LEAF : IndexPageFooterPB::INTERNAL);
+    footer->mutable_index_page_footer()->set_type(_is_leaf ? IndexPageFooterPB::LEAF
+                                                           : IndexPageFooterPB::INTERNAL);
 }
 
 Status IndexPageBuilder::get_first_key(Slice* key) const {

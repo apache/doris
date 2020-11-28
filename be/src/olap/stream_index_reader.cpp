@@ -19,16 +19,11 @@
 
 namespace doris {
 
-PositionEntryReader::PositionEntryReader() :
-        _positions(NULL),
-        _positions_count(0),
-        _statistics_offset(0) {
-}
+PositionEntryReader::PositionEntryReader()
+        : _positions(NULL), _positions_count(0), _statistics_offset(0) {}
 
-OLAPStatus PositionEntryReader::init(
-        StreamIndexHeader* header, 
-        FieldType type, 
-        bool null_supported) {
+OLAPStatus PositionEntryReader::init(StreamIndexHeader* header, FieldType type,
+                                     bool null_supported) {
     if (NULL == header) {
         return OLAP_ERR_INIT_FAILED;
     }
@@ -72,14 +67,13 @@ int32_t PositionEntryReader::positions_count() const {
     return _positions_count;
 }
 
-StreamIndexReader::StreamIndexReader() : 
-        _buffer(NULL),
-        _buffer_size(0),
-        _start_offset(0),
-        _step_size(0),
-        _is_using_cache(false),
-        _entry() {
-}
+StreamIndexReader::StreamIndexReader()
+        : _buffer(NULL),
+          _buffer_size(0),
+          _start_offset(0),
+          _step_size(0),
+          _is_using_cache(false),
+          _entry() {}
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -89,9 +83,8 @@ StreamIndexReader::~StreamIndexReader() {
     }
 }
 
-OLAPStatus StreamIndexReader::init(
-        char* buffer, size_t buffer_size, FieldType type, 
-        bool is_using_cache, bool null_supported) {
+OLAPStatus StreamIndexReader::init(char* buffer, size_t buffer_size, FieldType type,
+                                   bool is_using_cache, bool null_supported) {
     if (NULL == buffer) {
         OLAP_LOG_WARNING("buffer given is invalid.");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -142,12 +135,12 @@ OLAPStatus StreamIndexReader::_parse_header(FieldType type) {
 
     if (_entry_count * _step_size + _start_offset > _buffer_size) {
         LOG(WARNING) << "invalid header length, entry_count=" << _entry_count
-            << ", step_size=" << _step_size << ", start_offset=" << _start_offset
-            << ", buffer_size=" << _buffer_size;
+                     << ", step_size=" << _step_size << ", start_offset=" << _start_offset
+                     << ", buffer_size=" << _buffer_size;
         return OLAP_ERR_FILE_FORMAT_ERROR;
     }
 
     return res;
 }
 
-}  // namespace doris
+} // namespace doris

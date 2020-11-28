@@ -17,9 +17,10 @@
 
 #include "runtime/message_body_sink.h"
 
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
 #include <algorithm>
 
 #include "util/runtime_profile.h"
@@ -33,11 +34,11 @@ MessageBodyFileSink::~MessageBodyFileSink() {
 }
 
 Status MessageBodyFileSink::open() {
-    _fd = ::open(_path.data(), O_RDWR|O_CREAT|O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+    _fd = ::open(_path.data(), O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
     if (_fd < 0) {
         char errmsg[64];
         LOG(WARNING) << "fail to open file, file=" << _path
-            << ", errmsg=" << strerror_r(errno, errmsg, 64);
+                     << ", errmsg=" << strerror_r(errno, errmsg, 64);
         return Status::InternalError("fail to open file");
     }
     return Status::OK();
@@ -49,8 +50,7 @@ Status MessageBodyFileSink::append(const char* data, size_t size) {
         return Status::OK();
     }
     char errmsg[64];
-    LOG(WARNING) << "fail to write, file=" << _path
-        << ", error=" << strerror_r(errno, errmsg, 64);
+    LOG(WARNING) << "fail to write, file=" << _path << ", error=" << strerror_r(errno, errmsg, 64);
     return Status::InternalError("fail to write file");
 }
 
@@ -59,7 +59,7 @@ Status MessageBodyFileSink::finish() {
         std::stringstream ss;
         char errmsg[64];
         LOG(WARNING) << "fail to write, file=" << _path
-            << ", error=" << strerror_r(errno, errmsg, 64);
+                     << ", error=" << strerror_r(errno, errmsg, 64);
         _fd = -1;
         return Status::InternalError("fail to close file");
     }
@@ -71,4 +71,4 @@ void MessageBodyFileSink::cancel() {
     unlink(_path.data());
 }
 
-}
+} // namespace doris

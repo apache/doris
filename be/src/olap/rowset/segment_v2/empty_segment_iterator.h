@@ -18,8 +18,8 @@
 #pragma once
 
 #include "common/status.h"
-#include "olap/rowset/segment_v2/segment.h"
 #include "olap/iterators.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 
 namespace doris {

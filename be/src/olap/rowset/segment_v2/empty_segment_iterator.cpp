@@ -20,7 +20,7 @@
 namespace doris {
 namespace segment_v2 {
 
-EmptySegmentIterator::EmptySegmentIterator(const doris::Schema &schema): _schema(schema) {}
+EmptySegmentIterator::EmptySegmentIterator(const doris::Schema& schema) : _schema(schema) {}
 
 Status EmptySegmentIterator::next_batch(RowBlockV2* block) {
     block->set_num_rows(0);

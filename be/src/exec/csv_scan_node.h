@@ -18,10 +18,9 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H
 
+#include <boost/scoped_ptr.hpp>
 #include <fstream>
 #include <sstream>
-
-#include <boost/scoped_ptr.hpp>
 
 #include "common/config.h"
 #include "exec/csv_scanner.h"
@@ -64,25 +63,20 @@ public:
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
 
 private:
-    bool check_and_write_text_slot(
-            const std::string& column_name, const TColumnType& column_type,
-            const char* value, int value_length,
-            const SlotDescriptor* slot, RuntimeState* state,
-            std::stringstream* error_msg);
+    bool check_and_write_text_slot(const std::string& column_name, const TColumnType& column_type,
+                                   const char* value, int value_length, const SlotDescriptor* slot,
+                                   RuntimeState* state, std::stringstream* error_msg);
 
     // split one line into fields, check every fields, fill every field into tuple
     bool split_check_fill(const std::string& line, RuntimeState* state);
 
-    void fill_fix_length_string(
-            const char* value, int value_length, MemPool* pool,
-            char** new_value, int new_value_length);
-    bool check_decimal_input(
-            const char* value, int value_length,
-            int precision, int scale,
-            std::stringstream* error_msg);
-    
-    void hll_hash(const char* src, int len,  std::string* result);
-    
+    void fill_fix_length_string(const char* value, int value_length, MemPool* pool,
+                                char** new_value, int new_value_length);
+    bool check_decimal_input(const char* value, int value_length, int precision, int scale,
+                             std::stringstream* error_msg);
+
+    void hll_hash(const char* src, int len, std::string* result);
+
     bool check_hll_function(TMiniLoadEtlFunction& function);
 
     // Tuple id resolved in prepare() to set _tuple_desc;
@@ -139,4 +133,3 @@ private:
 } // end namespace doris
 
 #endif // DORIS_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H
-

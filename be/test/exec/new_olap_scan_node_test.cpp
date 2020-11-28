@@ -16,24 +16,25 @@
 // under the License.
 
 #include <gtest/gtest.h>
+
 #include <sstream>
 
 #include "exec/olap_scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "olap/batch_reader_interface.h"
+#include "olap/field.h"
 #include "olap/olap_configure.h"
 #include "olap/olap_reader.h"
 #include "olap/session_manager.h"
-#include "olap/field.h"
-#include "olap/batch_reader_interface.h"
 #include "runtime/descriptors.h"
-#include "runtime/primitive_type.h"
 #include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
+#include "runtime/primitive_type.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-#include "util/runtime_profile.h"
 #include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -44,7 +45,7 @@ namespace doris {
 
 class TestOlapScanNode : public testing::Test {
 public:
-    TestOlapScanNode() : _runtime_stat("test") { }
+    TestOlapScanNode() : _runtime_stat("test") {}
 
     void SetUp() {
         init_olap();
@@ -63,24 +64,23 @@ public:
         system("cp -r ./testdata/case3 ./testrun/.");
 
         string tables_root_path = "./testrun/case3";
-        memcpy(OLAPConfigure::get_instance()->_tables_root_path,
-               tables_root_path.c_str(),
+        memcpy(OLAPConfigure::get_instance()->_tables_root_path, tables_root_path.c_str(),
                tables_root_path.size());
         string unused_flag_path = "./testrun/unused_flag";
-        memcpy(OLAPConfigure::get_instance()->_unused_flag_path,
-               unused_flag_path.c_str(),
+        memcpy(OLAPConfigure::get_instance()->_unused_flag_path, unused_flag_path.c_str(),
                unused_flag_path.size());
 
         StorageEngine::get_instance()->_lru_cache = newLRU_cache(10000);
 
-        _tablet_meta = new
-        TabletMeta("./testrun/case3/clickuserid_online_userid_type_planid_unitid_winfoid.hdr");
+        _tablet_meta = new TabletMeta(
+                "./testrun/case3/clickuserid_online_userid_type_planid_unitid_winfoid.hdr");
         _tablet_meta->load();
         tablet = new Tablet(_tablet_meta);
         tablet->load_indices();
         tablet->_root_path_name = "./testrun/case3";
 
-        TableDescription description("fc", "clickuserid_online", "userid_type_planid_unitid_winfoid");
+        TableDescription description("fc", "clickuserid_online",
+                                     "userid_type_planid_unitid_winfoid");
         StorageEngine::get_instance()->add_table(description, tablet);
 
         // init session manager
@@ -378,10 +378,9 @@ TEST_F(TestOlapScanNode, MultiColumnMultiVersionTest) {
 
     ASSERT_EQ(num_rows, data.size());
     ASSERT_TRUE(scan_node.close(&_runtime_stat).ok());
-
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

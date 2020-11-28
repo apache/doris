@@ -30,8 +30,7 @@ struct PageBuilderOptions {
     size_t dict_page_size = DEFAULT_PAGE_SIZE;
 };
 
-struct PageDecoderOptions {
-};
+struct PageDecoderOptions {};
 
 } // namespace segment_v2
 } // namespace doris

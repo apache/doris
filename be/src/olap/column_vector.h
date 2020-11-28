@@ -36,29 +36,17 @@ private:
 public:
     explicit DataBuffer(size_t size = 0);
     ~DataBuffer();
-    T* data() {
-        return buf;
-    }
+    T* data() { return buf; }
 
-    const T* data() const {
-        return buf;
-    }
+    const T* data() const { return buf; }
 
-    size_t size() {
-        return current_size;
-    }
+    size_t size() { return current_size; }
 
-    size_t capacity() {
-        return current_capacity;
-    }
+    size_t capacity() { return current_capacity; }
 
-    T& operator[](size_t i) {
-        return buf[i];
-    }
+    T& operator[](size_t i) { return buf[i]; }
 
-    T& operator[](size_t i) const {
-        return buf[i];
-    }
+    T& operator[](size_t i) const { return buf[i]; }
 
     void resize(size_t _size);
 };
@@ -82,7 +70,11 @@ template class DataBuffer<Collection>;
 class ColumnVectorBatch {
 public:
     explicit ColumnVectorBatch(const TypeInfo* type_info, bool is_nullable)
-    : _type_info(type_info), _capacity(0), _delete_state(DEL_NOT_SATISFIED), _nullable(is_nullable), _null_signs(0) {}
+            : _type_info(type_info),
+              _capacity(0),
+              _delete_state(DEL_NOT_SATISFIED),
+              _nullable(is_nullable),
+              _null_signs(0) {}
 
     virtual ~ColumnVectorBatch();
 
@@ -92,9 +84,7 @@ public:
 
     bool is_nullable() const { return _nullable; }
 
-    bool is_null_at(size_t row_idx) {
-        return _nullable && _null_signs[row_idx];
-    }
+    bool is_null_at(size_t row_idx) { return _nullable && _null_signs[row_idx]; }
 
     void set_is_null(size_t idx, bool is_null) {
         if (_nullable) {
@@ -110,9 +100,7 @@ public:
 
     const bool* null_signs() const { return _null_signs.data(); }
 
-    void set_delete_state(DelCondSatisfied delete_state) {
-        _delete_state = delete_state;
-    }
+    void set_delete_state(DelCondSatisfied delete_state) { _delete_state = delete_state; }
 
     DelCondSatisfied delete_state() const { return _delete_state; }
 
@@ -132,12 +120,8 @@ public:
     // Get thr idx's cell_ptr for write
     virtual uint8_t* mutable_cell_ptr(size_t idx) = 0;
 
-
-    static Status create(size_t init_capacity,
-                         bool is_nullable,
-                         const TypeInfo* type_info,
-                         Field* field,
-                         std::unique_ptr<ColumnVectorBatch>* column_vector_batch);
+    static Status create(size_t init_capacity, bool is_nullable, const TypeInfo* type_info,
+                         Field* field, std::unique_ptr<ColumnVectorBatch>* column_vector_batch);
 
 private:
     const TypeInfo* _type_info;
@@ -152,18 +136,24 @@ class ScalarColumnVectorBatch : public ColumnVectorBatch {
 public:
     explicit ScalarColumnVectorBatch(const TypeInfo* type_info, bool is_nullable);
 
-    ~ScalarColumnVectorBatch() override ;
+    ~ScalarColumnVectorBatch() override;
 
     Status resize(size_t new_cap) override;
 
     // Get the start of the data.
-    uint8_t* data() const override { return const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(_data.data())); }
+    uint8_t* data() const override {
+        return const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(_data.data()));
+    }
 
     // Get the idx's cell_ptr
-    const uint8_t* cell_ptr(size_t idx) const override { return reinterpret_cast<uint8_t *>(&_data[idx]); }
+    const uint8_t* cell_ptr(size_t idx) const override {
+        return reinterpret_cast<uint8_t*>(&_data[idx]);
+    }
 
     // Get thr idx's cell_ptr for write
-    uint8_t* mutable_cell_ptr(size_t idx) override { return reinterpret_cast<uint8_t *>(&_data[idx]); }
+    uint8_t* mutable_cell_ptr(size_t idx) override {
+        return reinterpret_cast<uint8_t*>(&_data[idx]);
+    }
 
 private:
     DataBuffer<ScalarCppType> _data;
@@ -171,7 +161,8 @@ private:
 
 class ArrayColumnVectorBatch : public ColumnVectorBatch {
 public:
-    explicit ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity, Field* field);
+    explicit ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable,
+                                    size_t init_capacity, Field* field);
     ~ArrayColumnVectorBatch() override;
     Status resize(size_t new_cap) override;
 
@@ -179,7 +170,7 @@ public:
 
     // Get the start of the data.
     uint8_t* data() const override {
-        return reinterpret_cast<uint8 *>(const_cast<Collection *>(_data.data()));
+        return reinterpret_cast<uint8*>(const_cast<Collection*>(_data.data()));
     }
 
     // Get the idx's cell_ptr
@@ -188,13 +179,9 @@ public:
     }
 
     // Get thr idx's cell_ptr for write
-    uint8_t* mutable_cell_ptr(size_t idx) override {
-        return reinterpret_cast<uint8*>(&_data[idx]);
-    }
+    uint8_t* mutable_cell_ptr(size_t idx) override { return reinterpret_cast<uint8*>(&_data[idx]); }
 
-    size_t item_offset(size_t idx) const {
-        return _item_offsets[idx];
-    }
+    size_t item_offset(size_t idx) const { return _item_offsets[idx]; }
 
     // From `start_idx`, put `size` ordinals to _item_offsets
     // Ex:

@@ -80,8 +80,8 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
         // <property>:<value> or <value>
         string property;
         string value;
-        std::pair<string, string> pair = strings::Split(
-                tmp_vec[i], strings::delimiter::Limit(":", 1));
+        std::pair<string, string> pair =
+                strings::Split(tmp_vec[i], strings::delimiter::Limit(":", 1));
         if (pair.second.empty()) {
             // format_1: <value> only supports setting capacity
             property = CAPACITY_UC;
@@ -108,8 +108,8 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
 
     path->capacity_bytes = -1;
     if (!capacity_str.empty()) {
-        if (!valid_signed_number<int64_t>(capacity_str)
-                || strtol(capacity_str.c_str(), NULL, 10) < 0) {
+        if (!valid_signed_number<int64_t>(capacity_str) ||
+            strtol(capacity_str.c_str(), NULL, 10) < 0) {
             LOG(WARNING) << "invalid capacity of store path, capacity=" << capacity_str;
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
@@ -141,7 +141,6 @@ OLAPStatus parse_conf_store_paths(const string& config_path, std::vector<StorePa
         } else {
             LOG(WARNING) << "failed to parse store path " << item << ", res=" << res;
         }
-
     }
     if (paths->empty() || (path_vec.size() != paths->size() && !config::ignore_broken_disk)) {
         LOG(WARNING) << "fail to parse storage_root_path config. value=[" << config_path << "]";

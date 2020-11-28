@@ -46,8 +46,7 @@ public:
     virtual Status open(RuntimeState* state);
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status close(RuntimeState* state);
-    virtual void push_down_predicate(
-        RuntimeState *state, std::list<ExprContext*> *expr_ctxs);
+    virtual void push_down_predicate(RuntimeState* state, std::list<ExprContext*>* expr_ctxs);
 
 protected:
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
@@ -106,15 +105,13 @@ private:
     // priority queue doesn't support a max size, so to get that functionality, the order
     // of the queue is the opposite of what the ORDER BY clause specifies, such that the top
     // of the queue is the last sorted element.
-    boost::scoped_ptr<
-        std::priority_queue<
-        Tuple*, std::vector<Tuple*>, TupleRowComparator>> _priority_queue;
+    boost::scoped_ptr<std::priority_queue<Tuple*, std::vector<Tuple*>, TupleRowComparator>>
+            _priority_queue;
 
     // END: Members that must be Reset()
     /////////////////////////////////////////
 };
 
-};
+}; // namespace doris
 
 #endif
-

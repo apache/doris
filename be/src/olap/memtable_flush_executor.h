@@ -50,9 +50,8 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 //    because the entire job will definitely fail;
 class FlushToken {
 public:
-    explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token) :
-            _flush_token(std::move(flush_pool_token)),
-            _flush_status(OLAP_SUCCESS) {  }
+    explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token)
+            : _flush_token(std::move(flush_pool_token)), _flush_status(OLAP_SUCCESS) {}
 
     OLAPStatus submit(const std::shared_ptr<MemTable>& mem_table);
 
@@ -90,9 +89,7 @@ private:
 class MemTableFlushExecutor {
 public:
     MemTableFlushExecutor() {}
-    ~MemTableFlushExecutor() {
-        _flush_pool->shutdown();
-    }
+    ~MemTableFlushExecutor() { _flush_pool->shutdown(); }
 
     // init should be called after storage engine is opened,
     // because it needs path hash of each data dir.
@@ -104,4 +101,4 @@ private:
     std::unique_ptr<ThreadPool> _flush_pool;
 };
 
-} // end namespace
+} // namespace doris

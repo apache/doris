@@ -17,8 +17,8 @@
 
 #include "exec/buffered_reader.h"
 
-#include <sstream>
 #include <algorithm>
+#include <sstream>
 
 #include "common/logging.h"
 
@@ -78,7 +78,8 @@ Status BufferedReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
     }
     while (*bytes_read < nbytes) {
         int64_t len;
-        RETURN_IF_ERROR(_read_once(position + *bytes_read, nbytes - *bytes_read, &len, reinterpret_cast<char*>(out) + *bytes_read));
+        RETURN_IF_ERROR(_read_once(position + *bytes_read, nbytes - *bytes_read, &len,
+                                   reinterpret_cast<char*>(out) + *bytes_read));
         // EOF
         if (len <= 0) {
             break;
@@ -88,7 +89,8 @@ Status BufferedReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
     return Status::OK();
 }
 
-Status BufferedReader::_read_once(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
+Status BufferedReader::_read_once(int64_t position, int64_t nbytes, int64_t* bytes_read,
+                                  void* out) {
     // requested bytes missed the local buffer
     if (position >= _buffer_limit || position < _buffer_offset) {
         // if requested length is larger than the capacity of buffer, do not
@@ -102,7 +104,7 @@ Status BufferedReader::_read_once(int64_t position, int64_t nbytes, int64_t* byt
             *bytes_read = 0;
             return Status::OK();
         }
-    } 
+    }
     int64_t len = std::min(_buffer_limit - position, nbytes);
     int64_t off = position - _buffer_offset;
     memcpy(out, _buffer + off, len);
@@ -149,4 +151,3 @@ bool BufferedReader::closed() {
 }
 
 } // namespace doris
-

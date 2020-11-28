@@ -19,9 +19,10 @@
 #define DORIS_BE_SRC_QUERY_EXEC_SCAN_NODE_H
 
 #include <string>
+
 #include "exec/exec_node.h"
-#include "util/runtime_profile.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -67,8 +68,8 @@ class TScanRange;
 class ScanNode : public ExecNode {
 public:
     ScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs) {}
-    virtual ~ScanNode() { }
+            : ExecNode(pool, tnode, descs) {}
+    virtual ~ScanNode() {}
 
     // Set up counters
     virtual Status prepare(RuntimeState* state);
@@ -77,19 +78,11 @@ public:
     // called after prepare()
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
 
-    virtual bool is_scan_node() const {
-        return true;
-    }
+    virtual bool is_scan_node() const { return true; }
 
-    RuntimeProfile::Counter* bytes_read_counter() const {
-        return _bytes_read_counter;
-    }
-    RuntimeProfile::Counter* rows_read_counter() const {
-        return _rows_read_counter;
-    }
-    RuntimeProfile::Counter* total_throughput_counter() const {
-        return _total_throughput_counter;
-    }
+    RuntimeProfile::Counter* bytes_read_counter() const { return _bytes_read_counter; }
+    RuntimeProfile::Counter* rows_read_counter() const { return _rows_read_counter; }
+    RuntimeProfile::Counter* total_throughput_counter() const { return _total_throughput_counter; }
 
     // names of ScanNode common counters
     static const std::string _s_bytes_read_counter;
@@ -106,6 +99,6 @@ protected:
     RuntimeProfile::Counter* _num_disks_accessed_counter;
 };
 
-}
+} // namespace doris
 
 #endif

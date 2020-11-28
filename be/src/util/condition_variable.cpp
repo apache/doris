@@ -16,9 +16,7 @@
 
 namespace doris {
 
-ConditionVariable::ConditionVariable(Mutex* user_lock)
-    : _user_mutex(&user_lock->_lock)
-{
+ConditionVariable::ConditionVariable(Mutex* user_lock) : _user_mutex(&user_lock->_lock) {
     int rv = 0;
     pthread_condattr_t attrs;
     rv = pthread_condattr_init(&attrs);
@@ -49,8 +47,7 @@ bool ConditionVariable::wait_until(const MonoTime& until) const {
     struct timespec absolute_time;
     until.ToTimeSpec(&absolute_time);
     int rv = pthread_cond_timedwait(&_condition, _user_mutex, &absolute_time);
-    DCHECK(rv == 0 || rv == ETIMEDOUT)
-        << "unexpected pthread_cond_timedwait return value: " << rv;
+    DCHECK(rv == 0 || rv == ETIMEDOUT) << "unexpected pthread_cond_timedwait return value: " << rv;
 
     return rv == 0;
 }
@@ -68,8 +65,7 @@ bool ConditionVariable::wait_for(const MonoDelta& delta) const {
     deadline.ToTimeSpec(&absolute_time);
     int rv = pthread_cond_timedwait(&_condition, _user_mutex, &absolute_time);
 
-    DCHECK(rv == 0 || rv == ETIMEDOUT)
-        << "unexpected pthread_cond_timedwait return value: " << rv;
+    DCHECK(rv == 0 || rv == ETIMEDOUT) << "unexpected pthread_cond_timedwait return value: " << rv;
     return rv == 0;
 }
 
@@ -83,4 +79,4 @@ void ConditionVariable::notify_one() {
     DCHECK_EQ(0, rv);
 }
 
-}  // namespace doris
+} // namespace doris

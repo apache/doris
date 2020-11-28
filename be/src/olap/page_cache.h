@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include <string>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "gutil/macros.h" // for DISALLOW_COPY_AND_ASSIGN
@@ -40,7 +40,7 @@ public:
     // TODO(zc): Now we use file name(std::string) as a part of
     // key, which is not efficient. We should make it better later
     struct CacheKey {
-        CacheKey(std::string fname_, int64_t offset_) : fname(std::move(fname_)), offset(offset_) { }
+        CacheKey(std::string fname_, int64_t offset_) : fname(std::move(fname_)), offset(offset_) {}
         std::string fname;
         int64_t offset;
 
@@ -75,7 +75,9 @@ public:
     // This function is thread-safe, and when two clients insert two same key
     // concurrently, this function can assure that only one page is cached.
     // The in_memory page will have higher priority.
-    void insert(const CacheKey& key, const Slice& data, PageCacheHandle* handle, bool in_memory = false);
+    void insert(const CacheKey& key, const Slice& data, PageCacheHandle* handle,
+                bool in_memory = false);
+
 private:
     StoragePageCache();
     static StoragePageCache* _s_instance;
@@ -88,8 +90,8 @@ private:
 // class will release the cache entry when it is destroyed.
 class PageCacheHandle {
 public:
-    PageCacheHandle() { }
-    PageCacheHandle(Cache* cache, Cache::Handle* handle) : _cache(cache), _handle(handle) { }
+    PageCacheHandle() {}
+    PageCacheHandle(Cache* cache, Cache::Handle* handle) : _cache(cache), _handle(handle) {}
     ~PageCacheHandle() {
         if (_handle != nullptr) {
             _cache->release(_handle);
@@ -119,4 +121,4 @@ private:
     DISALLOW_COPY_AND_ASSIGN(PageCacheHandle);
 };
 
-}
+} // namespace doris

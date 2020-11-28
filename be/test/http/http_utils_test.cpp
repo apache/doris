@@ -15,30 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/utils.h"
-
 #include <gtest/gtest.h>
 
 #include "common/logging.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
+#include "http/utils.h"
 #include "util/url_coding.h"
 
 namespace doris {
 
 class HttpUtilsTest : public testing::Test {
 public:
-    HttpUtilsTest() { }
-    virtual ~HttpUtilsTest() {
-    }
-    void SetUp() override {
-        _evhttp_req = evhttp_request_new(nullptr, nullptr);
-    }
+    HttpUtilsTest() {}
+    virtual ~HttpUtilsTest() {}
+    void SetUp() override { _evhttp_req = evhttp_request_new(nullptr, nullptr); }
     void TearDown() override {
         if (_evhttp_req != nullptr) {
             evhttp_request_free(_evhttp_req);
         }
     }
+
 private:
     evhttp_request* _evhttp_req = nullptr;
 };
@@ -92,7 +89,7 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

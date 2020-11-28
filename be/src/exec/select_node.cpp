@@ -16,26 +16,25 @@
 // under the License.
 
 #include "exec/select_node.h"
+
 #include "exprs/expr.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/raw_value.h"
 
 namespace doris {
 
-SelectNode::SelectNode(
-    ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-    : ExecNode(pool, tnode, descs),
-      _child_row_batch(NULL),
-      _child_row_idx(0),
-      _child_eos(false) {
-}
+SelectNode::SelectNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ExecNode(pool, tnode, descs),
+          _child_row_batch(NULL),
+          _child_row_idx(0),
+          _child_eos(false) {}
 
 Status SelectNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _child_row_batch.reset(
-        new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+            new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
     return Status::OK();
 }
 
@@ -75,8 +74,8 @@ Status SelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
         }
 
         if (copy_rows(row_batch)) {
-            *eos = reached_limit()
-                   || (_child_row_idx == _child_row_batch->num_rows() && _child_eos);
+            *eos = reached_limit() ||
+                   (_child_row_idx == _child_row_batch->num_rows() && _child_eos);
             if (*eos) {
                 _child_row_batch->transfer_resource_ownership(row_batch);
             }
@@ -139,4 +138,4 @@ Status SelectNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-}
+} // namespace doris

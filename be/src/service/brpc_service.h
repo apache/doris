@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+
 #include "common/status.h"
 
 namespace brpc {
@@ -42,4 +43,4 @@ private:
     std::unique_ptr<brpc::Server> _server;
 };
 
-}
+} // namespace doris

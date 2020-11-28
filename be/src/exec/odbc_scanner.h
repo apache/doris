@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_QUERY_EXEC_ODBC_SCANNER_H
-#define  DORIS_BE_SRC_QUERY_EXEC_ODBC_SCANNER_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_ODBC_SCANNER_H
+#define DORIS_BE_SRC_QUERY_EXEC_ODBC_SCANNER_H
+
+#include <sql.h>
 
 #include <boost/format.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <cstdlib>
-#include <sql.h>
 #include <string>
 #include <vector>
 
@@ -41,16 +42,14 @@ struct ODBCScannerParam {
 // Because the DataBinding have the mem alloc, so
 // this class should not be copyable
 struct DataBinding : public boost::noncopyable {
-   SQLSMALLINT target_type;
-   SQLINTEGER buffer_length;
-   SQLLEN strlen_or_ind;
-   SQLPOINTER target_value_ptr;
+    SQLSMALLINT target_type;
+    SQLINTEGER buffer_length;
+    SQLLEN strlen_or_ind;
+    SQLPOINTER target_value_ptr;
 
-   DataBinding() = default;
+    DataBinding() = default;
 
-   ~DataBinding() {
-       free(target_value_ptr);
-   }
+    ~DataBinding() { free(target_value_ptr); }
 };
 
 // ODBC Scanner for scan data from ODBC
@@ -66,16 +65,13 @@ public:
 
     Status get_next_row(bool* eos);
 
-    const DataBinding& get_column_data(int i) const {
-        return _columns_data.at(i);
-    }
+    const DataBinding& get_column_data(int i) const { return _columns_data.at(i); }
 
 private:
     static Status error_status(const std::string& prefix, const std::string& error_msg);
 
-    static std::string handle_diagnostic_record (SQLHANDLE      hHandle,
-                                          SQLSMALLINT    hType,
-                                          RETCODE        RetCode);
+    static std::string handle_diagnostic_record(SQLHANDLE hHandle, SQLSMALLINT hType,
+                                                RETCODE RetCode);
 
     std::string _connect_string;
     std::string _sql_str;
@@ -92,6 +88,6 @@ private:
     boost::ptr_vector<DataBinding> _columns_data;
 };
 
-}
+} // namespace doris
 
 #endif

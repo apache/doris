@@ -42,11 +42,12 @@ bool BufferedTupleStream2::deep_copy_internal(TupleRow* row) {
     }
     DCHECK_GE(_null_indicators_write_block, 0);
     DCHECK(_write_block->is_pinned()) << debug_string() << std::endl
-            << _write_block->debug_string();
+                                      << _write_block->debug_string();
 
     const uint64_t tuples_per_row = _desc.tuple_descriptors().size();
-    if (UNLIKELY((_write_block->bytes_remaining() < _fixed_tuple_row_size) || (HasNullableTuple
-            && (_write_tuple_idx + tuples_per_row > _null_indicators_write_block * 8)))) {
+    if (UNLIKELY((_write_block->bytes_remaining() < _fixed_tuple_row_size) ||
+                 (HasNullableTuple &&
+                  (_write_tuple_idx + tuples_per_row > _null_indicators_write_block * 8)))) {
         return false;
     }
     // Allocate the maximum possible buffer for the fixed portion of the tuple.
@@ -128,7 +129,8 @@ bool BufferedTupleStream2::deep_copy_internal(TupleRow* row) {
 }
 
 bool BufferedTupleStream2::copy_strings(const Tuple* tuple,
-        const vector<SlotDescriptor*>& string_slots, int* bytes_allocated) {
+                                        const vector<SlotDescriptor*>& string_slots,
+                                        int* bytes_allocated) {
     for (int i = 0; i < string_slots.size(); ++i) {
         const SlotDescriptor* slot_desc = string_slots[i];
         if (tuple->is_null(slot_desc->null_indicator_offset())) {

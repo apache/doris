@@ -10,8 +10,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "rapidjson/document.h"
 #include <sstream>
+
+#include "rapidjson/document.h"
 
 // Routines for rendering Mustache (http://mustache.github.io) templates with RapidJson
 // (https://code.google.com/p/rapidjson/) documents.
@@ -22,6 +23,6 @@ namespace mustache {
 // signalled (TODO: probably doesn't work in all paths), and evaluates that tag. Output is
 // accumulated in 'out'.
 bool RenderTemplate(const std::string& document, const std::string& document_root,
-    const rapidjson::Value& context, std::stringstream* out);
+                    const rapidjson::Value& context, std::stringstream* out);
 
-}
+} // namespace mustache

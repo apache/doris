@@ -24,12 +24,12 @@
 
 #include "common/logging.h"
 #include "gen_cpp/olap_file.pb.h"
+#include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/tablet_schema.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
-#include "olap/delete_handler.h"
+#include "olap/tablet_schema.h"
 #include "util/mutex.h"
 #include "util/uid_util.h"
 
@@ -79,7 +79,9 @@ public:
 
     inline int64_t related_tablet_id() const { return _related_tablet_id; }
     inline int32_t related_schema_hash() const { return _related_schema_hash; }
-    inline void set_related_tablet_id(int64_t related_tablet_id) { _related_tablet_id = related_tablet_id; }
+    inline void set_related_tablet_id(int64_t related_tablet_id) {
+        _related_tablet_id = related_tablet_id;
+    }
     inline void set_related_schema_hash(int32_t schema_hash) { _related_schema_hash = schema_hash; }
 
     inline const AlterTabletType& alter_type() const { return _alter_type; }
@@ -110,10 +112,8 @@ public:
                              TabletMetaSharedPtr* tablet_meta);
 
     TabletMeta();
-    TabletMeta(int64_t table_id, int64_t partition_id,
-               int64_t tablet_id, int32_t schema_hash,
-               uint64_t shard_id, const TTabletSchema& tablet_schema,
-               uint32_t next_unique_id,
+    TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id, int32_t schema_hash,
+               uint64_t shard_id, const TTabletSchema& tablet_schema, uint32_t next_unique_id,
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                TabletUid tablet_uid, TTabletType::type tabletType);
 
@@ -194,9 +194,7 @@ public:
 
     OLAPStatus set_partition_id(int64_t partition_id);
 
-    RowsetTypePB preferred_rowset_type() const {
-        return _preferred_rowset_type;
-    }
+    RowsetTypePB preferred_rowset_type() const { return _preferred_rowset_type; }
 
     void set_preferred_rowset_type(RowsetTypePB preferred_rowset_type) {
         _preferred_rowset_type = preferred_rowset_type;
@@ -226,7 +224,7 @@ private:
     std::vector<RowsetMetaSharedPtr> _rs_metas;
     std::vector<RowsetMetaSharedPtr> _inc_rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
-    // These stale rowsets meta are been removed when rowsets' pathVersion is expired, 
+    // These stale rowsets meta are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
     std::vector<RowsetMetaSharedPtr> _stale_rs_metas;
 
@@ -344,6 +342,6 @@ inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_stale_rs_metas() 
 bool operator==(const TabletMeta& a, const TabletMeta& b);
 bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_OLAP_TABLET_META_H

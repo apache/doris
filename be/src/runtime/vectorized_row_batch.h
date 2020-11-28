@@ -23,14 +23,14 @@
 #include <vector>
 
 #include "olap/field.h"
+#include "olap/row_cursor.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
+#include "runtime/row_batch.h"
+#include "runtime/row_batch_interface.hpp"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
-#include "runtime/row_batch_interface.hpp"
-#include "runtime/row_batch.h"
 #include "util/mem_util.hpp"
-#include "olap/row_cursor.h"
 
 namespace doris {
 
@@ -39,31 +39,20 @@ class RowBlock;
 
 class ColumnVector {
 public:
-    ColumnVector() { }
+    ColumnVector() {}
     ~ColumnVector() {}
 
-    bool* is_null() const {
-        return _is_null;
-    }
+    bool* is_null() const { return _is_null; }
 
-    void set_is_null(bool* is_null) {
-        _is_null = is_null;
-    }
+    void set_is_null(bool* is_null) { _is_null = is_null; }
 
-    bool no_nulls() const {
-        return _no_nulls;
-    }
+    bool no_nulls() const { return _no_nulls; }
 
-    void set_no_nulls(bool no_nulls) {
-        _no_nulls = no_nulls;
-    }
+    void set_no_nulls(bool no_nulls) { _no_nulls = no_nulls; }
 
-    void* col_data() {
-        return _col_data;
-    }
-    void set_col_data(void* data) {
-        _col_data = data;
-    }
+    void* col_data() { return _col_data; }
+    void set_col_data(void* data) { _col_data = data; }
+
 private:
     void* _col_data = nullptr;
     bool _no_nulls = false;
@@ -76,50 +65,34 @@ public:
                        const std::shared_ptr<MemTracker>& parent_tracker = nullptr);
 
     ~VectorizedRowBatch() {
-        for (auto vec: _col_vectors) {
+        for (auto vec : _col_vectors) {
             delete vec;
         }
         delete[] _selected;
     }
 
-    MemPool* mem_pool() {
-        return _mem_pool.get();
-    }
+    MemPool* mem_pool() { return _mem_pool.get(); }
 
-    ColumnVector* column(int column_index) {
-        return _col_vectors[column_index];
-    }
+    ColumnVector* column(int column_index) { return _col_vectors[column_index]; }
 
     const std::vector<uint32_t>& columns() const { return _cols; }
 
-    uint16_t capacity() {
-        return _capacity;
-    }
+    uint16_t capacity() { return _capacity; }
 
-    uint16_t size() {
-        return _size;
-    }
+    uint16_t size() { return _size; }
 
     void set_size(int size) {
         DCHECK_LE(size, _capacity);
         _size = size;
     }
 
-    inline int num_rows() {
-        return _size;
-    }
+    inline int num_rows() { return _size; }
 
-    bool selected_in_use() const {
-        return _selected_in_use;
-    }
+    bool selected_in_use() const { return _selected_in_use; }
 
-    void set_selected_in_use(bool selected_in_use) {
-        _selected_in_use = selected_in_use;
-    }
+    void set_selected_in_use(bool selected_in_use) { _selected_in_use = selected_in_use; }
 
-    uint16_t* selected() const {
-        return _selected;
-    }
+    uint16_t* selected() const { return _selected; }
 
     inline void clear() {
         _size = 0;
@@ -152,8 +125,8 @@ private:
     uint16_t _limit;
 };
 
-}
+} // namespace doris
 
-#endif  // _DORIS_BE_SRC_RUNTIME_VECTORIZED_ROW_BATCH_H
+#endif // _DORIS_BE_SRC_RUNTIME_VECTORIZED_ROW_BATCH_H
 
 /* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

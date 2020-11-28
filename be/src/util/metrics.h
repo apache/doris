@@ -17,22 +17,22 @@
 
 #pragma once
 
+#include <rapidjson/document.h>
+#include <rapidjson/rapidjson.h>
+
 #include <atomic>
 #include <functional>
+#include <iomanip>
+#include <mutex>
 #include <ostream>
 #include <set>
 #include <sstream>
 #include <string>
-#include <mutex>
-#include <iomanip>
 #include <unordered_map>
 
-#include <rapidjson/rapidjson.h>
-#include <rapidjson/document.h>
-
 #include "common/config.h"
-#include "util/spinlock.h"
 #include "util/core_local.h"
+#include "util/spinlock.h"
 
 namespace doris {
 
@@ -40,13 +40,7 @@ namespace rj = RAPIDJSON_NAMESPACE;
 
 class MetricRegistry;
 
-enum class MetricType {
-    COUNTER,
-    GAUGE,
-    HISTOGRAM,
-    SUMMARY,
-    UNTYPED
-};
+enum class MetricType { COUNTER, GAUGE, HISTOGRAM, SUMMARY, UNTYPED };
 
 enum class MetricUnit {
     NANOSECONDS,
@@ -80,46 +74,34 @@ private:
 };
 
 // Metric that only can increment
-template<typename T>
+template <typename T>
 class AtomicMetric : public Metric {
 public:
     AtomicMetric() : _value(T()) {}
     virtual ~AtomicMetric() {}
 
-    std::string to_string() const override {
-        return std::to_string(value());
-    }
+    std::string to_string() const override { return std::to_string(value()); }
 
-    T value() const {
-        return _value.load();
-    }
+    T value() const { return _value.load(); }
 
-    void increment(const T& delta) {
-        _value.fetch_add(delta);
-    }
+    void increment(const T& delta) { _value.fetch_add(delta); }
 
-    void set_value(const T& value) {
-        _value.store(value);
-    }
+    void set_value(const T& value) { _value.store(value); }
 
-    rj::Value to_json_value() const override {
-        return rj::Value(value());
-    }
+    rj::Value to_json_value() const override { return rj::Value(value()); }
 
 protected:
     std::atomic<T> _value;
 };
 
-template<typename T>
+template <typename T>
 class LockSimpleMetric : public Metric {
 public:
     LockSimpleMetric() : _value(T()) {}
     virtual ~LockSimpleMetric() {}
 
-    std::string to_string() const override {
-        return std::to_string(value());
-    }
-    
+    std::string to_string() const override { return std::to_string(value()); }
+
     T value() const {
         std::lock_guard<SpinLock> l(_lock);
         return _value;
@@ -135,9 +117,7 @@ public:
         _value = value;
     }
 
-    rj::Value to_json_value() const override {
-        return rj::Value(value());
-    }
+    rj::Value to_json_value() const override { return rj::Value(value()); }
 
 protected:
     // We use spinlock instead of std::atomic is because atomic don't support
@@ -151,7 +131,7 @@ protected:
     T _value;
 };
 
-template<typename T>
+template <typename T>
 class CoreLocalCounter : public Metric {
 public:
     CoreLocalCounter() {}
@@ -162,7 +142,7 @@ public:
         ss << value();
         return ss.str();
     }
-    
+
     T value() const {
         T sum = 0;
         for (int i = 0; i < _value.size(); ++i) {
@@ -171,33 +151,29 @@ public:
         return sum;
     }
 
-    void increment(const T& delta) {
-        __sync_fetch_and_add(_value.access(), delta);
-    }
+    void increment(const T& delta) { __sync_fetch_and_add(_value.access(), delta); }
 
-    rj::Value to_json_value() const override {
-        return rj::Value(value());
-    }
+    rj::Value to_json_value() const override { return rj::Value(value()); }
 
 protected:
     CoreLocalValue<T> _value;
 };
 
-template<typename T>
+template <typename T>
 class AtomicCounter : public AtomicMetric<T> {
 public:
     AtomicCounter() {}
     virtual ~AtomicCounter() {}
 };
 
-template<typename T>
+template <typename T>
 class AtomicGauge : public AtomicMetric<T> {
 public:
     AtomicGauge() : AtomicMetric<T>() {}
     virtual ~AtomicGauge() {}
 };
 
-template<typename T>
+template <typename T>
 class LockCounter : public LockSimpleMetric<T> {
 public:
     LockCounter() : LockSimpleMetric<T>() {}
@@ -205,7 +181,7 @@ public:
 };
 
 // This can only used for trival type
-template<typename T>
+template <typename T>
 class LockGauge : public LockSimpleMetric<T> {
 public:
     LockGauge() : LockSimpleMetric<T>() {}
@@ -223,20 +199,16 @@ using DoubleGauge = LockGauge<double>;
 using Labels = std::unordered_map<std::string, std::string>;
 struct MetricPrototype {
 public:
-    MetricPrototype(MetricType type_,
-                    MetricUnit unit_,
-                    std::string name_,
-                    std::string description_ = "",
-                    std::string group_name_ = "",
-                    Labels labels_ = Labels(),
-                    bool is_core_metric_ = false)
-        : is_core_metric(is_core_metric_),
-          type(type_),
-          unit(unit_),
-          name(std::move(name_)),
-          description(std::move(description_)),
-          group_name(std::move(group_name_)),
-          labels(std::move(labels_)) {}
+    MetricPrototype(MetricType type_, MetricUnit unit_, std::string name_,
+                    std::string description_ = "", std::string group_name_ = "",
+                    Labels labels_ = Labels(), bool is_core_metric_ = false)
+            : is_core_metric(is_core_metric_),
+              type(type_),
+              unit(unit_),
+              name(std::move(name_)),
+              description(std::move(description_)),
+              group_name(std::move(group_name_)),
+              labels(std::move(labels_)) {}
 
     std::string simple_name() const;
     std::string combine_name(const std::string& registry_name) const;
@@ -250,49 +222,50 @@ public:
     Labels labels;
 };
 
-#define DEFINE_METRIC_PROTOTYPE(name, type, unit, desc, group, labels, core)      \
+#define DEFINE_METRIC_PROTOTYPE(name, type, unit, desc, group, labels, core) \
     ::doris::MetricPrototype METRIC_##name(type, unit, #name, desc, group, labels, core)
 
-#define DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(name, unit)                          \
+#define DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(name, unit) \
     DEFINE_METRIC_PROTOTYPE(name, MetricType::COUNTER, unit, "", "", Labels(), false)
 
-#define DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(name, unit, desc)                    \
+#define DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(name, unit, desc) \
     DEFINE_METRIC_PROTOTYPE(name, MetricType::COUNTER, unit, desc, "", Labels(), false)
 
-#define DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(name, unit, desc, group, labels)     \
+#define DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(name, unit, desc, group, labels) \
     DEFINE_METRIC_PROTOTYPE(name, MetricType::COUNTER, unit, desc, #group, labels, false)
 
-#define DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(name, unit)                            \
+#define DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(name, unit) \
     DEFINE_METRIC_PROTOTYPE(name, MetricType::GAUGE, unit, "", "", Labels(), false)
 
-#define DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(name, unit)                       \
+#define DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(name, unit) \
     DEFINE_METRIC_PROTOTYPE(name, MetricType::GAUGE, unit, "", "", Labels(), true)
 
-#define DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(name, unit, desc)                      \
+#define DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(name, unit, desc) \
     DEFINE_METRIC_PROTOTYPE(name, MetricType::GAUGE, unit, desc, "", Labels(), false)
 
-#define INT_COUNTER_METRIC_REGISTER(entity, metric)                               \
+#define INT_COUNTER_METRIC_REGISTER(entity, metric) \
     metric = (IntCounter*)(entity->register_metric<IntCounter>(&METRIC_##metric))
 
-#define INT_GAUGE_METRIC_REGISTER(entity, metric)                                 \
+#define INT_GAUGE_METRIC_REGISTER(entity, metric) \
     metric = (IntGauge*)(entity->register_metric<IntGauge>(&METRIC_##metric))
 
-#define INT_DOUBLE_METRIC_REGISTER(entity, metric)                                \
+#define INT_DOUBLE_METRIC_REGISTER(entity, metric) \
     metric = (DoubleGauge*)(entity->register_metric<DoubleGauge>(&METRIC_##metric))
 
-#define INT_UGAUGE_METRIC_REGISTER(entity, metric)                                \
+#define INT_UGAUGE_METRIC_REGISTER(entity, metric) \
     metric = (UIntGauge*)(entity->register_metric<UIntGauge>(&METRIC_##metric))
 
-#define INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, metric)                        \
+#define INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, metric) \
     metric = (IntAtomicCounter*)(entity->register_metric<IntAtomicCounter>(&METRIC_##metric))
 
-#define METRIC_DEREGISTER(entity, metric)                                         \
-    entity->deregister_metric(&METRIC_##metric)
+#define METRIC_DEREGISTER(entity, metric) entity->deregister_metric(&METRIC_##metric)
 
 // For 'metrics' in MetricEntity.
 struct MetricPrototypeHash {
     size_t operator()(const MetricPrototype* metric_prototype) const {
-        return std::hash<std::string>()(metric_prototype->group_name.empty() ? metric_prototype->name : metric_prototype->group_name);
+        return std::hash<std::string>()(metric_prototype->group_name.empty()
+                                                ? metric_prototype->name
+                                                : metric_prototype->group_name);
     }
 };
 
@@ -302,17 +275,15 @@ struct MetricPrototypeEqualTo {
     }
 };
 
-using MetricMap = std::unordered_map<const MetricPrototype*, Metric*, MetricPrototypeHash, MetricPrototypeEqualTo>;
+using MetricMap = std::unordered_map<const MetricPrototype*, Metric*, MetricPrototypeHash,
+                                     MetricPrototypeEqualTo>;
 
-enum class MetricEntityType {
-    kServer,
-    kTablet
-};
+enum class MetricEntityType { kServer, kTablet };
 
 class MetricEntity {
 public:
     MetricEntity(MetricEntityType type, const std::string& name, const Labels& labels)
-        : _type(type), _name(name), _labels(labels) {}
+            : _type(type), _name(name), _labels(labels) {}
     ~MetricEntity() {
         for (auto& metric : _metrics) {
             delete metric.second;
@@ -321,7 +292,7 @@ public:
 
     const std::string& name() const { return _name; }
 
-    template<typename T>
+    template <typename T>
     Metric* register_metric(const MetricPrototype* metric_type) {
         std::lock_guard<SpinLock> l(_lock);
         auto inserted_metric = _metrics.insert(std::make_pair(metric_type, nullptr));
@@ -361,23 +332,28 @@ struct MetricEntityHash {
 };
 
 struct MetricEntityEqualTo {
-    bool operator()(const std::shared_ptr<MetricEntity> first, const std::shared_ptr<MetricEntity> second) const {
-        return first->_type == second->_type
-            && first->_name == second->_name
-            && first->_labels == second->_labels;
+    bool operator()(const std::shared_ptr<MetricEntity> first,
+                    const std::shared_ptr<MetricEntity> second) const {
+        return first->_type == second->_type && first->_name == second->_name &&
+               first->_labels == second->_labels;
     }
 };
 
-using EntityMetricsByType = std::unordered_map<const MetricPrototype*, std::vector<std::pair<MetricEntity*, Metric*>>, MetricPrototypeHash, MetricPrototypeEqualTo>;
+using EntityMetricsByType =
+        std::unordered_map<const MetricPrototype*, std::vector<std::pair<MetricEntity*, Metric*>>,
+                           MetricPrototypeHash, MetricPrototypeEqualTo>;
 
 class MetricRegistry {
 public:
     MetricRegistry(const std::string& name) : _name(name) {}
     ~MetricRegistry();
 
-    std::shared_ptr<MetricEntity> register_entity(const std::string& name, const Labels& labels = {}, MetricEntityType type = MetricEntityType::kServer);
+    std::shared_ptr<MetricEntity> register_entity(
+            const std::string& name, const Labels& labels = {},
+            MetricEntityType type = MetricEntityType::kServer);
     void deregister_entity(const std::shared_ptr<MetricEntity>& entity);
-    std::shared_ptr<MetricEntity> get_entity(const std::string& name, const Labels& labels = {}, MetricEntityType type = MetricEntityType::kServer);
+    std::shared_ptr<MetricEntity> get_entity(const std::string& name, const Labels& labels = {},
+                                             MetricEntityType type = MetricEntityType::kServer);
 
     void trigger_all_hooks(bool force) const;
 
@@ -390,7 +366,9 @@ private:
 
     mutable SpinLock _lock;
     // MetricEntity -> register count
-    std::unordered_map<std::shared_ptr<MetricEntity>, int32_t, MetricEntityHash, MetricEntityEqualTo> _entities;
+    std::unordered_map<std::shared_ptr<MetricEntity>, int32_t, MetricEntityHash,
+                       MetricEntityEqualTo>
+            _entities;
 };
 
 } // namespace doris

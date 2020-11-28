@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_HTTP_ACTION_HEALTH_ACTION_H
-#define  DORIS_BE_SRC_HTTP_ACTION_HEALTH_ACTION_H
+#ifndef DORIS_BE_SRC_HTTP_ACTION_HEALTH_ACTION_H
+#define DORIS_BE_SRC_HTTP_ACTION_HEALTH_ACTION_H
 
 #include "http/http_handler.h"
 
@@ -29,9 +29,9 @@ class HealthAction : public HttpHandler {
 public:
     HealthAction(ExecEnv* exec_env);
 
-    virtual ~HealthAction() {};
+    virtual ~HealthAction(){};
 
-    void handle(HttpRequest *req) override;
+    void handle(HttpRequest* req) override;
 
 private:
     ExecEnv* _exec_env;
@@ -40,4 +40,3 @@ private:
 } // end namespace doris
 
 #endif // DORIS_BE_SRC_HTTP_ACTION_HEALTH_ACTION_H
-

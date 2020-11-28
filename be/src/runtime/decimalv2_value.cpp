@@ -16,15 +16,18 @@
 // under the License.
 
 #include "runtime/decimalv2_value.h"
-#include "util/string_parser.hpp"
 
 #include <algorithm>
 #include <iostream>
 #include <utility>
 
+#include "util/string_parser.hpp"
+
 namespace doris {
 
-static inline int128_t abs(const int128_t& x) { return (x < 0) ? -x : x; }
+static inline int128_t abs(const int128_t& x) {
+    return (x < 0) ? -x : x;
+}
 
 // x>=0 && y>=0
 static int do_add(int128_t x, int128_t y, int128_t* result) {
@@ -61,7 +64,7 @@ static int do_mul(int128_t x, int128_t y, int128_t* result) {
     int error = E_DEC_OK;
     int128_t max128 = ~(static_cast<int128_t>(1ll) << 127);
 
-    int leading_zero_bits = clz128(x) + clz128(y); 
+    int leading_zero_bits = clz128(x) + clz128(y);
     if (leading_zero_bits < sizeof(int128_t) || max128 / x < y) {
         *result = DecimalV2Value::MAX_DECIMAL_VALUE;
         error = E_DEC_OVERFLOW;
@@ -120,9 +123,9 @@ DecimalV2Value operator+(const DecimalV2Value& v1, const DecimalV2Value& v2) {
     int128_t x = v1.value();
     int128_t y = v2.value();
     if (x == 0) {
-       result = y;
+        result = y;
     } else if (y == 0) {
-       result = x;
+        result = x;
     } else if (x > 0) {
         if (y > 0) {
             do_add(x, y, &result);
@@ -146,9 +149,9 @@ DecimalV2Value operator-(const DecimalV2Value& v1, const DecimalV2Value& v2) {
     int128_t x = v1.value();
     int128_t y = v2.value();
     if (x == 0) {
-       result = -y;
+        result = -y;
     } else if (y == 0) {
-       result = x;
+        result = x;
     } else if (x > 0) {
         if (y > 0) {
             do_sub(x, y, &result);
@@ -168,7 +171,7 @@ DecimalV2Value operator-(const DecimalV2Value& v1, const DecimalV2Value& v2) {
     return DecimalV2Value(result);
 }
 
-DecimalV2Value operator*(const DecimalV2Value& v1, const DecimalV2Value& v2){
+DecimalV2Value operator*(const DecimalV2Value& v1, const DecimalV2Value& v2) {
     int128_t result;
     int128_t x = v1.value();
     int128_t y = v2.value();
@@ -184,12 +187,12 @@ DecimalV2Value operator*(const DecimalV2Value& v1, const DecimalV2Value& v2){
     return DecimalV2Value(result);
 }
 
-DecimalV2Value operator/(const DecimalV2Value& v1, const DecimalV2Value& v2){
+DecimalV2Value operator/(const DecimalV2Value& v1, const DecimalV2Value& v2) {
     int128_t result;
     int128_t x = v1.value();
     int128_t y = v2.value();
 
-    //todo: return 0 for divide zero 
+    //todo: return 0 for divide zero
     if (x == 0 || y == 0) return DecimalV2Value(0);
     bool is_positive = (x > 0 && y > 0) || (x < 0 && y < 0);
     do_div(abs(x), abs(y), &result);
@@ -199,12 +202,12 @@ DecimalV2Value operator/(const DecimalV2Value& v1, const DecimalV2Value& v2){
     return DecimalV2Value(result);
 }
 
-DecimalV2Value operator%(const DecimalV2Value& v1, const DecimalV2Value& v2){
+DecimalV2Value operator%(const DecimalV2Value& v1, const DecimalV2Value& v2) {
     int128_t result;
     int128_t x = v1.value();
     int128_t y = v2.value();
 
-    //todo: return 0 for divide zero 
+    //todo: return 0 for divide zero
     if (x == 0 || y == 0) return DecimalV2Value(0);
 
     do_mod(x, y, &result);
@@ -235,12 +238,11 @@ DecimalV2Value& DecimalV2Value::operator+=(const DecimalV2Value& other) {
 int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
     int32_t error = E_DEC_OK;
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-    
-    _value = StringParser::string_to_decimal(decimal_str, length, 
-		    PRECISION, SCALE, &result);
 
-    if (result == StringParser::PARSE_FAILURE) { 
-       error = E_DEC_BAD_NUM;
+    _value = StringParser::string_to_decimal(decimal_str, length, PRECISION, SCALE, &result);
+
+    if (result == StringParser::PARSE_FAILURE) {
+        error = E_DEC_BAD_NUM;
     }
     return error;
 }
@@ -248,7 +250,7 @@ int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
 std::string DecimalV2Value::to_string(int round_scale) const {
     if (_value == 0) return std::string(1, '0');
 
-    int last_char_idx = PRECISION + 2 + (_value < 0);  
+    int last_char_idx = PRECISION + 2 + (_value < 0);
     std::string str = std::string(last_char_idx, '0');
 
     int128_t remaining_value = _value;
@@ -260,7 +262,7 @@ std::string DecimalV2Value::to_string(int round_scale) const {
 
     int remaining_scale = SCALE;
     do {
-        str[--last_char_idx] = (remaining_value % 10) + '0'; 
+        str[--last_char_idx] = (remaining_value % 10) + '0';
         remaining_value /= 10;
     } while (--remaining_scale > 0);
     str[--last_char_idx] = '.';
@@ -279,7 +281,7 @@ std::string DecimalV2Value::to_string(int round_scale) const {
     // right trim and round
     int scale = 0;
     int len = str.size();
-    for(scale = 0; scale < SCALE && scale < len; scale++) {
+    for (scale = 0; scale < SCALE && scale < len; scale++) {
         if (str[len - scale - 1] != '0') break;
     }
     if (scale == SCALE) scale++; //integer, trim .
@@ -298,37 +300,27 @@ std::string DecimalV2Value::to_string() const {
 // NOTE: only change abstract value, do not change sign
 void DecimalV2Value::to_max_decimal(int32_t precision, int32_t scale) {
     bool is_negative = (_value < 0);
-    static const int64_t INT_MAX_VALUE[PRECISION] = {
-        9ll, 
-        99ll, 
-        999ll, 
-        9999ll, 
-        99999ll,
-        999999ll,
-        9999999ll, 
-        99999999ll, 
-        999999999ll, 
-        9999999999ll,
-        99999999999ll, 
-        999999999999ll, 
-        9999999999999ll, 
-        99999999999999ll, 
-        999999999999999ll, 
-        9999999999999999ll, 
-        99999999999999999ll, 
-        999999999999999999ll
-    };
-    static const int32_t FRAC_MAX_VALUE[SCALE] = { 
-        900000000, 
-        990000000, 
-        999000000,
-        999900000, 
-        999990000, 
-        999999000,
-        999999900, 
-        999999990, 
-        999999999
-    };
+    static const int64_t INT_MAX_VALUE[PRECISION] = {9ll,
+                                                     99ll,
+                                                     999ll,
+                                                     9999ll,
+                                                     99999ll,
+                                                     999999ll,
+                                                     9999999ll,
+                                                     99999999ll,
+                                                     999999999ll,
+                                                     9999999999ll,
+                                                     99999999999ll,
+                                                     999999999999ll,
+                                                     9999999999999ll,
+                                                     99999999999999ll,
+                                                     999999999999999ll,
+                                                     9999999999999999ll,
+                                                     99999999999999999ll,
+                                                     999999999999999999ll};
+    static const int32_t FRAC_MAX_VALUE[SCALE] = {900000000, 990000000, 999000000,
+                                                  999900000, 999990000, 999999000,
+                                                  999999900, 999999990, 999999999};
 
     // precision > 0 && scale >= 0 && scale <= SCALE
     if (precision <= 0 || scale < 0) return;
@@ -344,7 +336,7 @@ void DecimalV2Value::to_max_decimal(int32_t precision, int32_t scale) {
     }
 
     int64_t int_value = INT_MAX_VALUE[precision - scale - 1];
-    int64_t frac_value = scale == 0? 0 : FRAC_MAX_VALUE[scale - 1];
+    int64_t frac_value = scale == 0 ? 0 : FRAC_MAX_VALUE[scale - 1];
     _value = static_cast<int128_t>(int_value) * DecimalV2Value::ONE_BILLION + frac_value;
     if (is_negative) _value = -_value;
 }
@@ -353,10 +345,10 @@ std::size_t hash_value(DecimalV2Value const& value) {
     return value.hash(0);
 }
 
-int DecimalV2Value::round(DecimalV2Value *to, int rounding_scale, DecimalRoundMode op) {
+int DecimalV2Value::round(DecimalV2Value* to, int rounding_scale, DecimalRoundMode op) {
     int32_t error = E_DEC_OK;
     int128_t result;
-    
+
     if (rounding_scale >= SCALE) return error;
     if (rounding_scale < -(PRECISION - SCALE)) return 0;
 
@@ -366,33 +358,33 @@ int DecimalV2Value::round(DecimalV2Value *to, int rounding_scale, DecimalRoundMo
     int one = _value > 0 ? 1 : -1;
     int128_t remainder = _value % base;
     switch (op) {
-        case HALF_UP:
-        case HALF_EVEN:
-            if (abs(remainder) >= (base >> 1)) {
-                result = (result + one) * base;
-            } else {
-                result = result * base;
-            }
-            break;
-        case CEILING:
-            if (remainder > 0 && _value > 0) {
-                result = (result + one) * base;
-            } else {
-                result = result * base;
-            }
-            break;
-        case FLOOR:
-            if (remainder < 0 && _value < 0) {
-                result = (result + one) * base;
-            } else {
-                result = result * base;
-            }
-            break;
-        case TRUNCATE:
+    case HALF_UP:
+    case HALF_EVEN:
+        if (abs(remainder) >= (base >> 1)) {
+            result = (result + one) * base;
+        } else {
             result = result * base;
-            break;
-        default:
-            break;
+        }
+        break;
+    case CEILING:
+        if (remainder > 0 && _value > 0) {
+            result = (result + one) * base;
+        } else {
+            result = result * base;
+        }
+        break;
+    case FLOOR:
+        if (remainder < 0 && _value < 0) {
+            result = (result + one) * base;
+        } else {
+            result = result * base;
+        }
+        break;
+    case TRUNCATE:
+        result = result * base;
+        break;
+    default:
+        break;
     }
 
     to->set_value(result);
@@ -412,17 +404,8 @@ bool DecimalV2Value::greater_than_scale(int scale) {
         return ret;
     }
 
-    static const int values[SCALE] = {
-        1,
-        10,
-        100,
-        1000,
-        10000,
-        100000,
-        1000000,
-        10000000,
-        100000000
-    };
+    static const int values[SCALE] = {1,      10,      100,      1000,     10000,
+                                      100000, 1000000, 10000000, 100000000};
 
     int base = values[SCALE - scale];
     if (frac_val % base != 0) return true;

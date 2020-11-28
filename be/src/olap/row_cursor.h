@@ -24,9 +24,9 @@
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/tuple.h"
-#include "olap/schema.h"
 #include "olap/row_cursor_cell.h"
+#include "olap/schema.h"
+#include "olap/tuple.h"
 
 namespace doris {
 class Field;
@@ -35,35 +35,30 @@ class Field;
 class RowCursor {
 public:
     RowCursor();
-    
+
     // 遍历销毁field指针
     ~RowCursor();
-    
+
     // 根据传入schema的创建RowCursor
     OLAPStatus init(const TabletSchema& schema);
     OLAPStatus init(const std::vector<TabletColumn>& schema);
 
     // 根据传入schema的前n列创建RowCursor
-    OLAPStatus init(const std::vector<TabletColumn>& schema,
-                    size_t column_count);
+    OLAPStatus init(const std::vector<TabletColumn>& schema, size_t column_count);
     OLAPStatus init(const TabletSchema& schema, size_t column_count);
 
     // 根据传入schema和column id list创建RowCursor，
     // 用于计算过程只使用部分非前缀连续列的场景
-    OLAPStatus init(const TabletSchema& schema,
-                    const std::vector<uint32_t>& columns);
+    OLAPStatus init(const TabletSchema& schema, const std::vector<uint32_t>& columns);
 
     // 用传入的key的size来初始化
     // 目前仅用在拆分key区间的时候
-    OLAPStatus init_scan_key(const TabletSchema& schema,
-                             const std::vector<std::string>& keys);
+    OLAPStatus init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys);
 
     //allocate memory for string type, which include char, varchar, hyperloglog
     OLAPStatus allocate_memory_for_string_type(const TabletSchema& schema);
 
-    RowCursorCell cell(uint32_t cid) const {
-        return RowCursorCell(nullable_cell_ptr(cid));
-    }
+    RowCursorCell cell(uint32_t cid) const { return RowCursorCell(nullable_cell_ptr(cid)); }
 
     // RowCursor attach到一段连续的buf
     inline void attach(char* buf) { _fixed_buf = buf; }
@@ -86,7 +81,8 @@ public:
         column_schema(index)->shallow_copy_content(dst_cell, buf);
     }
     // convert and deep copy field content
-    OLAPStatus convert_from(size_t index, const char* src, const TypeInfo* src_type, MemPool* mem_pool) {
+    OLAPStatus convert_from(size_t index, const char* src, const TypeInfo* src_type,
+                            MemPool* mem_pool) {
         char* dest = cell_ptr(index);
         return column_schema(index)->convert_from(dest, src, src_type, mem_pool);
     }
@@ -97,17 +93,13 @@ public:
     OLAPStatus from_tuple(const OlapTuple& tuple);
 
     // 返回当前row cursor中列的个数
-    size_t field_count() const {
-        return _schema->column_ids().size();
-    }
+    size_t field_count() const { return _schema->column_ids().size(); }
 
     // 以string格式输出rowcursor内容，仅供log及debug使用
     std::string to_string() const;
     OlapTuple to_tuple() const;
 
-    const size_t get_index_size(size_t index) const {
-        return column_schema(index)->index_size();
-    }
+    const size_t get_index_size(size_t index) const { return column_schema(index)->index_size(); }
 
     inline bool is_delete() const {
         auto sign_idx = _schema->delete_sign_idx();
@@ -129,16 +121,10 @@ public:
 
     // Get column nullable pointer with column id
     // TODO(zc): make this return const char*
-    char* nullable_cell_ptr(uint32_t cid) const {
-        return _fixed_buf + _schema->column_offset(cid);
-    }
-    char* cell_ptr(uint32_t cid) const {
-        return _fixed_buf + _schema->column_offset(cid) + 1;
-    }
+    char* nullable_cell_ptr(uint32_t cid) const { return _fixed_buf + _schema->column_offset(cid); }
+    char* cell_ptr(uint32_t cid) const { return _fixed_buf + _schema->column_offset(cid) + 1; }
 
-    bool is_null(size_t index) const {
-        return *reinterpret_cast<bool*>(nullable_cell_ptr(index));
-    }
+    bool is_null(size_t index) const { return *reinterpret_cast<bool*>(nullable_cell_ptr(index)); }
 
     inline void set_null(size_t index) const {
         *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = true;
@@ -148,13 +134,9 @@ public:
         *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = false;
     }
 
-    size_t column_size(uint32_t cid) const {
-        return _schema->column_size(cid);
-    }
+    size_t column_size(uint32_t cid) const { return _schema->column_size(cid); }
 
-    const Field* column_schema(uint32_t cid) const {
-        return _schema->column(cid);
-    }
+    const Field* column_schema(uint32_t cid) const { return _schema->column(cid); }
 
     const Schema* schema() const { return _schema.get(); }
 
@@ -162,20 +144,19 @@ public:
 
 private:
     // common init function
-    OLAPStatus _init(const std::vector<TabletColumn>& schema,
-                     const std::vector<uint32_t>& columns);
+    OLAPStatus _init(const std::vector<TabletColumn>& schema, const std::vector<uint32_t>& columns);
 
     std::unique_ptr<Schema> _schema;
 
-    char* _fixed_buf = nullptr;          // point to fixed buf
+    char* _fixed_buf = nullptr; // point to fixed buf
     size_t _fixed_len;
-    char* _owned_fixed_buf = nullptr;    // point to buf allocated in init function
+    char* _owned_fixed_buf = nullptr; // point to buf allocated in init function
 
     char* _variable_buf = nullptr;
     size_t _variable_len;
 
     DISALLOW_COPY_AND_ASSIGN(RowCursor);
 };
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROW_CURSOR_H

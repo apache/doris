@@ -17,9 +17,9 @@
 
 #include <boost/static_assert.hpp>
 
+#include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"
 #include "runtime/string_value.h"
-#include "runtime/datetime_value.h"
 
 namespace doris {
 // This class is unused.  It contains static (compile time) asserts.
@@ -35,4 +35,4 @@ private:
     BOOST_STATIC_ASSERT(sizeof(DecimalValue) == 40);
 };
 
-}
+} // namespace doris

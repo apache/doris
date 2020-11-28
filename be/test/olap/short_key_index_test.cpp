@@ -19,17 +19,16 @@
 
 #include <gtest/gtest.h>
 
-#include "olap/tablet_schema_helper.h"
 #include "olap/row_cursor.h"
+#include "olap/tablet_schema_helper.h"
 #include "util/debug_util.h"
 
 namespace doris {
 
 class ShortKeyIndexTest : public testing::Test {
 public:
-    ShortKeyIndexTest() { }
-    virtual ~ShortKeyIndexTest() {
-    }
+    ShortKeyIndexTest() {}
+    virtual ~ShortKeyIndexTest() {}
 };
 
 TEST_F(ShortKeyIndexTest, builder) {
@@ -46,7 +45,7 @@ TEST_F(ShortKeyIndexTest, builder) {
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(segment_v2::SHORT_KEY_PAGE, footer.type());
     ASSERT_EQ(num_items, footer.short_key_page_footer().num_items());
-    
+
     std::string buf;
     for (auto& slice : slices) {
         buf.append(slice.data, slice.size);
@@ -94,7 +93,6 @@ TEST_F(ShortKeyIndexTest, builder) {
     }
 }
 
-
 TEST_F(ShortKeyIndexTest, encode) {
     TabletSchema tablet_schema;
     tablet_schema._cols.push_back(create_int_key(0));
@@ -104,7 +102,7 @@ TEST_F(ShortKeyIndexTest, encode) {
     tablet_schema._num_columns = 4;
     tablet_schema._num_key_columns = 3;
     tablet_schema._num_short_key_columns = 3;
-    
+
     // test encoding with padding
     {
         RowCursor row;
@@ -157,10 +155,9 @@ TEST_F(ShortKeyIndexTest, encode) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

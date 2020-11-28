@@ -20,12 +20,14 @@
 
 #include <boost/cstdint.hpp>
 #include <sstream>
+
 #include "common/logging.h"
 #include "common/status.h"
 
 namespace doris {
 
-#define RETURN_IF_FALSE(x) if (UNLIKELY(!(x))) return false
+#define RETURN_IF_FALSE(x) \
+    if (UNLIKELY(!(x))) return false
 
 // Class for reading and writing various data types.
 class ReadWriteUtil {
@@ -102,10 +104,8 @@ inline int32_t ReadWriteUtil::get_int(const uint8_t* buf) {
 }
 
 inline int64_t ReadWriteUtil::get_long_int(const uint8_t* buf) {
-    return (static_cast<int64_t>(buf[0]) << 56) |
-           (static_cast<int64_t>(buf[1]) << 48) |
-           (static_cast<int64_t>(buf[2]) << 40) |
-           (static_cast<int64_t>(buf[3]) << 32) |
+    return (static_cast<int64_t>(buf[0]) << 56) | (static_cast<int64_t>(buf[1]) << 48) |
+           (static_cast<int64_t>(buf[2]) << 40) | (static_cast<int64_t>(buf[3]) << 32) |
            (buf[4] << 24) | (buf[5] << 16) | (buf[6] << 8) | buf[7];
 }
 
@@ -128,7 +128,7 @@ inline int ReadWriteUtil::get_vlong(uint8_t* buf, int64_t* vlong) {
 }
 
 inline int ReadWriteUtil::get_vlong(uint8_t* buf, int64_t offset, int64_t* vlong) {
-    int8_t firstbyte = (int8_t) buf[0 + offset];
+    int8_t firstbyte = (int8_t)buf[0 + offset];
 
     int len = decode_vint_size(firstbyte);
 
@@ -148,22 +148,20 @@ inline int ReadWriteUtil::get_vlong(uint8_t* buf, int64_t offset, int64_t* vlong
     }
 
     if (is_negative_vint(firstbyte)) {
-        *vlong = *vlong ^ ((int64_t) - 1);
+        *vlong = *vlong ^ ((int64_t)-1);
     }
 
     return len;
 }
 
-inline bool ReadWriteUtil::read_zint(uint8_t** buf, int* buf_len, int32_t* val,
-                                    Status* status) {
+inline bool ReadWriteUtil::read_zint(uint8_t** buf, int* buf_len, int32_t* val, Status* status) {
     int64_t zlong;
     RETURN_IF_FALSE(read_zlong(buf, buf_len, &zlong, status));
     *val = static_cast<int32_t>(zlong);
     return true;
 }
 
-inline bool ReadWriteUtil::read_zlong(uint8_t** buf, int* buf_len, int64_t* val,
-                                     Status* status) {
+inline bool ReadWriteUtil::read_zlong(uint8_t** buf, int* buf_len, int64_t* val, Status* status) {
     uint64_t zlong = 0;
     int shift = 0;
     bool more;
@@ -204,8 +202,7 @@ inline bool ReadWriteUtil::read(uint8_t** buf, int* buf_len, T* val, Status* sta
     return true;
 }
 
-inline bool ReadWriteUtil::skip_bytes(uint8_t** buf, int* buf_len, int num_bytes,
-                                     Status* status) {
+inline bool ReadWriteUtil::skip_bytes(uint8_t** buf, int* buf_len, int num_bytes, Status* status) {
     DCHECK_GE(*buf_len, 0);
 
     if (UNLIKELY(num_bytes > *buf_len)) {
@@ -234,5 +231,5 @@ inline int ReadWriteUtil::decode_vint_size(int8_t byte) {
     return -111 - byte;
 }
 
-}
+} // namespace doris
 #endif

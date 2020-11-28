@@ -15,40 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <iostream>
-#include <stdlib.h>
-#include <stdio.h>
-#include <vector>
-#include <gtest/gtest.h>
-
 #include "exec/olap_scan_node.h"
+
+#include <gtest/gtest.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <iostream>
+#include <vector>
+
 #include "exec/text_converter.hpp"
 #include "exprs/binary_predicate.h"
-#include "exprs/int_literal.h"
 #include "exprs/in_predicate.h"
-#include "gen_cpp/PlanNodes_types.h"
+#include "exprs/int_literal.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
-#include "runtime/primitive_type.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
+#include "runtime/primitive_type.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-#include "runtime/descriptors.h"
 #include "util/cpu_info.h"
-#include "util/runtime_profile.h"
-#include "util/runtime_profile.h"
 #include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
 class OlapScanNodeTest : public ::testing::Test {
 public:
-    OlapScanNodeTest() : _runtime_stat("test") { }
+    OlapScanNodeTest() : _runtime_stat("test") {}
 
     virtual void SetUp() {
-
         TUniqueId fragment_id;
         TQueryOptions query_options;
         query_options.disable_codegen = true;
@@ -188,12 +187,10 @@ public:
             //doris_scan_range.partition_column_ranges.push_back(key_range);
             param.scan_range.__set_doris_scan_range(doris_scan_range);
             _scan_ranges.push_back(param);
-
         }
     }
 
-    virtual void TearDown() {
-    }
+    virtual void TearDown() {}
 
 private:
     TPlanNode _tnode;
@@ -236,7 +233,6 @@ TEST_F(OlapScanNodeTest, NormalUse) {
 }
 
 TEST_F(OlapScanNodeTest, PushDownBinaryPredicate) {
-
     OlapScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
 
     TExprNode binary_node;
@@ -302,7 +298,6 @@ TEST_F(OlapScanNodeTest, PushDownBinaryPredicate) {
 }
 
 TEST_F(OlapScanNodeTest, PushDownBinaryEqualPredicate) {
-
     OlapScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
 
     TExprNode binary_node;
@@ -368,7 +363,6 @@ TEST_F(OlapScanNodeTest, PushDownBinaryEqualPredicate) {
 }
 
 TEST_F(OlapScanNodeTest, PushDownInPredicateCase) {
-
     OlapScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
 
     TExprNode in_node;
@@ -433,7 +427,7 @@ TEST_F(OlapScanNodeTest, PushDownInPredicateCase) {
     ASSERT_TRUE(scan_node.close(&_runtime_stat).ok());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

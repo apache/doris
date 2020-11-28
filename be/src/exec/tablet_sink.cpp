@@ -20,12 +20,11 @@
 #include <sstream>
 
 #include "exprs/expr.h"
+#include "olap/hll.h"
 #include "runtime/exec_env.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
-
-#include "olap/hll.h"
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
 #include "util/monotime.h"
@@ -167,7 +166,8 @@ Status NodeChannel::open_wait() {
                         std::lock_guard<SpinLock> l(_cancel_msg_lock);
                         if (_cancel_msg == "") {
                             std::stringstream ss;
-                            ss << "node=" << node_info()->host << ":" << node_info()->brpc_port << ", errmsg=" << status.get_error_msg();
+                            ss << "node=" << node_info()->host << ":" << node_info()->brpc_port
+                               << ", errmsg=" << status.get_error_msg();
                             _cancel_msg = ss.str();
                         }
                     }
@@ -427,7 +427,9 @@ bool IndexChannel::has_intolerable_failure() {
 
 OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                              const std::vector<TExpr>& texprs, Status* status)
-        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024),
+        : _pool(pool),
+          _input_row_desc(row_desc),
+          _filter_bitmap(1024),
           _stop_background_threads_latch(1) {
     if (!texprs.empty()) {
         *status = Expr::create_expr_trees(_pool, texprs, &_output_expr_ctxs);
@@ -609,9 +611,9 @@ Status OlapTableSink::open(RuntimeState* state) {
         }
     }
 
-    RETURN_IF_ERROR(Thread::create("OlapTableSink", "send_batch_process",
-                                   [this]() { this->_send_batch_process(); },
-                                   &_sender_thread));
+    RETURN_IF_ERROR(Thread::create(
+            "OlapTableSink", "send_batch_process", [this]() { this->_send_batch_process(); },
+            &_sender_thread));
 
     return Status::OK();
 }
@@ -932,7 +934,8 @@ void OlapTableSink::_send_batch_process() {
                          "consumer thread exit.";
             return;
         }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromMilliseconds(config::olap_table_sink_send_interval_ms)));
+    } while (!_stop_background_threads_latch.wait_for(
+            MonoDelta::FromMilliseconds(config::olap_table_sink_send_interval_ms)));
 }
 
 } // namespace stream_load

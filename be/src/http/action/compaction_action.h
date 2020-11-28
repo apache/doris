@@ -17,14 +17,13 @@
 
 #pragma once
 
-#include "http/http_handler.h"
 #include "common/status.h"
-#include "olap/storage_engine.h"
+#include "http/http_handler.h"
 #include "olap/base_compaction.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 
 namespace doris {
-
 
 enum CompactionActionType {
     SHOW_INFO = 1,
@@ -47,17 +46,18 @@ public:
 
     virtual ~CompactionAction() {}
 
-    void handle(HttpRequest *req) override;
+    void handle(HttpRequest* req) override;
 
 private:
-    Status _handle_show_compaction(HttpRequest *req, std::string* json_result);
+    Status _handle_show_compaction(HttpRequest* req, std::string* json_result);
 
     /// execute compaction request to run compaction task
     /// param compact_type in req to distinguish the task type, base or cumulative
-    Status _handle_run_compaction(HttpRequest *req, std::string* json_result);
+    Status _handle_run_compaction(HttpRequest* req, std::string* json_result);
 
     /// thread callback function for the tablet to do compaction
-    OLAPStatus _execute_compaction_callback(TabletSharedPtr tablet, const std::string& compaction_type);
+    OLAPStatus _execute_compaction_callback(TabletSharedPtr tablet,
+                                            const std::string& compaction_type);
 
     /// fetch compaction running status
     Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);
@@ -77,4 +77,3 @@ private:
 };
 
 } // end namespace doris
-

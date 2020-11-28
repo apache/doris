@@ -18,6 +18,7 @@
 #include "util/bitmap.h"
 
 #include <gtest/gtest.h>
+
 #include <iostream>
 
 #include "common/logging.h"
@@ -26,9 +27,8 @@ namespace doris {
 
 class BitMapTest : public testing::Test {
 public:
-    BitMapTest() { }
-    virtual ~BitMapTest() {
-    }
+    BitMapTest() {}
+    virtual ~BitMapTest() {}
 };
 
 TEST_F(BitMapTest, normal) {
@@ -74,7 +74,6 @@ TEST_F(BitMapTest, normal) {
     found = BitmapFindFirstZero(bitmap, 300, 1024 * 8, &idx);
     ASSERT_TRUE(found);
     ASSERT_EQ(300, idx);
-
 }
 
 TEST_F(BitMapTest, iterator) {
@@ -112,13 +111,13 @@ TEST_F(BitMapTest, iterator) {
     // 3000,8*1024 -- false
     run = iter.Next(&value);
     ASSERT_FALSE(value);
-    ASSERT_EQ(8*1024 - 3000, run);
+    ASSERT_EQ(8 * 1024 - 3000, run);
     ASSERT_TRUE(iter.done());
     // seek to 8000
     iter.SeekTo(8000);
     run = iter.Next(&value);
     ASSERT_FALSE(value);
-    ASSERT_EQ(8*1024 - 8000, run);
+    ASSERT_EQ(8 * 1024 - 8000, run);
     ASSERT_TRUE(iter.done());
 
     // with max_run
@@ -131,10 +130,9 @@ TEST_F(BitMapTest, iterator) {
     ASSERT_EQ(2000 - 500 - 200, run);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-
