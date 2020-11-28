@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/push_handler.h"
+
 #include <gtest/gtest.h>
 
 #include "exprs/cast_functions.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "olap/push_handler.h"
 #include "olap/row.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -30,13 +31,13 @@ namespace doris {
 
 class PushHandlerTest : public testing::Test {
 public:
-    PushHandlerTest() {
-        init();
-    }
+    PushHandlerTest() { init(); }
     static void SetUpTestCase() {
-        UserFunctionCache::instance()->init("./be/test/runtime/test_data/user_function_cache/normal");
+        UserFunctionCache::instance()->init(
+                "./be/test/runtime/test_data/user_function_cache/normal");
         CastFunctions::init();
     }
+
 protected:
     virtual void SetUp() {}
     virtual void TearDown() {}
@@ -69,9 +70,8 @@ Schema PushHandlerTest::create_schema() {
 #define DST_TUPLE_SLOT_ID_START 1
 #define SRC_TUPLE_SLOT_ID_START 5
 int PushHandlerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
-    const char *columnNames[] = {"k1_int", "k2_smallint", "k3_varchar", "v_bigint"};
-    for (int i = 0; i < COLUMN_NUMBERS; i++)
-    {
+    const char* columnNames[] = {"k1_int", "k2_smallint", "k3_varchar", "v_bigint"};
+    for (int i = 0; i < COLUMN_NUMBERS; i++) {
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -88,8 +88,8 @@ int PushHandlerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_s
         }
         slot_desc.slotType = type;
         slot_desc.columnPos = i;
-        slot_desc.byteOffset = i*16+8; // 8 bytes for null
-        slot_desc.nullIndicatorBit = i%8;
+        slot_desc.byteOffset = i * 16 + 8; // 8 bytes for null
+        slot_desc.nullIndicatorBit = i % 8;
         slot_desc.colName = columnNames[i];
         slot_desc.slotIdx = i + 1;
         slot_desc.isMaterialized = true;
@@ -100,7 +100,7 @@ int PushHandlerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_s
         // TTupleDescriptor source
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = TUPLE_ID_SRC;
-        t_tuple_desc.byteSize = COLUMN_NUMBERS*16+8; // 8 bytes for null
+        t_tuple_desc.byteSize = COLUMN_NUMBERS * 16 + 8; // 8 bytes for null
         t_tuple_desc.numNullBytes = 1;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
@@ -110,7 +110,7 @@ int PushHandlerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_s
 }
 
 int PushHandlerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
-    {//k1_int
+    { //k1_int
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -135,7 +135,7 @@ int PushHandlerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_s
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
-    {// k2_smallint
+    { // k2_smallint
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -160,7 +160,7 @@ int PushHandlerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_s
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
-    {//k3_varchar
+    { //k3_varchar
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -186,7 +186,7 @@ int PushHandlerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_s
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
-    {// v_bigint
+    { // v_bigint
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -401,7 +401,7 @@ void PushHandlerTest::init() {
 TEST_F(PushHandlerTest, PushBrokerReaderNormal) {
     TBrokerScanRange broker_scan_range;
     broker_scan_range.params = _params;
-	TBrokerRangeDesc range;
+    TBrokerRangeDesc range;
     range.start_offset = 0;
     range.size = -1;
     range.format_type = TFileFormatType::FORMAT_PARQUET;
@@ -453,9 +453,9 @@ TEST_F(PushHandlerTest, PushBrokerReaderNormal) {
 
     reader.close();
 }
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     CpuInfo::init();
     return RUN_ALL_TESTS();

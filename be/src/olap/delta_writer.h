@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_SRC_DELTA_WRITER_H
 #define DORIS_BE_SRC_DELTA_WRITER_H
 
-#include "olap/tablet.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/tablet.h"
 
 namespace doris {
 
@@ -33,11 +33,7 @@ class Tuple;
 class TupleDescriptor;
 class SlotDescriptor;
 
-enum WriteType {
-    LOAD = 1,
-    LOAD_DELETE = 2,
-    DELETE = 3
-};
+enum WriteType { LOAD = 1, LOAD_DELETE = 2, DELETE = 3 };
 
 struct WriteRequest {
     int64_t tablet_id;
@@ -112,6 +108,6 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_DELTA_WRITER_H

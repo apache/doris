@@ -20,22 +20,21 @@
 
 #include <cstring>
 #include <unordered_set>
-#include "common/status.h"
+
 #include "common/object_pool.h"
-#include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "common/status.h"
 #include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/primitive_type.h"
+#include "runtime/string_value.h"
 
 namespace doris {
 
 class HybridSetBase {
 public:
-    HybridSetBase() {
-    }
-    virtual ~HybridSetBase() {
-    }
+    HybridSetBase() {}
+    virtual ~HybridSetBase() {}
     virtual void insert(void* data) = 0;
 
     virtual void insert(HybridSetBase* set) = 0;
@@ -46,10 +45,8 @@ public:
     static HybridSetBase* create_set(PrimitiveType type);
     class IteratorBase {
     public:
-        IteratorBase() {
-        }
-        virtual ~IteratorBase() {
-        }
+        IteratorBase() {}
+        virtual ~IteratorBase() {}
         virtual const void* get_value() = 0;
         virtual bool has_next() const = 0;
         virtual void next() = 0;
@@ -58,20 +55,18 @@ public:
     virtual IteratorBase* begin() = 0;
 };
 
-template<class T>
+template <class T>
 class HybridSet : public HybridSetBase {
 public:
-    HybridSet() {
-    }
+    HybridSet() {}
 
-    virtual ~HybridSet() {
-    }
+    virtual ~HybridSet() {}
 
     virtual void insert(void* data) {
         if (sizeof(T) >= 16) {
             // for largeint, it will core dump with no memcpy
             T value;
-            memcpy(&value, data, sizeof(T)); 
+            memcpy(&value, data, sizeof(T));
             _set.insert(value);
         } else {
             _set.insert(*reinterpret_cast<T*>(data));
@@ -83,12 +78,9 @@ public:
         _set.insert(hybrid_set->_set.begin(), hybrid_set->_set.end());
     }
 
-    virtual int size() {
-        return _set.size();
-    }
+    virtual int size() { return _set.size(); }
     virtual bool find(void* data) {
-        typename std::unordered_set<T>::const_iterator it 
-                = _set.find(*reinterpret_cast<T*>(data));
+        typename std::unordered_set<T>::const_iterator it = _set.find(*reinterpret_cast<T*>(data));
 
         if (it == _set.end()) {
             return false;
@@ -104,42 +96,31 @@ public:
     public:
         Iterator(typename std::unordered_set<_iT>::iterator begin,
                  typename std::unordered_set<_iT>::iterator end)
-            : _begin(begin),
-              _end(end) {
-        }
-        virtual ~Iterator() {
-        }
-        virtual bool has_next() const {
-            return !(_begin == _end);
-        }
-        virtual const void* get_value() {
-            return _begin.operator->();
-        }
-        virtual void next() {
-            ++_begin;
-        }
+                : _begin(begin), _end(end) {}
+        virtual ~Iterator() {}
+        virtual bool has_next() const { return !(_begin == _end); }
+        virtual const void* get_value() { return _begin.operator->(); }
+        virtual void next() { ++_begin; }
+
     private:
         typename std::unordered_set<_iT>::iterator _begin;
         typename std::unordered_set<_iT>::iterator _end;
     };
 
     IteratorBase* begin() {
-        return _pool.add(new(std::nothrow) Iterator<T>(_set.begin(), _set.end()));
+        return _pool.add(new (std::nothrow) Iterator<T>(_set.begin(), _set.end()));
     }
 
 private:
- 
     std::unordered_set<T> _set;
     ObjectPool _pool;
 };
 
 class StringValueSet : public HybridSetBase {
 public:
-    StringValueSet() {
-    }
+    StringValueSet() {}
 
-    virtual ~StringValueSet() {
-    }
+    virtual ~StringValueSet() {}
 
     virtual void insert(void* data) {
         StringValue* value = reinterpret_cast<StringValue*>(data);
@@ -148,13 +129,11 @@ public:
     }
 
     void insert(HybridSetBase* set) {
-        StringValueSet* string_set =  reinterpret_cast<StringValueSet*>(set);
+        StringValueSet* string_set = reinterpret_cast<StringValueSet*>(set);
         _set.insert(string_set->_set.begin(), string_set->_set.end());
     }
 
-    virtual int size() {
-        return _set.size();
-    }
+    virtual int size() { return _set.size(); }
     virtual bool find(void* data) {
         StringValue* value = reinterpret_cast<StringValue*>(data);
         std::string str_value(value->ptr, value->len);
@@ -173,22 +152,16 @@ public:
     public:
         Iterator(std::unordered_set<std::string>::iterator begin,
                  std::unordered_set<std::string>::iterator end)
-            : _begin(begin),
-              _end(end) {
-        }
-        virtual ~Iterator() {
-        }
-        virtual bool has_next() const {
-            return !(_begin == _end);
-        }
+                : _begin(begin), _end(end) {}
+        virtual ~Iterator() {}
+        virtual bool has_next() const { return !(_begin == _end); }
         virtual const void* get_value() {
             _value.ptr = const_cast<char*>(_begin->data());
             _value.len = _begin->length();
             return &_value;
         }
-        virtual void next() {
-            ++_begin;
-        }
+        virtual void next() { ++_begin; }
+
     private:
         typename std::unordered_set<std::string>::iterator _begin;
         typename std::unordered_set<std::string>::iterator _end;
@@ -196,15 +169,14 @@ public:
     };
 
     IteratorBase* begin() {
-        return _pool.add(new(std::nothrow) Iterator(_set.begin(), _set.end()));
+        return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
     }
 
 private:
-
     std::unordered_set<std::string> _set;
     ObjectPool _pool;
 };
 
-}
+} // namespace doris
 
-#endif  // DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
+#endif // DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H

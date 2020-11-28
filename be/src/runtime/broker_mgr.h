@@ -17,15 +17,15 @@
 
 #pragma once
 
-#include <string>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <unordered_set>
 
 #include "gen_cpp/Types_types.h"
 #include "gutil/ref_counted.h"
-#include "util/hash_util.hpp"
 #include "util/countdown_latch.h"
+#include "util/hash_util.hpp"
 #include "util/thread.h"
 
 namespace doris {
@@ -38,6 +38,7 @@ public:
     ~BrokerMgr();
     void init();
     const std::string& get_client_id(const TNetworkAddress& address);
+
 private:
     void ping(const TNetworkAddress& addr);
     void ping_worker();
@@ -51,4 +52,4 @@ private:
     scoped_refptr<Thread> _ping_thread;
 };
 
-}
+} // namespace doris

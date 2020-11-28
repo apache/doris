@@ -25,7 +25,7 @@ namespace doris {
 
 class ExecEnv;
 class FrontendServiceClient;
-template <class T> 
+template <class T>
 class ClientConnection;
 
 // this class is a helper for jni call. easy for unit test
@@ -34,25 +34,18 @@ public:
     static void setup(ExecEnv* exec_env);
 
     // for default timeout
-    template<typename T>
-    static Status rpc(
-        const std::string& ip,
-        const int32_t port,
-        std::function<void (ClientConnection<T>&)> callback) {
-
+    template <typename T>
+    static Status rpc(const std::string& ip, const int32_t port,
+                      std::function<void(ClientConnection<T>&)> callback) {
         return rpc(ip, port, callback, config::thrift_rpc_timeout_ms);
     }
 
-    template<typename T>
-    static Status rpc(
-        const std::string& ip,
-        const int32_t port,
-        std::function<void (ClientConnection<T>&)> callback,
-        int timeout_ms);
+    template <typename T>
+    static Status rpc(const std::string& ip, const int32_t port,
+                      std::function<void(ClientConnection<T>&)> callback, int timeout_ms);
 
 private:
     static ExecEnv* _s_exec_env;
 };
 
-}
-
+} // namespace doris

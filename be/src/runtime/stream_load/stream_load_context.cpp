@@ -131,28 +131,26 @@ std::string StreamLoadContext::to_json_for_mini_load() const {
     return s.GetString();
 }
 
-
 std::string StreamLoadContext::brief(bool detail) const {
     std::stringstream ss;
     ss << "id=" << id << ", job_id=" << job_id << ", txn_id=" << txn_id << ", label=" << label;
     if (detail) {
-        switch(load_src_type) {
-            case TLoadSourceType::KAFKA:
-                if (kafka_info != nullptr) {
-                    ss << ", kafka"
-                       << ", brokers: " << kafka_info->brokers
-                       << ", topic: " << kafka_info->topic
-                       << ", partition: ";
-                    for (auto& entry : kafka_info->begin_offset) {
-                        ss << "[" << entry.first << ": " << entry.second << "]";
-                    }
+        switch (load_src_type) {
+        case TLoadSourceType::KAFKA:
+            if (kafka_info != nullptr) {
+                ss << ", kafka"
+                   << ", brokers: " << kafka_info->brokers << ", topic: " << kafka_info->topic
+                   << ", partition: ";
+                for (auto& entry : kafka_info->begin_offset) {
+                    ss << "[" << entry.first << ": " << entry.second << "]";
                 }
-                break;
-            default:
-                break;
+            }
+            break;
+        default:
+            break;
         }
     }
     return ss.str();
 }
 
-} // end namespace
+} // namespace doris

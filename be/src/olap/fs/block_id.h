@@ -35,31 +35,21 @@ namespace doris {
 // from uint64_t to files, so we need to save the file name in BlockId.
 class BlockId {
 public:
-    BlockId() : _id(kInvalidId) { }
+    BlockId() : _id(kInvalidId) {}
 
-    explicit BlockId(uint64_t id) : _id(id) { }
+    explicit BlockId(uint64_t id) : _id(id) {}
 
-    void set_id(uint64_t id) {
-        _id = id;
-    }
+    void set_id(uint64_t id) { _id = id; }
 
     bool is_null() const { return _id == kInvalidId; }
 
-    std::string to_string() const {
-        return StringPrintf("%016" PRIu64, _id);
-    }
+    std::string to_string() const { return StringPrintf("%016" PRIu64, _id); }
 
-    bool operator==(const BlockId& other) const {
-        return _id == other._id;
-    }
+    bool operator==(const BlockId& other) const { return _id == other._id; }
 
-    bool operator!=(const BlockId& other) const {
-        return _id != other._id;
-    }
+    bool operator!=(const BlockId& other) const { return _id != other._id; }
 
-    bool operator<(const BlockId& other) const {
-        return _id < other._id;
-    }
+    bool operator<(const BlockId& other) const { return _id < other._id; }
 
     // Returns the raw ID. Use with care; in most cases the BlockId should be
     // treated as a completely opaque value.
@@ -78,25 +68,18 @@ std::ostream& operator<<(std::ostream& o, const BlockId& block_id);
 
 struct BlockIdHash {
     // size_t is same as uint64_t
-    size_t operator()(const BlockId& block_id) const {
-        return block_id.id();
-    }
+    size_t operator()(const BlockId& block_id) const { return block_id.id(); }
 };
 
 struct BlockIdCompare {
-    bool operator()(const BlockId& first, const BlockId& second) const {
-        return first < second;
-    }
+    bool operator()(const BlockId& first, const BlockId& second) const { return first < second; }
 };
 
 struct BlockIdEqual {
-    bool operator()(const BlockId& first, const BlockId& second) const {
-        return first == second;
-    }
+    bool operator()(const BlockId& first, const BlockId& second) const { return first == second; }
 };
 
 typedef std::unordered_set<BlockId, BlockIdHash, BlockIdEqual> BlockIdSet;
 typedef std::vector<BlockId> BlockIdContainer;
 
 } // end namespace doris
-

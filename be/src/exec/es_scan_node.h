@@ -20,13 +20,13 @@
 #include <memory>
 #include <vector>
 
-#include "runtime/descriptors.h"
-#include "runtime/tuple.h"
 #include "exec/scan_node.h"
 #include "exprs/slot_ref.h"
-#include "runtime/exec_env.h"
-#include "gen_cpp/TExtDataSourceService.h"
 #include "gen_cpp/PaloExternalDataSourceService_types.h"
+#include "gen_cpp/TExtDataSourceService.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/tuple.h"
 
 namespace doris {
 
@@ -51,9 +51,8 @@ protected:
 
 private:
     Status open_es(TNetworkAddress& address, TExtOpenResult& result, TExtOpenParams& params);
-    Status materialize_row(MemPool* tuple_pool, Tuple* tuple,
-                           const vector<TExtColumnData>& cols, int next_row_idx,
-                           vector<int>& cols_next_val_idx);
+    Status materialize_row(MemPool* tuple_pool, Tuple* tuple, const vector<TExtColumnData>& cols,
+                           int next_row_idx, vector<int>& cols_next_val_idx);
     Status get_next_from_es(TExtGetNextResult& result);
 
     bool get_disjuncts(ExprContext* context, Expr* conjunct, vector<TExtPredicate>& disjuncts);
@@ -86,5 +85,4 @@ private:
     std::vector<ExprContext*> _pushdown_conjunct_ctxs;
 };
 
-}
-
+} // namespace doris

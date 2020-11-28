@@ -30,25 +30,26 @@ FunctionUtils::FunctionUtils() {
     std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
     _mem_tracker.reset(new MemTracker(-1, "function util"));
     _memory_pool = new MemPool(_mem_tracker.get());
-    _fn_ctx = FunctionContextImpl::create_context(
-        _state, _memory_pool, return_type, arg_types, 0, false);
+    _fn_ctx = FunctionContextImpl::create_context(_state, _memory_pool, return_type, arg_types, 0,
+                                                  false);
 }
-FunctionUtils::FunctionUtils(RuntimeState* state) {       
+FunctionUtils::FunctionUtils(RuntimeState* state) {
     _state = state;
     doris_udf::FunctionContext::TypeDesc return_type;
     std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
     _mem_tracker.reset(new MemTracker(-1, "function util"));
     _memory_pool = new MemPool(_mem_tracker.get());
-    _fn_ctx = FunctionContextImpl::create_context(
-        _state, _memory_pool, return_type, arg_types, 0, false);
+    _fn_ctx = FunctionContextImpl::create_context(_state, _memory_pool, return_type, arg_types, 0,
+                                                  false);
 }
 
 FunctionUtils::FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_type,
-    const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types, int varargs_buffer_size) {       
+                             const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
+                             int varargs_buffer_size) {
     _mem_tracker.reset(new MemTracker(-1, "function util"));
     _memory_pool = new MemPool(_mem_tracker.get());
-    _fn_ctx = FunctionContextImpl::create_context(
-        _state, _memory_pool, return_type, arg_types, varargs_buffer_size, false);
+    _fn_ctx = FunctionContextImpl::create_context(_state, _memory_pool, return_type, arg_types,
+                                                  varargs_buffer_size, false);
 }
 
 FunctionUtils::~FunctionUtils() {
@@ -57,4 +58,4 @@ FunctionUtils::~FunctionUtils() {
     delete _memory_pool;
 }
 
-}
+} // namespace doris

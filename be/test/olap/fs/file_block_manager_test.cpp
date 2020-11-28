@@ -17,9 +17,9 @@
 
 #include "olap/fs/file_block_manager.h"
 
-#include <string>
-
 #include <gtest/gtest.h>
+
+#include <string>
 
 #include "env/env.h"
 #include "util/file_utils.h"
@@ -56,7 +56,7 @@ TEST_F(FileBlockManagerTest, NormalTest) {
 
     std::unique_ptr<fs::WritableBlock> wblock;
     std::string fname = kBlockManagerDir + "/test_file";
-    fs::CreateBlockOptions wblock_opts({ fname  });
+    fs::CreateBlockOptions wblock_opts({fname});
     Status st = fbm->create_block(wblock_opts, &wblock);
     ASSERT_TRUE(st.ok()) << st.get_error_msg();
 
@@ -78,8 +78,7 @@ TEST_F(FileBlockManagerTest, NormalTest) {
 
 } // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

@@ -17,17 +17,14 @@
 
 #include "olap/rowset/bit_field_reader.h"
 
-#include "olap/rowset/column_reader.h"
 #include "olap/in_stream.h"
+#include "olap/rowset/column_reader.h"
 #include "olap/rowset/run_length_byte_reader.h"
 
 namespace doris {
 
-BitFieldReader::BitFieldReader(ReadOnlyFileStream* input) : 
-        _input(input),
-        _byte_reader(NULL),
-        _current('\0'),
-        _bits_left(0) {}
+BitFieldReader::BitFieldReader(ReadOnlyFileStream* input)
+        : _input(input), _byte_reader(NULL), _current('\0'), _bits_left(0) {}
 
 BitFieldReader::~BitFieldReader() {
     SAFE_DELETE(_byte_reader);
@@ -35,7 +32,7 @@ BitFieldReader::~BitFieldReader() {
 
 OLAPStatus BitFieldReader::init() {
     if (NULL == _byte_reader) {
-        _byte_reader = new(std::nothrow) RunLengthByteReader(_input);
+        _byte_reader = new (std::nothrow) RunLengthByteReader(_input);
 
         if (NULL == _byte_reader) {
             OLAP_LOG_WARNING("fail to create RunLengthByteReader");
@@ -127,4 +124,4 @@ OLAPStatus BitFieldReader::skip(uint64_t num_values) {
     return OLAP_SUCCESS;
 }
 
-}  // namespace doris
+} // namespace doris

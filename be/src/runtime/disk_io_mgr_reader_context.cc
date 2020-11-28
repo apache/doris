@@ -92,7 +92,7 @@ void DiskIoMgr::RequestContext::cancel(const Status& status) {
         }
     }
 
-    BOOST_FOREACH(const WriteRange::WriteDoneCallback& write_callback, write_callbacks) {
+    BOOST_FOREACH (const WriteRange::WriteDoneCallback& write_callback, write_callbacks) {
         write_callback(_status);
     }
 
@@ -101,8 +101,8 @@ void DiskIoMgr::RequestContext::cancel(const Status& status) {
     _ready_to_start_ranges_cv.notify_all();
 }
 
-void DiskIoMgr::RequestContext::add_request_range(
-        DiskIoMgr::RequestRange* range, bool schedule_immediately) {
+void DiskIoMgr::RequestContext::add_request_range(DiskIoMgr::RequestRange* range,
+                                                  bool schedule_immediately) {
     // DCHECK(_lock.is_locked()); // TODO: boost should have this API
     RequestContext::PerDiskState& state = _disk_states[range->disk_id()];
     if (state.done()) {
@@ -141,15 +141,14 @@ void DiskIoMgr::RequestContext::add_request_range(
     ++state.num_remaining_ranges();
 }
 
-DiskIoMgr::RequestContext::RequestContext(DiskIoMgr* parent, int num_disks) :
-    _parent(parent),
-    _bytes_read_counter(NULL),
-    _read_timer(NULL),
-    _active_read_thread_counter(NULL),
-    _disks_accessed_bitmap(NULL),
-    _state(Inactive),
-    _disk_states(num_disks) {
-}
+DiskIoMgr::RequestContext::RequestContext(DiskIoMgr* parent, int num_disks)
+        : _parent(parent),
+          _bytes_read_counter(NULL),
+          _read_timer(NULL),
+          _active_read_thread_counter(NULL),
+          _disks_accessed_bitmap(NULL),
+          _state(Inactive),
+          _disk_states(num_disks) {}
 
 // Resets this object.
 void DiskIoMgr::RequestContext::reset(std::shared_ptr<MemTracker> tracker) {
@@ -198,22 +197,21 @@ string DiskIoMgr::RequestContext::debug_string() const {
     if (_state == RequestContext::Active) ss << "Active";
     if (_state != RequestContext::Inactive) {
         ss << " _status=" << (_status.ok() ? "OK" : _status.get_error_msg())
-            << " #ready_buffers=" << _num_ready_buffers
-            << " #used_buffers=" << _num_used_buffers
-            << " #num_buffers_in_reader=" << _num_buffers_in_reader
-            << " #finished_scan_ranges=" << _num_finished_ranges
-            << " #disk_with_ranges=" << _num_disks_with_ranges
-            << " #disks=" << _num_disks_with_ranges;
+           << " #ready_buffers=" << _num_ready_buffers << " #used_buffers=" << _num_used_buffers
+           << " #num_buffers_in_reader=" << _num_buffers_in_reader
+           << " #finished_scan_ranges=" << _num_finished_ranges
+           << " #disk_with_ranges=" << _num_disks_with_ranges
+           << " #disks=" << _num_disks_with_ranges;
         for (int i = 0; i < _disk_states.size(); ++i) {
-            ss << endl << "   " << i << ": "
-                << "is_on_queue=" << _disk_states[i].is_on_queue()
-                << " done=" << _disk_states[i].done()
-                << " #num_remaining_scan_ranges=" << _disk_states[i].num_remaining_ranges()
-                << " #in_flight_ranges=" << _disk_states[i].in_flight_ranges()->size()
-                << " #unstarted_scan_ranges=" << _disk_states[i].unstarted_scan_ranges()->size()
-                << " #unstarted_write_ranges="
-                << _disk_states[i].unstarted_write_ranges()->size()
-                << " #reading_threads=" << _disk_states[i].num_threads_in_op();
+            ss << endl
+               << "   " << i << ": "
+               << "is_on_queue=" << _disk_states[i].is_on_queue()
+               << " done=" << _disk_states[i].done()
+               << " #num_remaining_scan_ranges=" << _disk_states[i].num_remaining_ranges()
+               << " #in_flight_ranges=" << _disk_states[i].in_flight_ranges()->size()
+               << " #unstarted_scan_ranges=" << _disk_states[i].unstarted_scan_ranges()->size()
+               << " #unstarted_write_ranges=" << _disk_states[i].unstarted_write_ranges()->size()
+               << " #reading_threads=" << _disk_states[i].num_threads_in_op();
         }
     }
     ss << ")";
@@ -246,20 +244,19 @@ bool DiskIoMgr::RequestContext::validate() const {
 
         if (num_reading_threads < 0) {
             LOG(WARNING) << "disk_id=" << i
-                << "state.num_threads_in_read < 0: #threads="
-                << num_reading_threads;
+                         << "state.num_threads_in_read < 0: #threads=" << num_reading_threads;
             return false;
         }
 
         if (_state != RequestContext::Cancelled) {
             if (state.unstarted_scan_ranges()->size() + state.in_flight_ranges()->size() >
-                    state.num_remaining_ranges()) {
+                state.num_remaining_ranges()) {
                 LOG(WARNING) << "disk_id=" << i
-                    << " state.unstarted_ranges.size() + state.in_flight_ranges.size()"
-                    << " > state.num_remaining_ranges:"
-                    << " #unscheduled=" << state.unstarted_scan_ranges()->size()
-                    << " #in_flight=" << state.in_flight_ranges()->size()
-                    << " #remaining=" << state.num_remaining_ranges();
+                             << " state.unstarted_ranges.size() + state.in_flight_ranges.size()"
+                             << " > state.num_remaining_ranges:"
+                             << " #unscheduled=" << state.unstarted_scan_ranges()->size()
+                             << " #in_flight=" << state.in_flight_ranges()->size()
+                             << " #remaining=" << state.num_remaining_ranges();
                 return false;
             }
 
@@ -267,37 +264,35 @@ bool DiskIoMgr::RequestContext::validate() const {
             // thread actively reading for it.
             if (!state.in_flight_ranges()->empty() && !on_queue && num_reading_threads == 0) {
                 LOG(WARNING) << "disk_id=" << i
-                    << " reader has inflight ranges but is not on the disk queue."
-                    << " #in_flight_ranges=" << state.in_flight_ranges()->size()
-                    << " #reading_threads=" << num_reading_threads
-                    << " on_queue=" << on_queue;
+                             << " reader has inflight ranges but is not on the disk queue."
+                             << " #in_flight_ranges=" << state.in_flight_ranges()->size()
+                             << " #reading_threads=" << num_reading_threads
+                             << " on_queue=" << on_queue;
                 return false;
             }
 
             if (state.done() && num_reading_threads > 0) {
                 LOG(WARNING) << "disk_id=" << i
-                    << " state set to done but there are still threads working."
-                    << " #reading_threads=" << num_reading_threads;
+                             << " state set to done but there are still threads working."
+                             << " #reading_threads=" << num_reading_threads;
                 return false;
             }
         } else {
             // Is Cancelled
             if (!state.in_flight_ranges()->empty()) {
-                LOG(WARNING) << "disk_id=" << i
-                    << "Reader cancelled but has in flight ranges.";
+                LOG(WARNING) << "disk_id=" << i << "Reader cancelled but has in flight ranges.";
                 return false;
             }
             if (!state.unstarted_scan_ranges()->empty()) {
-                LOG(WARNING) << "disk_id=" << i
-                    << "Reader cancelled but has unstarted ranges.";
+                LOG(WARNING) << "disk_id=" << i << "Reader cancelled but has unstarted ranges.";
                 return false;
             }
         }
 
         if (state.done() && on_queue) {
             LOG(WARNING) << "disk_id=" << i
-                << " state set to done but the reader is still on the disk queue."
-                << " state.done=true and state.is_on_queue=true";
+                         << " state set to done but the reader is still on the disk queue."
+                         << " state.done=true and state.is_on_queue=true";
             return false;
         }
     }
@@ -305,7 +300,7 @@ bool DiskIoMgr::RequestContext::validate() const {
     if (_state != RequestContext::Cancelled) {
         if (total_unstarted_ranges != _num_unstarted_scan_ranges) {
             LOG(WARNING) << "total_unstarted_ranges=" << total_unstarted_ranges
-                << " sum_in_states=" << _num_unstarted_scan_ranges;
+                         << " sum_in_states=" << _num_unstarted_scan_ranges;
             return false;
         }
     } else {
@@ -323,4 +318,3 @@ bool DiskIoMgr::RequestContext::validate() const {
 }
 
 } // namespace doris
-

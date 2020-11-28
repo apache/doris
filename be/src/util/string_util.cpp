@@ -30,4 +30,4 @@ size_t hash_of_path(const std::string& identifier, const std::string& path) {
     return hash;
 }
 
-} // end of namespace
+} // namespace doris

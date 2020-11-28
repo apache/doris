@@ -17,59 +17,55 @@
 
 #include "exprs/time_operators.h"
 
+#include <math.h>
+
 #include <iomanip>
 #include <sstream>
-#include <math.h>
 
 #include "exprs/anyval_util.h"
 #include "exprs/case_expr.h"
 #include "exprs/expr.h"
 #include "runtime/tuple_row.h"
-#include "util/string_parser.hpp"
 #include "util/date_func.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
-void TimeOperators::init() {
-}
+void TimeOperators::init() {}
 
-#define CAST_TIME_TO_INT(to_type, type_name) \
-    to_type TimeOperators::cast_to_##type_name( \
-            FunctionContext* context, const DoubleVal& val) { \
-        if (val.is_null) return to_type::null(); \
-        int time = (int) val.val ; \
-        int second = time % 60; \
-        int minute = time / 60 % 60; \
-        int hour = time / 3600; \
-        return to_type(hour * 10000 + minute * 100 + second); \
+#define CAST_TIME_TO_INT(to_type, type_name)                                                     \
+    to_type TimeOperators::cast_to_##type_name(FunctionContext* context, const DoubleVal& val) { \
+        if (val.is_null) return to_type::null();                                                 \
+        int time = (int)val.val;                                                                 \
+        int second = time % 60;                                                                  \
+        int minute = time / 60 % 60;                                                             \
+        int hour = time / 3600;                                                                  \
+        return to_type(hour * 10000 + minute * 100 + second);                                    \
     }
 
-#define CAST_FROM_TIME() \
-    CAST_TIME_TO_INT(BooleanVal, boolean_val);\
-    CAST_TIME_TO_INT(TinyIntVal, tiny_int_val);\
-    CAST_TIME_TO_INT(SmallIntVal, small_int_val);\
-    CAST_TIME_TO_INT(IntVal, int_val);\
-    CAST_TIME_TO_INT(BigIntVal, big_int_val);\
-    CAST_TIME_TO_INT(LargeIntVal, large_int_val);\
-    CAST_TIME_TO_INT(FloatVal, float_val);\
+#define CAST_FROM_TIME()                          \
+    CAST_TIME_TO_INT(BooleanVal, boolean_val);    \
+    CAST_TIME_TO_INT(TinyIntVal, tiny_int_val);   \
+    CAST_TIME_TO_INT(SmallIntVal, small_int_val); \
+    CAST_TIME_TO_INT(IntVal, int_val);            \
+    CAST_TIME_TO_INT(BigIntVal, big_int_val);     \
+    CAST_TIME_TO_INT(LargeIntVal, large_int_val); \
+    CAST_TIME_TO_INT(FloatVal, float_val);        \
     CAST_TIME_TO_INT(DoubleVal, double_val);
 
 CAST_FROM_TIME();
 
-StringVal TimeOperators::cast_to_string_val(
-            FunctionContext* ctx, const DoubleVal& val) {
+StringVal TimeOperators::cast_to_string_val(FunctionContext* ctx, const DoubleVal& val) {
     if (val.is_null) {
         return StringVal::null();
     }
     return AnyValUtil::from_string_temp(ctx, time_str_from_double(val.val));
 }
 
-DateTimeVal TimeOperators::cast_to_datetime_val(
-        FunctionContext* context, const DoubleVal& val) {
+DateTimeVal TimeOperators::cast_to_datetime_val(FunctionContext* context, const DoubleVal& val) {
     return DateTimeVal::null();
 }
 
-DecimalVal TimeOperators::cast_to_decimal_val(
-            FunctionContext* context, const DoubleVal& val) {
+DecimalVal TimeOperators::cast_to_decimal_val(FunctionContext* context, const DoubleVal& val) {
     return DecimalVal::null();
 }
-}
+} // namespace doris

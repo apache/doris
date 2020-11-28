@@ -15,25 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/rowset/segment_v2/binary_prefix_page.h"
+
 #include <gtest/gtest.h>
-#include <iostream>
+
 #include <fstream>
+#include <iostream>
 
 #include "common/logging.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
-#include "olap/rowset/segment_v2/binary_prefix_page.h"
-#include "olap/olap_common.h"
 #include "olap/types.h"
-#include "util/debug_util.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "util/debug_util.h"
 
 namespace doris {
 namespace segment_v2 {
 
 class BinaryPrefixPageTest : public testing::Test {
-   public:
+public:
     void test_encode_and_decode() {
         std::vector<std::string> test_data;
         for (int i = 1000; i < 1038; ++i) {
@@ -48,8 +50,8 @@ class BinaryPrefixPageTest : public testing::Test {
         BinaryPrefixPageBuilder page_builder(options);
 
         size_t count = slices.size();
-        const Slice *ptr = &slices[0];
-        Status ret = page_builder.add(reinterpret_cast<const uint8_t *>(ptr), &count);
+        const Slice* ptr = &slices[0];
+        Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
 
         OwnedSlice dict_slice = page_builder.finish();
         ASSERT_EQ(slices.size(), page_builder.count());
@@ -65,7 +67,7 @@ class BinaryPrefixPageTest : public testing::Test {
 
         PageDecoderOptions dict_decoder_options;
         std::unique_ptr<BinaryPrefixPageDecoder> page_decoder(
-            new BinaryPrefixPageDecoder(dict_slice.slice(), dict_decoder_options));
+                new BinaryPrefixPageDecoder(dict_slice.slice(), dict_decoder_options));
         ret = page_decoder->init();
         ASSERT_TRUE(ret.ok());
         // because every slice is unique
@@ -139,14 +141,14 @@ class BinaryPrefixPageTest : public testing::Test {
         BinaryPrefixPageBuilder page_builder(options);
 
         size_t count = slices.size();
-        const Slice *ptr = &slices[0];
-        Status ret = page_builder.add(reinterpret_cast<const uint8_t *>(ptr), &count);
+        const Slice* ptr = &slices[0];
+        Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
 
         OwnedSlice dict_slice = page_builder.finish();
 
         PageDecoderOptions dict_decoder_options;
         std::unique_ptr<BinaryPrefixPageDecoder> page_decoder(
-            new BinaryPrefixPageDecoder(dict_slice.slice(), dict_decoder_options));
+                new BinaryPrefixPageDecoder(dict_slice.slice(), dict_decoder_options));
         ret = page_decoder->init();
         ASSERT_TRUE(ret.ok());
 
@@ -169,7 +171,7 @@ TEST_F(BinaryPrefixPageTest, TestEncodeAndDecode2) {
 } // namespace segment_v2
 } // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

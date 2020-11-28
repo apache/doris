@@ -15,21 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/bitmap_index_reader.h"
-#include "olap/rowset/segment_v2/bitmap_index_writer.h"
-#include "olap/key_coder.h"
-
 #include <gtest/gtest.h>
+
 #include <string>
 
 #include "common/logging.h"
 #include "env/env.h"
 #include "olap/fs/block_manager.h"
 #include "olap/fs/fs_util.h"
+#include "olap/key_coder.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/bitmap_index_reader.h"
+#include "olap/rowset/segment_v2/bitmap_index_writer.h"
 #include "olap/types.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 #include "util/file_utils.h"
 
 namespace doris {
@@ -57,14 +57,13 @@ private:
     MemPool _pool;
 };
 
-template<FieldType type>
-void write_index_file(std::string& filename, const void* values,
-                      size_t value_count, size_t null_count,
-                      ColumnIndexMetaPB* meta) {
+template <FieldType type>
+void write_index_file(std::string& filename, const void* values, size_t value_count,
+                      size_t null_count, ColumnIndexMetaPB* meta) {
     const TypeInfo* type_info = get_type_info(type);
     {
         std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts({ filename });
+        fs::CreateBlockOptions opts({filename});
         ASSERT_TRUE(fs::fs_util::block_manager()->create_block(opts, &wblock).ok());
 
         std::unique_ptr<BitmapIndexWriter> writer;
@@ -77,10 +76,9 @@ void write_index_file(std::string& filename, const void* values,
     }
 }
 
-template<FieldType type>
+template <FieldType type>
 void get_bitmap_reader_iter(std::string& file_name, const ColumnIndexMetaPB& meta,
-                            BitmapIndexReader** reader,
-                            BitmapIndexIterator** iter) {
+                            BitmapIndexReader** reader, BitmapIndexIterator** iter) {
     *reader = new BitmapIndexReader(file_name, &meta.bitmap_index());
     auto st = (*reader)->load(true, false);
     ASSERT_TRUE(st.ok());
@@ -201,7 +199,7 @@ TEST_F(BitmapIndexTest, test_multi_pages) {
 
         Roaring bitmap;
         iter->read_bitmap(iter->current_ordinal(), &bitmap);
-        ASSERT_EQ(1,bitmap.cardinality());
+        ASSERT_EQ(1, bitmap.cardinality());
 
         delete reader;
         delete iter;
@@ -226,7 +224,7 @@ TEST_F(BitmapIndexTest, test_null) {
 
         Roaring bitmap;
         iter->read_null_bitmap(&bitmap);
-        ASSERT_EQ(30,bitmap.cardinality());
+        ASSERT_EQ(30, bitmap.cardinality());
 
         delete reader;
         delete iter;
@@ -234,11 +232,11 @@ TEST_F(BitmapIndexTest, test_null) {
     delete[] val;
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1<<30);
+    doris::StoragePageCache::create_global_cache(1 << 30);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

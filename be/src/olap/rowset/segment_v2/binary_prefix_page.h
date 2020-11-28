@@ -17,21 +17,21 @@
 
 #pragma once
 
-#include <map>
-#include <vector>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-#include <string>
 
-#include "util/coding.h"
-#include "util/slice.h"
-#include "util/faststring.h"
-#include "runtime/mem_pool.h"
+#include <map>
+#include <string>
+#include <vector>
 
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
+#include "runtime/mem_pool.h"
+#include "util/coding.h"
+#include "util/faststring.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -44,14 +44,9 @@ namespace segment_v2 {
 //            RestartPointStartOffset(uint32_t)^NumRestartPoints,NumRestartPoints(uint32_t)
 class BinaryPrefixPageBuilder : public PageBuilder {
 public:
-    BinaryPrefixPageBuilder(const PageBuilderOptions& options) :
-        _options(options) {
-        reset();
-    }
+    BinaryPrefixPageBuilder(const PageBuilderOptions& options) : _options(options) { reset(); }
 
-    bool is_page_full() override {
-        return size() >= _options.data_page_size;
-    }
+    bool is_page_full() override { return size() >= _options.data_page_size; }
 
     Status add(const uint8_t* vals, size_t* add_count) override;
 
@@ -73,9 +68,7 @@ public:
         }
     }
 
-    size_t count() const override {
-        return _count;
-    }
+    size_t count() const override { return _count; }
 
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
@@ -109,9 +102,8 @@ private:
 
 class BinaryPrefixPageDecoder : public PageDecoder {
 public:
-    BinaryPrefixPageDecoder(Slice data, const PageDecoderOptions& options) :
-        _data(data), _parsed(false) {
-    }
+    BinaryPrefixPageDecoder(Slice data, const PageDecoderOptions& options)
+            : _data(data), _parsed(false) {}
 
     Status init() override;
 
@@ -135,8 +127,8 @@ private:
     // decode shared and non-shared entry length from `ptr`.
     // return ptr past the parsed value when success.
     // return nullptr on failure
-    const uint8_t* _decode_value_lengths(const uint8_t* ptr, uint32_t* shared, uint32_t* non_shared);
-
+    const uint8_t* _decode_value_lengths(const uint8_t* ptr, uint32_t* shared,
+                                         uint32_t* non_shared);
 
     // return start pointer of the restart point at index `restart_point_index`
     const uint8_t* _get_restart_point(size_t restart_point_index) const {

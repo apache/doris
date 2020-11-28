@@ -32,20 +32,21 @@ struct Collection {
     // null bitmap
     bool* null_signs;
 
-    Collection(): data(nullptr), length(0), has_null(false), null_signs(nullptr) {}
+    Collection() : data(nullptr), length(0), has_null(false), null_signs(nullptr) {}
 
-    explicit Collection(uint32_t length) : data(nullptr), length(length), has_null(false), null_signs(nullptr) {}
+    explicit Collection(uint32_t length)
+            : data(nullptr), length(length), has_null(false), null_signs(nullptr) {}
 
-    Collection(void* data, size_t length) : data(data), length(length), has_null(false), null_signs(nullptr) {}
+    Collection(void* data, size_t length)
+            : data(data), length(length), has_null(false), null_signs(nullptr) {}
 
-    Collection(void* data, size_t length, bool* null_signs) : data(data), length(length), has_null(true), null_signs(null_signs) {}
+    Collection(void* data, size_t length, bool* null_signs)
+            : data(data), length(length), has_null(true), null_signs(null_signs) {}
 
     Collection(void* data, size_t length, bool has_null, bool* null_signs)
-    : data(data), length(length), has_null(has_null), null_signs(null_signs) {}
+            : data(data), length(length), has_null(has_null), null_signs(null_signs) {}
 
-    bool is_null_at(uint32_t index) {
-        return this->has_null && this->null_signs[index];
-    }
+    bool is_null_at(uint32_t index) { return this->has_null && this->null_signs[index]; }
 
     bool operator==(const Collection& y) const;
     bool operator!=(const Collection& value) const;
@@ -56,4 +57,4 @@ struct Collection {
     int32_t cmp(const Collection& other) const;
 };
 
-}  // namespace doris
+} // namespace doris

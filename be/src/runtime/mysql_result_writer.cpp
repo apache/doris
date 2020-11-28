@@ -18,28 +18,25 @@
 #include "runtime/mysql_result_writer.h"
 
 #include "exprs/expr.h"
+#include "gen_cpp/PaloInternalService_types.h"
+#include "runtime/buffer_control_block.h"
 #include "runtime/primitive_type.h"
+#include "runtime/result_buffer_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
-#include "runtime/result_buffer_mgr.h"
-#include "runtime/buffer_control_block.h"
+#include "util/date_func.h"
 #include "util/mysql_row_buffer.h"
 #include "util/types.h"
-#include "util/date_func.h"
-
-#include "gen_cpp/PaloInternalService_types.h"
 
 namespace doris {
 
-MysqlResultWriter::MysqlResultWriter(
-        BufferControlBlock* sinker,
-        const std::vector<ExprContext*>& output_expr_ctxs,
-        RuntimeProfile* parent_profile) :
-            _sinker(sinker),
-            _output_expr_ctxs(output_expr_ctxs),
-            _row_buffer(NULL),
-            _parent_profile(parent_profile) {
-}
+MysqlResultWriter::MysqlResultWriter(BufferControlBlock* sinker,
+                                     const std::vector<ExprContext*>& output_expr_ctxs,
+                                     RuntimeProfile* parent_profile)
+        : _sinker(sinker),
+          _output_expr_ctxs(output_expr_ctxs),
+          _row_buffer(NULL),
+          _parent_profile(parent_profile) {}
 
 MysqlResultWriter::~MysqlResultWriter() {
     delete _row_buffer;
@@ -51,7 +48,7 @@ Status MysqlResultWriter::init(RuntimeState* state) {
         return Status::InternalError("sinker is NULL pointer.");
     }
 
-    _row_buffer = new(std::nothrow) MysqlRowBuffer();
+    _row_buffer = new (std::nothrow) MysqlRowBuffer();
 
     if (NULL == _row_buffer) {
         return Status::InternalError("no memory to alloc.");
@@ -102,8 +99,8 @@ Status MysqlResultWriter::_add_one_row(TupleRow* row) {
         case TYPE_LARGEINT: {
             char buf[48];
             int len = 48;
-            char* v = LargeIntValue::to_string(
-                reinterpret_cast<const PackedInt128*>(item)->value, buf, &len);
+            char* v = LargeIntValue::to_string(reinterpret_cast<const PackedInt128*>(item)->value,
+                                               buf, &len);
             buf_ret = _row_buffer->push_string(v, len);
             break;
         }
@@ -117,7 +114,7 @@ Status MysqlResultWriter::_add_one_row(TupleRow* row) {
             break;
 
         case TYPE_TIME: {
-            double time = *static_cast<double *>(item);
+            double time = *static_cast<double*>(item);
             std::string time_str = time_str_from_double(time);
             buf_ret = _row_buffer->push_string(time_str.c_str(), time_str.size());
             break;
@@ -189,8 +186,8 @@ Status MysqlResultWriter::_add_one_row(TupleRow* row) {
         }
 
         default:
-            LOG(WARNING) << "can't convert this type to mysql type. type = " <<
-                         _output_expr_ctxs[i]->root()->type();
+            LOG(WARNING) << "can't convert this type to mysql type. type = "
+                         << _output_expr_ctxs[i]->root()->type();
             buf_ret = -1;
             break;
         }
@@ -211,7 +208,7 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
 
     Status status;
     // convert one batch
-    TFetchDataResult* result = new(std::nothrow) TFetchDataResult();
+    TFetchDataResult* result = new (std::nothrow) TFetchDataResult();
     int num_rows = batch->num_rows();
     result->result_batch.rows.resize(num_rows);
 
@@ -251,5 +248,4 @@ Status MysqlResultWriter::close() {
     return Status::OK();
 }
 
-}
-
+} // namespace doris

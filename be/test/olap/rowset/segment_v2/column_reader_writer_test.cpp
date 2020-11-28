@@ -15,22 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/column_reader.h"
-#include "olap/rowset/segment_v2/column_writer.h"
-#include "olap/tablet_schema_helper.h"
-#include "olap/decimal12.h"
-
 #include <gtest/gtest.h>
+
 #include <iostream>
 
 #include "common/logging.h"
 #include "env/env.h"
 #include "olap/column_block.h"
+#include "olap/decimal12.h"
 #include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/tablet_schema_helper.h"
 #include "olap/types.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 #include "util/file_utils.h"
 
 using std::string;
@@ -64,8 +64,9 @@ private:
     MemPool _pool;
 };
 
-template<FieldType type, EncodingTypePB encoding>
-void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, std::string test_name) {
+template <FieldType type, EncodingTypePB encoding>
+void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
+                        std::string test_name) {
     using Type = typename TypeTraits<type>::CppType;
     Type* src = (Type*)src_data;
 
@@ -75,7 +76,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
     std::string fname = TEST_DIR + "/" + test_name;
     {
         std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts({ fname });
+        fs::CreateBlockOptions opts({fname});
         Status st = fs::fs_util::block_manager()->create_block(opts, &wblock);
         ASSERT_TRUE(st.ok()) << st.get_error_msg();
 
@@ -133,7 +134,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         std::unique_ptr<fs::ReadableBlock> rblock;
         fs::BlockManager* block_manager = fs::fs_util::block_manager();
         block_manager->open_block(fname, &rblock);
-        
+
         ASSERT_TRUE(st.ok());
         ColumnIteratorOptions iter_opts;
         OlapReaderStatistics stats;
@@ -165,7 +166,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
                         if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR) {
                             Slice* src_slice = (Slice*)src_data;
                             ASSERT_EQ(src_slice[idx].to_string(),
-                                    reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string()) << "j:" << j;
+                                      reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
+                                    << "j:" << j;
                         } else {
                             ASSERT_EQ(src[idx], *reinterpret_cast<const Type*>(col.cell_ptr(j)));
                         }
@@ -202,7 +204,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
                         if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR) {
                             Slice* src_slice = (Slice*)src_data;
                             ASSERT_EQ(src_slice[idx].to_string(),
-                                    reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string());
+                                      reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string());
                         } else {
                             ASSERT_EQ(src[idx], *reinterpret_cast<const Type*>(col.cell_ptr(j)));
                         }
@@ -216,8 +218,9 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
     }
 }
 
-template<FieldType item_type, EncodingTypePB item_encoding, EncodingTypePB array_encoding>
-void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int num_rows, std::string test_name) {
+template <FieldType item_type, EncodingTypePB item_encoding, EncodingTypePB array_encoding>
+void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int num_rows,
+                              std::string test_name) {
     Collection* src = src_data;
     ColumnMetaPB meta;
     TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
@@ -233,7 +236,7 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
     std::string fname = TEST_DIR + "/" + test_name;
     {
         std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts({ fname });
+        fs::CreateBlockOptions opts({fname});
         Status st = fs::fs_util::block_manager()->create_block(opts, &wblock);
         ASSERT_TRUE(st.ok()) << st.get_error_msg();
 
@@ -364,7 +367,6 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
     delete field;
 }
 
-
 TEST_F(ColumnReaderWriterTest, test_array_type) {
     size_t num_list = 24 * 1024;
     size_t num_item = num_list * 3;
@@ -388,7 +390,8 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
             array_val[list_index].length = 3;
         }
     }
-    test_array_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(array_val, array_is_null, num_list, "null_array_bs");
+    test_array_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(
+            array_val, array_is_null, num_list, "null_array_bs");
 
     delete[] array_val;
     delete[] item_val;
@@ -403,7 +406,7 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
             set_column_value_by_type(OLAP_FIELD_TYPE_VARCHAR, i, (char*)&varchar_vals[i], &_pool);
         }
     }
-    for (int i = 0; i <  num_list; ++i) {
+    for (int i = 0; i < num_list; ++i) {
         bool is_null = (i % 4) == 1;
         BitmapChange(array_is_null, i, is_null);
         if (is_null) {
@@ -413,7 +416,8 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
         array_val[i].null_signs = item_is_null;
         array_val[i].length = 3;
     }
-    test_array_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING, BIT_SHUFFLE>(array_val, array_is_null, num_list, "null_array_chars");
+    test_array_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING, BIT_SHUFFLE>(
+            array_val, array_is_null, num_list, "null_array_chars");
 
     delete[] array_val;
     delete[] varchar_vals;
@@ -422,8 +426,7 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
     delete[] array_is_null;
 }
 
-
-template<FieldType type>
+template <FieldType type>
 void test_read_default_value(string value, void* result) {
     using Type = typename TypeTraits<type>::CppType;
     TypeInfo* type_info = get_type_info(type);
@@ -431,10 +434,8 @@ void test_read_default_value(string value, void* result) {
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
         DefaultValueColumnIterator iter(tablet_column.has_default_value(),
-                                        tablet_column.default_value(),
-                                        tablet_column.is_nullable(),
-                                        type_info,
-                                        tablet_column.length());
+                                        tablet_column.default_value(), tablet_column.is_nullable(),
+                                        type_info, tablet_column.length());
         ColumnIteratorOptions iter_opts;
         auto st = iter.init(iter_opts);
         ASSERT_TRUE(st.ok());
@@ -458,11 +459,13 @@ void test_read_default_value(string value, void* result) {
             ASSERT_TRUE(st.ok());
             for (int j = 0; j < rows_read; ++j) {
                 if (type == OLAP_FIELD_TYPE_CHAR) {
-                    ASSERT_EQ(*(string*)result, reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string()) << "j:" << j;
-                } else if (type == OLAP_FIELD_TYPE_VARCHAR
-                        || type == OLAP_FIELD_TYPE_HLL
-                        || type == OLAP_FIELD_TYPE_OBJECT) {
-                    ASSERT_EQ(value, reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string()) << "j:" << j;
+                    ASSERT_EQ(*(string*)result,
+                              reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
+                            << "j:" << j;
+                } else if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_HLL ||
+                           type == OLAP_FIELD_TYPE_OBJECT) {
+                    ASSERT_EQ(value, reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
+                            << "j:" << j;
                 } else {
                     ;
                     ASSERT_EQ(*(Type*)result, *(reinterpret_cast<const Type*>(col.cell_ptr(j))));
@@ -491,13 +494,16 @@ void test_read_default_value(string value, void* result) {
                 ASSERT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
                     if (type == OLAP_FIELD_TYPE_CHAR) {
-                        ASSERT_EQ(*(string*)result, reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string()) << "j:" << j;
-                    } else if (type == OLAP_FIELD_TYPE_VARCHAR
-                            || type == OLAP_FIELD_TYPE_HLL
-                            || type == OLAP_FIELD_TYPE_OBJECT) {
-                        ASSERT_EQ(value, reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string());
+                        ASSERT_EQ(*(string*)result,
+                                  reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
+                                << "j:" << j;
+                    } else if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_HLL ||
+                               type == OLAP_FIELD_TYPE_OBJECT) {
+                        ASSERT_EQ(value,
+                                  reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string());
                     } else {
-                        ASSERT_EQ(*(Type*)result, *(reinterpret_cast<const Type*>(col.cell_ptr(j))));
+                        ASSERT_EQ(*(Type*)result,
+                                  *(reinterpret_cast<const Type*>(col.cell_ptr(j))));
                     }
                     idx++;
                 }
@@ -515,11 +521,16 @@ TEST_F(ColumnReaderWriterTest, test_nullable) {
         BitmapChange(is_null, i, (i % 4) == 0);
     }
 
-    test_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows, "null_tiny_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 2, "null_smallint_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 4, "null_int_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 8, "null_bigint_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 16, "null_largeint_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows,
+                                                             "null_tiny_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 2,
+                                                              "null_smallint_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 4,
+                                                         "null_int_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 8,
+                                                            "null_bigint_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 16,
+                                                              "null_largeint_bs");
 
     // test for the case where most values are not null
     uint8_t* is_null_sparse = new uint8_t[num_uint8_rows];
@@ -532,22 +543,24 @@ TEST_F(ColumnReaderWriterTest, test_nullable) {
         }
         BitmapChange(is_null_sparse, i, v);
     }
-    test_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>(val, is_null_sparse, num_uint8_rows, "sparse_null_tiny_bs");
-
+    test_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>(val, is_null_sparse, num_uint8_rows,
+                                                             "sparse_null_tiny_bs");
 
     float* float_vals = new float[num_uint8_rows];
     for (int i = 0; i < num_uint8_rows; ++i) {
         float_vals[i] = i;
         is_null[i] = ((i % 16) == 0);
     }
-    test_nullable_data<OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>((uint8_t*)float_vals, is_null, num_uint8_rows, "null_float_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>((uint8_t*)float_vals, is_null,
+                                                           num_uint8_rows, "null_float_bs");
 
     double* double_vals = new double[num_uint8_rows];
     for (int i = 0; i < num_uint8_rows; ++i) {
         double_vals[i] = i;
         is_null[i] = ((i % 16) == 0);
     }
-    test_nullable_data<OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>((uint8_t*)double_vals, is_null, num_uint8_rows, "null_double_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>((uint8_t*)double_vals, is_null,
+                                                            num_uint8_rows, "null_double_bs");
     // test_nullable_data<OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 4, "null_float_bs");
     // test_nullable_data<OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 8, "null_double_bs");
     delete[] val;
@@ -578,20 +591,26 @@ TEST_F(ColumnReaderWriterTest, test_types) {
 
         BitmapChange(is_null, i, (i % 4) == 0);
     }
-    test_nullable_data<OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>((uint8_t*)char_vals, is_null, num_uint8_rows, "null_char_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>((uint8_t*)varchar_vals, is_null, num_uint8_rows, "null_varchar_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>((uint8_t*)bool_vals, is_null, num_uint8_rows, "null_bool_bs");
-    test_nullable_data<OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>((uint8_t*)date_vals, is_null, num_uint8_rows / 3, "null_date_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>((uint8_t*)char_vals, is_null,
+                                                            num_uint8_rows, "null_char_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>((uint8_t*)varchar_vals, is_null,
+                                                               num_uint8_rows, "null_varchar_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>((uint8_t*)bool_vals, is_null,
+                                                          num_uint8_rows, "null_bool_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>((uint8_t*)date_vals, is_null,
+                                                          num_uint8_rows / 3, "null_date_bs");
 
     for (int i = 0; i < num_uint8_rows; ++i) {
         BitmapChange(is_null, i, (i % 16) == 0);
     }
-    test_nullable_data<OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>((uint8_t*)datetime_vals, is_null, num_uint8_rows / 8, "null_datetime_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>(
+            (uint8_t*)datetime_vals, is_null, num_uint8_rows / 8, "null_datetime_bs");
 
-    for (int i = 0; i< num_uint8_rows; ++i) {
+    for (int i = 0; i < num_uint8_rows; ++i) {
         BitmapChange(is_null, i, (i % 24) == 0);
     }
-    test_nullable_data<OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>((uint8_t*)decimal_vals, is_null, num_uint8_rows / 12, "null_decimal_bs");
+    test_nullable_data<OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>(
+            (uint8_t*)decimal_vals, is_null, num_uint8_rows / 12, "null_decimal_bs");
 
     delete[] char_vals;
     delete[] varchar_vals;
@@ -610,9 +629,9 @@ TEST_F(ColumnReaderWriterTest, test_default_value) {
     test_read_default_value<OLAP_FIELD_TYPE_INT>(v_int, &result);
 
     std::string v_bigint("9223372036854775807");
-    int64_t result_bigint =  std::numeric_limits<int64_t>::max();
+    int64_t result_bigint = std::numeric_limits<int64_t>::max();
     test_read_default_value<OLAP_FIELD_TYPE_BIGINT>(v_bigint, &result_bigint);
-    int128_t result_largeint =  std::numeric_limits<int64_t>::max();
+    int128_t result_largeint = std::numeric_limits<int64_t>::max();
     test_read_default_value<OLAP_FIELD_TYPE_LARGEINT>(v_bigint, &result_largeint);
 
     std::string v_float("1.00");
@@ -629,7 +648,7 @@ TEST_F(ColumnReaderWriterTest, test_default_value) {
     std::string v_char("char");
     test_read_default_value<OLAP_FIELD_TYPE_CHAR>(v_char, &v_char);
 
-    char* c = (char *)malloc(1);
+    char* c = (char*)malloc(1);
     c[0] = 0;
     std::string v_object(c, 1);
     test_read_default_value<OLAP_FIELD_TYPE_HLL>(v_object, &v_object);
@@ -653,8 +672,7 @@ TEST_F(ColumnReaderWriterTest, test_default_value) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1<<30);
+    doris::StoragePageCache::create_global_cache(1 << 30);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

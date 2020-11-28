@@ -17,9 +17,10 @@
 
 #include "util/aes_util.h"
 
-#include <string>
-#include <memory>
 #include <gtest/gtest.h>
+
+#include <memory>
+#include <string>
 
 #include "util/url_coding.h"
 
@@ -27,9 +28,7 @@ namespace doris {
 
 class AesUtilTest : public testing::Test {
 public:
-    AesUtilTest() {
-        _aes_key = "doris_aes_key";
-    }
+    AesUtilTest() { _aes_key = "doris_aes_key"; }
 
 private:
     std::string _aes_key;
@@ -38,13 +37,15 @@ private:
 void do_aes_test(const std::string& source, const std::string& key) {
     int cipher_len = source.length() + 16;
     std::unique_ptr<unsigned char[]> dest(new unsigned char[cipher_len]);
-    int ret_code = AesUtil::encrypt(AES_128_ECB, (unsigned char *)source.c_str(), source.length(),
-            (unsigned char *)key.c_str(), key.length(), NULL, true, dest.get());
+    int ret_code =
+            AesUtil::encrypt(AES_128_ECB, (unsigned char*)source.c_str(), source.length(),
+                             (unsigned char*)key.c_str(), key.length(), NULL, true, dest.get());
     ASSERT_TRUE(ret_code > 0);
     int encrypted_length = ret_code;
     std::unique_ptr<char[]> decrypted(new char[cipher_len]);
-    ret_code = AesUtil::decrypt(AES_128_ECB, dest.get(), encrypted_length, 
-            (unsigned char *)key.c_str(), key.length(), NULL, true, (unsigned char *)decrypted.get());
+    ret_code =
+            AesUtil::decrypt(AES_128_ECB, dest.get(), encrypted_length, (unsigned char*)key.c_str(),
+                             key.length(), NULL, true, (unsigned char*)decrypted.get());
     ASSERT_TRUE(ret_code > 0);
     std::string decrypted_content(decrypted.get(), ret_code);
     ASSERT_EQ(source, decrypted_content);
@@ -66,8 +67,9 @@ TEST_F(AesUtilTest, aes_test_by_case) {
     std::unique_ptr<char[]> encrypt_1(new char[case_1.length()]);
     int length_1 = base64_decode(case_1.c_str(), case_1.length(), encrypt_1.get());
     std::unique_ptr<char[]> decrypted_1(new char[case_1.length()]);
-    int ret_code = AesUtil::decrypt(AES_128_ECB, (unsigned char *)encrypt_1.get(), length_1,
-            (unsigned char *)_aes_key.c_str(), _aes_key.length(), NULL, true, (unsigned char *)decrypted_1.get());
+    int ret_code = AesUtil::decrypt(AES_128_ECB, (unsigned char*)encrypt_1.get(), length_1,
+                                    (unsigned char*)_aes_key.c_str(), _aes_key.length(), NULL, true,
+                                    (unsigned char*)decrypted_1.get());
     ASSERT_TRUE(ret_code > 0);
     std::string decrypted_content_1(decrypted_1.get(), ret_code);
     ASSERT_EQ(source_1, decrypted_content_1);
@@ -75,14 +77,15 @@ TEST_F(AesUtilTest, aes_test_by_case) {
     std::unique_ptr<char[]> encrypt_2(new char[case_2.length()]);
     int length_2 = base64_decode(case_2.c_str(), case_2.length(), encrypt_2.get());
     std::unique_ptr<char[]> decrypted_2(new char[case_2.length()]);
-    ret_code = AesUtil::decrypt(AES_128_ECB, (unsigned char *)encrypt_2.get(), length_2,
-            (unsigned char *)_aes_key.c_str(), _aes_key.length(), NULL, true, (unsigned char *)decrypted_2.get());
+    ret_code = AesUtil::decrypt(AES_128_ECB, (unsigned char*)encrypt_2.get(), length_2,
+                                (unsigned char*)_aes_key.c_str(), _aes_key.length(), NULL, true,
+                                (unsigned char*)decrypted_2.get());
     ASSERT_TRUE(ret_code > 0);
     std::string decrypted_content_2(decrypted_2.get(), ret_code);
     ASSERT_EQ(source_2, decrypted_content_2);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

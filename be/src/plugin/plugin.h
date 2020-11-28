@@ -49,12 +49,12 @@ struct Plugin {
     void* handler;
 
     // invoke when plugin install
-    int (* init)(void*);
+    int (*init)(void*);
 
     // invoke when plugin uninstall
-    int (* close)(void*);
+    int (*close)(void*);
 
-    // flag for plugin 
+    // flag for plugin
     uint64_t flags;
 
     // use to set/get variables
@@ -64,21 +64,19 @@ struct Plugin {
     void* status;
 };
 
-#define __DECLARE_PLUGIN(VERSION, PSIZE, DECLS)   \
-  int VERSION = DORIS_PLUGIN_VERSION;             \
-  int PSIZE = sizeof(struct Plugin);              \
-  Plugin DECLS[] = {
+#define __DECLARE_PLUGIN(VERSION, PSIZE, DECLS) \
+    int VERSION = DORIS_PLUGIN_VERSION;         \
+    int PSIZE = sizeof(struct Plugin);          \
+    Plugin DECLS[] = {
+// Plugin Name must be same with plugin's description file
+#define declare_plugin(NAME) \
+    __DECLARE_PLUGIN(NAME##_plugin_interface_version, NAME##_sizeof_plugin, NAME##_plugin)
 
-// Plugin Name must be same with plugin's description file          
-#define declare_plugin(NAME)                        \
-  __DECLARE_PLUGIN(NAME##_plugin_interface_version, \
-                   NAME##_sizeof_plugin,  \
-                   NAME##_plugin)
+#define declare_plugin_end \
+    , { 0, 0, 0, 0, 0, 0 } \
+    }                      \
+    ;
 
-#define declare_plugin_end           \
-  , { 0, 0, 0, 0, 0, 0 }             \
-  };
-
-}
+} // namespace doris
 
 #endif //DORIS_BE_PLUGIN_PLUGIN_H

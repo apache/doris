@@ -22,8 +22,8 @@
 #include "exprs/expr.h"
 //#include "exprs/expr_context.h"
 #include "runtime/buffered_block_mgr2.h"
-#include "runtime/buffered_tuple_stream2.inline.h"
 #include "runtime/buffered_tuple_stream2.h"
+#include "runtime/buffered_tuple_stream2.inline.h"
 #include "runtime/tuple.h"
 #include "thrift/protocol/TDebugProtocol.h"
 
@@ -133,8 +133,7 @@ private:
     // add_result_tuple() with the index of the previous row in _input_stream. next_partition
     // indicates if the current row is the start of a new partition. stream_idx is the
     // index of the current input row from _input_stream.
-    void try_add_result_tuple_for_prev_row(bool next_partition, int64_t stream_idx,
-                                     TupleRow* row);
+    void try_add_result_tuple_for_prev_row(bool next_partition, int64_t stream_idx, TupleRow* row);
 
     // Determines if there is a window ending at the current row, and if so, calls
     // add_result_tuple() with the index of the current row in _input_stream. stream_idx is
@@ -330,6 +329,6 @@ private:
     RuntimeProfile::Counter* _evaluation_timer;
 };
 
-}
+} // namespace doris
 
 #endif

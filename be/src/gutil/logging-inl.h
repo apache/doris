@@ -47,4 +47,4 @@ const bool GUTIL_DEBUG_MODE = false;
 const bool GUTIL_DEBUG_MODE = true;
 #endif
 
-#endif  // _LOGGING_IN_H_
+#endif // _LOGGING_IN_H_

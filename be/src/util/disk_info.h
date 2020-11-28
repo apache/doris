@@ -18,11 +18,11 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_DISK_INFO_H
 #define DORIS_BE_SRC_COMMON_UTIL_DISK_INFO_H
 
-#include <map>
-#include <string>
-#include <set>
-
 #include <boost/cstdint.hpp>
+#include <map>
+#include <set>
+#include <string>
+
 #include "common/logging.h"
 #include "common/status.h"
 
@@ -99,8 +99,8 @@ private:
         Disk() : name(""), id(0) {}
         Disk(const std::string& name) : name(name), id(0), is_rotational(true) {}
         Disk(const std::string& name, int id) : name(name), id(id), is_rotational(true) {}
-        Disk(const std::string& name, int id, bool is_rotational) :
-                name(name), id(id), is_rotational(is_rotational) {}
+        Disk(const std::string& name, int id, bool is_rotational)
+                : name(name), id(id), is_rotational(is_rotational) {}
     };
 
     // All disks
@@ -117,5 +117,5 @@ private:
     static void get_device_names();
 };
 
-}
+} // namespace doris
 #endif

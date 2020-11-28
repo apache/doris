@@ -28,7 +28,7 @@
 
 namespace doris {
 
-// map used 
+// map used
 class BrpcStubCache {
 public:
     BrpcStubCache();
@@ -46,8 +46,8 @@ public:
         if (channel->Init(endpoint, &options)) {
             return nullptr;
         }
-        auto stub = new PBackendService_Stub(
-            channel.release(), google::protobuf::Service::STUB_OWNS_CHANNEL);
+        auto stub = new PBackendService_Stub(channel.release(),
+                                             google::protobuf::Service::STUB_OWNS_CHANNEL);
         _stub_map.insert(endpoint, stub);
         return stub;
     }
@@ -75,4 +75,4 @@ private:
     butil::FlatMap<butil::EndPoint, PBackendService_Stub*> _stub_map;
 };
 
-}
+} // namespace doris

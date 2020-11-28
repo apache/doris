@@ -31,7 +31,8 @@ public:
     TabletColumn();
     TabletColumn(FieldAggregationMethod agg, FieldType type);
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable);
-    TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable, int32_t unique_id, size_t length);
+    TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable,
+                 int32_t unique_id, size_t length);
     void init_from_pb(const ColumnPB& column);
     void to_schema_pb(ColumnPB* column);
 
@@ -58,12 +59,8 @@ public:
      */
     void add_sub_column(TabletColumn& sub_column);
 
-    uint32_t get_subtype_count() const {
-        return _sub_column_count;
-    }
-    const TabletColumn& get_sub_column(uint32_t i) const {
-        return _sub_columns[i];
-    }
+    uint32_t get_subtype_count() const { return _sub_column_count; }
+    const TabletColumn& get_sub_column(uint32_t i) const { return _sub_columns[i]; }
 
     friend bool operator==(const TabletColumn& a, const TabletColumn& b);
     friend bool operator!=(const TabletColumn& a, const TabletColumn& b);
@@ -134,7 +131,7 @@ public:
     inline void set_is_in_memory(bool is_in_memory) { _is_in_memory = is_in_memory; }
     inline int32_t delete_sign_idx() const { return _delete_sign_idx; }
     inline void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
-    inline bool has_sequence_col() const { return  _sequence_col_idx != -1; }
+    inline bool has_sequence_col() const { return _sequence_col_idx != -1; }
     inline int32_t sequence_col_idx() const { return _sequence_col_idx; }
 
 private:

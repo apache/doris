@@ -27,10 +27,10 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/column_data_file.pb.h"
 #include "olap/bloom_filter.hpp"
-#include "olap/stream_index_common.h"
 #include "olap/field.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/stream_index_common.h"
 
 namespace doris {
 
@@ -38,23 +38,21 @@ class WrapperField;
 class RowCursorCell;
 
 enum CondOp {
-    OP_NULL = -1,   // invalid op
-    OP_EQ = 0,      // equal
-    OP_NE = 1,      // not equal
-    OP_LT = 2,      // less than
-    OP_LE = 3,      // less or equal
-    OP_GT = 4,      // greater than
-    OP_GE = 5,      // greater or equal
-    OP_IN = 6,      // in
-    OP_IS = 7,      // is null or not null
-    OP_NOT_IN = 8   // not in
+    OP_NULL = -1, // invalid op
+    OP_EQ = 0,    // equal
+    OP_NE = 1,    // not equal
+    OP_LT = 2,    // less than
+    OP_LE = 3,    // less or equal
+    OP_GT = 4,    // greater than
+    OP_GE = 5,    // greater or equal
+    OP_IN = 6,    // in
+    OP_IS = 7,    // is null or not null
+    OP_NOT_IN = 8 // not in
 };
 
 // Hash functor for IN set
 struct FieldHash {
-    size_t operator()(const WrapperField* field) const {
-        return field->hash_code();
-    }
+    size_t operator()(const WrapperField* field) const { return field->hash_code(); }
 };
 
 // Equal function for IN set
@@ -83,9 +81,7 @@ public:
 
     bool eval(const segment_v2::BloomFilter* bf) const;
 
-    bool can_do_bloom_filter() const {
-        return op == OP_EQ || op == OP_IN || op == OP_IS;
-    }
+    bool can_do_bloom_filter() const { return op == OP_EQ || op == OP_IN || op == OP_IS; }
 
     CondOp op;
     // valid when op is not OP_IN and OP_NOT_IN
@@ -132,18 +128,14 @@ public:
         return false;
     }
 
-    inline bool is_key() const {
-        return _is_key;
-    }
+    inline bool is_key() const { return _is_key; }
 
-    const std::vector<Cond*>& conds() const {
-        return _conds;
-    }
+    const std::vector<Cond*>& conds() const { return _conds; }
 
 private:
-    bool                _is_key;
-    int32_t             _col_index;
-    std::vector<Cond*>   _conds;
+    bool _is_key;
+    int32_t _col_index;
+    std::vector<Cond*> _conds;
 };
 
 // 一次请求所关联的条件
@@ -154,9 +146,7 @@ public:
     typedef std::map<int32_t, CondColumn*> CondColumns;
 
     Conditions() {}
-    ~Conditions() {
-        finalize();
-    }
+    ~Conditions() { finalize(); }
 
     void finalize() {
         for (auto& it : _columns) {
@@ -166,24 +156,20 @@ public:
     }
 
     // TODO(yingchun): should do it in constructor
-    void set_tablet_schema(const TabletSchema* schema) {
-        _schema = schema;
-    }
+    void set_tablet_schema(const TabletSchema* schema) { _schema = schema; }
 
     // 如果成功，则_columns中增加一项，如果失败则无视此condition，同时输出日志
     // 对于下列情况，将不会被处理
     // 1. column不属于key列
     // 2. column类型是double, float
     OLAPStatus append_condition(const TCondition& condition);
-    
+
     bool delete_conditions_eval(const RowCursor& row) const;
-    
+
     bool rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) const;
     int delete_pruning_filter(const std::vector<KeyRange>& zone_maps) const;
 
-    const CondColumns& columns() const {
-        return _columns;
-    }
+    const CondColumns& columns() const { return _columns; }
 
     CondColumn* get_column(int32_t cid) const;
 
@@ -194,9 +180,9 @@ private:
 
 private:
     const TabletSchema* _schema = nullptr;
-    CondColumns _columns;   // list of condition column
+    CondColumns _columns; // list of condition column
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_OLAP_COND_H

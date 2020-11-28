@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_UTIL_COUNTDOWN_LATCH_H
 #define DORIS_BE_SRC_UTIL_COUNTDOWN_LATCH_H
 
+#include "common/logging.h"
 #include "olap/olap_define.h"
 #include "util/condition_variable.h"
 #include "util/monotime.h"
@@ -31,9 +32,7 @@ namespace doris {
 class CountDownLatch {
 public:
     // Initialize the latch with the given initial count.
-    explicit CountDownLatch(int count)
-      : cond_(&lock_),
-        count_(count) {}
+    explicit CountDownLatch(int count) : cond_(&lock_), count_(count) {}
 
     // Decrement the count of this latch by 'amount'
     // If the new count is less than or equal to zero, then all waiting threads are woken up.
@@ -60,9 +59,7 @@ public:
     // Decrement the count of this latch.
     // If the new count is zero, then all waiting threads are woken up.
     // If the count is already zero, this has no effect.
-    void count_down() {
-        count_down(1);
-    }
+    void count_down() { count_down(1); }
 
     // Wait until the count on the latch reaches zero.
     // If the count is already zero, this returns immediately.
@@ -87,9 +84,7 @@ public:
 
     // Waits for the count on the latch to reach zero, or until 'delta' time elapses.
     // Returns true if the count became zero, false otherwise.
-    bool wait_for(const MonoDelta& delta) const {
-        return wait_until(MonoTime::Now() + delta);
-    }
+    bool wait_for(const MonoDelta& delta) const { return wait_until(MonoTime::Now() + delta); }
 
     // Reset the latch with the given count. This is equivalent to reconstructing
     // the latch. If 'count' is 0, and there are currently waiters, those waiters
@@ -118,16 +113,14 @@ private:
 
 // Utility class which calls latch->CountDown() in its destructor.
 class CountDownOnScopeExit {
-    public:
-        explicit CountDownOnScopeExit(CountDownLatch *latch) : latch_(latch) {}
-        ~CountDownOnScopeExit() {
-            latch_->count_down();
-        }
+public:
+    explicit CountDownOnScopeExit(CountDownLatch* latch) : latch_(latch) {}
+    ~CountDownOnScopeExit() { latch_->count_down(); }
 
-    private:
-        DISALLOW_COPY_AND_ASSIGN(CountDownOnScopeExit);
+private:
+    DISALLOW_COPY_AND_ASSIGN(CountDownOnScopeExit);
 
-        CountDownLatch *latch_;
+    CountDownLatch* latch_;
 };
 
 } // namespace doris

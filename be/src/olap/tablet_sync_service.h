@@ -30,10 +30,7 @@
 
 namespace doris {
 
-enum MetaOpType {
-    PUSH_META,
-    DELETE_META
-};
+enum MetaOpType { PUSH_META, DELETE_META };
 
 struct FetchRowsetMetaTask {
 public:
@@ -43,9 +40,7 @@ public:
     Version version;
     bool load_data;
     std::shared_ptr<std::promise<OLAPStatus>> pro;
-    bool operator< (const FetchRowsetMetaTask& o) const {
-        return priority < o.priority;
-    }
+    bool operator<(const FetchRowsetMetaTask& o) const { return priority < o.priority; }
 
     FetchRowsetMetaTask& operator++() {
         priority += 2;
@@ -59,9 +54,7 @@ public:
     MetaOpType op_type;
     RowsetMetaPB rowset_meta_pb;
     std::shared_ptr<std::promise<OLAPStatus>> pro;
-    bool operator< (const PushRowsetMetaTask& o) const {
-        return priority < o.priority;
-    }
+    bool operator<(const PushRowsetMetaTask& o) const { return priority < o.priority; }
 
     PushRowsetMetaTask& operator++() {
         priority += 2;
@@ -75,9 +68,7 @@ public:
     TabletSharedPtr tablet;
     bool load_data;
     std::shared_ptr<std::promise<OLAPStatus>> pro;
-    bool operator< (const FetchTabletMetaTask& o) const {
-        return priority < o.priority;
-    }
+    bool operator<(const FetchTabletMetaTask& o) const { return priority < o.priority; }
 
     FetchTabletMetaTask& operator++() {
         priority += 2;
@@ -90,9 +81,7 @@ public:
     int priority;
     TabletMetaPB tablet_meta_pb;
     std::shared_ptr<std::promise<OLAPStatus>> pro;
-    bool operator< (const PushTabletMetaTask& o) const {
-        return priority < o.priority;
-    }
+    bool operator<(const PushTabletMetaTask& o) const { return priority < o.priority; }
 
     PushTabletMetaTask& operator++() {
         priority += 2;
@@ -105,7 +94,6 @@ public:
 // for example, thread1 call sync meta and thread2 call sync meta, if they are the same
 // should not sync twice
 class TabletSyncService {
-
 public:
     TabletSyncService();
     ~TabletSyncService();
@@ -122,7 +110,7 @@ public:
     std::future<OLAPStatus> fetch_rowset(TabletSharedPtr tablet, Version& version, bool load_data);
 
     // save the rowset meta pb to remote meta store
-    // !!!! the caller should not own tablet map lock or tablet lock because 
+    // !!!! the caller should not own tablet map lock or tablet lock because
     // this method will call tablet manager to get tablet info
     std::future<OLAPStatus> push_rowset_meta(RowsetMetaPB& rowset_meta);
 
@@ -138,10 +126,10 @@ public:
     std::future<OLAPStatus> push_tablet_meta(TabletMetaPB& tablet_meta);
 
 private:
-    void _fetch_rowset_meta_thread(std::vector<FetchRowsetMetaTask> tasks); 
-    void _push_rowset_meta_thread(std::vector<PushRowsetMetaTask> tasks); 
-    void _fetch_tablet_meta_thread(std::vector<FetchTabletMetaTask> tasks); 
-    void _push_tablet_meta_thread(std::vector<PushTabletMetaTask> tasks); 
+    void _fetch_rowset_meta_thread(std::vector<FetchRowsetMetaTask> tasks);
+    void _push_rowset_meta_thread(std::vector<PushRowsetMetaTask> tasks);
+    void _fetch_tablet_meta_thread(std::vector<FetchTabletMetaTask> tasks);
+    void _push_tablet_meta_thread(std::vector<PushTabletMetaTask> tasks);
 
 private:
     BatchProcessThreadPool<FetchRowsetMetaTask>* _fetch_rowset_pool = nullptr;
@@ -150,7 +138,5 @@ private:
     BatchProcessThreadPool<PushTabletMetaTask>* _push_tablet_pool = nullptr;
 }; // TabletSyncService
 
-
-
-} // doris
+} // namespace doris
 #endif // DORIS_BE_SRC_OLAP_TABLET_SYNC_SERVICE_H

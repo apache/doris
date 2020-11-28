@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_BITMAP_H
 #define DORIS_BE_SRC_COMMON_UTIL_BITMAP_H
 
-#include "util/bit_util.h"
 #include "gutil/strings/fastmem.h"
+#include "util/bit_util.h"
 
 namespace doris {
 
@@ -29,28 +29,28 @@ inline size_t BitmapSize(size_t num_bits) {
 }
 
 // Set the given bit.
-inline void BitmapSet(uint8_t *bitmap, size_t idx) {
+inline void BitmapSet(uint8_t* bitmap, size_t idx) {
     bitmap[idx >> 3] |= 1 << (idx & 7);
 }
 
 // Switch the given bit to the specified value.
-inline void BitmapChange(uint8_t *bitmap, size_t idx, bool value) {
+inline void BitmapChange(uint8_t* bitmap, size_t idx, bool value) {
     bitmap[idx >> 3] = (bitmap[idx >> 3] & ~(1 << (idx & 7))) | ((!!value) << (idx & 7));
 }
 
 // Clear the given bit.
-inline void BitmapClear(uint8_t *bitmap, size_t idx) {
+inline void BitmapClear(uint8_t* bitmap, size_t idx) {
     bitmap[idx >> 3] &= ~(1 << (idx & 7));
 }
 
 // Test/get the given bit.
-inline bool BitmapTest(const uint8_t *bitmap, size_t idx) {
+inline bool BitmapTest(const uint8_t* bitmap, size_t idx) {
     return bitmap[idx >> 3] & (1 << (idx & 7));
 }
 
 // Merge the two bitmaps using bitwise or. Both bitmaps should have at least
 // n_bits valid bits.
-inline void BitmapMergeOr(uint8_t *dst, const uint8_t *src, size_t n_bits) {
+inline void BitmapMergeOr(uint8_t* dst, const uint8_t* src, size_t n_bits) {
     size_t n_bytes = BitmapSize(n_bits);
     for (size_t i = 0; i < n_bytes; i++) {
         *dst++ |= *src++;
@@ -58,33 +58,33 @@ inline void BitmapMergeOr(uint8_t *dst, const uint8_t *src, size_t n_bits) {
 }
 
 // Set bits from offset to (offset + num_bits) to the specified value
-void BitmapChangeBits(uint8_t *bitmap, size_t offset, size_t num_bits, bool value);
+void BitmapChangeBits(uint8_t* bitmap, size_t offset, size_t num_bits, bool value);
 
 // Find the first bit of the specified value, starting from the specified offset.
-bool BitmapFindFirst(const uint8_t *bitmap, size_t offset, size_t bitmap_size,
-                     bool value, size_t *idx);
+bool BitmapFindFirst(const uint8_t* bitmap, size_t offset, size_t bitmap_size, bool value,
+                     size_t* idx);
 
 // Find the first set bit in the bitmap, at the specified offset.
-inline bool BitmapFindFirstSet(const uint8_t *bitmap, size_t offset,
-                               size_t bitmap_size, size_t *idx) {
+inline bool BitmapFindFirstSet(const uint8_t* bitmap, size_t offset, size_t bitmap_size,
+                               size_t* idx) {
     return BitmapFindFirst(bitmap, offset, bitmap_size, true, idx);
 }
 
 // Find the first zero bit in the bitmap, at the specified offset.
-inline bool BitmapFindFirstZero(const uint8_t *bitmap, size_t offset,
-                                size_t bitmap_size, size_t *idx) {
+inline bool BitmapFindFirstZero(const uint8_t* bitmap, size_t offset, size_t bitmap_size,
+                                size_t* idx) {
     return BitmapFindFirst(bitmap, offset, bitmap_size, false, idx);
 }
 
 // Returns true if the bitmap contains only ones.
-inline bool BitMapIsAllSet(const uint8_t *bitmap, size_t offset, size_t bitmap_size) {
+inline bool BitMapIsAllSet(const uint8_t* bitmap, size_t offset, size_t bitmap_size) {
     DCHECK_LT(offset, bitmap_size);
     size_t idx;
     return !BitmapFindFirstZero(bitmap, offset, bitmap_size, &idx);
 }
 
 // Returns true if the bitmap contains only zeros.
-inline bool BitmapIsAllZero(const uint8_t *bitmap, size_t offset, size_t bitmap_size) {
+inline bool BitmapIsAllZero(const uint8_t* bitmap, size_t offset, size_t bitmap_size) {
     DCHECK_LT(offset, bitmap_size);
     size_t idx;
     return !BitmapFindFirstSet(bitmap, offset, bitmap_size, &idx);
@@ -115,7 +115,7 @@ inline bool BitmapEquals(const uint8_t* bm1, const uint8_t* bm2, size_t bitmap_s
 // output:
 //      0000: 00011100 00100010 11001100 11000011
 //      0016: 00110011
-std::string BitmapToString(const uint8_t *bitmap, size_t num_bits);
+std::string BitmapToString(const uint8_t* bitmap, size_t num_bits);
 
 // Iterator which yields ranges of set and unset bits.
 // Example usage:
@@ -128,8 +128,7 @@ std::string BitmapToString(const uint8_t *bitmap, size_t num_bits);
 class BitmapIterator {
 public:
     BitmapIterator(const uint8_t* map, size_t num_bits)
-        : offset_(0), num_bits_(num_bits), map_(map)
-    {}
+            : offset_(0), num_bits_(num_bits), map_(map) {}
 
     void Reset(const uint8_t* map, size_t num_bits) {
         offset_ = 0;
@@ -143,9 +142,7 @@ public:
         map_ = nullptr;
     }
 
-    bool done() const {
-        return (num_bits_ - offset_) == 0;
-    }
+    bool done() const { return (num_bits_ - offset_) == 0; }
 
     void SeekTo(size_t bit) {
         DCHECK_LE(bit, num_bits_);
@@ -156,16 +153,12 @@ public:
         return NextWithLimit(value, std::min(num_bits_, max_run + offset_));
     }
 
-    size_t Next(bool* value) {
-        return NextWithLimit(value, num_bits_);
-    }
+    size_t Next(bool* value) { return NextWithLimit(value, num_bits_); }
 
 private:
-
     size_t NextWithLimit(bool* value, size_t limit) {
         size_t len = limit - offset_;
-        if (PREDICT_FALSE(len == 0))
-            return(0);
+        if (PREDICT_FALSE(len == 0)) return (0);
 
         *value = BitmapTest(map_, offset_);
 
@@ -183,7 +176,7 @@ private:
 private:
     size_t offset_;
     size_t num_bits_;
-    const uint8_t *map_;
+    const uint8_t* map_;
 };
 
 /// Bitmap vector utility class.
@@ -193,69 +186,66 @@ private:
 ///  - Bigger words
 ///  - size bitmap to Mersenne prime.
 class Bitmap {
- public:
-  Bitmap(int64_t num_bits) {
-    DCHECK_GE(num_bits, 0);
-    buffer_.resize(BitUtil::round_up_numi_64(num_bits));
-    num_bits_ = num_bits;
-  }
-
-  /// Resize bitmap and set all bits to zero.
-  void Reset(int64_t num_bits) {
-    DCHECK_GE(num_bits, 0);
-    buffer_.resize(BitUtil::round_up_numi_64(num_bits));
-    num_bits_ = num_bits;
-    SetAllBits(false);
-  }
-
-  /// Compute memory usage of a bitmap, not including the Bitmap object itself.
-  static int64_t MemUsage(int64_t num_bits) {
-    DCHECK_GE(num_bits, 0);
-    return BitUtil::round_up_numi_64(num_bits) * sizeof(int64_t);
-  }
-
-  /// Compute memory usage of this bitmap, not including the Bitmap object itself.
-  int64_t MemUsage() const { return MemUsage(num_bits_); }
-
-  /// Sets the bit at 'bit_index' to v.
-  void Set(int64_t bit_index, bool v) {
-    int64_t word_index = bit_index >> NUM_OFFSET_BITS;
-    bit_index &= BIT_INDEX_MASK;
-    DCHECK_LT(word_index, buffer_.size());
-    if (v) {
-      buffer_[word_index] |= (1LL << bit_index);
-    } else {
-      buffer_[word_index] &= ~(1LL << bit_index);
+public:
+    Bitmap(int64_t num_bits) {
+        DCHECK_GE(num_bits, 0);
+        buffer_.resize(BitUtil::round_up_numi_64(num_bits));
+        num_bits_ = num_bits;
     }
-  }
 
-  /// Returns true if the bit at 'bit_index' is set.
-  bool Get(int64_t bit_index) const {
-    int64_t word_index = bit_index >> NUM_OFFSET_BITS;
-    bit_index &= BIT_INDEX_MASK;
-    DCHECK_LT(word_index, buffer_.size());
-    return (buffer_[word_index] & (1LL << bit_index)) != 0;
-  }
+    /// Resize bitmap and set all bits to zero.
+    void Reset(int64_t num_bits) {
+        DCHECK_GE(num_bits, 0);
+        buffer_.resize(BitUtil::round_up_numi_64(num_bits));
+        num_bits_ = num_bits;
+        SetAllBits(false);
+    }
 
-  void SetAllBits(bool b) {
-    memset(&buffer_[0], 255 * b, buffer_.size() * sizeof(uint64_t));
-  }
+    /// Compute memory usage of a bitmap, not including the Bitmap object itself.
+    static int64_t MemUsage(int64_t num_bits) {
+        DCHECK_GE(num_bits, 0);
+        return BitUtil::round_up_numi_64(num_bits) * sizeof(int64_t);
+    }
 
-  int64_t num_bits() const { return num_bits_; }
+    /// Compute memory usage of this bitmap, not including the Bitmap object itself.
+    int64_t MemUsage() const { return MemUsage(num_bits_); }
 
-  /// If 'print_bits' prints 0/1 per bit, otherwise it prints the int64_t value.
-  std::string DebugString(bool print_bits) const;
+    /// Sets the bit at 'bit_index' to v.
+    void Set(int64_t bit_index, bool v) {
+        int64_t word_index = bit_index >> NUM_OFFSET_BITS;
+        bit_index &= BIT_INDEX_MASK;
+        DCHECK_LT(word_index, buffer_.size());
+        if (v) {
+            buffer_[word_index] |= (1LL << bit_index);
+        } else {
+            buffer_[word_index] &= ~(1LL << bit_index);
+        }
+    }
 
- private:
-  std::vector<uint64_t> buffer_;
-  int64_t num_bits_;
+    /// Returns true if the bit at 'bit_index' is set.
+    bool Get(int64_t bit_index) const {
+        int64_t word_index = bit_index >> NUM_OFFSET_BITS;
+        bit_index &= BIT_INDEX_MASK;
+        DCHECK_LT(word_index, buffer_.size());
+        return (buffer_[word_index] & (1LL << bit_index)) != 0;
+    }
 
-  /// Used for bit shifting and masking for the word and offset calculation.
-  static const int64_t NUM_OFFSET_BITS = 6;
-  static const int64_t BIT_INDEX_MASK = 63;
+    void SetAllBits(bool b) { memset(&buffer_[0], 255 * b, buffer_.size() * sizeof(uint64_t)); }
+
+    int64_t num_bits() const { return num_bits_; }
+
+    /// If 'print_bits' prints 0/1 per bit, otherwise it prints the int64_t value.
+    std::string DebugString(bool print_bits) const;
+
+private:
+    std::vector<uint64_t> buffer_;
+    int64_t num_bits_;
+
+    /// Used for bit shifting and masking for the word and offset calculation.
+    static const int64_t NUM_OFFSET_BITS = 6;
+    static const int64_t BIT_INDEX_MASK = 63;
 };
 
-}
+} // namespace doris
 
 #endif
-

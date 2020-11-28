@@ -21,20 +21,17 @@ namespace doris {
 
 Status SortExecExprs::init(const TSortInfo& sort_info, ObjectPool* pool) {
     return init(sort_info.ordering_exprs,
-            sort_info.__isset.sort_tuple_slot_exprs ? &sort_info.sort_tuple_slot_exprs : NULL,
-            pool);
+                sort_info.__isset.sort_tuple_slot_exprs ? &sort_info.sort_tuple_slot_exprs : NULL,
+                pool);
 }
 
-Status SortExecExprs::init(
-        const std::vector<TExpr>& ordering_exprs,
-        const std::vector<TExpr>* sort_tuple_slot_exprs,
-        ObjectPool* pool) {
-    RETURN_IF_ERROR(Expr::create_expr_trees(
-            pool, ordering_exprs, &_lhs_ordering_expr_ctxs));
+Status SortExecExprs::init(const std::vector<TExpr>& ordering_exprs,
+                           const std::vector<TExpr>* sort_tuple_slot_exprs, ObjectPool* pool) {
+    RETURN_IF_ERROR(Expr::create_expr_trees(pool, ordering_exprs, &_lhs_ordering_expr_ctxs));
     if (sort_tuple_slot_exprs != NULL) {
         _materialize_tuple = true;
-        RETURN_IF_ERROR(Expr::create_expr_trees(
-                pool, *sort_tuple_slot_exprs, &_sort_tuple_slot_expr_ctxs));
+        RETURN_IF_ERROR(
+                Expr::create_expr_trees(pool, *sort_tuple_slot_exprs, &_sort_tuple_slot_expr_ctxs));
     } else {
         _materialize_tuple = false;
     }
@@ -42,7 +39,7 @@ Status SortExecExprs::init(
 }
 
 Status SortExecExprs::init(const std::vector<ExprContext*>& lhs_ordering_expr_ctxs,
-        const std::vector<ExprContext*>& rhs_ordering_expr_ctxs) {
+                           const std::vector<ExprContext*>& rhs_ordering_expr_ctxs) {
     _lhs_ordering_expr_ctxs = lhs_ordering_expr_ctxs;
     _rhs_ordering_expr_ctxs = rhs_ordering_expr_ctxs;
     return Status::OK();
@@ -52,11 +49,11 @@ Status SortExecExprs::prepare(RuntimeState* state, const RowDescriptor& child_ro
                               const RowDescriptor& output_row_desc,
                               const std::shared_ptr<MemTracker>& expr_mem_tracker) {
     if (_materialize_tuple) {
-        RETURN_IF_ERROR(Expr::prepare(
-                _sort_tuple_slot_expr_ctxs, state, child_row_desc, expr_mem_tracker));
+        RETURN_IF_ERROR(
+                Expr::prepare(_sort_tuple_slot_expr_ctxs, state, child_row_desc, expr_mem_tracker));
     }
-    RETURN_IF_ERROR(Expr::prepare(
-            _lhs_ordering_expr_ctxs, state, output_row_desc, expr_mem_tracker));
+    RETURN_IF_ERROR(
+            Expr::prepare(_lhs_ordering_expr_ctxs, state, output_row_desc, expr_mem_tracker));
     return Status::OK();
 }
 
@@ -65,8 +62,8 @@ Status SortExecExprs::open(RuntimeState* state) {
         RETURN_IF_ERROR(Expr::open(_sort_tuple_slot_expr_ctxs, state));
     }
     RETURN_IF_ERROR(Expr::open(_lhs_ordering_expr_ctxs, state));
-    RETURN_IF_ERROR(Expr::clone_if_not_exists(
-            _lhs_ordering_expr_ctxs, state, &_rhs_ordering_expr_ctxs));
+    RETURN_IF_ERROR(
+            Expr::clone_if_not_exists(_lhs_ordering_expr_ctxs, state, &_rhs_ordering_expr_ctxs));
     return Status::OK();
 }
 

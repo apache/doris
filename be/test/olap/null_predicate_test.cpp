@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <time.h>
-#include <gtest/gtest.h>
-#include <google/protobuf/stubs/common.h>
-
-#include "olap/field.h"
-#include "olap/column_predicate.h"
 #include "olap/null_predicate.h"
+
+#include <google/protobuf/stubs/common.h>
+#include <gtest/gtest.h>
+#include <time.h>
+
+#include "olap/column_predicate.h"
+#include "olap/field.h"
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
@@ -35,27 +36,23 @@ static uint24_t to_date_timestamp(const char* date_string) {
     tm time_tm;
     strptime(date_string, "%Y-%m-%d", &time_tm);
 
-    int value = (time_tm.tm_year + 1900) * 16 * 32
-        + (time_tm.tm_mon + 1) * 32
-        + time_tm.tm_mday;
-    return uint24_t(value); 
+    int value = (time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 + time_tm.tm_mday;
+    return uint24_t(value);
 }
 
 static uint64_t to_datetime_timestamp(const std::string& value_string) {
     tm time_tm;
     strptime(value_string.c_str(), "%Y-%m-%d %H:%M:%S", &time_tm);
 
-    uint64_t value = ((time_tm.tm_year + 1900) * 10000L
-            + (time_tm.tm_mon + 1) * 100L
-            + time_tm.tm_mday) * 1000000L
-        + time_tm.tm_hour * 10000L
-        + time_tm.tm_min * 100L
-        + time_tm.tm_sec;
+    uint64_t value =
+            ((time_tm.tm_year + 1900) * 10000L + (time_tm.tm_mon + 1) * 100L + time_tm.tm_mday) *
+                    1000000L +
+            time_tm.tm_hour * 10000L + time_tm.tm_min * 100L + time_tm.tm_sec;
 
     return value;
 }
 
-};
+}; // namespace datetime
 
 class TestNullPredicate : public testing::Test {
 public:
@@ -70,12 +67,13 @@ public:
         }
     }
 
-    void SetTabletSchema(std::string name,
-            std::string type, std::string aggregation,
-            uint32_t length, bool is_allow_null, bool is_key, TabletSchema* tablet_schema) {
+    void SetTabletSchema(std::string name, std::string type, std::string aggregation,
+                         uint32_t length, bool is_allow_null, bool is_key,
+                         TabletSchema* tablet_schema) {
         TabletSchemaPB tablet_schema_pb;
         static int id = 0;
-        ColumnPB* column = tablet_schema_pb.add_column();;
+        ColumnPB* column = tablet_schema_pb.add_column();
+        ;
         column->set_unique_id(++id);
         column->set_name(name);
         column->set_type(type);
@@ -89,8 +87,7 @@ public:
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
-    void InitVectorizedBatch(const TabletSchema* tablet_schema,
-                             const std::vector<uint32_t>&ids,
+    void InitVectorizedBatch(const TabletSchema* tablet_schema, const std::vector<uint32_t>& ids,
                              int size) {
         _vectorized_batch = new VectorizedRowBatch(tablet_schema, ids, size);
         _vectorized_batch->set_size(size);
@@ -100,49 +97,49 @@ public:
     VectorizedRowBatch* _vectorized_batch;
 };
 
-#define TEST_IN_LIST_PREDICATE(TYPE, TYPE_NAME, FIELD_TYPE) \
-TEST_F(TestNullPredicate, TYPE_NAME##_COLUMN) { \
-    TabletSchema tablet_schema; \
-    SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, \
-                 "REPLACE", 1, false, true, &tablet_schema); \
-    int size = 10; \
-    std::vector<uint32_t> return_columns; \
-    for (int i = 0; i < tablet_schema.num_columns(); ++i) { \
-        return_columns.push_back(i); \
-    } \
-    InitVectorizedBatch(&tablet_schema, return_columns, size); \
-    ColumnVector* col_vector = _vectorized_batch->column(0); \
-     \
-    /* for no nulls */ \
-    col_vector->set_no_nulls(true); \
-    TYPE* col_data = reinterpret_cast<TYPE*>(_mem_pool->allocate(size * sizeof(TYPE))); \
-    col_vector->set_col_data(col_data); \
-    for (int i = 0; i < size; ++i) { \
-        *(col_data + i) = i; \
-    } \
-    \
-    ColumnPredicate* pred = new NullPredicate(0, true); \
-    pred->evaluate(_vectorized_batch); \
-    ASSERT_EQ(_vectorized_batch->size(), 0); \
-    \
-    /* for has nulls */ \
-    col_vector->set_no_nulls(false); \
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size)); \
-    memset(is_null, 0, size); \
-    col_vector->set_is_null(is_null); \
-    for (int i = 0; i < size; ++i) { \
-        if (i % 2 == 0) { \
-            is_null[i] = true; \
-        } else { \
-            *(col_data + i) = i; \
-        } \
-    } \
-    _vectorized_batch->set_size(size); \
-    _vectorized_batch->set_selected_in_use(false); \
-    pred->evaluate(_vectorized_batch); \
-    ASSERT_EQ(_vectorized_batch->size(), 5); \
-    delete pred; \
-} \
+#define TEST_IN_LIST_PREDICATE(TYPE, TYPE_NAME, FIELD_TYPE)                                       \
+    TEST_F(TestNullPredicate, TYPE_NAME##_COLUMN) {                                               \
+        TabletSchema tablet_schema;                                                               \
+        SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, "REPLACE", 1, false, true, \
+                        &tablet_schema);                                                          \
+        int size = 10;                                                                            \
+        std::vector<uint32_t> return_columns;                                                     \
+        for (int i = 0; i < tablet_schema.num_columns(); ++i) {                                   \
+            return_columns.push_back(i);                                                          \
+        }                                                                                         \
+        InitVectorizedBatch(&tablet_schema, return_columns, size);                                \
+        ColumnVector* col_vector = _vectorized_batch->column(0);                                  \
+                                                                                                  \
+        /* for no nulls */                                                                        \
+        col_vector->set_no_nulls(true);                                                           \
+        TYPE* col_data = reinterpret_cast<TYPE*>(_mem_pool->allocate(size * sizeof(TYPE)));       \
+        col_vector->set_col_data(col_data);                                                       \
+        for (int i = 0; i < size; ++i) {                                                          \
+            *(col_data + i) = i;                                                                  \
+        }                                                                                         \
+                                                                                                  \
+        ColumnPredicate* pred = new NullPredicate(0, true);                                       \
+        pred->evaluate(_vectorized_batch);                                                        \
+        ASSERT_EQ(_vectorized_batch->size(), 0);                                                  \
+                                                                                                  \
+        /* for has nulls */                                                                       \
+        col_vector->set_no_nulls(false);                                                          \
+        bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));                       \
+        memset(is_null, 0, size);                                                                 \
+        col_vector->set_is_null(is_null);                                                         \
+        for (int i = 0; i < size; ++i) {                                                          \
+            if (i % 2 == 0) {                                                                     \
+                is_null[i] = true;                                                                \
+            } else {                                                                              \
+                *(col_data + i) = i;                                                              \
+            }                                                                                     \
+        }                                                                                         \
+        _vectorized_batch->set_size(size);                                                        \
+        _vectorized_batch->set_selected_in_use(false);                                            \
+        pred->evaluate(_vectorized_batch);                                                        \
+        ASSERT_EQ(_vectorized_batch->size(), 5);                                                  \
+        delete pred;                                                                              \
+    }
 
 TEST_IN_LIST_PREDICATE(int8_t, TINYINT, "TINYINT")
 TEST_IN_LIST_PREDICATE(int16_t, SMALLINT, "SMALLINT")
@@ -152,8 +149,8 @@ TEST_IN_LIST_PREDICATE(int128_t, LARGEINT, "LARGEINT")
 
 TEST_F(TestNullPredicate, FLOAT_COLUMN) {
     TabletSchema tablet_schema;
-    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT",
-                 "REPLACE", 1, false, true, &tablet_schema);
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT", "REPLACE", 1, false, true,
+                    &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {
@@ -175,7 +172,7 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
 
     // for has nulls
     col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));  
+    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
     memset(is_null, 0, size);
     col_vector->set_is_null(is_null);
     for (int i = 0; i < size; ++i) {
@@ -194,8 +191,8 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
 
 TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
     TabletSchema tablet_schema;
-    SetTabletSchema(std::string("DOUBLE_COLUMN"), "DOUBLE",
-                 "REPLACE", 1, false, true, &tablet_schema);
+    SetTabletSchema(std::string("DOUBLE_COLUMN"), "DOUBLE", "REPLACE", 1, false, true,
+                    &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {
@@ -218,7 +215,7 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
 
     // for has nulls
     col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));  
+    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
     memset(is_null, 0, size);
     col_vector->set_is_null(is_null);
     for (int i = 0; i < size; ++i) {
@@ -237,8 +234,8 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
 
 TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
     TabletSchema tablet_schema;
-    SetTabletSchema(std::string("DECIMAL_COLUMN"), "DECIMAL",
-                 "REPLACE", 1, false, true, &tablet_schema);
+    SetTabletSchema(std::string("DECIMAL_COLUMN"), "DECIMAL", "REPLACE", 1, false, true,
+                    &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {
@@ -249,7 +246,8 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
 
     // for no nulls
     col_vector->set_no_nulls(true);
-    decimal12_t* col_data = reinterpret_cast<decimal12_t*>(_mem_pool->allocate(size * sizeof(decimal12_t)));
+    decimal12_t* col_data =
+            reinterpret_cast<decimal12_t*>(_mem_pool->allocate(size * sizeof(decimal12_t)));
     col_vector->set_col_data(col_data);
     for (int i = 0; i < size; ++i) {
         (*(col_data + i)).integer = i;
@@ -262,7 +260,7 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
 
     // for has nulls
     col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));  
+    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
     memset(is_null, 0, size);
     col_vector->set_is_null(is_null);
     for (int i = 0; i < size; ++i) {
@@ -283,8 +281,8 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
 
 TEST_F(TestNullPredicate, STRING_COLUMN) {
     TabletSchema tablet_schema;
-    SetTabletSchema(std::string("STRING_COLUMN"), "VARCHAR",
-                 "REPLACE", 1, false, true, &tablet_schema);
+    SetTabletSchema(std::string("STRING_COLUMN"), "VARCHAR", "REPLACE", 1, false, true,
+                    &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {
@@ -295,9 +293,10 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
 
     // for no nulls
     col_vector->set_no_nulls(true);
-    StringValue* col_data = reinterpret_cast<StringValue*>(_mem_pool->allocate(size * sizeof(StringValue)));
+    StringValue* col_data =
+            reinterpret_cast<StringValue*>(_mem_pool->allocate(size * sizeof(StringValue)));
     col_vector->set_col_data(col_data);
-    
+
     char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(55));
     for (int i = 0; i < size; ++i) {
         for (int j = 0; j <= i; ++j) {
@@ -313,7 +312,7 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
 
     // for has nulls
     col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));  
+    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
     memset(is_null, 0, size);
     col_vector->set_is_null(is_null);
     string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(55));
@@ -339,8 +338,7 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
 
 TEST_F(TestNullPredicate, DATE_COLUMN) {
     TabletSchema tablet_schema;
-    SetTabletSchema(std::string("DATE_COLUMN"), "DATE",
-                 "REPLACE", 1, false, true, &tablet_schema);
+    SetTabletSchema(std::string("DATE_COLUMN"), "DATE", "REPLACE", 1, false, true, &tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {
@@ -353,7 +351,7 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
     col_vector->set_no_nulls(true);
     uint24_t* col_data = reinterpret_cast<uint24_t*>(_mem_pool->allocate(size * sizeof(uint24_t)));
     col_vector->set_col_data(col_data);
-    
+
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07");
     date_array.push_back("2017-09-08");
@@ -372,7 +370,7 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
 
     // for has nulls
     col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));  
+    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
     memset(is_null, 0, size);
     col_vector->set_is_null(is_null);
     for (int i = 0; i < size; ++i) {
@@ -393,8 +391,8 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
 
 TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     TabletSchema tablet_schema;
-    SetTabletSchema(std::string("DATETIME_COLUMN"), "DATETIME",
-                 "REPLACE", 1, false, true, &tablet_schema);
+    SetTabletSchema(std::string("DATETIME_COLUMN"), "DATETIME", "REPLACE", 1, false, true,
+                    &tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {
@@ -407,7 +405,7 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     col_vector->set_no_nulls(true);
     uint64_t* col_data = reinterpret_cast<uint64_t*>(_mem_pool->allocate(size * sizeof(uint64_t)));
     col_vector->set_col_data(col_data);
-    
+
     std::vector<std::string> date_array;
     date_array.push_back("2017-09-07 00:00:00");
     date_array.push_back("2017-09-08 00:01:00");
@@ -426,7 +424,7 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
 
     // for has nulls
     col_vector->set_no_nulls(false);
-    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));  
+    bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
     memset(is_null, 0, size);
     col_vector->set_is_null(is_null);
     for (int i = 0; i < size; ++i) {

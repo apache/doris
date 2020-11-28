@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/arrow/row_block.h"
-
 #include <gtest/gtest.h>
+
 #include <sstream>
 
 #include "common/logging.h"
+#include "util/arrow/row_block.h"
 
 #define ARROW_UTIL_LOGGING_H
 #include <arrow/buffer.h>

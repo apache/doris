@@ -22,12 +22,12 @@
 #include <vector>
 
 #include "common/status.h"
-#include "util/slice.h"
-#include "olap/field.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "olap/field.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -70,9 +70,7 @@ public:
 
     void add_values(const void* values, size_t count);
 
-    void add_nulls(uint32_t count) {
-        _page_zone_map.has_null = true;
-    }
+    void add_nulls(uint32_t count) { _page_zone_map.has_null = true; }
 
     // mark the end of one data page so that we can finalize the corresponding zone map
     Status flush();
@@ -106,10 +104,8 @@ private:
 
 class ZoneMapIndexReader {
 public:
-    explicit ZoneMapIndexReader(const std::string& filename, const ZoneMapIndexPB* index_meta) :
-            _filename(filename),
-            _index_meta(index_meta) {
-    }
+    explicit ZoneMapIndexReader(const std::string& filename, const ZoneMapIndexPB* index_meta)
+            : _filename(filename), _index_meta(index_meta) {}
 
     // load all page zone maps into memory
     Status load(bool use_page_cache, bool kept_in_memory);

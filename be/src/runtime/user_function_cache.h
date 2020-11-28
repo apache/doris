@@ -33,9 +33,9 @@ struct UserFunctionCacheEntry;
 // Function) in future. A user defined function may be splitted
 // into several functions, for example, UDAF is splitted into
 // InitFn, MergeFn, FinalizeFn...
-// In Doris, we call UDF/UDAF/UDTF UserFunction, and we call 
+// In Doris, we call UDF/UDAF/UDTF UserFunction, and we call
 // implement function Function.
-// An UserFunction have a function id, we can find library with 
+// An UserFunction have a function id, we can find library with
 // this id. When we add user function into cache, we need to
 // download from URL and check its checksum. So if we find a function
 // with id, this function library is valid. And when user wants to
@@ -60,23 +60,18 @@ public:
     // cache entry if didn't need it.
     // If *entry is not true means that we should find symbol in this
     // entry.
-    Status get_function_ptr(int64_t fid,
-                           const std::string& symbol,
-                           const std::string& url,
-                           const std::string& checksum,
-                           void** fn_ptr,
-                           UserFunctionCacheEntry** entry);
+    Status get_function_ptr(int64_t fid, const std::string& symbol, const std::string& url,
+                            const std::string& checksum, void** fn_ptr,
+                            UserFunctionCacheEntry** entry);
     void release_entry(UserFunctionCacheEntry* entry);
 
 private:
     Status _load_cached_lib();
     Status _load_entry_from_lib(const std::string& dir, const std::string& file);
-    Status _get_cache_entry(
-        int64_t fid, const std::string& url,
-        const std::string& checksum, UserFunctionCacheEntry** output_entry);
+    Status _get_cache_entry(int64_t fid, const std::string& url, const std::string& checksum,
+                            UserFunctionCacheEntry** output_entry);
     Status _load_cache_entry(const std::string& url, UserFunctionCacheEntry* entry);
-    Status _download_lib(
-        const std::string& url, UserFunctionCacheEntry* entry);
+    Status _download_lib(const std::string& url, UserFunctionCacheEntry* entry);
     Status _load_cache_entry_internal(UserFunctionCacheEntry* entry);
 
     std::string _make_lib_file(int64_t function_id, const std::string& checksum);
@@ -90,4 +85,4 @@ private:
     std::unordered_map<int64_t, UserFunctionCacheEntry*> _entry_map;
 };
 
-}
+} // namespace doris

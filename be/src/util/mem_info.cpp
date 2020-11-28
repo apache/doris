@@ -19,16 +19,16 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <iostream>
-#include <fstream>
-#include <sstream>
 #include <unistd.h>
 
-#include "gutil/strings/split.h"
+#include <fstream>
+#include <iostream>
+#include <sstream>
 
+#include "gutil/strings/split.h"
+#include "util/cgroup_util.h"
 #include "util/pretty_printer.h"
 #include "util/string_parser.hpp"
-#include "util/cgroup_util.h"
 
 namespace doris {
 
@@ -54,8 +54,8 @@ void MemInfo::init() {
         }
 
         StringParser::ParseResult result;
-        int64_t mem_total_kb = StringParser::string_to_int<int64_t>(fields[1].data(),
-                               fields[1].size(), &result);
+        int64_t mem_total_kb =
+                StringParser::string_to_int<int64_t>(fields[1].data(), fields[1].size(), &result);
 
         if (result == StringParser::PARSE_SUCCESS) {
             // Entries in /proc/meminfo are in KB.
@@ -79,8 +79,7 @@ void MemInfo::init() {
         LOG(WARNING) << "Could not determine amount of physical memory on this machine.";
     }
 
-    LOG(INFO) << "Physical Memory: "
-              << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
+    LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
 
     _s_initialized = true;
 }
@@ -89,10 +88,9 @@ std::string MemInfo::debug_string() {
     DCHECK(_s_initialized);
     CGroupUtil util;
     std::stringstream stream;
-    stream << "Mem Info: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
-           << std::endl;
+    stream << "Mem Info: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES) << std::endl;
     stream << "CGroup Info: " << util.debug_string() << std::endl;
     return stream.str();
 }
 
-}
+} // namespace doris

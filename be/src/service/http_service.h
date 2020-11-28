@@ -43,4 +43,4 @@ private:
     std::unique_ptr<WebPageHandler> _web_page_handler;
 };
 
-}
+} // namespace doris

@@ -16,10 +16,10 @@
 // under the License.
 
 #pragma once
-#include "util/metrics.h"
-
 #include <map>
 #include <memory>
+
+#include "util/metrics.h"
 
 namespace doris {
 
@@ -32,8 +32,7 @@ class SnmpMetrics;
 
 class SystemMetrics {
 public:
-    SystemMetrics(MetricRegistry* registry,
-                  const std::set<std::string>& disk_devices,
+    SystemMetrics(MetricRegistry* registry, const std::set<std::string>& disk_devices,
                   const std::vector<std::string>& network_interfaces);
     ~SystemMetrics();
 
@@ -41,17 +40,13 @@ public:
     void update();
 
     void get_disks_io_time(std::map<std::string, int64_t>* map);
-    int64_t get_max_io_util(
-        const std::map<std::string, int64_t>& lst_value, int64_t interval_sec);
+    int64_t get_max_io_util(const std::map<std::string, int64_t>& lst_value, int64_t interval_sec);
 
-    void get_network_traffic(
-            std::map<std::string, int64_t>* send_map,
-            std::map<std::string, int64_t>* rcv_map);
-    void get_max_net_traffic(
-            const std::map<std::string, int64_t>& lst_send_map,
-            const std::map<std::string, int64_t>& lst_rcv_map,
-            int64_t interval_sec,
-            int64_t* send_rate, int64_t* rcv_rate);
+    void get_network_traffic(std::map<std::string, int64_t>* send_map,
+                             std::map<std::string, int64_t>* rcv_map);
+    void get_max_net_traffic(const std::map<std::string, int64_t>& lst_send_map,
+                             const std::map<std::string, int64_t>& lst_rcv_map,
+                             int64_t interval_sec, int64_t* send_rate, int64_t* rcv_rate);
 
 private:
     void _install_cpu_metrics(MetricEntity* entity);
@@ -92,4 +87,4 @@ private:
     std::shared_ptr<MetricEntity> _server_entity = nullptr;
 };
 
-}
+} // namespace doris

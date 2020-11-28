@@ -45,4 +45,4 @@ void AlphaRowsetMeta::clear_segment_group() {
     alpha_rowset_extra_meta_pb->clear_segment_groups();
 }
 
-}  // namespace doris
+} // namespace doris

@@ -17,16 +17,17 @@
 
 #include "http/action/metrics_action.h"
 
+#include <rapidjson/document.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
-#include <rapidjson/document.h>
 #include <rapidjson/writer.h>
+
 #include <string>
 
-#include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
+#include "http/http_request.h"
+#include "http/http_response.h"
 #include "runtime/exec_env.h"
 #include "util/metrics.h"
 

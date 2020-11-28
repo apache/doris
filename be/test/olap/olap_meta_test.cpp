@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
-#include <sstream>
+#include "olap/olap_meta.h"
 
 #include <gtest/gtest.h>
-#include <boost/filesystem.hpp>
 
-#include "olap/olap_meta.h"
+#include <boost/filesystem.hpp>
+#include <sstream>
+#include <string>
+
 #include "olap/olap_define.h"
 #include "util/file_utils.h"
 
@@ -106,20 +107,20 @@ TEST_F(OlapMetaTest, TestIterate) {
     }
     bool error_flag = false;
     s = _meta->iterate(META_COLUMN_FAMILY_INDEX, "hdr_",
-        [&error_flag](const std::string& key, const std::string& value) -> bool {
-            size_t pos = key.find_first_of("hdr_");
-            if (pos != 0) {
-                error_flag = true;
-            }
-            return true;
-        });
+                       [&error_flag](const std::string& key, const std::string& value) -> bool {
+                           size_t pos = key.find_first_of("hdr_");
+                           if (pos != 0) {
+                               error_flag = true;
+                           }
+                           return true;
+                       });
     ASSERT_EQ(false, error_flag);
     ASSERT_EQ(OLAP_SUCCESS, s);
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

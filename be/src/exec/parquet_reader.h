@@ -17,25 +17,25 @@
 
 #pragma once
 
-#include <stdint.h>
-
-#include <string>
-#include <map>
 #include <arrow/api.h>
+#include <arrow/buffer.h>
 #include <arrow/io/api.h>
 #include <arrow/io/file.h>
 #include <arrow/io/interfaces.h>
-#include <arrow/buffer.h>
 #include <parquet/api/reader.h>
 #include <parquet/api/writer.h>
 #include <parquet/arrow/reader.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/exception.h>
+#include <stdint.h>
+
+#include <map>
+#include <string>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "gen_cpp/Types_types.h"
 
 namespace doris {
 
@@ -50,40 +50,44 @@ class FileReader;
 
 class ParquetFile : public arrow::io::RandomAccessFile {
 public:
-    ParquetFile(FileReader *file);
+    ParquetFile(FileReader* file);
     virtual ~ParquetFile();
     arrow::Status Read(int64_t nbytes, int64_t* bytes_read, void* buffer) override;
-    arrow::Status ReadAt(int64_t position, int64_t nbytes, int64_t* bytes_read,
-                  void* out) override;
+    arrow::Status ReadAt(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) override;
     arrow::Status GetSize(int64_t* size) override;
     arrow::Status Seek(int64_t position) override;
     arrow::Status Read(int64_t nbytes, std::shared_ptr<arrow::Buffer>* out) override;
     arrow::Status Tell(int64_t* position) const override;
     arrow::Status Close() override;
     bool closed() const override;
+
 private:
-    FileReader *_file;
+    FileReader* _file;
     int64_t _pos = 0;
 };
 
 // Reader of broker parquet file
 class ParquetReaderWrap {
 public:
-    ParquetReaderWrap(FileReader *file_reader, int32_t num_of_columns_from_file);
+    ParquetReaderWrap(FileReader* file_reader, int32_t num_of_columns_from_file);
     virtual ~ParquetReaderWrap();
 
-    // Read 
-    Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs, MemPool* mem_pool, bool* eof);
+    // Read
+    Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                MemPool* mem_pool, bool* eof);
     void close();
     Status size(int64_t* size);
-    Status init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs, const std::string& timezone);
+    Status init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                               const std::string& timezone);
 
 private:
-    void fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value, int32_t len);
+    void fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value,
+                   int32_t len);
     Status column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs);
     Status set_field_null(Tuple* tuple, const SlotDescriptor* slot_desc);
     Status read_record_batch(const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof);
-    Status handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array, uint8_t *buf, int32_t *wbtyes);
+    Status handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array, uint8_t* buf,
+                            int32_t* wbtyes);
 
 private:
     const int32_t _num_of_columns_from_file;
@@ -104,9 +108,8 @@ private:
     int _rows_of_group; // rows in a group.
     int _current_line_of_group;
     int _current_line_of_batch;
-    
+
     std::string _timezone;
 };
 
-}
-
+} // namespace doris

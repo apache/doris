@@ -17,34 +17,31 @@
 
 #include "runtime/data_spliter.h"
 
-#include <sstream>
-
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include "exprs/expr.h"
+#include <sstream>
+
 #include "common/object_pool.h"
-#include "service/backend_options.h"
-#include "runtime/runtime_state.h"
-#include "runtime/raw_value.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
+#include "exprs/expr.h"
+#include "gen_cpp/DataSinks_types.h"
 #include "runtime/dpp_sink.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/mem_tracker.h"
-#include "util/uid_util.h"
-#include "util/runtime_profile.h"
+#include "runtime/raw_value.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/tuple_row.h"
+#include "service/backend_options.h"
 #include "util/file_utils.h"
-#include "gen_cpp/DataSinks_types.h"
+#include "util/runtime_profile.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
-DataSpliter::DataSpliter(const RowDescriptor& row_desc) :
-        _obj_pool(new ObjectPool()),
-        _row_desc(row_desc) {
-}
+DataSpliter::DataSpliter(const RowDescriptor& row_desc)
+        : _obj_pool(new ObjectPool()), _row_desc(row_desc) {}
 
-DataSpliter::~DataSpliter() {
-}
+DataSpliter::~DataSpliter() {}
 
 // We use the PartitionRange to compare here. It should not be a member function of PartitionInfo
 // class because there are some other member in it.
@@ -52,13 +49,13 @@ static bool compare_part_use_range(const PartitionInfo* v1, const PartitionInfo*
     return v1->range() < v2->range();
 }
 
-Status DataSpliter::from_thrift(
-        ObjectPool* pool, const TDataSplitSink& t_sink, DataSpliter* spliter) {
+Status DataSpliter::from_thrift(ObjectPool* pool, const TDataSplitSink& t_sink,
+                                DataSpliter* spliter) {
     VLOG_ROW << "TDataSplitSink: " << apache::thrift::ThriftDebugString(t_sink);
 
     // Partition Exprs
-    RETURN_IF_ERROR(Expr::create_expr_trees(
-            pool, t_sink.partition_exprs, &spliter->_partition_expr_ctxs));
+    RETURN_IF_ERROR(
+            Expr::create_expr_trees(pool, t_sink.partition_exprs, &spliter->_partition_expr_ctxs));
     // Partition infos
     int num_parts = t_sink.partition_infos.size();
     if (num_parts == 0) {
@@ -71,8 +68,7 @@ Status DataSpliter::from_thrift(
     }
 
     // partitions should be in ascending order
-    std::sort(spliter->_partition_infos.begin(),
-              spliter->_partition_infos.end(),
+    std::sort(spliter->_partition_infos.begin(), spliter->_partition_infos.end(),
               compare_part_use_range);
 
     // schema infos
@@ -87,7 +83,8 @@ Status DataSpliter::from_thrift(
 
 Status DataSpliter::prepare(RuntimeState* state) {
     std::stringstream title;
-    title << "DataSplitSink (dst_fragment_instance_id=" << print_id(state->fragment_instance_id()) << ")";
+    title << "DataSplitSink (dst_fragment_instance_id=" << print_id(state->fragment_instance_id())
+          << ")";
     RETURN_IF_ERROR(DataSink::prepare(state));
     RETURN_IF_ERROR(Expr::prepare(_partition_expr_ctxs, state, _row_desc, _expr_mem_tracker));
     for (auto& iter : _rollup_map) {
@@ -145,8 +142,8 @@ int DataSpliter::binary_find_partition(const PartRangeKey& key) const {
     return -1;
 }
 
-Status DataSpliter::process_partition(
-        RuntimeState* state, TupleRow* row, PartitionInfo** info, int32_t* part_index) {
+Status DataSpliter::process_partition(RuntimeState* state, TupleRow* row, PartitionInfo** info,
+                                      int32_t* part_index) {
     if (_partition_expr_ctxs.size() == 0) {
         *part_index = 0;
         *info = _partition_infos[0];
@@ -158,8 +155,8 @@ Status DataSpliter::process_partition(
         // construct a PartRangeKey
         PartRangeKey tmpPartKey;
         if (NULL != partition_val) {
-            RETURN_IF_ERROR(PartRangeKey::from_value(
-                ctx->root()->type().type, partition_val, &tmpPartKey));
+            RETURN_IF_ERROR(
+                    PartRangeKey::from_value(ctx->root()->type().type, partition_val, &tmpPartKey));
         } else {
             tmpPartKey = PartRangeKey::neg_infinite();
         }
@@ -177,9 +174,8 @@ Status DataSpliter::process_partition(
     return Status::OK();
 }
 
-Status DataSpliter::process_distribute(
-        RuntimeState* state, TupleRow* row,
-        const PartitionInfo* part, uint32_t* mod) {
+Status DataSpliter::process_distribute(RuntimeState* state, TupleRow* row,
+                                       const PartitionInfo* part, uint32_t* mod) {
     uint32_t hash_val = 0;
 
     for (auto& ctx : part->distributed_expr_ctxs()) {
@@ -199,12 +195,13 @@ Status DataSpliter::process_distribute(
     return Status::OK();
 }
 
-Status DataSpliter::send_row(
-        RuntimeState* state, const TabletDesc& desc, TupleRow* row, DppSink* dpp_sink) {
+Status DataSpliter::send_row(RuntimeState* state, const TabletDesc& desc, TupleRow* row,
+                             DppSink* dpp_sink) {
     RowBatch* batch = nullptr;
     auto batch_iter = _batch_map.find(desc);
     if (batch_iter == _batch_map.end()) {
-        batch = _obj_pool->add(new RowBatch(_row_desc, state->batch_size(), _expr_mem_tracker.get()));
+        batch = _obj_pool->add(
+                new RowBatch(_row_desc, state->batch_size(), _expr_mem_tracker.get()));
         _batch_map[desc] = batch;
     } else {
         batch = batch_iter->second;
@@ -213,8 +210,8 @@ Status DataSpliter::send_row(
     // Add this row to this batch
     int idx = batch->add_row();
     // Just deep copy this row
-    row->deep_copy(batch->get_row(idx), _row_desc.tuple_descriptors(),
-                   batch->tuple_data_pool(), false);
+    row->deep_copy(batch->get_row(idx), _row_desc.tuple_descriptors(), batch->tuple_data_pool(),
+                   false);
     batch->commit_last_row();
 
     // If this batch is full send this to dpp_sink
@@ -239,9 +236,7 @@ Status DataSpliter::process_one_row(RuntimeState* state, TupleRow* row) {
         state->set_error_row_number(state->get_error_row_number() + 1);
         state->set_normal_row_number(state->get_normal_row_number() - 1);
 
-        state->append_error_msg_to_file(
-                row->to_string(_row_desc),
-                status.get_error_msg());
+        state->append_error_msg_to_file(row->to_string(_row_desc), status.get_error_msg());
         return Status::OK();
     }
 
@@ -280,10 +275,11 @@ Status DataSpliter::close(RuntimeState* state, Status close_status) {
         for (const auto& iter : _batch_map) {
             if (iter.second->num_rows() > 0) {
                 DppSink* dpp_sink = _sink_map[iter.first];
-                Status status = dpp_sink->add_batch(_obj_pool.get(), state, iter.first, iter.second);
+                Status status =
+                        dpp_sink->add_batch(_obj_pool.get(), state, iter.first, iter.second);
                 if (UNLIKELY(is_ok && !status.ok())) {
                     LOG(WARNING) << "add_batch error"
-                                << " err_msg=" << status.get_error_msg();
+                                 << " err_msg=" << status.get_error_msg();
                     is_ok = false;
                     err_status = status;
                 }
@@ -300,8 +296,8 @@ Status DataSpliter::close(RuntimeState* state, Status close_status) {
         Status status = iter->finish(state);
         if (UNLIKELY(is_ok && !status.ok())) {
             LOG(WARNING) << "finish dpp_sink error"
-                    << " err_msg=" << status.get_error_msg()
-                    << " backend=" << BackendOptions::get_localhost();
+                         << " err_msg=" << status.get_error_msg()
+                         << " backend=" << BackendOptions::get_localhost();
             is_ok = false;
             err_status = status;
         }
@@ -313,7 +309,7 @@ Status DataSpliter::close(RuntimeState* state, Status close_status) {
     for (auto iter : _partition_infos) {
         iter->close(state);
     }
-  
+
     _expr_mem_tracker.reset();
     _closed = true;
     if (is_ok) {
@@ -323,4 +319,4 @@ Status DataSpliter::close(RuntimeState* state, Status close_status) {
     }
 }
 
-}
+} // namespace doris

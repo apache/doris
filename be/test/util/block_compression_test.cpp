@@ -18,20 +18,21 @@
 #include "util/block_compression.h"
 
 #include <gtest/gtest.h>
+
 #include <iostream>
 
 namespace doris {
 class BlockCompressionTest : public testing::Test {
 public:
-    BlockCompressionTest() { }
-    virtual ~BlockCompressionTest() {
-    }
+    BlockCompressionTest() {}
+    virtual ~BlockCompressionTest() {}
 };
 
 static std::string generate_str(size_t len) {
-    static char charset[] = "0123456789"
-        "abcdefghijklmnopqrstuvwxyz"
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    static char charset[] =
+            "0123456789"
+            "abcdefghijklmnopqrstuvwxyz"
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     std::string result;
     result.resize(len);
     for (int i = 0; i < len; ++i) {
@@ -69,10 +70,8 @@ void test_single_slice(segment_v2::CompressionTypePB type) {
             // snappy has no return value if given buffer is not enough
             // NOTE: For ZLIB, we even get OK with a insufficient output
             // when uncompressed size is 1
-            if ((type == segment_v2::CompressionTypePB::ZLIB &&  uncompressed.size() > 1) &&
-                type != segment_v2::CompressionTypePB::SNAPPY &&
-                uncompressed.size() > 0) {
-
+            if ((type == segment_v2::CompressionTypePB::ZLIB && uncompressed.size() > 1) &&
+                type != segment_v2::CompressionTypePB::SNAPPY && uncompressed.size() > 0) {
                 Slice uncompressed_slice(uncompressed);
                 uncompressed_slice.size -= 1;
                 st = codec->decompress(compressed_slice, &uncompressed_slice);
@@ -159,10 +158,9 @@ TEST_F(BlockCompressionTest, multi) {
     test_multi_slices(segment_v2::CompressionTypePB::LZ4F);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

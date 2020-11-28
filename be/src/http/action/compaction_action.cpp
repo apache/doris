@@ -17,22 +17,22 @@
 
 #include "http/action/compaction_action.h"
 
-#include <sstream>
-#include <string>
 #include <sys/syscall.h>
 
+#include <sstream>
+#include <string>
+
+#include "common/logging.h"
+#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "http/http_status.h"
-
-#include "common/logging.h"
-#include "gutil/strings/substitute.h"
-#include "olap/olap_define.h"
-#include "olap/storage_engine.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
+#include "olap/olap_define.h"
+#include "olap/storage_engine.h"
 #include "util/json_util.h"
 
 namespace doris {
@@ -42,8 +42,8 @@ const static std::string HEADER_JSON = "application/json";
 bool CompactionAction::_is_compaction_running = false;
 std::mutex CompactionAction::_compaction_running_mutex;
 
-Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id, uint32_t* schema_hash) {
-    
+Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id,
+                                      uint32_t* schema_hash) {
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
     std::string req_schema_hash = req->param(TABLET_SCHEMA_HASH_KEY);
     if (req_tablet_id == "" && req_schema_hash == "") {
@@ -65,10 +65,9 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id, uin
 
 // for viewing the compaction status
 Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* json_result) {
-    
     uint64_t tablet_id = 0;
     uint32_t schema_hash = 0;
-    
+
     Status status = _check_param(req, &tablet_id, &schema_hash);
     RETURN_IF_ERROR(status);
 
@@ -82,19 +81,19 @@ Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* 
     return Status::OK();
 }
 
-Status CompactionAction::_handle_run_compaction(HttpRequest *req, std::string* json_result) {
-
+Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* json_result) {
     // 1. param check
     uint64_t tablet_id = 0;
     uint32_t schema_hash = 0;
-    
+
     // check req_tablet_id and req_schema_hash is not empty
     Status check_status = _check_param(req, &tablet_id, &schema_hash);
     RETURN_IF_ERROR(check_status);
 
     std::string compaction_type = req->param(PARAM_COMPACTION_TYPE);
     // check compaction_type is not empty and equals base or cumulative
-    if (compaction_type == "" && !(compaction_type == PARAM_COMPACTION_BASE || compaction_type == PARAM_COMPACTION_CUMULATIVE)) {
+    if (compaction_type == "" && !(compaction_type == PARAM_COMPACTION_BASE ||
+                                   compaction_type == PARAM_COMPACTION_CUMULATIVE)) {
         return Status::NotSupported("The compaction type is not supported");
     }
 
@@ -110,8 +109,8 @@ Status CompactionAction::_handle_run_compaction(HttpRequest *req, std::string* j
     }
 
     // 3. execute compaction task
-    std::packaged_task<OLAPStatus()> task([this, tablet, compaction_type]() { 
-            return _execute_compaction_callback(tablet, compaction_type);
+    std::packaged_task<OLAPStatus()> task([this, tablet, compaction_type]() {
+        return _execute_compaction_callback(tablet, compaction_type);
     });
     std::future<OLAPStatus> future_obj = task.get_future();
 
@@ -121,7 +120,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest *req, std::string* j
         if (_is_compaction_running) {
             return Status::TooManyTasks("Manual compaction task is running");
         } else {
-            // 3.2 execute the compaction task and set compaction task running 
+            // 3.2 execute the compaction task and set compaction task running
             _is_compaction_running = true;
             std::thread(std::move(task)).detach();
         }
@@ -137,20 +136,21 @@ Status CompactionAction::_handle_run_compaction(HttpRequest *req, std::string* j
                     strings::Substitute("fail to execute compaction, error = $0", olap_status));
         }
     } else {
-        LOG(INFO) << "Manual compaction task is timeout for waiting " << (status == std::future_status::timeout);
+        LOG(INFO) << "Manual compaction task is timeout for waiting "
+                  << (status == std::future_status::timeout);
     }
-   
+
     LOG(INFO) << "Manual compaction task is successfully triggered";
-    *json_result = "{\"status\": \"Success\", \"msg\": \"compaction task is successfully triggered.\"}";
+    *json_result =
+            "{\"status\": \"Success\", \"msg\": \"compaction task is successfully triggered.\"}";
 
     return Status::OK();
 }
 
-Status CompactionAction::_handle_run_status_compaction(HttpRequest *req, std::string* json_result) {
-
+Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
     uint32_t schema_hash = 0;
-    
+
     // check req_tablet_id and req_schema_hash is not empty
     Status check_status = _check_param(req, &tablet_id, &schema_hash);
     RETURN_IF_ERROR(check_status);
@@ -186,8 +186,8 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest *req, std::st
             msg = "this tablet_id is running";
             compaction_type = "cumulative";
             run_status = 1;
-            *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, schema_hash,
-                                            compaction_type);
+            *json_result = strings::Substitute(json_template, run_status, msg, tablet_id,
+                                               schema_hash, compaction_type);
             return Status::OK();
         }
     }
@@ -199,19 +199,19 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest *req, std::st
             msg = "this tablet_id is running";
             compaction_type = "base";
             run_status = 1;
-            *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, schema_hash,
-                                            compaction_type);
+            *json_result = strings::Substitute(json_template, run_status, msg, tablet_id,
+                                               schema_hash, compaction_type);
             return Status::OK();
         }
     }
     // not running any compaction
     *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, schema_hash,
-                                           compaction_type);
+                                       compaction_type);
     return Status::OK();
 }
 
 OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
-                                                    const std::string& compaction_type) {
+                                                          const std::string& compaction_type) {
     OLAPStatus status = OLAP_SUCCESS;
     if (compaction_type == PARAM_COMPACTION_BASE) {
         std::string tracker_label = "base compaction " + std::to_string(syscall(__NR_gettid));
@@ -221,7 +221,7 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
             if (res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
                 LOG(WARNING) << "failed to init base compaction. res=" << res
-                            << ", table=" << tablet->full_name();
+                             << ", table=" << tablet->full_name();
             }
         }
         status = res;
@@ -234,12 +234,12 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
             if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 LOG(WARNING) << "failed to do cumulative compaction. res=" << res
-                            << ", table=" << tablet->full_name();
+                             << ", table=" << tablet->full_name();
             }
         }
         status = res;
     }
-    
+
     LOG(INFO) << "Manual compaction task finish, status = " << status;
     std::lock_guard<std::mutex> lock(_compaction_running_mutex);
     _is_compaction_running = false;
@@ -275,6 +275,5 @@ void CompactionAction::handle(HttpRequest* req) {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
     }
-
 }
 } // end namespace doris

@@ -32,7 +32,7 @@ namespace doris {
 // stream compression.
 class BlockCompressionCodec {
 public:
-    virtual ~BlockCompressionCodec() { }
+    virtual ~BlockCompressionCodec() {}
 
     // This function will compress input data into output.
     // output should be preallocated, and its capacity must be large enough
@@ -60,7 +60,7 @@ public:
 // data. And client doesn't have to release the codec.
 //
 // Return not OK, if error happens.
-Status get_block_compression_codec(
-    segment_v2::CompressionTypePB type, const BlockCompressionCodec** codec);
+Status get_block_compression_codec(segment_v2::CompressionTypePB type,
+                                   const BlockCompressionCodec** codec);
 
-}
+} // namespace doris

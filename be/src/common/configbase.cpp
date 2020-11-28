@@ -246,8 +246,8 @@ void Properties::set(const std::string& key, const std::string& val) {
 }
 
 bool Properties::dump(const std::string& conffile) {
-    std::vector<std::string> files = { conffile };
-    Status st = FileSystemUtil::remove_paths(files); 
+    std::vector<std::string> files = {conffile};
+    Status st = FileSystemUtil::remove_paths(files);
     if (!st.ok()) {
         return false;
     }
@@ -261,7 +261,7 @@ bool Properties::dump(const std::string& conffile) {
     out << "# You can modify this file manually, and the configurations in this file\n";
     out << "# will overwrite the configurations in be.conf\n";
     out << "\n";
-    
+
     for (auto const& iter : file_conf_map) {
         out << iter.first << " = " << iter.second << "\n";
     }
@@ -291,20 +291,19 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
     return out;
 }
 
-#define SET_FIELD(FIELD, TYPE, FILL_CONFMAP, SET_TO_DEFAULT)                                                  \
-    if (strcmp((FIELD).type, #TYPE) == 0) {                                                                   \
-        if (!props.get_or_default(                                                                            \
-                (FIELD).name, ((SET_TO_DEFAULT) ? (FIELD).defval : nullptr),                                  \
-                *reinterpret_cast<TYPE*>((FIELD).storage))) {                                                 \
-            std::cerr << "config field error: " << (FIELD).name << std::endl;                                 \
-            return false;                                                                                     \
-        }                                                                                                     \
-        if (FILL_CONFMAP) {                                                                                   \
-            std::ostringstream oss;                                                                           \
-            oss << (*reinterpret_cast<TYPE*>((FIELD).storage));                                               \
-            (*full_conf_map)[(FIELD).name] = oss.str();                                                       \
-        }                                                                                                     \
-        continue;                                                                                             \
+#define SET_FIELD(FIELD, TYPE, FILL_CONFMAP, SET_TO_DEFAULT)                                   \
+    if (strcmp((FIELD).type, #TYPE) == 0) {                                                    \
+        if (!props.get_or_default((FIELD).name, ((SET_TO_DEFAULT) ? (FIELD).defval : nullptr), \
+                                  *reinterpret_cast<TYPE*>((FIELD).storage))) {                \
+            std::cerr << "config field error: " << (FIELD).name << std::endl;                  \
+            return false;                                                                      \
+        }                                                                                      \
+        if (FILL_CONFMAP) {                                                                    \
+            std::ostringstream oss;                                                            \
+            oss << (*reinterpret_cast<TYPE*>((FIELD).storage));                                \
+            (*full_conf_map)[(FIELD).name] = oss.str();                                        \
+        }                                                                                      \
+        continue;                                                                              \
     }
 
 // init conf fields
@@ -355,12 +354,11 @@ bool init(const char* conf_file, bool fillconfmap, bool must_exist, bool set_to_
         return Status::OK();                                                         \
     }
 
-
 // write config to be_custom.conf
 // the caller need to make sure that the given config is valid
 bool persist_config(const std::string& field, const std::string& value) {
     // lock to make sure only one thread can modify the be_custom.conf
-    std::lock_guard<std::mutex> l(custom_conf_lock); 
+    std::lock_guard<std::mutex> l(custom_conf_lock);
 
     static const string conffile = string(getenv("DORIS_HOME")) + "/conf/be_custom.conf";
     Status st = FileSystemUtil::create_file(conffile);

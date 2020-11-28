@@ -84,9 +84,9 @@ private:
     // Prepare(), Open(), and Close() on input ExprContexts (instead of calling the
     // analogous functions in this class). Used for testing.
     Status init(const std::vector<ExprContext*>& lhs_ordering_expr_ctxs,
-            const std::vector<ExprContext*>& rhs_ordering_expr_ctxs);
+                const std::vector<ExprContext*>& rhs_ordering_expr_ctxs);
 };
 
-}
+} // namespace doris
 
 #endif
