@@ -1311,12 +1311,12 @@ public class Coordinator {
             if (!execHostPort.hostname.equals(minLocation.server.hostname) ||
                     execHostPort.port != minLocation.server.port) {
                 assignedBytesPerHost.put(minLocation.server,
-                        assignedBytesPerHost.get(minLocation.server) - scanRangeLength);
+                        assignedBytesPerHost.get(minLocation.server) - step);
                 Long id = assignedBytesPerHost.get(execHostPort);
                 if (id == null) {
                     assignedBytesPerHost.put(execHostPort, 0L);
                 } else {
-                    assignedBytesPerHost.put(execHostPort, id+scanRangeLength);
+                    assignedBytesPerHost.put(execHostPort, id + step);
                 }
             }
             this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
