@@ -133,6 +133,11 @@ public:
     IntGauge* tablet_cumulative_max_compaction_score;
     IntGauge* tablet_base_max_compaction_score;
 
+    // permits have been used for all compaction tasks
+    IntGauge* compaction_used_permits;
+    // permits required by the compaction task which is waitting for permits
+    IntGauge* compaction_waitting_permits;
+
     // The following metrics will be calculated
     // by metric calculator
     IntGauge* push_request_write_bytes_per_second;

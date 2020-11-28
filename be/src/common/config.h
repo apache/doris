@@ -324,6 +324,9 @@ namespace config {
     // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
     CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
 
+    // Merge log will be printed for each "row_step_for_compaction_merge_log" rows merged during compaction
+    CONF_mInt64(row_step_for_compaction_merge_log, "0");
+
     // Threshold to logging compaction trace, in seconds.
     CONF_mInt32(base_compaction_trace_threshold, "10");
     CONF_mInt32(cumulative_compaction_trace_threshold, "2");
