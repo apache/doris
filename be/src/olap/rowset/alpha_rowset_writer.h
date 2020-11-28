@@ -18,19 +18,15 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_WRITER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_WRITER_H
 
+#include <vector>
+
+#include "olap/rowset/column_data_writer.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_group.h"
-#include "olap/rowset/column_data_writer.h"
-
-#include <vector>
 
 namespace doris {
 
-enum WriterState {
-    WRITER_CREATED,
-    WRITER_INITED,
-    WRITER_FLUSHED
-};
+enum WriterState { WRITER_CREATED, WRITER_INITED, WRITER_FLUSHED };
 
 class AlphaRowsetWriter : public RowsetWriter {
 public:
@@ -39,17 +35,13 @@ public:
 
     OLAPStatus init(const RowsetWriterContext& rowset_writer_context) override;
 
-    OLAPStatus add_row(const RowCursor& row) override {
-        return _add_row(row);
-    }
-    OLAPStatus add_row(const ContiguousRow& row) override {
-        return _add_row(row);
-    }
+    OLAPStatus add_row(const RowCursor& row) override { return _add_row(row); }
+    OLAPStatus add_row(const ContiguousRow& row) override { return _add_row(row); }
 
     // add rowset by create hard link
     OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
-    OLAPStatus add_rowset_for_linked_schema_change(
-            RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) override;
+    OLAPStatus add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
+                                                   const SchemaMapping& schema_mapping) override;
 
     OLAPStatus flush() override;
 
@@ -65,9 +57,9 @@ public:
 private:
     OLAPStatus _init();
 
-    template<typename RowType>
+    template <typename RowType>
     OLAPStatus _add_row(const RowType& row);
-    
+
     // validate rowset build arguments before create rowset to make sure correctness
     bool _validate_rowset();
 

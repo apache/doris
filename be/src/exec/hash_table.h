@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_H
 #define DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_H
 
-#include <vector>
 #include <boost/cstdint.hpp>
+#include <vector>
 
 #include "codegen/doris_ir.h"
 #include "common/logging.h"
@@ -76,6 +76,7 @@ using std::vector;
 class HashTable {
 private:
     struct Node;
+
 public:
     class Iterator;
 
@@ -88,14 +89,10 @@ public:
     //  - mem_limits: if non-empty, all memory allocation for nodes and for buckets is
     //    tracked against those limits; the limits must be valid until the d'tor is called
     //  - initial_seed: Initial seed value to use when computing hashes for rows
-    HashTable(
-        const std::vector<ExprContext*>& build_exprs,
-        const std::vector<ExprContext*>& probe_exprs,
-        int num_build_tuples, bool stores_nulls, 
-        const std::vector<bool>& finds_nulls,
-        int32_t initial_seed,
-        const std::shared_ptr<MemTracker>& mem_tracker,
-        int64_t num_buckets);
+    HashTable(const std::vector<ExprContext*>& build_exprs,
+              const std::vector<ExprContext*>& probe_exprs, int num_build_tuples, bool stores_nulls,
+              const std::vector<bool>& finds_nulls, int32_t initial_seed,
+              const std::shared_ptr<MemTracker>& mem_tracker, int64_t num_buckets);
 
     ~HashTable();
 
@@ -120,7 +117,6 @@ public:
         }
     }
 
-
     // Returns the start iterator for all rows that match 'probe_row'.  'probe_row' is
     // evaluated with _probe_expr_ctxs.  The iterator can be iterated until HashTable::end()
     // to find all the matching rows.
@@ -133,24 +129,16 @@ public:
     Iterator IR_ALWAYS_INLINE find(TupleRow* probe_row, bool probe = true);
 
     // Returns number of elements in the hash table
-    int64_t size() {
-        return _num_nodes;
-    }
+    int64_t size() { return _num_nodes; }
 
     // Returns the number of buckets
-    int64_t num_buckets() {
-        return _buckets.size();
-    }
+    int64_t num_buckets() { return _buckets.size(); }
 
     // true if any of the MemTrackers was exceeded
-    bool exceeded_limit() const {
-        return _exceeded_limit;
-    }
+    bool exceeded_limit() const { return _exceeded_limit; }
 
     // Returns the load factor (the number of non-empty buckets)
-    float load_factor() {
-        return _num_filled_buckets / static_cast<float>(_buckets.size());
-    }
+    float load_factor() { return _num_filled_buckets / static_cast<float>(_buckets.size()); }
 
     // Returns the number of bytes allocated to the hash table
     int64_t byte_size() const {
@@ -167,18 +155,14 @@ public:
     }
 
     // Returns if the expr at 'expr_idx' evaluated to NULL for the last row.
-    bool last_expr_value_null(int expr_idx) const {
-        return _expr_value_null_bits[expr_idx];
-    }
+    bool last_expr_value_null(int expr_idx) const { return _expr_value_null_bits[expr_idx]; }
 
     // Return beginning of hash table.  Advancing this iterator will traverse all
     // elements.
     Iterator begin();
 
     // Returns end marker
-    Iterator end() {
-        return Iterator();
-    }
+    Iterator end() { return Iterator(); }
 
     // Dump out the entire hash table to string.  If skip_empty, empty buckets are
     // skipped.  If build_desc is non-null, the build rows will be output.  Otherwise
@@ -188,13 +172,12 @@ public:
     // stl-like iterator interface.
     class Iterator {
     public:
-        Iterator() : _table(NULL), _bucket_idx(-1), _node_idx(-1) {
-        }
+        Iterator() : _table(NULL), _bucket_idx(-1), _node_idx(-1) {}
 
         // Iterates to the next element.  In the case where the iterator was
         // from a Find, this will lazily evaluate that bucket, only returning
         // TupleRows that match the current scan row.
-        template<bool check_match>
+        template <bool check_match>
         void IR_ALWAYS_INLINE next();
 
         // Returns the current row or NULL if at end.
@@ -206,32 +189,26 @@ public:
         }
 
         // Returns Hash
-        uint32_t get_hash() {
-            return _table->get_node(_node_idx)->_hash;
-        }
+        uint32_t get_hash() { return _table->get_node(_node_idx)->_hash; }
 
         // Returns if the iterator is at the end
-        bool has_next() {
-            return _node_idx != -1;
-        }
+        bool has_next() { return _node_idx != -1; }
 
         // Returns true if this iterator is at the end, i.e. get_row() cannot be called.
-        bool at_end() {
-            return _node_idx == -1;
-        }
+        bool at_end() { return _node_idx == -1; }
 
         // Sets as matched the node currently pointed by the iterator. The iterator
         // cannot be AtEnd().
         void set_matched() {
             DCHECK(!at_end());
-            Node *node = _table->get_node(_node_idx);
+            Node* node = _table->get_node(_node_idx);
             node->matched = true;
         }
 
         bool matched() {
-              DCHECK(!at_end());
-            Node *node = _table->get_node(_node_idx);
-              return node->matched;
+            DCHECK(!at_end());
+            Node* node = _table->get_node(_node_idx);
+            return node->matched;
         }
 
         bool operator==(const Iterator& rhs) {
@@ -245,12 +222,8 @@ public:
     private:
         friend class HashTable;
 
-        Iterator(HashTable* table, int bucket_idx, int64_t node, uint32_t hash) :
-            _table(table),
-            _bucket_idx(bucket_idx),
-            _node_idx(node),
-            _scan_hash(hash) {
-        }
+        Iterator(HashTable* table, int bucket_idx, int64_t node, uint32_t hash)
+                : _table(table), _bucket_idx(bucket_idx), _node_idx(node), _scan_hash(hash) {}
 
         HashTable* _table;
         // Current bucket idx
@@ -268,14 +241,11 @@ private:
     // Header portion of a Node.  The node data (TupleRow) is right after the
     // node memory to maximize cache hits.
     struct Node {
-        int64_t _next_idx;  // chain to next node for collisions
-        uint32_t _hash;     // Cache of the hash for _data
+        int64_t _next_idx; // chain to next node for collisions
+        uint32_t _hash;    // Cache of the hash for _data
         bool matched;
 
-        Node():_next_idx(-1),
-               _hash(-1),
-               matched(false) {
-        } 
+        Node() : _next_idx(-1), _hash(-1), matched(false) {}
 
         TupleRow* data() {
             uint8_t* mem = reinterpret_cast<uint8_t*>(this);
@@ -287,9 +257,7 @@ private:
     struct Bucket {
         int64_t _node_idx;
 
-        Bucket() {
-            _node_idx = -1;
-        }
+        Bucket() { _node_idx = -1; }
     };
 
     // Returns the next non-empty bucket and updates idx to be the index of that bucket.
@@ -316,7 +284,7 @@ private:
     // Moves a node from one bucket to another. 'previous_node' refers to the
     // node (if any) that's chained before this node in from_bucket's linked list.
     void move_node(Bucket* from_bucket, Bucket* to_bucket, int64_t node_idx, Node* node,
-                  Node* previous_node);
+                   Node* previous_node);
 
     // Evaluate the exprs over row and cache the results in '_expr_values_buffer'.
     // Returns whether any expr evaluated to NULL
@@ -328,15 +296,11 @@ private:
     // cross compiled because we need to be able to differentiate between EvalBuildRow
     // and EvalProbeRow by name and the _build_expr_ctxs/_probe_expr_ctxs are baked into
     // the codegen'd function.
-    bool IR_NO_INLINE eval_build_row(TupleRow* row) {
-        return eval_row(row, _build_expr_ctxs);
-    }
+    bool IR_NO_INLINE eval_build_row(TupleRow* row) { return eval_row(row, _build_expr_ctxs); }
 
     // Evaluate 'row' over _probe_expr_ctxs caching the results in '_expr_values_buffer'
     // This will be replaced by codegen.
-    bool IR_NO_INLINE eval_probe_row(TupleRow* row) {
-        return eval_row(row, _probe_expr_ctxs);
-    }
+    bool IR_NO_INLINE eval_probe_row(TupleRow* row) { return eval_row(row, _probe_expr_ctxs); }
 
     // Compute the hash of the values in _expr_values_buffer.
     // This will be replaced by codegen.  We don't want this inlined for replacing
@@ -399,7 +363,7 @@ private:
     // max number of nodes that can be stored in '_nodes' before realloc
     int64_t _nodes_capacity;
 
-    bool _exceeded_limit;   // true if any of _mem_trackers[].limit_exceeded()
+    bool _exceeded_limit; // true if any of _mem_trackers[].limit_exceeded()
 
     std::shared_ptr<MemTracker> _mem_tracker;
     // Set to true if the hash table exceeds the memory limit. If this is set,
@@ -433,6 +397,6 @@ private:
     uint8_t* _expr_value_null_bits;
 };
 
-}
+} // namespace doris
 
 #endif

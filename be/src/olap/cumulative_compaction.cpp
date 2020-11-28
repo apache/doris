@@ -16,6 +16,7 @@
 // under the License.
 
 #include "olap/cumulative_compaction.h"
+
 #include "util/doris_metrics.h"
 #include "util/time.h"
 #include "util/trace.h"
@@ -44,8 +45,8 @@ OLAPStatus CumulativeCompaction::compact() {
     // 1.calculate cumulative point
     _tablet->calculate_cumulative_point();
     TRACE("calculated cumulative point");
-    VLOG(1) << "after calculate, current cumulative point is " << _tablet->cumulative_layer_point() 
-        << ", tablet=" << _tablet->full_name() ;
+    VLOG(1) << "after calculate, current cumulative point is " << _tablet->cumulative_layer_point()
+            << ", tablet=" << _tablet->full_name();
 
     // 2. pick rowsets to compact
     RETURN_NOT_OK(pick_rowsets_to_compact());
@@ -61,8 +62,8 @@ OLAPStatus CumulativeCompaction::compact() {
     _state = CompactionState::SUCCESS;
 
     // 5. set cumulative point
-    _tablet->cumulative_compaction_policy()->update_cumulative_point(_tablet.get(), _input_rowsets, _output_rowset,
-                                                                     _last_delete_version);
+    _tablet->cumulative_compaction_policy()->update_cumulative_point(
+            _tablet.get(), _input_rowsets, _output_rowset, _last_delete_version);
     LOG(INFO) << "after cumulative compaction, current cumulative point is "
               << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
@@ -92,9 +93,9 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     if (!missing_versions.empty()) {
         DCHECK(missing_versions.size() == 2);
         LOG(WARNING) << "There are missed versions among rowsets. "
-            << "prev rowset verison=" << missing_versions[0]
-            << ", next rowset version=" << missing_versions[1]
-            << ", tablet=" << _tablet->full_name();
+                     << "prev rowset verison=" << missing_versions[0]
+                     << ", next rowset version=" << missing_versions[1]
+                     << ", tablet=" << _tablet->full_name();
     }
 
     size_t compaction_score = 0;
@@ -125,14 +126,16 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         int64_t last_cumu = _tablet->last_cumu_compaction_success_time();
         int64_t last_base = _tablet->last_base_compaction_success_time();
         if (last_cumu != 0 || last_base != 0) {
-            int64_t interval_threshold = config::base_compaction_interval_seconds_since_last_operation * 1000;
+            int64_t interval_threshold =
+                    config::base_compaction_interval_seconds_since_last_operation * 1000;
             int64_t cumu_interval = now - last_cumu;
             int64_t base_interval = now - last_base;
             if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
                 // before increasing cumulative point, we should make sure all rowsets are non-overlapping.
                 // if at least one rowset is overlapping, we should compact them first.
                 CHECK(candidate_rowsets.size() == transient_size)
-                    << "tablet: " << _tablet->full_name() << ", "<<  candidate_rowsets.size() << " vs. " << transient_size;
+                        << "tablet: " << _tablet->full_name() << ", " << candidate_rowsets.size()
+                        << " vs. " << transient_size;
                 for (auto& rs : candidate_rowsets) {
                     if (rs->rowset_meta()->is_segments_overlapping()) {
                         _input_rowsets = candidate_rowsets;
@@ -160,4 +163,4 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     return OLAP_SUCCESS;
 }
 
-}  // namespace doris
+} // namespace doris

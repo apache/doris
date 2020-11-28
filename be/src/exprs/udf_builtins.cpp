@@ -19,6 +19,7 @@
 
 #include <ctype.h>
 #include <math.h>
+
 #include "common/logging.h"
 
 namespace doris {
@@ -62,12 +63,9 @@ DecimalV2Val UdfBuiltins::decimal_abs(FunctionContext* context, const DecimalV2V
     return result;
 }
 
-
 //for test
-BigIntVal UdfBuiltins::add_two_number(
-        FunctionContext* context,
-        const BigIntVal& v1,
-        const BigIntVal& v2) {
+BigIntVal UdfBuiltins::add_two_number(FunctionContext* context, const BigIntVal& v1,
+                                      const BigIntVal& v2) {
     if (v1.is_null || v2.is_null) {
         return BigIntVal::null();
     }
@@ -76,17 +74,14 @@ BigIntVal UdfBuiltins::add_two_number(
 }
 
 //for test
-StringVal UdfBuiltins::sub_string(
-        FunctionContext* context,
-        const StringVal& v1,
-        const IntVal& begin,
-        const IntVal& len) {
+StringVal UdfBuiltins::sub_string(FunctionContext* context, const StringVal& v1,
+                                  const IntVal& begin, const IntVal& len) {
     if (v1.is_null || begin.is_null || len.is_null) {
         return StringVal::null();
     }
 
     int substring_len = (len.val > v1.len) ? v1.len : len.val;
-    StringVal  v = StringVal(context, substring_len);
+    StringVal v = StringVal(context, substring_len);
     memcpy(v.ptr, v1.ptr + begin.val, substring_len);
     return v;
 }
@@ -109,5 +104,4 @@ StringVal UdfBuiltins::lower(FunctionContext* context, const StringVal& v) {
     return result;
 }
 
-}
-
+} // namespace doris

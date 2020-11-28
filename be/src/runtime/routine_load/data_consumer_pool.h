@@ -27,7 +27,6 @@
 #include "util/lru_cache.hpp"
 #include "util/thread.h"
 
-
 namespace doris {
 
 class DataConsumer;
@@ -39,9 +38,7 @@ class Status;
 class DataConsumerPool {
 public:
     DataConsumerPool(int64_t max_pool_size)
-        : _max_pool_size(max_pool_size),
-          _stop_background_threads_latch(1) {
-    }
+            : _max_pool_size(max_pool_size), _stop_background_threads_latch(1) {}
 
     ~DataConsumerPool() {
         _stop_background_threads_latch.count_down();
@@ -52,14 +49,10 @@ public:
 
     // get a already initialized consumer from cache,
     // if not found in cache, create a new one.
-    Status get_consumer(
-        StreamLoadContext* ctx,
-        std::shared_ptr<DataConsumer>* ret);
+    Status get_consumer(StreamLoadContext* ctx, std::shared_ptr<DataConsumer>* ret);
 
     // get several consumers and put them into group
-    Status get_consumer_grp(
-        StreamLoadContext* ctx,
-        std::shared_ptr<DataConsumerGroup>* ret);
+    Status get_consumer_grp(StreamLoadContext* ctx, std::shared_ptr<DataConsumerGroup>* ret);
 
     // return the consumer to the pool
     void return_consumer(std::shared_ptr<DataConsumer> consumer);

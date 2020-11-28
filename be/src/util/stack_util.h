@@ -26,4 +26,4 @@ namespace doris {
 // for recursive calls.
 std::string get_stack_trace();
 
-}
+} // namespace doris

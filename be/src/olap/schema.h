@@ -21,10 +21,9 @@
 
 #include "olap/aggregate_func.h"
 #include "olap/field.h"
+#include "olap/row_cursor_cell.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
-#include "olap/field.h"
-#include "olap/row_cursor_cell.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
@@ -104,25 +103,15 @@ public:
     const std::vector<Field*>& columns() const { return _cols; }
     const Field* column(ColumnId cid) const { return _cols[cid]; }
 
-    size_t num_key_columns() const {
-        return _num_key_columns;
-    }
-    size_t schema_size() const {
-        return _schema_size;
-    }
+    size_t num_key_columns() const { return _num_key_columns; }
+    size_t schema_size() const { return _schema_size; }
 
-    size_t column_offset(ColumnId cid) const {
-        return _col_offsets[cid];
-    }
+    size_t column_offset(ColumnId cid) const { return _col_offsets[cid]; }
 
     // TODO(lingbin): What is the difference between column_size() and index_size()
-    size_t column_size(ColumnId cid) const {
-        return _cols[cid]->size();
-    }
+    size_t column_size(ColumnId cid) const { return _cols[cid]->size(); }
 
-    size_t index_size(ColumnId cid) const {
-        return _cols[cid]->index_size();
-    }
+    size_t index_size(ColumnId cid) const { return _cols[cid]->index_size(); }
 
     bool is_null(const char* row, int index) const {
         return *reinterpret_cast<const bool*>(row + _col_offsets[index]);
@@ -138,11 +127,9 @@ public:
     bool has_sequence_col() const { return _has_sequence_col; }
 
 private:
-    void _init(const std::vector<TabletColumn>& cols,
-               const std::vector<ColumnId>& col_ids,
+    void _init(const std::vector<TabletColumn>& cols, const std::vector<ColumnId>& col_ids,
                size_t num_key_columns);
-    void _init(const std::vector<const Field*>& cols,
-               const std::vector<ColumnId>& col_ids,
+    void _init(const std::vector<const Field*>& cols, const std::vector<ColumnId>& col_ids,
                size_t num_key_columns);
 
     void _copy_from(const Schema& other);

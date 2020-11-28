@@ -16,34 +16,31 @@
 // under the License.
 
 #include "exec/schema_scanner.h"
-#include "exec/schema_scanner/schema_tables_scanner.h"
-#include "exec/schema_scanner/schema_schemata_scanner.h"
-#include "exec/schema_scanner/schema_dummy_scanner.h"
-#include "exec/schema_scanner/schema_columns_scanner.h"
-#include "exec/schema_scanner/schema_variables_scanner.h"
+
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
-#include "exec/schema_scanner/schema_views_scanner.h"
-#include "exec/schema_scanner/schema_table_privileges_scanner.h"
+#include "exec/schema_scanner/schema_columns_scanner.h"
+#include "exec/schema_scanner/schema_dummy_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
+#include "exec/schema_scanner/schema_schemata_scanner.h"
+#include "exec/schema_scanner/schema_table_privileges_scanner.h"
+#include "exec/schema_scanner/schema_tables_scanner.h"
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
-
-
+#include "exec/schema_scanner/schema_variables_scanner.h"
+#include "exec/schema_scanner/schema_views_scanner.h"
 
 namespace doris {
 
 DorisServer* SchemaScanner::_s_doris_server;
 
 SchemaScanner::SchemaScanner(ColumnDesc* columns, int column_num)
-    : _is_init(false),
-      _param(NULL),
-      _columns(columns),
-      _column_num(column_num),
-      _tuple_desc(NULL) {
-}
+        : _is_init(false),
+          _param(NULL),
+          _columns(columns),
+          _column_num(column_num),
+          _tuple_desc(NULL) {}
 
-SchemaScanner::~SchemaScanner() {
-}
+SchemaScanner::~SchemaScanner() {}
 
 Status SchemaScanner::start(RuntimeState* state) {
     if (!_is_init) {
@@ -85,30 +82,30 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
 SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
     switch (type) {
     case TSchemaTableType::SCH_TABLES:
-        return new(std::nothrow) SchemaTablesScanner();
+        return new (std::nothrow) SchemaTablesScanner();
     case TSchemaTableType::SCH_SCHEMATA:
-        return new(std::nothrow) SchemaSchemataScanner();
+        return new (std::nothrow) SchemaSchemataScanner();
     case TSchemaTableType::SCH_COLUMNS:
-        return new(std::nothrow) SchemaColumnsScanner();
+        return new (std::nothrow) SchemaColumnsScanner();
     case TSchemaTableType::SCH_CHARSETS:
-        return new(std::nothrow) SchemaCharsetsScanner();
+        return new (std::nothrow) SchemaCharsetsScanner();
     case TSchemaTableType::SCH_COLLATIONS:
-        return new(std::nothrow) SchemaCollationsScanner();
+        return new (std::nothrow) SchemaCollationsScanner();
     case TSchemaTableType::SCH_GLOBAL_VARIABLES:
-        return new(std::nothrow) SchemaVariablesScanner(TVarType::GLOBAL);
+        return new (std::nothrow) SchemaVariablesScanner(TVarType::GLOBAL);
     case TSchemaTableType::SCH_SESSION_VARIABLES:
     case TSchemaTableType::SCH_VARIABLES:
-        return new(std::nothrow) SchemaVariablesScanner(TVarType::SESSION);
+        return new (std::nothrow) SchemaVariablesScanner(TVarType::SESSION);
     case TSchemaTableType::SCH_VIEWS:
-        return new(std::nothrow) SchemaViewsScanner();
+        return new (std::nothrow) SchemaViewsScanner();
     case TSchemaTableType::SCH_TABLE_PRIVILEGES:
-        return new(std::nothrow) SchemaTablePrivilegesScanner();
+        return new (std::nothrow) SchemaTablePrivilegesScanner();
     case TSchemaTableType::SCH_SCHEMA_PRIVILEGES:
-        return new(std::nothrow) SchemaSchemaPrivilegesScanner();
+        return new (std::nothrow) SchemaSchemaPrivilegesScanner();
     case TSchemaTableType::SCH_USER_PRIVILEGES:
-        return new(std::nothrow) SchemaUserPrivilegesScanner();
+        return new (std::nothrow) SchemaUserPrivilegesScanner();
     default:
-        return new(std::nothrow) SchemaDummyScanner();
+        return new (std::nothrow) SchemaDummyScanner();
         break;
     }
 }
@@ -150,7 +147,7 @@ Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
         t_slot_desc.__set_slotIdx(i);
         t_slot_desc.__set_isMaterialized(true);
 
-        SlotDescriptor* slot = pool->add(new(std::nothrow) SlotDescriptor(t_slot_desc));
+        SlotDescriptor* slot = pool->add(new (std::nothrow) SlotDescriptor(t_slot_desc));
 
         if (NULL == slot) {
             return Status::InternalError("no memory for _tuple_desc.");
@@ -163,7 +160,7 @@ Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
     TTupleDescriptor t_tuple_desc;
     t_tuple_desc.__set_byteSize(offset);
     t_tuple_desc.__set_numNullBytes((null_byte * 8 + null_bit + 7) / 8);
-    _tuple_desc = pool->add(new(std::nothrow) TupleDescriptor(t_tuple_desc));
+    _tuple_desc = pool->add(new (std::nothrow) TupleDescriptor(t_tuple_desc));
 
     if (NULL == _tuple_desc) {
         return Status::InternalError("no memory for _tuple_desc.");
@@ -176,4 +173,4 @@ Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
     return Status::OK();
 }
 
-}
+} // namespace doris

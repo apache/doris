@@ -29,9 +29,8 @@ namespace doris {
 
 class MetricsTest : public testing::Test {
 public:
-    MetricsTest() { }
-    virtual ~MetricsTest() {
-    }
+    MetricsTest() {}
+    virtual ~MetricsTest() {}
 };
 
 TEST_F(MetricsTest, Counter) {
@@ -69,7 +68,7 @@ TEST_F(MetricsTest, Counter) {
     }
 }
 
-template<typename T>
+template <typename T>
 void mt_updater(T* counter, std::atomic<uint64_t>* used_time) {
     sleep(1);
     MonotonicStopWatch watch;
@@ -93,8 +92,7 @@ TEST_F(MetricsTest, CounterPerf) {
         }
         uint64_t elapsed = watch.elapsed_time();
         ASSERT_EQ(kLoopCount, sum);
-        LOG(INFO) << "int64_t: elapsed: " << elapsed
-                  << "ns, ns/iter:" << elapsed / kLoopCount;
+        LOG(INFO) << "int64_t: elapsed: " << elapsed << "ns, ns/iter:" << elapsed / kLoopCount;
     }
     // IntAtomicCounter
     {
@@ -119,8 +117,7 @@ TEST_F(MetricsTest, CounterPerf) {
         }
         uint64_t elapsed = watch.elapsed_time();
         ASSERT_EQ(kLoopCount, counter.value());
-        LOG(INFO) << "IntCounter: elapsed: " << elapsed
-                  << "ns, ns/iter:" << elapsed / kLoopCount;
+        LOG(INFO) << "IntCounter: elapsed: " << elapsed << "ns, ns/iter:" << elapsed / kLoopCount;
     }
 
     // multi-thread for IntCounter
@@ -187,7 +184,8 @@ TEST_F(MetricsTest, Gauge) {
 
 TEST_F(MetricsTest, MetricPrototype) {
     {
-        MetricPrototype cpu_idle_type(MetricType::COUNTER, MetricUnit::PERCENT, "fragment_requests_total",
+        MetricPrototype cpu_idle_type(MetricType::COUNTER, MetricUnit::PERCENT,
+                                      "fragment_requests_total",
                                       "Total fragment requests received.");
 
         ASSERT_EQ("fragment_requests_total", cpu_idle_type.simple_name());
@@ -239,9 +237,7 @@ TEST_F(MetricsTest, MetricEntityWithHook) {
 
     // Register
     IntCounter* cpu_idle = (IntCounter*)entity.register_metric<IntCounter>(&cpu_idle_type);
-    entity.register_hook("test_hook", [cpu_idle]() {
-        cpu_idle->increment(6);
-    });
+    entity.register_hook("test_hook", [cpu_idle]() { cpu_idle->increment(6); });
 
     // Before hook
     Metric* metric = entity.get_metric("cpu_idle");
@@ -310,14 +306,17 @@ TEST_F(MetricsTest, MetricRegistryOutput) {
         // Register one common metric to the entity
         auto entity = registry.register_entity("test_entity");
 
-        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "", {}, true);
+        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "",
+                                      {}, true);
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(8);
 
         ASSERT_EQ(R"(# TYPE test_registry_cpu_idle gauge
 test_registry_cpu_idle 8
-)", registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu_idle"},"unit":"percent","value":8}])", registry.to_json());
+)",
+                  registry.to_prometheus());
+        ASSERT_EQ(R"([{"tags":{"metric":"cpu_idle"},"unit":"percent","value":8}])",
+                  registry.to_json());
         ASSERT_EQ("test_registry_cpu_idle LONG 8\n", registry.to_core_string());
         registry.deregister_entity(entity);
     }
@@ -326,14 +325,17 @@ test_registry_cpu_idle 8
         // Register one metric with group name to the entity
         auto entity = registry.register_entity("test_entity");
 
-        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu", {{"mode", "idle"}}, false);
+        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu",
+                                      {{"mode", "idle"}}, false);
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(18);
 
         ASSERT_EQ(R"(# TYPE test_registry_cpu gauge
 test_registry_cpu{mode="idle"} 18
-)", registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":18}])", registry.to_json());
+)",
+                  registry.to_prometheus());
+        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":18}])",
+                  registry.to_json());
         ASSERT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }
@@ -348,8 +350,11 @@ test_registry_cpu{mode="idle"} 18
 
         ASSERT_EQ(R"(# TYPE test_registry_cpu_idle gauge
 test_registry_cpu_idle{name="label_test"} 28
-)", registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu_idle","name":"label_test"},"unit":"percent","value":28}])", registry.to_json());
+)",
+                  registry.to_prometheus());
+        ASSERT_EQ(
+                R"([{"tags":{"metric":"cpu_idle","name":"label_test"},"unit":"percent","value":28}])",
+                registry.to_json());
         ASSERT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }
@@ -358,14 +363,18 @@ test_registry_cpu_idle{name="label_test"} 28
         // Register one common metric with group name to an entity with label
         auto entity = registry.register_entity("test_entity", {{"name", "label_test"}});
 
-        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu", {{"mode", "idle"}});
+        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu",
+                                      {{"mode", "idle"}});
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(38);
 
         ASSERT_EQ(R"(# TYPE test_registry_cpu gauge
 test_registry_cpu{name="label_test",mode="idle"} 38
-)", registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"idle","name":"label_test"},"unit":"percent","value":38}])", registry.to_json());
+)",
+                  registry.to_prometheus());
+        ASSERT_EQ(
+                R"([{"tags":{"metric":"cpu","mode":"idle","name":"label_test"},"unit":"percent","value":38}])",
+                registry.to_json());
         ASSERT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }
@@ -374,24 +383,29 @@ test_registry_cpu{name="label_test",mode="idle"} 38
         // Register two common metrics to one entity
         auto entity = registry.register_entity("test_entity");
 
-        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu", {{"mode", "idle"}});
+        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu",
+                                      {{"mode", "idle"}});
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(48);
 
-        MetricPrototype cpu_guest_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_guest", "", "cpu", {{"mode", "guest"}});
+        MetricPrototype cpu_guest_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_guest", "",
+                                       "cpu", {{"mode", "guest"}});
         IntGauge* cpu_guest = (IntGauge*)entity->register_metric<IntGauge>(&cpu_guest_type);
         cpu_guest->increment(58);
 
         ASSERT_EQ(R"(# TYPE test_registry_cpu gauge
 test_registry_cpu{mode="idle"} 48
 test_registry_cpu{mode="guest"} 58
-)", registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"guest"},"unit":"percent","value":58},{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":48}])", registry.to_json());
+)",
+                  registry.to_prometheus());
+        ASSERT_EQ(
+                R"([{"tags":{"metric":"cpu","mode":"guest"},"unit":"percent","value":58},{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":48}])",
+                registry.to_json());
         ASSERT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }
 }
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

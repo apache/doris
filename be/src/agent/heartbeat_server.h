@@ -20,13 +20,12 @@
 
 #include <mutex>
 
-#include "thrift/transport/TTransportUtils.h"
-
 #include "agent/status.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/Status_types.h"
 #include "olap/olap_define.h"
 #include "runtime/exec_env.h"
+#include "thrift/transport/TTransportUtils.h"
 
 namespace doris {
 
@@ -38,7 +37,7 @@ class ThriftServer;
 class HeartbeatServer : public HeartbeatServiceIf {
 public:
     explicit HeartbeatServer(TMasterInfo* master_info);
-    virtual ~HeartbeatServer() {};
+    virtual ~HeartbeatServer(){};
 
     virtual void init_cluster_id();
 
@@ -64,13 +63,10 @@ private:
     int64_t _fe_epoch;
 
     DISALLOW_COPY_AND_ASSIGN(HeartbeatServer);
-};  // class HeartBeatServer
+}; // class HeartBeatServer
 
-AgentStatus create_heartbeat_server(
-        ExecEnv* exec_env,
-        uint32_t heartbeat_server_port,
-        ThriftServer** heart_beat_server,
-        uint32_t worker_thread_num,
-        TMasterInfo* local_master_info);
-}  // namespace doris
-#endif  // DORIS_BE_SRC_AGENT_HEARTBEAT_SERVER_H
+AgentStatus create_heartbeat_server(ExecEnv* exec_env, uint32_t heartbeat_server_port,
+                                    ThriftServer** heart_beat_server, uint32_t worker_thread_num,
+                                    TMasterInfo* local_master_info);
+} // namespace doris
+#endif // DORIS_BE_SRC_AGENT_HEARTBEAT_SERVER_H

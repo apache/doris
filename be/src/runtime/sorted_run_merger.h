@@ -46,10 +46,10 @@ public:
     // Function that returns the next batch of rows from an input sorted run. The batch
     // is owned by the supplier (i.e. not SortedRunMerger). eos is indicated by an NULL
     // batch being returned.
-    typedef boost::function<Status (RowBatch**)> RunBatchSupplier;
+    typedef boost::function<Status(RowBatch**)> RunBatchSupplier;
 
     SortedRunMerger(const TupleRowComparator& compare_less_than, RowDescriptor* row_desc,
-            RuntimeProfile* profile, bool deep_copy_input);
+                    RuntimeProfile* profile, bool deep_copy_input);
 
     ~SortedRunMerger() {}
 

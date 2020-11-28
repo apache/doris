@@ -29,31 +29,29 @@
 #pragma once
 
 #include "common/logging.h"
-#include "util/coding.h"
-#include "util/faststring.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
-#include "olap/rowset/segment_v2/options.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
+#include "util/coding.h"
+#include "util/faststring.h"
 
 namespace doris {
 namespace segment_v2 {
 
 class BinaryPlainPageBuilder : public PageBuilder {
 public:
-    BinaryPlainPageBuilder(const PageBuilderOptions& options) :
-            _size_estimate(0),
-            _prepared_size(0),
-            _options(options) {
+    BinaryPlainPageBuilder(const PageBuilderOptions& options)
+            : _size_estimate(0), _prepared_size(0), _options(options) {
         reset();
     }
 
     bool is_page_full() override {
         // data_page_size is 0, do not limit the page size
-        return _options.data_page_size != 0 && (_size_estimate > _options.data_page_size
-            || _prepared_size > _options.data_page_size);
+        return _options.data_page_size != 0 && (_size_estimate > _options.data_page_size ||
+                                                _prepared_size > _options.data_page_size);
     }
 
     Status add(const uint8_t* vals, size_t* count) override {
@@ -105,13 +103,9 @@ public:
         _last_value_size = 0;
     }
 
-    size_t count() const override {
-        return _offsets.size();
-    }
+    size_t count() const override { return _offsets.size(); }
 
-    uint64_t size() const override {
-        return _size_estimate;
-    }
+    uint64_t size() const override { return _size_estimate; }
 
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
@@ -137,8 +131,8 @@ public:
 
 private:
     void _copy_value_at(size_t idx, faststring* value) const {
-        size_t value_size = (idx < _offsets.size() - 1) ?
-                            _offsets[idx + 1] - _offsets[idx] : _last_value_size;
+        size_t value_size =
+                (idx < _offsets.size() - 1) ? _offsets[idx + 1] - _offsets[idx] : _last_value_size;
         value->assign_copy(&_buffer[_offsets[idx]], value_size);
     }
 
@@ -155,17 +149,17 @@ private:
     faststring _last_value;
 };
 
-
 class BinaryPlainPageDecoder : public PageDecoder {
 public:
-    BinaryPlainPageDecoder(Slice data) : BinaryPlainPageDecoder(data, PageDecoderOptions()) { }
+    BinaryPlainPageDecoder(Slice data) : BinaryPlainPageDecoder(data, PageDecoderOptions()) {}
 
-    BinaryPlainPageDecoder(Slice data, const PageDecoderOptions& options) : _data(data),
-            _options(options),
-            _parsed(false),
-            _num_elems(0),
-            _offsets_pos(0),
-            _cur_idx(0) { }
+    BinaryPlainPageDecoder(Slice data, const PageDecoderOptions& options)
+            : _data(data),
+              _options(options),
+              _parsed(false),
+              _num_elems(0),
+              _offsets_pos(0),
+              _cur_idx(0) {}
 
     Status init() override {
         CHECK(!_parsed);
@@ -173,12 +167,13 @@ public:
         if (_data.size < sizeof(uint32_t)) {
             std::stringstream ss;
             ss << "file corruption: not enough bytes for trailer in BinaryPlainPageDecoder ."
-                  "invalid data size:" << _data.size << ", trailer size:" << sizeof(uint32_t);
+                  "invalid data size:"
+               << _data.size << ", trailer size:" << sizeof(uint32_t);
             return Status::Corruption(ss.str());
         }
 
         // Decode trailer
-        _num_elems = decode_fixed32_le((const uint8_t *)&_data[_data.get_size() - sizeof(uint32_t)]);
+        _num_elems = decode_fixed32_le((const uint8_t*)&_data[_data.get_size() - sizeof(uint32_t)]);
         _offsets_pos = _data.get_size() - (_num_elems + 1) * sizeof(uint32_t);
 
         _parsed = true;
@@ -200,13 +195,14 @@ public:
         }
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
-        Slice *out = reinterpret_cast<Slice*>(dst->data());
-        
+        Slice* out = reinterpret_cast<Slice*>(dst->data());
+
         for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
             Slice elem(string_at_index(_cur_idx));
             out->size = elem.size;
             if (elem.size != 0) {
-                out->data = reinterpret_cast<char*>(dst->pool()->allocate(elem.size * sizeof(uint8_t)));
+                out->data =
+                        reinterpret_cast<char*>(dst->pool()->allocate(elem.size * sizeof(uint8_t)));
                 memcpy(out->data, elem.data, elem.size);
             }
         }
@@ -231,15 +227,14 @@ public:
         return Slice(&_data[start_offset], len);
     }
 
-
 private:
-
     // Return the offset within '_data' where the string value with index 'idx' can be found.
     uint32_t offset(int idx) const {
         if (idx >= _num_elems) {
             return _offsets_pos;
         }
-        const uint8_t* p = reinterpret_cast<const uint8_t*>(&_data[_offsets_pos + idx * sizeof(uint32_t)]);
+        const uint8_t* p =
+                reinterpret_cast<const uint8_t*>(&_data[_offsets_pos + idx * sizeof(uint32_t)]);
         return decode_fixed32_le(p);
     }
 

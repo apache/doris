@@ -28,14 +28,13 @@ namespace doris {
 class Status;
 
 class ScrollParser {
-
 public:
     ScrollParser(bool doc_value_mode);
     ~ScrollParser();
 
     Status parse(const std::string& scroll_result, bool exactly_once = false);
-    Status fill_tuple(const TupleDescriptor* _tuple_desc, Tuple* tuple, 
-                MemPool* mem_pool, bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
+    Status fill_tuple(const TupleDescriptor* _tuple_desc, Tuple* tuple, MemPool* mem_pool,
+                      bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
 
     const std::string& get_scroll_id();
     int get_size();
@@ -46,21 +45,21 @@ private:
     // fill date slot with string format date
     Status fill_date_slot_with_strval(void* slot, const rapidjson::Value& col, PrimitiveType type);
     // fill date slot with timestamp
-    Status fill_date_slot_with_timestamp(void* slot, const rapidjson::Value& col, PrimitiveType type);
+    Status fill_date_slot_with_timestamp(void* slot, const rapidjson::Value& col,
+                                         PrimitiveType type);
 
 private:
-
     std::string _scroll_id;
     int _size;
     rapidjson::SizeType _line_index;
 
     rapidjson::Document _document_node;
     rapidjson::Value _inner_hits_node;
-    
-    // todo(milimin): ScrollParser should be divided into two classes: SourceParser and DocValueParser, 
-    // including remove some variables in the current implementation, e.g. pure_doc_value. 
+
+    // todo(milimin): ScrollParser should be divided into two classes: SourceParser and DocValueParser,
+    // including remove some variables in the current implementation, e.g. pure_doc_value.
     // All above will be done in the DOE refactoring projects.
     // Current bug fixes minimize the scope of changes to avoid introducing other new bugs.
     bool _doc_value_mode;
 };
-}
+} // namespace doris

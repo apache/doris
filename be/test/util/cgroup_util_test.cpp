@@ -17,17 +17,16 @@
 
 #include "util/cgroup_util.h"
 
-#include <fstream>
 #include <gtest/gtest.h>
+
+#include <fstream>
 
 namespace doris {
 
 class CGroupUtilTest : public ::testing::Test {
-  protected:
-    CGroupUtilTest() {
-    }
-    virtual ~CGroupUtilTest() {
-    }
+protected:
+    CGroupUtilTest() {}
+    virtual ~CGroupUtilTest() {}
 };
 TEST_F(CGroupUtilTest, memlimit) {
     int64_t bytes;
@@ -51,7 +50,7 @@ TEST_F(CGroupUtilTest, memlimit) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

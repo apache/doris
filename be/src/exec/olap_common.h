@@ -15,29 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
-#define  DORIS_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
+#define DORIS_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
 
-#include <boost/variant.hpp>
-#include <boost/lexical_cast.hpp>
-#include <map>
-#include <string>
-#include <sstream>
 #include <stdint.h>
+
+#include <boost/lexical_cast.hpp>
+#include <boost/variant.hpp>
+#include <map>
+#include <sstream>
+#include <string>
 
 #include "common/logging.h"
 #include "exec/olap_utils.h"
 #include "exec/scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "olap/tuple.h"
+#include "runtime/datetime_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/string_value.hpp"
-#include "runtime/datetime_value.h"
-
-#include "olap/tuple.h"
 
 namespace doris {
 
-template<class T>
+template <class T>
 std::string cast_to_string(T value) {
     return boost::lexical_cast<std::string>(value);
 }
@@ -45,7 +45,7 @@ std::string cast_to_string(T value) {
 /**
  * @brief Column's value range
  **/
-template<class T>
+template <class T>
 class ColumnValueRange {
 public:
     typedef typename std::set<T>::iterator iterator_type;
@@ -79,43 +79,25 @@ public:
         _high_value = _type_min;
     }
 
-    const std::set<T>& get_fixed_value_set() const {
-        return _fixed_values;
-    }
+    const std::set<T>& get_fixed_value_set() const { return _fixed_values; }
 
-    T get_range_max_value() const {
-        return _high_value;
-    }
+    T get_range_max_value() const { return _high_value; }
 
-    T get_range_min_value() const {
-        return _low_value;
-    }
+    T get_range_min_value() const { return _low_value; }
 
-    bool is_low_value_mininum() const {
-        return _low_value == _type_min;
-    }
+    bool is_low_value_mininum() const { return _low_value == _type_min; }
 
-    bool is_high_value_maximum() const {
-        return _high_value == _type_max;
-    }
+    bool is_high_value_maximum() const { return _high_value == _type_max; }
 
-    bool is_begin_include() const {
-        return _low_op == FILTER_LARGER_OR_EQUAL;
-    }
+    bool is_begin_include() const { return _low_op == FILTER_LARGER_OR_EQUAL; }
 
-    bool is_end_include() const {
-        return _high_op == FILTER_LESS_OR_EQUAL;
-    }
+    bool is_end_include() const { return _high_op == FILTER_LESS_OR_EQUAL; }
 
-    PrimitiveType type() const {
-        return _column_type;
-    }
+    PrimitiveType type() const { return _column_type; }
 
-    size_t get_fixed_value_size() const {
-        return _fixed_values.size();
-    }
+    size_t get_fixed_value_size() const { return _fixed_values.size(); }
 
-    void to_olap_filter(std::list<TCondition> &filters) {
+    void to_olap_filter(std::list<TCondition>& filters) {
         if (is_fixed_value_range()) {
             TCondition condition;
             condition.__set_column_name(_column_name);
@@ -160,37 +142,36 @@ public:
         _low_op = FILTER_LARGER_OR_EQUAL;
         _high_op = FILTER_LESS_OR_EQUAL;
     }
+
 protected:
     bool is_in_range(const T& value);
 
 private:
     std::string _column_name;
-    PrimitiveType _column_type;  // Column type (eg: TINYINT,SMALLINT,INT,BIGINT)
-    T _type_min;                 // Column type's min value
-    T _type_max;                 // Column type's max value
-    T _low_value;                // Column's low value, closed interval at left
-    T _high_value;               // Column's high value, open interval at right
+    PrimitiveType _column_type; // Column type (eg: TINYINT,SMALLINT,INT,BIGINT)
+    T _type_min;                // Column type's min value
+    T _type_max;                // Column type's max value
+    T _low_value;               // Column's low value, closed interval at left
+    T _high_value;              // Column's high value, open interval at right
     SQLFilterOp _low_op;
     SQLFilterOp _high_op;
-    std::set<T> _fixed_values;   // Column's fixed int value
+    std::set<T> _fixed_values; // Column's fixed int value
 };
 
 class OlapScanKeys {
 public:
-    OlapScanKeys() :
-        _has_range_value(false),
-        _begin_include(true),
-        _end_include(true),
-        _is_convertible(true) {}
+    OlapScanKeys()
+            : _has_range_value(false),
+              _begin_include(true),
+              _end_include(true),
+              _is_convertible(true) {}
 
-    template<class T>
+    template <class T>
     Status extend_scan_key(ColumnValueRange<T>& range, int32_t max_scan_key_num);
 
     Status get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range);
 
-    bool has_range_value() {
-        return _has_range_value;
-    }
+    bool has_range_value() { return _has_range_value; }
 
     void clear() {
         _has_range_value = false;
@@ -204,10 +185,8 @@ public:
         ss << "ScanKeys:";
 
         for (int i = 0; i < _begin_scan_keys.size(); ++i) {
-            ss << "ScanKey=" << (_begin_include ? "[" : "(")
-                << _begin_scan_keys[i] << " : "
-                << _end_scan_keys[i]
-                << (_end_include ? "]" : ")");
+            ss << "ScanKey=" << (_begin_include ? "[" : "(") << _begin_scan_keys[i] << " : "
+               << _end_scan_keys[i] << (_end_include ? "]" : ")");
         }
         return ss.str();
     }
@@ -217,25 +196,15 @@ public:
         return _begin_scan_keys.size();
     }
 
-    void set_begin_include(bool begin_include) {
-        _begin_include = begin_include;
-    }
+    void set_begin_include(bool begin_include) { _begin_include = begin_include; }
 
-    bool begin_include() const {
-        return _begin_include;
-    }
+    bool begin_include() const { return _begin_include; }
 
-    void set_end_include(bool end_include) {
-        _end_include = end_include;
-    }
+    void set_end_include(bool end_include) { _end_include = end_include; }
 
-    bool end_include() const {
-        return _end_include;
-    }
+    bool end_include() const { return _end_include; }
 
-    void set_is_convertible(bool is_convertible) {
-        _is_convertible = is_convertible;
-    }
+    void set_is_convertible(bool is_convertible) { _is_convertible = is_convertible; }
 
 private:
     std::vector<OlapTuple> _begin_scan_keys;
@@ -246,35 +215,28 @@ private:
     bool _is_convertible;
 };
 
-typedef boost::variant <
-        ColumnValueRange<int8_t>,
-        ColumnValueRange<int16_t>,
-        ColumnValueRange<int32_t>,
-        ColumnValueRange<int64_t>,
-        ColumnValueRange<__int128>,
-        ColumnValueRange<StringValue>,
-        ColumnValueRange<DateTimeValue>,
-        ColumnValueRange<DecimalValue>,
-        ColumnValueRange<DecimalV2Value>,
-        ColumnValueRange<bool>> ColumnValueRangeType;
+typedef boost::variant<ColumnValueRange<int8_t>, ColumnValueRange<int16_t>,
+                       ColumnValueRange<int32_t>, ColumnValueRange<int64_t>,
+                       ColumnValueRange<__int128>, ColumnValueRange<StringValue>,
+                       ColumnValueRange<DateTimeValue>, ColumnValueRange<DecimalValue>,
+                       ColumnValueRange<DecimalV2Value>, ColumnValueRange<bool>>
+        ColumnValueRangeType;
 
-template<class T>
-ColumnValueRange<T>::ColumnValueRange() : _column_type(INVALID_TYPE) {
-}
+template <class T>
+ColumnValueRange<T>::ColumnValueRange() : _column_type(INVALID_TYPE) {}
 
-template<class T>
+template <class T>
 ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, T min, T max)
-    : _column_name(col_name),
-      _column_type(type),
-      _type_min(min),
-      _type_max(max),
-      _low_value(min),
-      _high_value(max),
-      _low_op(FILTER_LARGER_OR_EQUAL),
-      _high_op(FILTER_LESS_OR_EQUAL) {
-}
+        : _column_name(col_name),
+          _column_type(type),
+          _type_min(min),
+          _type_max(max),
+          _low_value(min),
+          _high_value(max),
+          _low_op(FILTER_LARGER_OR_EQUAL),
+          _high_op(FILTER_LESS_OR_EQUAL) {}
 
-template<class T>
+template <class T>
 Status ColumnValueRange<T>::add_fixed_value(T value) {
     if (INVALID_TYPE == _column_type) {
         return Status::InternalError("AddFixedValue failed, Invalid type");
@@ -284,12 +246,12 @@ Status ColumnValueRange<T>::add_fixed_value(T value) {
     return Status::OK();
 }
 
-template<class T>
+template <class T>
 bool ColumnValueRange<T>::is_fixed_value_range() const {
     return _fixed_values.size() != 0;
 }
 
-template<class T>
+template <class T>
 bool ColumnValueRange<T>::is_empty_value_range() const {
     if (INVALID_TYPE == _column_type) {
         return true;
@@ -306,7 +268,7 @@ bool ColumnValueRange<T>::is_empty_value_range() const {
     }
 }
 
-template<class T>
+template <class T>
 bool ColumnValueRange<T>::is_fixed_value_convertible() const {
     if (is_fixed_value_range()) {
         return false;
@@ -319,21 +281,20 @@ bool ColumnValueRange<T>::is_fixed_value_convertible() const {
     return true;
 }
 
-template<class T>
+template <class T>
 bool ColumnValueRange<T>::is_range_value_convertible() const {
     if (!is_fixed_value_range()) {
         return false;
     }
 
-    if (TYPE_NULL == _column_type
-            || TYPE_BOOLEAN == _column_type) {
+    if (TYPE_NULL == _column_type || TYPE_BOOLEAN == _column_type) {
         return false;
     }
 
     return true;
 }
 
-template<class T>
+template <class T>
 size_t ColumnValueRange<T>::get_convertible_fixed_value_size() const {
     if (!is_fixed_value_convertible()) {
         return 0;
@@ -342,19 +303,19 @@ size_t ColumnValueRange<T>::get_convertible_fixed_value_size() const {
     return _high_value - _low_value;
 }
 
-template<>
+template <>
 void ColumnValueRange<StringValue>::convert_to_fixed_value();
 
-template<>
+template <>
 void ColumnValueRange<DecimalValue>::convert_to_fixed_value();
 
-template<>
+template <>
 void ColumnValueRange<DecimalV2Value>::convert_to_fixed_value();
 
-template<>
+template <>
 void ColumnValueRange<__int128>::convert_to_fixed_value();
 
-template<class T>
+template <class T>
 void ColumnValueRange<T>::convert_to_fixed_value() {
     if (!is_fixed_value_convertible()) {
         return;
@@ -375,7 +336,7 @@ void ColumnValueRange<T>::convert_to_fixed_value() {
     }
 }
 
-template<class T>
+template <class T>
 void ColumnValueRange<T>::convert_to_range_value() {
     if (!is_range_value_convertible()) {
         return;
@@ -390,15 +351,14 @@ void ColumnValueRange<T>::convert_to_range_value() {
     }
 }
 
-template<class T>
+template <class T>
 Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
     if (INVALID_TYPE == _column_type) {
         return Status::InternalError("AddRange failed, Invalid type");
     }
 
     if (is_fixed_value_range()) {
-        std::pair<iterator_type, iterator_type> bound_pair
-            = _fixed_values.equal_range(value);
+        std::pair<iterator_type, iterator_type> bound_pair = _fixed_values.equal_range(value);
 
         switch (op) {
         case FILTER_LARGER: {
@@ -479,9 +439,8 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
             }
         }
 
-        if (FILTER_LARGER_OR_EQUAL == _low_op &&
-                FILTER_LESS_OR_EQUAL == _high_op &&
-                _high_value == _low_value) {
+        if (FILTER_LARGER_OR_EQUAL == _low_op && FILTER_LESS_OR_EQUAL == _high_op &&
+            _high_value == _low_value) {
             add_fixed_value(_high_value);
             _high_value = _type_min;
             _low_value = _type_max;
@@ -491,7 +450,7 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
     return Status::OK();
 }
 
-template<class T>
+template <class T>
 bool ColumnValueRange<T>::is_in_range(const T& value) {
     switch (_high_op) {
     case FILTER_LESS: {
@@ -536,7 +495,7 @@ bool ColumnValueRange<T>::is_in_range(const T& value) {
     return false;
 }
 
-template<class T>
+template <class T>
 bool ColumnValueRange<T>::has_intersection(ColumnValueRange<T>& range) {
     // 1. return false if column type not match
     if (_column_type != range._column_type) {
@@ -551,12 +510,9 @@ bool ColumnValueRange<T>::has_intersection(ColumnValueRange<T>& range) {
     // 3.1 return false if two int fixedRange has no intersection
     if (is_fixed_value_range() && range.is_fixed_value_range()) {
         std::set<T> result_values;
-        set_intersection(
-            _fixed_values.begin(),
-            _fixed_values.end(),
-            range._fixed_values.begin(),
-            range._fixed_values.end(),
-            std::inserter(result_values, result_values.begin()));
+        set_intersection(_fixed_values.begin(), _fixed_values.end(), range._fixed_values.begin(),
+                         range._fixed_values.end(),
+                         std::inserter(result_values, result_values.begin()));
 
         if (result_values.size() != 0) {
             return true;
@@ -589,19 +545,16 @@ bool ColumnValueRange<T>::has_intersection(ColumnValueRange<T>& range) {
 
         return false;
     } else {
-        if (_low_value > range._high_value
-                || range._low_value > _high_value) {
+        if (_low_value > range._high_value || range._low_value > _high_value) {
             return false;
         } else if (_low_value == range._high_value) {
-            if (FILTER_LARGER_OR_EQUAL == _low_op &&
-                    FILTER_LESS_OR_EQUAL == range._high_op) {
+            if (FILTER_LARGER_OR_EQUAL == _low_op && FILTER_LESS_OR_EQUAL == range._high_op) {
                 return true;
             } else {
                 return false;
             }
         } else if (range._low_value == _high_value) {
-            if (FILTER_LARGER_OR_EQUAL == range._low_op &&
-                    FILTER_LESS_OR_EQUAL == _high_op) {
+            if (FILTER_LARGER_OR_EQUAL == range._low_op && FILTER_LESS_OR_EQUAL == _high_op) {
                 return true;
             } else {
                 return false;
@@ -612,7 +565,7 @@ bool ColumnValueRange<T>::has_intersection(ColumnValueRange<T>& range) {
     }
 }
 
-template<class T>
+template <class T>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_scan_key_num) {
     using namespace std;
     typedef typename set<T>::const_iterator const_iterator_type;
@@ -633,7 +586,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
     //for this case, we need to add null value to fixed values
     bool has_converted = false;
 
-    auto scan_keys_size = _begin_scan_keys.empty() ?  1 : _begin_scan_keys.size();
+    auto scan_keys_size = _begin_scan_keys.empty() ? 1 : _begin_scan_keys.size();
     if (range.is_fixed_value_range()) {
         if (range.get_fixed_value_size() * scan_keys_size > max_scan_key_num) {
             if (range.is_range_value_convertible()) {
@@ -668,10 +621,10 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
             }
 
             if (has_converted) {
-                 _begin_scan_keys.emplace_back();
-                 _begin_scan_keys.back().add_null();
-                 _end_scan_keys.emplace_back();
-                 _end_scan_keys.back().add_null();
+                _begin_scan_keys.emplace_back();
+                _begin_scan_keys.back().add_null();
+                _end_scan_keys.emplace_back();
+                _end_scan_keys.back().add_null();
             }
         } // 3.1.2 produces the Cartesian product of ScanKey and fixed_value
         else {
@@ -715,22 +668,18 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
 
         if (_begin_scan_keys.empty()) {
             _begin_scan_keys.emplace_back();
-            _begin_scan_keys.back().add_value(
-                cast_to_string(range.get_range_min_value()),
-                range.is_low_value_mininum());
+            _begin_scan_keys.back().add_value(cast_to_string(range.get_range_min_value()),
+                                              range.is_low_value_mininum());
             _end_scan_keys.emplace_back();
-            _end_scan_keys.back().add_value(
-                cast_to_string(range.get_range_max_value()));
+            _end_scan_keys.back().add_value(cast_to_string(range.get_range_max_value()));
         } else {
             for (int i = 0; i < _begin_scan_keys.size(); ++i) {
-                _begin_scan_keys[i].add_value(
-                    cast_to_string(range.get_range_min_value()),
-                    range.is_low_value_mininum());
+                _begin_scan_keys[i].add_value(cast_to_string(range.get_range_min_value()),
+                                              range.is_low_value_mininum());
             }
 
             for (int i = 0; i < _end_scan_keys.size(); ++i) {
-                _end_scan_keys[i].add_value(
-                    cast_to_string(range.get_range_max_value()));
+                _end_scan_keys[i].add_value(cast_to_string(range.get_range_max_value()));
             }
         }
 
@@ -741,7 +690,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
     return Status::OK();
 }
 
-}  // namespace doris
+} // namespace doris
 
 #endif
 

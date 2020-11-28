@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_HTTP_SNAPSHOT_ACTION_H
-#define  DORIS_BE_SRC_HTTP_SNAPSHOT_ACTION_H
+#ifndef DORIS_BE_SRC_HTTP_SNAPSHOT_ACTION_H
+#define DORIS_BE_SRC_HTTP_SNAPSHOT_ACTION_H
 
 #include <boost/scoped_ptr.hpp>
 
@@ -32,9 +32,10 @@ class SnapshotAction : public HttpHandler {
 public:
     explicit SnapshotAction(ExecEnv* exec_env);
 
-    virtual ~SnapshotAction() { }
+    virtual ~SnapshotAction() {}
 
-    void handle(HttpRequest *req) override;
+    void handle(HttpRequest* req) override;
+
 private:
     int64_t make_snapshot(int64_t tablet_id, int schema_hash, std::string* snapshot_path);
 

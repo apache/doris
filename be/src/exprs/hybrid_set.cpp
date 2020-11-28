@@ -22,42 +22,42 @@ namespace doris {
 HybridSetBase* HybridSetBase::create_set(PrimitiveType type) {
     switch (type) {
     case TYPE_BOOLEAN:
-        return new(std::nothrow) HybridSet<bool>();
+        return new (std::nothrow) HybridSet<bool>();
 
     case TYPE_TINYINT:
-        return new(std::nothrow) HybridSet<int8_t>();
+        return new (std::nothrow) HybridSet<int8_t>();
 
     case TYPE_SMALLINT:
-        return new(std::nothrow) HybridSet<int16_t>();
+        return new (std::nothrow) HybridSet<int16_t>();
 
     case TYPE_INT:
-        return new(std::nothrow) HybridSet<int32_t>();
+        return new (std::nothrow) HybridSet<int32_t>();
 
     case TYPE_BIGINT:
-        return new(std::nothrow) HybridSet<int64_t>();
+        return new (std::nothrow) HybridSet<int64_t>();
 
     case TYPE_FLOAT:
-        return new(std::nothrow) HybridSet<float>();
+        return new (std::nothrow) HybridSet<float>();
 
     case TYPE_DOUBLE:
-        return new(std::nothrow) HybridSet<double>();
+        return new (std::nothrow) HybridSet<double>();
 
     case TYPE_DATE:
     case TYPE_DATETIME:
-        return new(std::nothrow) HybridSet<DateTimeValue>();
+        return new (std::nothrow) HybridSet<DateTimeValue>();
 
     case TYPE_DECIMAL:
-        return new(std::nothrow) HybridSet<DecimalValue>();
+        return new (std::nothrow) HybridSet<DecimalValue>();
 
     case TYPE_DECIMALV2:
-        return new(std::nothrow) HybridSet<DecimalV2Value>();
+        return new (std::nothrow) HybridSet<DecimalV2Value>();
 
     case TYPE_LARGEINT:
-        return new(std::nothrow) HybridSet<__int128>();
+        return new (std::nothrow) HybridSet<__int128>();
 
     case TYPE_CHAR:
     case TYPE_VARCHAR:
-        return new(std::nothrow) StringValueSet();
+        return new (std::nothrow) StringValueSet();
 
     default:
         return NULL;
@@ -66,6 +66,6 @@ HybridSetBase* HybridSetBase::create_set(PrimitiveType type) {
     return NULL;
 }
 
-}
+} // namespace doris
 
 /* vim: set ts=4 sw=4 sts=4 tw=100 */

@@ -18,17 +18,17 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_DEBUG_UTIL_H
 #define DORIS_BE_SRC_COMMON_UTIL_DEBUG_UTIL_H
 
+#include <boost/cstdint.hpp>
 #include <ostream>
 #include <string>
-#include <boost/cstdint.hpp>
 
+#include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Opcodes_types.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
 #include "gen_cpp/RuntimeProfile_types.h"
-#include "gen_cpp/AgentService_types.h"
+#include "gen_cpp/Types_types.h"
 
 namespace doris {
 
@@ -53,6 +53,6 @@ std::string get_version_string(bool compact);
 
 std::string hexdump(const char* buf, int len);
 
-}
+} // namespace doris
 
 #endif

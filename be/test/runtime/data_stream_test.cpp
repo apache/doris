@@ -340,8 +340,8 @@ protected:
         SortExecExprs* sort_exprs = _obj_pool.add(new SortExecExprs());
         sort_exprs->init(vector<ExprContext*>(1, _lhs_slot_ctx),
                          std::vector<ExprContext*>(1, _rhs_slot_ctx));
-        _less_than = _obj_pool.add(
-                new TupleRowComparator(*sort_exprs, std::vector<bool>(1, true), std::vector<bool>(1, false)));
+        _less_than = _obj_pool.add(new TupleRowComparator(*sort_exprs, std::vector<bool>(1, true),
+                                                          std::vector<bool>(1, false)));
     }
 
     // Create _batch, but don't fill it with data yet. Assumes we created _row_desc.

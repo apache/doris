@@ -51,19 +51,13 @@ public:
     // connect to mysql server
     Status open(const MysqlConnInfo& conn_info, const std::string& tbl);
 
-    Status begin_trans() {
-        return Status::OK();
-    }
+    Status begin_trans() { return Status::OK(); }
 
     Status append(RowBatch* batch);
 
-    Status abort_tarns() {
-        return Status::OK();
-    }
+    Status abort_tarns() { return Status::OK(); }
 
-    Status finish_tarns() {
-        return Status::OK();
-    }
+    Status finish_tarns() { return Status::OK(); }
 
 private:
     Status insert_row(TupleRow* row);
@@ -73,6 +67,6 @@ private:
     __DorisMysql* _mysql_conn;
 };
 
-}
+} // namespace doris
 
 #endif

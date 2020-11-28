@@ -16,6 +16,7 @@
 // under the License.
 
 #include "olap/base_compaction.h"
+
 #include "util/doris_metrics.h"
 #include "util/trace.h"
 
@@ -25,7 +26,7 @@ BaseCompaction::BaseCompaction(TabletSharedPtr tablet, const std::string& label,
                                const std::shared_ptr<MemTracker>& parent_tracker)
         : Compaction(tablet, label, parent_tracker) {}
 
-BaseCompaction::~BaseCompaction() { }
+BaseCompaction::~BaseCompaction() {}
 
 OLAPStatus BaseCompaction::compact() {
     if (!_tablet->init_succeeded()) {
@@ -79,9 +80,10 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
 
     // 1. cumulative rowset must reach base_compaction_num_cumulative_deltas threshold
     if (_input_rowsets.size() > config::base_compaction_num_cumulative_deltas) {
-        LOG(INFO) << "satisfy the base compaction policy. tablet="<< _tablet->full_name()
+        LOG(INFO) << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
                   << ", num_cumulative_rowsets=" << _input_rowsets.size() - 1
-                  << ", base_compaction_num_cumulative_rowsets=" << config::base_compaction_num_cumulative_deltas;
+                  << ", base_compaction_num_cumulative_rowsets="
+                  << config::base_compaction_num_cumulative_deltas;
         return OLAP_SUCCESS;
     }
 
@@ -119,8 +121,8 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     int64_t interval_since_last_base_compaction = time(NULL) - base_creation_time;
     if (interval_since_last_base_compaction > interval_threshold) {
         LOG(INFO) << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
-                  << ", interval_since_last_base_compaction=" << interval_since_last_base_compaction 
-                   << ", interval_threshold=" << interval_threshold;
+                  << ", interval_since_last_base_compaction=" << interval_since_last_base_compaction
+                  << ", interval_threshold=" << interval_threshold;
         return OLAP_SUCCESS;
     }
 
@@ -135,14 +137,13 @@ OLAPStatus BaseCompaction::_check_rowset_overlapping(const std::vector<RowsetSha
     for (auto& rs : rowsets) {
         if (rs->rowset_meta()->is_segments_overlapping()) {
             LOG(WARNING) << "There is overlapping rowset before cumulative point, "
-                << "rowset version=" << rs->start_version()
-                << "-" << rs->end_version()
-                << ", cumulative point=" << _tablet->cumulative_layer_point()
-                << ", tablet=" << _tablet->full_name();
+                         << "rowset version=" << rs->start_version() << "-" << rs->end_version()
+                         << ", cumulative point=" << _tablet->cumulative_layer_point()
+                         << ", tablet=" << _tablet->full_name();
             return OLAP_ERR_BE_SEGMENTS_OVERLAPPING;
         }
     }
     return OLAP_SUCCESS;
 }
 
-}  // namespace doris
+} // namespace doris

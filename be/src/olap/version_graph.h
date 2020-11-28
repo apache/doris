@@ -18,17 +18,17 @@
 #ifndef DORIS_BE_SRC_OLAP_VERSION_GRAPH_H
 #define DORIS_BE_SRC_OLAP_VERSION_GRAPH_H
 
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/prettywriter.h>
 #include <rapidjson/document.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
 
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_meta.h"
 
 namespace doris {
-/// VersionGraph class which is implemented to build and maintain total versions of rowsets. 
-/// This class use adjacency-matrix represent rowsets version and links. A vertex is a version 
+/// VersionGraph class which is implemented to build and maintain total versions of rowsets.
+/// This class use adjacency-matrix represent rowsets version and links. A vertex is a version
 /// and a link is the _version object of a rowset (from start version to end version + 1).
 /// Use this class, when given a spec_version, we can get a version path which is the shortest path
 /// in the graph.
@@ -37,13 +37,13 @@ public:
     /// Use rs_metas to construct the graph including vertex and edges, and return the
     /// max_version in metas.
     void construct_version_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
-                                int64_t* max_version);
+                                 int64_t* max_version);
     /// Reconstruct the graph, begin construction the vertex vec and edges list will be cleared.
     void reconstruct_version_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
-                                  int64_t* max_version);
+                                   int64_t* max_version);
     /// Add a version to this graph, graph will add the version and edge in version.
     void add_version_to_graph(const Version& version);
-    /// Delete a version from graph. Notice that this del operation only remove this edges and 
+    /// Delete a version from graph. Notice that this del operation only remove this edges and
     /// remain the vertex.
     OLAPStatus delete_version_from_graph(const Version& version);
     /// Given a spec_version, this method can find a version path which is the shortest path
@@ -52,7 +52,7 @@ public:
                                            std::vector<Version>* version_path) const;
 
 private:
-    /// Private method add a version to graph. 
+    /// Private method add a version to graph.
     void _add_vertex_to_graph(int64_t vertex_value);
 
     // OLAP version contains two parts, [start_version, end_version]. In order
@@ -67,7 +67,7 @@ private:
     std::unordered_map<int64_t, int64_t> _vertex_index_map;
 };
 
-/// TimestampedVersion class which is implemented to maintain multi-version path of rowsets. 
+/// TimestampedVersion class which is implemented to maintain multi-version path of rowsets.
 /// This compaction info of a rowset includes start version, end version and the create time.
 class TimestampedVersion {
 public:
@@ -83,14 +83,10 @@ public:
     int64_t get_create_time() { return _create_time; }
 
     /// Compare two version trackers.
-    bool operator!=(const TimestampedVersion& rhs) const {
-        return _version != rhs._version;
-    }
+    bool operator!=(const TimestampedVersion& rhs) const { return _version != rhs._version; }
 
     /// Compare two version trackers.
-    bool operator==(const TimestampedVersion& rhs) const {
-        return _version == rhs._version;
-    }
+    bool operator==(const TimestampedVersion& rhs) const { return _version == rhs._version; }
 
     /// Judge if a tracker contains the other.
     bool contains(const TimestampedVersion& other) const {
@@ -108,16 +104,14 @@ using TimestampedVersionSharedPtr = std::shared_ptr<TimestampedVersion>;
 /// and record the max create time in a path version. Once a timestamped version is added, the max_create_time
 /// will compare with the version timestamp and be refreshed.
 class TimestampedVersionPathContainer {
-
 public:
     /// TimestampedVersionPathContainer construction function, max_create_time is assigned to 0.
-    TimestampedVersionPathContainer():_max_create_time(0) {
-    }
+    TimestampedVersionPathContainer() : _max_create_time(0) {}
 
     /// Return the max create time in a path version.
     int64_t max_create_time() { return _max_create_time; }
 
-    /// Add a timestamped version to timestamped_versions_container. Once a timestamped version is added, 
+    /// Add a timestamped version to timestamped_versions_container. Once a timestamped version is added,
     /// the max_create_time will compare with the version timestamp and be refreshed.
     void add_timestamped_version(TimestampedVersionSharedPtr version);
 
@@ -143,9 +137,10 @@ public:
     void construct_versioned_tracker(const std::vector<RowsetMetaSharedPtr>& rs_metas,
                                      const std::vector<RowsetMetaSharedPtr>& stale_metas);
 
-    /// Recover rowsets version tracker from stale version path map. When delete operation fails, the 
+    /// Recover rowsets version tracker from stale version path map. When delete operation fails, the
     /// tracker can be recovered from deleted stale_version_path_map.
-    void recover_versioned_tracker(const std::map<int64_t, PathVersionListSharedPtr>& stale_version_path_map);
+    void recover_versioned_tracker(
+            const std::map<int64_t, PathVersionListSharedPtr>& stale_version_path_map);
 
     /// Add a version to tracker, this version is a new version rowset, not merged rowset.
     void add_version(const Version& version);
@@ -153,8 +148,7 @@ public:
     /// Add a version path with stale_rs_metas, this versions in version path
     /// are merged rowsets.  These rowsets are tracked and removed after they are expired.
     /// TabletManager sweep these rowsets using tracker by timing.
-    void add_stale_path_version(
-            const std::vector<RowsetMetaSharedPtr>& stale_rs_metas);
+    void add_stale_path_version(const std::vector<RowsetMetaSharedPtr>& stale_rs_metas);
 
     /// Given a spec_version, this method can find a version path which is the shortest path
     /// in the graph. The version paths are added to version_path as return info.
@@ -167,19 +161,19 @@ public:
     /// "now() - tablet_rowset_stale_sweep_time_sec" , this path will be remained.
     /// Otherwise, this path will be added to path_version.
     void capture_expired_paths(int64_t stale_sweep_endtime,
-                                      std::vector<int64_t>* path_version) const;
+                               std::vector<int64_t>* path_version) const;
 
     /// Fetch all versions with a path_version.
     PathVersionListSharedPtr fetch_path_version_by_id(int64_t path_id);
 
     /// Fetch all versions with a path_version, at the same time remove this path from the tracker.
-    /// Next time, fetch this path, it will return empty. 
+    /// Next time, fetch this path, it will return empty.
     PathVersionListSharedPtr fetch_and_delete_path_by_id(int64_t path_id);
 
     /// Print all expired version path in a tablet.
     std::string _get_current_path_map_str();
 
-    /// Get json document of _stale_version_path_map. Fill the path_id and version_path 
+    /// Get json document of _stale_version_path_map. Fill the path_id and version_path
     /// list in the document. The parameter path arr is used as return variable.
     void get_stale_version_path_json_doc(rapidjson::Document& path_arr);
 
@@ -193,17 +187,18 @@ private:
 
     /// find a path in stale_map from first_version to second_version, stale_path is used as result.
     bool _find_path_from_stale_map(
-            const std::unordered_map<int64_t, std::unordered_map<int64_t, RowsetMetaSharedPtr>>& stale_map,
+            const std::unordered_map<int64_t, std::unordered_map<int64_t, RowsetMetaSharedPtr>>&
+                    stale_map,
             int64_t first_version, int64_t second_version,
             std::vector<RowsetMetaSharedPtr>* stale_path);
 
 private:
-    // This variable records the id of path version which will be dispatched to next path version, 
+    // This variable records the id of path version which will be dispatched to next path version,
     // it is not persisted.
     int64_t _next_path_id = 1;
-    
+
     // path_version -> list of path version,
-    // This variable is used to maintain the map from path version and it's all version. 
+    // This variable is used to maintain the map from path version and it's all version.
     std::map<int64_t, PathVersionListSharedPtr> _stale_version_path_map;
 
     VersionGraph _version_graph;

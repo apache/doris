@@ -19,16 +19,16 @@
 
 #include <gtest/gtest.h>
 
+#include "common/logging.h"
 #include "geo/geo_types.h"
 #include "geo/wkt_parse_ctx.h"
-#include "common/logging.h"
 
 namespace doris {
 
 class WktParseTest : public testing::Test {
 public:
-    WktParseTest() { }
-    virtual ~WktParseTest() { }
+    WktParseTest() {}
+    virtual ~WktParseTest() {}
 };
 
 TEST_F(WktParseTest, normal) {
@@ -51,7 +51,7 @@ TEST_F(WktParseTest, invalid_wkt) {
     ASSERT_EQ(nullptr, shape);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

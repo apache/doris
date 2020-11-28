@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/buffered_reader.h"
+
 #include <gtest/gtest.h>
 
 #include "exec/local_file_reader.h"
-#include "exec/buffered_reader.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -27,10 +28,8 @@ public:
     BufferedReaderTest() {}
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
 };
 
 TEST_F(BufferedReaderTest, normal_use) {
@@ -176,7 +175,7 @@ TEST_F(BufferedReaderTest, test_miss) {
 
 } // end namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

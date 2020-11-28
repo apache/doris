@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_QUERY_EXEC_ODBC_SCAN_NODE_H
-#define  DORIS_BE_SRC_QUERY_EXEC_ODBC_SCAN_NODE_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_ODBC_SCAN_NODE_H
+#define DORIS_BE_SRC_QUERY_EXEC_ODBC_SCAN_NODE_H
 
 #include <memory>
 
-#include "runtime/descriptors.h"
-#include "exec/scan_node.h"
 #include "exec/odbc_scanner.h"
+#include "exec/scan_node.h"
+#include "runtime/descriptors.h"
 
 namespace doris {
 
@@ -74,7 +74,6 @@ private:
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
 
-
     // Descriptor of tuples read from ODBC table.
     const TupleDescriptor* _tuple_desc;
     // Tuple index in tuple row.
@@ -90,6 +89,6 @@ private:
     // Current tuple.
     Tuple* _tuple = nullptr;
 };
-}
+} // namespace doris
 
 #endif

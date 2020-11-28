@@ -35,7 +35,7 @@ public:
     StreamLoadAction(ExecEnv* exec_env);
     ~StreamLoadAction() override;
 
-    void handle(HttpRequest *req) override;
+    void handle(HttpRequest* req) override;
 
     bool request_will_be_read_progressively() override { return true; }
 
@@ -61,4 +61,4 @@ private:
     IntGauge* streaming_load_current_processing;
 };
 
-}
+} // namespace doris

@@ -18,21 +18,20 @@
 #ifndef DORIS_BE_SRC_UTIL_THREAD_POOL_H
 #define DORIS_BE_SRC_UTIL_THREAD_POOL_H
 
+#include <boost/intrusive/list.hpp>
+#include <boost/intrusive/list_hook.hpp>
 #include <deque>
 #include <functional>
 #include <memory>
-#include <utility>
-#include <unordered_set>
 #include <string>
-
-#include <boost/intrusive/list.hpp>
-#include <boost/intrusive/list_hook.hpp>
+#include <unordered_set>
+#include <utility>
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "util/condition_variable.h"
-#include "util/mutex.h"
 #include "util/monotime.h"
+#include "util/mutex.h"
 
 namespace doris {
 
@@ -308,8 +307,7 @@ private:
     //
     // Protected by _lock.
     struct IdleThread : public boost::intrusive::list_base_hook<> {
-        explicit IdleThread(Mutex* m)
-            : not_empty(m) {}
+        explicit IdleThread(Mutex* m) : not_empty(m) {}
 
         // Condition variable for "queue is not empty". Waiters wake up when a new
         // task is queued.
@@ -409,15 +407,11 @@ private:
 
     // Returns true if this token has a task queued and ready to run, or if a
     // task belonging to this token is already running.
-    bool is_active() const {
-        return _state == State::RUNNING ||
-            _state == State::QUIESCING;
-    }
+    bool is_active() const { return _state == State::RUNNING || _state == State::QUIESCING; }
 
     // Returns true if new tasks may be submitted to this token.
     bool may_submit_new_tasks() const {
-        return _state != State::QUIESCING &&
-            _state != State::QUIESCED;
+        return _state != State::QUIESCING && _state != State::QUIESCED;
     }
 
     State state() const { return _state; }

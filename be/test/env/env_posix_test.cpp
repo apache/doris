@@ -15,27 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "env/env.h"
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
 
 #include "common/logging.h"
+#include "env/env.h"
 #include "util/file_utils.h"
 
 namespace doris {
 
 class EnvPosixTest : public testing::Test {
 public:
-    EnvPosixTest() { }
-    virtual ~EnvPosixTest() { }
+    EnvPosixTest() {}
+    virtual ~EnvPosixTest() {}
     void SetUp() override {
         auto st = FileUtils::create_dir("./ut_dir/env_posix");
         ASSERT_TRUE(st.ok());
     }
-    void TearDown() override {
-    }
+    void TearDown() override {}
 };
 
 TEST_F(EnvPosixTest, random_access) {
@@ -85,7 +83,7 @@ TEST_F(EnvPosixTest, random_access) {
         Slice slice2(mem + 9, 100);
         Slice slice3(mem + 9 + 100, 3);
 
-        Slice read_slices[3] {slice1, slice2, slice3};
+        Slice read_slices[3]{slice1, slice2, slice3};
         st = rfile->readv_at(0, read_slices, 3);
         ASSERT_TRUE(st.ok());
         ASSERT_STREQ("123456789", std::string(slice1.data, slice1.size).c_str());
@@ -153,7 +151,7 @@ TEST_F(EnvPosixTest, random_rw) {
         Slice slice2(mem + 3, 3);
         Slice slice3(mem + 6, 3);
 
-        Slice read_slices[3] {slice1, slice2, slice3};
+        Slice read_slices[3]{slice1, slice2, slice3};
         st = rfile->readv_at(0, read_slices, 3);
         LOG(INFO) << st.to_string();
         ASSERT_TRUE(st.ok());
@@ -197,7 +195,6 @@ TEST_F(EnvPosixTest, random_rw) {
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(10, slice4.size);
 
-
         st = rfile->read(&slice4);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(0, slice4.size);
@@ -240,7 +237,7 @@ TEST_F(EnvPosixTest, iterate_dir) {
     FileUtils::remove_all(dir_path);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

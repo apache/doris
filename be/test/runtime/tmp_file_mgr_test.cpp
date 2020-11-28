@@ -17,14 +17,13 @@
 
 #include "runtime/tmp_file_mgr.h"
 
-#include <cstdlib>
+#include <gtest/gtest.h>
 
 #include <boost/filesystem.hpp>
 #include <boost/scoped_ptr.hpp>
-#include <gtest/gtest.h>
+#include <cstdlib>
 
-#include "gen_cpp/Types_types.h"  // for TUniqueId
-
+#include "gen_cpp/Types_types.h" // for TUniqueId
 #include "util/disk_info.h"
 #include "util/filesystem_util.h"
 #include "util/logging.h"
@@ -39,12 +38,14 @@ namespace doris {
 
 class TmpFileMgrTest : public ::testing::Test {
 protected:
-
     // Check that metric values are consistent with TmpFileMgr state.
     void check_metrics(TmpFileMgr* tmp_file_mgr) {
         std::vector<TmpFileMgr::DeviceId> active = tmp_file_mgr->active_tmp_devices();
-        int64_t active_metric =
-            DorisMetrics::instance()->metric_registry()->get_entity("server")->get_metric("active_scratch_dirs").value();
+        int64_t active_metric = DorisMetrics::instance()
+                                        ->metric_registry()
+                                        ->get_entity("server")
+                                        ->get_metric("active_scratch_dirs")
+                                        .value();
         EXPECT_EQ(active.size(), active_metric);
     }
 };
@@ -59,14 +60,12 @@ TEST_F(TmpFileMgrTest, TestFileAllocation) {
     std::vector<TmpFileMgr::DeviceId> tmp_devices = tmp_file_mgr.active_tmp_devices();
     EXPECT_EQ(1, tmp_devices.size());
     TUniqueId id;
-    TmpFileMgr::File *file;
+    TmpFileMgr::File* file;
     Status status = tmp_file_mgr.get_file(tmp_devices[0], id, &file);
     EXPECT_TRUE(status.ok());
     EXPECT_TRUE(file != NULL);
     // Apply writes of variable sizes and check space was allocated correctly.
-    int64_t write_sizes[] = {
-        1, 10, 1024, 4, 1024 * 1024 * 8, 1024 * 1024 * 8, 16, 10
-    };
+    int64_t write_sizes[] = {1, 10, 1024, 4, 1024 * 1024 * 8, 1024 * 1024 * 8, 16, 10};
     int num_write_sizes = sizeof(write_sizes) / sizeof(write_sizes[0]);
     int64_t next_offset = 0;
     for (int i = 0; i < num_write_sizes; ++i) {
@@ -100,7 +99,7 @@ TEST_F(TmpFileMgrTest, TestOneDirPerDevice) {
     std::vector<TmpFileMgr::DeviceId> devices = tmp_file_mgr.active_tmp_devices();
     EXPECT_EQ(1, devices.size());
     TUniqueId id;
-    TmpFileMgr::File *file;
+    TmpFileMgr::File* file;
     EXPECT_TRUE(tmp_file_mgr.get_file(devices[0], id, &file).ok());
     // Check the prefix is the expected temporary directory.
     EXPECT_EQ(0, file->path().find(tmp_dirs[0]));
@@ -126,7 +125,7 @@ TEST_F(TmpFileMgrTest, TestMultiDirsPerDevice) {
     for (int i = 0; i < tmp_dirs.size(); ++i) {
         EXPECT_EQ(0, tmp_file_mgr.get_tmp_dir_path(devices[i]).find(tmp_dirs[i]));
         TUniqueId id;
-        TmpFileMgr::File *file;
+        TmpFileMgr::File* file;
         EXPECT_TRUE(tmp_file_mgr.get_file(devices[i], id, &file).ok());
         // Check the prefix is the expected temporary directory.
         EXPECT_EQ(0, file->path().find(tmp_dirs[i]));
@@ -232,4 +231,3 @@ int main(int argc, char** argv) {
 
     return RUN_ALL_TESTS();
 }
-

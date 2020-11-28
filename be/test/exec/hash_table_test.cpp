@@ -15,16 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <map>
-#include <stdlib.h>
-#include <stdio.h>
-#include <iostream>
-#include <vector>
+#include "exec/hash_table.hpp"
 
 #include <gtest/gtest.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <iostream>
+#include <map>
+#include <vector>
 
 #include "common/compiler_util.h"
-#include "exec/hash_table.hpp"
 #include "exprs/expr.h"
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.h"
@@ -35,7 +36,6 @@ namespace doris {
 
 using std::vector;
 using std::map;
-
 
 class HashTableTest : public testing::Test {
 public:
@@ -67,16 +67,14 @@ protected:
 
     // Wrapper to call private methods on HashTable
     // TODO: understand google testing, there must be a more natural way to do this
-    void resize_table(HashTable* table, int64_t new_size) {
-        table->resize_buckets(new_size);
-    }
+    void resize_table(HashTable* table, int64_t new_size) { table->resize_buckets(new_size); }
 
     // Do a full table scan on table.  All values should be between [min,max).  If
     // all_unique, then each key(int value) should only appear once.  Results are
     // stored in results, indexed by the key.  Results must have been preallocated to
     // be at least max size.
-    void full_scan(HashTable* table, int min, int max, bool all_unique,
-                  TupleRow** results, TupleRow** expected) {
+    void full_scan(HashTable* table, int min, int max, bool all_unique, TupleRow** results,
+                   TupleRow** expected) {
         HashTable::Iterator iter = table->begin();
 
         while (iter != table->end()) {
@@ -135,7 +133,7 @@ protected:
                     }
                 } else {
                     EXPECT_EQ(data[i].expected_build_rows.size(), 1);
-                    EXPECT_EQ(data[i].expected_build_rows[0]->get_tuple(0), 
+                    EXPECT_EQ(data[i].expected_build_rows[0]->get_tuple(0),
                               iter.get_row()->get_tuple(0));
                     validate_match(row, iter.get_row());
                 }
@@ -278,8 +276,7 @@ TEST_F(HashTableTest, GrowTableTest) {
     int expected_size = 0;
 
     auto mem_tracker = std::make_shared<MemTracker>(1024 * 1024);
-    HashTable hash_table(
-        _build_expr, _probe_expr, 1, false, 0, mem_tracker, num_to_add);
+    HashTable hash_table(_build_expr, _probe_expr, 1, false, 0, mem_tracker, num_to_add);
     EXPECT_FALSE(mem_tracker->limit_exceeded());
 
     // This inserts about 5M entries
@@ -316,8 +313,7 @@ TEST_F(HashTableTest, GrowTableTest2) {
     int expected_size = 0;
 
     auto mem_tracker = std::make_shared<MemTracker>(1024 * 1024);
-    HashTable hash_table(
-        _build_expr, _probe_expr, 1, false, 0, mem_tracker, num_to_add);
+    HashTable hash_table(_build_expr, _probe_expr, 1, false, 0, mem_tracker, num_to_add);
 
     LOG(INFO) << time(NULL);
 
@@ -338,7 +334,7 @@ TEST_F(HashTableTest, GrowTableTest2) {
     LOG(INFO) << time(NULL);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

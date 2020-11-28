@@ -49,4 +49,4 @@ enum GeoParseStatus {
 std::string to_string(GeoParseStatus status);
 std::ostream& operator<<(std::ostream& os, GeoParseStatus status);
 
-}
+} // namespace doris

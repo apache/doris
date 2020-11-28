@@ -89,7 +89,6 @@ private:
     std::unique_ptr<TopicSubscriber> _topic_subscriber;
 };
 
-}  // end namespace doris
+} // end namespace doris
 
-#endif  // DORIS_BE_SRC_AGENT_AGENT_SERVER_H
-
+#endif // DORIS_BE_SRC_AGENT_AGENT_SERVER_H

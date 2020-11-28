@@ -19,7 +19,6 @@
 #define IMPALA_RUNTIME_SYSTEM_ALLOCATOR_H
 
 #include "common/status.h"
-
 #include "runtime/bufferpool/buffer_pool.h"
 
 namespace doris {
@@ -29,25 +28,25 @@ namespace doris {
 /// SystemAllocator. The allocator only handles allocating buffers that are power-of-two
 /// multiples of the minimum buffer length.
 class SystemAllocator {
- public:
-  SystemAllocator(int64_t min_buffer_len);
+public:
+    SystemAllocator(int64_t min_buffer_len);
 
-  /// Allocate memory for a buffer of 'len' bytes. 'len' must be a power-of-two multiple
-  /// of the minimum buffer length.
-  Status Allocate(int64_t len, BufferPool::BufferHandle* buffer) WARN_UNUSED_RESULT;
+    /// Allocate memory for a buffer of 'len' bytes. 'len' must be a power-of-two multiple
+    /// of the minimum buffer length.
+    Status Allocate(int64_t len, BufferPool::BufferHandle* buffer) WARN_UNUSED_RESULT;
 
-  /// Free the memory for a previously-allocated buffer.
-  void Free(BufferPool::BufferHandle&& buffer);
+    /// Free the memory for a previously-allocated buffer.
+    void Free(BufferPool::BufferHandle&& buffer);
 
- private:
-  /// Allocate 'len' bytes of memory for a buffer via mmap().
-  Status AllocateViaMMap(int64_t len, uint8_t** buffer_mem);
+private:
+    /// Allocate 'len' bytes of memory for a buffer via mmap().
+    Status AllocateViaMMap(int64_t len, uint8_t** buffer_mem);
 
-  /// Allocate 'len' bytes of memory for a buffer via our malloc implementation.
-  Status AllocateViaMalloc(int64_t len, uint8_t** buffer_mem);
+    /// Allocate 'len' bytes of memory for a buffer via our malloc implementation.
+    Status AllocateViaMalloc(int64_t len, uint8_t** buffer_mem);
 
-  const int64_t min_buffer_len_;
+    const int64_t min_buffer_len_;
 };
-}
+} // namespace doris
 
 #endif

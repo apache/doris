@@ -61,11 +61,9 @@ class OrdinalPageIndexIterator;
 
 class OrdinalIndexReader {
 public:
-    explicit OrdinalIndexReader(const std::string& filename,
-                                const OrdinalIndexPB* index_meta,
-                                ordinal_t num_values) :
-            _filename(filename), _index_meta(index_meta), _num_values(num_values) {
-    }
+    explicit OrdinalIndexReader(const std::string& filename, const OrdinalIndexPB* index_meta,
+                                ordinal_t num_values)
+            : _filename(filename), _index_meta(index_meta), _num_values(num_values) {}
 
     // load and parse the index page into memory
     Status load(bool use_page_cache, bool kept_in_memory);
@@ -73,9 +71,7 @@ public:
     OrdinalPageIndexIterator seek_at_or_before(ordinal_t ordinal);
     inline OrdinalPageIndexIterator begin();
     inline OrdinalPageIndexIterator end();
-    ordinal_t get_first_ordinal(int page_index) const {
-        return _ordinals[page_index];
-    }
+    ordinal_t get_first_ordinal(int page_index) const { return _ordinals[page_index]; }
 
     ordinal_t get_last_ordinal(int page_index) const {
         return get_first_ordinal(page_index + 1) - 1;
@@ -103,9 +99,10 @@ private:
 
 class OrdinalPageIndexIterator {
 public:
-    OrdinalPageIndexIterator() : _index(nullptr), _cur_idx(-1) { }
-    OrdinalPageIndexIterator(OrdinalIndexReader* index) : _index(index), _cur_idx(0) { }
-    OrdinalPageIndexIterator(OrdinalIndexReader* index, int cur_idx) : _index(index), _cur_idx(cur_idx) { }
+    OrdinalPageIndexIterator() : _index(nullptr), _cur_idx(-1) {}
+    OrdinalPageIndexIterator(OrdinalIndexReader* index) : _index(index), _cur_idx(0) {}
+    OrdinalPageIndexIterator(OrdinalIndexReader* index, int cur_idx)
+            : _index(index), _cur_idx(cur_idx) {}
     bool valid() const { return _cur_idx < _index->_num_pages; }
     void next() {
         DCHECK_LT(_cur_idx, _index->_num_pages);
@@ -115,6 +112,7 @@ public:
     const PagePointer& page() const { return _index->_pages[_cur_idx]; };
     ordinal_t first_ordinal() const { return _index->get_first_ordinal(_cur_idx); }
     ordinal_t last_ordinal() const { return _index->get_last_ordinal(_cur_idx); }
+
 private:
     OrdinalIndexReader* _index;
     int32_t _cur_idx;
@@ -128,5 +126,5 @@ OrdinalPageIndexIterator OrdinalIndexReader::end() {
     return OrdinalPageIndexIterator(this, _num_pages);
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

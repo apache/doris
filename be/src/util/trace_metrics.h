@@ -36,54 +36,54 @@ namespace doris {
 // but if it becomes noticeable in the CPU profile, various optimizations
 // are plausible.
 class TraceMetrics {
- public:
-  TraceMetrics() {}
-  ~TraceMetrics() {}
+public:
+    TraceMetrics() {}
+    ~TraceMetrics() {}
 
-  // Internalize the given string by duplicating it into a process-wide
-  // pool. If this string has already been interned, returns a pointer
-  // to a previous instance. Otherwise, copies it into the pool.
-  //
-  // The resulting strings are purposefully leaked, so this should only
-  // be used in cases where the number of unique strings that will be
-  // passed is relatively low (i.e. not user-specified).
-  //
-  // Because 'name' is exposed back to operators, it must be a printable
-  // ASCII string.
-  static const char* InternName(const std::string& name);
+    // Internalize the given string by duplicating it into a process-wide
+    // pool. If this string has already been interned, returns a pointer
+    // to a previous instance. Otherwise, copies it into the pool.
+    //
+    // The resulting strings are purposefully leaked, so this should only
+    // be used in cases where the number of unique strings that will be
+    // passed is relatively low (i.e. not user-specified).
+    //
+    // Because 'name' is exposed back to operators, it must be a printable
+    // ASCII string.
+    static const char* InternName(const std::string& name);
 
-  // Increment the given counter.
-  void Increment(const char* name, int64_t amount);
+    // Increment the given counter.
+    void Increment(const char* name, int64_t amount);
 
-  // Return a copy of the current counter map.
-  std::map<const char*, int64_t> Get() const;
+    // Return a copy of the current counter map.
+    std::map<const char*, int64_t> Get() const;
 
-  // Return metric's current value.
-  //
-  // NOTE: the 'name' MUST be the same const char* which is used for
-  // insertion. This is because we do pointer-wise comparison internally.
-  int64_t GetMetric(const char* name) const;
+    // Return metric's current value.
+    //
+    // NOTE: the 'name' MUST be the same const char* which is used for
+    // insertion. This is because we do pointer-wise comparison internally.
+    int64_t GetMetric(const char* name) const;
 
- private:
-  mutable SpinLock lock_;
-  std::map<const char*, int64_t> counters_;
+private:
+    mutable SpinLock lock_;
+    std::map<const char*, int64_t> counters_;
 
-  DISALLOW_COPY_AND_ASSIGN(TraceMetrics);
+    DISALLOW_COPY_AND_ASSIGN(TraceMetrics);
 };
 
 inline void TraceMetrics::Increment(const char* name, int64_t amount) {
-  std::lock_guard<SpinLock> l(lock_);
-  counters_[name] += amount;
+    std::lock_guard<SpinLock> l(lock_);
+    counters_[name] += amount;
 }
 
 inline std::map<const char*, int64_t> TraceMetrics::Get() const {
-  std::unique_lock<SpinLock> l(lock_);
-  return counters_;
+    std::unique_lock<SpinLock> l(lock_);
+    return counters_;
 }
 
 inline int64_t TraceMetrics::GetMetric(const char* name) const {
-  std::lock_guard<SpinLock> l(lock_);
-  return FindWithDefault(counters_, name, 0);
+    std::lock_guard<SpinLock> l(lock_);
+    return FindWithDefault(counters_, name, 0);
 }
 
 } // namespace doris

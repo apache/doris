@@ -29,4 +29,3 @@ struct WktParseContext {
     doris::GeoShape* shape = nullptr;
     doris::GeoParseStatus parse_status = doris::GEO_PARSE_OK;
 };
-

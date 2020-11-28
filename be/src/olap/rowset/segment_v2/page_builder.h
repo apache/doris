@@ -18,6 +18,7 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <vector>
 
 #include "common/status.h"
@@ -37,9 +38,9 @@ namespace segment_v2 {
 // 5. Bitmap Index Page: store bitmap index of data
 class PageBuilder {
 public:
-    PageBuilder() { }
+    PageBuilder() {}
 
-    virtual ~PageBuilder() { }
+    virtual ~PageBuilder() {}
 
     // Used by column writer to determine whether the current page is full.
     // Column writer depends on the result to decide whether to flush current page.
@@ -83,6 +84,7 @@ public:
     // This method could only be called between finish() and reset().
     // Status::NotFound if no values have been added.
     virtual Status get_last_value(void* value) const = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(PageBuilder);
 };

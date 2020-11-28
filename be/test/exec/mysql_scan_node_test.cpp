@@ -15,23 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <boost/foreach.hpp>
+#include "exec/mysql_scan_node.h"
+
 #include <gtest/gtest.h>
+
+#include <boost/foreach.hpp>
 #include <string>
 
 #include "common/object_pool.h"
-#include "exec/mysql_scan_node.h"
 #include "exec/text_converter.inline.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/mem_pool.h"
 #include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
+#include "runtime/mem_pool.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "schema_scan_node.h"
-#include "util/runtime_profile.h"
 #include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 using std::vector;
 
@@ -161,16 +163,13 @@ public:
     }
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
     TPlanNode _tnode;
     ObjectPool _obj_pool;
     DescriptorTbl* _desc_tbl;
     RuntimeState _runtim_state;
 };
-
 
 TEST_F(MysqlScanNodeTest, normal_use) {
     MysqlScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
@@ -279,7 +278,7 @@ TEST_F(MysqlScanNodeTest, no_init) {
     ASSERT_FALSE(status.ok());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -291,4 +290,3 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

@@ -29,7 +29,6 @@ namespace doris {
 class Status;
 
 class ESScanReader {
-
 public:
     static constexpr const char* KEY_USER_NAME = "user";
     static constexpr const char* KEY_PASS_WORD = "password";
@@ -41,16 +40,17 @@ public:
     static constexpr const char* KEY_BATCH_SIZE = "batch_size";
     static constexpr const char* KEY_TERMINATE_AFTER = "limit";
     static constexpr const char* KEY_DOC_VALUES_MODE = "doc_values_mode";
-    ESScanReader(const std::string& target, const std::map<std::string, std::string>& props, bool doc_value_mode);
+    ESScanReader(const std::string& target, const std::map<std::string, std::string>& props,
+                 bool doc_value_mode);
     ~ESScanReader();
 
     // launch the first scroll request, this method will cache the first scroll response, and return the this cached response when invoke get_next
     Status open();
     // invoke get_next to get next batch documents from elasticsearch
-    Status get_next(bool *eos, std::unique_ptr<ScrollParser>& parser);
+    Status get_next(bool* eos, std::unique_ptr<ScrollParser>& parser);
     // clear scroll context from elasticsearch
     Status close();
-    
+
 private:
     std::string _target;
     std::string _user_name;
@@ -73,14 +73,14 @@ private:
     std::string _init_scroll_url;
     // The result from the above request includes a _scroll_id, which should be passed to the scroll API in order to retrieve the next batch of results
     // _next_scroll_url for the subsequent scroll request, like /_search/scroll
-    // POST /_search/scroll 
+    // POST /_search/scroll
     // {
-    //    "scroll" : "1m", 
-    //    "scroll_id" : "DXF1ZXJ5QW5kRmV0Y2gBAAAAAAAAAD4WYm9laVYtZndUQlNsdDcwakFMNjU1QQ==" 
+    //    "scroll" : "1m",
+    //    "scroll_id" : "DXF1ZXJ5QW5kRmV0Y2gBAAAAAAAAAD4WYm9laVYtZndUQlNsdDcwakFMNjU1QQ=="
     // }
     // Each call to the scroll API returns the next batch of results until there are no more results left to return
     std::string _next_scroll_url;
-    
+
     // _search_url used to execute just only one search request to Elasticsearch
     // _search_url would go into effect when `limit` specified:
     // select * from es_table limit 10 -> /es_table/doc/_search?terminate_after=10
@@ -95,8 +95,7 @@ private:
     int _http_timeout_ms;
 
     bool _exactly_once;
-    
+
     bool _doc_value_mode;
 };
-}
-
+} // namespace doris

@@ -54,100 +54,87 @@
 #define STRINGS_MEMUTIL_H_
 
 #include <stddef.h>
-#include <string.h>      // to get the POSIX mem*() routines
+#include <string.h> // to get the POSIX mem*() routines
 
-#include "gutil/port.h"   // disable some warnings on Windows
+#include "gutil/port.h" // disable some warnings on Windows
 
-inline char *memcat(char *dest, size_t destlen,
-                    const char *src, size_t srclen) {
-  return reinterpret_cast<char*>(memcpy(dest + destlen, src, srclen));
+inline char* memcat(char* dest, size_t destlen, const char* src, size_t srclen) {
+    return reinterpret_cast<char*>(memcpy(dest + destlen, src, srclen));
 }
 
-int memcasecmp(const char *s1, const char *s2, size_t len);
-char *memdup(const char *s, size_t slen);
-char *memrchr(const char *s, int c, size_t slen);
-size_t memspn(const char *s, size_t slen, const char *accept);
-size_t memcspn(const char *s, size_t slen, const char *reject);
-char *mempbrk(const char *s, size_t slen, const char *accept);
+int memcasecmp(const char* s1, const char* s2, size_t len);
+char* memdup(const char* s, size_t slen);
+char* memrchr(const char* s, int c, size_t slen);
+size_t memspn(const char* s, size_t slen, const char* accept);
+size_t memcspn(const char* s, size_t slen, const char* reject);
+char* mempbrk(const char* s, size_t slen, const char* accept);
 
 // This is for internal use only.  Don't call this directly
-template<bool case_sensitive>
-const char * int_memmatch(const char * phaystack, size_t haylen,
-                          const char * pneedle, size_t neelen);
+template <bool case_sensitive>
+const char* int_memmatch(const char* phaystack, size_t haylen, const char* pneedle, size_t neelen);
 
 // These are the guys you can call directly
-inline const char * memstr(const char *phaystack, size_t haylen,
-                           const char *pneedle) {
-  return int_memmatch<true>(phaystack, haylen, pneedle, strlen(pneedle));
+inline const char* memstr(const char* phaystack, size_t haylen, const char* pneedle) {
+    return int_memmatch<true>(phaystack, haylen, pneedle, strlen(pneedle));
 }
 
-inline const char * memcasestr(const char *phaystack, size_t haylen,
-                               const char *pneedle) {
-  return int_memmatch<false>(phaystack, haylen, pneedle, strlen(pneedle));
+inline const char* memcasestr(const char* phaystack, size_t haylen, const char* pneedle) {
+    return int_memmatch<false>(phaystack, haylen, pneedle, strlen(pneedle));
 }
 
-inline const char * memmem(const char *phaystack, size_t haylen,
-                           const char *pneedle, size_t needlelen) {
-  return int_memmatch<true>(phaystack, haylen, pneedle, needlelen);
+inline const char* memmem(const char* phaystack, size_t haylen, const char* pneedle,
+                          size_t needlelen) {
+    return int_memmatch<true>(phaystack, haylen, pneedle, needlelen);
 }
 
-inline const char * memcasemem(const char *phaystack, size_t haylen,
-                               const char *pneedle, size_t needlelen) {
-  return int_memmatch<false>(phaystack, haylen, pneedle, needlelen);
+inline const char* memcasemem(const char* phaystack, size_t haylen, const char* pneedle,
+                              size_t needlelen) {
+    return int_memmatch<false>(phaystack, haylen, pneedle, needlelen);
 }
 
 // This is significantly faster for case-sensitive matches with very
 // few possible matches.  See unit test for benchmarks.
-const char *memmatch(const char *phaystack, size_t haylen,
-                     const char *pneedle, size_t neelen);
+const char* memmatch(const char* phaystack, size_t haylen, const char* pneedle, size_t neelen);
 
 // The ""'s catch people who don't pass in a literal for "str"
-#define strliterallen(str) (sizeof("" str "")-1)
+#define strliterallen(str) (sizeof("" str "") - 1)
 
 // Must use a string literal for prefix.
-#define memprefix(str, len, prefix)                         \
-  ( (((len) >= strliterallen(prefix))                       \
-     && memcmp(str, prefix, strliterallen(prefix)) == 0)    \
-    ? str + strliterallen(prefix)                           \
-    : NULL )
+#define memprefix(str, len, prefix)                                                        \
+    ((((len) >= strliterallen(prefix)) && memcmp(str, prefix, strliterallen(prefix)) == 0) \
+             ? str + strliterallen(prefix)                                                 \
+             : NULL)
 
-#define memcaseprefix(str, len, prefix)                             \
-  ( (((len) >= strliterallen(prefix))                               \
-     && memcasecmp(str, prefix, strliterallen(prefix)) == 0)        \
-    ? str + strliterallen(prefix)                                   \
-    : NULL )
+#define memcaseprefix(str, len, prefix)                                                        \
+    ((((len) >= strliterallen(prefix)) && memcasecmp(str, prefix, strliterallen(prefix)) == 0) \
+             ? str + strliterallen(prefix)                                                     \
+             : NULL)
 
 // Must use a string literal for suffix.
-#define memsuffix(str, len, suffix)                         \
-  ( (((len) >= strliterallen(suffix))                       \
-     && memcmp(str + (len) - strliterallen(suffix), suffix, \
-               strliterallen(suffix)) == 0)                 \
-    ? str + (len) - strliterallen(suffix)                   \
-    : NULL )
+#define memsuffix(str, len, suffix)                                                  \
+    ((((len) >= strliterallen(suffix)) &&                                            \
+      memcmp(str + (len)-strliterallen(suffix), suffix, strliterallen(suffix)) == 0) \
+             ? str + (len)-strliterallen(suffix)                                     \
+             : NULL)
 
-#define memcasesuffix(str, len, suffix)                             \
-  ( (((len) >= strliterallen(suffix))                               \
-     && memcasecmp(str + (len) - strliterallen(suffix), suffix,     \
-               strliterallen(suffix)) == 0)                         \
-    ? str + (len) - strliterallen(suffix)                           \
-    : NULL )
+#define memcasesuffix(str, len, suffix)                                                  \
+    ((((len) >= strliterallen(suffix)) &&                                                \
+      memcasecmp(str + (len)-strliterallen(suffix), suffix, strliterallen(suffix)) == 0) \
+             ? str + (len)-strliterallen(suffix)                                         \
+             : NULL)
 
-#define memis(str, len, literal)                               \
-  ( (((len) == strliterallen(literal))                         \
-     && memcmp(str, literal, strliterallen(literal)) == 0) )
+#define memis(str, len, literal) \
+    ((((len) == strliterallen(literal)) && memcmp(str, literal, strliterallen(literal)) == 0))
 
-#define memcaseis(str, len, literal)                           \
-  ( (((len) == strliterallen(literal))                         \
-     && memcasecmp(str, literal, strliterallen(literal)) == 0) )
-
+#define memcaseis(str, len, literal) \
+    ((((len) == strliterallen(literal)) && memcasecmp(str, literal, strliterallen(literal)) == 0))
 
 inline int memcount(const char* buf, size_t len, char c) {
-  int num = 0;
-  for (int i = 0; i < len; i++) {
-    if (buf[i] == c)
-      num++;
-  }
-  return num;
+    int num = 0;
+    for (int i = 0; i < len; i++) {
+        if (buf[i] == c) num++;
+    }
+    return num;
 }
 
-#endif  // STRINGS_MEMUTIL_H_
+#endif // STRINGS_MEMUTIL_H_

@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_CHARSETS_SCANNER_H
 
 #include <stdint.h>
+
 #include "exec/schema_scanner.h"
 #include "gen_cpp/FrontendService_types.h"
 
@@ -29,23 +30,23 @@ public:
     SchemaCharsetsScanner();
     virtual ~SchemaCharsetsScanner();
 
-    virtual Status get_next_row(Tuple *tuple, MemPool *pool, bool *eos);
+    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
 
 private:
     struct CharsetStruct {
-        const char *charset;
-        const char *default_collation;
-        const char *description;
+        const char* charset;
+        const char* default_collation;
+        const char* description;
         int64_t maxlen;
     };
 
-    Status fill_one_row(Tuple *tuple, MemPool *pool);
+    Status fill_one_row(Tuple* tuple, MemPool* pool);
 
     int _index;
     static SchemaScanner::ColumnDesc _s_css_columns[];
     static CharsetStruct _s_charsets[];
 };
 
-}
+} // namespace doris
 
 #endif

@@ -46,18 +46,16 @@ Expr* CastExpr::from_thrift(const TExprNode& node) {
 }
 
 #define CAST_SAME(CLASS, TYPE, FN) \
-    TYPE CLASS::FN(ExprContext* context, TupleRow* row) { \
-        return _children[0]->FN(context, row); \
-    }
+    TYPE CLASS::FN(ExprContext* context, TupleRow* row) { return _children[0]->FN(context, row); }
 
 #define CAST_FUNCTION(CLASS, TO_TYPE, TO_FN, FROM_TYPE, FROM_FN) \
-    TO_TYPE CLASS::TO_FN(ExprContext* context, TupleRow* row) { \
-        FROM_TYPE v = _children[0]->FROM_FN(context, row); \
-        if (v.is_null) { \
-            return TO_TYPE::null(); \
-        } \
-        return TO_TYPE(v.val); \
-    } 
+    TO_TYPE CLASS::TO_FN(ExprContext* context, TupleRow* row) {  \
+        FROM_TYPE v = _children[0]->FROM_FN(context, row);       \
+        if (v.is_null) {                                         \
+            return TO_TYPE::null();                              \
+        }                                                        \
+        return TO_TYPE(v.val);                                   \
+    }
 
 #define CAST_FROM_BOOLEAN(TO_TYPE, TO_FN) \
     CAST_FUNCTION(CastBooleanExpr, TO_TYPE, TO_FN, BooleanVal, get_boolean_val)
@@ -154,4 +152,4 @@ CAST_FROM_DOUBLE(IntVal, get_int_val)
 CAST_FROM_DOUBLE(BigIntVal, get_big_int_val)
 CAST_FROM_DOUBLE(LargeIntVal, get_large_int_val)
 CAST_FROM_DOUBLE(FloatVal, get_float_val)
-}
+} // namespace doris

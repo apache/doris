@@ -159,15 +159,12 @@ public:
         // Non-blocking.
         void del();
 
-        void add_row() {
-            ++_num_rows;
-        }
-        int num_rows() const {
-            return _num_rows;
-        }
+        void add_row() { ++_num_rows; }
+        int num_rows() const { return _num_rows; }
 
         // Allocates the specified number of bytes from this block.
-        template <typename T> T* allocate(int size) {
+        template <typename T>
+        T* allocate(int size) {
             DCHECK_GE(bytes_remaining(), size);
             uint8_t* current_location = _buffer_desc->buffer + _valid_data_len;
             _valid_data_len += size;
@@ -194,9 +191,7 @@ public:
         }
 
         // Return the number of bytes allocated in this block.
-        int64_t valid_data_len() const {
-            return _valid_data_len;
-        }
+        int64_t valid_data_len() const { return _valid_data_len; }
 
         // Returns the length of the underlying buffer. Only callable if the block is
         // pinned.
@@ -212,9 +207,7 @@ public:
             return _buffer_desc->len == _block_mgr->max_block_size();
         }
 
-        bool is_pinned() const {
-            return _is_pinned;
-        }
+        bool is_pinned() const { return _is_pinned; }
 
         // Path of temporary file backing the block. Intended for use in testing.
         // Returns empty string if no backing file allocated.
@@ -293,11 +286,9 @@ public:
     // same query id has already been created, that block mgr is returned.
     // - mem_limit: maximum memory that will be used by the block mgr.
     // - buffer_size: maximum size of each buffer.
-    static Status create(
-            RuntimeState* state, const std::shared_ptr<MemTracker>& parent,
-            RuntimeProfile* profile, TmpFileMgr* tmp_file_mgr,
-            int64_t mem_limit, int64_t buffer_size,
-            boost::shared_ptr<BufferedBlockMgr2>* block_mgr);
+    static Status create(RuntimeState* state, const std::shared_ptr<MemTracker>& parent,
+                         RuntimeProfile* profile, TmpFileMgr* tmp_file_mgr, int64_t mem_limit,
+                         int64_t buffer_size, boost::shared_ptr<BufferedBlockMgr2>* block_mgr);
 
     ~BufferedBlockMgr2();
 
@@ -312,7 +303,7 @@ public:
     // TODO: The fact that we allow oversubscription is problematic.
     // as the code expects the reservations to always be granted (currently not the case).
     Status register_client(int num_reserved_buffers, const std::shared_ptr<MemTracker>& tracker,
-            RuntimeState* state, Client** client);
+                           RuntimeState* state, Client** client);
 
     // Clears all reservations for this client.
     void clear_reservations(Client* client);
@@ -378,25 +369,21 @@ public:
     // TODO: Remove these two. Not clear what the sorter really needs.
     // TODO: Those are dirty, dangerous reads to two lists whose all other accesses are
     // protected by the _lock. Using those two functions is looking for trouble.
-    int available_allocated_buffers() const {
-        return _all_io_buffers.size();
-    }
-    int num_free_buffers() const {
-        return _free_io_buffers.size();
-    }
+    int available_allocated_buffers() const { return _all_io_buffers.size(); }
+    int num_free_buffers() const { return _free_io_buffers.size(); }
 
     int num_pinned_buffers(Client* client) const;
     int num_reserved_buffers_remaining(Client* client) const;
     std::shared_ptr<MemTracker> get_tracker(Client* client) const;
-    int64_t max_block_size() const { {
-        return _max_block_size; }
+    int64_t max_block_size() const {
+        { return _max_block_size; }
     }
     int64_t bytes_allocated() const;
-    RuntimeProfile* profile() { {
-        return _profile.get(); }
+    RuntimeProfile* profile() {
+        { return _profile.get(); }
     }
-    int writes_issued() const { {
-        return _writes_issued; }
+    int writes_issued() const {
+        { return _writes_issued; }
     }
 
 private:
@@ -416,8 +403,7 @@ private:
         // Iterator into _all_io_buffers for this buffer.
         std::list<BufferDescriptor*>::iterator all_buffers_it;
 
-        BufferDescriptor(uint8_t* buf, int64_t len) : buffer(buf), len(len), block(NULL) {
-        }
+        BufferDescriptor(uint8_t* buf, int64_t len) : buffer(buf), len(len), block(NULL) {}
     };
 
     BufferedBlockMgr2(RuntimeState* state, TmpFileMgr* tmp_file_mgr, int64_t block_size);
@@ -470,8 +456,7 @@ private:
     //   2. Using a buffer from the free list (which is populated by moving blocks from
     //      the unpinned list by writing them out).
     // Must be called with the _lock already taken. This function can block.
-    Status find_buffer(boost::unique_lock<boost::mutex>& lock,
-            BufferDescriptor** buffer);
+    Status find_buffer(boost::unique_lock<boost::mutex>& lock, BufferDescriptor** buffer);
 
     // Writes unpinned blocks via DiskIoMgr until one of the following is true:
     //   1. The number of outstanding writes >= (_block_write_threshold - num free buffers)
@@ -485,7 +470,7 @@ private:
     // Allocate block_size bytes in a temporary file. Try multiple disks if error occurs.
     // Returns an error only if no temporary files are usable.
     Status allocate_scratch_space(int64_t block_size, TmpFileMgr::File** tmp_file,
-            int64_t* file_offset);
+                                  int64_t* file_offset);
 
     // Callback used by DiskIoMgr to indicate a block write has completed.  write_status
     // is the status of the write. _is_cancelled is set to true if write_status is not
@@ -648,4 +633,3 @@ private:
 } // end namespace doris
 
 #endif // DORIS_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H
-

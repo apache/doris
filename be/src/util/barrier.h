@@ -29,12 +29,9 @@ namespace doris {
 class Barrier {
 public:
     // Initialize the barrier with the given initial count.
-    explicit Barrier(int count) :
-        _cond(&_mutex),
-        _count(count),
-        _initial_count(count) {
-            DCHECK_GT(count, 0);
-        }
+    explicit Barrier(int count) : _cond(&_mutex), _count(count), _initial_count(count) {
+        DCHECK_GT(count, 0);
+    }
 
     ~Barrier() {}
 

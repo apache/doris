@@ -100,24 +100,20 @@
 //   DFAKE_MUTEX(shareable_section_);
 // };
 
-
 #if !defined(NDEBUG)
 
 // Defines a class member that acts like a mutex. It is used only as a
 // verification tool.
-#define DFAKE_MUTEX(obj) \
-     mutable base::ThreadCollisionWarner obj
+#define DFAKE_MUTEX(obj) mutable base::ThreadCollisionWarner obj
 // Asserts the call is never called simultaneously in two threads. Used at
 // member function scope.
-#define DFAKE_SCOPED_LOCK(obj) \
-     base::ThreadCollisionWarner::ScopedCheck s_check_##obj(&obj)
+#define DFAKE_SCOPED_LOCK(obj) base::ThreadCollisionWarner::ScopedCheck s_check_##obj(&obj)
 // Asserts the call is never called simultaneously in two threads. Used at
 // member function scope. Same as DFAKE_SCOPED_LOCK but allows recursive locks.
 #define DFAKE_SCOPED_RECURSIVE_LOCK(obj) \
-     base::ThreadCollisionWarner::ScopedRecursiveCheck sr_check_##obj(&obj)
+    base::ThreadCollisionWarner::ScopedRecursiveCheck sr_check_##obj(&obj)
 // Asserts the code is always executed in the same thread.
-#define DFAKE_SCOPED_LOCK_THREAD_LOCKED(obj) \
-     base::ThreadCollisionWarner::Check check_##obj(&obj)
+#define DFAKE_SCOPED_LOCK_THREAD_LOCKED(obj) base::ThreadCollisionWarner::Check check_##obj(&obj)
 
 #else
 
@@ -135,113 +131,98 @@ namespace base {
 // used. During the unit tests is used another class that doesn't "DCHECK"
 // in case of collision (check thread_collision_warner_unittests.cc)
 struct BASE_EXPORT AsserterBase {
-  virtual ~AsserterBase() {}
-  virtual void warn(int64_t previous_thread_id, int64_t current_thread_id) = 0;
+    virtual ~AsserterBase() {}
+    virtual void warn(int64_t previous_thread_id, int64_t current_thread_id) = 0;
 };
 
 struct BASE_EXPORT DCheckAsserter : public AsserterBase {
-  virtual ~DCheckAsserter() {}
-  void warn(int64_t previous_thread_id, int64_t current_thread_id) override;
+    virtual ~DCheckAsserter() {}
+    void warn(int64_t previous_thread_id, int64_t current_thread_id) override;
 };
 
 class BASE_EXPORT ThreadCollisionWarner {
- public:
-  // The parameter asserter is there only for test purpose
-  explicit ThreadCollisionWarner(AsserterBase* asserter = new DCheckAsserter())
-      : valid_thread_id_(0),
-        counter_(0),
-        asserter_(asserter) {}
+public:
+    // The parameter asserter is there only for test purpose
+    explicit ThreadCollisionWarner(AsserterBase* asserter = new DCheckAsserter())
+            : valid_thread_id_(0), counter_(0), asserter_(asserter) {}
 
-  ~ThreadCollisionWarner() {
-    delete asserter_;
-  }
+    ~ThreadCollisionWarner() { delete asserter_; }
 
-  // This class is meant to be used through the macro
-  // DFAKE_SCOPED_LOCK_THREAD_LOCKED
-  // it doesn't leave the critical section, as opposed to ScopedCheck,
-  // because the critical section being pinned is allowed to be used only
-  // from one thread
-  class BASE_EXPORT Check {
-   public:
-    explicit Check(ThreadCollisionWarner* warner)
-        : warner_(warner) {
-      warner_->EnterSelf();
-    }
+    // This class is meant to be used through the macro
+    // DFAKE_SCOPED_LOCK_THREAD_LOCKED
+    // it doesn't leave the critical section, as opposed to ScopedCheck,
+    // because the critical section being pinned is allowed to be used only
+    // from one thread
+    class BASE_EXPORT Check {
+    public:
+        explicit Check(ThreadCollisionWarner* warner) : warner_(warner) { warner_->EnterSelf(); }
 
-    ~Check() {}
+        ~Check() {}
 
-   private:
-    ThreadCollisionWarner* warner_;
+    private:
+        ThreadCollisionWarner* warner_;
 
-    DISALLOW_COPY_AND_ASSIGN(Check);
-  };
+        DISALLOW_COPY_AND_ASSIGN(Check);
+    };
 
-  // This class is meant to be used through the macro
-  // DFAKE_SCOPED_LOCK
-  class BASE_EXPORT ScopedCheck {
-   public:
-    explicit ScopedCheck(ThreadCollisionWarner* warner)
-        : warner_(warner) {
-      warner_->Enter();
-    }
+    // This class is meant to be used through the macro
+    // DFAKE_SCOPED_LOCK
+    class BASE_EXPORT ScopedCheck {
+    public:
+        explicit ScopedCheck(ThreadCollisionWarner* warner) : warner_(warner) { warner_->Enter(); }
 
-    ~ScopedCheck() {
-      warner_->Leave();
-    }
+        ~ScopedCheck() { warner_->Leave(); }
 
-   private:
-    ThreadCollisionWarner* warner_;
+    private:
+        ThreadCollisionWarner* warner_;
 
-    DISALLOW_COPY_AND_ASSIGN(ScopedCheck);
-  };
+        DISALLOW_COPY_AND_ASSIGN(ScopedCheck);
+    };
 
-  // This class is meant to be used through the macro
-  // DFAKE_SCOPED_RECURSIVE_LOCK
-  class BASE_EXPORT ScopedRecursiveCheck {
-   public:
-    explicit ScopedRecursiveCheck(ThreadCollisionWarner* warner)
-        : warner_(warner) {
-      warner_->EnterSelf();
-    }
+    // This class is meant to be used through the macro
+    // DFAKE_SCOPED_RECURSIVE_LOCK
+    class BASE_EXPORT ScopedRecursiveCheck {
+    public:
+        explicit ScopedRecursiveCheck(ThreadCollisionWarner* warner) : warner_(warner) {
+            warner_->EnterSelf();
+        }
 
-    ~ScopedRecursiveCheck() {
-      warner_->Leave();
-    }
+        ~ScopedRecursiveCheck() { warner_->Leave(); }
 
-   private:
-    ThreadCollisionWarner* warner_;
+    private:
+        ThreadCollisionWarner* warner_;
 
-    DISALLOW_COPY_AND_ASSIGN(ScopedRecursiveCheck);
-  };
+        DISALLOW_COPY_AND_ASSIGN(ScopedRecursiveCheck);
+    };
 
- private:
-  // This method stores the current thread identifier and does a DCHECK
-  // if a another thread has already done it, it is safe if same thread
-  // calls this multiple time (recursion allowed).
-  void EnterSelf();
+private:
+    // This method stores the current thread identifier and does a DCHECK
+    // if a another thread has already done it, it is safe if same thread
+    // calls this multiple time (recursion allowed).
+    void EnterSelf();
 
-  // Same as EnterSelf but recursion is not allowed.
-  void Enter();
+    // Same as EnterSelf but recursion is not allowed.
+    void Enter();
 
-  // Removes the thread_id stored in order to allow other threads to
-  // call EnterSelf or Enter.
-  void Leave();
+    // Removes the thread_id stored in order to allow other threads to
+    // call EnterSelf or Enter.
+    void Leave();
 
-  // This stores the thread id that is inside the critical section, if the
-  // value is 0 then no thread is inside.
-  volatile subtle::Atomic64 valid_thread_id_;
+    // This stores the thread id that is inside the critical section, if the
+    // value is 0 then no thread is inside.
+    volatile subtle::Atomic64 valid_thread_id_;
 
-  // Counter to trace how many time a critical section was "pinned"
-  // (when allowed) in order to unpin it when counter_ reaches 0.
-  volatile subtle::Atomic64 counter_;
+    // Counter to trace how many time a critical section was "pinned"
+    // (when allowed) in order to unpin it when counter_ reaches 0.
+    volatile subtle::Atomic64 counter_;
 
-  // Here only for class unit tests purpose, during the test I need to not
-  // DCHECK but notify the collision with something else.
-  AsserterBase* asserter_;
+    // Here only for class unit tests purpose, during the test I need to not
+    // DCHECK but notify the collision with something else.
+    AsserterBase* asserter_;
 
-  DISALLOW_COPY_AND_ASSIGN(ThreadCollisionWarner);
+    DISALLOW_COPY_AND_ASSIGN(ThreadCollisionWarner);
 };
 
-}  // namespace base
+} // namespace base
 
-#endif  // BASE_THREADING_THREAD_COLLISION_WARNER_H_
+#endif // BASE_THREADING_THREAD_COLLISION_WARNER_H_

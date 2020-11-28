@@ -18,10 +18,10 @@
 #pragma once
 
 #include <atomic>
-#include <memory>
-#include <vector>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <vector>
 
 namespace doris {
 
@@ -55,9 +55,7 @@ public:
 #ifdef BE_TEST
     static ChunkAllocator* instance();
 #else
-    static ChunkAllocator* instance() {
-        return _s_instance;
-    }
+    static ChunkAllocator* instance() { return _s_instance; }
 #endif
 
     ChunkAllocator(size_t reserve_limit);
@@ -69,6 +67,7 @@ public:
 
     // Free chunk allocated from this allocator
     void free(const Chunk& chunk);
+
 private:
     static ChunkAllocator* _s_instance;
 
@@ -80,4 +79,4 @@ private:
     std::shared_ptr<MetricEntity> _chunk_allocator_metric_entity;
 };
 
-}
+} // namespace doris

@@ -15,33 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/schema_scanner/schema_helper.h"
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
+
+#include "exec/schema_scanner/schema_helper.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
 //#include "runtime/datetime_value.h"
 
-namespace doris
-{
+namespace doris {
 
 SchemaScanner::ColumnDesc SchemaUserPrivilegesScanner::_s_tbls_columns[] = {
-    //   name,       type,          size,     is_null
-    { "GRANTEE", TYPE_VARCHAR, sizeof(StringValue), true},
-    { "TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringValue), true},
-    { "PRIVILEGE_TYPE", TYPE_VARCHAR, sizeof(StringValue), false},
-    { "IS_GRANTABLE", TYPE_VARCHAR, sizeof(StringValue), true},
+        //   name,       type,          size,     is_null
+        {"GRANTEE", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"PRIVILEGE_TYPE", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"IS_GRANTABLE", TYPE_VARCHAR, sizeof(StringValue), true},
 };
 
 SchemaUserPrivilegesScanner::SchemaUserPrivilegesScanner()
         : SchemaScanner(_s_tbls_columns,
                         sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc)),
-        _priv_index(0) {
-}
+          _priv_index(0) {}
 
-SchemaUserPrivilegesScanner::~SchemaUserPrivilegesScanner() {
-}
+SchemaUserPrivilegesScanner::~SchemaUserPrivilegesScanner() {}
 
-Status SchemaUserPrivilegesScanner::start(RuntimeState *state) {
+Status SchemaUserPrivilegesScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
@@ -49,14 +47,14 @@ Status SchemaUserPrivilegesScanner::start(RuntimeState *state) {
     return Status::OK();
 }
 
-Status SchemaUserPrivilegesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
+Status SchemaUserPrivilegesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // set all bit to not null
-    memset((void *)tuple, 0, _tuple_desc->num_null_bytes());
+    memset((void*)tuple, 0, _tuple_desc->num_null_bytes());
     const TPrivilegeStatus& priv_status = _priv_result.privileges[_priv_index];
     // grantee
     {
         Status status = fill_one_col(&priv_status.grantee, pool,
-                tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset()));
+                                     tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset()));
         if (!status.ok()) {
             return status;
         }
@@ -66,7 +64,7 @@ Status SchemaUserPrivilegesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     {
         std::string definer = "def";
         Status status = fill_one_col(&definer, pool,
-                tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset()));
+                                     tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset()));
         if (!status.ok()) {
             return status;
         }
@@ -74,7 +72,7 @@ Status SchemaUserPrivilegesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     // privilege type
     {
         Status status = fill_one_col(&priv_status.privilege_type, pool,
-                tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset()));
+                                     tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset()));
         if (!status.ok()) {
             return status;
         }
@@ -82,7 +80,7 @@ Status SchemaUserPrivilegesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     // is grantable
     {
         Status status = fill_one_col(&priv_status.is_grantable, pool,
-                tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset()));
+                                     tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset()));
         if (!status.ok()) {
             return status;
         }
@@ -91,14 +89,14 @@ Status SchemaUserPrivilegesScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     return Status::OK();
 }
 
-Status SchemaUserPrivilegesScanner::fill_one_col(const std::string* src, 
-        MemPool *pool, void *slot) {
+Status SchemaUserPrivilegesScanner::fill_one_col(const std::string* src, MemPool* pool,
+                                                 void* slot) {
     if (NULL == slot || NULL == pool || NULL == src) {
         return Status::InternalError("input pointer is NULL.");
     }
     StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
     str_slot->len = src->length();
-    str_slot->ptr = (char *)pool->allocate(str_slot->len);
+    str_slot->ptr = (char*)pool->allocate(str_slot->len);
     if (NULL == str_slot->ptr) {
         return Status::InternalError("Allocate memcpy failed.");
     }
@@ -123,8 +121,8 @@ Status SchemaUserPrivilegesScanner::get_new_table() {
     }
 
     if (NULL != _param->ip && 0 != _param->port) {
-        RETURN_IF_ERROR(SchemaHelper::list_user_privilege_status(*(_param->ip),
-                _param->port, table_params, &_priv_result));
+        RETURN_IF_ERROR(SchemaHelper::list_user_privilege_status(*(_param->ip), _param->port,
+                                                                 table_params, &_priv_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
@@ -132,7 +130,7 @@ Status SchemaUserPrivilegesScanner::get_new_table() {
     return Status::OK();
 }
 
-Status SchemaUserPrivilegesScanner::get_next_row(Tuple *tuple, MemPool *pool, bool *eos) {
+Status SchemaUserPrivilegesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -147,4 +145,4 @@ Status SchemaUserPrivilegesScanner::get_next_row(Tuple *tuple, MemPool *pool, bo
     return fill_one_row(tuple, pool);
 }
 
-}
+} // namespace doris

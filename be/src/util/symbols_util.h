@@ -58,16 +58,15 @@ public:
     /// do. Find a library to do this.
     /// There is no place we require this to be perfect, if we can't do this right,
     /// the user will need to specify the full mangled string.
-    static std::string mangle_user_function(
-        const std::string& fn_name, const std::vector<TypeDescriptor>& arg_types, 
-        bool has_var_args, TypeDescriptor* ret_argument);
+    static std::string mangle_user_function(const std::string& fn_name,
+                                            const std::vector<TypeDescriptor>& arg_types,
+                                            bool has_var_args, TypeDescriptor* ret_argument);
 
     /// Mangles fn_name assuming arguments
     /// (doris_udf::FunctionContext*, doris_udf::FunctionContext::FunctionStateScope).
     static std::string mangle_prepare_or_close_function(const std::string& fn_name);
 };
 
-}
+} // namespace doris
 
 #endif
-

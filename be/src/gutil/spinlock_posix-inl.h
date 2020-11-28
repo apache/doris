@@ -34,29 +34,28 @@
 
 #include <errno.h>
 #if defined(HAVE_SCHED_H) || defined(__APPLE__)
-#include <sched.h>      /* For sched_yield() */
+#include <sched.h> /* For sched_yield() */
 #endif
-#include <time.h>       /* For nanosleep() */
+#include <time.h> /* For nanosleep() */
 
 namespace base {
 namespace internal {
 
-void SpinLockDelay(volatile Atomic32 *w, int32 value, int loop) {
-  int save_errno = errno;
-  if (loop == 0) {
-  } else if (loop == 1) {
-    sched_yield();
-  } else {
-    struct timespec tm;
-    tm.tv_sec = 0;
-    tm.tv_nsec = base::internal::SuggestedDelayNS(loop);
-    nanosleep(&tm, NULL);
-  }
-  errno = save_errno;
+void SpinLockDelay(volatile Atomic32* w, int32 value, int loop) {
+    int save_errno = errno;
+    if (loop == 0) {
+    } else if (loop == 1) {
+        sched_yield();
+    } else {
+        struct timespec tm;
+        tm.tv_sec = 0;
+        tm.tv_nsec = base::internal::SuggestedDelayNS(loop);
+        nanosleep(&tm, NULL);
+    }
+    errno = save_errno;
 }
 
-void SpinLockWake(volatile Atomic32 *w, bool all) {
-}
+void SpinLockWake(volatile Atomic32* w, bool all) {}
 
 } // namespace internal
 } // namespace base

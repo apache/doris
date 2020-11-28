@@ -193,9 +193,7 @@ struct BlockManagerOptions {
 class BlockManager {
 public:
     // Lists the available block manager types.
-    static std::vector<std::string> block_manager_types() {
-        return { "file" };
-    }
+    static std::vector<std::string> block_manager_types() { return {"file"}; }
 
     virtual ~BlockManager() {}
 
@@ -231,8 +229,7 @@ public:
     // may fail.
     //
     // Does not modify 'block' on error.
-    virtual Status open_block(const std::string& path,
-                              std::unique_ptr<ReadableBlock>* block) = 0;
+    virtual Status open_block(const std::string& path, std::unique_ptr<ReadableBlock>* block) = 0;
 
     // Retrieves the IDs of all blocks under management by this block manager.
     // These include ReadableBlocks as well as WritableBlocks.

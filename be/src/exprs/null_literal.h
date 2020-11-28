@@ -27,8 +27,7 @@ class TExprNode;
 
 class NullLiteral : public Expr {
 public:
-
-    virtual Expr* clone(ObjectPool* pool) const override { 
+    virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new NullLiteral(*this));
     }
     // NullLiteral(PrimitiveType type);
@@ -53,6 +52,6 @@ private:
     static void* return_value(Expr* e, TupleRow* row);
 };
 
-}
+} // namespace doris
 
 #endif

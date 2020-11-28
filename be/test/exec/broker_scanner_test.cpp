@@ -17,22 +17,22 @@
 
 #include "exec/broker_scanner.h"
 
-#include <string>
-#include <map>
-#include <vector>
-
 #include <gtest/gtest.h>
 
+#include <map>
+#include <string>
+#include <vector>
+
 #include "common/object_pool.h"
-#include "runtime/tuple.h"
 #include "exec/local_file_reader.h"
+#include "exprs/cast_functions.h"
+#include "gen_cpp/Descriptors_types.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
+#include "runtime/tuple.h"
 #include "runtime/user_function_cache.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "exprs/cast_functions.h"
 
 namespace doris {
 
@@ -46,15 +46,15 @@ public:
     void init();
 
     static void SetUpTestCase() {
-        UserFunctionCache::instance()->init("./be/test/runtime/test_data/user_function_cache/normal");
+        UserFunctionCache::instance()->init(
+                "./be/test/runtime/test_data/user_function_cache/normal");
         CastFunctions::init();
     }
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
+
 private:
     void init_desc_table();
     void init_params();

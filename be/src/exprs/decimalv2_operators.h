@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_EXPRS_DECIMAL_OPERATORS_H
 
 #include <stdint.h>
+
 #include "runtime/decimalv2_value.h"
 #include "udf/udf.h"
 
@@ -33,7 +34,7 @@ class TupleRow;
 class DecimalV2Operators {
 public:
     static void init();
-    
+
     static DecimalV2Val cast_to_decimalv2_val(FunctionContext*, const TinyIntVal&);
     static DecimalV2Val cast_to_decimalv2_val(FunctionContext*, const SmallIntVal&);
     static DecimalV2Val cast_to_decimalv2_val(FunctionContext*, const IntVal&);
@@ -57,31 +58,31 @@ public:
     static DateTimeVal cast_to_date_val(FunctionContext*, const DecimalV2Val&);
     static DecimalVal cast_to_decimal_val(FunctionContext*, const DecimalV2Val&);
 
-    static DecimalV2Val add_decimalv2_val_decimalv2_val(
-        FunctionContext*, const DecimalV2Val&, const DecimalV2Val&);
-    static DecimalV2Val subtract_decimalv2_val_decimalv2_val(
-        FunctionContext*, const DecimalV2Val&, const DecimalV2Val&);
-    static DecimalV2Val multiply_decimalv2_val_decimalv2_val(
-        FunctionContext*, const DecimalV2Val&, const DecimalV2Val&);
-    static DecimalV2Val divide_decimalv2_val_decimalv2_val(
-        FunctionContext*, const DecimalV2Val&, const DecimalV2Val&);
-    static DecimalV2Val mod_decimalv2_val_decimalv2_val(
-        FunctionContext*, const DecimalV2Val&, const DecimalV2Val&);
+    static DecimalV2Val add_decimalv2_val_decimalv2_val(FunctionContext*, const DecimalV2Val&,
+                                                        const DecimalV2Val&);
+    static DecimalV2Val subtract_decimalv2_val_decimalv2_val(FunctionContext*, const DecimalV2Val&,
+                                                             const DecimalV2Val&);
+    static DecimalV2Val multiply_decimalv2_val_decimalv2_val(FunctionContext*, const DecimalV2Val&,
+                                                             const DecimalV2Val&);
+    static DecimalV2Val divide_decimalv2_val_decimalv2_val(FunctionContext*, const DecimalV2Val&,
+                                                           const DecimalV2Val&);
+    static DecimalV2Val mod_decimalv2_val_decimalv2_val(FunctionContext*, const DecimalV2Val&,
+                                                        const DecimalV2Val&);
 
-    static BooleanVal eq_decimalv2_val_decimalv2_val(
-        FunctionContext*, const DecimalV2Val&, const DecimalV2Val&);
-    static BooleanVal ne_decimalv2_val_decimalv2_val(
-        FunctionContext*, const DecimalV2Val&, const DecimalV2Val&);
-    static BooleanVal gt_decimalv2_val_decimalv2_val(
-        FunctionContext*, const DecimalV2Val&, const DecimalV2Val&);
-    static BooleanVal lt_decimalv2_val_decimalv2_val(
-        FunctionContext*, const DecimalV2Val&, const DecimalV2Val&);
-    static BooleanVal ge_decimalv2_val_decimalv2_val(
-        FunctionContext*, const DecimalV2Val&, const DecimalV2Val&);
-    static BooleanVal le_decimalv2_val_decimalv2_val(
-        FunctionContext*, const DecimalV2Val&, const DecimalV2Val&);
+    static BooleanVal eq_decimalv2_val_decimalv2_val(FunctionContext*, const DecimalV2Val&,
+                                                     const DecimalV2Val&);
+    static BooleanVal ne_decimalv2_val_decimalv2_val(FunctionContext*, const DecimalV2Val&,
+                                                     const DecimalV2Val&);
+    static BooleanVal gt_decimalv2_val_decimalv2_val(FunctionContext*, const DecimalV2Val&,
+                                                     const DecimalV2Val&);
+    static BooleanVal lt_decimalv2_val_decimalv2_val(FunctionContext*, const DecimalV2Val&,
+                                                     const DecimalV2Val&);
+    static BooleanVal ge_decimalv2_val_decimalv2_val(FunctionContext*, const DecimalV2Val&,
+                                                     const DecimalV2Val&);
+    static BooleanVal le_decimalv2_val_decimalv2_val(FunctionContext*, const DecimalV2Val&,
+                                                     const DecimalV2Val&);
 };
 
-}
+} // namespace doris
 
 #endif

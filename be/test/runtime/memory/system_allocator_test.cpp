@@ -23,7 +23,7 @@
 
 namespace doris {
 
-template<bool use_mmap>
+template <bool use_mmap>
 void test_normal() {
     config::use_mmap_allocate_chunk = use_mmap;
     {
@@ -45,7 +45,7 @@ TEST(SystemAllocatorTest, TestNormal) {
     test_normal<false>();
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

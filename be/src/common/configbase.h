@@ -137,7 +137,8 @@ extern std::mutex custom_conf_lock;
 // If fillconfmap is true, the updated config will also update the `full_conf_map`.
 // If must_exist is true and `conf_file` does not exist, this function will return false.
 // If set_to_default is true, the config value will be set to default value if not found in `conf_file`.
-bool init(const char* conf_file, bool fillconfmap = false, bool must_exist = true, bool set_to_default = true);
+bool init(const char* conf_file, bool fillconfmap = false, bool must_exist = true,
+          bool set_to_default = true);
 
 Status set_config(const std::string& field, const std::string& value, bool need_persist = false);
 

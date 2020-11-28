@@ -17,17 +17,16 @@
 
 #include "runtime/spill_sorter.h"
 
-#include <string>
-#include <sstream>
-
 #include <boost/mem_fn.hpp>
+#include <sstream>
+#include <string>
 
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/sorted_run_merger.h"
-#include "util/runtime_profile.h"
 #include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 using std::deque;
 using std::string;
@@ -46,14 +45,16 @@ const int BLOCKS_REQUIRED_FOR_MERGE = 3;
 // Error message when pinning fixed or variable length blocks failed.
 // TODO: Add the node id that initiated the sort
 const string PIN_FAILED_ERROR_MSG_1 = "Failed to pin block for ";
-const string PIN_FAILED_ERROR_MSG_2 = "-length data needed "
-    "for sorting. Reducing query concurrency or increasing the memory limit may help "
-    "this query to complete successfully.";
+const string PIN_FAILED_ERROR_MSG_2 =
+        "-length data needed "
+        "for sorting. Reducing query concurrency or increasing the memory limit may help "
+        "this query to complete successfully.";
 
 const string MEM_ALLOC_FAILED_ERROR_MSG_1 = "Failed to allocate block for $0-length ";
-const string MEM_ALLOC_FAILED_ERROR_MSG_2 = "-length "
-    "data needed for sorting. Reducing query concurrency or increasing the "
-    "memory limit may help this query to complete successfully.";
+const string MEM_ALLOC_FAILED_ERROR_MSG_2 =
+        "-length "
+        "data needed for sorting. Reducing query concurrency or increasing the "
+        "memory limit may help this query to complete successfully.";
 
 static std::string get_pin_failed_error_msg(const std::string& block_type) {
     std::stringstream error_msg;
@@ -81,9 +82,7 @@ public:
     // materialized so materialize_slots is false.
     Run(SpillSorter* parent, TupleDescriptor* sort_tuple_desc, bool materialize_slots);
 
-    ~Run() {
-        delete_all_blocks();
-    }
+    ~Run() { delete_all_blocks(); }
 
     // Initialize the run for input rows by allocating the minimum number of required
     // blocks - one block for fixed-len data added to _fixed_len_blocks, one for the
@@ -97,7 +96,7 @@ public:
     // If _materialize_slots is true, materializes the input rows using the expressions
     // in _sorter->_sort_tuple_slot_expr_ctxs, else just copies the input rows.
     template <bool has_var_len_data>
-            Status add_batch(RowBatch* batch, int start_index, int* num_processed);
+    Status add_batch(RowBatch* batch, int start_index, int* num_processed);
 
     // Attaches all fixed-len and var-len blocks to the given row batch.
     void transfer_resources(RowBatch* row_batch);
@@ -129,7 +128,8 @@ private:
     // the same block.
     // TODO: If we leave the last run to be merged in memory, the fixed-len blocks can be
     // unpinned as they are consumed.
-    template <bool convert_offset_to_ptr> Status get_next(RowBatch* output_batch, bool* eos);
+    template <bool convert_offset_to_ptr>
+    Status get_next(RowBatch* output_batch, bool* eos);
 
     // Check if a run can be extended by allocating additional blocks from the block
     // manager. Always true when building a sorted run in an intermediate merge, because
@@ -140,7 +140,7 @@ private:
     // Collect the non-null var-len (e.g. STRING) slots from 'src' in var_slots and return
     // the total length of all var_len slots in total_var_len.
     void collect_non_null_varslots(Tuple* src, vector<StringValue*>* var_len_values,
-            int* total_var_len);
+                                   int* total_var_len);
 
     // Check if the current run can be extended by a block. Add the newly allocated block
     // to block_sequence, or set added to false if the run could not be extended.
@@ -162,7 +162,7 @@ private:
     // contain an offset to the copied data. Parameter 'offset' is the offset for the first
     // StringValue.
     void copy_var_len_data_convert_offset(char* dest, int64_t offset,
-            const vector<StringValue*>& var_values);
+                                          const vector<StringValue*>& var_values);
 
     // Returns true if we have var-len slots and there are var-len blocks.
     inline bool has_var_len_blocks() const {
@@ -238,15 +238,14 @@ private:
     int _fixed_len_block_offset;
 }; // class SpillSorter::Run
 
-
 // Sorts a sequence of tuples from a run in place using a provided tuple comparator.
 // Quick sort is used for sequences of tuples larger that 16 elements, and insertion sort
 // is used for smaller sequences. The TupleSorter is initialized with a RuntimeState
 // instance to check for cancellation during an in-memory sort.
 class SpillSorter::TupleSorter {
 public:
-    TupleSorter(const TupleRowComparator& less_than_comp, int64_t block_size,
-            int tuple_size, RuntimeState* state);
+    TupleSorter(const TupleRowComparator& less_than_comp, int64_t block_size, int tuple_size,
+                RuntimeState* state);
 
     ~TupleSorter();
 
@@ -262,10 +261,8 @@ private:
     // Helper class used to iterate over tuples in a run during quick sort and insertion sort.
     class TupleIterator {
     public:
-        TupleIterator(TupleSorter* parent, int64_t index) :
-                _parent(parent),
-                _index(index),
-                _current_tuple(NULL) {
+        TupleIterator(TupleSorter* parent, int64_t index)
+                : _parent(parent), _index(index), _current_tuple(NULL) {
             DCHECK_GE(index, 0);
             DCHECK_LE(index, _parent->_run->_num_tuples);
             // If the run is empty, only _index and _current_tuple are initialized.
@@ -295,7 +292,7 @@ private:
             _current_tuple += _parent->_tuple_size;
             ++_index;
             if (UNLIKELY(_current_tuple > _buffer_start + _parent->_last_tuple_block_offset &&
-                        _index < _parent->_run->_num_tuples)) {
+                         _index < _parent->_run->_num_tuples)) {
                 // Don't increment block index, etc. past the end.
                 ++_block_index;
                 DCHECK_LT(_block_index, _parent->_run->_fixed_len_blocks.size());
@@ -385,24 +382,21 @@ private:
 }; // class TupleSorter
 
 // SpillSorter::Run methods
-SpillSorter::Run::Run(
-        SpillSorter* parent, TupleDescriptor* sort_tuple_desc, bool materialize_slots) :
-    _sorter(parent),
-    _sort_tuple_desc(sort_tuple_desc),
-    _sort_tuple_size(sort_tuple_desc->byte_size()),
-    _block_size(parent->_block_mgr->max_block_size()),
-    _has_var_len_slots(sort_tuple_desc->has_varlen_slots()),
-    _materialize_slots(materialize_slots),
-    _is_sorted(!materialize_slots),
-    _is_pinned(true),
-    _var_len_copy_block(NULL),
-    _num_tuples(0) {
-}
+SpillSorter::Run::Run(SpillSorter* parent, TupleDescriptor* sort_tuple_desc, bool materialize_slots)
+        : _sorter(parent),
+          _sort_tuple_desc(sort_tuple_desc),
+          _sort_tuple_size(sort_tuple_desc->byte_size()),
+          _block_size(parent->_block_mgr->max_block_size()),
+          _has_var_len_slots(sort_tuple_desc->has_varlen_slots()),
+          _materialize_slots(materialize_slots),
+          _is_sorted(!materialize_slots),
+          _is_pinned(true),
+          _var_len_copy_block(NULL),
+          _num_tuples(0) {}
 
 Status SpillSorter::Run::init() {
     BufferedBlockMgr2::Block* block = NULL;
-    RETURN_IF_ERROR(
-            _sorter->_block_mgr->get_new_block(_sorter->_block_mgr_client, NULL, &block));
+    RETURN_IF_ERROR(_sorter->_block_mgr->get_new_block(_sorter->_block_mgr_client, NULL, &block));
     if (block == NULL) {
         return Status::MemoryLimitExceeded(get_mem_alloc_failed_error_msg("fixed"));
     }
@@ -417,8 +411,8 @@ Status SpillSorter::Run::init() {
         _var_len_blocks.push_back(block);
 
         if (!_is_sorted) {
-            RETURN_IF_ERROR(_sorter->_block_mgr->get_new_block(
-                        _sorter->_block_mgr_client, NULL, &_var_len_copy_block));
+            RETURN_IF_ERROR(_sorter->_block_mgr->get_new_block(_sorter->_block_mgr_client, NULL,
+                                                               &_var_len_copy_block));
             if (_var_len_copy_block == NULL) {
                 return Status::MemoryLimitExceeded(get_mem_alloc_failed_error_msg("variable"));
             }
@@ -468,12 +462,13 @@ Status SpillSorter::Run::add_batch(RowBatch* batch, int start_index, int* num_pr
             TupleRow* input_row = batch->get_row(cur_input_index);
             Tuple* new_tuple = cur_fixed_len_block->allocate<Tuple>(_sort_tuple_size);
             if (_materialize_slots) {
-                new_tuple->materialize_exprs<has_var_len_data>(input_row, *_sort_tuple_desc,
-                        _sorter->_sort_tuple_slot_expr_ctxs, NULL, &string_values, &total_var_len);
+                new_tuple->materialize_exprs<has_var_len_data>(
+                        input_row, *_sort_tuple_desc, _sorter->_sort_tuple_slot_expr_ctxs, NULL,
+                        &string_values, &total_var_len);
                 if (total_var_len > _sorter->_block_mgr->max_block_size()) {
                     std::stringstream error_msg;
                     error_msg << "Variable length data in a single tuple larger than block size "
-                            << total_var_len << " > " << _sorter->_block_mgr->max_block_size();
+                              << total_var_len << " > " << _sorter->_block_mgr->max_block_size();
                     return Status::InternalError(error_msg.str());
                 }
             } else {
@@ -540,13 +535,13 @@ Status SpillSorter::Run::add_batch(RowBatch* batch, int start_index, int* num_pr
 
 void SpillSorter::Run::transfer_resources(RowBatch* row_batch) {
     DCHECK(row_batch != NULL);
-    BOOST_FOREACH(BufferedBlockMgr2::Block* block, _fixed_len_blocks) {
+    BOOST_FOREACH (BufferedBlockMgr2::Block* block, _fixed_len_blocks) {
         if (block != NULL) {
             row_batch->add_block(block);
         }
     }
     _fixed_len_blocks.clear();
-    BOOST_FOREACH(BufferedBlockMgr2::Block* block, _var_len_blocks) {
+    BOOST_FOREACH (BufferedBlockMgr2::Block* block, _var_len_blocks) {
         if (block != NULL) {
             row_batch->add_block(block);
         }
@@ -559,13 +554,13 @@ void SpillSorter::Run::transfer_resources(RowBatch* row_batch) {
 }
 
 void SpillSorter::Run::delete_all_blocks() {
-    BOOST_FOREACH(BufferedBlockMgr2::Block* block, _fixed_len_blocks) {
+    BOOST_FOREACH (BufferedBlockMgr2::Block* block, _fixed_len_blocks) {
         if (block != NULL) {
             block->del();
         }
     }
     _fixed_len_blocks.clear();
-    BOOST_FOREACH(BufferedBlockMgr2::Block* block, _var_len_blocks) {
+    BOOST_FOREACH (BufferedBlockMgr2::Block* block, _var_len_blocks) {
         if (block != NULL) {
             block->del();
         }
@@ -597,9 +592,9 @@ Status SpillSorter::Run::unpin_all_blocks() {
         BufferedBlockMgr2::Block* cur_fixed_block = _fixed_len_blocks[i];
         if (has_var_len_blocks()) {
             for (int block_offset = 0; block_offset < cur_fixed_block->valid_data_len();
-                    block_offset += _sort_tuple_size) {
+                 block_offset += _sort_tuple_size) {
                 Tuple* cur_tuple =
-                    reinterpret_cast<Tuple*>(cur_fixed_block->buffer() + block_offset);
+                        reinterpret_cast<Tuple*>(cur_fixed_block->buffer() + block_offset);
                 collect_non_null_varslots(cur_tuple, &string_values, &total_var_len);
                 DCHECK(cur_sorted_var_len_block != NULL);
                 if (cur_sorted_var_len_block->bytes_remaining() < total_var_len) {
@@ -610,7 +605,8 @@ Status SpillSorter::Run::unpin_all_blocks() {
                 }
                 char* var_data_ptr = cur_sorted_var_len_block->allocate<char>(total_var_len);
                 var_data_offset = _block_size * (sorted_var_len_blocks.size() - 1) +
-                    (var_data_ptr - reinterpret_cast<char*>(cur_sorted_var_len_block->buffer()));
+                                  (var_data_ptr -
+                                   reinterpret_cast<char*>(cur_sorted_var_len_block->buffer()));
                 copy_var_len_data_convert_offset(var_data_ptr, var_data_offset, string_values);
             }
         }
@@ -623,9 +619,7 @@ Status SpillSorter::Run::unpin_all_blocks() {
     }
 
     // Clear _var_len_blocks and replace with it with the contents of sorted_var_len_blocks
-    BOOST_FOREACH(BufferedBlockMgr2::Block* var_block, _var_len_blocks) {
-        var_block->del();
-    }
+    BOOST_FOREACH (BufferedBlockMgr2::Block* var_block, _var_len_blocks) { var_block->del(); }
     _var_len_blocks.clear();
     sorted_var_len_blocks.swap(_var_len_blocks);
     // Set _var_len_copy_block to NULL since it's now in _var_len_blocks and is no longer
@@ -644,9 +638,8 @@ Status SpillSorter::Run::prepare_read() {
 
     // _buffered_batch.reset(new RowBatch(*_sorter->_output_row_desc,
     //         _sorter->_state->batch_size(), _sorter->_mem_tracker));
-    _buffered_batch.reset(
-            new RowBatch(
-                *_sorter->_output_row_desc, _sorter->_state->batch_size(), _sorter->_mem_tracker.get()));
+    _buffered_batch.reset(new RowBatch(*_sorter->_output_row_desc, _sorter->_state->batch_size(),
+                                       _sorter->_mem_tracker.get()));
 
     // If the run is pinned, merge is not invoked, so _buffered_batch is not needed
     // and the individual blocks do not need to be pinned.
@@ -757,10 +750,10 @@ Status SpillSorter::Run::get_next(RowBatch* output_batch, bool* eos) {
     // get_next fills rows into the output batch until a block boundary is reached.
     DCHECK(fixed_len_block != NULL);
     while (!output_batch->at_capacity() &&
-            _fixed_len_block_offset < fixed_len_block->valid_data_len()) {
+           _fixed_len_block_offset < fixed_len_block->valid_data_len()) {
         DCHECK(fixed_len_block != NULL);
-        Tuple* input_tuple = reinterpret_cast<Tuple*>(
-                fixed_len_block->buffer() + _fixed_len_block_offset);
+        Tuple* input_tuple =
+                reinterpret_cast<Tuple*>(fixed_len_block->buffer() + _fixed_len_block_offset);
 
         if (convert_offset_to_ptr) {
             // Convert the offsets in the var-len slots in input_tuple back to pointers.
@@ -797,7 +790,7 @@ Status SpillSorter::Run::get_next(RowBatch* output_batch, bool* eos) {
                     value->ptr = reinterpret_cast<char*>(
                             _var_len_blocks[_var_len_blocks_index]->buffer() + block_offset);
                 } // if (block_index > _var_len_blocks_index)
-            } // for (int i = 0; i < string_slots.size(); ++i)
+            }     // for (int i = 0; i < string_slots.size(); ++i)
 
             // The var-len data is in the next block, so end this call to get_next().
             if (_pin_next_var_len_block) {
@@ -821,22 +814,22 @@ Status SpillSorter::Run::get_next(RowBatch* output_batch, bool* eos) {
     return Status::OK();
 }
 
-void SpillSorter::Run::collect_non_null_varslots(
-        Tuple* src, vector<StringValue*>* string_values, int* total_var_len) {
+void SpillSorter::Run::collect_non_null_varslots(Tuple* src, vector<StringValue*>* string_values,
+                                                 int* total_var_len) {
     string_values->clear();
     *total_var_len = 0;
-    BOOST_FOREACH(const SlotDescriptor* string_slot, _sort_tuple_desc->string_slots()) {
+    BOOST_FOREACH (const SlotDescriptor* string_slot, _sort_tuple_desc->string_slots()) {
         if (!src->is_null(string_slot->null_indicator_offset())) {
             StringValue* string_val =
-                reinterpret_cast<StringValue*>(src->get_slot(string_slot->tuple_offset()));
+                    reinterpret_cast<StringValue*>(src->get_slot(string_slot->tuple_offset()));
             string_values->push_back(string_val);
             *total_var_len += string_val->len;
         }
     }
 }
 
-Status SpillSorter::Run::try_add_block(
-        vector<BufferedBlockMgr2::Block*>* block_sequence, bool* added) {
+Status SpillSorter::Run::try_add_block(vector<BufferedBlockMgr2::Block*>* block_sequence,
+                                       bool* added) {
     DCHECK(!block_sequence->empty());
     BufferedBlockMgr2::Block* last_block = block_sequence->back();
     if (!_is_sorted) {
@@ -847,8 +840,8 @@ Status SpillSorter::Run::try_add_block(
     }
 
     BufferedBlockMgr2::Block* new_block;
-    RETURN_IF_ERROR(_sorter->_block_mgr->get_new_block(
-            _sorter->_block_mgr_client, last_block, &new_block));
+    RETURN_IF_ERROR(
+            _sorter->_block_mgr->get_new_block(_sorter->_block_mgr_client, last_block, &new_block));
     if (new_block != NULL) {
         *added = true;
         block_sequence->push_back(new_block);
@@ -859,7 +852,7 @@ Status SpillSorter::Run::try_add_block(
 }
 
 void SpillSorter::Run::copy_var_len_data(char* dest, const vector<StringValue*>& string_values) {
-    BOOST_FOREACH(StringValue* string_val, string_values) {
+    BOOST_FOREACH (StringValue* string_val, string_values) {
         memcpy(dest, string_val->ptr, string_val->len);
         string_val->ptr = dest;
         dest += string_val->len;
@@ -867,24 +860,23 @@ void SpillSorter::Run::copy_var_len_data(char* dest, const vector<StringValue*>&
 }
 
 void SpillSorter::Run::copy_var_len_data_convert_offset(char* dest, int64_t offset,
-    const vector<StringValue*>& string_values) {
-  BOOST_FOREACH(StringValue* string_val, string_values) {
-    memcpy(dest, string_val->ptr, string_val->len);
-    string_val->ptr = reinterpret_cast<char*>(offset);
-    dest += string_val->len;
-    offset += string_val->len;
-  }
+                                                        const vector<StringValue*>& string_values) {
+    BOOST_FOREACH (StringValue* string_val, string_values) {
+        memcpy(dest, string_val->ptr, string_val->len);
+        string_val->ptr = reinterpret_cast<char*>(offset);
+        dest += string_val->len;
+        offset += string_val->len;
+    }
 }
 
 // SpillSorter::TupleSorter methods.
-SpillSorter::TupleSorter::TupleSorter(
-    const TupleRowComparator& comp, int64_t block_size,
-    int tuple_size, RuntimeState* state) :
-        _tuple_size(tuple_size),
-        _block_capacity(block_size / tuple_size),
-        _last_tuple_block_offset(tuple_size * ((block_size / tuple_size) - 1)),
-        _less_than_comp(comp),
-        _state(state) {
+SpillSorter::TupleSorter::TupleSorter(const TupleRowComparator& comp, int64_t block_size,
+                                      int tuple_size, RuntimeState* state)
+        : _tuple_size(tuple_size),
+          _block_capacity(block_size / tuple_size),
+          _last_tuple_block_offset(tuple_size * ((block_size / tuple_size) - 1)),
+          _less_than_comp(comp),
+          _state(state) {
     _temp_tuple_buffer = new uint8_t[tuple_size];
     _temp_tuple_row = reinterpret_cast<TupleRow*>(&_temp_tuple_buffer);
     _swap_buffer = new uint8_t[tuple_size];
@@ -908,7 +900,7 @@ void SpillSorter::TupleSorter::sort(Run* run) {
 // (reverse order) to find its correct place in the sorted sequence, copying tuples
 // along the way.
 void SpillSorter::TupleSorter::insertion_sort(const TupleIterator& first,
-        const TupleIterator& last) {
+                                              const TupleIterator& last) {
     TupleIterator insert_iter = first;
     insert_iter.next();
     for (; insert_iter._index < last._index; insert_iter.next()) {
@@ -924,7 +916,7 @@ void SpillSorter::TupleSorter::insertion_sort(const TupleIterator& first,
         iter.prev();
         uint8_t* copy_to = insert_iter._current_tuple;
         while (_less_than_comp(_temp_tuple_row,
-                    reinterpret_cast<TupleRow*>(&iter._current_tuple))) {
+                               reinterpret_cast<TupleRow*>(&iter._current_tuple))) {
             memcpy(copy_to, iter._current_tuple, _tuple_size);
             copy_to = iter._current_tuple;
             // Break if 'iter' has reached the first row, meaning that _temp_tuple_row
@@ -939,21 +931,25 @@ void SpillSorter::TupleSorter::insertion_sort(const TupleIterator& first,
     }
 }
 
-void SpillSorter::TupleSorter::find_the_median(TupleSorter::TupleIterator &first,
-        TupleSorter::TupleIterator &last, TupleSorter::TupleIterator &mid) {
+void SpillSorter::TupleSorter::find_the_median(TupleSorter::TupleIterator& first,
+                                               TupleSorter::TupleIterator& last,
+                                               TupleSorter::TupleIterator& mid) {
     last.prev();
-    auto f_com_result = _less_than_comp.compare(reinterpret_cast<TupleRow*>(&first._current_tuple), reinterpret_cast<TupleRow*>(&mid._current_tuple));
-    auto l_com_result = _less_than_comp.compare(reinterpret_cast<TupleRow*>(&last._current_tuple), reinterpret_cast<TupleRow*>(&mid._current_tuple));
+    auto f_com_result = _less_than_comp.compare(reinterpret_cast<TupleRow*>(&first._current_tuple),
+                                                reinterpret_cast<TupleRow*>(&mid._current_tuple));
+    auto l_com_result = _less_than_comp.compare(reinterpret_cast<TupleRow*>(&last._current_tuple),
+                                                reinterpret_cast<TupleRow*>(&mid._current_tuple));
     if (f_com_result == -1 && l_com_result == -1) {
-        if (_less_than_comp(reinterpret_cast<TupleRow*>(&first._current_tuple),reinterpret_cast<TupleRow*>(&last._current_tuple))) {
+        if (_less_than_comp(reinterpret_cast<TupleRow*>(&first._current_tuple),
+                            reinterpret_cast<TupleRow*>(&last._current_tuple))) {
             swap(mid._current_tuple, last._current_tuple);
         } else {
             swap(mid._current_tuple, first._current_tuple);
         }
     }
     if (f_com_result == 1 && l_com_result == 1) {
-        if (_less_than_comp(reinterpret_cast<TupleRow *>(&first._current_tuple),
-                            reinterpret_cast<TupleRow *>(&last._current_tuple))) {
+        if (_less_than_comp(reinterpret_cast<TupleRow*>(&first._current_tuple),
+                            reinterpret_cast<TupleRow*>(&last._current_tuple))) {
             swap(mid._current_tuple, first._current_tuple);
         } else {
             swap(mid._current_tuple, last._current_tuple);
@@ -961,21 +957,21 @@ void SpillSorter::TupleSorter::find_the_median(TupleSorter::TupleIterator &first
     }
 }
 
-SpillSorter::TupleSorter::TupleIterator SpillSorter::TupleSorter::partition(
-        TupleIterator first, TupleIterator last, TupleIterator& mid) {
+SpillSorter::TupleSorter::TupleIterator SpillSorter::TupleSorter::partition(TupleIterator first,
+                                                                            TupleIterator last,
+                                                                            TupleIterator& mid) {
     find_the_median(first, last, mid);
 
     // Copy &mid._current_tuple into temp_tuple since it points to a tuple within [first, last).
     memcpy(_temp_tuple_buffer, mid._current_tuple, _tuple_size);
     while (true) {
         // Search for the first and last out-of-place elements, and swap them.
-        while (_less_than_comp(
-                    reinterpret_cast<TupleRow*>(&first._current_tuple),
-                    _temp_tuple_row)) {
+        while (_less_than_comp(reinterpret_cast<TupleRow*>(&first._current_tuple),
+                               _temp_tuple_row)) {
             first.next();
         }
         while (_less_than_comp(_temp_tuple_row,
-                    reinterpret_cast<TupleRow*>(&last._current_tuple))) {
+                               reinterpret_cast<TupleRow*>(&last._current_tuple))) {
             last.prev();
         }
 
@@ -1013,7 +1009,7 @@ void SpillSorter::TupleSorter::sort_helper(TupleIterator first, TupleIterator la
             sort_helper(first, cut);
             first = cut;
         }
-	
+
         if (UNLIKELY(_state->is_cancelled())) {
             return;
         }
@@ -1030,35 +1026,33 @@ inline void SpillSorter::TupleSorter::swap(uint8_t* left, uint8_t* right) {
 
 // SpillSorter methods
 SpillSorter::SpillSorter(const TupleRowComparator& compare_less_than,
-        const vector<ExprContext*>& slot_materialize_expr_ctxs,
-        RowDescriptor* output_row_desc, const std::shared_ptr<MemTracker>& mem_tracker,
-        RuntimeProfile* profile, RuntimeState* state) :
-    _state(state),
-    _compare_less_than(compare_less_than),
-    _in_mem_tuple_sorter(NULL),
-    _block_mgr(state->block_mgr2()),
-    _block_mgr_client(NULL),
-    _has_var_len_slots(false),
-    _sort_tuple_slot_expr_ctxs(slot_materialize_expr_ctxs),
-    _mem_tracker(mem_tracker),
-    _output_row_desc(output_row_desc),
-    _unsorted_run(NULL),
-    _profile(profile),
-    _initial_runs_counter(NULL),
-    _num_merges_counter(NULL),
-    _in_mem_sort_timer(NULL),
-    _sorted_data_size(NULL),
-    _spilled(false){
-}
+                         const vector<ExprContext*>& slot_materialize_expr_ctxs,
+                         RowDescriptor* output_row_desc,
+                         const std::shared_ptr<MemTracker>& mem_tracker, RuntimeProfile* profile,
+                         RuntimeState* state)
+        : _state(state),
+          _compare_less_than(compare_less_than),
+          _in_mem_tuple_sorter(NULL),
+          _block_mgr(state->block_mgr2()),
+          _block_mgr_client(NULL),
+          _has_var_len_slots(false),
+          _sort_tuple_slot_expr_ctxs(slot_materialize_expr_ctxs),
+          _mem_tracker(mem_tracker),
+          _output_row_desc(output_row_desc),
+          _unsorted_run(NULL),
+          _profile(profile),
+          _initial_runs_counter(NULL),
+          _num_merges_counter(NULL),
+          _in_mem_sort_timer(NULL),
+          _sorted_data_size(NULL),
+          _spilled(false) {}
 
 SpillSorter::~SpillSorter() {
     // Delete blocks from the block mgr.
-    for (deque<Run*>::iterator it = _sorted_runs.begin();
-            it != _sorted_runs.end(); ++it) {
+    for (deque<Run*>::iterator it = _sorted_runs.begin(); it != _sorted_runs.end(); ++it) {
         (*it)->delete_all_blocks();
     }
-    for (deque<Run*>::iterator it = _merging_runs.begin();
-            it != _merging_runs.end(); ++it) {
+    for (deque<Run*>::iterator it = _merging_runs.begin(); it != _merging_runs.end(); ++it) {
         (*it)->delete_all_blocks();
     }
     if (_unsorted_run != NULL) {
@@ -1071,8 +1065,8 @@ Status SpillSorter::init() {
     DCHECK(_unsorted_run == NULL) << "Already initialized";
     TupleDescriptor* sort_tuple_desc = _output_row_desc->tuple_descriptors()[0];
     _has_var_len_slots = sort_tuple_desc->has_varlen_slots();
-    _in_mem_tuple_sorter.reset(new TupleSorter(_compare_less_than,
-                _block_mgr->max_block_size(), sort_tuple_desc->byte_size(), _state));
+    _in_mem_tuple_sorter.reset(new TupleSorter(_compare_less_than, _block_mgr->max_block_size(),
+                                               sort_tuple_desc->byte_size(), _state));
     _unsorted_run = _obj_pool.add(new Run(this, sort_tuple_desc, true));
 
     _initial_runs_counter = ADD_COUNTER(_profile, "InitialRunsCreated", TUnit::UNIT);
@@ -1087,7 +1081,7 @@ Status SpillSorter::init() {
         min_blocks_required *= 2;
     }
     RETURN_IF_ERROR(_block_mgr->register_client(min_blocks_required, _mem_tracker, _state,
-                &_block_mgr_client));
+                                                &_block_mgr_client));
 
     DCHECK(_unsorted_run != NULL);
     RETURN_IF_ERROR(_unsorted_run->init());
@@ -1103,7 +1097,8 @@ Status SpillSorter::add_batch(RowBatch* batch) {
         if (_has_var_len_slots) {
             RETURN_IF_ERROR(_unsorted_run->add_batch<true>(batch, cur_batch_index, &num_processed));
         } else {
-            RETURN_IF_ERROR(_unsorted_run->add_batch<false>(batch, cur_batch_index, &num_processed));
+            RETURN_IF_ERROR(
+                    _unsorted_run->add_batch<false>(batch, cur_batch_index, &num_processed));
         }
         cur_batch_index += num_processed;
         if (cur_batch_index < batch->num_rows()) {
@@ -1111,8 +1106,8 @@ Status SpillSorter::add_batch(RowBatch* batch) {
             RETURN_IF_ERROR(sort_run());
             RETURN_IF_ERROR(_sorted_runs.back()->unpin_all_blocks());
             _spilled = true;
-            _unsorted_run = _obj_pool.add(
-                    new Run(this, _output_row_desc->tuple_descriptors()[0], true));
+            _unsorted_run =
+                    _obj_pool.add(new Run(this, _output_row_desc->tuple_descriptors()[0], true));
             RETURN_IF_ERROR(_unsorted_run->init());
         }
     }
@@ -1185,8 +1180,7 @@ Status SpillSorter::reset() {
     _sorted_runs.clear();
     _obj_pool.clear();
     DCHECK(_unsorted_run == NULL);
-    _unsorted_run = _obj_pool.add(
-            new Run(this, _output_row_desc->tuple_descriptors()[0], true));
+    _unsorted_run = _obj_pool.add(new Run(this, _output_row_desc->tuple_descriptors()[0], true));
     RETURN_IF_ERROR(_unsorted_run->init());
     return Status::OK();
 }
@@ -1223,15 +1217,14 @@ Status SpillSorter::sort_run() {
     return Status::OK();
 }
 
-uint64_t SpillSorter::estimate_merge_mem(
-        uint64_t available_blocks, RowDescriptor* row_desc, int merge_batch_size) {
+uint64_t SpillSorter::estimate_merge_mem(uint64_t available_blocks, RowDescriptor* row_desc,
+                                         int merge_batch_size) {
     bool has_var_len_slots = row_desc->tuple_descriptors()[0]->has_varlen_slots();
     int blocks_per_run = has_var_len_slots ? 2 : 1;
     int max_input_runs_per_merge = (available_blocks / blocks_per_run) - 1;
     // During a merge, the batches corresponding to the input runs contain only TupleRows.
     // (The data itself is in pinned blocks held by the run)
-    uint64_t input_batch_mem =
-        merge_batch_size * sizeof(Tuple*) * max_input_runs_per_merge;
+    uint64_t input_batch_mem = merge_batch_size * sizeof(Tuple*) * max_input_runs_per_merge;
     // Since rows are deep copied into the output batch for the merger, use a pessimistic
     // estimate of the memory required.
     uint64_t output_batch_mem = RowBatch::AT_CAPACITY_MEM_USAGE;
@@ -1241,8 +1234,7 @@ uint64_t SpillSorter::estimate_merge_mem(
 
 Status SpillSorter::merge_intermediate_runs() {
     int blocks_per_run = _has_var_len_slots ? 2 : 1;
-    int max_runs_per_final_merge =
-            _block_mgr->available_allocated_buffers() / blocks_per_run;
+    int max_runs_per_final_merge = _block_mgr->available_allocated_buffers() / blocks_per_run;
 
     // During an intermediate merge, blocks from the output sorted run will have to be pinned.
     int max_runs_per_intermediate_merge = max_runs_per_final_merge - 1;
@@ -1255,13 +1247,15 @@ Status SpillSorter::merge_intermediate_runs() {
         // An intermediate merge adds one merge to _unmerged_sorted_runs.
         // Merging 'runs - (_max_runs_final - 1)' number of runs is sufficient to guarantee
         // that the final merge can be performed.
-        int num_runs_to_merge = std::min<int>(max_runs_per_intermediate_merge,
-                _sorted_runs.size() - max_runs_per_intermediate_merge);
+        int num_runs_to_merge =
+                std::min<int>(max_runs_per_intermediate_merge,
+                              _sorted_runs.size() - max_runs_per_intermediate_merge);
         RETURN_IF_ERROR(create_merger(num_runs_to_merge));
-        RowBatch intermediate_merge_batch(*_output_row_desc, _state->batch_size(), _mem_tracker.get());
+        RowBatch intermediate_merge_batch(*_output_row_desc, _state->batch_size(),
+                                          _mem_tracker.get());
         // merged_run is the new sorted run that is produced by the intermediate merge.
-        Run* merged_run = _obj_pool.add(
-                new Run(this, _output_row_desc->tuple_descriptors()[0], false));
+        Run* merged_run =
+                _obj_pool.add(new Run(this, _output_row_desc->tuple_descriptors()[0], false));
         RETURN_IF_ERROR(merged_run->init());
         bool eos = false;
         while (!eos) {
@@ -1271,11 +1265,10 @@ Status SpillSorter::merge_intermediate_runs() {
             RETURN_IF_ERROR(_merger->get_next(&intermediate_merge_batch, &eos));
             Status ret_status;
             if (_has_var_len_slots) {
-                ret_status = merged_run->add_batch<true>(&intermediate_merge_batch,
-                        0, &num_copied);
+                ret_status = merged_run->add_batch<true>(&intermediate_merge_batch, 0, &num_copied);
             } else {
-                ret_status = merged_run->add_batch<false>(&intermediate_merge_batch,
-                        0, &num_copied);
+                ret_status =
+                        merged_run->add_batch<false>(&intermediate_merge_batch, 0, &num_copied);
             }
             if (!ret_status.ok()) return ret_status;
 
@@ -1310,15 +1303,13 @@ Status SpillSorter::create_merger(int num_runs) {
     DCHECK_GT(num_runs, 1);
 
     // Clean up the runs from the previous merge.
-    for (deque<Run*>::iterator it = _merging_runs.begin();
-            it != _merging_runs.end(); ++it) {
+    for (deque<Run*>::iterator it = _merging_runs.begin(); it != _merging_runs.end(); ++it) {
         (*it)->delete_all_blocks();
     }
     _merging_runs.clear();
-    _merger.reset(
-            new SortedRunMerger(_compare_less_than, _output_row_desc, _profile, true));
+    _merger.reset(new SortedRunMerger(_compare_less_than, _output_row_desc, _profile, true));
 
-    vector<function<Status (RowBatch**)>> merge_runs;
+    vector<function<Status(RowBatch**)>> merge_runs;
     merge_runs.reserve(num_runs);
     for (int i = 0; i < num_runs; ++i) {
         Run* run = _sorted_runs.front();
@@ -1335,4 +1326,4 @@ Status SpillSorter::create_merger(int num_runs) {
     return Status::OK();
 }
 
-} // namespace doris 
+} // namespace doris
