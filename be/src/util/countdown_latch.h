@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_UTIL_COUNTDOWN_LATCH_H
 #define DORIS_BE_SRC_UTIL_COUNTDOWN_LATCH_H
 
+#include "common/logging.h"
 #include "olap/olap_define.h"
 #include "util/condition_variable.h"
 #include "util/monotime.h"
