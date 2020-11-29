@@ -49,7 +49,12 @@ Centos 7:
 The version of clang-format installed by yum is too old. Compiling clang from source
 is recommended.
 
+You can also install clang-format using the following npm command:
+
+`npm install -g clang-format`
+
 ### Clang-format plugins
+
 Clion IDE supports the plugin "ClangFormat", you can search in `File->Setting->Plugins`
  and download it.
 But the version is not match with clang-format. Judging from the options supported, 
@@ -58,6 +63,7 @@ the version is lower than clang-format-9.0.
 ## Usage
 
 ### CMD
+
 Change directory to the root directory of Doris sources and run the following command:
 `build-support/clang-format.sh`
 
@@ -65,10 +71,12 @@ NOTE: Python3 is required to run the `clang-format.sh` script.
 
 ### Using clang-format in IDEs or Editors
 #### Clion
+
 If using the plugin 'ClangFormat' in Clion, choose `Reformat Code` or press the keyboard 
 shortcut.
 
 #### VS Code
+
 VS Code needs install the extension 'Clang-Format', and specify the executable path of 
 clang-format in settings.
 

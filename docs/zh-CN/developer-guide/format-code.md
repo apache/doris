@@ -46,7 +46,12 @@ Centos 7:
 
 centos yum安装的clang-format版本过老，支持的StyleOption太少，建议源码编译10.0版本。
 
+也可以使用以下 npm 命令安装 clang-format：
+
+`npm install -g clang-format`
+
 ### clang-format插件
+
 Clion IDE可使用插件"ClangFormat"，`File->Setting->Plugins`搜索下载。但版本无法和
 clang-format程序的版本匹配，从支持的StyleOption上看，应该是低于clang-format-9.0。
 

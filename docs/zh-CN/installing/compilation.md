@@ -34,7 +34,7 @@ under the License.
 
 1. 下载 Docker 镜像
 
-    `$ docker pull apachedoris/doris-dev:build-env`
+    `$ docker pull apachedoris/doris-dev:build-env-1.2`
     
     检查镜像下载完成：
     
