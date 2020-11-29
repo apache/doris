@@ -632,13 +632,20 @@ std::string Expr::debug_string(const std::vector<ExprContext*>& ctxs) {
     return debug_string(exprs);
 }
 
-bool Expr::is_constant() const {
+bool Expr::is_constant() {
+    if (_set_is_constant) {
+        return _is_constant;
+    }
     for (int i = 0; i < _children.size(); ++i) {
         if (!_children[i]->is_constant()) {
+            _set_is_constant = true;
+            _is_constant = false;
             return false;
         }
     }
 
+    _set_is_constant = true;
+    _is_constant = true;
     return true;
 }
 

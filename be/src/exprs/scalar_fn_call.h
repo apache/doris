@@ -64,7 +64,7 @@ protected:
     virtual void close(RuntimeState* state, ExprContext* context,
                        FunctionContext::FunctionStateScope scope);
 
-    virtual bool is_constant() const;
+    virtual bool is_constant();
 
     virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
     virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);

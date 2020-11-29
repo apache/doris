@@ -258,7 +258,64 @@ bool ExprContext::is_nullable() {
     return false;
 }
 
+void* ExprContext::_get_const_val_directly(const PrimitiveType& type) {
+    switch (type) {
+    case TYPE_NULL: {
+        return NULL;
+    }
+    case TYPE_BOOLEAN: {
+        return &_result.bool_val;
+    }
+    case TYPE_TINYINT: {
+        return &_result.tinyint_val;
+    }
+    case TYPE_SMALLINT: {
+        return &_result.smallint_val;
+    }
+    case TYPE_INT: {
+        return &_result.int_val;
+    }
+    case TYPE_BIGINT: {
+        return &_result.bigint_val;
+    }
+    case TYPE_LARGEINT: {
+        return &_result.large_int_val;
+    }
+    case TYPE_FLOAT: {
+        return &_result.float_val;
+    }
+    case TYPE_TIME:
+    case TYPE_DOUBLE: {
+        return &_result.double_val;
+    }
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_HLL:
+    case TYPE_OBJECT: {
+        return &_result.string_val;
+    }
+    case TYPE_DATE:
+    case TYPE_DATETIME: {
+        return &_result.datetime_val;
+    }
+    case TYPE_DECIMAL: {
+        return &_result.decimal_val;
+    }
+    case TYPE_DECIMALV2: {
+        return &_result.decimalv2_val;
+    }
+    default:
+        return NULL;
+    }
+}
+
 void* ExprContext::get_value(Expr* e, TupleRow* row) {
+    // Return the calculated constant value directly
+    if (e->is_constant() && _result.is_set) {
+        return _get_const_val_directly(e->_type.type);
+    }
+
+    _result.is_set = true;
     switch (e->_type.type) {
     case TYPE_NULL: {
         return NULL;
@@ -340,21 +397,6 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         _result.string_val.len = v.len;
         return &_result.string_val;
     }
-#if 0
-    case TYPE_CHAR: {
-        doris_udf::StringVal v = e->get_string_val(this, row);
-        if (v.is_null) {
-            return NULL;
-        }
-        _result.string_val.ptr = reinterpret_cast<char*>(v.ptr);
-        _result.string_val.len = v.len;
-        if (e->_type.IsVarLenStringType()) {
-            return &_result.string_val;
-        } else {
-            return _result.string_val.ptr;
-        }
-    }
-#endif
     case TYPE_DATE:
     case TYPE_DATETIME: {
         doris_udf::DateTimeVal v = e->get_datetime_val(this, row);
@@ -391,7 +433,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     }
 #endif
     default:
-        DCHECK(false) << "Type not implemented: " << e->_type;
+        CHECK(false) << "Type not implemented: " << e->_type;
         return NULL;
     }
 }

@@ -133,7 +133,7 @@ std::string* CpuInfoBrand() {
     }();
     return brand;
 }
-#endif  // defined(ARCH_CPU_ARM_FAMILY) && (defined(OS_ANDROID) || defined(OS_LINUX))
+#endif // defined(ARCH_CPU_ARM_FAMILY) && (defined(OS_ANDROID) || defined(OS_LINUX))
 
 } // namespace
 void CPU::Initialize() {

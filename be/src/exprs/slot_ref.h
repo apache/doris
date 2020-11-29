@@ -50,7 +50,7 @@ public:
     static bool vector_compute_fn(Expr* expr, VectorizedRowBatch* batch);
     static bool is_nullable(Expr* expr);
     virtual std::string debug_string() const;
-    virtual bool is_constant() const { return false; }
+    virtual bool is_constant() { return false; }
     virtual bool is_vectorized() const { return true; }
     virtual bool is_bound(std::vector<TupleId>* tuple_ids) const;
     virtual int get_slot_ids(std::vector<SlotId>* slot_ids) const;

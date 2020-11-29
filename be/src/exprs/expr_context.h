@@ -167,6 +167,11 @@ public:
     void clear_error_msg();
 
 private:
+    // This function is used to directly return the calculated value only
+    // after the expression is a constant expression and has been calculated once.
+    void* _get_const_val_directly(const PrimitiveType& type);
+
+private:
     friend class Expr;
     friend class ScalarFnCall;
     friend class InPredicate;

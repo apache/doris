@@ -512,10 +512,10 @@ DateTimeVal from_olap_datetime(uint64_t datetime) {
 static const DateTimeVal FIRST_DAY = from_olap_datetime(19700101000000);
 static const DateTimeVal FIRST_SUNDAY = from_olap_datetime(19700104000000);
 
-#define TIME_ROUND(UNIT, unit, ORIGIN)                                    \
-    _TR_4(FLOOR, floor, UNIT, unit)                                       \
-    _TR_4(CEIL, ceil, UNIT, unit) _TR_5(FLOOR, floor, UNIT, unit, ORIGIN) \
-            _TR_5(CEIL, ceil, UNIT, unit, ORIGIN)
+#define TIME_ROUND(UNIT, unit, ORIGIN) \
+    _TR_4(FLOOR, floor, UNIT, unit)    \
+    _TR_4(CEIL, ceil, UNIT, unit)      \
+    _TR_5(FLOOR, floor, UNIT, unit, ORIGIN) _TR_5(CEIL, ceil, UNIT, unit, ORIGIN)
 
 TIME_ROUND(YEAR, year, FIRST_DAY)
 TIME_ROUND(MONTH, month, FIRST_DAY)

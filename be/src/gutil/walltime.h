@@ -204,4 +204,4 @@ private:
 
 // inline method bodies
 #include "gutil/cycleclock-inl.h" // IWYU pragma: export
-#endif // GUTIL_WALLTIME_H_
+#endif                            // GUTIL_WALLTIME_H_

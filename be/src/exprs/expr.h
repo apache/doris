@@ -152,7 +152,7 @@ public:
     // Returns true if expr doesn't contain slotrefs, ie, can be evaluated
     // with get_value(NULL). The default implementation returns true if all of
     // the children are constant.
-    virtual bool is_constant() const;
+    virtual bool is_constant();
 
     // Returns true ifi expr support vectorized process
     // The default implementation returns true if all the children was supported
@@ -461,6 +461,11 @@ private:
     /// in ScalarExpeEvaluator for the expression subtree rooted at this ScalarExpr node.
     int _fn_ctx_idx_start = 0;
     int _fn_ctx_idx_end = 0;
+
+    // If "_set_is_constant" is true, it means that "_is_constant" is set before.
+    // This can avoid repeated checks when calling "is_constant()"
+    bool _set_is_constant = false;
+    bool _is_constant = false;
 };
 
 inline bool Expr::evaluate(VectorizedRowBatch* batch) {

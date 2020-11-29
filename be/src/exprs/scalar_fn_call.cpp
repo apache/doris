@@ -225,8 +225,13 @@ void ScalarFnCall::close(RuntimeState* state, ExprContext* context,
     Expr::close(state, context, scope);
 }
 
-bool ScalarFnCall::is_constant() const {
+bool ScalarFnCall::is_constant() {
+    if (_set_is_constant) {
+        return _is_constant;
+    }
     if (_fn.name.function_name == "rand") {
+        _set_is_constant = true;
+        _is_constant = false;
         return false;
     }
     return Expr::is_constant();

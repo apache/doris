@@ -733,7 +733,7 @@ struct AlignType {
 #define ALIGNED_CHAR_ARRAY(T, Size) AlignType<Size * sizeof(T)>::result
 
 #endif // !SWIG
-#else // __cpluscplus
+#else  // __cpluscplus
 #define ALIGNED_CHAR_ARRAY ALIGNED_CHAR_ARRAY_is_not_available_without_Cplusplus
 #endif // __cplusplus
 
@@ -772,7 +772,7 @@ struct AlignType {
 #undef ERROR
 
 #include <float.h> // for nextafter functionality on windows
-#include <math.h> // for HUGE_VAL
+#include <math.h>  // for HUGE_VAL
 
 #ifndef HUGE_VALF
 #define HUGE_VALF (static_cast<float>(HUGE_VAL))
@@ -1167,7 +1167,7 @@ inline void UnalignedCopy64(const void* src, void* dst) {
 
 #ifdef PTHREADS_REDHAT_WIN32
 #include <iosfwd>
-using std::ostream; // NOLINT(build/include)
+using std::ostream;  // NOLINT(build/include)
 #include <pthread.h> // NOLINT(build/include)
 // pthread_t is not a simple integer or pointer on Win32
 std::ostream& operator<<(std::ostream& out, const pthread_t& thread_id);

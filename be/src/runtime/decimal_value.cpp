@@ -119,9 +119,10 @@ int32_t do_add(const DecimalValue& value1, const DecimalValue& value2, DecimalVa
     int32_t intg0 = std::max(intg1, intg2);
 
     // Is there a need for extra word because of carry?
-    int32_t first_big_digit_sum = intg1 > intg2   ? value1._buffer[0]
-                                  : intg2 > intg1 ? value2._buffer[0]
-                                                  : value1._buffer[0] + value2._buffer[0];
+    int32_t first_big_digit_sum =
+            intg1 > intg2
+                    ? value1._buffer[0]
+                    : intg2 > intg1 ? value2._buffer[0] : value1._buffer[0] + value2._buffer[0];
     if (first_big_digit_sum > DIG_MAX - 1) {
         // yes, there is
         ++intg0;
