@@ -638,7 +638,7 @@ public class SchemaChangeJob extends AlterJob {
         }
 
         Catalog.getCurrentSystemInfo().updateBackendReportVersion(schemaChangeTask.getBackendId(),
-                                                                    reportVersion, dbId);
+                                                                    reportVersion, dbId, tableId);
         setReplicaFinished(indexId, replicaId);
 
         LOG.info("finish schema change replica[{}]. index[{}]. tablet[{}], backend[{}]",

@@ -18,7 +18,9 @@
 package org.apache.doris.system;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -890,13 +892,26 @@ public class SystemInfoService {
         }
     }
 
-    public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId) {
+    public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId, long tableId) {
         AtomicLong atomicLong = null;
         if ((atomicLong = idToReportVersionRef.get(backendId)) != null) {
-            atomicLong.set(newReportVersion);
-            LOG.debug("update backend {} report version: {}, db: {}", backendId, newReportVersion, dbId);
-        } else {
-            LOG.warn("failed to update backend report version, backend {} does not exist", backendId);
+            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            if (db == null) {
+                LOG.warn("failed to update backend report version, db {} does not exist", dbId);
+                return;
+            }
+            Table table = db.getTable(tableId);
+            if (table == null) {
+                LOG.warn("failed to update backend report version, table {} in db {} does not exist", tableId, dbId);
+                return;
+            }
+            table.readLock();
+            try {
+                atomicLong.set(newReportVersion);
+                LOG.debug("update backend {} report version: {}, db: {}, table: {}", backendId, newReportVersion, dbId, tableId);
+            } finally {
+                table.readUnlock();
+            }
         }
     }
 
