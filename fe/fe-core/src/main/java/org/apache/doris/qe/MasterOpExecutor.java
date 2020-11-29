@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -127,6 +128,15 @@ public class MasterOpExecutor {
         }
         return result.packet;
     }
+
+    public TUniqueId getQueryId() {
+        if (result != null && result.isSetQueryId()) {
+            return result.getQueryId();
+        } else {
+            return null;
+        }
+    }
+
     
     public ShowResultSet getProxyResultSet() {
         if (result == null) {

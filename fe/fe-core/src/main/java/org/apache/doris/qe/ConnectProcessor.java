@@ -475,6 +475,9 @@ public class ConnectProcessor {
         // no matter the master execute success or fail, the master must transfer the result to follower
         // and tell the follower the current journalID.
         TMasterOpResult result = new TMasterOpResult();
+        if (ctx.queryId() != null) {
+            result.setQueryId(ctx.queryId);
+        }
         result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
         result.setPacket(getResultPacket());
         if (executor != null && executor.getProxyResultSet() != null) {
