@@ -480,10 +480,15 @@ IntVal StringFunctions::locate_pos(FunctionContext* context, const StringVal& su
         return IntVal::null();
     }
     if (substr.len == 0) {
-        if (str.len == 0 && start_pos.val > 1) {
+        if (start_pos.val <= 0) {
             return IntVal(0);
+        } else if (start_pos.val == 1) {
+            return IntVal(1);
+        } else if (start_pos.val > str.len) {
+            return IntVal(0);
+        } else {
+            return IntVal(start_pos.val);
         }
-        return IntVal(start_pos.val);
     }
     // Hive returns 0 for *start_pos <= 0,
     // but throws an exception for *start_pos > str->len.
