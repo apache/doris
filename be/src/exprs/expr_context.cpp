@@ -259,6 +259,9 @@ bool ExprContext::is_nullable() {
 }
 
 void* ExprContext::_get_const_val_directly(const PrimitiveType& type) {
+    if (_result.is_null) {
+        return NULL;
+    }
     switch (type) {
     case TYPE_NULL: {
         return NULL;
@@ -318,11 +321,13 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     _result.is_set = true;
     switch (e->_type.type) {
     case TYPE_NULL: {
+        _result.is_null = true;
         return NULL;
     }
     case TYPE_BOOLEAN: {
         doris_udf::BooleanVal v = e->get_boolean_val(this, row);
         if (v.is_null) {
+            _result.is_null = true;
             return NULL;
         }
         _result.bool_val = v.val;
@@ -331,6 +336,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_TINYINT: {
         doris_udf::TinyIntVal v = e->get_tiny_int_val(this, row);
         if (v.is_null) {
+            _result.is_null = true;
             return NULL;
         }
         _result.tinyint_val = v.val;
@@ -339,6 +345,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_SMALLINT: {
         doris_udf::SmallIntVal v = e->get_small_int_val(this, row);
         if (v.is_null) {
+            _result.is_null = true;
             return NULL;
         }
         _result.smallint_val = v.val;
@@ -347,6 +354,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_INT: {
         doris_udf::IntVal v = e->get_int_val(this, row);
         if (v.is_null) {
+            _result.is_null = true;
             return NULL;
         }
         _result.int_val = v.val;
@@ -355,6 +363,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_BIGINT: {
         doris_udf::BigIntVal v = e->get_big_int_val(this, row);
         if (v.is_null) {
+            _result.is_null = true;
             return NULL;
         }
         _result.bigint_val = v.val;
@@ -363,6 +372,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_LARGEINT: {
         doris_udf::LargeIntVal v = e->get_large_int_val(this, row);
         if (v.is_null) {
+            _result.is_null = true;
             return NULL;
         }
         _result.large_int_val = v.val;
@@ -371,6 +381,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_FLOAT: {
         doris_udf::FloatVal v = e->get_float_val(this, row);
         if (v.is_null) {
+            _result.is_null = true;
             return NULL;
         }
         _result.float_val = v.val;
@@ -380,6 +391,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_DOUBLE: {
         doris_udf::DoubleVal v = e->get_double_val(this, row);
         if (v.is_null) {
+            _result.is_null = true;
             return NULL;
         }
         _result.double_val = v.val;
@@ -391,6 +403,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_OBJECT: {
         doris_udf::StringVal v = e->get_string_val(this, row);
         if (v.is_null) {
+            _result.is_null = true;
             return nullptr;
         }
         _result.string_val.ptr = reinterpret_cast<char*>(v.ptr);
@@ -401,6 +414,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_DATETIME: {
         doris_udf::DateTimeVal v = e->get_datetime_val(this, row);
         if (v.is_null) {
+            _result.is_null = true;
             return NULL;
         }
         _result.datetime_val = DateTimeValue::from_datetime_val(v);
@@ -409,6 +423,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_DECIMAL: {
         DecimalVal v = e->get_decimal_val(this, row);
         if (v.is_null) {
+            _result.is_null = true;
             return NULL;
         }
         _result.decimal_val = DecimalValue::from_decimal_val(v);
@@ -417,6 +432,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_DECIMALV2: {
         DecimalV2Val v = e->get_decimalv2_val(this, row);
         if (v.is_null) {
+            _result.is_null = true;
             return NULL;
         }
         _result.decimalv2_val = DecimalV2Value::from_decimal_val(v);

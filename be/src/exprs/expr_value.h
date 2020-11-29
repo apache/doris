@@ -50,6 +50,7 @@ struct ExprValue {
     // Set to true if the value has been set.
     // This value is meaningful only in constant expressions
     bool is_set;
+    bool is_null;
 
     ExprValue()
             : bool_val(false),
@@ -65,7 +66,8 @@ struct ExprValue {
               datetime_val(),
               decimal_val(),
               decimalv2_val(),
-              is_set(false) {}
+              is_set(false),
+              is_null(false) {}
 
     ExprValue(bool v) : bool_val(v) {}
     ExprValue(int8_t v) : tinyint_val(v) {}
