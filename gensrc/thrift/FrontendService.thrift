@@ -463,6 +463,7 @@ struct TMasterOpResult {
     1: required i64 maxJournalId;
     2: required binary packet;
     3: optional TShowResultSet resultSet;
+    4: optional Types.TUniqueId queryId;
 }
 
 struct TLoadCheckRequest {
