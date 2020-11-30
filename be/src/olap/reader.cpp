@@ -83,14 +83,12 @@ std::string Reader::KeysParam::to_string() const {
     for (auto start_key : start_keys) {
         ss << " keys=" << start_key->to_string();
     }
-}
+    for (auto end_key : end_keys) {
+        ss << " end_keys=" << end_key->to_string();
+    }
 
-for (auto end_key : end_keys) {
-    ss << " end_keys=" << end_key->to_string();
+    return ss.str();
 }
-
-return ss.str();
-} // namespace doris
 
 Reader::Reader() {
     _tracker.reset(new MemTracker(-1));
