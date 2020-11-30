@@ -676,7 +676,6 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
     double highest_score = 0.0;
     uint32_t compaction_score = 0;
-    double tablet_scan_frequency = 0.0;
     TabletSharedPtr best_tablet;
     for (const auto& tablets_shard : _tablets_shards) {
         ReadLock rlock(tablets_shard.lock.get());
@@ -736,22 +735,11 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                     }
                 }
 
-                uint32_t current_compaction_score =
-                        tablet_ptr->calc_compaction_score(compaction_type);
-
-                double scan_frequency = 0.0;
-                if (config::compaction_tablet_scan_frequency_factor != 0) {
-                    scan_frequency = tablet_ptr->calculate_scan_frequency();
-                }
-
-                double tablet_score =
-                        config::compaction_tablet_scan_frequency_factor * scan_frequency +
-                        config::compaction_tablet_compaction_score_factor *
-                                current_compaction_score;
+                uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(compaction_type);
+                double tablet_score = tablet_ptr->calculate_tablet_score_for_compaction(current_compaction_score);
                 if (tablet_score > highest_score) {
                     highest_score = tablet_score;
                     compaction_score = current_compaction_score;
-                    tablet_scan_frequency = scan_frequency;
                     best_tablet = tablet_ptr;
                 }
             }
@@ -762,8 +750,6 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         VLOG(1) << "Found the best tablet for compaction. "
                 << "compaction_type=" << compaction_type_str
                 << ", tablet_id=" << best_tablet->tablet_id() << ", path=" << data_dir->path()
-                << ", compaction_score=" << compaction_score
-                << ", tablet_scan_frequency=" << tablet_scan_frequency
                 << ", highest_score=" << highest_score;
         // TODO(lingbin): Remove 'max' from metric name, it would be misunderstood as the
         // biggest in history(like peak), but it is really just the value at current moment.

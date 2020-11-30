@@ -243,6 +243,7 @@ public:
     void get_compaction_status(std::string* json_result);
 
     double calculate_scan_frequency();
+    double calculate_tablet_score_for_compaction(uint32_t compaction_score);
 
     int64_t prepare_compaction_and_calculate_permits(CompactionType compaction_type, TabletSharedPtr tablet);
     void execute_compaction(CompactionType compaction_type);

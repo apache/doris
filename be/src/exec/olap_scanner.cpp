@@ -508,6 +508,7 @@ void OlapScanner::update_counter() {
     _tablet->query_scan_bytes->increment(_compressed_bytes_read);
     _tablet->query_scan_rows->increment(_raw_rows_read);
     _tablet->query_scan_count->increment(1);
+    _tablet->query_del_rows->increment(_reader->stats().rows_del_filtered);
 
     _has_update_counter = true;
 }

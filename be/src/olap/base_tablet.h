@@ -84,6 +84,7 @@ public:
     IntCounter* query_scan_bytes;
     IntCounter* query_scan_rows;
     IntCounter* query_scan_count;
+    IntGauge* query_del_rows;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(BaseTablet);

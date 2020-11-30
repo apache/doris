@@ -218,20 +218,26 @@ This value is usually delivered by the FE to the BE by the heartbeat, no need to
 
 ### `compaction_tablet_compaction_score_factor`
 
-* Type: int32
+* Type: double
 * Description: Coefficient for compaction score when calculating tablet score to find a tablet for compaction.
-* Default value: 1
+* Default value: 1.0
+
+### `compaction_tablet_del_rows_factor`
+
+* Type: double
+* Description: Coefficient for query_del_rows when calculating tablet score to find a tablet for compaction.
+* Default value: 0.0
 
 ### `compaction_tablet_scan_frequency_factor`
 
-* Type: int32
+* Type: double
 * Description: Coefficient for tablet scan frequency when calculating tablet score to find a tablet for compaction.
-* Default value: 0
+* Default value: 0.0
 
-Tablet scan frequency can be taken into consideration when selecting an tablet for compaction and preferentially do compaction for those tablets which are scanned frequently during a latest period of time at the present.
+Tablet scan frequency and the filtered rows during scan operation can be taken into consideration when selecting an tablet for compaction and preferentially do compaction for those tablets which contain a lot of deleted rows and are scanned frequently during a latest period of time at the present.
 Tablet score can be calculated like this:
 
-tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
+tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score + compaction_tablet_del_rows_factor * query_del_rows
 
 ### `compaction_task_num_per_disk`
 

@@ -213,20 +213,26 @@ BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构�
 
 ### `compaction_tablet_compaction_score_factor`
 
-* 类型：int32
+* 类型：double
 * 描述：选择tablet进行compaction时，计算 tablet score 的公式中 compaction score的权重。
-* 默认值：1
+* 默认值：1.0
+
+### `compaction_tablet_del_rows_factor`
+
+* 类型：double
+* 描述：选择tablet进行compaction时，计算 tablet score 的公式中 query_del_rows的权重。
+* 默认值：0.0
 
 ### `compaction_tablet_scan_frequency_factor`
 
-* 类型：int32
+* 类型：double
 * 描述：选择tablet进行compaction时，计算 tablet score 的公式中 tablet scan frequency 的权重。
-* 默认值：0
+* 默认值：0.0
 
-选择一个tablet执行compaction任务时，可以将tablet的scan频率作为一个选择依据，对当前最近一段时间频繁scan的tablet优先执行compaction。
+选择一个tablet执行compaction任务时，可以将tablet的scan频率以及scan过程中因为delete操作而过滤的行数作为一个选择依据，对当前最近一段时间频繁scan的tablet以及scan过程中因为delete操作而过滤行数较多的tablet优先执行compaction。
 tablet score可以通过以下公式计算：
 
-tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
+tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score + compaction_tablet_del_rows_factor * query_del_rows
 
 ### `compaction_task_num_per_disk`
 

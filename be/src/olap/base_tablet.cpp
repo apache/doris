@@ -27,6 +27,7 @@ namespace doris {
 extern MetricPrototype METRIC_query_scan_bytes;
 extern MetricPrototype METRIC_query_scan_rows;
 extern MetricPrototype METRIC_query_scan_count;
+extern MetricPrototype METRIC_query_del_rows;
 
 BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
         : _state(tablet_meta->tablet_state()),
@@ -46,6 +47,7 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_rows);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_count);
+    INT_GAUGE_METRIC_REGISTER(_metric_entity, query_del_rows);
 }
 
 BaseTablet::~BaseTablet() {

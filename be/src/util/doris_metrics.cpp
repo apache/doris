@@ -35,6 +35,7 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_request_send_bytes, MetricUnit::BYTES)
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_rows, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(query_del_rows, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(push_requests_success_total, MetricUnit::REQUESTS, "",
                                      push_requests_total, Labels({{"status", "SUCCESS"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(push_requests_fail_total, MetricUnit::REQUESTS, "",

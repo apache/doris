@@ -129,6 +129,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
         _tablet->set_last_cumu_compaction_success_time(now);
     } else {
         _tablet->set_last_base_compaction_success_time(now);
+        _tablet->query_del_rows->set_value(0);
     }
 
     LOG(INFO) << "succeed to do " << compaction_name() << ". tablet=" << _tablet->full_name()
