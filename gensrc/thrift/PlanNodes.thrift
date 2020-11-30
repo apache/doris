@@ -314,7 +314,9 @@ struct TOlapScanNode {
   3: required list<Types.TPrimitiveType> key_column_type
   4: required bool is_preaggregation
   5: optional string sort_column
+  6: optional Types.TKeysType keyType
 }
+
 struct TEqJoinCondition {
   // left-hand side of "<a> = <b>"
   1: required Exprs.TExpr left;
