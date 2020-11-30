@@ -33,6 +33,11 @@ public:
 
     OLAPStatus compact() override;
 
+    OLAPStatus prepare_compact() override;
+    OLAPStatus execute_compact() override;
+
+    std::vector<RowsetSharedPtr> get_input_rowsets() { return _input_rowsets; }
+
 protected:
     OLAPStatus pick_rowsets_to_compact() override;
 

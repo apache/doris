@@ -345,7 +345,10 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 continue;
             }
             for (const auto& tablet : tablets_compaction) {
-                int64_t permits = tablet->calc_compaction_score(compaction_type);
+                int64_t permits = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet);
+                if (permits == 0) {
+                    continue;
+                }
                 if (_permit_limiter.request(permits)) {
                     {
                         // Push to _tablet_submitted_compaction before submitting task
@@ -353,40 +356,24 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                         _tablet_submitted_compaction[tablet->data_dir()].emplace_back(
                                 tablet->tablet_id());
                     }
-                    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                        _compaction_thread_pool->submit_func([=]() {
-                            CgroupsMgr::apply_system_cgroup();
-                            _perform_cumulative_compaction(tablet);
-                            _permit_limiter.release(permits);
-                            std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-                            std::vector<TTabletId>::iterator it_tablet =
-                                    find(_tablet_submitted_compaction[tablet->data_dir()].begin(),
-                                         _tablet_submitted_compaction[tablet->data_dir()].end(),
-                                         tablet->tablet_id());
-                            if (it_tablet !=
-                                _tablet_submitted_compaction[tablet->data_dir()].end()) {
-                                _tablet_submitted_compaction[tablet->data_dir()].erase(it_tablet);
-                                _wakeup_producer_flag = 1;
-                                _compaction_producer_sleep_cv.notify_one();
-                            }
-                        });
-                    } else {
-                        _compaction_thread_pool->submit_func([=]() {
-                            CgroupsMgr::apply_system_cgroup();
-                            _perform_base_compaction(tablet);
-                            _permit_limiter.release(permits);
-                            std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-                            std::vector<TTabletId>::iterator it_tablet =
-                                    find(_tablet_submitted_compaction[tablet->data_dir()].begin(),
-                                         _tablet_submitted_compaction[tablet->data_dir()].end(),
-                                         tablet->tablet_id());
-                            if (it_tablet !=
-                                _tablet_submitted_compaction[tablet->data_dir()].end()) {
-                                _tablet_submitted_compaction[tablet->data_dir()].erase(it_tablet);
-                                _wakeup_producer_flag = 1;
-                                _compaction_producer_sleep_cv.notify_one();
-                            }
-                        });
+                    auto st =_compaction_thread_pool->submit_func([=]() {
+                      CgroupsMgr::apply_system_cgroup();
+                      tablet->execute_compaction(compaction_type);
+                      _permit_limiter.release(permits);
+                      std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
+                      std::vector<TTabletId>::iterator it_tablet =
+                              find(_tablet_submitted_compaction[tablet->data_dir()].begin(),
+                                   _tablet_submitted_compaction[tablet->data_dir()].end(),
+                                   tablet->tablet_id());
+                      if (it_tablet !=
+                          _tablet_submitted_compaction[tablet->data_dir()].end()) {
+                          _tablet_submitted_compaction[tablet->data_dir()].erase(it_tablet);
+                          _wakeup_producer_flag = 1;
+                          _compaction_producer_sleep_cv.notify_one();
+                      }
+                    });
+                    if (!st.ok()) {
+                        _permit_limiter.release(permits);
                     }
                 }
             }
