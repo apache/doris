@@ -41,17 +41,19 @@ class Merger;
 //  1. pick rowsets satisfied to compact
 //  2. do compaction
 //  3. modify rowsets
-//  4. gc unused rowsets
+//  4. gc output rowset if failed
 class Compaction {
 public:
     Compaction(TabletSharedPtr tablet, const std::string& label,
                const std::shared_ptr<MemTracker>& parent_tracker);
     virtual ~Compaction();
 
-    virtual OLAPStatus compact() = 0;
+    // This is only for http CompactionAction
+    OLAPStatus compact();
 
     virtual OLAPStatus prepare_compact() = 0;
-    virtual OLAPStatus execute_compact() = 0;
+    OLAPStatus execute_compact();
+    virtual OLAPStatus execute_compact_impl() = 0;
 
 protected:
     virtual OLAPStatus pick_rowsets_to_compact() = 0;
@@ -62,7 +64,7 @@ protected:
     OLAPStatus do_compaction_impl(int64_t permits);
 
     void modify_rowsets();
-    OLAPStatus gc_unused_rowsets();
+    void gc_output_rowset();
 
     OLAPStatus construct_output_rowset_writer();
     OLAPStatus construct_input_rowset_readers();
