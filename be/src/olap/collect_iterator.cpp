@@ -24,14 +24,7 @@
 
 namespace doris {
 
-CollectIterator::~CollectIterator() {
-    for (auto child : _children) {
-        if (child != nullptr) {
-            delete child;
-            child = nullptr;
-        }
-    }
-}
+CollectIterator::~CollectIterator() {}
 
 void CollectIterator::init(Reader* reader) {
     _reader = reader;
