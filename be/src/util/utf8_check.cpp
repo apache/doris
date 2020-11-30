@@ -45,7 +45,7 @@
  * +--------------------+------------+-------------+------------+-------------+
  */
 namespace doris {
-bool validate_utf8_naive(const char *data, size_t len) {
+bool validate_utf8_naive(const char* data, size_t len) {
     while (len) {
         int bytes;
         const unsigned char byte1 = data[0];
@@ -53,9 +53,9 @@ bool validate_utf8_naive(const char *data, size_t len) {
         /* 00..7F */
         if (byte1 <= 0x7F) {
             bytes = 1;
-        /* C2..DF, 80..BF */
+            /* C2..DF, 80..BF */
         } else if (len >= 2 && byte1 >= 0xC2 && byte1 <= 0xDF &&
-                (signed char)data[1] <= (signed char)0xBF) {
+                   (signed char)data[1] <= (signed char)0xBF) {
             bytes = 2;
         } else if (len >= 3) {
             const unsigned char byte2 = data[1];
@@ -65,26 +65,26 @@ bool validate_utf8_naive(const char *data, size_t len) {
             const int byte3_ok = (signed char)data[2] <= (signed char)0xBF;
 
             if (byte2_ok && byte3_ok &&
-                     /* E0, A0..BF, 80..BF */
-                    ((byte1 == 0xE0 && byte2 >= 0xA0) ||
-                     /* E1..EC, 80..BF, 80..BF */
-                     (byte1 >= 0xE1 && byte1 <= 0xEC) ||
-                     /* ED, 80..9F, 80..BF */
-                     (byte1 == 0xED && byte2 <= 0x9F) ||
-                     /* EE..EF, 80..BF, 80..BF */
-                     (byte1 >= 0xEE && byte1 <= 0xEF))) {
+                /* E0, A0..BF, 80..BF */
+                ((byte1 == 0xE0 && byte2 >= 0xA0) ||
+                 /* E1..EC, 80..BF, 80..BF */
+                 (byte1 >= 0xE1 && byte1 <= 0xEC) ||
+                 /* ED, 80..9F, 80..BF */
+                 (byte1 == 0xED && byte2 <= 0x9F) ||
+                 /* EE..EF, 80..BF, 80..BF */
+                 (byte1 >= 0xEE && byte1 <= 0xEF))) {
                 bytes = 3;
             } else if (len >= 4) {
                 /* Is byte4 between 0x80 ~ 0xBF */
                 const int byte4_ok = (signed char)data[3] <= (signed char)0xBF;
 
                 if (byte2_ok && byte3_ok && byte4_ok &&
-                         /* F0, 90..BF, 80..BF, 80..BF */
-                        ((byte1 == 0xF0 && byte2 >= 0x90) ||
-                         /* F1..F3, 80..BF, 80..BF, 80..BF */
-                         (byte1 >= 0xF1 && byte1 <= 0xF3) ||
-                         /* F4, 80..8F, 80..BF, 80..BF */
-                         (byte1 == 0xF4 && byte2 <= 0x8F))) {
+                    /* F0, 90..BF, 80..BF, 80..BF */
+                    ((byte1 == 0xF0 && byte2 >= 0x90) ||
+                     /* F1..F3, 80..BF, 80..BF, 80..BF */
+                     (byte1 >= 0xF1 && byte1 <= 0xF3) ||
+                     /* F4, 80..8F, 80..BF, 80..BF */
+                     (byte1 == 0xF4 && byte2 <= 0x8F))) {
                     bytes = 4;
                 } else {
                     return false;
@@ -104,7 +104,7 @@ bool validate_utf8_naive(const char *data, size_t len) {
 }
 
 #if defined(__i386) || defined(__x86_64__)
-bool validate_utf8(const char *src, size_t len) {
+bool validate_utf8(const char* src, size_t len) {
     return validate_utf8_fast(src, len);
 }
 #elif defined(__aarch64__)
@@ -116,12 +116,12 @@ bool validate_utf8(const char *src, size_t len) {
  * 0xF0 ~ 0xFF --> 3
  */
 const uint8_t _first_len_tbl[] = {
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3,
 };
 
 /* Map "First Byte" to 8-th item of range table (0xC2 ~ 0xF4) */
 static const uint8_t _first_range_tbl[] = {
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8,
 };
 
 /*
@@ -136,12 +136,12 @@ static const uint8_t _first_range_tbl[] = {
  * Index 9~15 : illegal: u >= 255 && u <= 0
  */
 static const uint8_t _range_min_tbl[] = {
-    0x00, 0x80, 0x80, 0x80, 0xA0, 0x80, 0x90, 0x80,
-    0xC2, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x00, 0x80, 0x80, 0x80, 0xA0, 0x80, 0x90, 0x80,
+        0xC2, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 };
 static const uint8_t _range_max_tbl[] = {
-    0x7F, 0xBF, 0xBF, 0xBF, 0xBF, 0x9F, 0xBF, 0x8F,
-    0xF4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x7F, 0xBF, 0xBF, 0xBF, 0xBF, 0x9F, 0xBF, 0x8F,
+        0xF4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
 /*
@@ -166,29 +166,44 @@ static const uint8_t _range_max_tbl[] = {
  *   putting it vertically. 1st column is for E0~EF, 2nd column for F0~FF.
  */
 static const uint8_t _range_adjust_tbl[] = {
-    /* index -> 0~15  16~31 <- index */
-    /*  E0 -> */ 2,     3, /* <- F0  */
-                 0,     0,
-                 0,     0,
-                 0,     0,
-                 0,     4, /* <- F4  */
-                 0,     0,
-                 0,     0,
-                 0,     0,
-                 0,     0,
-                 0,     0,
-                 0,     0,
-                 0,     0,
-                 0,     0,
-    /*  ED -> */ 3,     0,
-                 0,     0,
-                 0,     0,
+        /* index -> 0~15  16~31 <- index */
+        /*  E0 -> */ 2,
+        3, /* <- F0  */
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        4, /* <- F4  */
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        /*  ED -> */ 3,
+        0,
+        0,
+        0,
+        0,
+        0,
 };
 
 /* 2x ~ 4x faster than naive method */
 /* Return true on success, false on error */
-bool utf8_range(const char *data, size_t len)
-{
+bool utf8_range(const char* data, size_t len) {
     if (len >= 16) {
         uint8x16_t prev_input = vdupq_n_u8(0);
         uint8x16_t prev_first_len = vdupq_n_u8(0);
@@ -216,8 +231,7 @@ bool utf8_range(const char *data, size_t len)
             /* first_len = legal character length minus 1 */
             /* 0 for 00~7F, 1 for C0~DF, 2 for E0~EF, 3 for F0~FF */
             /* first_len = first_len_tbl[high_nibbles] */
-            const uint8x16_t first_len =
-                vqtbl1q_u8(first_len_tbl, high_nibbles);
+            const uint8x16_t first_len = vqtbl1q_u8(first_len_tbl, high_nibbles);
 
             /* First Byte: set range index to 8 for bytes within 0xC0 ~ 0xFF */
             /* range = first_range_tbl[high_nibbles] */
@@ -226,8 +240,7 @@ bool utf8_range(const char *data, size_t len)
             /* Second Byte: set range index to first_len */
             /* 0 for 00~7F, 1 for C0~DF, 2 for E0~EF, 3 for F0~FF */
             /* range |= (first_len, prev_first_len) << 1 byte */
-            range =
-                vorrq_u8(range, vextq_u8(prev_first_len, first_len, 15));
+            range = vorrq_u8(range, vextq_u8(prev_first_len, first_len, 15));
 
             /* Third Byte: set range index to saturate_sub(first_len, 1) */
             /* 0 for 00~7F, 0 for C0~DF, 1 for E0~EF, 2 for F0~FF */
@@ -285,14 +298,13 @@ bool utf8_range(const char *data, size_t len)
         }
 
         /* Delay error check till loop ends */
-        if (vmaxvq_u8(error))
-            return false;
+        if (vmaxvq_u8(error)) return false;
 
         /* Find previous token (not 80~BF) */
         uint32_t token4;
         vst1q_lane_u32(&token4, vreinterpretq_u32_u8(prev_input), 3);
 
-        const int8_t *token = (const int8_t *)&token4;
+        const int8_t* token = (const int8_t*)&token4;
         int lookahead = 0;
         if (token[3] > (int8_t)0xBF)
             lookahead = 1;
@@ -309,12 +321,12 @@ bool utf8_range(const char *data, size_t len)
     return validate_utf8_naive(data, len);
 }
 
-bool validate_utf8(const char *src, size_t len) {
+bool validate_utf8(const char* src, size_t len) {
     return utf8_range(src, len);
 }
 #else
-bool validate_utf8(const char *src, size_t len) {
+bool validate_utf8(const char* src, size_t len) {
     return validate_utf8_naive(src, len);
 }
 #endif
-}
+} // namespace doris

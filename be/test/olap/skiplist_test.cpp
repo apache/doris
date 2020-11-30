@@ -17,18 +17,19 @@
 
 #include "olap/skiplist.h"
 
+#include <gtest/gtest.h>
+
 #include <set>
 #include <thread>
 
-#include <gtest/gtest.h>
 #include "olap/schema.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "util/hash_util.hpp"
-#include "util/random.h"
 #include "util/condition_variable.h"
+#include "util/hash_util.hpp"
 #include "util/mutex.h"
 #include "util/priority_thread_pool.hpp"
+#include "util/random.h"
 
 namespace doris {
 
@@ -137,9 +138,8 @@ TEST_F(SkipTest, InsertAndLookup) {
         iter.SeekToLast();
 
         // Compare against model iterator
-        for (std::set<Key>::reverse_iterator model_iter = keys.rbegin();
-                model_iter != keys.rend();
-                ++model_iter) {
+        for (std::set<Key>::reverse_iterator model_iter = keys.rbegin(); model_iter != keys.rend();
+             ++model_iter) {
             ASSERT_TRUE(iter.Valid());
             ASSERT_EQ(*model_iter, iter.key());
             iter.Prev();
@@ -213,41 +213,37 @@ private:
     static uint64_t hash(Key key) { return key & 0xff; }
 
     static uint64_t hash_numbers(uint64_t k, uint64_t g) {
-        uint64_t data[2] = { k, g };
+        uint64_t data[2] = {k, g};
         return HashUtil::hash(reinterpret_cast<char*>(data), sizeof(data), 0);
     }
 
     static Key make_key(uint64_t k, uint64_t g) {
         assert(sizeof(Key) == sizeof(uint64_t));
-        assert(k <= K);  // We sometimes pass K to seek to the end of the skiplist
+        assert(k <= K); // We sometimes pass K to seek to the end of the skiplist
         assert(g <= 0xffffffffu);
         return ((k << 40) | (g << 8) | (hash_numbers(k, g) & 0xff));
     }
 
-    static bool is_valid_key(Key k) {
-        return hash(k) == (hash_numbers(key(k), gen(k)) & 0xff);
-    }
+    static bool is_valid_key(Key k) { return hash(k) == (hash_numbers(key(k), gen(k)) & 0xff); }
 
     static Key random_target(Random* rnd) {
         switch (rnd->Next() % 10) {
-            case 0:
-                // Seek to beginning
-                return make_key(0, 0);
-            case 1:
-                // Seek to end
-                return make_key(K, 0);
-            default:
-                // Seek to middle
-                return make_key(rnd->Next() % K, 0);
+        case 0:
+            // Seek to beginning
+            return make_key(0, 0);
+        case 1:
+            // Seek to end
+            return make_key(K, 0);
+        default:
+            // Seek to middle
+            return make_key(rnd->Next() % K, 0);
         }
     }
 
     // Per-key generation
     struct State {
         std::atomic<int> generation[K];
-        void set(int k, int v) {
-            generation[k].store(v, std::memory_order_release);
-        }
+        void set(int k, int v) { generation[k].store(v, std::memory_order_release); }
         int get(int k) { return generation[k].load(std::memory_order_acquire); }
 
         State() {
@@ -311,11 +307,9 @@ public:
                 // Note that generation 0 is never inserted, so it is ok if
                 // <*,0,*> is missing.
                 ASSERT_TRUE((gen(pos) == 0) ||
-                        (gen(pos) > static_cast<Key>(initial_state.get(key(pos))))
-                        ) << "key: " << key(pos)
-                    << "; gen: " << gen(pos)
-                    << "; initgen: "
-                    << initial_state.get(key(pos));
+                            (gen(pos) > static_cast<Key>(initial_state.get(key(pos)))))
+                        << "key: " << key(pos) << "; gen: " << gen(pos)
+                        << "; initgen: " << initial_state.get(key(pos));
 
                 // Advance to next key in the valid key space
                 if (key(pos) < key(current)) {
@@ -361,17 +355,9 @@ public:
     int _seed;
     std::atomic<bool> _quit_flag;
 
-    enum ReaderState {
-        STARTING,
-        RUNNING,
-        DONE
-    };
+    enum ReaderState { STARTING, RUNNING, DONE };
 
-    explicit TestState(int s)
-        : _seed(s),
-        _quit_flag(NULL),
-        _state(STARTING),
-        _cv_state(&_mu) {}
+    explicit TestState(int s) : _seed(s), _quit_flag(NULL), _state(STARTING), _cv_state(&_mu) {}
 
     void wait(ReaderState s) {
         _mu.lock();
@@ -422,18 +408,28 @@ static void run_concurrent(int run) {
         for (int i = 0; i < kSize; i++) {
             state._t.write_step(&rnd);
         }
-        state._quit_flag.store(true, std::memory_order_release);  // Any non-NULL arg will do
+        state._quit_flag.store(true, std::memory_order_release); // Any non-NULL arg will do
         state.wait(TestState::DONE);
     }
 }
 
-TEST_F(SkipTest, Concurrent1) { run_concurrent(1); }
-TEST_F(SkipTest, Concurrent2) { run_concurrent(2); }
-TEST_F(SkipTest, Concurrent3) { run_concurrent(3); }
-TEST_F(SkipTest, Concurrent4) { run_concurrent(4); }
-TEST_F(SkipTest, Concurrent5) { run_concurrent(5); }
+TEST_F(SkipTest, Concurrent1) {
+    run_concurrent(1);
+}
+TEST_F(SkipTest, Concurrent2) {
+    run_concurrent(2);
+}
+TEST_F(SkipTest, Concurrent3) {
+    run_concurrent(3);
+}
+TEST_F(SkipTest, Concurrent4) {
+    run_concurrent(4);
+}
+TEST_F(SkipTest, Concurrent5) {
+    run_concurrent(5);
+}
 
-}  // namespace doris
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

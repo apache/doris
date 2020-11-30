@@ -31,12 +31,11 @@ public:
     static void init();
 
     // used to push down query conditions to es.
-    static doris_udf::BooleanVal match(
-        doris_udf::FunctionContext* ctx, const doris_udf::StringVal& col, 
-            const doris_udf::StringVal& condition);
-
+    static doris_udf::BooleanVal match(doris_udf::FunctionContext* ctx,
+                                       const doris_udf::StringVal& col,
+                                       const doris_udf::StringVal& condition);
 };
 
-}
+} // namespace doris
 
 #endif

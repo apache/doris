@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_BIT_FIELD_READER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_BIT_FIELD_READER_H
 
-#include "olap/stream_index_reader.h"
 #include "olap/olap_define.h"
+#include "olap/stream_index_reader.h"
 
 namespace doris {
 
@@ -48,6 +48,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(BitFieldReader);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_BIT_FIELD_READER_H

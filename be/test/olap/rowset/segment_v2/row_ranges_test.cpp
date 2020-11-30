@@ -15,17 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
-#include <memory>
-
 #include "olap/rowset/segment_v2/row_ranges.h"
+
+#include <gtest/gtest.h>
+
+#include <memory>
 
 namespace doris {
 namespace segment_v2 {
 
 class RowRangesTest : public testing::Test {
 public:
-    virtual ~RowRangesTest() { }
+    virtual ~RowRangesTest() {}
 };
 
 // Test for int
@@ -133,8 +134,8 @@ TEST_F(RowRangesTest, TestRangesToRoaring) {
     ASSERT_EQ(row_ranges_union.count(), row_bitmap.cardinality());
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris
 
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);

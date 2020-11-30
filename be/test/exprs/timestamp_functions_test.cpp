@@ -18,15 +18,15 @@
 #include "exprs/timestamp_functions.h"
 
 #include <gtest/gtest.h>
+
 #include <boost/scoped_ptr.hpp>
 
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
+#include "runtime/test_env.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"
 #include "udf/udf_internal.h"
-#include "runtime/runtime_state.h"
-#include "runtime/exec_env.h"
-#include "runtime/test_env.h"
-
 
 namespace doris {
 class FunctionContextImpl;
@@ -40,7 +40,7 @@ doris_udf::DateTimeVal datetime_val(int64_t value) {
 
 class TimestampFunctionsTest : public testing::Test {
 public:
-    TimestampFunctionsTest() { }
+    TimestampFunctionsTest() {}
 
     void SetUp() {
         TQueryGlobals globals;
@@ -64,7 +64,7 @@ private:
 };
 
 TEST_F(TimestampFunctionsTest, day_of_week_test) {
-    doris_udf::FunctionContext *context = new doris_udf::FunctionContext();
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
     doris_udf::DateTimeVal tv;
     //2001-02-03 12:34:56
@@ -91,7 +91,7 @@ TEST_F(TimestampFunctionsTest, day_of_week_test) {
 }
 
 TEST_F(TimestampFunctionsTest, day_of_month_test) {
-    doris_udf::FunctionContext *context = new doris_udf::FunctionContext();
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
     // 2020-00-01 00:00:00
     DateTimeValue dtv1(20200001000000);
@@ -121,7 +121,7 @@ TEST_F(TimestampFunctionsTest, day_of_month_test) {
 }
 
 TEST_F(TimestampFunctionsTest, day_of_year_test) {
-    doris_udf::FunctionContext *context = new doris_udf::FunctionContext();
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
     // 2020-00-01 00:00:00
     DateTimeValue dtv1(20200001000000);
@@ -149,7 +149,7 @@ TEST_F(TimestampFunctionsTest, day_of_year_test) {
 }
 
 TEST_F(TimestampFunctionsTest, week_of_year_test) {
-    doris_udf::FunctionContext *context = new doris_udf::FunctionContext();
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
     // 2020-00-01 00:00:00
     DateTimeValue dtv1(20200001000000);
@@ -181,12 +181,12 @@ TEST_F(TimestampFunctionsTest, time_diff_test) {
     dt1.set_type(TIME_DATETIME);
     doris_udf::DateTimeVal tv1;
     dt1.to_datetime_val(&tv1);
-    
+
     DateTimeValue dt2(20190718130102);
     dt2.set_type(TIME_DATETIME);
     doris_udf::DateTimeVal tv2;
     dt2.to_datetime_val(&tv2);
-    
+
     ASSERT_EQ(-3662, TimestampFunctions::time_diff(ctx, tv1, tv2).val);
 
     // invalid
@@ -194,12 +194,12 @@ TEST_F(TimestampFunctionsTest, time_diff_test) {
     dt3.set_type(TIME_DATETIME);
     doris_udf::DateTimeVal tv3;
     dt3.to_datetime_val(&tv3);
-    
+
     DateTimeValue dt4(20190718130102);
     dt4.set_type(TIME_DATETIME);
     doris_udf::DateTimeVal tv4;
     dt4.to_datetime_val(&tv4);
-    
+
     ASSERT_EQ(true, TimestampFunctions::time_diff(ctx, tv3, tv4).is_null);
 
     // invalid
@@ -207,12 +207,12 @@ TEST_F(TimestampFunctionsTest, time_diff_test) {
     dt5.set_type(TIME_DATETIME);
     doris_udf::DateTimeVal tv5;
     dt5.to_datetime_val(&tv5);
-    
+
     DateTimeValue dt6(20190700130102);
     dt6.set_type(TIME_DATETIME);
     doris_udf::DateTimeVal tv6;
     dt6.to_datetime_val(&tv6);
-    
+
     ASSERT_EQ(true, TimestampFunctions::time_diff(ctx, tv5, tv6).is_null);
 }
 
@@ -225,7 +225,7 @@ TEST_F(TimestampFunctionsTest, now) {
 TEST_F(TimestampFunctionsTest, from_unix) {
     IntVal unixtimestamp(1565080737);
     StringVal sval = TimestampFunctions::from_unix(ctx, unixtimestamp);
-    ASSERT_EQ("2019-08-06 01:38:57", std::string((char*) sval.ptr, sval.len));
+    ASSERT_EQ("2019-08-06 01:38:57", std::string((char*)sval.ptr, sval.len));
 
     IntVal unixtimestamp2(-123);
     sval = TimestampFunctions::from_unix(ctx, unixtimestamp2);
@@ -233,12 +233,14 @@ TEST_F(TimestampFunctionsTest, from_unix) {
 }
 
 TEST_F(TimestampFunctionsTest, to_unix) {
-    DateTimeVal dt_val ;
+    DateTimeVal dt_val;
     dt_val.packed_time = 1847544683002068992;
     dt_val.type = TIME_DATETIME;
     ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx).val);
     ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx, dt_val).val);
-    ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx, StringVal("2019-08-06 01:38:57"), "%Y-%m-%d %H:%i:%S").val);
+    ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx, StringVal("2019-08-06 01:38:57"),
+                                                      "%Y-%m-%d %H:%i:%S")
+                                  .val);
 
     DateTimeValue dt_value;
     dt_value.from_date_int64(99991230);
@@ -251,30 +253,36 @@ TEST_F(TimestampFunctionsTest, to_unix) {
 }
 
 TEST_F(TimestampFunctionsTest, curtime) {
-    ASSERT_EQ(3600 + 38*60 + 57, TimestampFunctions::curtime(ctx).val);
+    ASSERT_EQ(3600 + 38 * 60 + 57, TimestampFunctions::curtime(ctx).val);
 }
 
 TEST_F(TimestampFunctionsTest, convert_tz_test) {
-    doris_udf::FunctionContext *context = new doris_udf::FunctionContext();
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
     DateTimeValue dt1(20190806163857);
     dt1.set_type(TIME_DATETIME);
     doris_udf::DateTimeVal tv1;
-    dt1.to_datetime_val(&tv1);   
-    DateTimeVal t = TimestampFunctions::convert_tz(context, tv1, StringVal("Asia/Shanghai"), StringVal("America/Los_Angeles"));
+    dt1.to_datetime_val(&tv1);
+    DateTimeVal t = TimestampFunctions::convert_tz(context, tv1, StringVal("Asia/Shanghai"),
+                                                   StringVal("America/Los_Angeles"));
     DateTimeValue dt2 = DateTimeValue::from_datetime_val(t);
     ASSERT_EQ(20190806013857, dt2.to_int64());
 
-    t = TimestampFunctions::convert_tz(context, tv1, StringVal("CST"), StringVal("America/Los_Angeles"));
+    t = TimestampFunctions::convert_tz(context, tv1, StringVal("CST"),
+                                       StringVal("America/Los_Angeles"));
     DateTimeValue dt3 = DateTimeValue::from_datetime_val(t);
     ASSERT_EQ(20190806013857, dt3.to_int64());
     delete context;
 }
 
-#define ASSERT_DIFF(unit, diff, tv1, tv2) \
-    ASSERT_EQ(diff, TimestampFunctions::unit##s_diff(context, datetime_val(tv1), datetime_val(tv2)).val); \
-    ASSERT_EQ(-(diff), TimestampFunctions::unit##s_diff(context, datetime_val(tv2), datetime_val(tv1)).val);
+#define ASSERT_DIFF(unit, diff, tv1, tv2)                                                         \
+    ASSERT_EQ(                                                                                    \
+            diff,                                                                                 \
+            TimestampFunctions::unit##s_diff(context, datetime_val(tv1), datetime_val(tv2)).val); \
+    ASSERT_EQ(                                                                                    \
+            -(diff),                                                                              \
+            TimestampFunctions::unit##s_diff(context, datetime_val(tv2), datetime_val(tv1)).val);
 TEST_F(TimestampFunctionsTest, timestampdiff_test) {
-    doris_udf::FunctionContext *context = new doris_udf::FunctionContext();
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
     int64_t tv1 = 20120824000001;
     int64_t tv2 = 20120830000000;
 
@@ -305,11 +313,13 @@ TEST_F(TimestampFunctionsTest, timestampdiff_test) {
     delete context;
 }
 
-#define ASSERT_ROUND(unit, floor, ceil, ...) \
-    ASSERT_EQ(datetime_val(floor).packed_time, TimestampFunctions::unit##_floor(context, __VA_ARGS__).packed_time); \
-    ASSERT_EQ(datetime_val(ceil).packed_time, TimestampFunctions::unit##_ceil(context, __VA_ARGS__).packed_time);
+#define ASSERT_ROUND(unit, floor, ceil, ...)                                       \
+    ASSERT_EQ(datetime_val(floor).packed_time,                                     \
+              TimestampFunctions::unit##_floor(context, __VA_ARGS__).packed_time); \
+    ASSERT_EQ(datetime_val(ceil).packed_time,                                      \
+              TimestampFunctions::unit##_ceil(context, __VA_ARGS__).packed_time);
 TEST_F(TimestampFunctionsTest, time_round_test) {
-    doris_udf::FunctionContext *context = new doris_udf::FunctionContext();
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
     doris_udf::DateTimeVal tv = datetime_val(20120824132901);
 
     doris_udf::IntVal three(3);
@@ -356,7 +366,7 @@ TEST_F(TimestampFunctionsTest, time_round_test) {
     delete context;
 }
 
-}
+} // namespace doris
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

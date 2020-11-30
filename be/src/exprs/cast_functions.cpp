@@ -22,24 +22,23 @@
 #include "exprs/anyval_util.h"
 #include "runtime/datetime_value.h"
 #include "runtime/string_value.h"
-#include "util/string_parser.hpp"
 #include "string_functions.h"
 #include "util/mysql_global.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 
-void CastFunctions::init() {
-}
+void CastFunctions::init() {}
 
 // The maximum number of characters need to represent a floating-point number (float or
 // double) as a string. 24 = 17 (maximum significant digits) + 1 (decimal point) + 1 ('E')
 // + 3 (exponent digits) + 2 (negative signs) (see http://stackoverflow.com/a/1701085)
 const int MAX_FLOAT_CHARS = 24;
 
-#define CAST_FUNCTION(from_type, to_type, type_name) \
+#define CAST_FUNCTION(from_type, to_type, type_name)                                         \
     to_type CastFunctions::cast_to_##type_name(FunctionContext* ctx, const from_type& val) { \
-        if (val.is_null) return to_type::null(); \
-        return to_type(val.val); \
+        if (val.is_null) return to_type::null();                                             \
+        return to_type(val.val);                                                             \
     }
 
 CAST_FUNCTION(TinyIntVal, BooleanVal, boolean_val)
@@ -106,30 +105,30 @@ CAST_FUNCTION(BigIntVal, DoubleVal, double_val)
 CAST_FUNCTION(LargeIntVal, DoubleVal, double_val)
 CAST_FUNCTION(FloatVal, DoubleVal, double_val)
 
-#define CAST_FROM_STRING(num_type, type_name, native_type, string_parser_fn) \
-    num_type CastFunctions::cast_to_##type_name(FunctionContext* ctx, const StringVal& val) { \
-        if (val.is_null) return num_type::null(); \
-        StringParser::ParseResult result; \
-        num_type ret; \
-        ret.val = StringParser::string_parser_fn<native_type>( \
-                reinterpret_cast<char*>(val.ptr), val.len, &result); \
-        if (UNLIKELY(result != StringParser::PARSE_SUCCESS || std::isnan(ret.val) || std::isinf(ret.val))) { \
-            return num_type::null(); \
-		} \
-        return ret; \
+#define CAST_FROM_STRING(num_type, type_name, native_type, string_parser_fn)                    \
+    num_type CastFunctions::cast_to_##type_name(FunctionContext* ctx, const StringVal& val) {   \
+        if (val.is_null) return num_type::null();                                               \
+        StringParser::ParseResult result;                                                       \
+        num_type ret;                                                                           \
+        ret.val = StringParser::string_parser_fn<native_type>(reinterpret_cast<char*>(val.ptr), \
+                                                              val.len, &result);                \
+        if (UNLIKELY(result != StringParser::PARSE_SUCCESS || std::isnan(ret.val) ||            \
+                     std::isinf(ret.val))) {                                                    \
+            return num_type::null();                                                            \
+        }                                                                                       \
+        return ret;                                                                             \
     }
 
-#define CAST_FROM_STRINGS() \
-    CAST_FROM_STRING(TinyIntVal, tiny_int_val, int8_t, string_to_int);\
-    CAST_FROM_STRING(SmallIntVal, small_int_val, int16_t, string_to_int);\
-    CAST_FROM_STRING(IntVal, int_val, int32_t, string_to_int);\
-    CAST_FROM_STRING(BigIntVal, big_int_val, int64_t, string_to_int);\
-    CAST_FROM_STRING(LargeIntVal, large_int_val, __int128, string_to_int);\
-    CAST_FROM_STRING(FloatVal, float_val, float, string_to_float);\
+#define CAST_FROM_STRINGS()                                                \
+    CAST_FROM_STRING(TinyIntVal, tiny_int_val, int8_t, string_to_int);     \
+    CAST_FROM_STRING(SmallIntVal, small_int_val, int16_t, string_to_int);  \
+    CAST_FROM_STRING(IntVal, int_val, int32_t, string_to_int);             \
+    CAST_FROM_STRING(BigIntVal, big_int_val, int64_t, string_to_int);      \
+    CAST_FROM_STRING(LargeIntVal, large_int_val, __int128, string_to_int); \
+    CAST_FROM_STRING(FloatVal, float_val, float, string_to_float);         \
     CAST_FROM_STRING(DoubleVal, double_val, double, string_to_float);
 
 CAST_FROM_STRINGS();
-
 
 // Special-case tinyint because boost thinks it's a char and handles it differently.
 // e.g. '0' is written as an empty string.
@@ -141,11 +140,11 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const TinyIntV
     return AnyValUtil::from_string_temp(ctx, std::to_string(tmp_val));
 }
 
-#define CAST_TO_STRING(num_type) \
-  StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const num_type& val) { \
-    if (val.is_null) return StringVal::null(); \
-    return AnyValUtil::from_string_temp(ctx, std::to_string(val.val)); \
-  }
+#define CAST_TO_STRING(num_type)                                                             \
+    StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const num_type& val) { \
+        if (val.is_null) return StringVal::null();                                           \
+        return AnyValUtil::from_string_temp(ctx, std::to_string(val.val));                   \
+    }
 
 CAST_TO_STRING(BooleanVal);
 CAST_TO_STRING(SmallIntVal);
@@ -162,44 +161,44 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const LargeInt
     return AnyValUtil::from_buffer_temp(ctx, d, len);
 }
 
-template<typename T>
+template <typename T>
 int float_to_string(T value, char* buf);
 
-template<>
+template <>
 int float_to_string<float>(float value, char* buf) {
     return FloatToBuffer(value, MAX_FLOAT_STR_LENGTH + 2, buf);
 }
 
-template<>
+template <>
 int float_to_string<double>(double value, char* buf) {
     return DoubleToBuffer(value, MAX_DOUBLE_STR_LENGTH + 2, buf);
 }
 
-#define CAST_FLOAT_TO_STRING(float_type, format) \
-  StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const float_type& val) { \
-    if (val.is_null) return StringVal::null(); \
-    /* val.val could be -nan, return "nan" instead */ \
-    if (std::isnan(val.val)) return StringVal("nan"); \
-    /* Add 1 to MAX_FLOAT_CHARS since snprintf adds a trailing '\0' */ \
-    StringVal sv(ctx, MAX_DOUBLE_STR_LENGTH + 2); \
-    if (UNLIKELY(sv.is_null)) { \
-      return sv; \
-    } \
-    const FunctionContext::TypeDesc& returnType = ctx->get_return_type(); \
-    if (returnType.len > 0) { \
-        sv.len = snprintf(reinterpret_cast<char*>(sv.ptr), sv.len, format, val.val); \
-        DCHECK_GT(sv.len, 0); \
-        DCHECK_LE(sv.len, MAX_FLOAT_CHARS); \
-        AnyValUtil::TruncateIfNecessary(returnType, &sv); \
-    } else if (returnType.len == -1) { \
-        char buf[MAX_DOUBLE_STR_LENGTH + 2]; \
-        sv.len = float_to_string(val.val, buf); \
-        memcpy(sv.ptr, buf, sv.len); \
-    } else { \
-        DCHECK(false); \
-    } \
-    return sv; \
-  }
+#define CAST_FLOAT_TO_STRING(float_type, format)                                               \
+    StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const float_type& val) { \
+        if (val.is_null) return StringVal::null();                                             \
+        /* val.val could be -nan, return "nan" instead */                                      \
+        if (std::isnan(val.val)) return StringVal("nan");                                      \
+        /* Add 1 to MAX_FLOAT_CHARS since snprintf adds a trailing '\0' */                     \
+        StringVal sv(ctx, MAX_DOUBLE_STR_LENGTH + 2);                                          \
+        if (UNLIKELY(sv.is_null)) {                                                            \
+            return sv;                                                                         \
+        }                                                                                      \
+        const FunctionContext::TypeDesc& returnType = ctx->get_return_type();                  \
+        if (returnType.len > 0) {                                                              \
+            sv.len = snprintf(reinterpret_cast<char*>(sv.ptr), sv.len, format, val.val);       \
+            DCHECK_GT(sv.len, 0);                                                              \
+            DCHECK_LE(sv.len, MAX_FLOAT_CHARS);                                                \
+            AnyValUtil::TruncateIfNecessary(returnType, &sv);                                  \
+        } else if (returnType.len == -1) {                                                     \
+            char buf[MAX_DOUBLE_STR_LENGTH + 2];                                               \
+            sv.len = float_to_string(val.val, buf);                                            \
+            memcpy(sv.ptr, buf, sv.len);                                                       \
+        } else {                                                                               \
+            DCHECK(false);                                                                     \
+        }                                                                                      \
+        return sv;                                                                             \
+    }
 
 // Floats have up to 9 significant digits, doubles up to 17
 // (see http://en.wikipedia.org/wiki/Single-precision_floating-point_format
@@ -218,21 +217,21 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const DateTime
 }
 
 StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const StringVal& val) {
-  if (val.is_null) return StringVal::null();
-  StringVal sv;
-  sv.ptr = val.ptr;
-  sv.len = val.len;
-  
-  const FunctionContext::TypeDesc& result_type = ctx->get_return_type();
-  if (result_type.len > 0) {
-      AnyValUtil::TruncateIfNecessary(result_type, &sv);
-  }
-  return sv;
+    if (val.is_null) return StringVal::null();
+    StringVal sv;
+    sv.ptr = val.ptr;
+    sv.len = val.len;
+
+    const FunctionContext::TypeDesc& result_type = ctx->get_return_type();
+    if (result_type.len > 0) {
+        AnyValUtil::TruncateIfNecessary(result_type, &sv);
+    }
+    return sv;
 }
 
 BooleanVal CastFunctions::cast_to_boolean_val(FunctionContext* ctx, const StringVal& val) {
     if (val.is_null) {
-        return BooleanVal::null(); 
+        return BooleanVal::null();
     }
     StringParser::ParseResult result;
     BooleanVal ret;
@@ -243,7 +242,7 @@ BooleanVal CastFunctions::cast_to_boolean_val(FunctionContext* ctx, const String
         ret.val = true;
     } else {
         ret.val = StringParser::string_to_bool(reinterpret_cast<char*>(val.ptr), val.len, &result);
-        if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) { 
+        if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
             return BooleanVal::null();
         }
     }
@@ -272,12 +271,11 @@ StringVal CastFunctions::CastToChar(FunctionContext* ctx, const StringVal& val) 
 }
 #endif
 
-#define CAST_FROM_DATETIME(to_type, type_name) \
-    to_type CastFunctions::cast_to_##type_name( \
-            FunctionContext* ctx, const DateTimeVal& val) { \
-        if (val.is_null) return to_type::null(); \
-        DateTimeValue tv = DateTimeValue::from_datetime_val(val); \
-        return to_type(tv.to_int64()); \
+#define CAST_FROM_DATETIME(to_type, type_name)                                                 \
+    to_type CastFunctions::cast_to_##type_name(FunctionContext* ctx, const DateTimeVal& val) { \
+        if (val.is_null) return to_type::null();                                               \
+        DateTimeValue tv = DateTimeValue::from_datetime_val(val);                              \
+        return to_type(tv.to_int64());                                                         \
     }
 
 CAST_FROM_DATETIME(BooleanVal, boolean_val);
@@ -289,54 +287,51 @@ CAST_FROM_DATETIME(LargeIntVal, large_int_val);
 CAST_FROM_DATETIME(FloatVal, float_val);
 CAST_FROM_DATETIME(DoubleVal, double_val);
 
-#define CAST_TO_DATETIME(from_type) \
-    DateTimeVal CastFunctions::cast_to_datetime_val(FunctionContext* ctx, \
-                                                   const from_type& val) { \
-        if (val.is_null) return DateTimeVal::null(); \
-        DateTimeValue date_value; \
-        if (!date_value.from_date_int64(val.val)) return DateTimeVal::null(); \
-        date_value.to_datetime(); \
-        DateTimeVal result; \
-        date_value.to_datetime_val(&result); \
-        return result; \
+#define CAST_TO_DATETIME(from_type)                                                               \
+    DateTimeVal CastFunctions::cast_to_datetime_val(FunctionContext* ctx, const from_type& val) { \
+        if (val.is_null) return DateTimeVal::null();                                              \
+        DateTimeValue date_value;                                                                 \
+        if (!date_value.from_date_int64(val.val)) return DateTimeVal::null();                     \
+        date_value.to_datetime();                                                                 \
+        DateTimeVal result;                                                                       \
+        date_value.to_datetime_val(&result);                                                      \
+        return result;                                                                            \
     }
 
-#define CAST_TO_DATETIMES() \
-    CAST_TO_DATETIME(TinyIntVal);\
-    CAST_TO_DATETIME(SmallIntVal);\
-    CAST_TO_DATETIME(IntVal);\
-    CAST_TO_DATETIME(BigIntVal);\
-    CAST_TO_DATETIME(LargeIntVal);\
-    CAST_TO_DATETIME(FloatVal);\
+#define CAST_TO_DATETIMES()        \
+    CAST_TO_DATETIME(TinyIntVal);  \
+    CAST_TO_DATETIME(SmallIntVal); \
+    CAST_TO_DATETIME(IntVal);      \
+    CAST_TO_DATETIME(BigIntVal);   \
+    CAST_TO_DATETIME(LargeIntVal); \
+    CAST_TO_DATETIME(FloatVal);    \
     CAST_TO_DATETIME(DoubleVal);
 
 CAST_TO_DATETIMES();
 
-#define CAST_TO_DATE(from_type) \
-    DateTimeVal CastFunctions::cast_to_date_val(FunctionContext* ctx, \
-                                                const from_type& val) { \
-        if (val.is_null) return DateTimeVal::null(); \
-        DateTimeValue date_value; \
-        if (!date_value.from_date_int64(val.val)) return DateTimeVal::null(); \
-        date_value.cast_to_date(); \
-        DateTimeVal result; \
-        date_value.to_datetime_val(&result); \
-        return result; \
+#define CAST_TO_DATE(from_type)                                                               \
+    DateTimeVal CastFunctions::cast_to_date_val(FunctionContext* ctx, const from_type& val) { \
+        if (val.is_null) return DateTimeVal::null();                                          \
+        DateTimeValue date_value;                                                             \
+        if (!date_value.from_date_int64(val.val)) return DateTimeVal::null();                 \
+        date_value.cast_to_date();                                                            \
+        DateTimeVal result;                                                                   \
+        date_value.to_datetime_val(&result);                                                  \
+        return result;                                                                        \
     }
 
-#define CAST_TO_DATES() \
-    CAST_TO_DATE(TinyIntVal);\
-    CAST_TO_DATE(SmallIntVal);\
-    CAST_TO_DATE(IntVal);\
-    CAST_TO_DATE(BigIntVal);\
-    CAST_TO_DATE(LargeIntVal);\
-    CAST_TO_DATE(FloatVal);\
+#define CAST_TO_DATES()        \
+    CAST_TO_DATE(TinyIntVal);  \
+    CAST_TO_DATE(SmallIntVal); \
+    CAST_TO_DATE(IntVal);      \
+    CAST_TO_DATE(BigIntVal);   \
+    CAST_TO_DATE(LargeIntVal); \
+    CAST_TO_DATE(FloatVal);    \
     CAST_TO_DATE(DoubleVal);
 
 CAST_TO_DATES();
 
-DateTimeVal CastFunctions::cast_to_datetime_val(
-        FunctionContext* ctx, const DateTimeVal& val) {
+DateTimeVal CastFunctions::cast_to_datetime_val(FunctionContext* ctx, const DateTimeVal& val) {
     if (val.is_null) {
         return DateTimeVal::null();
     }
@@ -348,8 +343,7 @@ DateTimeVal CastFunctions::cast_to_datetime_val(
     return result;
 }
 
-DateTimeVal CastFunctions::cast_to_datetime_val(
-        FunctionContext* ctx, const StringVal& val) {
+DateTimeVal CastFunctions::cast_to_datetime_val(FunctionContext* ctx, const StringVal& val) {
     if (val.is_null) {
         return DateTimeVal::null();
     }
@@ -364,8 +358,7 @@ DateTimeVal CastFunctions::cast_to_datetime_val(
     return result;
 }
 
-DateTimeVal CastFunctions::cast_to_date_val(
-        FunctionContext* ctx, const DateTimeVal& val) {
+DateTimeVal CastFunctions::cast_to_date_val(FunctionContext* ctx, const DateTimeVal& val) {
     if (val.is_null) {
         return DateTimeVal::null();
     }
@@ -377,8 +370,7 @@ DateTimeVal CastFunctions::cast_to_date_val(
     return result;
 }
 
-DateTimeVal CastFunctions::cast_to_date_val(
-        FunctionContext* ctx, const StringVal& val) {
+DateTimeVal CastFunctions::cast_to_date_val(FunctionContext* ctx, const StringVal& val) {
     if (val.is_null) {
         return DateTimeVal::null();
     }
@@ -393,4 +385,4 @@ DateTimeVal CastFunctions::cast_to_date_val(
     return result;
 }
 
-}
+} // namespace doris

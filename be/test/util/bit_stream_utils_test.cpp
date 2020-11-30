@@ -19,21 +19,22 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <ostream>
 #include <string>
 #include <vector>
-#include <limits>
 
 // Must come before gtest.h.
-#include <boost/utility/binary.hpp>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
+
+#include <boost/utility/binary.hpp>
 
 #include "util/bit_stream_utils.h"
 #include "util/bit_stream_utils.inline.h"
 #include "util/bit_util.h"
-#include "util/faststring.h"
 #include "util/debug_util.h"
+#include "util/faststring.h"
 
 using std::string;
 using std::vector;
@@ -59,15 +60,15 @@ TEST(TestBitStreamUtil, TestBool) {
     // Write 00110011
     for (int i = 0; i < 8; ++i) {
         switch (i) {
-            case 0:
-            case 1:
-            case 4:
-            case 5:
-                writer.PutValue(0, 1);
-                break;
-            default:
-                writer.PutValue(1, 1);
-                break;
+        case 0:
+        case 1:
+        case 4:
+        case 5:
+            writer.PutValue(0, 1);
+            break;
+        default:
+            writer.PutValue(1, 1);
+            break;
         }
     }
     writer.Flush();
@@ -90,15 +91,15 @@ TEST(TestBitStreamUtil, TestBool) {
         bool result = reader.GetValue(1, &val);
         EXPECT_TRUE(result);
         switch (i) {
-            case 0:
-            case 1:
-            case 4:
-            case 5:
-                EXPECT_EQ(val, false);
-                break;
-            default:
-                EXPECT_EQ(val, true);
-                break;
+        case 0:
+        case 1:
+        case 4:
+        case 5:
+            EXPECT_EQ(val, false);
+            break;
+        default:
+            EXPECT_EQ(val, true);
+            break;
         }
     }
 }
@@ -106,7 +107,7 @@ TEST(TestBitStreamUtil, TestBool) {
 // Writes 'num_vals' values with width 'bit_width' and reads them back.
 void TestBitArrayValues(int bit_width, int num_vals) {
     const int kTestLen = BitUtil::Ceil(bit_width * num_vals, 8);
-    const uint64_t mod = bit_width == 64? 1 : 1LL << bit_width;
+    const uint64_t mod = bit_width == 64 ? 1 : 1LL << bit_width;
 
     faststring buffer(kTestLen);
     BitWriter writer(&buffer);
@@ -175,16 +176,16 @@ TEST(TestBitStreamUtil, TestSeekToBit) {
     faststring buffer(1);
 
     BitWriter writer(&buffer);
-    writer.PutValue(2019,32);
-    writer.PutValue(2020,32);
-    writer.PutValue(2021,32);
+    writer.PutValue(2019, 32);
+    writer.PutValue(2020, 32);
+    writer.PutValue(2021, 32);
     writer.Flush();
 
     BitReader reader(buffer.data(), buffer.size());
     reader.SeekToBit(buffer.size() * 8 - 8 * 8);
     uint32_t second_value;
     reader.GetValue(32, &second_value);
-    ASSERT_EQ(second_value,2020);
+    ASSERT_EQ(second_value, 2020);
 
     uint32_t third_value;
     reader.GetValue(32, &third_value);

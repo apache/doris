@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <cstdint>
 #include <gtest/gtest.h>
+
+#include <cstdint>
 #include <string>
 
 #include "util/coding.h"
@@ -135,7 +136,7 @@ std::string convert_bitmap_to_string(BitmapValue& bitmap) {
 }
 
 TEST(BitmapValueTest, bitmap_serde) {
-    {   // EMPTY
+    { // EMPTY
         BitmapValue empty;
         std::string buffer = convert_bitmap_to_string(empty);
         std::string expect_buffer(1, BitmapTypeCode::EMPTY);
@@ -144,7 +145,7 @@ TEST(BitmapValueTest, bitmap_serde) {
         BitmapValue out(buffer.data());
         ASSERT_EQ(0, out.cardinality());
     }
-    {   // SINGLE32
+    { // SINGLE32
         uint32_t i = UINT32_MAX;
         BitmapValue single32(i);
         std::string buffer = convert_bitmap_to_string(single32);
@@ -156,8 +157,8 @@ TEST(BitmapValueTest, bitmap_serde) {
         ASSERT_EQ(1, out.cardinality());
         ASSERT_TRUE(out.contains(i));
     }
-    {   // BITMAP32
-        BitmapValue bitmap32({ 0, UINT32_MAX });
+    { // BITMAP32
+        BitmapValue bitmap32({0, UINT32_MAX});
         std::string buffer = convert_bitmap_to_string(bitmap32);
 
         Roaring roaring;
@@ -173,7 +174,7 @@ TEST(BitmapValueTest, bitmap_serde) {
         ASSERT_TRUE(out.contains(0));
         ASSERT_TRUE(out.contains(UINT32_MAX));
     }
-    {   // SINGLE64
+    { // SINGLE64
         uint64_t i = static_cast<uint64_t>(UINT32_MAX) + 1;
         BitmapValue single64(i);
         std::string buffer = convert_bitmap_to_string(single64);
@@ -185,8 +186,8 @@ TEST(BitmapValueTest, bitmap_serde) {
         ASSERT_EQ(1, out.cardinality());
         ASSERT_TRUE(out.contains(i));
     }
-    {   // BITMAP64
-        BitmapValue bitmap64({ 0, static_cast<uint64_t>(UINT32_MAX) + 1 });
+    { // BITMAP64
+        BitmapValue bitmap64({0, static_cast<uint64_t>(UINT32_MAX) + 1});
         std::string buffer = convert_bitmap_to_string(bitmap64);
 
         Roaring roaring;
@@ -232,8 +233,8 @@ TEST(BitmapValueTest, Roaring64Map) {
     size_t size_after = r1.getSizeInBytes();
     ASSERT_LT(size_after, size_before);
 
-    Roaring64Map r2 = Roaring64Map::bitmapOf(5, 1ull, 2ull, 234294967296ull,
-                                             195839473298ull, 14000000000000000100ull);
+    Roaring64Map r2 = Roaring64Map::bitmapOf(5, 1ull, 2ull, 234294967296ull, 195839473298ull,
+                                             14000000000000000100ull);
     ASSERT_EQ(1ull, r2.minimum());
     ASSERT_EQ(14000000000000000100ull, r2.maximum());
     ASSERT_EQ(4ull, r2.rank(234294967296ull));
@@ -262,7 +263,7 @@ TEST(BitmapValueTest, Roaring64Map) {
     r1_2_3 |= r3;
 
     // we can compute a big union
-    const Roaring64Map *allmybitmaps[] = {&r1, &r2, &r3};
+    const Roaring64Map* allmybitmaps[] = {&r1, &r2, &r3};
     Roaring64Map bigunion = Roaring64Map::fastunion(3, allmybitmaps);
     ASSERT_TRUE(r1_2_3 == bigunion);
     ASSERT_EQ(1806, r1_2_3.cardinality());
@@ -283,14 +284,14 @@ TEST(BitmapValueTest, Roaring64Map) {
     uint64_t sum = 0;
     auto func = [](uint64_t value, void* param) {
         *(uint64_t*)param += value;
-        return true;  // we always process all values
+        return true; // we always process all values
     };
     r1.iterate(func, &sum);
     ASSERT_EQ(r1_sum, sum);
 
     // we can also iterate the C++ way
     sum = 0;
-    for (Roaring64Map::const_iterator i = t.begin() ; i != t.end() ; i++) {
+    for (Roaring64Map::const_iterator i = t.begin(); i != t.end(); i++) {
         sum += *i;
     }
     ASSERT_EQ(r1_sum, sum);
@@ -313,7 +314,7 @@ TEST(BitmapValueTest, bitmap_single_convert) {
     bitmap.add(1);
     ASSERT_STREQ("1", bitmap.to_string().c_str());
     ASSERT_EQ(BitmapValue::SINGLE, bitmap._type);
-    
+
     BitmapValue bitmap_u;
     bitmap_u.add(1);
     bitmap |= bitmap_u;

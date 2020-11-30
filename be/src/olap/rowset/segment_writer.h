@@ -29,11 +29,9 @@ class ColumnDataHeaderMessage;
 
 class SegmentWriter {
 public:
-    explicit SegmentWriter(const std::string& file_name,
-            SegmentGroup* segment_group,
-            uint32_t stream_buffer_size,
-            CompressKind compress_kind,
-            double bloom_filter_fpp);
+    explicit SegmentWriter(const std::string& file_name, SegmentGroup* segment_group,
+                           uint32_t stream_buffer_size, CompressKind compress_kind,
+                           double bloom_filter_fpp);
     ~SegmentWriter();
     OLAPStatus init(uint32_t write_mbytes_per_sec);
     OLAPStatus write_batch(RowBlock* block, RowCursor* cursor, bool is_finalize);
@@ -54,8 +52,8 @@ private:
     double _bloom_filter_fpp;
     std::vector<ColumnWriter*> _root_writers;
     OutStreamFactory* _stream_factory;
-    uint64_t _row_count;    // 已经写入的行总数
-    uint64_t _block_count;  // 已经写入的block个数
+    uint64_t _row_count;   // 已经写入的行总数
+    uint64_t _block_count; // 已经写入的block个数
 
     // write limit
     uint32_t _write_mbytes_per_sec;
@@ -63,6 +61,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_WRITER_H

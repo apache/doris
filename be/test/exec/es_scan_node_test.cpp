@@ -15,20 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/es_scan_node.h"
+
 #include <gtest/gtest.h>
+
 #include <string>
 
 #include "common/object_pool.h"
-#include "exec/es_scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/mem_pool.h"
 #include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
+#include "runtime/mem_pool.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-#include "util/runtime_profile.h"
 #include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 using std::vector;
 
@@ -94,25 +96,22 @@ public:
     }
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
     TPlanNode _tnode;
     ObjectPool _obj_pool;
     DescriptorTbl* _desc_tbl;
     RuntimeState _runtime_state;
 };
 
-
 TEST_F(EsScanNodeTest, normal_use) {
     EsScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(&_runtime_state);
     ASSERT_TRUE(status.ok());
-	TEsScanRange es_scan_range;
-	es_scan_range.__set_index("index1");
-	es_scan_range.__set_type("docs");
-	es_scan_range.__set_shard_id(0);
+    TEsScanRange es_scan_range;
+    es_scan_range.__set_index("index1");
+    es_scan_range.__set_type("docs");
+    es_scan_range.__set_shard_id(0);
     TNetworkAddress es_host;
     es_host.__set_hostname("host");
     es_host.__set_port(8200);
@@ -125,7 +124,7 @@ TEST_F(EsScanNodeTest, normal_use) {
     scan_range_params.__set_scan_range(scan_range);
     std::vector<TScanRangeParams> scan_ranges;
     scan_ranges.push_back(scan_range_params);
-	
+
     status = scan_node.set_scan_ranges(scan_ranges);
     ASSERT_TRUE(status.ok());
     std::stringstream out;
@@ -146,10 +145,9 @@ TEST_F(EsScanNodeTest, normal_use) {
     ASSERT_TRUE(status.ok());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

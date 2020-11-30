@@ -153,11 +153,11 @@ under the License.
             3) Only the type of the column can be modified. The other attributes of the column remain as they are (ie other attributes need to be explicitly written in the statement according to the original attribute, see example 8)
             4) The partition column cannot be modified
             5) The following types of conversions are currently supported (accuracy loss is guaranteed by the user)
-                TINYINT/SMALLINT/INT/BIGINT is converted to TINYINT/SMALLINT/INT/BIGINT/DOUBLE.
+	        TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE convert to a wider range of numeric types
                 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL is converted to VARCHAR
                 VARCHAR supports modification of maximum length
-                Convert VARCHAR to TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE.
-                Convert VARCHAR to DATE (currently support six formats: "%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d")
+                Convert VARCHAR/CHAR to TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE.
+                Convert VARCHAR/CHAR to DATE (currently support six formats: "%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d")
                 Convert DATETIME to DATE(Only year-month-day information is retained, For example: `2019-12-09 21:47:05` <--> `2019-12-09`)
                 Convert DATE to DATETIME(Set hour, minute, second to zero, For example: `2019-12-09` <--> `2019-12-09 00:00:00`)
                 Convert FLOAT to DOUBLE

@@ -20,9 +20,9 @@
 
 #include <string>
 
-#include "olap/tablet_meta.h"
-#include "olap/olap_define.h"
 #include "olap/data_dir.h"
+#include "olap/olap_define.h"
+#include "olap/tablet_meta.h"
 
 namespace doris {
 
@@ -33,26 +33,29 @@ const std::string HEADER_PREFIX = "tabletmeta_";
 // Helper Class for managing tablet headers of one root path.
 class TabletMetaManager {
 public:
-    static OLAPStatus get_meta(DataDir* store, TTabletId tablet_id,
-                                 TSchemaHash schema_hash, TabletMetaSharedPtr tablet_meta);
+    static OLAPStatus get_meta(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+                               TabletMetaSharedPtr tablet_meta);
 
-    static OLAPStatus get_json_meta(DataDir* store, TTabletId tablet_id,
-            TSchemaHash schema_hash, std::string* json_meta);
+    static OLAPStatus get_json_meta(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+                                    std::string* json_meta);
 
-    static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, 
-                           TabletMetaSharedPtr tablet_meta, const string& header_prefix = "tabletmeta_");
-    static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, 
-                           const std::string& meta_binary, const string& header_prefix = "tabletmeta_");
+    static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+                           TabletMetaSharedPtr tablet_meta,
+                           const string& header_prefix = "tabletmeta_");
+    static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
+                           const std::string& meta_binary,
+                           const string& header_prefix = "tabletmeta_");
 
-    static OLAPStatus remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, 
+    static OLAPStatus remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
                              const string& header_prefix = "tabletmeta_");
 
-    static OLAPStatus traverse_headers(OlapMeta* meta,
-            std::function<bool(long, long, const std::string&)> const& func, const string& header_prefix = "tabletmeta_");
+    static OLAPStatus traverse_headers(
+            OlapMeta* meta, std::function<bool(long, long, const std::string&)> const& func,
+            const string& header_prefix = "tabletmeta_");
 
     static OLAPStatus load_json_meta(DataDir* store, const std::string& meta_path);
 };
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_TABLET_META_MANAGER_H

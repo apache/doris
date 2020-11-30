@@ -64,17 +64,17 @@ public:
     // be ignored.
     virtual Status close(RuntimeState* state, Status exec_status) {
         _expr_mem_tracker.reset();
-        _closed = true;   
+        _closed = true;
         return Status::OK();
     }
 
     // Creates a new data sink from thrift_sink. A pointer to the
     // new sink is written to *sink, and is owned by the caller.
-    static Status create_data_sink(
-            ObjectPool* pool,
-            const TDataSink& thrift_sink, const std::vector<TExpr>& output_exprs,
-            const TPlanFragmentExecParams& params,
-            const RowDescriptor& row_desc, boost::scoped_ptr<DataSink>* sink);
+    static Status create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
+                                   const std::vector<TExpr>& output_exprs,
+                                   const TPlanFragmentExecParams& params,
+                                   const RowDescriptor& row_desc,
+                                   boost::scoped_ptr<DataSink>* sink);
 
     // Returns the runtime profile for the sink.
     virtual RuntimeProfile* profile() = 0;
@@ -82,6 +82,7 @@ public:
     virtual void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
         _query_statistics = statistics;
     }
+
 protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
@@ -92,5 +93,5 @@ protected:
     std::shared_ptr<QueryStatistics> _query_statistics;
 };
 
-}  // namespace doris
+} // namespace doris
 #endif

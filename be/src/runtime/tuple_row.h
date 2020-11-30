@@ -28,13 +28,9 @@ namespace doris {
 // together make up a row.
 class TupleRow {
 public:
-    Tuple* get_tuple(int tuple_idx) {
-        return _tuples[tuple_idx];
-    }
+    Tuple* get_tuple(int tuple_idx) { return _tuples[tuple_idx]; }
 
-    void set_tuple(int tuple_idx, Tuple* tuple) {
-        _tuples[tuple_idx] = tuple;
-    }
+    void set_tuple(int tuple_idx, Tuple* tuple) { _tuples[tuple_idx] = tuple; }
 
     static TupleRow* create(const std::vector<TupleDescriptor*>& descs, MemPool* pool) {
         int size = descs.size() * sizeof(Tuple*);
@@ -56,7 +52,7 @@ public:
     // tuple memory and that memory will be reused.  Otherwise, new tuples will be allocated
     // and stored in 'dst'.
     void deep_copy(TupleRow* dst, const std::vector<TupleDescriptor*>& descs, MemPool* pool,
-                  bool reuse_tuple_mem) {
+                   bool reuse_tuple_mem) {
         for (int i = 0; i < descs.size(); ++i) {
             if (this->get_tuple(i) != NULL) {
                 if (reuse_tuple_mem && dst->get_tuple(i) != NULL) {
@@ -72,17 +68,16 @@ public:
         }
     }
 
-    TupleRow* dcopy_with_new(const std::vector<TupleDescriptor*>& descs, 
-                             MemPool* pool, int64_t* bytes) {
+    TupleRow* dcopy_with_new(const std::vector<TupleDescriptor*>& descs, MemPool* pool,
+                             int64_t* bytes) {
         int size = descs.size() * sizeof(Tuple*);
         TupleRow* result = reinterpret_cast<TupleRow*>(pool->allocate(size));
         *bytes = dcopy_with_new(result, descs, pool, false);
         return result;
     }
 
-    int64_t dcopy_with_new(
-            TupleRow* dst, const std::vector<TupleDescriptor*>& descs, 
-            MemPool* pool, bool reuse_tuple_mem) {
+    int64_t dcopy_with_new(TupleRow* dst, const std::vector<TupleDescriptor*>& descs, MemPool* pool,
+                           bool reuse_tuple_mem) {
         int64_t bytes = 0;
         for (int i = 0; i < descs.size(); ++i) {
             Tuple* old_tuple = dst->get_tuple(i);
@@ -112,10 +107,11 @@ public:
     }
 
     std::string to_string(const RowDescriptor& d);
+
 private:
     Tuple* _tuples[1];
 };
 
-}
+} // namespace doris
 
 #endif

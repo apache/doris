@@ -264,6 +264,9 @@ public class StmtExecutor {
 
             if (isForwardToMaster()) {
                 forwardToMaster();
+                if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
+                    context.setQueryId(masterOpExecutor.getQueryId());
+                }
                 return;
             } else {
                 LOG.debug("no need to transfer to Master. stmt: {}", context.getStmtId());
@@ -824,6 +827,7 @@ public class StmtExecutor {
         Throwable throwable = null;
 
         String label = insertStmt.getLabel();
+        LOG.info("Do insert [{}] with query id: {}", label, DebugUtil.printId(context.queryId()));
 
         long loadedRows = 0;
         int filteredRows = 0;

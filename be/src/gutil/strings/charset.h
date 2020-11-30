@@ -29,43 +29,43 @@ namespace strings {
 // http://goto/style-guide-exception-20978288
 
 class CharSet {
- public:
-  // Initialize a CharSet containing no characters or the given set of
-  // characters, respectively.
-  CharSet();
-  // Deliberately an implicit constructor, so anything that takes a CharSet
-  // can also take an explicit list of characters.
-  CharSet(const char* characters);  // NOLINT(runtime/explicit)
-  explicit CharSet(const CharSet& other);
+public:
+    // Initialize a CharSet containing no characters or the given set of
+    // characters, respectively.
+    CharSet();
+    // Deliberately an implicit constructor, so anything that takes a CharSet
+    // can also take an explicit list of characters.
+    CharSet(const char* characters); // NOLINT(runtime/explicit)
+    explicit CharSet(const CharSet& other);
 
-  // Add or remove a character from the set.
-  void Add(unsigned char c) { bits_[Word(c)] |= BitMask(c); }
-  void Remove(unsigned char c) { bits_[Word(c)] &= ~BitMask(c); }
+    // Add or remove a character from the set.
+    void Add(unsigned char c) { bits_[Word(c)] |= BitMask(c); }
+    void Remove(unsigned char c) { bits_[Word(c)] &= ~BitMask(c); }
 
-  // Return true if this character is in the set
-  bool Test(unsigned char c) const { return bits_[Word(c)] & BitMask(c); }
+    // Return true if this character is in the set
+    bool Test(unsigned char c) const { return bits_[Word(c)] & BitMask(c); }
 
- private:
-  // The numbers below are optimized for 64-bit hardware. TODO(user): In the
-  // future, we should change this to use uword_t and do various bits of magic
-  // to calculate the numbers at compile time.
+private:
+    // The numbers below are optimized for 64-bit hardware. TODO(user): In the
+    // future, we should change this to use uword_t and do various bits of magic
+    // to calculate the numbers at compile time.
 
-  // In general,
-  // static const int kNumWords = max(32 / sizeof(uword_t), 1);
-  uint64 bits_[4];
+    // In general,
+    // static const int kNumWords = max(32 / sizeof(uword_t), 1);
+    uint64 bits_[4];
 
-  // 4 words => the high 2 bits of c are the word number. In general,
-  // kShiftValue = 8 - log2(kNumWords)
-  static int Word(unsigned char c) { return c >> 6; }
+    // 4 words => the high 2 bits of c are the word number. In general,
+    // kShiftValue = 8 - log2(kNumWords)
+    static int Word(unsigned char c) { return c >> 6; }
 
-  // And the value we AND with c is ((1 << shift value) - 1)
-  // static const int kLowBitsMask = (256 / kNumWords) - 1;
-  static uint64 BitMask(unsigned char c) {
-    uint64 mask = 1;
-    return mask << (c & 0x3f);
-  }
+    // And the value we AND with c is ((1 << shift value) - 1)
+    // static const int kLowBitsMask = (256 / kNumWords) - 1;
+    static uint64 BitMask(unsigned char c) {
+        uint64 mask = 1;
+        return mask << (c & 0x3f);
+    }
 };
 
-}  // namespace strings
+} // namespace strings
 
-#endif  // STRINGS_CHARSET_H_
+#endif // STRINGS_CHARSET_H_

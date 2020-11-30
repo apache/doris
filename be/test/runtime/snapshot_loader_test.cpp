@@ -16,12 +16,13 @@
 // under the License.
 
 #include <gtest/gtest.h>
+
 #include <boost/filesystem.hpp>
 
 #include "runtime/exec_env.h"
 #include "util/cpu_info.h"
 
-#define private public  // hack compiler
+#define private public // hack compiler
 #define protected public
 
 #include "runtime/snapshot_loader.h"
@@ -30,8 +31,8 @@ namespace doris {
 
 class SnapshotLoaderTest : public testing::Test {
 public:
-    SnapshotLoaderTest() {
-    }
+    SnapshotLoaderTest() {}
+
 private:
     ExecEnv* _exec_env;
 };
@@ -44,14 +45,14 @@ TEST_F(SnapshotLoaderTest, NormalCase) {
 
     int64_t tablet_id = 0;
     int32_t schema_hash = 0;
-    Status st = loader._get_tablet_id_and_schema_hash_from_file_path(
-        "/path/to/1234/5678", &tablet_id, &schema_hash);
+    Status st = loader._get_tablet_id_and_schema_hash_from_file_path("/path/to/1234/5678",
+                                                                     &tablet_id, &schema_hash);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(1234, tablet_id);
     ASSERT_EQ(5678, schema_hash);
 
-    st = loader._get_tablet_id_and_schema_hash_from_file_path(
-        "/path/to/1234/5678/", &tablet_id, &schema_hash);
+    st = loader._get_tablet_id_and_schema_hash_from_file_path("/path/to/1234/5678/", &tablet_id,
+                                                              &schema_hash);
     ASSERT_FALSE(st.ok());
 
     boost::filesystem::remove_all("./ss_test/");
@@ -77,9 +78,8 @@ TEST_F(SnapshotLoaderTest, NormalCase) {
 
     std::string snapshot_file;
     std::string tablet_file;
-    loader._assemble_file_name(
-        "/snapshot/path", "/tablet/path",
-        1234, 2, 5, 12345, 1, ".dat", &snapshot_file, &tablet_file);
+    loader._assemble_file_name("/snapshot/path", "/tablet/path", 1234, 2, 5, 12345, 1, ".dat",
+                               &snapshot_file, &tablet_file);
     ASSERT_EQ("/snapshot/path/1234_2_5_12345_1.dat", snapshot_file);
     ASSERT_EQ("/tablet/path/1234_2_5_12345_1.dat", tablet_file);
 
@@ -99,15 +99,13 @@ TEST_F(SnapshotLoaderTest, NormalCase) {
     st = loader._replace_tablet_id("1234_2_5_12345_1.xxx", 5678, &new_name);
     ASSERT_FALSE(st.ok());
 
-    st = loader._get_tablet_id_from_remote_path(
-            "/__tbl_10004/__part_10003/__idx_10004/__10005",
-            &tablet_id);
+    st = loader._get_tablet_id_from_remote_path("/__tbl_10004/__part_10003/__idx_10004/__10005",
+                                                &tablet_id);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(10005, tablet_id);
 }
 
-
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

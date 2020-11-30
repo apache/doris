@@ -33,11 +33,11 @@ class Env;
 template <class FileType>
 class OpenedFileHandle {
 public:
-    OpenedFileHandle() : _cache(nullptr), _handle(nullptr) { }
+    OpenedFileHandle() : _cache(nullptr), _handle(nullptr) {}
 
     // A opened file handle
     explicit OpenedFileHandle(Cache* cache, Cache::Handle* handle)
-        : _cache(cache), _handle(handle) { }
+            : _cache(cache), _handle(handle) {}
 
     // release cache handle
     ~OpenedFileHandle() {
@@ -121,7 +121,7 @@ public:
         if (_is_cache_own) {
             _cache.reset();
         }
-     }
+    }
 
     // find whether the file has been cached
     // if cached, return true and set the file_handle
@@ -130,7 +130,8 @@ public:
 
     // insert new FileType* into lru cache
     // and return file_handle
-    void insert(const std::string& file_name, FileType* file, OpenedFileHandle<FileType>* file_handle);
+    void insert(const std::string& file_name, FileType* file,
+                OpenedFileHandle<FileType>* file_handle);
 
 private:
     // Name of the cache.

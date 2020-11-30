@@ -170,7 +170,7 @@ public class PartitionCache extends Cache {
     /**
      * Rewrite the query scope of partition key in the where condition
      * origin expr : where eventdate>="2020-01-12" and eventdate<="2020-01-15" 
-     * rewrite expr : where eventdate>="2020-01-14" and eventdate<="2020=01-15"
+     * rewrite expr : where eventdate>="2020-01-14" and eventdate<="2020-01-15"
      */
     private Expr rewriteWhereClause(Expr expr, CompoundPredicate predicate,
                                     List<PartitionRange.PartitionSingle> newRangeList) {

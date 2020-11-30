@@ -73,6 +73,6 @@ public class GetSmallFileAction extends RestBaseController {
                 return ResponseEntityBuilder.internalError(e.getMessage());
             }
         }
-        return ResponseEntityBuilder.ok();
+        return ResponseEntityBuilder.okWithEmpty();
     }
 }

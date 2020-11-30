@@ -14,8 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "gen_cpp/internal_service.pb.h"
 #include "runtime/cache/result_node.h"
+
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/cache/cache_utils.h"
 
 namespace doris {
@@ -61,7 +62,8 @@ void PartitionRowBatch::clear() {
  * Update partition cache data, find RowBatch from partition map by partition key,
  * the partition rowbatch are stored in the order of partition keys
  */
-PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, bool& is_update_firstkey) {
+PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request,
+                                          bool& is_update_firstkey) {
     is_update_firstkey = false;
     if (_sql_key != request->sql_key()) {
         LOG(INFO) << "no match sql_key " << request->sql_key().hi() << request->sql_key().lo();
@@ -131,7 +133,8 @@ PCacheStatus ResultNode::update_partition(const PUpdateCacheRequest* request, bo
 * Miss cache parameter: [20191210 - 20191216]
 */
 PCacheStatus ResultNode::fetch_partition(const PFetchCacheRequest* request,
-                                         PartitionRowBatchList& row_batch_list, bool& is_hit_firstkey) {
+                                         PartitionRowBatchList& row_batch_list,
+                                         bool& is_hit_firstkey) {
     is_hit_firstkey = false;
     if (request->params_size() == 0) {
         return PCacheStatus::PARAM_ERROR;
@@ -142,7 +145,7 @@ PCacheStatus ResultNode::fetch_partition(const PFetchCacheRequest* request,
     if (_partition_list.size() == 0) {
         return PCacheStatus::NO_PARTITION_KEY;
     }
-    
+
     if (request->params(0).partition_key() > (*_partition_list.rbegin())->get_partition_key() ||
         request->params(request->params_size() - 1).partition_key() <
                 (*_partition_list.begin())->get_partition_key()) {
@@ -169,14 +172,16 @@ PCacheStatus ResultNode::fetch_partition(const PFetchCacheRequest* request,
             }
             if (part_it != _partition_list.end()) {
                 while (param_idx < request->params_size() &&
-                        request->params(param_idx).partition_key() < (*part_it)->get_partition_key()) {
+                       request->params(param_idx).partition_key() <
+                               (*part_it)->get_partition_key()) {
                     param_idx++;
                 }
                 if (param_idx < request->params_size()) {
-                    if (request->params(param_idx).partition_key() == (*part_it)->get_partition_key()) {
+                    if (request->params(param_idx).partition_key() ==
+                        (*part_it)->get_partition_key()) {
                         find = true;
                     }
-                } 
+                }
             }
         }
 
@@ -186,9 +191,12 @@ PCacheStatus ResultNode::fetch_partition(const PFetchCacheRequest* request,
                       << ", param part Key : " << request->params(param_idx).partition_key()
                       << ", batch part key : " << (*part_it)->get_partition_key()
                       << ", param part version : " << request->params(param_idx).last_version()
-                      << ", batch part version : " << (*part_it)->get_value()->param().last_version()
-                      << ", param part version time : " << request->params(param_idx).last_version_time()
-                      << ", batch part version time : " << (*part_it)->get_value()->param().last_version_time();
+                      << ", batch part version : "
+                      << (*part_it)->get_value()->param().last_version()
+                      << ", param part version time : "
+                      << request->params(param_idx).last_version_time()
+                      << ", batch part version time : "
+                      << (*part_it)->get_value()->param().last_version_time();
 #endif
             if ((*part_it)->is_hit_cache(request->params(param_idx))) {
                 if (begin_idx < 0) {
@@ -217,7 +225,7 @@ PCacheStatus ResultNode::fetch_partition(const PFetchCacheRequest* request,
     if (begin_it == _partition_list.begin()) {
         is_hit_firstkey = true;
     }
-    
+
     while (true) {
         row_batch_list.push_back(*begin_it);
         if (begin_it == end_it) {
@@ -274,4 +282,3 @@ void ResultNode::unlink() {
 }
 
 } // namespace doris
-

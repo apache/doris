@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <algorithm>
-#include "gtest/gtest.h"
-#include "gmock/gmock.h"
 #include "agent/utils.h"
+
+#include <algorithm>
+
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "service/backend_options.h"
 #include "util/logging.h"
 
@@ -35,9 +37,9 @@ TEST(AgentUtilsTest, Test) {
     ASSERT_EQ(3, cnt);
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     doris::BackendOptions::init();
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

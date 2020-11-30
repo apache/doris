@@ -53,7 +53,7 @@ void ZoneMapIndexWriter::add_values(const void* values, size_t count) {
         if (_field->compare(_page_zone_map.max_value, vals) < 0) {
             _field->type_info()->direct_copy(_page_zone_map.max_value, vals);
         }
-        vals +=  _field->size();
+        vals += _field->size();
     }
 }
 
@@ -123,11 +123,8 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     for (int i = 0; i < reader.num_values(); ++i) {
         size_t num_to_read = 1;
         std::unique_ptr<ColumnVectorBatch> cvb;
-        RETURN_IF_ERROR(ColumnVectorBatch::create(num_to_read,
-                                  false,
-                                  reader.type_info(),
-                                  nullptr,
-                                  &cvb));
+        RETURN_IF_ERROR(
+                ColumnVectorBatch::create(num_to_read, false, reader.type_info(), nullptr, &cvb));
         ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);
 

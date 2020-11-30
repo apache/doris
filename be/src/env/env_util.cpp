@@ -23,7 +23,6 @@
 using std::shared_ptr;
 using std::string;
 
-
 namespace doris {
 namespace env_util {
 

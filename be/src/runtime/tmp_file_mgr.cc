@@ -18,21 +18,21 @@
 #include "runtime/tmp_file_mgr.h"
 
 #include <boost/algorithm/string.hpp>
+#include <boost/filesystem.hpp>
 #include <boost/foreach.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/thread/locks.hpp>
-#include <boost/uuid/uuid_io.hpp>
 #include <boost/uuid/random_generator.hpp>
-#include <boost/filesystem.hpp>
+#include <boost/uuid/uuid_io.hpp>
 // #include <gutil/strings/substitute.h>
 // #include <gutil/strings/join.h>
 
 #include "olap/storage_engine.h"
-#include "util/uid_util.h"
+#include "runtime/exec_env.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/filesystem_util.h"
-#include "runtime/exec_env.h"
+#include "util/uid_util.h"
 
 using boost::algorithm::is_any_of;
 using boost::algorithm::join;
@@ -47,13 +47,14 @@ using std::vector;
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(active_scratch_dirs, MetricUnit::NOUNIT, "Metric to track active scratch directories");
+DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(active_scratch_dirs, MetricUnit::NOUNIT,
+                                   "Metric to track active scratch directories");
 
 const std::string _s_tmp_sub_dir_name = "doris-scratch";
 const uint64_t _s_available_space_threshold_mb = 1024;
 
-TmpFileMgr::TmpFileMgr(ExecEnv* exec_env) :
-        _exec_env(exec_env), _initialized(false), _dir_status_lock(), _tmp_dirs() {
+TmpFileMgr::TmpFileMgr(ExecEnv* exec_env)
+        : _exec_env(exec_env), _initialized(false), _dir_status_lock(), _tmp_dirs() {
     INT_GAUGE_METRIC_REGISTER(DorisMetrics::instance()->server_entity(), active_scratch_dirs);
 }
 
@@ -83,15 +84,14 @@ Status TmpFileMgr::init_custom(const vector<string>& tmp_dirs, bool one_dir_per_
     // For each tmp directory, find the disk it is on,
     // so additional tmp directories on the same disk can be skipped.
     for (int i = 0; i < tmp_dirs.size(); ++i) {
-        boost::filesystem::path tmp_path(
-                boost::trim_right_copy_if(tmp_dirs[i], is_any_of("/")));
+        boost::filesystem::path tmp_path(boost::trim_right_copy_if(tmp_dirs[i], is_any_of("/")));
         tmp_path = boost::filesystem::absolute(tmp_path);
         path scratch_subdir_path(tmp_path / _s_tmp_sub_dir_name);
         // tmp_path must be a writable directory.
         Status status = FileSystemUtil::verify_is_directory(tmp_path.string());
         if (!status.ok()) {
-            LOG(WARNING) << "Cannot use directory " << tmp_path.string() << " for scratch: "
-                << status.get_error_msg();
+            LOG(WARNING) << "Cannot use directory " << tmp_path.string()
+                         << " for scratch: " << status.get_error_msg();
             continue;
         }
         // Find the disk id of tmp_path. Add the scratch directory if there isn't another
@@ -103,8 +103,8 @@ Status TmpFileMgr::init_custom(const vector<string>& tmp_dirs, bool one_dir_per_
                     FileSystemUtil::get_space_available(tmp_path.string(), &available_space));
             if (available_space < _s_available_space_threshold_mb * 1024 * 1024) {
                 LOG(WARNING) << "Filesystem containing scratch directory " << tmp_path
-                        << " has less than " << _s_available_space_threshold_mb
-                        << "MB available.";
+                             << " has less than " << _s_available_space_threshold_mb
+                             << "MB available.";
             }
             // Create the directory, destroying if already present. If this succeeds, we will
             // have an empty writable scratch directory.
@@ -114,12 +114,12 @@ Status TmpFileMgr::init_custom(const vector<string>& tmp_dirs, bool one_dir_per_
                     is_tmp_dir_on_disk[disk_id] = true;
                 }
                 LOG(INFO) << "Using scratch directory " << scratch_subdir_path.string()
-                        << " on disk " << disk_id;
+                          << " on disk " << disk_id;
                 _tmp_dirs.push_back(Dir(scratch_subdir_path.string(), false));
             } else {
                 LOG(WARNING) << "Could not remove and recreate directory "
-                        << scratch_subdir_path.string() << ": cannot use it for scratch. "
-                        << "Error was: " << status.get_error_msg();
+                             << scratch_subdir_path.string() << ": cannot use it for scratch. "
+                             << "Error was: " << status.get_error_msg();
             }
         }
     }
@@ -130,16 +130,13 @@ Status TmpFileMgr::init_custom(const vector<string>& tmp_dirs, bool one_dir_per_
 
     if (_tmp_dirs.empty() && !tmp_dirs.empty()) {
         LOG(ERROR) << "Running without spill to disk: could not use any scratch "
-            << "directories in list: " << join(tmp_dirs, ",")
-            << ". See previous warnings for information on causes.";
+                   << "directories in list: " << join(tmp_dirs, ",")
+                   << ". See previous warnings for information on causes.";
     }
     return Status::OK();
 }
 
-Status TmpFileMgr::get_file(
-        const DeviceId& device_id,
-        const TUniqueId& query_id,
-        File** new_file) {
+Status TmpFileMgr::get_file(const DeviceId& device_id, const TUniqueId& query_id, File** new_file) {
     DCHECK(_initialized);
     DCHECK_GE(device_id, 0);
     DCHECK_LT(device_id, _tmp_dirs.size());
@@ -214,13 +211,8 @@ vector<TmpFileMgr::DeviceId> TmpFileMgr::active_tmp_devices() {
     return devices;
 }
 
-TmpFileMgr::File::File(TmpFileMgr* mgr, DeviceId device_id, const string& path) :
-        _mgr(mgr),
-        _path(path),
-        _device_id(device_id),
-        _current_size(0),
-        _blacklisted(false) {
-}
+TmpFileMgr::File::File(TmpFileMgr* mgr, DeviceId device_id, const string& path)
+        : _mgr(mgr), _path(path), _device_id(device_id), _current_size(0), _blacklisted(false) {}
 
 Status TmpFileMgr::File::allocate_space(int64_t write_size, int64_t* offset) {
     DCHECK_GT(write_size, 0);

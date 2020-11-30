@@ -24,11 +24,8 @@
 
 namespace doris {
 
-RunLengthIntegerWriter::RunLengthIntegerWriter(OutStream* output, bool is_singed) : 
-        _output(output),
-        _is_signed(is_singed),
-        _fixed_run_length(0),
-        _var_run_length(0) {
+RunLengthIntegerWriter::RunLengthIntegerWriter(OutStream* output, bool is_singed)
+        : _output(output), _is_signed(is_singed), _fixed_run_length(0), _var_run_length(0) {
     _clear();
 }
 
@@ -323,8 +320,9 @@ OLAPStatus RunLengthIntegerWriter::_write_short_repeat_values() {
     repeat_value = _is_signed ? ser::zig_zag_encode(_literals[0]) : _literals[0];
 
     uint32_t num_bits_repeat_value = ser::find_closet_num_bits(repeat_value);
-    uint32_t num_bytes_repeat_value = num_bits_repeat_value % 8 == 0 ?
-                                      num_bits_repeat_value >> 3 : (num_bits_repeat_value >> 3) + 1;
+    uint32_t num_bytes_repeat_value = num_bits_repeat_value % 8 == 0
+                                              ? num_bits_repeat_value >> 3
+                                              : (num_bits_repeat_value >> 3) + 1;
 
     ShortRepeatHead head;
     head.type = SHORT_REPEAT;
@@ -599,7 +597,7 @@ OLAPStatus RunLengthIntegerWriter::write(int64_t value) {
             _fixed_run_length = 0;
             _var_run_length = 2;
         }
-    } else {  // _num_literals >= 2
+    } else { // _num_literals >= 2
         long current_delta = value - _literals[_num_literals - 1];
 
         if (_prev_delta == 0 && current_delta == 0) {
@@ -733,4 +731,4 @@ void RunLengthIntegerWriter::get_position(PositionEntryWriter* index_entry, bool
     }
 }
 
-}  // namespace doris
+} // namespace doris

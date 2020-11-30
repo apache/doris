@@ -23,20 +23,14 @@ namespace doris {
 
 class KafkaConsumerPipeTest : public testing::Test {
 public:
-    KafkaConsumerPipeTest() { }
-    virtual ~ KafkaConsumerPipeTest() { }
+    KafkaConsumerPipeTest() {}
+    virtual ~KafkaConsumerPipeTest() {}
 
-    void SetUp() override {
+    void SetUp() override {}
 
-
-    }
-
-    void TearDown() override {
-
-    }
+    void TearDown() override {}
 
 private:
-
 };
 
 TEST_F(KafkaConsumerPipeTest, append_read) {
@@ -44,7 +38,7 @@ TEST_F(KafkaConsumerPipeTest, append_read) {
 
     std::string msg1 = "i have a dream";
     std::string msg2 = "This is from kafka";
-    
+
     Status st;
     st = k_pipe.append_with_line_delimiter(msg1.c_str(), msg1.length());
     ASSERT_TRUE(st.ok());
@@ -56,23 +50,22 @@ TEST_F(KafkaConsumerPipeTest, append_read) {
     char buf[1024];
     size_t data_size = 1024;
     bool eof = false;
-    st = k_pipe.read((uint8_t*) buf, &data_size, &eof);
+    st = k_pipe.read((uint8_t*)buf, &data_size, &eof);
     ASSERT_TRUE(st.ok());
-    ASSERT_EQ(data_size, msg1.length() + msg2.length() + 2); 
+    ASSERT_EQ(data_size, msg1.length() + msg2.length() + 2);
     ASSERT_EQ(eof, false);
 
     data_size = 1024;
-    st = k_pipe.read((uint8_t*) buf, &data_size, &eof);
+    st = k_pipe.read((uint8_t*)buf, &data_size, &eof);
     ASSERT_TRUE(st.ok());
-    ASSERT_EQ(data_size, 0); 
+    ASSERT_EQ(data_size, 0);
     ASSERT_EQ(eof, true);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
-

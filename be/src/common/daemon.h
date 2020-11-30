@@ -54,4 +54,4 @@ private:
     scoped_refptr<Thread> _memory_maintenance_thread;
     scoped_refptr<Thread> _calculate_metrics_thread;
 };
-}  // namespace doris
+} // namespace doris

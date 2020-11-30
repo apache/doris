@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once 
+#pragma once
 
 #include <atomic>
 
@@ -27,13 +27,11 @@ namespace doris {
 // between FE and BE.
 class HeartbeatFlags {
 public:
-    HeartbeatFlags(uint64_t origin_flags) : _flags(origin_flags) { }
+    HeartbeatFlags(uint64_t origin_flags) : _flags(origin_flags) {}
 
-    HeartbeatFlags() : HeartbeatFlags(0) { }
+    HeartbeatFlags() : HeartbeatFlags(0) {}
 
-    void update(uint64_t flags) {
-        _flags = flags;
-    }
+    void update(uint64_t flags) { _flags = flags; }
 
     bool is_set_default_rowset_type_to_beta() {
         return _flags & g_HeartbeatService_constants.IS_SET_DEFAULT_ROWSET_TO_BETA_BIT;
@@ -43,4 +41,4 @@ private:
     std::atomic<uint64_t> _flags;
 };
 
-}
+} // namespace doris

@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H
 
 #include <string>
+
 #include "olap/compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 
@@ -35,22 +36,18 @@ public:
 protected:
     OLAPStatus pick_rowsets_to_compact() override;
 
-    std::string compaction_name() const override {
-        return "cumulative compaction";
-    }
+    std::string compaction_name() const override { return "cumulative compaction"; }
 
-    ReaderType compaction_type() const override {
-        return ReaderType::READER_CUMULATIVE_COMPACTION;
-    }
+    ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
 private:
     int64_t _cumulative_rowset_size_threshold;
 
-    Version _last_delete_version { -1, -1 };
+    Version _last_delete_version{-1, -1};
 
     DISALLOW_COPY_AND_ASSIGN(CumulativeCompaction);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H

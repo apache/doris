@@ -36,42 +36,41 @@ using std::string;
 // http://goto/style-guide-exception-20978288
 //
 struct AlphaNum {
-  StringPiece piece;
-  char digits[kFastToBufferSize];
+    StringPiece piece;
+    char digits[kFastToBufferSize];
 
-  // No bool ctor -- bools convert to an integral type.
-  // A bool ctor would also convert incoming pointers (bletch).
+    // No bool ctor -- bools convert to an integral type.
+    // A bool ctor would also convert incoming pointers (bletch).
 
-  AlphaNum(int32 i32)  // NOLINT(runtime/explicit)
-      : piece(digits, FastInt32ToBufferLeft(i32, digits) - &digits[0]) {}
-  AlphaNum(uint32 u32)  // NOLINT(runtime/explicit)
-      : piece(digits, FastUInt32ToBufferLeft(u32, digits) - &digits[0]) {}
-  AlphaNum(int64 i64)  // NOLINT(runtime/explicit)
-      : piece(digits, FastInt64ToBufferLeft(i64, digits) - &digits[0]) {}
-  AlphaNum(uint64 u64)  // NOLINT(runtime/explicit)
-      : piece(digits, FastUInt64ToBufferLeft(u64, digits) - &digits[0]) {}
+    AlphaNum(int32 i32) // NOLINT(runtime/explicit)
+            : piece(digits, FastInt32ToBufferLeft(i32, digits) - &digits[0]) {}
+    AlphaNum(uint32 u32) // NOLINT(runtime/explicit)
+            : piece(digits, FastUInt32ToBufferLeft(u32, digits) - &digits[0]) {}
+    AlphaNum(int64 i64) // NOLINT(runtime/explicit)
+            : piece(digits, FastInt64ToBufferLeft(i64, digits) - &digits[0]) {}
+    AlphaNum(uint64 u64) // NOLINT(runtime/explicit)
+            : piece(digits, FastUInt64ToBufferLeft(u64, digits) - &digits[0]) {}
 
 #if defined(__APPLE__)
-  AlphaNum(size_t size)  // NOLINT(runtime/explicit)
-      : piece(digits, FastUInt64ToBufferLeft(size, digits) - &digits[0]) {}
+    AlphaNum(size_t size) // NOLINT(runtime/explicit)
+            : piece(digits, FastUInt64ToBufferLeft(size, digits) - &digits[0]) {}
 #endif
 
-  AlphaNum(float f)  // NOLINT(runtime/explicit)
-    : piece(digits, strlen(FloatToBuffer(f, digits))) {}
-  AlphaNum(double f)  // NOLINT(runtime/explicit)
-    : piece(digits, strlen(DoubleToBuffer(f, digits))) {}
+    AlphaNum(float f) // NOLINT(runtime/explicit)
+            : piece(digits, strlen(FloatToBuffer(f, digits))) {}
+    AlphaNum(double f) // NOLINT(runtime/explicit)
+            : piece(digits, strlen(DoubleToBuffer(f, digits))) {}
 
-  AlphaNum(const char *c_str) : piece(c_str) {}  // NOLINT(runtime/explicit)
-  AlphaNum(StringPiece pc)
-      : piece(std::move(pc)) {}            // NOLINT(runtime/explicit)
-  AlphaNum(const string &s) : piece(s) {}  // NOLINT(runtime/explicit)
+    AlphaNum(const char* c_str) : piece(c_str) {}      // NOLINT(runtime/explicit)
+    AlphaNum(StringPiece pc) : piece(std::move(pc)) {} // NOLINT(runtime/explicit)
+    AlphaNum(const string& s) : piece(s) {}            // NOLINT(runtime/explicit)
 
-  StringPiece::size_type size() const { return piece.size(); }
-  const char *data() const { return piece.data(); }
+    StringPiece::size_type size() const { return piece.size(); }
+    const char* data() const { return piece.data(); }
 
- private:
-  // Use ":" not ':'
-  AlphaNum(char c);  // NOLINT(runtime/explicit)
+private:
+    // Use ":" not ':'
+    AlphaNum(char c); // NOLINT(runtime/explicit)
 };
 
 extern AlphaNum gEmptyAlphaNum;
@@ -99,246 +98,206 @@ extern AlphaNum gEmptyAlphaNum;
 //    be a reference into str.
 // ----------------------------------------------------------------------
 
-string StrCat(const AlphaNum &a);
-string StrCat(const AlphaNum &a, const AlphaNum &b);
-string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c);
-string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-              const AlphaNum &d);
-string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-              const AlphaNum &d, const AlphaNum &e);
-string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-              const AlphaNum &d, const AlphaNum &e, const AlphaNum &f);
-string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-              const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-              const AlphaNum &g);
-string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-              const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-              const AlphaNum &g, const AlphaNum &h);
+string StrCat(const AlphaNum& a);
+string StrCat(const AlphaNum& a, const AlphaNum& b);
+string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c);
+string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d);
+string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+              const AlphaNum& e);
+string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+              const AlphaNum& e, const AlphaNum& f);
+string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+              const AlphaNum& e, const AlphaNum& f, const AlphaNum& g);
+string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+              const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h);
 
 namespace strings {
 namespace internal {
 
 // Do not call directly - this is not part of the public API.
-string StrCatNineOrMore(const AlphaNum *a1, ...);
+string StrCatNineOrMore(const AlphaNum* a1, ...);
 
-}  // namespace internal
-}  // namespace strings
+} // namespace internal
+} // namespace strings
 
 // Support 9 or more arguments
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j,
+                                               null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k,
+                                               null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l,
+                                               null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m, const AlphaNum &n) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, &n, null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m, const AlphaNum& n) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               &n, null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m, const AlphaNum &n, const AlphaNum &o) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, &n, &o,
-                                             null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m, const AlphaNum& n, const AlphaNum& o) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               &n, &o, null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m, const AlphaNum &n, const AlphaNum &o,
-                     const AlphaNum &p) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, &n, &o, &p,
-                                             null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m, const AlphaNum& n, const AlphaNum& o, const AlphaNum& p) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               &n, &o, &p, null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m, const AlphaNum &n, const AlphaNum &o,
-                     const AlphaNum &p, const AlphaNum &q) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, &n, &o, &p, &q,
-                                             null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m, const AlphaNum& n, const AlphaNum& o, const AlphaNum& p,
+                     const AlphaNum& q) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               &n, &o, &p, &q, null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m, const AlphaNum &n, const AlphaNum &o,
-                     const AlphaNum &p, const AlphaNum &q, const AlphaNum &r) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, &n, &o, &p, &q, &r,
-                                             null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m, const AlphaNum& n, const AlphaNum& o, const AlphaNum& p,
+                     const AlphaNum& q, const AlphaNum& r) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               &n, &o, &p, &q, &r, null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m, const AlphaNum &n, const AlphaNum &o,
-                     const AlphaNum &p, const AlphaNum &q, const AlphaNum &r,
-                     const AlphaNum &s) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, &n, &o, &p, &q, &r,
-                                             &s, null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m, const AlphaNum& n, const AlphaNum& o, const AlphaNum& p,
+                     const AlphaNum& q, const AlphaNum& r, const AlphaNum& s) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               &n, &o, &p, &q, &r, &s, null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m, const AlphaNum &n, const AlphaNum &o,
-                     const AlphaNum &p, const AlphaNum &q, const AlphaNum &r,
-                     const AlphaNum &s, const AlphaNum &t) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, &n, &o, &p, &q, &r,
-                                             &s, &t, null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m, const AlphaNum& n, const AlphaNum& o, const AlphaNum& p,
+                     const AlphaNum& q, const AlphaNum& r, const AlphaNum& s, const AlphaNum& t) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               &n, &o, &p, &q, &r, &s, &t, null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m, const AlphaNum &n, const AlphaNum &o,
-                     const AlphaNum &p, const AlphaNum &q, const AlphaNum &r,
-                     const AlphaNum &s, const AlphaNum &t, const AlphaNum &u) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, &n, &o, &p, &q, &r,
-                                             &s, &t, &u, null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m, const AlphaNum& n, const AlphaNum& o, const AlphaNum& p,
+                     const AlphaNum& q, const AlphaNum& r, const AlphaNum& s, const AlphaNum& t,
+                     const AlphaNum& u) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               &n, &o, &p, &q, &r, &s, &t, &u, null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m, const AlphaNum &n, const AlphaNum &o,
-                     const AlphaNum &p, const AlphaNum &q, const AlphaNum &r,
-                     const AlphaNum &s, const AlphaNum &t, const AlphaNum &u,
-                     const AlphaNum &v) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, &n, &o, &p, &q, &r,
-                                             &s, &t, &u, &v, null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m, const AlphaNum& n, const AlphaNum& o, const AlphaNum& p,
+                     const AlphaNum& q, const AlphaNum& r, const AlphaNum& s, const AlphaNum& t,
+                     const AlphaNum& u, const AlphaNum& v) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               &n, &o, &p, &q, &r, &s, &t, &u, &v, null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m, const AlphaNum &n, const AlphaNum &o,
-                     const AlphaNum &p, const AlphaNum &q, const AlphaNum &r,
-                     const AlphaNum &s, const AlphaNum &t, const AlphaNum &u,
-                     const AlphaNum &v, const AlphaNum &w) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, &n, &o, &p, &q, &r,
-                                             &s, &t, &u, &v, &w, null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m, const AlphaNum& n, const AlphaNum& o, const AlphaNum& p,
+                     const AlphaNum& q, const AlphaNum& r, const AlphaNum& s, const AlphaNum& t,
+                     const AlphaNum& u, const AlphaNum& v, const AlphaNum& w) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               &n, &o, &p, &q, &r, &s, &t, &u, &v, &w,
+                                               null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m, const AlphaNum &n, const AlphaNum &o,
-                     const AlphaNum &p, const AlphaNum &q, const AlphaNum &r,
-                     const AlphaNum &s, const AlphaNum &t, const AlphaNum &u,
-                     const AlphaNum &v, const AlphaNum &w, const AlphaNum &x) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, &n, &o, &p, &q, &r,
-                                             &s, &t, &u, &v, &w, &x,
-                                             null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m, const AlphaNum& n, const AlphaNum& o, const AlphaNum& p,
+                     const AlphaNum& q, const AlphaNum& r, const AlphaNum& s, const AlphaNum& t,
+                     const AlphaNum& u, const AlphaNum& v, const AlphaNum& w, const AlphaNum& x) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               &n, &o, &p, &q, &r, &s, &t, &u, &v, &w, &x,
+                                               null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m, const AlphaNum &n, const AlphaNum &o,
-                     const AlphaNum &p, const AlphaNum &q, const AlphaNum &r,
-                     const AlphaNum &s, const AlphaNum &t, const AlphaNum &u,
-                     const AlphaNum &v, const AlphaNum &w, const AlphaNum &x,
-                     const AlphaNum &y) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, &n, &o, &p, &q, &r,
-                                             &s, &t, &u, &v, &w, &x, &y,
-                                             null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m, const AlphaNum& n, const AlphaNum& o, const AlphaNum& p,
+                     const AlphaNum& q, const AlphaNum& r, const AlphaNum& s, const AlphaNum& t,
+                     const AlphaNum& u, const AlphaNum& v, const AlphaNum& w, const AlphaNum& x,
+                     const AlphaNum& y) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               &n, &o, &p, &q, &r, &s, &t, &u, &v, &w, &x, &y,
+                                               null_alphanum);
 }
 
-inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
-                     const AlphaNum &d, const AlphaNum &e, const AlphaNum &f,
-                     const AlphaNum &g, const AlphaNum &h, const AlphaNum &i,
-                     const AlphaNum &j, const AlphaNum &k, const AlphaNum &l,
-                     const AlphaNum &m, const AlphaNum &n, const AlphaNum &o,
-                     const AlphaNum &p, const AlphaNum &q, const AlphaNum &r,
-                     const AlphaNum &s, const AlphaNum &t, const AlphaNum &u,
-                     const AlphaNum &v, const AlphaNum &w, const AlphaNum &x,
-                     const AlphaNum &y, const AlphaNum &z) {
-  const AlphaNum* null_alphanum = NULL;
-  return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i,
-                                             &j, &k, &l, &m, &n, &o, &p, &q, &r,
-                                             &s, &t, &u, &v, &w, &x, &y, &z,
-                                             null_alphanum);
+inline string StrCat(const AlphaNum& a, const AlphaNum& b, const AlphaNum& c, const AlphaNum& d,
+                     const AlphaNum& e, const AlphaNum& f, const AlphaNum& g, const AlphaNum& h,
+                     const AlphaNum& i, const AlphaNum& j, const AlphaNum& k, const AlphaNum& l,
+                     const AlphaNum& m, const AlphaNum& n, const AlphaNum& o, const AlphaNum& p,
+                     const AlphaNum& q, const AlphaNum& r, const AlphaNum& s, const AlphaNum& t,
+                     const AlphaNum& u, const AlphaNum& v, const AlphaNum& w, const AlphaNum& x,
+                     const AlphaNum& y, const AlphaNum& z) {
+    const AlphaNum* null_alphanum = NULL;
+    return strings::internal::StrCatNineOrMore(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m,
+                                               &n, &o, &p, &q, &r, &s, &t, &u, &v, &w, &x, &y, &z,
+                                               null_alphanum);
 }
 
 // ----------------------------------------------------------------------
@@ -362,19 +321,16 @@ inline string StrCat(const AlphaNum &a, const AlphaNum &b, const AlphaNum &c,
 //    worked around as consecutive calls to StrAppend are quite efficient.
 // ----------------------------------------------------------------------
 
-void StrAppend(string *dest,      const AlphaNum &a);
-void StrAppend(string *dest,      const AlphaNum &a, const AlphaNum &b);
-void StrAppend(string *dest,      const AlphaNum &a, const AlphaNum &b,
-               const AlphaNum &c);
-void StrAppend(string *dest,      const AlphaNum &a, const AlphaNum &b,
-               const AlphaNum &c, const AlphaNum &d);
+void StrAppend(string* dest, const AlphaNum& a);
+void StrAppend(string* dest, const AlphaNum& a, const AlphaNum& b);
+void StrAppend(string* dest, const AlphaNum& a, const AlphaNum& b, const AlphaNum& c);
+void StrAppend(string* dest, const AlphaNum& a, const AlphaNum& b, const AlphaNum& c,
+               const AlphaNum& d);
 
 // Support up to 9 params by using a default empty AlphaNum.
-void StrAppend(string *dest,      const AlphaNum &a, const AlphaNum &b,
-               const AlphaNum &c, const AlphaNum &d, const AlphaNum &e,
-               const AlphaNum &f = gEmptyAlphaNum,
-               const AlphaNum &g = gEmptyAlphaNum,
-               const AlphaNum &h = gEmptyAlphaNum,
-               const AlphaNum &i = gEmptyAlphaNum);
+void StrAppend(string* dest, const AlphaNum& a, const AlphaNum& b, const AlphaNum& c,
+               const AlphaNum& d, const AlphaNum& e, const AlphaNum& f = gEmptyAlphaNum,
+               const AlphaNum& g = gEmptyAlphaNum, const AlphaNum& h = gEmptyAlphaNum,
+               const AlphaNum& i = gEmptyAlphaNum);
 
-#endif  // STRINGS_STRCAT_H_
+#endif // STRINGS_STRCAT_H_

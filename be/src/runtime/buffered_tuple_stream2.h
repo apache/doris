@@ -18,9 +18,8 @@
 #ifndef DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H
 #define DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H
 
-#include <vector>
-
 #include <boost/scoped_ptr.hpp>
+#include <vector>
 
 #include "common/status.h"
 #include "runtime/buffered_block_mgr2.h"
@@ -127,32 +126,26 @@ public:
     //  - The idx of the row in the block. We need this for retrieving the null indicators.
     //    We use 24 bits for this index as well.
     struct RowIdx {
-        static const uint64_t BLOCK_MASK  = 0xFFFF;
+        static const uint64_t BLOCK_MASK = 0xFFFF;
         static const uint64_t BLOCK_SHIFT = 0;
-        static const uint64_t OFFSET_MASK  = 0xFFFFFF0000;
+        static const uint64_t OFFSET_MASK = 0xFFFFFF0000;
         static const uint64_t OFFSET_SHIFT = 16;
-        static const uint64_t IDX_MASK  = 0xFFFFFF0000000000;
+        static const uint64_t IDX_MASK = 0xFFFFFF0000000000;
         static const uint64_t IDX_SHIFT = 40;
 
-        uint64_t block() const {
-            return (data & BLOCK_MASK);
-        };
+        uint64_t block() const { return (data & BLOCK_MASK); };
 
-        uint64_t offset() const {
-            return (data & OFFSET_MASK) >> OFFSET_SHIFT;
-        };
+        uint64_t offset() const { return (data & OFFSET_MASK) >> OFFSET_SHIFT; };
 
-        uint64_t idx() const {
-            return (data & IDX_MASK) >> IDX_SHIFT;
-        }
+        uint64_t idx() const { return (data & IDX_MASK) >> IDX_SHIFT; }
 
         uint64_t set(uint64_t block, uint64_t offset, uint64_t idx) {
             DCHECK_LE(block, BLOCK_MASK)
-                << "Cannot have more than 2^16 = 64K blocks in a tuple stream.";
+                    << "Cannot have more than 2^16 = 64K blocks in a tuple stream.";
             DCHECK_LE(offset, OFFSET_MASK >> OFFSET_SHIFT)
-                << "Cannot have blocks larger than 2^24 = 16MB";
+                    << "Cannot have blocks larger than 2^24 = 16MB";
             DCHECK_LE(idx, IDX_MASK >> IDX_SHIFT)
-                << "Cannot have more than 2^24 = 16M rows in a block.";
+                    << "Cannot have more than 2^24 = 16M rows in a block.";
             data = block | (offset << OFFSET_SHIFT) | (idx << IDX_SHIFT);
             return data;
         }
@@ -170,8 +163,8 @@ public:
     // read_write: Stream allows interchanging read and write operations. Requires at
     // least two blocks may be pinned.
     BufferedTupleStream2(RuntimeState* state, const RowDescriptor& row_desc,
-            BufferedBlockMgr2* block_mgr, BufferedBlockMgr2::Client* client,
-            bool use_initial_small_buffers, bool read_write);
+                         BufferedBlockMgr2* block_mgr, BufferedBlockMgr2::Client* client,
+                         bool use_initial_small_buffers, bool read_write);
     // A null dtor to pass codestyle check
     ~BufferedTupleStream2() {}
 
@@ -372,7 +365,7 @@ private:
     // Helper function to copy strings from tuple into _write_block. Increments
     // bytes_allocated by the number of bytes allocated from _write_block.
     bool copy_strings(const Tuple* tuple, const std::vector<SlotDescriptor*>& string_slots,
-            int* bytes_allocated);
+                      int* bytes_allocated);
 
     // Helper function to deep copy collections from tuple into _write_block. Increments
     // bytes_allocated by the number of bytes allocated from _write_block.
@@ -404,8 +397,7 @@ private:
 
     // Read strings from stream by converting pointers and updating _read_ptr and
     // _read_bytes.
-    void read_strings(const std::vector<SlotDescriptor*>& string_slots, int data_len,
-            Tuple* tuple);
+    void read_strings(const std::vector<SlotDescriptor*>& string_slots, int data_len, Tuple* tuple);
 
     // Read collections from stream by converting pointers and updating _read_ptr and
     // _read_bytes.

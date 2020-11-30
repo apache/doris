@@ -17,19 +17,19 @@
 
 #pragma once
 
-#include <unordered_map>
+#include <ctime>
 #include <memory>
 #include <mutex>
 #include <thread>
-#include <ctime>
+#include <unordered_map>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gutil/ref_counted.h"
 #include "runtime/tablets_channel.h"
 #include "util/countdown_latch.h"
-#include "gutil/ref_counted.h"
 #include "util/thread.h"
 #include "util/uid_util.h"
 
@@ -57,7 +57,6 @@ public:
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
 
-
 private:
     // check if the total load mem consumption exceeds limit.
     // If yes, it will pick a load channel to try to reduce memory consumption.
@@ -81,4 +80,4 @@ private:
     Status _start_load_channels_clean();
 };
 
-}
+} // namespace doris

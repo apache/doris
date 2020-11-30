@@ -34,11 +34,11 @@ namespace doris {
 class ExprContext;
 
 struct RowBlockInfo {
-    RowBlockInfo() : checksum(0), row_num(0) { }
-    RowBlockInfo(uint32_t value, uint32_t num) : checksum(value), row_num(num) { }
+    RowBlockInfo() : checksum(0), row_num(0) {}
+    RowBlockInfo(uint32_t value, uint32_t num) : checksum(value), row_num(num) {}
 
     uint32_t checksum;
-    uint32_t row_num;       // block最大数据行数
+    uint32_t row_num; // block最大数据行数
     bool null_supported = false;
     std::vector<uint32_t> column_ids;
 };
@@ -55,6 +55,7 @@ class RowBlock {
     // faster operation.
     friend class RowBlockChanger;
     friend class VectorizedRowBatch;
+
 public:
     RowBlock(const TabletSchema* schema,
              const std::shared_ptr<MemTracker>& parent_tracker = nullptr);
@@ -71,7 +72,7 @@ public:
         cursor->attach(_mem_buf + row_index * _mem_row_bytes);
     }
 
-    template<typename RowType>
+    template <typename RowType>
     inline void set_row(uint32_t row_index, const RowType& row) const {
         memcpy(_mem_buf + row_index * _mem_row_bytes, row.row_ptr(), _mem_row_bytes);
     }
@@ -90,9 +91,7 @@ public:
         return _mem_buf + _mem_row_bytes * row + _field_offset_in_memory[col];
     }
 
-    MemPool* mem_pool() const {
-        return _mem_pool.get();
-    }
+    MemPool* mem_pool() const { return _mem_pool.get(); }
 
     // 重用rowblock之前需调用clear，恢复到init之后的原始状态
     void clear();
@@ -108,18 +107,15 @@ public:
     void set_block_status(uint8_t status) { _block_status = status; }
 
 private:
-
-    bool has_nullbyte() {
-        return _null_supported;
-    }
+    bool has_nullbyte() { return _null_supported; }
 
     // Compute layout for storage buffer and  memory buffer
     void _compute_layout();
 
     uint32_t _capacity;
     RowBlockInfo _info;
-    const TabletSchema* _schema;     // 内部保存的schema句柄
-    
+    const TabletSchema* _schema; // 内部保存的schema句柄
+
     bool _null_supported;
 
     // Data in memory is construct from row cursors, these row cursors's size is equal
@@ -144,6 +140,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(RowBlock);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROW_BLOCK_H

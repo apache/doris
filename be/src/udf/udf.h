@@ -18,8 +18,9 @@
 #ifndef DORIS_BE_UDF_UDF_H
 #define DORIS_BE_UDF_UDF_H
 
-#include <cstdint>
 #include <string.h>
+
+#include <cstdint>
 
 // This is the only Doris header required to develop UDFs and UDAs. This header
 // contains the types that need to be used and the FunctionContext object. The context
@@ -180,9 +181,7 @@ public:
 
     // Returns the underlying opaque implementation object. The UDF/UDA should not
     // use this. This is used internally.
-    doris::FunctionContextImpl* impl() {
-        return _impl;
-    }
+    doris::FunctionContextImpl* impl() { return _impl; }
 
     /// Methods for maintaining state across UDF/UDA function calls. SetFunctionState() can
     /// be used to store a pointer that can then be retreived via GetFunctionState(). If
@@ -289,8 +288,7 @@ typedef void (*UdfPrepareFn)(FunctionContext* context);
 /// The prepare function is called multiple times with different FunctionStateScopes. It
 /// will be called once per fragment with 'scope' set to FRAGMENT_LOCAL, and once per
 /// execution thread with 'scope' set to THREAD_LOCAL.
-typedef void (*UdfPrepare)(FunctionContext* context,
-                           FunctionContext::FunctionStateScope scope);
+typedef void (*UdfPrepare)(FunctionContext* context, FunctionContext::FunctionStateScope scope);
 
 /// The UDF can also optionally include a close function, specified in the "CREATE
 /// FUNCTION" statement using "close_fn=<close function symbol>". The close function is
@@ -302,8 +300,7 @@ typedef void (*UdfPrepare)(FunctionContext* context,
 /// The close function is called multiple times with different FunctionStateScopes. It
 /// will be called once per fragment with 'scope' set to FRAGMENT_LOCAL, and once per
 /// execution thread with 'scope' set to THREAD_LOCAL.
-typedef void (*UdfClose)(FunctionContext* context,
-                         FunctionContext::FunctionStateScope scope);
+typedef void (*UdfClose)(FunctionContext* context, FunctionContext::FunctionStateScope scope);
 
 //----------------------------------------------------------------------------
 //------------------------------- UDAs ---------------------------------------
@@ -358,13 +355,13 @@ typedef void (*UdaMerge)(FunctionContext* context, const IntermediateType& src,
 // wire. This is not called unless the intermediate type is String.
 // No additional functions will be called with this FunctionContext object and the
 // UDA should do final clean (e.g. Free()) here.
-typedef const IntermediateType(*UdaSerialize)(FunctionContext* context,
-        const IntermediateType& type);
+typedef const IntermediateType (*UdaSerialize)(FunctionContext* context,
+                                               const IntermediateType& type);
 
 // Called once at the end to return the final value for this UDA.
 // No additional functions will be called with this FunctionContext object and the
 // UDA should do final clean (e.g. Free()) here.
-typedef ResultType(*UdaFinalize)(FunctionContext* context, const IntermediateType& v);
+typedef ResultType (*UdaFinalize)(FunctionContext* context, const IntermediateType& v);
 
 //----------------------------------------------------------------------------
 //-------------Implementation of the *Val structs ----------------------------
@@ -398,16 +395,14 @@ struct BooleanVal : public AnyVal {
 
         return val == other.val;
     }
-    bool operator!=(const BooleanVal& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const BooleanVal& other) const { return !(*this == other); }
 };
 
 struct TinyIntVal : public AnyVal {
     int8_t val;
 
     TinyIntVal() : val(0) {}
-    TinyIntVal(int8_t val) : val(val) { }
+    TinyIntVal(int8_t val) : val(val) {}
 
     static TinyIntVal null() {
         TinyIntVal result;
@@ -426,16 +421,14 @@ struct TinyIntVal : public AnyVal {
 
         return val == other.val;
     }
-    bool operator!=(const TinyIntVal& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const TinyIntVal& other) const { return !(*this == other); }
 };
 
 struct SmallIntVal : public AnyVal {
     int16_t val;
 
-    SmallIntVal() : val(0) { }
-    SmallIntVal(int16_t val) : val(val) { }
+    SmallIntVal() : val(0) {}
+    SmallIntVal(int16_t val) : val(val) {}
 
     static SmallIntVal null() {
         SmallIntVal result;
@@ -454,16 +447,14 @@ struct SmallIntVal : public AnyVal {
 
         return val == other.val;
     }
-    bool operator!=(const SmallIntVal& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const SmallIntVal& other) const { return !(*this == other); }
 };
 
 struct IntVal : public AnyVal {
     int32_t val;
 
-    IntVal() : val(0) { }
-    IntVal(int32_t val) : val(val) { }
+    IntVal() : val(0) {}
+    IntVal(int32_t val) : val(val) {}
 
     static IntVal null() {
         IntVal result;
@@ -482,16 +473,14 @@ struct IntVal : public AnyVal {
 
         return val == other.val;
     }
-    bool operator!=(const IntVal& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const IntVal& other) const { return !(*this == other); }
 };
 
 struct BigIntVal : public AnyVal {
     int64_t val;
 
-    BigIntVal() : val(0) { }
-    BigIntVal(int64_t val) : val(val) { }
+    BigIntVal() : val(0) {}
+    BigIntVal(int64_t val) : val(val) {}
 
     static BigIntVal null() {
         BigIntVal result;
@@ -510,16 +499,14 @@ struct BigIntVal : public AnyVal {
 
         return val == other.val;
     }
-    bool operator!=(const BigIntVal& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const BigIntVal& other) const { return !(*this == other); }
 };
 
 struct FloatVal : public AnyVal {
     float val;
 
-    FloatVal() : val(0.0) { }
-    FloatVal(float val) : val(val) { }
+    FloatVal() : val(0.0) {}
+    FloatVal(float val) : val(val) {}
 
     static FloatVal null() {
         FloatVal result;
@@ -530,16 +517,14 @@ struct FloatVal : public AnyVal {
     bool operator==(const FloatVal& other) const {
         return is_null == other.is_null && val == other.val;
     }
-    bool operator!=(const FloatVal& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const FloatVal& other) const { return !(*this == other); }
 };
 
 struct DoubleVal : public AnyVal {
     double val;
 
-    DoubleVal() : val(0.0) { }
-    DoubleVal(double val) : val(val) { }
+    DoubleVal() : val(0.0) {}
+    DoubleVal(double val) : val(val) {}
 
     static DoubleVal null() {
         DoubleVal result;
@@ -558,9 +543,7 @@ struct DoubleVal : public AnyVal {
 
         return val == other.val;
     }
-    bool operator!=(const DoubleVal& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const DoubleVal& other) const { return !(*this == other); }
 };
 
 // This object has a compatible storage format with boost::ptime.
@@ -571,7 +554,7 @@ struct DateTimeVal : public AnyVal {
     int type;
 
     // NOTE: Type 3 is TIME_DATETIME in runtime/datetime_value.h
-    DateTimeVal() : packed_time(0), type(3) { }
+    DateTimeVal() : packed_time(0), type(3) {}
 
     static DateTimeVal null() {
         DateTimeVal result;
@@ -590,9 +573,7 @@ struct DateTimeVal : public AnyVal {
 
         return packed_time == other.packed_time;
     }
-    bool operator!=(const DateTimeVal& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const DateTimeVal& other) const { return !(*this == other); }
 };
 
 // Note: there is a difference between a NULL string (is_null == true) and an
@@ -605,7 +586,7 @@ struct StringVal : public AnyVal {
 
     // Construct a StringVal from ptr/len. Note: this does not make a copy of ptr
     // so the buffer must exist as long as this StringVal does.
-    StringVal() : len(0), ptr(NULL) { }
+    StringVal() : len(0), ptr(NULL) {}
 
     // Construct a StringVal from ptr/len. Note: this does not make a copy of ptr
     // so the buffer must exist as long as this StringVal does.
@@ -647,9 +628,7 @@ struct StringVal : public AnyVal {
         return len == 0 || ptr == other.ptr || memcmp(ptr, other.ptr, len) == 0;
     }
 
-    bool operator!=(const StringVal& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const StringVal& other) const { return !(*this == other); }
 
     /// Will create a new StringVal with the given dimension and copy the data from the
     /// parameters. In case of an error will return a NULL string and set an error on the
@@ -660,9 +639,8 @@ struct StringVal : public AnyVal {
     /// the memory allocation becomes too large, will set an error on FunctionContext and
     /// return a NULL string.
     void append(FunctionContext* ctx, const uint8_t* buf, size_t len);
-    void append(FunctionContext* ctx, const uint8_t* buf, size_t len,
-            const uint8_t* buf2,
-            size_t buf2_len);
+    void append(FunctionContext* ctx, const uint8_t* buf, size_t len, const uint8_t* buf2,
+                size_t buf2_len);
 };
 
 struct DecimalVal : public AnyVal {
@@ -681,28 +659,22 @@ struct DecimalVal : public AnyVal {
         result.is_null = true;
         return result;
     }
-    
+
     void set_to_zero() {
         memset(buffer, 0, sizeof(int32_t) * 9);
         int_len = 0;
         frac_len = 0;
         sign = 0;
     }
-    
-    void set_to_abs_value() {
-        sign = false;
-    }
 
-    bool operator==(const DecimalVal& other) const; 
+    void set_to_abs_value() { sign = false; }
 
-    bool operator!=(const DecimalVal& other) const {
-        return !(*this == other);
-    }
+    bool operator==(const DecimalVal& other) const;
 
+    bool operator!=(const DecimalVal& other) const { return !(*this == other); }
 };
 
 struct DecimalV2Val : public AnyVal {
-
     __int128 val;
 
     // Default value is zero
@@ -717,11 +689,9 @@ struct DecimalV2Val : public AnyVal {
         result.is_null = true;
         return result;
     }
-    
-    void set_to_zero() {
-        val = 0;
-    }
-    
+
+    void set_to_zero() { val = 0; }
+
     void set_to_abs_value() {
         if (val < 0) val = -val;
     }
@@ -738,19 +708,15 @@ struct DecimalV2Val : public AnyVal {
         return val == other.val;
     }
 
-    bool operator!=(const DecimalV2Val& other) const {
-        return !(*this == other);
-    }
-
+    bool operator!=(const DecimalV2Val& other) const { return !(*this == other); }
 };
-
 
 struct LargeIntVal : public AnyVal {
     __int128 val;
 
-    LargeIntVal() : val(0) { }
+    LargeIntVal() : val(0) {}
 
-    LargeIntVal(__int128 large_value) : val(large_value) { }
+    LargeIntVal(__int128 large_value) : val(large_value) {}
 
     static LargeIntVal null() {
         LargeIntVal result;
@@ -769,26 +735,23 @@ struct LargeIntVal : public AnyVal {
 
         return val == other.val;
     }
-    bool operator!=(const LargeIntVal& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const LargeIntVal& other) const { return !(*this == other); }
 };
 
 // todo(kks): keep HllVal struct only for backward compatibility, we should remove it
 //            when doris 0.12 release
 struct HllVal : public StringVal {
-    HllVal() : StringVal() { }
+    HllVal() : StringVal() {}
 
     void init(FunctionContext* ctx);
 
     void agg_parse_and_cal(FunctionContext* ctx, const HllVal& other);
 
-    void agg_merge(const HllVal &other);
+    void agg_merge(const HllVal& other);
 };
 
-
 typedef uint8_t* BufferVal;
-}
+} // namespace doris_udf
 
 using doris_udf::BooleanVal;
 using doris_udf::TinyIntVal;

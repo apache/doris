@@ -18,11 +18,11 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_EXPR_VALUE_H
 #define DORIS_BE_SRC_QUERY_EXPRS_EXPR_VALUE_H
 
-#include "runtime/string_value.h"
-#include "runtime/string_value.hpp"
 #include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/string_value.h"
+#include "runtime/string_value.hpp"
 #include "runtime/types.h"
 
 namespace doris {
@@ -47,37 +47,35 @@ struct ExprValue {
     DecimalValue decimal_val;
     DecimalV2Value decimalv2_val;
 
-    ExprValue() :
-            bool_val(false),
-            tinyint_val(0),
-            smallint_val(0),
-            int_val(0),
-            bigint_val(0),
-            large_int_val(0),
-            float_val(0.0),
-            double_val(0.0),
-            string_data(),
-            string_val(NULL, 0),
-            datetime_val(),
-            decimal_val(),
-            decimalv2_val() {
-    }
+    ExprValue()
+            : bool_val(false),
+              tinyint_val(0),
+              smallint_val(0),
+              int_val(0),
+              bigint_val(0),
+              large_int_val(0),
+              float_val(0.0),
+              double_val(0.0),
+              string_data(),
+              string_val(NULL, 0),
+              datetime_val(),
+              decimal_val(),
+              decimalv2_val() {}
 
-    ExprValue(bool v): bool_val(v) {}
-    ExprValue(int8_t v): tinyint_val(v) {}
-    ExprValue(int16_t v): smallint_val(v) {}
-    ExprValue(int32_t v): int_val(v) {}
-    ExprValue(int64_t v): bigint_val(v) {}
+    ExprValue(bool v) : bool_val(v) {}
+    ExprValue(int8_t v) : tinyint_val(v) {}
+    ExprValue(int16_t v) : smallint_val(v) {}
+    ExprValue(int32_t v) : int_val(v) {}
+    ExprValue(int64_t v) : bigint_val(v) {}
     ExprValue(__int128 value) : large_int_val(value) {}
-    ExprValue(float v): float_val(v) {}
-    ExprValue(double v): double_val(v) {}
+    ExprValue(float v) : float_val(v) {}
+    ExprValue(double v) : double_val(v) {}
     ExprValue(int64_t i, int32_t f) : decimal_val(i, f), decimalv2_val(i, f) {}
 
     // c'tor for string values
-    ExprValue(const std::string& str) :
-            string_data(str),
-            string_val(const_cast<char*>(string_data.data()), string_data.size()) {
-    }
+    ExprValue(const std::string& str)
+            : string_data(str),
+              string_val(const_cast<char*>(string_data.data()), string_data.size()) {}
 
     // Set string value to copy of str
     void set_string_val(const StringValue& str) {
@@ -255,6 +253,6 @@ struct ExprValue {
     }
 };
 
-}
+} // namespace doris
 
 #endif

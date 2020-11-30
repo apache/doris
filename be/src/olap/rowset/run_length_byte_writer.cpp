@@ -25,11 +25,8 @@ const int32_t RunLengthByteWriter::MIN_REPEAT_SIZE;
 const int32_t RunLengthByteWriter::MAX_LITERAL_SIZE;
 const int32_t RunLengthByteWriter::MAX_REPEAT_SIZE;
 
-RunLengthByteWriter::RunLengthByteWriter(OutStream* output) : 
-        _output(output),
-        _num_literals(0),
-        _repeat(false),
-        _tail_run_length(0) {}
+RunLengthByteWriter::RunLengthByteWriter(OutStream* output)
+        : _output(output), _num_literals(0), _repeat(false), _tail_run_length(0) {}
 
 OLAPStatus RunLengthByteWriter::_write_values() {
     OLAPStatus res = OLAP_SUCCESS;
@@ -142,4 +139,4 @@ void RunLengthByteWriter::get_position(PositionEntryWriter* index_entry) const {
     index_entry->add_position(_num_literals);
 }
 
-}  // namespace doris
+} // namespace doris

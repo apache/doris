@@ -20,12 +20,12 @@
 #include <string>
 
 #include "http/http_channel.h"
-#include "http/http_request.h"
 #include "http/http_headers.h"
+#include "http/http_request.h"
 #include "http/http_status.h"
-#include "service/backend_options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "service/backend_options.h"
 
 namespace doris {
 
@@ -35,7 +35,7 @@ TabletsInfoAction::TabletsInfoAction() {
     _host = BackendOptions::get_localhost();
 }
 
-void TabletsInfoAction::handle(HttpRequest *req) {
+void TabletsInfoAction::handle(HttpRequest* req) {
     const std::string& tablet_num_to_return = req->param("limit");
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
     HttpChannel::send_reply(req, HttpStatus::OK, get_tablets_info(tablet_num_to_return).ToString());
@@ -76,4 +76,3 @@ EasyJson TabletsInfoAction::get_tablets_info(string tablet_num_to_return) {
     return tablets_info_ej;
 }
 } // namespace doris
-

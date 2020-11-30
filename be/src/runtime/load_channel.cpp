@@ -17,15 +17,15 @@
 
 #include "runtime/load_channel.h"
 
+#include "olap/lru_cache.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/tablets_channel.h"
-#include "olap/lru_cache.h"
 
 namespace doris {
 
-LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit,
-                         int64_t timeout_s, const std::shared_ptr<MemTracker>& mem_tracker) :
-        _load_id(load_id), _timeout_s(timeout_s) {
+LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
+                         const std::shared_ptr<MemTracker>& mem_tracker)
+        : _load_id(load_id), _timeout_s(timeout_s) {
     _mem_tracker = MemTracker::CreateTracker(mem_limit, _load_id.to_string(), mem_tracker);
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
@@ -35,8 +35,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit,
 
 LoadChannel::~LoadChannel() {
     LOG(INFO) << "load channel mem peak usage=" << _mem_tracker->peak_consumption()
-        << ", info=" << _mem_tracker->debug_string()
-        << ", load_id=" << _load_id;
+              << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id;
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -62,10 +61,8 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
-Status LoadChannel::add_batch(
-        const PTabletWriterAddBatchRequest& request,
-        google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
-
+Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
+                              google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;
@@ -96,8 +93,8 @@ Status LoadChannel::add_batch(
     Status st;
     if (request.has_eos() && request.eos()) {
         bool finished = false;
-        RETURN_IF_ERROR(channel->close(request.sender_id(), &finished,
-                                       request.partition_ids(), tablet_vec));
+        RETURN_IF_ERROR(channel->close(request.sender_id(), &finished, request.partition_ids(),
+                                       tablet_vec));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
             _tablets_channels.erase(index_id);
@@ -116,9 +113,8 @@ void LoadChannel::handle_mem_exceed_limit(bool force) {
     }
 
     if (!force) {
-        LOG(INFO) << "reducing memory of " << *this
-                  << " because its mem consumption " << _mem_tracker->consumption()
-                  << " has exceeded limit " << _mem_tracker->limit();
+        LOG(INFO) << "reducing memory of " << *this << " because its mem consumption "
+                  << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
     }
 
     std::shared_ptr<TabletsChannel> channel;
@@ -159,4 +155,4 @@ Status LoadChannel::cancel() {
     return Status::OK();
 }
 
-}
+} // namespace doris

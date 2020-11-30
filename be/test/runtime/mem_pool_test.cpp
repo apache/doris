@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
+#include "runtime/mem_pool.h"
+
 #include <gtest/gtest.h>
 
-#include "runtime/mem_pool.h"
+#include <string>
+
 #include "runtime/mem_tracker.h"
 #include "util/logging.h"
 
@@ -82,7 +84,7 @@ TEST(MemPoolTest, Basic) {
     EXPECT_EQ(0, p.total_allocated_bytes());
     EXPECT_EQ(0, p.total_reserved_bytes());
 
-    p3.acquire_data(&p2, true);  // we're keeping the 65k chunk
+    p3.acquire_data(&p2, true); // we're keeping the 65k chunk
     EXPECT_EQ(33 * 1024, p2.total_allocated_bytes());
     EXPECT_EQ(256 * 1024, p2.total_reserved_bytes());
 
@@ -169,7 +171,7 @@ TEST(MemPoolTest, MaxAllocation) {
 
     // Allocates a new int_max_rounded * 4 chunk
     // NOTE: exceed MAX_CHUNK_SIZE limit, will not *2
-#if !defined (ADDRESS_SANITIZER) || (__clang_major__ >= 3 && __clang_minor__ >= 7)
+#if !defined(ADDRESS_SANITIZER) || (__clang_major__ >= 3 && __clang_minor__ >= 7)
     ptr = p3.allocate(8);
     EXPECT_TRUE(ptr != NULL);
     EXPECT_EQ(int_max_rounded * 3 + 512 * 1024, p3.total_reserved_bytes());
@@ -181,9 +183,8 @@ TEST(MemPoolTest, MaxAllocation) {
     EXPECT_EQ(int_max_rounded * 4 + 8, p3.total_allocated_bytes());
 #endif
     p3.free_all();
-
 }
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -192,8 +193,7 @@ int main(int argc, char** argv) {
     //     return -1;
     // }
     doris::init_glog("be-test");
-    
+
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

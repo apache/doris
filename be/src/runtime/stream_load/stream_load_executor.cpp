@@ -19,6 +19,10 @@
 
 #include "common/status.h"
 #include "common/utils.h"
+#include "gen_cpp/FrontendService.h"
+#include "gen_cpp/FrontendService_types.h"
+#include "gen_cpp/HeartbeatService_types.h"
+#include "gen_cpp/Types_types.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -27,11 +31,6 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
-
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/Types_types.h"
 
 namespace doris {
 
@@ -79,15 +78,16 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                     }
 
                     if (status.ok()) {
-                        DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
-                        DorisMetrics::instance()->stream_load_rows_total->increment(ctx->number_loaded_rows);
+                        DorisMetrics::instance()->stream_receive_bytes_total->increment(
+                                ctx->receive_bytes);
+                        DorisMetrics::instance()->stream_load_rows_total->increment(
+                                ctx->number_loaded_rows);
                     }
                 } else {
                     LOG(WARNING) << "fragment execute failed"
                                  << ", query_id="
                                  << UniqueId(ctx->put_result.params.params.query_id)
-                                 << ", err_msg=" << status.get_error_msg()
-                                 << ", "<< ctx->brief();
+                                 << ", err_msg=" << status.get_error_msg() << ", " << ctx->brief();
                     // cancel body_sink, make sender known it
                     if (ctx->body_sink != nullptr) {
                         ctx->body_sink->cancel();
@@ -307,4 +307,4 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
     return false;
 }
 
-} // end namespace
+} // namespace doris

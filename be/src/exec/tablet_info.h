@@ -28,8 +28,8 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/descriptors.pb.h"
 #include "runtime/descriptors.h"
-#include "runtime/tuple.h"
 #include "runtime/raw_value.h"
+#include "runtime/tuple.h"
 
 namespace doris {
 
@@ -47,8 +47,8 @@ struct OlapTableIndexSchema {
 
 class OlapTableSchemaParam {
 public:
-    OlapTableSchemaParam() { }
-    ~OlapTableSchemaParam() noexcept { }
+    OlapTableSchemaParam() {}
+    ~OlapTableSchemaParam() noexcept {}
 
     Status init(const TOlapTableSchemaParam& tschema);
     Status init(const POlapTableSchemaParam& pschema);
@@ -58,9 +58,7 @@ public:
     int64_t version() const { return _version; }
 
     TupleDescriptor* tuple_desc() const { return _tuple_desc; }
-    const std::vector<OlapTableIndexSchema*>& indexes() const {
-        return _indexes;
-    }
+    const std::vector<OlapTableIndexSchema*>& indexes() const { return _indexes; }
 
     void to_protobuf(POlapTableSchemaParam* pschema) const;
 
@@ -104,8 +102,8 @@ struct OlapTablePartition {
 
 class OlapTablePartKeyComparator {
 public:
-    OlapTablePartKeyComparator(const std::vector<SlotDescriptor*>& slot_descs) :
-        _slot_descs(slot_descs) { }
+    OlapTablePartKeyComparator(const std::vector<SlotDescriptor*>& slot_descs)
+            : _slot_descs(slot_descs) {}
     // return true if lhs < rhs
     // 'nullptr' is max value, but 'null' is min value
     bool operator()(const Tuple* lhs, const Tuple* rhs) const {
@@ -118,18 +116,25 @@ public:
         for (auto slot_desc : _slot_descs) {
             bool lhs_null = lhs->is_null(slot_desc->null_indicator_offset());
             bool rhs_null = rhs->is_null(slot_desc->null_indicator_offset());
-            if (lhs_null && rhs_null) { continue; }
-            if (lhs_null || rhs_null) { return !rhs_null; }
+            if (lhs_null && rhs_null) {
+                continue;
+            }
+            if (lhs_null || rhs_null) {
+                return !rhs_null;
+            }
 
             auto lhs_value = lhs->get_slot(slot_desc->tuple_offset());
             auto rhs_value = rhs->get_slot(slot_desc->tuple_offset());
 
             int res = RawValue::compare(lhs_value, rhs_value, slot_desc->type());
-            if (res != 0) { return res < 0; }
+            if (res != 0) {
+                return res < 0;
+            }
         }
         // equal, return false
         return false;
     }
+
 private:
     std::vector<SlotDescriptor*> _slot_descs;
 };
@@ -137,9 +142,8 @@ private:
 // store an olap table's tablet information
 class OlapTablePartitionParam {
 public:
-    OlapTablePartitionParam(
-        std::shared_ptr<OlapTableSchemaParam> schema,
-        const TOlapTablePartitionParam& param);
+    OlapTablePartitionParam(std::shared_ptr<OlapTableSchemaParam> schema,
+                            const TOlapTablePartitionParam& param);
     ~OlapTablePartitionParam();
 
     Status init();
@@ -149,14 +153,12 @@ public:
     int64_t version() const { return _t_param.version; }
 
     // return true if we found this tuple in partition
-    bool find_tablet(Tuple* tuple,
-                     const OlapTablePartition** partitions,
+    bool find_tablet(Tuple* tuple, const OlapTablePartition** partitions,
                      uint32_t* dist_hash) const;
 
-    const std::vector<OlapTablePartition*>& get_partitions() const {
-        return _partitions;
-    }
+    const std::vector<OlapTablePartition*>& get_partitions() const { return _partitions; }
     std::string debug_string() const;
+
 private:
     Status _create_partition_keys(const std::vector<TExprNode>& t_exprs, Tuple** part_key);
 
@@ -173,6 +175,7 @@ private:
         OlapTablePartKeyComparator comparator(_partition_slot_descs);
         return !comparator(key, part->start_key);
     }
+
 private:
     // this partition only valid in this schema
     std::shared_ptr<OlapTableSchemaParam> _schema;
@@ -185,8 +188,8 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     std::vector<OlapTablePartition*> _partitions;
-    std::unique_ptr<
-        std::map<Tuple*, OlapTablePartition*, OlapTablePartKeyComparator>> _partitions_map;
+    std::unique_ptr<std::map<Tuple*, OlapTablePartition*, OlapTablePartKeyComparator>>
+            _partitions_map;
 };
 
 using TabletLocation = TTabletLocation;
@@ -214,6 +217,7 @@ public:
         }
         return nullptr;
     }
+
 private:
     TOlapTableLocationParam _t_param;
 
@@ -227,11 +231,10 @@ struct NodeInfo {
     int32_t brpc_port;
 
     NodeInfo(const TNodeInfo& tnode)
-        : id(tnode.id),
-        option(tnode.option),
-        host(tnode.host),
-        brpc_port(tnode.async_internal_port) {
-    }
+            : id(tnode.id),
+              option(tnode.option),
+              host(tnode.host),
+              brpc_port(tnode.async_internal_port) {}
 };
 
 class DorisNodesInfo {
@@ -248,8 +251,9 @@ public:
         }
         return nullptr;
     }
+
 private:
     std::unordered_map<int64_t, NodeInfo> _nodes;
 };
 
-}
+} // namespace doris

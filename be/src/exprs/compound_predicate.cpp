@@ -19,14 +19,12 @@
 
 #include <sstream>
 
-#include "util/debug_util.h"
 #include "runtime/runtime_state.h"
+#include "util/debug_util.h"
 
 namespace doris {
 
-CompoundPredicate::CompoundPredicate(const TExprNode& node) :
-        Predicate(node) {
-}
+CompoundPredicate::CompoundPredicate(const TExprNode& node) : Predicate(node) {}
 #if 0
 Status CompoundPredicate::prepare(RuntimeState* state, const RowDescriptor& desc) {
     DCHECK_LE(_children.size(), 2);
@@ -34,8 +32,7 @@ Status CompoundPredicate::prepare(RuntimeState* state, const RowDescriptor& desc
 }
 #endif
 
-void CompoundPredicate::init() {
-}
+void CompoundPredicate::init() {}
 
 BooleanVal CompoundPredicate::compound_not(FunctionContext* context, const BooleanVal& v) {
     if (v.is_null) {
@@ -90,4 +87,4 @@ std::string CompoundPredicate::debug_string() const {
     return out.str();
 }
 
-}
+} // namespace doris

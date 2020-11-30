@@ -15,17 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
 #include <cctz/time_zone.h>
-#include <sstream>
-#include <fstream>
-#include "boost/filesystem.hpp"
-#include "json2pb/json_to_pb.h"
+#include <gtest/gtest.h>
 
-#include "olap/version_graph.h"
+#include <fstream>
+#include <sstream>
+
+#include "boost/filesystem.hpp"
+#include "gutil/strings/substitute.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
-#include "gutil/strings/substitute.h"
+#include "olap/version_graph.h"
 
 namespace doris {
 
@@ -111,11 +112,9 @@ public:
             }
         })";
     }
-    void TearDown() {
-    }
+    void TearDown() {}
 
-    void init_rs_meta(RowsetMetaSharedPtr &pb1, int64_t start, int64_t end) {
-
+    void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
         pb1->init_from_json(_json_rowset_meta);
         pb1->set_start_version(start);
         pb1->set_end_version(end);
@@ -145,7 +144,6 @@ public:
     }
 
     void init_expired_row_rs_meta(std::vector<RowsetMetaSharedPtr>* rs_metas) {
-
         RowsetMetaSharedPtr ptr1(new RowsetMeta());
         init_rs_meta(ptr1, 2, 3);
         rs_metas->push_back(ptr1);
@@ -173,11 +171,9 @@ public:
         RowsetMetaSharedPtr ptr7(new RowsetMeta());
         init_rs_meta(ptr7, 10, 10);
         rs_metas->push_back(ptr7);
-
     }
 
     void init_expired_row_rs_meta_with_same_rowset(std::vector<RowsetMetaSharedPtr>* rs_metas) {
-
         RowsetMetaSharedPtr ptr0(new RowsetMeta());
         init_rs_meta(ptr0, 1, 1);
         rs_metas->push_back(ptr0);
@@ -209,11 +205,9 @@ public:
         RowsetMetaSharedPtr ptr7(new RowsetMeta());
         init_rs_meta(ptr7, 10, 10);
         rs_metas->push_back(ptr7);
-
     }
 
     void fetch_expired_row_rs_meta(std::vector<RowsetMetaSharedContainerPtr>* rs_metas) {
-
         RowsetMetaSharedContainerPtr v2(new std::vector<RowsetMetaSharedPtr>());
         RowsetMetaSharedPtr ptr1(new RowsetMeta());
         init_rs_meta(ptr1, 2, 3);
@@ -252,8 +246,8 @@ public:
         rs_metas->push_back(v5);
     }
 
-    void fetch_expired_row_rs_meta_with_same_rowset(std::vector<RowsetMetaSharedContainerPtr>* rs_metas) {
-
+    void fetch_expired_row_rs_meta_with_same_rowset(
+            std::vector<RowsetMetaSharedContainerPtr>* rs_metas) {
         RowsetMetaSharedContainerPtr v1(new std::vector<RowsetMetaSharedPtr>());
         RowsetMetaSharedPtr ptr0(new RowsetMeta());
         init_rs_meta(ptr0, 1, 1);
@@ -301,11 +295,9 @@ public:
 private:
     OlapMeta* _meta;
     std::string _json_rowset_meta;
-
 };
 
 TEST_F(TestTimestampedVersionTracker, construct_version_graph) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     VersionGraph version_graph;
 
@@ -319,7 +311,6 @@ TEST_F(TestTimestampedVersionTracker, construct_version_graph) {
 }
 
 TEST_F(TestTimestampedVersionTracker, construct_version_graph_with_same_version) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedPtr> expired_rs_metas;
 
@@ -327,8 +318,7 @@ TEST_F(TestTimestampedVersionTracker, construct_version_graph_with_same_version)
 
     init_all_rs_meta(&rs_metas);
 
-    rs_metas.insert(rs_metas.end(), expired_rs_metas.begin(),
-                        expired_rs_metas.end());
+    rs_metas.insert(rs_metas.end(), expired_rs_metas.begin(), expired_rs_metas.end());
     int64_t max_version = 0;
     version_graph.construct_version_graph(rs_metas, &max_version);
 
@@ -338,7 +328,6 @@ TEST_F(TestTimestampedVersionTracker, construct_version_graph_with_same_version)
 }
 
 TEST_F(TestTimestampedVersionTracker, reconstruct_version_graph) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     VersionGraph version_graph;
 
@@ -352,7 +341,6 @@ TEST_F(TestTimestampedVersionTracker, reconstruct_version_graph) {
 }
 
 TEST_F(TestTimestampedVersionTracker, delete_version_from_graph) {
-
     VersionGraph version_graph;
 
     Version version0(0, 0);
@@ -365,7 +353,6 @@ TEST_F(TestTimestampedVersionTracker, delete_version_from_graph) {
 }
 
 TEST_F(TestTimestampedVersionTracker, delete_version_from_graph_with_same_version) {
-
     VersionGraph version_graph;
 
     Version version0(0, 0);
@@ -381,7 +368,6 @@ TEST_F(TestTimestampedVersionTracker, delete_version_from_graph_with_same_versio
 }
 
 TEST_F(TestTimestampedVersionTracker, add_version_to_graph) {
-
     VersionGraph version_graph;
 
     Version version0(0, 0);
@@ -396,7 +382,6 @@ TEST_F(TestTimestampedVersionTracker, add_version_to_graph) {
 }
 
 TEST_F(TestTimestampedVersionTracker, add_version_to_graph_with_same_version) {
-
     VersionGraph version_graph;
 
     Version version0(0, 0);
@@ -410,7 +395,6 @@ TEST_F(TestTimestampedVersionTracker, add_version_to_graph_with_same_version) {
 }
 
 TEST_F(TestTimestampedVersionTracker, capture_consistent_versions) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedPtr> expired_rs_metas;
     std::vector<Version> version_path;
@@ -420,8 +404,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions) {
 
     VersionGraph version_graph;
     int64_t max_version = 0;
-    rs_metas.insert(rs_metas.end(), expired_rs_metas.begin(),
-                        expired_rs_metas.end());
+    rs_metas.insert(rs_metas.end(), expired_rs_metas.begin(), expired_rs_metas.end());
 
     version_graph.construct_version_graph(rs_metas, &max_version);
 
@@ -436,7 +419,6 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions) {
 }
 
 TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_with_same_rowset) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedPtr> expired_rs_metas;
     std::vector<Version> version_path;
@@ -446,8 +428,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_with_same_rows
 
     VersionGraph version_graph;
     int64_t max_version = 0;
-    rs_metas.insert(rs_metas.end(), expired_rs_metas.begin(),
-                        expired_rs_metas.end());
+    rs_metas.insert(rs_metas.end(), expired_rs_metas.begin(), expired_rs_metas.end());
 
     version_graph.construct_version_graph(rs_metas, &max_version);
 
@@ -462,7 +443,6 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_with_same_rows
 }
 
 TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedPtr> expired_rs_metas;
     std::vector<Version> version_path;
@@ -470,8 +450,7 @@ TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker) {
     init_all_rs_meta(&rs_metas);
     init_expired_row_rs_meta(&expired_rs_metas);
 
-    rs_metas.insert(rs_metas.end(), expired_rs_metas.begin(),
-                        expired_rs_metas.end());
+    rs_metas.insert(rs_metas.end(), expired_rs_metas.begin(), expired_rs_metas.end());
     TimestampedVersionTracker tracker;
     tracker.construct_versioned_tracker(rs_metas);
 
@@ -481,7 +460,6 @@ TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker) {
 }
 
 TEST_F(TestTimestampedVersionTracker, construct_version_tracker_by_stale_meta) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedPtr> expired_rs_metas;
     std::vector<Version> version_path;
@@ -498,7 +476,6 @@ TEST_F(TestTimestampedVersionTracker, construct_version_tracker_by_stale_meta) {
 }
 
 TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker_with_same_rowset) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedPtr> expired_rs_metas;
     std::vector<Version> version_path;
@@ -506,8 +483,7 @@ TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker_with_same_rows
     init_all_rs_meta(&rs_metas);
     init_expired_row_rs_meta_with_same_rowset(&expired_rs_metas);
 
-    rs_metas.insert(rs_metas.end(), expired_rs_metas.begin(),
-                        expired_rs_metas.end());
+    rs_metas.insert(rs_metas.end(), expired_rs_metas.begin(), expired_rs_metas.end());
     TimestampedVersionTracker tracker;
     tracker.construct_versioned_tracker(rs_metas);
 
@@ -517,15 +493,13 @@ TEST_F(TestTimestampedVersionTracker, construct_versioned_tracker_with_same_rows
 }
 
 TEST_F(TestTimestampedVersionTracker, recover_versioned_tracker) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedPtr> expired_rs_metas;
     std::vector<Version> version_path;
 
     init_all_rs_meta(&rs_metas);
     init_expired_row_rs_meta(&expired_rs_metas);
-    rs_metas.insert(rs_metas.end(), expired_rs_metas.begin(),
-                        expired_rs_metas.end());
+    rs_metas.insert(rs_metas.end(), expired_rs_metas.begin(), expired_rs_metas.end());
 
     const std::map<int64_t, PathVersionListSharedPtr> stale_version_path_map;
     TimestampedVersionTracker tracker;
@@ -538,7 +512,6 @@ TEST_F(TestTimestampedVersionTracker, recover_versioned_tracker) {
 }
 
 TEST_F(TestTimestampedVersionTracker, add_version) {
-
     TimestampedVersionTracker tracker;
 
     Version version0(0, 0);
@@ -553,7 +526,6 @@ TEST_F(TestTimestampedVersionTracker, add_version) {
 }
 
 TEST_F(TestTimestampedVersionTracker, add_version_with_same_rowset) {
-
     TimestampedVersionTracker tracker;
 
     Version version0(0, 0);
@@ -567,7 +539,6 @@ TEST_F(TestTimestampedVersionTracker, add_version_with_same_rowset) {
 }
 
 TEST_F(TestTimestampedVersionTracker, add_stale_path_version) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedPtr> expired_rs_metas;
     std::vector<Version> version_path;
@@ -584,7 +555,6 @@ TEST_F(TestTimestampedVersionTracker, add_stale_path_version) {
 }
 
 TEST_F(TestTimestampedVersionTracker, add_stale_path_version_with_same_rowset) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedContainerPtr> expired_rs_metas;
     std::vector<Version> version_path;
@@ -594,7 +564,7 @@ TEST_F(TestTimestampedVersionTracker, add_stale_path_version_with_same_rowset) {
     tracker.construct_versioned_tracker(rs_metas);
 
     fetch_expired_row_rs_meta_with_same_rowset(&expired_rs_metas);
-    for(auto ptr:expired_rs_metas) {
+    for (auto ptr : expired_rs_metas) {
         tracker.add_stale_path_version(*ptr);
     }
 
@@ -603,7 +573,6 @@ TEST_F(TestTimestampedVersionTracker, add_stale_path_version_with_same_rowset) {
 }
 
 TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedContainerPtr> expired_rs_metas;
     std::vector<Version> version_path;
@@ -613,7 +582,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker) {
 
     TimestampedVersionTracker tracker;
     tracker.construct_versioned_tracker(rs_metas);
-    for(auto ptr:expired_rs_metas) {
+    for (auto ptr : expired_rs_metas) {
         for (auto rs : *ptr) {
             tracker.add_version(rs->version());
         }
@@ -631,7 +600,6 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker) {
 }
 
 TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker_with_same_rowset) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedContainerPtr> expired_rs_metas;
     std::vector<Version> version_path;
@@ -641,7 +609,7 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker_with_s
 
     TimestampedVersionTracker tracker;
     tracker.construct_versioned_tracker(rs_metas);
-    for(auto ptr:expired_rs_metas) {
+    for (auto ptr : expired_rs_metas) {
         for (auto rs : *ptr) {
             tracker.add_version(rs->version());
         }
@@ -659,7 +627,6 @@ TEST_F(TestTimestampedVersionTracker, capture_consistent_versions_tracker_with_s
 }
 
 TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedContainerPtr> expired_rs_metas;
 
@@ -668,7 +635,7 @@ TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version) {
 
     TimestampedVersionTracker tracker;
     tracker.construct_versioned_tracker(rs_metas);
-    for(auto ptr:expired_rs_metas) {
+    for (auto ptr : expired_rs_metas) {
         for (auto rs : *ptr) {
             tracker.add_version(rs->version());
         }
@@ -706,7 +673,6 @@ TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version) {
 }
 
 TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version_with_same_rowset) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedContainerPtr> expired_rs_metas;
 
@@ -715,7 +681,7 @@ TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version_with_same_ro
 
     TimestampedVersionTracker tracker;
     tracker.construct_versioned_tracker(rs_metas);
-    for(auto ptr:expired_rs_metas) {
+    for (auto ptr : expired_rs_metas) {
         for (auto rs : *ptr) {
             tracker.add_version(rs->version());
         }
@@ -756,7 +722,6 @@ TEST_F(TestTimestampedVersionTracker, fetch_and_delete_path_version_with_same_ro
 }
 
 TEST_F(TestTimestampedVersionTracker, capture_expired_path_version) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedContainerPtr> expired_rs_metas;
     std::vector<int64_t> path_version;
@@ -766,7 +731,7 @@ TEST_F(TestTimestampedVersionTracker, capture_expired_path_version) {
 
     TimestampedVersionTracker tracker;
     tracker.construct_versioned_tracker(rs_metas);
-    for(auto ptr:expired_rs_metas) {
+    for (auto ptr : expired_rs_metas) {
         for (auto rs : *ptr) {
             tracker.add_version(rs->version());
         }
@@ -781,7 +746,6 @@ TEST_F(TestTimestampedVersionTracker, capture_expired_path_version) {
 }
 
 TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedContainerPtr> expired_rs_metas;
     std::vector<Version> version_path;
@@ -791,7 +755,7 @@ TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc) {
 
     TimestampedVersionTracker tracker;
     tracker.construct_versioned_tracker(rs_metas);
-    for(auto ptr:expired_rs_metas) {
+    for (auto ptr : expired_rs_metas) {
         for (auto rs : *ptr) {
             tracker.add_version(rs->version());
         }
@@ -838,7 +802,6 @@ TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc) {
 }
 
 TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc_empty) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedContainerPtr> expired_rs_metas;
     std::vector<Version> version_path;
@@ -848,7 +811,7 @@ TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc_empty) {
 
     TimestampedVersionTracker tracker;
     tracker.construct_versioned_tracker(rs_metas);
-    
+
     rapidjson::Document path_arr;
     path_arr.SetArray();
 
@@ -863,10 +826,10 @@ TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc_empty) {
 
     ASSERT_EQ(expect_result, json_result);
 }
-}
+} // namespace doris
 
 // @brief Test Stub
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS(); 
+    return RUN_ALL_TESTS();
 }

@@ -25,7 +25,7 @@ namespace segment_v2 {
 // This Bloom filter is implemented using block-based Bloom filter algorithm
 // from Putze et al.'s "Cache-, Hash- and Space-Efficient Bloom filters". The basic
 // idea is to hash the item to a tiny Bloom filter which size fit a single cache line
-// or smaller. This implementation sets 8 bits in each tiny Bloom filter. Each tiny 
+// or smaller. This implementation sets 8 bits in each tiny Bloom filter. Each tiny
 // Bloom filter is 32 bytes to take advantage of 32-byte SIMD instruction.
 class BlockSplitBloomFilter : public BloomFilter {
 public:
