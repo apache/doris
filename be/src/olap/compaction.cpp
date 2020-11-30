@@ -66,8 +66,8 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
 
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name()
-              << ", output version is=" << _output_version.first << "-" << _output_version.second
-              << ", score: " << permits;
+              << ", output_version=" << _output_version.first << "-" << _output_version.second
+              << ", permits: " << permits;
 
     RETURN_NOT_OK(construct_output_rowset_writer());
     RETURN_NOT_OK(construct_input_rowset_readers());
@@ -268,4 +268,12 @@ int64_t Compaction::_get_input_num_rows_from_seg_grps() {
     return num_rows;
 }
 
-} // namespace doris
+int64_t Compaction::get_compaction_permits() {
+    int64_t permits = 0;
+    for (auto rowset : _input_rowsets) {
+        permits += rowset->rowset_meta()->get_compaction_score();
+    }
+    return permits;
+}
+
+}  // namespace doris
