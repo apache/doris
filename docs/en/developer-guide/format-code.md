@@ -25,7 +25,7 @@ under the License.
 -->
 
 # Format Code
-To automatically format the code, clang-format is a good choice.
+Doris use `Clang-format` to automatically check the format of your source code.
 
 ## Code Style
 Doris Code Style is based on Google's, makes a few changes. The customized .clang-format
@@ -58,31 +58,16 @@ the version is lower than clang-format-9.0.
 ## Usage
 
 ### CMD
-`clang-format --style=file -i $File$` 
+Change directory to the root directory of Doris sources and run the following command:
+`build-support/clang-format.sh`
 
-`-style=file` Clang-format will try to find the .clang-format file located in the closest parent directory of the input file. When the standard input is used, the search is started from the current directory.
-
-`--lines = m:n` Format a range of lines. Multiple ranges can be formatted by specifying several -lines arguments.
-
-`-i`input file
-
-Note: filter out the files which should not be formatted, when batch clang-formatting files. 
- 
- A example of how to filter \*.h/\*.cpp and exclude some dirs:
- 
- Centos
-
-`find . -type f -not \( -wholename ./env/* \) -regextype posix-egrep -regex
- ".*\.(cpp|h)" | xargs clang-format -i -style=file`
- 
- Mac
- 
- `find -E . -type f -not \( -wholename ./env/* \) -regex ".*\.(cpp|h)" | xargs clang-format -i --style=file`
+NOTE: Python3 is required to run the `clang-format.sh` script.
 
 ### Using clang-format in IDEs or Editors
 #### Clion
 If using the plugin 'ClangFormat' in Clion, choose `Reformat Code` or press the keyboard 
 shortcut.
+
 #### VS Code
 VS Code needs install the extension 'Clang-Format', and specify the executable path of 
 clang-format in settings.

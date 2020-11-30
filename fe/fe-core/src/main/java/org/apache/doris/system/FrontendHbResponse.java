@@ -34,12 +34,13 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     private int queryPort;
     private int rpcPort;
     private long replayedJournalId;
+    private String version;
 
     public FrontendHbResponse() {
         super(HeartbeatResponse.Type.FRONTEND);
     }
 
-    public FrontendHbResponse(String name, int queryPort, int rpcPort, long replayedJournalId, long hbTime) {
+    public FrontendHbResponse(String name, int queryPort, int rpcPort, long replayedJournalId, long hbTime, String version) {
         super(HeartbeatResponse.Type.FRONTEND);
         this.status = HbStatus.OK;
         this.name = name;
@@ -47,6 +48,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         this.rpcPort = rpcPort;
         this.replayedJournalId = replayedJournalId;
         this.hbTime = hbTime;
+        this.version = version;
     }
 
     public FrontendHbResponse(String name, String errMsg) {
@@ -70,6 +72,10 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
 
     public long getReplayedJournalId() {
         return replayedJournalId;
+    }
+
+    public String getVersion() {
+        return version;
     }
 
     public static FrontendHbResponse read(DataInput in) throws IOException {
@@ -101,6 +107,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append(super.toString());
         sb.append(", name: ").append(name);
+        sb.append(", version: ").append(version);
         sb.append(", queryPort: ").append(queryPort);
         sb.append(", rpcPort: ").append(rpcPort);
         sb.append(", replayedJournalId: ").append(replayedJournalId);

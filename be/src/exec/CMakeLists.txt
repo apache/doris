@@ -85,6 +85,10 @@ set(EXEC_FILES
     schema_scanner/schema_collations_scanner.cpp
     schema_scanner/schema_helper.cpp
     schema_scanner/schema_views_scanner.cpp
+    schema_scanner/schema_table_privileges_scanner.cpp
+    schema_scanner/schema_schema_privileges_scanner.cpp
+    schema_scanner/schema_user_privileges_scanner.cpp
+
     partitioned_hash_table.cc
     partitioned_hash_table_ir.cc
     partitioned_aggregation_node.cc

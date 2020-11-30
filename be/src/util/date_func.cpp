@@ -27,12 +27,10 @@ uint64_t timestamp_from_datetime(const std::string& datetime_str) {
 
     uint64_t value = 0;
     if (NULL != res) {
-        value = ((time_tm.tm_year + 1900) * 10000L
-                + (time_tm.tm_mon + 1) * 100L
-                + time_tm.tm_mday) * 1000000L
-            + time_tm.tm_hour * 10000L
-            + time_tm.tm_min * 100L
-            + time_tm.tm_sec;
+        value = ((time_tm.tm_year + 1900) * 10000L + (time_tm.tm_mon + 1) * 100L +
+                 time_tm.tm_mday) *
+                        1000000L +
+                time_tm.tm_hour * 10000L + time_tm.tm_min * 100L + time_tm.tm_sec;
     } else {
         // 1400 - 01 - 01
         value = 14000101000000;
@@ -47,9 +45,7 @@ uint24_t timestamp_from_date(const std::string& date_str) {
 
     int value = 0;
     if (NULL != res) {
-        value = (time_tm.tm_year + 1900) * 16 * 32
-            + (time_tm.tm_mon + 1) * 32
-            + time_tm.tm_mday;
+        value = (time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 + time_tm.tm_mday;
     } else {
         // 1400 - 01 - 01
         value = 716833;
@@ -66,13 +62,11 @@ std::string time_str_from_double(double time) {
     }
     int64_t hour = time / 60 / 60;
     int minute = ((int64_t)(time / 60)) % 60;
-    int second = ((int64_t) time) % 60;
-    
-    time_ss << std::setw(2) << std::setfill('0') << hour 
-        << ":" << std::setw(2) << std::setfill('0') << minute 
-        << ":" << std::setw(2) << std::setfill('0') << second;
+    int second = ((int64_t)time) % 60;
+
+    time_ss << std::setw(2) << std::setfill('0') << hour << ":" << std::setw(2) << std::setfill('0')
+            << minute << ":" << std::setw(2) << std::setfill('0') << second;
     return time_ss.str();
 }
 
-}
-
+} // namespace doris

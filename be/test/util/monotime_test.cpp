@@ -17,6 +17,7 @@
 
 #include "util/monotime.h"
 
+#include <gtest/gtest.h>
 #include <sys/time.h>
 #include <unistd.h>
 
@@ -24,8 +25,6 @@
 #include <ctime>
 #include <ostream>
 #include <string>
-
-#include <gtest/gtest.h>
 
 #include "common/logging.h"
 
@@ -119,7 +118,6 @@ TEST(TestMonoTime, TestTimeSpec) {
     neg_nano.ToTimeSpec(&ts);
     ASSERT_EQ(-1, ts.tv_sec);
     ASSERT_EQ(999999999, ts.tv_nsec);
-
 }
 
 TEST(TestMonoTime, TestDeltas) {
@@ -159,9 +157,8 @@ static void DoTestMonoTimePerf() {
         cur_delta = next.GetDeltaSince(prev);
         num_calls++;
     } while (cur_delta.LessThan(max_delta));
-    LOG(INFO) << "DoTestMonoTimePerf():"
-        << num_calls << " in "
-           << max_delta.ToString() << " seconds.";
+    LOG(INFO) << "DoTestMonoTimePerf():" << num_calls << " in " << max_delta.ToString()
+              << " seconds.";
 }
 
 TEST(TestMonoTime, TestSleepFor) {
@@ -353,7 +350,7 @@ TEST(TestMonoTime, TestOperators) {
 
     // MonoDelta operator-(const MonoTime& t0, const MonoTime& t1);
     {
-        const int64_t deltas[] = { 100, -100 };
+        const int64_t deltas[] = {100, -100};
 
         MonoTime tmp = MonoTime::Now();
         for (auto d : deltas) {

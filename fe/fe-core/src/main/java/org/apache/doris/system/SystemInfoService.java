@@ -1071,7 +1071,7 @@ public class SystemInfoService {
             if (backend.isDecommissioned()) {
                 // Data on decommissioned backend will move to other backends,
                 // So we need to minus size of those data.
-                capacity -= backend.getTotalCapacityB() - backend.getAvailableCapacityB();
+                capacity -= backend.getDataUsedCapacityB();
             } else {
                 capacity += backend.getAvailableCapacityB();
             }

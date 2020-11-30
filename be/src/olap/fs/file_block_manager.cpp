@@ -24,8 +24,8 @@
 #include <string>
 #include <utility>
 
-#include "common/logging.h"
 #include "common/config.h"
+#include "common/logging.h"
 #include "env/env.h"
 #include "env/env_util.h"
 #include "gutil/strings/substitute.h"
@@ -42,7 +42,7 @@
 using std::accumulate;
 using std::shared_ptr;
 using std::string;
-using std::unique_ptr;
+
 using strings::Substitute;
 
 namespace doris {
@@ -63,8 +63,7 @@ namespace internal {
 // FileWritableBlock instances is expected to be low.
 class FileWritableBlock : public WritableBlock {
 public:
-    FileWritableBlock(FileBlockManager* block_manager,
-                      string path,
+    FileWritableBlock(FileBlockManager* block_manager, string path,
                       shared_ptr<WritableFile> writer);
 
     virtual ~FileWritableBlock();
@@ -96,10 +95,7 @@ public:
 private:
     DISALLOW_COPY_AND_ASSIGN(FileWritableBlock);
 
-    enum SyncMode {
-        SYNC,
-        NO_SYNC
-    };
+    enum SyncMode { SYNC, NO_SYNC };
 
     // Close the block, optionally synchronizing dirty data and metadata.
     Status _close(SyncMode mode);
@@ -121,14 +117,13 @@ private:
     size_t _bytes_appended;
 };
 
-FileWritableBlock::FileWritableBlock(FileBlockManager* block_manager,
-                                     string path,
-                                     shared_ptr<WritableFile> writer) :
-        _block_manager(block_manager),
-        _path(std::move(path)),
-        _writer(std::move(writer)),
-        _state(CLEAN),
-        _bytes_appended(0) {
+FileWritableBlock::FileWritableBlock(FileBlockManager* block_manager, string path,
+                                     shared_ptr<WritableFile> writer)
+        : _block_manager(block_manager),
+          _path(std::move(path)),
+          _writer(std::move(writer)),
+          _state(CLEAN),
+          _bytes_appended(0) {
     if (_block_manager->_metrics) {
         _block_manager->_metrics->blocks_open_writing->increment(1);
         _block_manager->_metrics->total_writable_blocks->increment(1);
@@ -137,7 +132,7 @@ FileWritableBlock::FileWritableBlock(FileBlockManager* block_manager,
 
 FileWritableBlock::~FileWritableBlock() {
     if (_state != CLOSED) {
-        WARN_IF_ERROR(abort(), Substitute("Failed to close block $0", _path));
+        WARN_IF_ERROR(abort(), strings::Substitute("Failed to close block $0", _path));
     }
 }
 
@@ -168,17 +163,13 @@ Status FileWritableBlock::append(const Slice& data) {
 }
 
 Status FileWritableBlock::appendv(const Slice* data, size_t data_cnt) {
-    DCHECK(_state == CLEAN || _state == DIRTY)
-            << "path=" << _path
-            << " invalid state=" << _state;
+    DCHECK(_state == CLEAN || _state == DIRTY) << "path=" << _path << " invalid state=" << _state;
     RETURN_IF_ERROR(_writer->appendv(data, data_cnt));
     _state = DIRTY;
 
     // Calculate the amount of data written
     size_t bytes_written = accumulate(data, data + data_cnt, static_cast<size_t>(0),
-            [&](int sum, const Slice& curr) {
-                return sum + curr.size;
-            });
+                                      [&](int sum, const Slice& curr) { return sum + curr.size; });
     _bytes_appended += bytes_written;
     return Status::OK();
 }
@@ -191,8 +182,7 @@ Status FileWritableBlock::flush_data_async() {
 
 Status FileWritableBlock::finalize() {
     DCHECK(_state == CLEAN || _state == DIRTY || _state == FINALIZED)
-            << "path=" << _path
-            << "Invalid state: " << _state;
+            << "path=" << _path << "Invalid state: " << _state;
 
     if (_state == FINALIZED) {
         return Status::OK();
@@ -229,7 +219,7 @@ Status FileWritableBlock::_close(SyncMode mode) {
         if (sync.ok()) {
             sync = _block_manager->_sync_metadata(_path);
         }
-        WARN_IF_ERROR(sync, Substitute("Failed to sync when closing block $0", _path));
+        WARN_IF_ERROR(sync, strings::Substitute("Failed to sync when closing block $0", _path));
     }
     Status close = _writer->close();
 
@@ -260,8 +250,7 @@ Status FileWritableBlock::_close(SyncMode mode) {
 // embed a FileBlockLocation, using the simpler BlockId instead.
 class FileReadableBlock : public ReadableBlock {
 public:
-    FileReadableBlock(FileBlockManager* block_manager,
-                      string path,
+    FileReadableBlock(FileBlockManager* block_manager, string path,
                       std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle);
 
     virtual ~FileReadableBlock();
@@ -301,13 +290,13 @@ private:
     DISALLOW_COPY_AND_ASSIGN(FileReadableBlock);
 };
 
-FileReadableBlock::FileReadableBlock(FileBlockManager* block_manager,
-                                     string path,
-                                     std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle) :
-        _block_manager(block_manager),
-        _path(std::move(path)),
-        _file_handle(file_handle),
-        _closed(false) {
+FileReadableBlock::FileReadableBlock(
+        FileBlockManager* block_manager, string path,
+        std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle)
+        : _block_manager(block_manager),
+          _path(std::move(path)),
+          _file_handle(file_handle),
+          _closed(false) {
     if (_block_manager->_metrics) {
         _block_manager->_metrics->blocks_open_reading->increment(1);
         _block_manager->_metrics->total_readable_blocks->increment(1);
@@ -316,7 +305,7 @@ FileReadableBlock::FileReadableBlock(FileBlockManager* block_manager,
 }
 
 FileReadableBlock::~FileReadableBlock() {
-    WARN_IF_ERROR(close(), Substitute("Failed to close block $0", _path));
+    WARN_IF_ERROR(close(), strings::Substitute("Failed to close block $0", _path));
 }
 
 Status FileReadableBlock::close() {
@@ -363,9 +352,7 @@ Status FileReadableBlock::readv(uint64_t offset, const Slice* results, size_t re
     if (_block_manager->_metrics) {
         // Calculate the read amount of data
         size_t bytes_read = accumulate(results, results + res_cnt, static_cast<size_t>(0),
-                [&](int sum, const Slice& curr) {
-                    return sum + curr.size;
-                });
+                                       [&](int sum, const Slice& curr) { return sum + curr.size; });
         _block_manager->_metrics->total_bytes_read->increment(bytes_read);
     }
 
@@ -378,23 +365,25 @@ Status FileReadableBlock::readv(uint64_t offset, const Slice* results, size_t re
 // FileBlockManager
 ////////////////////////////////////////////////////////////
 
-FileBlockManager::FileBlockManager(Env* env, BlockManagerOptions opts) :
-        _env(DCHECK_NOTNULL(env)),
-        _opts(std::move(opts)),
-        _mem_tracker(MemTracker::CreateTracker(-1, "file_block_manager", _opts.parent_mem_tracker)) {
+FileBlockManager::FileBlockManager(Env* env, BlockManagerOptions opts)
+        : _env(DCHECK_NOTNULL(env)),
+          _opts(std::move(opts)),
+          _mem_tracker(
+                  MemTracker::CreateTracker(-1, "file_block_manager", _opts.parent_mem_tracker)) {
     if (_opts.enable_metric) {
         _metrics.reset(new internal::BlockManagerMetrics());
     }
 
-    #ifdef BE_TEST
-        _file_cache.reset(new FileCache<RandomAccessFile>("Readable_file_cache", config::file_descriptor_cache_capacity));
-    #else
-        _file_cache.reset(new FileCache<RandomAccessFile>("Readable_file_cache", StorageEngine::instance()->file_cache()));
-    #endif
+#ifdef BE_TEST
+    _file_cache.reset(new FileCache<RandomAccessFile>("Readable_file_cache",
+                                                      config::file_descriptor_cache_capacity));
+#else
+    _file_cache.reset(new FileCache<RandomAccessFile>("Readable_file_cache",
+                                                      StorageEngine::instance()->file_cache()));
+#endif
 }
 
-FileBlockManager::~FileBlockManager() {
-}
+FileBlockManager::~FileBlockManager() {}
 
 Status FileBlockManager::open() {
     // TODO(lingbin)
@@ -402,7 +391,7 @@ Status FileBlockManager::open() {
 }
 
 Status FileBlockManager::create_block(const CreateBlockOptions& opts,
-                                      unique_ptr<WritableBlock>* block) {
+                                      std::unique_ptr<WritableBlock>* block) {
     CHECK(!_opts.read_only);
 
     shared_ptr<WritableFile> writer;
@@ -415,9 +404,11 @@ Status FileBlockManager::create_block(const CreateBlockOptions& opts,
     return Status::OK();
 }
 
-Status FileBlockManager::open_block(const std::string& path, unique_ptr<ReadableBlock>* block) {
+Status FileBlockManager::open_block(const std::string& path,
+                                    std::unique_ptr<ReadableBlock>* block) {
     VLOG(1) << "Opening block with path at " << path;
-    std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle(new OpenedFileHandle<RandomAccessFile>());
+    std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle(
+            new OpenedFileHandle<RandomAccessFile>());
     bool found = _file_cache->lookup(path, file_handle.get());
     if (!found) {
         std::unique_ptr<RandomAccessFile> file;
@@ -432,20 +423,20 @@ Status FileBlockManager::open_block(const std::string& path, unique_ptr<Readable
 // TODO(lingbin): We should do something to ensure that deletion can only be done
 // after the last reader or writer has finished
 Status FileBlockManager::_delete_block(const string& path) {
-  CHECK(!_opts.read_only);
+    CHECK(!_opts.read_only);
 
-  RETURN_IF_ERROR(_env->delete_file(path));
+    RETURN_IF_ERROR(_env->delete_file(path));
 
-  // We don't bother fsyncing the parent directory as there's nothing to be
-  // gained by ensuring that the deletion is made durable. Even if we did
-  // fsync it, we'd need to account for garbage at startup time (in the
-  // event that we crashed just before the fsync), and with such accounting
-  // fsync-as-you-delete is unnecessary.
-  //
-  // The block's directory hierarchy is left behind. We could prune it if
-  // it's empty, but that's racy and leaving it isn't much overhead.
+    // We don't bother fsyncing the parent directory as there's nothing to be
+    // gained by ensuring that the deletion is made durable. Even if we did
+    // fsync it, we'd need to account for garbage at startup time (in the
+    // event that we crashed just before the fsync), and with such accounting
+    // fsync-as-you-delete is unnecessary.
+    //
+    // The block's directory hierarchy is left behind. We could prune it if
+    // it's empty, but that's racy and leaving it isn't much overhead.
 
-  return Status::OK();
+    return Status::OK();
 }
 
 // TODO(lingbin): only one level is enough?

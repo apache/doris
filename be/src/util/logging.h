@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_COMMON_UTIL_LOGGING_H
 
 #include <string>
+
 #include "common/logging.h"
 #include "gutil/walltime.h"
 
@@ -35,6 +36,6 @@ void shutdown_logging();
 // Format a timestamp in the same format as used by GLog.
 std::string FormatTimestampForLog(MicrosecondsInt64 micros_since_epoch);
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_COMMON_UTIL_LOGGING_H

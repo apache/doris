@@ -103,22 +103,25 @@ public class ShowResourcesStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        
-        // analyze where clause if not null
-        if (whereClause != null) {
-            if (whereClause instanceof CompoundPredicate) {
-                CompoundPredicate cp = (CompoundPredicate) whereClause;
-                if (cp.getOp() != org.apache.doris.analysis.CompoundPredicate.Operator.AND) {
-                    throw new AnalysisException("Only allow compound predicate with operator AND");
-                }
 
-                analyzeSubPredicate(cp.getChild(0));
-                analyzeSubPredicate(cp.getChild(1));
-            } else {
-                analyzeSubPredicate(whereClause);
+        // analyze where clause
+        boolean isValid;
+        if (whereClause instanceof CompoundPredicate) {
+            CompoundPredicate cp = (CompoundPredicate) whereClause;
+            if (cp.getOp() != org.apache.doris.analysis.CompoundPredicate.Operator.AND) {
+                throw new AnalysisException("Only allow compound predicate with operator AND");
             }
+            isValid = isWhereClauseValid(cp.getChild(0)) && isWhereClauseValid(cp.getChild(1));
+        } else {
+            isValid = isWhereClauseValid(whereClause);
+        }
+
+        if (!isValid) {
+            throw new AnalysisException("Where clause should looks like: NAME = \"your_resource_name\","
+                    + " or NAME LIKE \"matcher\", " + " or RESOURCETYPE = \"resource_type\", "
+                    + " or compound predicate with operator AND");
         }
 
         // order by
@@ -136,88 +139,63 @@ public class ShowResourcesStmt extends ShowStmt {
         }
     }
 
-    private void analyzeSubPredicate(Expr subExpr) throws AnalysisException {
-        if (subExpr == null) {
-            return;
+    private boolean isWhereClauseValid(Expr expr) {
+        if (expr == null) {
+            return true;
         }
 
-        boolean valid = true;
-        boolean hasName = false;
-        boolean hasType = false;
+        if (!(expr instanceof BinaryPredicate) && !(expr instanceof LikePredicate)) {
+            return false;
+        }
 
-        CHECK: {
-            if (subExpr instanceof BinaryPredicate) {
-                BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
-                if (binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
-                    valid = false;
-                    break CHECK;
-                }
-            } else if (subExpr instanceof LikePredicate) {
-                LikePredicate likePredicate = (LikePredicate) subExpr;
-                if (likePredicate.getOp() != LikePredicate.Operator.LIKE) {
-                    valid = false;
-                    break CHECK;
-                }
-            } else {
-                valid = false;
-                break CHECK;
+        if (expr instanceof BinaryPredicate) {
+            BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
+            if (binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
+                return false;
             }
+        }
 
-            // left child
-            if (!(subExpr.getChild(0) instanceof SlotRef)) {
-                valid = false;
-                break CHECK;
+        if (expr instanceof LikePredicate) {
+            LikePredicate likePredicate = (LikePredicate) expr;
+            if (likePredicate.getOp() != LikePredicate.Operator.LIKE) {
+                return false;
             }
-            String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName();
-            if (leftKey.equalsIgnoreCase("Name")) {
-                hasName = true;
-            } else if (leftKey.equalsIgnoreCase("ResourceType")) {
-                hasType = true;
-            } else {
-                valid = false;
-                break CHECK;
-            }
+        }
 
-            if (hasType && !(subExpr instanceof BinaryPredicate)) {
-                valid = false;
-                break CHECK;
-            }
+        // left child
+        if (!(expr.getChild(0) instanceof SlotRef)) {
+            return false;
+        }
+        String leftKey = ((SlotRef) expr.getChild(0)).getColumnName();
 
-            if (hasName && subExpr instanceof BinaryPredicate) {
+        // right child
+        if (!(expr.getChild(1) instanceof StringLiteral)) {
+            return false;
+        }
+        String value = ((StringLiteral) expr.getChild(1)).getStringValue();
+        if (Strings.isNullOrEmpty(value)) {
+            return false;
+        }
+
+        if (leftKey.equalsIgnoreCase("Name")) {
+            if (expr instanceof BinaryPredicate) {
                 isAccurateMatch = true;
             }
-
-            // right child
-            if (!(subExpr.getChild(1) instanceof StringLiteral)) {
-                valid = false;
-                break CHECK;
-            }
-
-            String value = ((StringLiteral) subExpr.getChild(1)).getStringValue();
-            if (Strings.isNullOrEmpty(value)) {
-                valid = false;
-                break CHECK;
-            }
-
-            if (hasName) {
-                nameValue = value;
-            } else if (hasType) {
-                typeValue = value.toUpperCase();
-
-                try {
-                    ResourceType.valueOf(typeValue);
-                } catch (Exception e) {
-                    valid = false;
-                    break CHECK;
-                }
-            }
+            nameValue = value;
+            return true;
         }
 
-        if (!valid) {
-            throw new AnalysisException("Where clause should looks like: NAME = \"your_resource_name\","
-                    + " or NAME LIKE \"matcher\", " + " or RESOURCETYPE = \"resource_type\", "
-                    + " or compound predicate with operator AND");
+        if (leftKey.equalsIgnoreCase("ResourceType") && expr instanceof BinaryPredicate) {
+            typeValue = value.toUpperCase();
+            try {
+                ResourceType.valueOf(typeValue);
+            } catch (Exception e) {
+                return false;
+            }
+            return true;
         }
+
+        return false;
     }
 
     @Override

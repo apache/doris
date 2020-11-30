@@ -77,7 +77,8 @@ Status IntersectNode::open(RuntimeState* state) {
             }
         }
         // probe
-        _probe_batch.reset(new RowBatch(child(i)->row_desc(), state->batch_size(), mem_tracker().get()));
+        _probe_batch.reset(
+                new RowBatch(child(i)->row_desc(), state->batch_size(), mem_tracker().get()));
         ScopedTimer<MonotonicStopWatch> probe_timer(_probe_timer);
         RETURN_IF_ERROR(child(i)->open(state));
         eos = false;
@@ -92,7 +93,8 @@ Status IntersectNode::open(RuntimeState* state) {
                 if (_hash_tbl_iterator != _hash_tbl->end()) {
                     _hash_tbl_iterator.set_matched();
                     VLOG_ROW << "probe matched: "
-                             << get_row_output_string(_hash_tbl_iterator.get_row(), child(0)->row_desc());
+                             << get_row_output_string(_hash_tbl_iterator.get_row(),
+                                                      child(0)->row_desc());
                 }
             }
             _probe_batch->reset();

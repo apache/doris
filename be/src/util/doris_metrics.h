@@ -28,17 +28,16 @@
 
 namespace doris {
 
-#define REGISTER_HOOK_METRIC(metric, func)                                                 \
-  DorisMetrics::instance()->metric =                                                       \
-      (UIntGauge*)(DorisMetrics::instance()->server_entity()->                             \
-          register_metric<UIntGauge>(&METRIC_##metric));                                   \
-  DorisMetrics::instance()->server_entity()->register_hook(#metric, [&]() {                \
-      DorisMetrics::instance()->metric->set_value(func());                                 \
-});
+#define REGISTER_HOOK_METRIC(metric, func)                                                      \
+    DorisMetrics::instance()->metric =                                                          \
+            (UIntGauge*)(DorisMetrics::instance()->server_entity()->register_metric<UIntGauge>( \
+                    &METRIC_##metric));                                                         \
+    DorisMetrics::instance()->server_entity()->register_hook(                                   \
+            #metric, [&]() { DorisMetrics::instance()->metric->set_value(func()); });
 
-#define DEREGISTER_HOOK_METRIC(name)                                                       \
-  DorisMetrics::instance()->server_entity()->deregister_metric(&METRIC_##name);            \
-  DorisMetrics::instance()->server_entity()->deregister_hook(#name);
+#define DEREGISTER_HOOK_METRIC(name)                                              \
+    DorisMetrics::instance()->server_entity()->deregister_metric(&METRIC_##name); \
+    DorisMetrics::instance()->server_entity()->deregister_hook(#name);
 
 class DorisMetrics {
 public:
@@ -133,6 +132,11 @@ public:
     IntGauge* tablet_cumulative_max_compaction_score;
     IntGauge* tablet_base_max_compaction_score;
 
+    // permits have been used for all compaction tasks
+    IntGauge* compaction_used_permits;
+    // permits required by the compaction task which is waitting for permits
+    IntGauge* compaction_waitting_permits;
+
     // The following metrics will be calculated
     // by metric calculator
     IntGauge* push_request_write_bytes_per_second;
@@ -170,7 +174,7 @@ public:
     UIntGauge* tablet_writer_count;
 
     UIntGauge* compaction_mem_current_consumption;
-    
+
     // Cache metrics
     UIntGauge* query_cache_memory_total_byte;
     UIntGauge* query_cache_sql_total_count;
@@ -183,9 +187,9 @@ public:
 
     // not thread-safe, call before calling metrics
     void initialize(
-        bool init_system_metrics = false,
-        const std::set<std::string>& disk_devices = std::set<std::string>(),
-        const std::vector<std::string>& network_interfaces = std::vector<std::string>());
+            bool init_system_metrics = false,
+            const std::set<std::string>& disk_devices = std::set<std::string>(),
+            const std::vector<std::string>& network_interfaces = std::vector<std::string>());
 
     MetricRegistry* metric_registry() { return &_metric_registry; }
     SystemMetrics* system_metrics() { return _system_metrics.get(); }

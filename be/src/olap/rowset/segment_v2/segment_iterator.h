@@ -18,16 +18,15 @@
 #pragma once
 
 #include <memory>
+#include <roaring/roaring.hh>
 #include <vector>
 
-#include <roaring/roaring.hh>
-
 #include "common/status.h"
+#include "olap/olap_cond.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
-#include "olap/rowset/segment_v2/row_ranges.h"
-#include "olap/olap_cond.h"
 #include "util/file_cache.h"
 
 namespace doris {
@@ -54,7 +53,8 @@ public:
     Status next_batch(RowBlockV2* row_block) override;
     const Schema& schema() const override { return _schema; }
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
-    uint64_t data_id() const {return _segment->id(); }
+    uint64_t data_id() const { return _segment->id(); }
+
 private:
     Status _init();
 
@@ -64,8 +64,8 @@ private:
     // calculate row ranges that fall into requested key ranges using short key index
     Status _get_row_ranges_by_keys();
     Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
-    Status _lookup_ordinal(const RowCursor& key, bool is_include,
-                           rowid_t upper_bound, rowid_t* rowid);
+    Status _lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
+                           rowid_t* rowid);
     Status _seek_and_peek(rowid_t rowid);
 
     // calculate row ranges that satisfy requested column conditions using various column index
@@ -80,7 +80,8 @@ private:
 
     Status _seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos);
     // read `nrows` of columns specified by `column_ids` into `block` at `row_offset`.
-    Status _read_columns(const std::vector<ColumnId>& column_ids, RowBlockV2* block, size_t row_offset, size_t nrows);
+    Status _read_columns(const std::vector<ColumnId>& column_ids, RowBlockV2* block,
+                         size_t row_offset, size_t nrows);
 
 private:
     class BitmapRangeIterator;
@@ -129,5 +130,5 @@ private:
     std::unique_ptr<fs::ReadableBlock> _rblock;
 };
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

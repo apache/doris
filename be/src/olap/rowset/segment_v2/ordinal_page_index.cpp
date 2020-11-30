@@ -19,8 +19,8 @@
 
 #include "common/logging.h"
 #include "env/env.h"
-#include "olap/key_coder.h"
 #include "olap/fs/fs_util.h"
+#include "olap/key_coder.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_io.h"
 
@@ -50,7 +50,7 @@ Status OrdinalIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* 
 
         // write index page (currently it's not compressed)
         PagePointer pp;
-        RETURN_IF_ERROR(PageIO::write_page(wblock, { page_body.slice() }, page_footer, &pp));
+        RETURN_IF_ERROR(PageIO::write_page(wblock, {page_body.slice()}, page_footer, &pp));
 
         root_page_meta->set_is_root_data_page(false);
         pp.to_proto(root_page_meta->mutable_root_page());
@@ -98,7 +98,7 @@ Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory) {
         Slice key = reader.get_key(i);
         ordinal_t ordinal = 0;
         RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::decode_ascending(
-                &key, sizeof(ordinal_t), (uint8_t*) &ordinal, nullptr));
+                &key, sizeof(ordinal_t), (uint8_t*)&ordinal, nullptr));
 
         _ordinals[i] = ordinal;
         _pages[i] = reader.get_value(i);
@@ -128,5 +128,5 @@ OrdinalPageIndexIterator OrdinalIndexReader::seek_at_or_before(ordinal_t ordinal
     return OrdinalPageIndexIterator(this, left);
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

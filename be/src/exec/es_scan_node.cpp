@@ -17,50 +17,47 @@
 
 #include "es_scan_node.h"
 
-#include <string>
-#include <boost/algorithm/string.hpp>
 #include <gutil/strings/substitute.h>
 
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Exprs_types.h"
-#include "runtime/runtime_state.h"
-#include "runtime/row_batch.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple_row.h"
-#include "runtime/client_cache.h"
-#include "util/runtime_profile.h"
-#include "util/debug_util.h"
-#include "service/backend_options.h"
-#include "olap/olap_common.h"
-#include "olap/utils.h"
-#include "exprs/expr_context.h"
+#include <boost/algorithm/string.hpp>
+#include <string>
+
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "exprs/in_predicate.h"
 #include "exprs/slot_ref.h"
+#include "gen_cpp/Exprs_types.h"
+#include "gen_cpp/PlanNodes_types.h"
+#include "olap/olap_common.h"
+#include "olap/utils.h"
+#include "runtime/client_cache.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/string_value.h"
+#include "runtime/tuple_row.h"
+#include "service/backend_options.h"
+#include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
 // $0 = column type (e.g. INT)
-const string ERROR_INVALID_COL_DATA = "Data source returned inconsistent column data. "
-    "Expected value of type $0 based on column metadata. This likely indicates a "
-    "problem with the data source library.";
-const string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed to allocate "
-    "$1 bytes for $2.";
+const std::string ERROR_INVALID_COL_DATA =
+        "Data source returned inconsistent column data. "
+        "Expected value of type $0 based on column metadata. This likely indicates a "
+        "problem with the data source library.";
+const std::string ERROR_MEM_LIMIT_EXCEEDED =
+        "DataSourceScanNode::$0() failed to allocate "
+        "$1 bytes for $2.";
 
-EsScanNode::EsScanNode(
-        ObjectPool* pool,
-        const TPlanNode& tnode,
-        const DescriptorTbl& descs) :
-            ScanNode(pool, tnode, descs),
-            _tuple_id(tnode.es_scan_node.tuple_id),
-            _scan_range_idx(0) {
+EsScanNode::EsScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ScanNode(pool, tnode, descs), _tuple_id(tnode.es_scan_node.tuple_id), _scan_range_idx(0) {
     if (tnode.es_scan_node.__isset.properties) {
         _properties = tnode.es_scan_node.properties;
     }
 }
 
-EsScanNode::~EsScanNode() {
-}
+EsScanNode::~EsScanNode() {}
 
 Status EsScanNode::prepare(RuntimeState* state) {
     VLOG(1) << "EsScanNode::Prepare";
@@ -87,7 +84,7 @@ Status EsScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
 
     // TExtOpenParams.row_schema
-    vector<TExtColumnDesc> cols;
+    std::vector<TExtColumnDesc> cols;
     for (const SlotDescriptor* slot : _tuple_desc->slots()) {
         TExtColumnDesc col;
         col.__set_name(slot->col_name());
@@ -99,11 +96,11 @@ Status EsScanNode::open(RuntimeState* state) {
     row_schema.__isset.cols = true;
 
     // TExtOpenParams.predicates
-    vector<vector<TExtPredicate>> predicates;
-    vector<int> predicate_to_conjunct;
+    std::vector<vector<TExtPredicate>> predicates;
+    std::vector<int> predicate_to_conjunct;
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
         VLOG(1) << "conjunct: " << _conjunct_ctxs[i]->root()->debug_string();
-        vector<TExtPredicate> disjuncts;
+        std::vector<TExtPredicate> disjuncts;
         if (get_disjuncts(_conjunct_ctxs[i], _conjunct_ctxs[i]->root(), disjuncts)) {
             predicates.emplace_back(std::move(disjuncts));
             predicate_to_conjunct.push_back(i);
@@ -111,7 +108,7 @@ Status EsScanNode::open(RuntimeState* state) {
     }
 
     // open every scan range
-    vector<int> conjunct_accepted_times(_conjunct_ctxs.size(), 0); 
+    std::vector<int> conjunct_accepted_times(_conjunct_ctxs.size(), 0);
     for (int i = 0; i < _scan_ranges.size(); ++i) {
         TEsScanRange& es_scan_range = _scan_ranges[i];
 
@@ -121,7 +118,6 @@ Status EsScanNode::open(RuntimeState* state) {
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
-
 
         // TExtOpenParams
         TExtOpenParams params;
@@ -142,32 +138,31 @@ Status EsScanNode::open(RuntimeState* state) {
         bool is_success = false;
         for (int j = 0; j < 2; ++j) {
             for (auto& es_host : es_scan_range.es_hosts) {
-                if ((j == 0 && es_host.hostname != localhost)
-                    || (j == 1 && es_host.hostname == localhost)) {
+                if ((j == 0 && es_host.hostname != localhost) ||
+                    (j == 1 && es_host.hostname == localhost)) {
                     continue;
                 }
                 Status status = open_es(es_host, result, params);
                 if (status.ok()) {
-                   is_success = true;
-                   _addresses.push_back(es_host);
-                   _scan_handles.push_back(result.scan_handle);
-                   if (result.__isset.accepted_conjuncts) {
-                       for (int index : result.accepted_conjuncts) {
-                           conjunct_accepted_times[predicate_to_conjunct[index]]++;
-                       }
-                   }
-                   break;
+                    is_success = true;
+                    _addresses.push_back(es_host);
+                    _scan_handles.push_back(result.scan_handle);
+                    if (result.__isset.accepted_conjuncts) {
+                        for (int index : result.accepted_conjuncts) {
+                            conjunct_accepted_times[predicate_to_conjunct[index]]++;
+                        }
+                    }
+                    break;
                 } else if (status.code() == TStatusCode::ES_SHARD_NOT_FOUND) {
                     // if shard not found, try other nodes
                     LOG(WARNING) << "shard not found on es node: "
-                                 << ", address=" << es_host
-                                 << ", scan_range_idx=" << i << ", try other nodes";
+                                 << ", address=" << es_host << ", scan_range_idx=" << i
+                                 << ", try other nodes";
                 } else {
-                    LOG(WARNING) << "es open error: scan_range_idx=" << i
-                                 << ", address=" << es_host
+                    LOG(WARNING) << "es open error: scan_range_idx=" << i << ", address=" << es_host
                                  << ", msg=" << status.get_error_msg();
                     return status;
-                } 
+                }
             }
             if (is_success) {
                 break;
@@ -176,8 +171,7 @@ Status EsScanNode::open(RuntimeState* state) {
 
         if (!is_success) {
             std::stringstream ss;
-            ss << "es open error: scan_range_idx=" << i
-               << ", can't find shard on any node";
+            ss << "es open error: scan_range_idx=" << i << ", can't find shard on any node";
             return Status::InternalError(ss.str());
         }
     }
@@ -193,7 +187,8 @@ Status EsScanNode::open(RuntimeState* state) {
 
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
         if (!check_left_conjuncts(_conjunct_ctxs[i]->root())) {
-            return Status::InternalError("esquery could only be executed on es, but could not push down to es");
+            return Status::InternalError(
+                    "esquery could only be executed on es, but could not push down to es");
         }
     }
 
@@ -211,9 +206,10 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
     MemPool* tuple_pool = row_batch->tuple_data_pool();
     int64_t tuple_buffer_size;
     uint8_t* tuple_buffer = nullptr;
-    RETURN_IF_ERROR(row_batch->resize_and_allocate_tuple_buffer(state, &tuple_buffer_size, &tuple_buffer));
+    RETURN_IF_ERROR(
+            row_batch->resize_and_allocate_tuple_buffer(state, &tuple_buffer_size, &tuple_buffer));
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buffer);
-    
+
     // get batch
     TExtGetNextResult result;
     RETURN_IF_ERROR(get_next_from_es(result));
@@ -222,9 +218,9 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
     // convert
     VLOG(1) << "begin to convert: scan_range_idx=" << _scan_range_idx
             << ", num_rows=" << result.rows.num_rows;
-    vector<TExtColumnData>& cols = result.rows.cols;
-    // indexes of the next non-null value in the row batch, per column. 
-    vector<int> cols_next_val_idx(_tuple_desc->slots().size(), 0);
+    std::vector<TExtColumnData>& cols = result.rows.cols;
+    // indexes of the next non-null value in the row batch, per column.
+    std::vector<int> cols_next_val_idx(_tuple_desc->slots().size(), 0);
     for (int row_idx = 0; row_idx < result.rows.num_rows; row_idx++) {
         if (reached_limit()) {
             *eos = true;
@@ -235,8 +231,8 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
         tuple_row->set_tuple(0, tuple);
         if (ExecNode::eval_conjuncts(_conjunct_ctxs.data(), _conjunct_ctxs.size(), tuple_row)) {
             row_batch->commit_last_row();
-            tuple = reinterpret_cast<Tuple*>(
-                reinterpret_cast<uint8_t*>(tuple) + _tuple_desc->byte_size());
+            tuple = reinterpret_cast<Tuple*>(reinterpret_cast<uint8_t*>(tuple) +
+                                             _tuple_desc->byte_size());
             ++_num_rows_returned;
         }
     }
@@ -274,8 +270,7 @@ Status EsScanNode::close(RuntimeState* state) {
             ExtDataSourceServiceConnection client(client_cache, address, 10000, &status);
             if (!status.ok()) {
                 LOG(WARNING) << "es create client error: scan_range_idx=" << i
-                             << ", address=" << address
-                             << ", msg=" << status.get_error_msg();
+                             << ", address=" << address << ", msg=" << status.get_error_msg();
                 return status;
             }
 
@@ -287,10 +282,9 @@ Status EsScanNode::close(RuntimeState* state) {
                 RETURN_IF_ERROR(client.reopen());
                 client->close(result, params);
             }
-        } catch (apache::thrift::TException &e) {
+        } catch (apache::thrift::TException& e) {
             std::stringstream ss;
-            ss << "es close error: scan_range_idx=" << i
-               << ", msg=" << e.what();
+            ss << "es close error: scan_range_idx=" << i << ", msg=" << e.what();
             LOG(WARNING) << ss.str();
             return Status::ThriftRpcError(ss.str());
         }
@@ -311,7 +305,7 @@ Status EsScanNode::close(RuntimeState* state) {
     return Status::OK();
 }
 
-void EsScanNode::debug_string(int indentation_level, stringstream* out) const {
+void EsScanNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "EsScanNode(tupleid=" << _tuple_id;
     *out << ")" << std::endl;
@@ -321,7 +315,7 @@ void EsScanNode::debug_string(int indentation_level, stringstream* out) const {
     }
 }
 
-Status EsScanNode::set_scan_ranges(const vector<TScanRangeParams>& scan_ranges) {
+Status EsScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     for (int i = 0; i < scan_ranges.size(); ++i) {
         TScanRangeParams scan_range = scan_ranges[i];
         DCHECK(scan_range.scan_range.__isset.es_scan_range);
@@ -333,8 +327,8 @@ Status EsScanNode::set_scan_ranges(const vector<TScanRangeParams>& scan_ranges) 
     return Status::OK();
 }
 
-Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result, TExtOpenParams& params) {
-
+Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result,
+                           TExtOpenParams& params) {
     VLOG(1) << "es open param=" << apache::thrift::ThriftDebugString(params);
 #ifndef BE_TEST
     try {
@@ -357,7 +351,7 @@ Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result, TEx
         }
         VLOG(1) << "es open result=" << apache::thrift::ThriftDebugString(result);
         return Status(result.status);
-    } catch (apache::thrift::TException &e) {
+    } catch (apache::thrift::TException& e) {
         std::stringstream ss;
         ss << "es open error: address=" << address << ", msg=" << e.what();
         return Status::InternalError(ss.str());
@@ -396,7 +390,7 @@ bool EsScanNode::ignore_cast(SlotDescriptor* slot, Expr* expr) {
 }
 
 bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
-                               vector<TExtPredicate>& disjuncts) {
+                               std::vector<TExtPredicate>& disjuncts) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
             VLOG(1) << "get disjuncts fail: number of children is not 2";
@@ -426,8 +420,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
 
         TExtLiteral literal;
         if (!to_ext_literal(context, expr, &literal)) {
-            VLOG(1) << "get disjuncts fail: can't get literal, node_type="
-                    << expr->node_type();
+            VLOG(1) << "get disjuncts fail: can't get literal, node_type=" << expr->node_type();
             return false;
         }
 
@@ -444,12 +437,11 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         disjuncts.push_back(std::move(predicate));
         return true;
     } else if (is_match_func(conjunct)) {
-        // if this is a function call expr and function name is match, then push 
+        // if this is a function call expr and function name is match, then push
         // down it to es
         TExtFunction match_function;
         match_function.__set_func_name(conjunct->fn().name.function_name);
-        vector<TExtLiteral> query_conditions;
-
+        std::vector<TExtLiteral> query_conditions;
 
         TExtLiteral literal;
         if (!to_ext_literal(context, conjunct->get_child(1), &literal)) {
@@ -468,12 +460,12 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
     } else if (TExprNodeType::IN_PRED == conjunct->node_type()) {
         // the op code maybe FILTER_NEW_IN, it means there is function in list
         // like col_a in (abs(1))
-        if (TExprOpcode::FILTER_IN != conjunct->op() 
-            && TExprOpcode::FILTER_NOT_IN != conjunct->op()) {
+        if (TExprOpcode::FILTER_IN != conjunct->op() &&
+            TExprOpcode::FILTER_NOT_IN != conjunct->op()) {
             return false;
         }
         TExtInPredicate ext_in_predicate;
-        vector<TExtLiteral> in_pred_values;
+        std::vector<TExtLiteral> in_pred_values;
         InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
         ext_in_predicate.__set_is_not_in(pred->is_not_in());
         if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
@@ -502,7 +494,8 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
                 return false;
             }
             TExtLiteral literal;
-            if (!to_ext_literal(slot_desc->type().type, const_cast<void *>(iter->get_value()), &literal)) {
+            if (!to_ext_literal(slot_desc->type().type, const_cast<void*>(iter->get_value()),
+                                &literal)) {
                 VLOG(1) << "get disjuncts fail: can't get literal, node_type="
                         << slot_desc->type().type;
                 return false;
@@ -536,9 +529,9 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
 }
 
 bool EsScanNode::is_match_func(Expr* conjunct) {
-    if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()
-        && conjunct->fn().name.function_name == "esquery") {
-            return true;
+    if (TExprNodeType::FUNCTION_CALL == conjunct->node_type() &&
+        conjunct->fn().name.function_name == "esquery") {
+        return true;
     }
     return false;
 }
@@ -681,11 +674,11 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
     params.__set_offset(_offsets[_scan_range_idx]);
 
     // getNext
-    const TNetworkAddress &address = _addresses[_scan_range_idx];
+    const TNetworkAddress& address = _addresses[_scan_range_idx];
 #ifndef BE_TEST
     try {
         Status create_client_status;
-        ExtDataSourceServiceClientCache *client_cache = _env->extdatasource_client_cache();
+        ExtDataSourceServiceClientCache* client_cache = _env->extdatasource_client_cache();
         ExtDataSourceServiceConnection client(client_cache, address, 10000, &create_client_status);
         if (!create_client_status.ok()) {
             LOG(WARNING) << "es create client error: scan_range_idx=" << _scan_range_idx
@@ -699,16 +692,14 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
             client->getNext(result, params);
         } catch (apache::thrift::transport::TTransportException& e) {
             std::stringstream ss;
-            ss << "es get_next error: scan_range_idx=" << _scan_range_idx
-               << ", msg=" << e.what();
+            ss << "es get_next error: scan_range_idx=" << _scan_range_idx << ", msg=" << e.what();
             LOG(WARNING) << ss.str();
             RETURN_IF_ERROR(client.reopen());
             return Status::ThriftRpcError(ss.str());
         }
-    } catch (apache::thrift::TException &e) {
+    } catch (apache::thrift::TException& e) {
         std::stringstream ss;
-        ss << "es get_next error: scan_range_idx=" << _scan_range_idx
-           << ", msg=" << e.what();
+        ss << "es get_next error: scan_range_idx=" << _scan_range_idx << ", msg=" << e.what();
         LOG(WARNING) << ss.str();
         return Status::ThriftRpcError(ss.str());
     }
@@ -738,8 +729,7 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
     Status get_next_status(result.status);
     if (!get_next_status.ok()) {
         LOG(WARNING) << "es get_next error: scan_range_idx=" << _scan_range_idx
-                     << ", address=" << address
-                     << ", msg=" << get_next_status.get_error_msg();
+                     << ", address=" << address << ", msg=" << get_next_status.get_error_msg();
         return get_next_status;
     }
     if (!result.__isset.rows || !result.rows.__isset.num_rows) {
@@ -754,123 +744,132 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
 }
 
 Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
-                                   const vector<TExtColumnData>& cols, int row_idx,
-                                   vector<int>& cols_next_val_idx) {
-  tuple->init(_tuple_desc->byte_size());
+                                   const std::vector<TExtColumnData>& cols, int row_idx,
+                                   std::vector<int>& cols_next_val_idx) {
+    tuple->init(_tuple_desc->byte_size());
 
-  for (int i = 0; i < _tuple_desc->slots().size(); ++i) {
-    const SlotDescriptor* slot_desc = _tuple_desc->slots()[i];
+    for (int i = 0; i < _tuple_desc->slots().size(); ++i) {
+        const SlotDescriptor* slot_desc = _tuple_desc->slots()[i];
 
-    if (!slot_desc->is_materialized()) {
-        continue;
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+
+        void* slot = tuple->get_slot(slot_desc->tuple_offset());
+        const TExtColumnData& col = cols[i];
+
+        if (col.is_null[row_idx]) {
+            tuple->set_null(slot_desc->null_indicator_offset());
+            continue;
+        } else {
+            tuple->set_not_null(slot_desc->null_indicator_offset());
+        }
+
+        int val_idx = cols_next_val_idx[i]++;
+        switch (slot_desc->type().type) {
+        case TYPE_CHAR:
+        case TYPE_VARCHAR: {
+            if (val_idx >= col.string_vals.size()) {
+                return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "STRING"));
+            }
+            const string& val = col.string_vals[val_idx];
+            size_t val_size = val.size();
+            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
+            if (UNLIKELY(buffer == NULL)) {
+                std::string details = strings::Substitute(
+                        ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow", val_size, "string slot");
+                return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, val_size);
+            }
+            memcpy(buffer, val.data(), val_size);
+            reinterpret_cast<StringValue*>(slot)->ptr = buffer;
+            reinterpret_cast<StringValue*>(slot)->len = val_size;
+            break;
+        }
+        case TYPE_TINYINT:
+            if (val_idx >= col.byte_vals.size()) {
+                return Status::InternalError(
+                        strings::Substitute(ERROR_INVALID_COL_DATA, "TINYINT"));
+            }
+            *reinterpret_cast<int8_t*>(slot) = col.byte_vals[val_idx];
+            break;
+        case TYPE_SMALLINT:
+            if (val_idx >= col.short_vals.size()) {
+                return Status::InternalError(
+                        strings::Substitute(ERROR_INVALID_COL_DATA, "SMALLINT"));
+            }
+            *reinterpret_cast<int16_t*>(slot) = col.short_vals[val_idx];
+            break;
+        case TYPE_INT:
+            if (val_idx >= col.int_vals.size()) {
+                return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "INT"));
+            }
+            *reinterpret_cast<int32_t*>(slot) = col.int_vals[val_idx];
+            break;
+        case TYPE_BIGINT:
+            if (val_idx >= col.long_vals.size()) {
+                return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "BIGINT"));
+            }
+            *reinterpret_cast<int64_t*>(slot) = col.long_vals[val_idx];
+            break;
+        case TYPE_LARGEINT:
+            if (val_idx >= col.long_vals.size()) {
+                return Status::InternalError(
+                        strings::Substitute(ERROR_INVALID_COL_DATA, "LARGEINT"));
+            }
+            *reinterpret_cast<int128_t*>(slot) = col.long_vals[val_idx];
+            break;
+        case TYPE_DOUBLE:
+            if (val_idx >= col.double_vals.size()) {
+                return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "DOUBLE"));
+            }
+            *reinterpret_cast<double*>(slot) = col.double_vals[val_idx];
+            break;
+        case TYPE_FLOAT:
+            if (val_idx >= col.double_vals.size()) {
+                return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "FLOAT"));
+            }
+            *reinterpret_cast<float*>(slot) = col.double_vals[val_idx];
+            break;
+        case TYPE_BOOLEAN:
+            if (val_idx >= col.bool_vals.size()) {
+                return Status::InternalError(
+                        strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
+            }
+            *reinterpret_cast<int8_t*>(slot) = col.bool_vals[val_idx];
+            break;
+        case TYPE_DATE:
+            if (val_idx >= col.long_vals.size() ||
+                !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.long_vals[val_idx],
+                                                                       "+08:00")) {
+                return Status::InternalError(
+                        strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
+            }
+            reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
+            break;
+        case TYPE_DATETIME: {
+            if (val_idx >= col.long_vals.size() ||
+                !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.long_vals[val_idx],
+                                                                       "+08:00")) {
+                return Status::InternalError(
+                        strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
+            }
+            reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
+            break;
+        }
+        case TYPE_DECIMAL: {
+            if (val_idx >= col.binary_vals.size()) {
+                return Status::InternalError(
+                        strings::Substitute(ERROR_INVALID_COL_DATA, "DECIMAL"));
+            }
+            const string& val = col.binary_vals[val_idx];
+            *reinterpret_cast<DecimalValue*>(slot) = *reinterpret_cast<const DecimalValue*>(&val);
+            break;
+        }
+        default:
+            DCHECK(false);
+        }
     }
-
-    void* slot = tuple->get_slot(slot_desc->tuple_offset());
-    const TExtColumnData& col = cols[i];
-
-    if (col.is_null[row_idx]) {
-      tuple->set_null(slot_desc->null_indicator_offset());
-      continue;
-    } else {
-      tuple->set_not_null(slot_desc->null_indicator_offset());
-    }
-
-    int val_idx = cols_next_val_idx[i]++;
-    switch (slot_desc->type().type) {
-      case TYPE_CHAR:
-      case TYPE_VARCHAR: {
-          if (val_idx >= col.string_vals.size()) {
-            return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "STRING"));
-          }
-          const string& val = col.string_vals[val_idx];
-          size_t val_size = val.size();
-          char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
-          if (UNLIKELY(buffer == NULL)) {
-            string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
-                val_size, "string slot");
-            return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, val_size);
-          }
-          memcpy(buffer, val.data(), val_size);
-          reinterpret_cast<StringValue*>(slot)->ptr = buffer;
-          reinterpret_cast<StringValue*>(slot)->len = val_size;
-          break;
-        }
-      case TYPE_TINYINT:
-        if (val_idx >= col.byte_vals.size()) {
-          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "TINYINT"));
-        }
-        *reinterpret_cast<int8_t*>(slot) = col.byte_vals[val_idx];
-        break;
-      case TYPE_SMALLINT:
-        if (val_idx >= col.short_vals.size()) {
-          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "SMALLINT"));
-        }
-        *reinterpret_cast<int16_t*>(slot) = col.short_vals[val_idx];
-        break;
-      case TYPE_INT:
-        if (val_idx >= col.int_vals.size()) {
-          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "INT"));
-        }
-        *reinterpret_cast<int32_t*>(slot) = col.int_vals[val_idx];
-        break;
-      case TYPE_BIGINT:
-        if (val_idx >= col.long_vals.size()) {
-          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "BIGINT"));
-        }
-        *reinterpret_cast<int64_t*>(slot) = col.long_vals[val_idx];
-        break;
-      case TYPE_LARGEINT:
-        if (val_idx >= col.long_vals.size()) {
-          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "LARGEINT"));
-        }
-        *reinterpret_cast<int128_t*>(slot) = col.long_vals[val_idx];
-        break;
-      case TYPE_DOUBLE:
-        if (val_idx >= col.double_vals.size()) {
-          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "DOUBLE"));
-        }
-        *reinterpret_cast<double*>(slot) = col.double_vals[val_idx];
-        break;
-      case TYPE_FLOAT:
-        if (val_idx >= col.double_vals.size()) {
-          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "FLOAT"));
-        }
-        *reinterpret_cast<float*>(slot) = col.double_vals[val_idx];
-        break;
-      case TYPE_BOOLEAN:
-        if (val_idx >= col.bool_vals.size()) {
-          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
-        }
-        *reinterpret_cast<int8_t*>(slot) = col.bool_vals[val_idx];
-        break;
-      case TYPE_DATE:
-        if (val_idx >= col.long_vals.size() ||
-            !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.long_vals[val_idx], "+08:00")) {
-          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATE"));
-        }
-        reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
-        break;
-      case TYPE_DATETIME: {
-        if (val_idx >= col.long_vals.size() ||
-            !reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.long_vals[val_idx], "+08:00")) {
-          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
-        }
-        reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
-        break;
-      }
-      case TYPE_DECIMAL: {
-        if (val_idx >= col.binary_vals.size()) {
-          return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "DECIMAL"));
-        }
-        const string& val = col.binary_vals[val_idx];
-        *reinterpret_cast<DecimalValue*>(slot) = *reinterpret_cast<const DecimalValue*>(&val);
-        break;
-      }
-      default:
-        DCHECK(false);
-    }
-  }
-  return Status::OK();
+    return Status::OK();
 }
 
-}
+} // namespace doris

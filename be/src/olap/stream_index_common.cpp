@@ -22,12 +22,8 @@
 
 namespace doris {
 
-ColumnStatistics::ColumnStatistics() : 
-        _minimum(NULL),
-        _maximum(NULL),
-         _ignored(true),
-        _null_supported(false) {
-}
+ColumnStatistics::ColumnStatistics()
+        : _minimum(NULL), _maximum(NULL), _ignored(true), _null_supported(false) {}
 
 ColumnStatistics::~ColumnStatistics() {
     SAFE_DELETE(_minimum);
@@ -39,10 +35,8 @@ OLAPStatus ColumnStatistics::init(const FieldType& type, bool null_supported) {
     SAFE_DELETE(_maximum);
 
     _null_supported = null_supported;
-    if (type == OLAP_FIELD_TYPE_CHAR
-            || type == OLAP_FIELD_TYPE_VARCHAR
-            || type == OLAP_FIELD_TYPE_HLL
-            || type == OLAP_FIELD_TYPE_OBJECT) {
+    if (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_VARCHAR ||
+        type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT) {
         _ignored = true;
     } else {
         // 当数据类型为 String和varchar或是未知类型时，实际上不会有统计信息。
@@ -128,4 +122,4 @@ OLAPStatus ColumnStatistics::write_to_buffer(char* buffer, size_t size) {
     return OLAP_SUCCESS;
 }
 
-}  // namespace doris
+} // namespace doris

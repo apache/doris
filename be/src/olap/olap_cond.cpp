@@ -17,10 +17,11 @@
 
 #include "olap/olap_cond.h"
 
+#include <thrift/protocol/TDebugProtocol.h>
+
 #include <cstring>
 #include <string>
 #include <utility>
-#include <thrift/protocol/TDebugProtocol.h>
 
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -56,7 +57,7 @@ using doris::ColumnStatistics;
 
 namespace doris {
 
-#define MAX_OP_STR_LENGTH  3
+#define MAX_OP_STR_LENGTH 3
 
 static CondOp parse_op_type(const string& op) {
     if (op.size() > MAX_OP_STR_LENGTH) {
@@ -86,8 +87,8 @@ static CondOp parse_op_type(const string& op) {
     return OP_NULL;
 }
 
-Cond::Cond() : op(OP_NULL), operand_field(nullptr), min_value_field(nullptr), max_value_field(nullptr) {
-}
+Cond::Cond()
+        : op(OP_NULL), operand_field(nullptr), min_value_field(nullptr), max_value_field(nullptr) {}
 
 Cond::~Cond() {
     delete operand_field;
@@ -161,9 +162,9 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
             auto insert_result = operand_set.insert(f.get());
             if (!insert_result.second) {
                 LOG(WARNING) << "Duplicate operand in in-predicate.[condition=" << operand << "]";
-                // Duplicated, let unique_ptr delete field
+                // Duplicated, let std::unique_ptr delete field
             } else {
-                // Normal case, release this unique_ptr
+                // Normal case, release this std::unique_ptr
                 f.release();
             }
         }
@@ -192,13 +193,13 @@ bool Cond::eval(const RowCursorCell& cell) const {
     case OP_GE:
         return operand_field->field()->compare_cell(*operand_field, cell) <= 0;
     case OP_IN: {
-        WrapperField wrapperField(const_cast<Field *> (min_value_field->field()), cell);
+        WrapperField wrapperField(const_cast<Field*>(min_value_field->field()), cell);
         auto ret = operand_set.find(&wrapperField) != operand_set.end();
         wrapperField.release_field();
         return ret;
     }
     case OP_NOT_IN: {
-        WrapperField wrapperField(const_cast<Field *> (min_value_field->field()), cell);
+        WrapperField wrapperField(const_cast<Field*>(min_value_field->field()), cell);
         auto ret = operand_set.find(&wrapperField) == operand_set.end();
         wrapperField.release_field();
         return ret;
@@ -224,12 +225,11 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
     }
     switch (op) {
     case OP_EQ: {
-        return operand_field->cmp(statistic.first) >= 0
-               && operand_field->cmp(statistic.second) <= 0;
+        return operand_field->cmp(statistic.first) >= 0 &&
+               operand_field->cmp(statistic.second) <= 0;
     }
     case OP_NE: {
-        return operand_field->cmp(statistic.first) < 0
-               || operand_field->cmp(statistic.second) > 0;
+        return operand_field->cmp(statistic.first) < 0 || operand_field->cmp(statistic.second) > 0;
     }
     case OP_LT: {
         return operand_field->cmp(statistic.first) > 0;
@@ -244,10 +244,12 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
         return operand_field->cmp(statistic.second) <= 0;
     }
     case OP_IN: {
-        return min_value_field->cmp(statistic.second) <= 0 && max_value_field->cmp(statistic.first) >= 0;
+        return min_value_field->cmp(statistic.second) <= 0 &&
+               max_value_field->cmp(statistic.first) >= 0;
     }
     case OP_NOT_IN: {
-        return min_value_field->cmp(statistic.second) > 0 || max_value_field->cmp(statistic.first) < 0;
+        return min_value_field->cmp(statistic.second) > 0 ||
+               max_value_field->cmp(statistic.first) < 0;
     }
     case OP_IS: {
         if (operand_field->is_null()) {
@@ -265,7 +267,7 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
 
 int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
     //通过单列上的单个删除条件对version进行过滤。
-    
+
     // When we apply column statistics, stat maybe null.
     if (stat.first == nullptr || stat.second == nullptr) {
         //for string type, the column statistics may be not recorded in block level
@@ -284,11 +286,9 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
     int ret = DEL_NOT_SATISFIED;
     switch (op) {
     case OP_EQ: {
-        if (operand_field->cmp(stat.first) == 0
-            && operand_field->cmp(stat.second) == 0){
+        if (operand_field->cmp(stat.first) == 0 && operand_field->cmp(stat.second) == 0) {
             ret = DEL_SATISFIED;
-        } else if (operand_field->cmp(stat.first) >= 0
-            && operand_field->cmp(stat.second) <= 0) {
+        } else if (operand_field->cmp(stat.first) >= 0 && operand_field->cmp(stat.second) <= 0) {
             ret = DEL_PARTIAL_SATISFIED;
         } else {
             ret = DEL_NOT_SATISFIED;
@@ -296,11 +296,9 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
         return ret;
     }
     case OP_NE: {
-        if (operand_field->cmp(stat.first) == 0
-            && operand_field->cmp(stat.second) == 0) {
+        if (operand_field->cmp(stat.first) == 0 && operand_field->cmp(stat.second) == 0) {
             ret = DEL_NOT_SATISFIED;
-        } else if (operand_field->cmp(stat.first) >= 0
-            && operand_field->cmp(stat.second) <= 0) {
+        } else if (operand_field->cmp(stat.first) >= 0 && operand_field->cmp(stat.second) <= 0) {
             ret = DEL_PARTIAL_SATISFIED;
         } else {
             ret = DEL_SATISFIED;
@@ -425,7 +423,9 @@ bool Cond::eval(const BloomFilter& bf) const {
             } else {
                 existed = bf.test_bytes((*it)->ptr(), (*it)->size());
             }
-            if (existed) { return true; }
+            if (existed) {
+                return true;
+            }
         }
         return false;
     }
@@ -465,7 +465,9 @@ bool Cond::eval(const segment_v2::BloomFilter* bf) const {
             } else {
                 existed = bf->test_bytes((*it)->ptr(), (*it)->size());
             }
-            if (existed) { return true; }
+            if (existed) {
+                return true;
+            }
         }
         return false;
     }
@@ -510,7 +512,7 @@ bool CondColumn::eval(const RowCursor& row) const {
     return true;
 }
 
-bool CondColumn::eval(const std::pair<WrapperField*, WrapperField*> &statistic) const {
+bool CondColumn::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const {
     //通过一列上的所有查询条件对version进行过滤
     for (auto& each_cond : _conds) {
         if (!each_cond->eval(statistic)) {
@@ -532,7 +534,7 @@ int CondColumn::del_eval(const std::pair<WrapperField*, WrapperField*>& statisti
     */
     int ret = DEL_NOT_SATISFIED;
     bool del_partial_satisfied = false;
-    bool del_not_satisfied = false; 
+    bool del_not_satisfied = false;
     for (auto& each_cond : _conds) {
         int del_ret = each_cond->del_eval(statistic);
         if (DEL_SATISFIED == del_ret) {
@@ -588,8 +590,7 @@ OLAPStatus Conditions::append_condition(const TCondition& tcond) {
 
     // Skip column which is non-key, or whose type is string or float
     const TabletColumn& column = _schema->column(index);
-    if (column.type() == OLAP_FIELD_TYPE_DOUBLE
-            || column.type() == OLAP_FIELD_TYPE_FLOAT) {
+    if (column.type() == OLAP_FIELD_TYPE_DOUBLE || column.type() == OLAP_FIELD_TYPE_FLOAT) {
         return OLAP_SUCCESS;
     }
 
@@ -610,7 +611,7 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
     if (_columns.empty()) {
         return false;
     }
-    
+
     for (auto& each_cond : _columns) {
         if (_cond_column_is_key_or_duplicate(each_cond.second) && !each_cond.second->eval(row)) {
             return false;
@@ -618,8 +619,7 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
     }
 
     VLOG(3) << "Row meets the delete conditions. "
-            << "condition_count=" << _columns.size()
-            << ", row=" << row.to_string();
+            << "condition_count=" << _columns.size() << ", row=" << row.to_string();
     return true;
 }
 
@@ -629,7 +629,8 @@ bool Conditions::rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) c
     // and query predicates.
     for (auto& cond_it : _columns) {
         if (_cond_column_is_key_or_duplicate(cond_it.second)) {
-            if (cond_it.first < zone_maps.size() && !cond_it.second->eval(zone_maps.at(cond_it.first))) {
+            if (cond_it.first < zone_maps.size() &&
+                !cond_it.second->eval(zone_maps.at(cond_it.first))) {
                 return true;
             }
         }
@@ -659,8 +660,7 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
         */
         if (_cond_column_is_key_or_duplicate(cond_it.second) && cond_it.first > zone_maps.size()) {
             LOG(WARNING) << "where condition not equal column statistics size. "
-                         << "cond_id=" << cond_it.first
-                         << ", zone_map_size=" << zone_maps.size();
+                         << "cond_id=" << cond_it.first << ", zone_map_size=" << zone_maps.size();
             del_partial_satisfied = true;
             continue;
         }
@@ -696,5 +696,4 @@ CondColumn* Conditions::get_column(int32_t cid) const {
     return nullptr;
 }
 
-}  // namespace doris
-
+} // namespace doris

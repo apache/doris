@@ -15,42 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap_scanner.h"
+
 #include <cstring>
 #include <string>
 
 #include "gen_cpp/PaloInternalService_types.h"
-#include "olap_scanner.h"
+#include "olap/field.h"
 #include "olap_scan_node.h"
 #include "olap_utils.h"
-#include "olap/field.h"
-#include "service/backend_options.h"
 #include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/runtime_state.h"
+#include "service/backend_options.h"
+#include "util/doris_metrics.h"
 #include "util/mem_util.hpp"
 #include "util/network_util.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 
-OlapScanner::OlapScanner(
-        RuntimeState* runtime_state,
-        OlapScanNode* parent,
-        bool aggregation,
-        bool need_agg_finalize,
-        const TPaloScanRange& scan_range,
-        const std::vector<OlapScanRange*>& key_ranges)
-            : _runtime_state(runtime_state),
-            _parent(parent),
-            _tuple_desc(parent->_tuple_desc),
-            _profile(parent->runtime_profile()),
-            _string_slots(parent->_string_slots),
-            _is_open(false),
-            _aggregation(aggregation),
-            _need_agg_finalize(need_agg_finalize),
-            _tuple_idx(parent->_tuple_idx),
-            _direct_conjunct_size(parent->_direct_conjunct_size) {
+OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
+                         bool need_agg_finalize, const TPaloScanRange& scan_range,
+                         const std::vector<OlapScanRange*>& key_ranges)
+        : _runtime_state(runtime_state),
+          _parent(parent),
+          _tuple_desc(parent->_tuple_desc),
+          _profile(parent->runtime_profile()),
+          _string_slots(parent->_string_slots),
+          _is_open(false),
+          _aggregation(aggregation),
+          _need_agg_finalize(need_agg_finalize),
+          _tuple_idx(parent->_tuple_idx),
+          _direct_conjunct_size(parent->_direct_conjunct_size) {
     _reader.reset(new Reader());
     DCHECK(_reader.get() != NULL);
 
@@ -58,26 +55,24 @@ OlapScanner::OlapScanner(
     _rows_pushed_cond_filtered_counter = parent->_rows_pushed_cond_filtered_counter;
 }
 
-OlapScanner::~OlapScanner() {
-}
+OlapScanner::~OlapScanner() {}
 
-Status OlapScanner::prepare(
-        const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
-        const std::vector<TCondition>& filters, const std::vector<TCondition>& is_nulls) {
+Status OlapScanner::prepare(const TPaloScanRange& scan_range,
+                            const std::vector<OlapScanRange*>& key_ranges,
+                            const std::vector<TCondition>& filters,
+                            const std::vector<TCondition>& is_nulls) {
     // Get olap table
     TTabletId tablet_id = scan_range.tablet_id;
-    SchemaHash schema_hash =
-        strtoul(scan_range.schema_hash.c_str(), nullptr, 10);
-    _version =
-        strtoul(scan_range.version.c_str(), nullptr, 10);
+    SchemaHash schema_hash = strtoul(scan_range.schema_hash.c_str(), nullptr, 10);
+    _version = strtoul(scan_range.version.c_str(), nullptr, 10);
     {
         std::string err;
-        _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash, true, &err);
+        _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash,
+                                                                          true, &err);
         if (_tablet.get() == nullptr) {
             std::stringstream ss;
             ss << "failed to get tablet. tablet_id=" << tablet_id
-               << ", with schema_hash=" << schema_hash
-               << ", reason=" << err;
+               << ", with schema_hash=" << schema_hash << ", reason=" << err;
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
@@ -95,12 +90,14 @@ Status OlapScanner::prepare(
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             Version rd_version(0, _version);
-            OLAPStatus acquire_reader_st = _tablet->capture_rs_readers(rd_version, &_params.rs_readers);
+            OLAPStatus acquire_reader_st =
+                    _tablet->capture_rs_readers(rd_version, &_params.rs_readers);
             if (acquire_reader_st != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                 std::stringstream ss;
                 ss << "failed to initialize storage reader. tablet=" << _tablet->full_name()
-                << ", res=" << acquire_reader_st << ", backend=" << BackendOptions::get_localhost();
+                   << ", res=" << acquire_reader_st
+                   << ", backend=" << BackendOptions::get_localhost();
                 return Status::InternalError(ss.str().c_str());
             }
         }
@@ -133,10 +130,9 @@ Status OlapScanner::open() {
 }
 
 // it will be called under tablet read lock because capture rs readers need
-Status OlapScanner::_init_params(
-        const std::vector<OlapScanRange*>& key_ranges,
-        const std::vector<TCondition>& filters,
-        const std::vector<TCondition>& is_nulls) {
+Status OlapScanner::_init_params(const std::vector<OlapScanRange*>& key_ranges,
+                                 const std::vector<TCondition>& filters,
+                                 const std::vector<TCondition>& is_nulls) {
     RETURN_IF_ERROR(_init_return_columns());
 
     _params.tablet = _tablet;
@@ -154,7 +150,7 @@ Status OlapScanner::_init_params(
     // Range
     for (auto key_range : key_ranges) {
         if (key_range->begin_scan_range.size() == 1 &&
-                key_range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
+            key_range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
             continue;
         }
 
@@ -212,7 +208,7 @@ Status OlapScanner::_init_return_columns() {
         int32_t index = _tablet->field_index(slot->col_name());
         if (index < 0) {
             std::stringstream ss;
-            ss << "field name is invalid. field="  << slot->col_name();
+            ss << "field name is invalid. field=" << slot->col_name();
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
@@ -223,7 +219,8 @@ Status OlapScanner::_init_return_columns() {
     if (_tablet->tablet_schema().has_sequence_col()) {
         bool has_replace_col = false;
         for (auto col : _return_columns) {
-            if (_tablet->tablet_schema().column(col).aggregation() == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
+            if (_tablet->tablet_schema().column(col).aggregation() ==
+                FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
                 has_replace_col = true;
                 break;
             }
@@ -239,13 +236,12 @@ Status OlapScanner::_init_return_columns() {
     return Status::OK();
 }
 
-Status OlapScanner::get_batch(
-        RuntimeState* state, RowBatch* batch, bool* eof) {
+Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     // 2. Allocate Row's Tuple buf
-    uint8_t *tuple_buf = batch->tuple_data_pool()->allocate(
-        state->batch_size() * _tuple_desc->byte_size());
+    uint8_t* tuple_buf =
+            batch->tuple_data_pool()->allocate(state->batch_size() * _tuple_desc->byte_size());
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
-    Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
+    Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
     auto tracker = MemTracker::CreateTracker(state->fragment_mem_tracker()->limit(), "OlapScanner");
     std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
@@ -260,12 +256,13 @@ Status OlapScanner::get_batch(
                 break;
             }
             // Read one row from reader
-            auto res = _reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(), batch->agg_object_pool(), eof);
+            auto res = _reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(),
+                                                          batch->agg_object_pool(), eof);
             if (res != OLAP_SUCCESS) {
                 std::stringstream ss;
                 ss << "Internal Error: read storage fail. res=" << res
-                    << ", tablet=" << _tablet->full_name()
-                    << ", backend=" << BackendOptions::get_localhost();
+                   << ", tablet=" << _tablet->full_name()
+                   << ", backend=" << BackendOptions::get_localhost();
                 return Status::InternalError(ss.str());
             }
             // If we reach end of this scanner, break
@@ -307,9 +304,9 @@ Status OlapScanner::get_batch(
 
                 // 3.5.2 Using pushdown conjuncts to filter data
                 if (_use_pushdown_conjuncts) {
-                    if (!ExecNode::eval_conjuncts(
-                            &_conjunct_ctxs[_direct_conjunct_size],
-                            _conjunct_ctxs.size() - _direct_conjunct_size, row)) {
+                    if (!ExecNode::eval_conjuncts(&_conjunct_ctxs[_direct_conjunct_size],
+                                                  _conjunct_ctxs.size() - _direct_conjunct_size,
+                                                  row)) {
                         // check pushdown conjuncts fail then clear tuple for reuse
                         // make sure to reset null indicators since we're overwriting
                         // the tuple assembled for the previous row
@@ -347,14 +344,16 @@ Status OlapScanner::get_batch(
                 if (_use_pushdown_conjuncts) {
                     // check this rate after
                     if (_num_rows_read > 32768) {
-                        int32_t pushdown_return_rate
-                            = _num_rows_read * 100 / (_num_rows_read + _num_rows_pushed_cond_filtered);
-                        if (pushdown_return_rate > config::doris_max_pushdown_conjuncts_return_rate) {
+                        int32_t pushdown_return_rate =
+                                _num_rows_read * 100 /
+                                (_num_rows_read + _num_rows_pushed_cond_filtered);
+                        if (pushdown_return_rate >
+                            config::doris_max_pushdown_conjuncts_return_rate) {
                             _use_pushdown_conjuncts = false;
                             VLOG(2) << "Stop Using PushDown Conjuncts. "
-                                << "PushDownReturnRate: " << pushdown_return_rate << "%"
-                                << " MaxPushDownReturnRate: "
-                                << config::doris_max_pushdown_conjuncts_return_rate << "%";
+                                    << "PushDownReturnRate: " << pushdown_return_rate << "%"
+                                    << " MaxPushDownReturnRate: "
+                                    << config::doris_max_pushdown_conjuncts_return_rate << "%";
                         }
                     }
                 }
@@ -383,7 +382,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         switch (slot_desc->type().type) {
         case TYPE_CHAR: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);
-            StringValue *slot = tuple->get_string_slot(slot_desc->tuple_offset());
+            StringValue* slot = tuple->get_string_slot(slot_desc->tuple_offset());
             slot->ptr = slice->data;
             slot->len = strnlen(slot->ptr, slice->size);
             break;
@@ -392,13 +391,13 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         case TYPE_OBJECT:
         case TYPE_HLL: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);
-            StringValue *slot = tuple->get_string_slot(slot_desc->tuple_offset());
+            StringValue* slot = tuple->get_string_slot(slot_desc->tuple_offset());
             slot->ptr = slice->data;
             slot->len = slice->size;
             break;
         }
         case TYPE_DECIMAL: {
-            DecimalValue *slot = tuple->get_decimal_slot(slot_desc->tuple_offset());
+            DecimalValue* slot = tuple->get_decimal_slot(slot_desc->tuple_offset());
 
             // TODO(lingbin): should remove this assign, use set member function
             int64_t int_value = *(int64_t*)(ptr);
@@ -407,7 +406,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             break;
         }
         case TYPE_DECIMALV2: {
-            DecimalV2Value *slot = tuple->get_decimalv2_slot(slot_desc->tuple_offset());
+            DecimalV2Value* slot = tuple->get_decimalv2_slot(slot_desc->tuple_offset());
 
             int64_t int_value = *(int64_t*)(ptr);
             int32_t frac_value = *(int32_t*)(ptr + sizeof(int64_t));
@@ -417,7 +416,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             break;
         }
         case TYPE_DATETIME: {
-            DateTimeValue *slot = tuple->get_datetime_slot(slot_desc->tuple_offset());
+            DateTimeValue* slot = tuple->get_datetime_slot(slot_desc->tuple_offset());
             uint64_t value = *reinterpret_cast<uint64_t*>(ptr);
             if (!slot->from_olap_datetime(value)) {
                 tuple->set_null(slot_desc->null_indicator_offset());
@@ -425,7 +424,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             break;
         }
         case TYPE_DATE: {
-            DateTimeValue *slot = tuple->get_datetime_slot(slot_desc->tuple_offset());
+            DateTimeValue* slot = tuple->get_datetime_slot(slot_desc->tuple_offset());
             uint64_t value = 0;
             value = *(unsigned char*)(ptr + 2);
             value <<= 8;
@@ -438,7 +437,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             break;
         }
         default: {
-            void *slot = tuple->get_slot(slot_desc->tuple_offset());
+            void* slot = tuple->get_slot(slot_desc->tuple_offset());
             memory_copy(slot, ptr, len);
             break;
         }
@@ -476,8 +475,9 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_stats_filtered_counter, _reader->stats().rows_stats_filtered);
     COUNTER_UPDATE(_parent->_bf_filtered_counter, _reader->stats().rows_bf_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, _reader->stats().rows_del_filtered);
-    COUNTER_UPDATE(_parent->_conditions_filtered_counter, _reader->stats().rows_conditions_filtered);
-    
+    COUNTER_UPDATE(_parent->_conditions_filtered_counter,
+                   _reader->stats().rows_conditions_filtered);
+
     COUNTER_UPDATE(_parent->_key_range_filtered_counter, _reader->stats().rows_key_range_filtered);
 
     COUNTER_UPDATE(_parent->_index_load_timer, _reader->stats().index_load_ns);
@@ -485,7 +485,8 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_total_pages_num_counter, _reader->stats().total_pages_num);
     COUNTER_UPDATE(_parent->_cached_pages_num_counter, _reader->stats().cached_pages_num);
 
-    COUNTER_UPDATE(_parent->_bitmap_index_filter_counter, _reader->stats().rows_bitmap_index_filtered);
+    COUNTER_UPDATE(_parent->_bitmap_index_filter_counter,
+                   _reader->stats().rows_bitmap_index_filtered);
     COUNTER_UPDATE(_parent->_bitmap_index_filter_timer, _reader->stats().bitmap_index_filter_timer);
     COUNTER_UPDATE(_parent->_block_seek_counter, _reader->stats().block_seek_num);
 
@@ -497,6 +498,7 @@ void OlapScanner::update_counter() {
 
     _tablet->query_scan_bytes->increment(_compressed_bytes_read);
     _tablet->query_scan_rows->increment(_raw_rows_read);
+    _tablet->query_scan_count->increment(1);
 
     _has_update_counter = true;
 }

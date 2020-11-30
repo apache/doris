@@ -140,7 +140,15 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `be_port`
 
+* Type: int32
+* Description: The port of the thrift server on BE which used to receive requests from FE
+* Default value: 9060
+
 ### `be_service_threads`
+
+* Type: int32
+* Description: The number of execution threads of the thrift server service on BE which represents the number of threads that can be used to execute FE requests.
+* Default value: 64
 
 ### `brpc_max_body_size`
 
@@ -168,9 +176,18 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `brpc_port`
 
+* Type: int32
+* Description: The port of BRPC on BE, used for communication between BEs
+* Default value: 9060
+
 ### `buffer_pool_clean_pages_limit`
 
 ### `buffer_pool_limit`
+* Type: string
+* Description: The largest allocatable memory of the buffer pool
+* Default value: 80G
+
+The maximum amount of memory available in the BE buffer pool. The buffer pool is a new memory management structure of BE, which manages the memory by the buffer page and enables spill data to disk. The memory for all concurrent queries will be allocated from the buffer pool. The current buffer pool only works on **AggregationNode** and **ExchangeNode**.
 
 ### `check_consistency_worker_count`
 
@@ -182,11 +199,38 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `cluster_id`
 
+* Type: int32
+* Description: Configure the cluster id to which the BE belongs.
+* Default value: -1
+
+This value is usually delivered by the FE to the BE by the heartbeat, no need to configure. When it is confirmed that a BE belongs to a certain Drois cluster, it can be configured. The cluster_id file under the data directory needs to be modified to make sure same as this parament.
+
 ### `column_dictionary_key_ratio_threshold`
 
 ### `column_dictionary_key_size_threshold`
 
+### `compaction_tablet_compaction_score_factor`
+
+* Type: int32
+* Description: Coefficient for compaction score when calculating tablet score to find a tablet for compaction.
+* Default value: 1
+
+### `compaction_tablet_scan_frequency_factor`
+
+* Type: int32
+* Description: Coefficient for tablet scan frequency when calculating tablet score to find a tablet for compaction.
+* Default value: 0
+
+Tablet scan frequency can be taken into consideration when selecting an tablet for compaction and preferentially do compaction for those tablets which are scanned frequently during a latest period of time at the present.
+Tablet score can be calculated like this:
+
+tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
+
 ### `compress_rowbatches`
+
+* Type: bool
+* Description: enable to use Snappy compression algorithm for data compression when serializing RowBatch
+* Default value: true
 
 ### `create_tablet_worker_count`
 
@@ -262,9 +306,19 @@ In some deployment environments, the `conf/` directory may be overwritten due to
 
 ### `default_num_rows_per_column_file_block`
 
+* Type: int32
+* Description: Configure how many rows of data are contained in a single RowBlock.
+* Default value: 1024
+
 ### `default_query_options`
 
 ### `default_rowset_type`
+
+* Type: string
+* Description: Identifies the storage format selected by BE by default. The configurable parameters are: "**ALPHA**", "**BETA**". Mainly play the following two roles
+1. When the storage_format of the table is set to Default, select the storage format of BE through this configuration.
+2. Select the storage format of when BE performing Compaction
+* Default value: BETA
 
 ### `delete_worker_count`
 
@@ -272,11 +326,19 @@ In some deployment environments, the `conf/` directory may be overwritten due to
 
 ### `disable_storage_page_cache`
 
+* Type: bool
+* Description: Disable to use page cache for index caching, this configuration only takes effect in BETA storage format, usually it is recommended to false
+* Default value: false
+
 ### `disk_stat_monitor_interval`
 
 ### `doris_cgroups`
 
 ### `doris_max_pushdown_conjuncts_return_rate`
+
+* Type: int32
+* Description: When BE performs HashJoin, it will adopt a dynamic partitioning method to push the join condition to OlapScanner. When the data scanned by OlapScanner is larger than 32768 rows, BE will check the filter condition. If the filter rate of the filter condition is lower than this configuration, Doris will stop using the dynamic partition clipping condition for data filtering.
+* Default value: 90
 
 ### `doris_max_scan_key_num`
 
@@ -288,13 +350,29 @@ When the concurrency cannot be improved in high concurrency scenarios, try to re
 
 ### `doris_scan_range_row_count`
 
+* Type: int32
+* Description: When BE performs data scanning, it will split the same scanning range into multiple ScanRanges. This parameter represents the scan data range of each ScanRange. This parameter can limit the time that a single OlapScanner occupies the io thread.
+* Default value: 524288
+
 ### `doris_scanner_queue_size`
+
+* Type: int32
+* Description: The length of the RowBatch buffer queue between TransferThread and OlapScanner. When Doris performs data scanning, it is performed asynchronously. The Rowbatch scanned by OlapScanner will be placed in the scanner buffer queue, waiting for the upper TransferThread to take it away.
+* Default value: 1024
 
 ### `doris_scanner_row_num`
 
 ### `doris_scanner_thread_pool_queue_size`
 
+* Type: int32
+* Description: The queue length of the Scanner thread pool. In Doris' scanning tasks, each Scanner will be submitted as a thread task to the thread pool waiting to be scheduled, and after the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue. 
+* Default value: 102400
+
 ### `doris_scanner_thread_pool_thread_num`
+
+* Type: int32
+* Description: The number of threads in the Scanner thread pool. In Doris' scanning tasks, each Scanner will be submitted as a thread task to the thread pool to be scheduled. This parameter determines the size of the Scanner thread pool.
+* Default value: 48
 
 ### `download_low_speed_limit_kbps`
 
@@ -308,9 +386,20 @@ When the concurrency cannot be improved in high concurrency scenarios, try to re
 
 ### `enable_partitioned_aggregation`
 
+* Type: bool
+* Description: Whether the BE node implements the aggregation operation by PartitionAggregateNode, if false, AggregateNode will be executed to complete the aggregation. It is not recommended to set it to false in non-special demand scenarios.
+* Default value: true
+
 ### `enable_prefetch`
+* Type: bool
+* Description: When using PartitionedHashTable for aggregation and join calculations, whether to perform HashBuket prefetch. Recommended to be set to true
+* Default value: true
 
 ### `enable_quadratic_probing`
+
+* Type: bool
+* Description: When a Hash conflict occurs when using PartitionedHashTable, enable to use the square detection method to resolve the Hash conflict. If the value is false, linear detection is used to resolve the Hash conflict. For the square detection method, please refer to: [quadratic_probing](https://en.wikipedia.org/wiki/Quadratic_probing)
+* Default value: true
 
 ### `enable_system_metrics`
 
@@ -326,6 +415,10 @@ When the concurrency cannot be improved in high concurrency scenarios, try to re
 
 ### `exchg_node_buffer_size_bytes`
 
+* Type: int32
+* Description: The size of the Buffer queue of the ExchangeNode node, in bytes. After the amount of data sent from the Sender side is larger than the Buffer size of ExchangeNode, subsequent data sent will block until the Buffer frees up space for writing.
+* Default value: 10485760
+
 ### `file_descriptor_cache_capacity`
 
 ### `file_descriptor_cache_clean_interval`
@@ -339,8 +432,15 @@ When the concurrency cannot be improved in high concurrency scenarios, try to re
 ### `fragment_pool_thread_num`
 
 ### `heartbeat_service_port`
+* Type: int32
+* Description: Heartbeat service port (thrift) on BE, used to receive heartbeat from FE
+* Default value: 9050
 
 ### `heartbeat_service_thread_count`
+
+* Type: int32
+* Description: The number of threads that execute the heartbeat service on BE。 the default is 1, it is not recommended to modify
+* Default value: 1
 
 ### `ignore_broken_disk`
 
@@ -419,6 +519,10 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `max_percentage_of_error_disk`
 
+* Type: int32
+* Description: The storage engine allows the percentage of damaged hard disks to exist. After the damaged hard disk exceeds the changed ratio, BE will automatically exit.
+* Default value: 0
+
 ### `max_pushdown_conditions_per_column`
 
 * Type: int
@@ -445,6 +549,10 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `mem_limit`
 
+* Type: string
+* Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying to many the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
+* Default value: 80%
+
 ### `memory_limitation_per_thread_for_schema_change`
 
 ### `memory_maintenance_sleep_time_s`
@@ -469,6 +577,10 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `mmap_buffers`
 
 ### `num_cores`
+
+* Type: int32
+* Description: The number of CPU cores that BE can use. When the value is 0, BE will obtain the number of CPU cores of the machine from /proc/cpuinfo.
+* Default value: 0
 
 ### `num_disks`
 
@@ -496,6 +608,10 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `port`
 
+* Type: int32
+* Description: The port used in UT. Meaningless in the actual environment and can be ignored.
+* Default value: 20001
+
 ### `pprof_profile_dir`
 
 ### `priority_networks`
@@ -519,6 +635,10 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `query_scratch_dirs`
 
++ Type: string
++ Description: The directory selected by BE to store temporary data during spill to disk. which is similar to the storage path configuration, multiple directories are separated by ;.
++ Default value: ${DORIS_HOME}
+
 ### `read_size`
 
 ### `release_snapshot_worker_count`
@@ -535,6 +655,13 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `row_nums_check`
 
+### `row_step_for_compaction_merge_log`
+
+* Type: int64
+* Description: Merge log will be printed for each "row_step_for_compaction_merge_log" rows merged during compaction. If the value is set to 0, merge log will not be printed.
+* Default value: 0
+* Dynamically modify: true
+
 ### `scan_context_gc_interval_min`
 
 ### `scratch_dirs`
@@ -542,8 +669,15 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `serialize_batch`
 
 ### `sleep_five_seconds`
++ Type: int32
++ Description: Global variables, used for BE thread sleep for 5 seconds, should not be modified
++ Default value: 5
 
 ### `sleep_one_second`
+
++ Type: int32
++ Description: Global variables, used for BE thread sleep for 1 seconds, should not be modified
++ Default value: 1
 
 ### `small_file_dir`
 
@@ -562,6 +696,17 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `storage_page_cache_limit`
 
 ### `storage_root_path`
+
+* Type: string
+
+* Description: data root path, separate by ';'.you can specify the storage medium of each root path, HDD or SSD. you can add capacity limit at the end of each root path, seperate by ','
+eg: storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris
+
+    * 1./home/disk1/doris.HDD, capacity limit is 50GB, HDD;
+    * 2./home/disk2/doris.SSD, capacity limit is 1GB, SSD;
+    * 3./home/disk2/doris, capacity limit is disk capacity, HDD(default)
+
+* Default: ${DORIS_HOME}
 
 ### `storage_strict_check_incompatible_old_format`
 * Type: bool
@@ -598,6 +743,10 @@ Some data formats, such as JSON, cannot be split. Doris must read all the data i
 
 ### `sys_log_level`
 
+* Type: string
+* Description: Storage directory of BE log data
+* Default: ${DORIS_HOME}/log
+
 ### `sys_log_roll_mode`
 
 ### `sys_log_roll_num`
@@ -611,6 +760,12 @@ Some data formats, such as JSON, cannot be split. Doris must read all the data i
 ### `tablet_meta_checkpoint_min_interval_secs`
 
 ### `tablet_meta_checkpoint_min_new_rowsets_num`
+
+### `tablet_scan_frequency_time_node_interval_second`
+
+* Type: int64
+* Description: Time interval to record the metric 'query_scan_count' and timestamp in second for the purpose of  calculating tablet scan frequency during a latest period of time at the present.
+* Default: 300
 
 ### `tablet_stat_cache_update_interval_second`
 
@@ -646,6 +801,21 @@ If the system is found to be in a high-stress scenario and a large number of thr
 
 ### `thrift_rpc_timeout_ms`
 
+### `thrift_server_type_of_fe`
+
+This configuration indicates the service model used by FE's Thrift service. The type is string and is case-insensitive. This parameter needs to be consistent with the setting of fe's thrift_server_type parameter. Currently there are two values for this parameter, `THREADED` and `THREAD_POOL`.
+
+If the parameter is `THREADED`, the model is a non-blocking I/O model,
+
+If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
+
+### `total_permits_for_compaction_score`
+
+* Type: int64
+* Description: The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
+* Default: 10000
+* Dynamically modify: true
+
 ### `trash_file_expire_time_sec`
 
 ### `txn_commit_rpc_timeout_ms`
@@ -667,5 +837,9 @@ If the system is found to be in a high-stress scenario and a large number of thr
 ### `webserver_num_workers`
 
 ### `webserver_port`
+
+* Type: int32
+* Description: Service port of http server on BE
+* Default: 8040
 
 ### `write_buffer_size`

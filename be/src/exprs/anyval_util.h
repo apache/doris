@@ -18,12 +18,12 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_ANYVAL_UTIL_H
 #define DORIS_BE_SRC_QUERY_EXPRS_ANYVAL_UTIL_H
 
+#include "common/status.h"
+#include "exprs/expr.h"
 #include "runtime/primitive_type.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "util/types.h"
-#include "common/status.h"
-#include "exprs/expr.h"
 
 namespace doris {
 
@@ -120,7 +120,7 @@ public:
     }
 
     // TODO(lingbin): fix this method. can not use sizeof directly, because there are a lot of
-    // storage way for one value. 
+    // storage way for one value.
     static uint64_t hash64(const doris_udf::DecimalVal& v, int64_t seed) {
         DecimalValue tv = DecimalValue::from_decimal_val(v);
         return HashUtil::fnv_hash64(&tv, sizeof(DecimalValue), seed);
@@ -235,25 +235,35 @@ public:
 
     /// Returns the byte alignment of *Val for type t.
     static int any_val_alignment(const TypeDescriptor& t) {
-      switch (t.type) {
-        case TYPE_BOOLEAN: return alignof(BooleanVal);
-        case TYPE_TINYINT: return alignof(TinyIntVal);
-        case TYPE_SMALLINT: return alignof(SmallIntVal);
-        case TYPE_INT: return alignof(IntVal);
-        case TYPE_BIGINT: return alignof(BigIntVal);
-        case TYPE_LARGEINT: return alignof(LargeIntVal);
-        case TYPE_FLOAT: return alignof(FloatVal);
-        case TYPE_DOUBLE: return alignof(DoubleVal);
+        switch (t.type) {
+        case TYPE_BOOLEAN:
+            return alignof(BooleanVal);
+        case TYPE_TINYINT:
+            return alignof(TinyIntVal);
+        case TYPE_SMALLINT:
+            return alignof(SmallIntVal);
+        case TYPE_INT:
+            return alignof(IntVal);
+        case TYPE_BIGINT:
+            return alignof(BigIntVal);
+        case TYPE_LARGEINT:
+            return alignof(LargeIntVal);
+        case TYPE_FLOAT:
+            return alignof(FloatVal);
+        case TYPE_DOUBLE:
+            return alignof(DoubleVal);
         case TYPE_OBJECT:
         case TYPE_HLL:
         case TYPE_VARCHAR:
         case TYPE_CHAR:
-          return alignof(StringVal);
-        case TYPE_DATETIME: 
+            return alignof(StringVal);
+        case TYPE_DATETIME:
         case TYPE_DATE:
-          return alignof(DateTimeVal);
-        case TYPE_DECIMAL: return alignof(DecimalVal);
-        case TYPE_DECIMALV2: return alignof(DecimalV2Val);
+            return alignof(DateTimeVal);
+        case TYPE_DECIMAL:
+            return alignof(DecimalVal);
+        case TYPE_DECIMALV2:
+            return alignof(DecimalV2Val);
         default:
             DCHECK(false) << t;
             return 0;
@@ -269,13 +279,12 @@ public:
         return val;
     }
 
-    static void TruncateIfNecessary(const FunctionContext::TypeDesc& type, StringVal *val) {
-        if (type.type == FunctionContext::TYPE_VARCHAR
-              || type.type == FunctionContext::TYPE_CHAR) {
-            DCHECK(type.len >= 0); 
+    static void TruncateIfNecessary(const FunctionContext::TypeDesc& type, StringVal* val) {
+        if (type.type == FunctionContext::TYPE_VARCHAR || type.type == FunctionContext::TYPE_CHAR) {
+            DCHECK(type.len >= 0);
             val->len = std::min(val->len, (int64_t)type.len);
-        }   
-    } 
+        }
+    }
 
     static StringVal from_buffer(FunctionContext* ctx, const char* ptr, int len) {
         StringVal result(ctx, len);
@@ -305,103 +314,104 @@ public:
 
         dst->is_null = false;
         switch (type.type) {
-        case TYPE_NULL: return;
+        case TYPE_NULL:
+            return;
         case TYPE_BOOLEAN:
-            reinterpret_cast<doris_udf::BooleanVal*>(dst)->val = 
-                *reinterpret_cast<const bool*>(slot);
+            reinterpret_cast<doris_udf::BooleanVal*>(dst)->val =
+                    *reinterpret_cast<const bool*>(slot);
             return;
         case TYPE_TINYINT:
             reinterpret_cast<doris_udf::TinyIntVal*>(dst)->val =
-                 *reinterpret_cast<const int8_t*>(slot);
+                    *reinterpret_cast<const int8_t*>(slot);
             return;
         case TYPE_SMALLINT:
             reinterpret_cast<doris_udf::SmallIntVal*>(dst)->val =
-                 *reinterpret_cast<const int16_t*>(slot);
+                    *reinterpret_cast<const int16_t*>(slot);
             return;
         case TYPE_INT:
             reinterpret_cast<doris_udf::IntVal*>(dst)->val =
-                 *reinterpret_cast<const int32_t*>(slot);
+                    *reinterpret_cast<const int32_t*>(slot);
             return;
         case TYPE_BIGINT:
-            reinterpret_cast<doris_udf::BigIntVal*>(dst)->val = 
-                *reinterpret_cast<const int64_t*>(slot);
+            reinterpret_cast<doris_udf::BigIntVal*>(dst)->val =
+                    *reinterpret_cast<const int64_t*>(slot);
             return;
         case TYPE_LARGEINT:
             memcpy(&reinterpret_cast<doris_udf::LargeIntVal*>(dst)->val, slot, sizeof(__int128));
             return;
         case TYPE_FLOAT:
-            reinterpret_cast<doris_udf::FloatVal*>(dst)->val = 
-                *reinterpret_cast<const float*>(slot);
+            reinterpret_cast<doris_udf::FloatVal*>(dst)->val =
+                    *reinterpret_cast<const float*>(slot);
             return;
         case TYPE_TIME:
         case TYPE_DOUBLE:
-            reinterpret_cast<doris_udf::DoubleVal*>(dst)->val = 
-                *reinterpret_cast<const double*>(slot);
+            reinterpret_cast<doris_udf::DoubleVal*>(dst)->val =
+                    *reinterpret_cast<const double*>(slot);
             return;
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
             reinterpret_cast<const StringValue*>(slot)->to_string_val(
-            reinterpret_cast<doris_udf::StringVal*>(dst));
+                    reinterpret_cast<doris_udf::StringVal*>(dst));
             return;
         case TYPE_DECIMAL:
             reinterpret_cast<const DecimalValue*>(slot)->to_decimal_val(
-            reinterpret_cast<doris_udf::DecimalVal*>(dst));
-            return; 
+                    reinterpret_cast<doris_udf::DecimalVal*>(dst));
+            return;
         case TYPE_DECIMALV2:
-            reinterpret_cast<doris_udf::DecimalV2Val*>(dst)->val = 
-                reinterpret_cast<const PackedInt128*>(slot)->value;
-            return; 
+            reinterpret_cast<doris_udf::DecimalV2Val*>(dst)->val =
+                    reinterpret_cast<const PackedInt128*>(slot)->value;
+            return;
         case TYPE_DATE:
             reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
-            reinterpret_cast<doris_udf::DateTimeVal*>(dst));
-        return;
+                    reinterpret_cast<doris_udf::DateTimeVal*>(dst));
+            return;
         case TYPE_DATETIME:
             reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
-            reinterpret_cast<doris_udf::DateTimeVal*>(dst));
+                    reinterpret_cast<doris_udf::DateTimeVal*>(dst));
             return;
         default:
-        DCHECK(false) << "NYI";
+            DCHECK(false) << "NYI";
         }
     }
 
     /// Templated equality functions. These assume the input values are not NULL.
-    template<typename T>
+    template <typename T>
     static inline bool equals(const PrimitiveType& type, const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
     /// Templated equality functions. These assume the input values are not NULL.
-    template<typename T>
+    template <typename T>
     static inline bool equals(const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
-    template<typename T>
+    template <typename T>
     static inline bool equals(const TypeDescriptor& type, const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
-    template<typename T>
+    template <typename T>
     static inline bool equals(const FunctionContext::TypeDesc& type, const T& x, const T& y) {
         return equals_internal(x, y);
     }
+
 private:
     /// Implementations of Equals().
-    template<typename T>
+    template <typename T>
     static inline bool equals_internal(const T& x, const T& y);
-
 };
 
-template<typename T>
+template <typename T>
 inline bool AnyValUtil::equals_internal(const T& x, const T& y) {
     DCHECK(!x.is_null);
     DCHECK(!y.is_null);
     return x.val == y.val;
 }
 
-template<> 
+template <>
 inline bool AnyValUtil::equals_internal(const StringVal& x, const StringVal& y) {
     DCHECK(!x.is_null);
     DCHECK(!y.is_null);
@@ -410,7 +420,7 @@ inline bool AnyValUtil::equals_internal(const StringVal& x, const StringVal& y) 
     return x_sv == y_sv;
 }
 
-template<> 
+template <>
 inline bool AnyValUtil::equals_internal(const DateTimeVal& x, const DateTimeVal& y) {
     DCHECK(!x.is_null);
     DCHECK(!y.is_null);
@@ -419,14 +429,14 @@ inline bool AnyValUtil::equals_internal(const DateTimeVal& x, const DateTimeVal&
     return x_tv == y_tv;
 }
 
-template<> 
+template <>
 inline bool AnyValUtil::equals_internal(const DecimalVal& x, const DecimalVal& y) {
     DCHECK(!x.is_null);
     DCHECK(!y.is_null);
     return x == y;
 }
 
-template<> 
+template <>
 inline bool AnyValUtil::equals_internal(const DecimalV2Val& x, const DecimalV2Val& y) {
     DCHECK(!x.is_null);
     DCHECK(!y.is_null);
@@ -439,9 +449,9 @@ doris_udf::AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type);
 /// Allocates an AnyVal subclass of 'type' from 'pool'. The AnyVal's memory is
 /// initialized to all 0's. Returns a MemLimitExceeded() error with message
 /// 'mem_limit_exceeded_msg' if the allocation cannot be made because of a memory
-/// limit. 
+/// limit.
 Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor& type,
-    const std::string& mem_limit_exceeded_msg, AnyVal** result);
+                        const std::string& mem_limit_exceeded_msg, AnyVal** result);
 
-}
+} // namespace doris
 #endif

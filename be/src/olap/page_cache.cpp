@@ -27,8 +27,8 @@ void StoragePageCache::create_global_cache(size_t capacity) {
     _s_instance = &instance;
 }
 
-StoragePageCache::StoragePageCache(size_t capacity) : _cache(new_lru_cache("StoragePageCache", capacity)) {
-}
+StoragePageCache::StoragePageCache(size_t capacity)
+        : _cache(new_lru_cache("StoragePageCache", capacity)) {}
 
 bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle) {
     auto lru_handle = _cache->lookup(key.encode());
@@ -41,11 +41,9 @@ bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle) {
 
 void StoragePageCache::insert(const CacheKey& key, const Slice& data, PageCacheHandle* handle,
                               bool in_memory) {
-    auto deleter = [](const doris::CacheKey& key, void* value) {
-        delete[] (uint8_t*)value;
-    };
+    auto deleter = [](const doris::CacheKey& key, void* value) { delete[](uint8_t*) value; };
 
-    CachePriority priority =  CachePriority::NORMAL;
+    CachePriority priority = CachePriority::NORMAL;
     if (in_memory) {
         priority = CachePriority::DURABLE;
     }
@@ -54,4 +52,4 @@ void StoragePageCache::insert(const CacheKey& key, const Slice& data, PageCacheH
     *handle = PageCacheHandle(_cache.get(), lru_handle);
 }
 
-}
+} // namespace doris

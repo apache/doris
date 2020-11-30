@@ -29,6 +29,7 @@
 #include <arrow/type.h>
 #include <arrow/visitor.h>
 #include <arrow/visitor_inline.h>
+
 #include <cstdlib>
 #include <ctime>
 #include <memory>
@@ -36,9 +37,9 @@
 #include "common/logging.h"
 #include "exprs/slot_ref.h"
 #include "gutil/strings/substitute.h"
-#include "runtime/row_batch.h"
-#include "runtime/descriptors.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
+#include "runtime/row_batch.h"
 #include "util/arrow/utils.h"
 #include "util/types.h"
 
@@ -46,8 +47,7 @@ namespace doris {
 
 using strings::Substitute;
 
-Status convert_to_arrow_type(const TypeDescriptor& type,
-                             std::shared_ptr<arrow::DataType>* result) {
+Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::DataType>* result) {
     switch (type.type) {
     case TYPE_TINYINT:
         *result = arrow::int8();
@@ -83,22 +83,21 @@ Status convert_to_arrow_type(const TypeDescriptor& type,
         *result = std::make_shared<arrow::Decimal128Type>(27, 9);
         break;
     default:
-        return Status::InvalidArgument(Substitute("Unknown primitive type($0)", type.type));
+        return Status::InvalidArgument(
+                strings::Substitute("Unknown primitive type($0)", type.type));
     }
     return Status::OK();
 }
 
-Status convert_to_arrow_field(SlotDescriptor* desc,
-                              std::shared_ptr<arrow::Field>* field) {
+Status convert_to_arrow_field(SlotDescriptor* desc, std::shared_ptr<arrow::Field>* field) {
     std::shared_ptr<arrow::DataType> type;
     RETURN_IF_ERROR(convert_to_arrow_type(desc->type(), &type));
     *field = arrow::field(desc->col_name(), type, desc->is_nullable());
     return Status::OK();
 }
 
-Status convert_to_arrow_schema(
-        const RowDescriptor& row_desc,
-        std::shared_ptr<arrow::Schema>* result) {
+Status convert_to_arrow_schema(const RowDescriptor& row_desc,
+                               std::shared_ptr<arrow::Schema>* result) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (auto tuple_desc : row_desc.tuple_descriptors()) {
         for (auto desc : tuple_desc->slots()) {
@@ -111,8 +110,7 @@ Status convert_to_arrow_schema(
     return Status::OK();
 }
 
-Status convert_to_doris_type(const arrow::DataType& type,
-                             TSlotDescriptorBuilder* builder) {
+Status convert_to_doris_type(const arrow::DataType& type, TSlotDescriptorBuilder* builder) {
     switch (type.id()) {
     case arrow::Type::INT8:
         builder->type(TYPE_TINYINT);
@@ -133,23 +131,20 @@ Status convert_to_doris_type(const arrow::DataType& type,
         builder->type(TYPE_DOUBLE);
         break;
     default:
-        return Status::InvalidArgument(Substitute("Unknown arrow type id($0)", type.id()));
+        return Status::InvalidArgument(strings::Substitute("Unknown arrow type id($0)", type.id()));
     }
     return Status::OK();
 }
 
-Status convert_to_slot_desc(const arrow::Field& field,
-                            int column_pos,
+Status convert_to_slot_desc(const arrow::Field& field, int column_pos,
                             TSlotDescriptorBuilder* builder) {
     RETURN_IF_ERROR(convert_to_doris_type(*field.type(), builder));
     builder->column_name(field.name()).nullable(field.nullable()).column_pos(column_pos);
     return Status::OK();
 }
 
-Status convert_to_row_desc(
-        ObjectPool* pool,
-        const arrow::Schema& schema,
-        RowDescriptor** row_desc) {
+Status convert_to_row_desc(ObjectPool* pool, const arrow::Schema& schema,
+                           RowDescriptor** row_desc) {
     TDescriptorTableBuilder builder;
     TTupleDescriptorBuilder tuple_builder;
     for (int i = 0; i < schema.num_fields(); ++i) {
@@ -171,11 +166,10 @@ Status convert_to_row_desc(
 // Now we inherit TypeVisitor to use default Visit implementation
 class FromRowBatchConverter : public arrow::TypeVisitor {
 public:
-    FromRowBatchConverter(const RowBatch& batch,
-                          const std::shared_ptr<arrow::Schema>& schema,
+    FromRowBatchConverter(const RowBatch& batch, const std::shared_ptr<arrow::Schema>& schema,
                           arrow::MemoryPool* pool)
-        : _batch(batch), _schema(schema), _pool(pool) {
-        // obtain local time zone    
+            : _batch(batch), _schema(schema), _pool(pool) {
+        // obtain local time zone
         time_t ts = 0;
         struct tm t;
         char buf[16];
@@ -184,15 +178,13 @@ public:
         _time_zone = buf;
     }
 
-    ~FromRowBatchConverter() override { }
+    ~FromRowBatchConverter() override {}
 
     // Use base class function
     using arrow::TypeVisitor::Visit;
 
 #define PRIMITIVE_VISIT(TYPE) \
-    arrow::Status Visit(const arrow::TYPE& type) override { \
-        return _visit(type); \
-    }
+    arrow::Status Visit(const arrow::TYPE& type) override { return _visit(type); }
 
     PRIMITIVE_VISIT(Int8Type);
     PRIMITIVE_VISIT(Int16Type);
@@ -217,53 +209,55 @@ public:
             auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
             PrimitiveType primitive_type = _cur_slot_ref->type().type;
             switch (primitive_type) {
-                case TYPE_VARCHAR:
-                case TYPE_CHAR:
-                case TYPE_HLL: {
-                    const StringValue* string_val = (const StringValue*)(cell_ptr);
-                    if (string_val->len == 0) {
-                        // 0x01 is a magic num, not useful actually, just for present ""
-                        //char* tmp_val = reinterpret_cast<char*>(0x01);
-                        ARROW_RETURN_NOT_OK(builder.Append(""));        
-                    } else {
-                        ARROW_RETURN_NOT_OK(builder.Append(string_val->to_string()));
-                    }
-                    break;
+            case TYPE_VARCHAR:
+            case TYPE_CHAR:
+            case TYPE_HLL: {
+                const StringValue* string_val = (const StringValue*)(cell_ptr);
+                if (string_val->len == 0) {
+                    // 0x01 is a magic num, not useful actually, just for present ""
+                    //char* tmp_val = reinterpret_cast<char*>(0x01);
+                    ARROW_RETURN_NOT_OK(builder.Append(""));
+                } else {
+                    ARROW_RETURN_NOT_OK(builder.Append(string_val->to_string()));
                 }
-                case TYPE_DATE:
-                case TYPE_DATETIME: {
-                    char buf[64];
-                    const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
-                    char* pos = time_val->to_string(buf);
-                    ARROW_RETURN_NOT_OK(builder.Append(buf, pos - buf - 1));
-                    break;
-                }
-                case TYPE_LARGEINT: {
-                    char buf[48];
-                    int len = 48;
-                    char* v = LargeIntValue::to_string(reinterpret_cast<const PackedInt128*>(cell_ptr)->value, buf, &len);
-                    std::string temp(v, len);
-                    ARROW_RETURN_NOT_OK(builder.Append(std::move(temp)));
-                    break;
-                }
-                case TYPE_DECIMAL: {
-                    const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(cell_ptr);
-                    std::string decimal_str = decimal_val->to_string();
-                    ARROW_RETURN_NOT_OK(builder.Append(std::move(decimal_str))); 
-                    break;
-                }
-                default: {
-                    LOG(WARNING) << "can't convert this type = " << primitive_type << "to arrow type";
-                    return arrow::Status::TypeError("unsupported column type");
-                }
+                break;
+            }
+            case TYPE_DATE:
+            case TYPE_DATETIME: {
+                char buf[64];
+                const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
+                char* pos = time_val->to_string(buf);
+                ARROW_RETURN_NOT_OK(builder.Append(buf, pos - buf - 1));
+                break;
+            }
+            case TYPE_LARGEINT: {
+                char buf[48];
+                int len = 48;
+                char* v = LargeIntValue::to_string(
+                        reinterpret_cast<const PackedInt128*>(cell_ptr)->value, buf, &len);
+                std::string temp(v, len);
+                ARROW_RETURN_NOT_OK(builder.Append(std::move(temp)));
+                break;
+            }
+            case TYPE_DECIMAL: {
+                const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(cell_ptr);
+                std::string decimal_str = decimal_val->to_string();
+                ARROW_RETURN_NOT_OK(builder.Append(std::move(decimal_str)));
+                break;
+            }
+            default: {
+                LOG(WARNING) << "can't convert this type = " << primitive_type << "to arrow type";
+                return arrow::Status::TypeError("unsupported column type");
+            }
             }
         }
         return builder.Finish(&_arrays[_cur_field_idx]);
     }
-    
+
     // process doris DecimalV2
     arrow::Status Visit(const arrow::Decimal128Type& type) override {
-        std::shared_ptr<arrow::DataType> s_decimal_ptr = std::make_shared<arrow::Decimal128Type>(27, 9);
+        std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                std::make_shared<arrow::Decimal128Type>(27, 9);
         arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
         size_t num_rows = _batch.num_rows();
         builder.Reserve(num_rows);
@@ -286,10 +280,8 @@ public:
     Status convert(std::shared_ptr<arrow::RecordBatch>* out);
 
 private:
-
-    template<typename T>
-    typename std::enable_if<std::is_base_of<arrow::PrimitiveCType, T>::value,
-             arrow::Status>::type
+    template <typename T>
+    typename std::enable_if<std::is_base_of<arrow::PrimitiveCType, T>::value, arrow::Status>::type
     _visit(const T& type) {
         arrow::NumericBuilder<T> builder(_pool);
 
@@ -347,11 +339,9 @@ Status FromRowBatchConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) 
     return Status::OK();
 }
 
-Status convert_to_arrow_batch(
-        const RowBatch& batch,
-        const std::shared_ptr<arrow::Schema>& schema,
-        arrow::MemoryPool* pool,
-        std::shared_ptr<arrow::RecordBatch>* result) {
+Status convert_to_arrow_batch(const RowBatch& batch, const std::shared_ptr<arrow::Schema>& schema,
+                              arrow::MemoryPool* pool,
+                              std::shared_ptr<arrow::RecordBatch>* result) {
     FromRowBatchConverter converter(batch, schema, pool);
     return converter.convert(result);
 }
@@ -361,15 +351,12 @@ class ToRowBatchConverter : public arrow::ArrayVisitor {
 public:
     using arrow::ArrayVisitor::Visit;
 
-    ToRowBatchConverter(const arrow::RecordBatch& batch,
-                        const RowDescriptor& row_desc,
+    ToRowBatchConverter(const arrow::RecordBatch& batch, const RowDescriptor& row_desc,
                         const std::shared_ptr<MemTracker>& tracker)
-        : _batch(batch), _row_desc(row_desc), _tracker(tracker) { }
+            : _batch(batch), _row_desc(row_desc), _tracker(tracker) {}
 
 #define PRIMITIVE_VISIT(TYPE) \
-    arrow::Status Visit(const arrow::TYPE& array) override { \
-        return _visit(array); \
-    }
+    arrow::Status Visit(const arrow::TYPE& array) override { return _visit(array); }
 
     PRIMITIVE_VISIT(Int8Array);
     PRIMITIVE_VISIT(Int16Array);
@@ -384,10 +371,9 @@ public:
     Status convert(std::shared_ptr<RowBatch>* result);
 
 private:
-
-    template<typename T>
+    template <typename T>
     typename std::enable_if<std::is_base_of<arrow::PrimitiveCType, typename T::TypeClass>::value,
-             arrow::Status>::type
+                            arrow::Status>::type
     _visit(const T& array) {
         auto raw_values = array.raw_values();
         for (size_t i = 0; i < array.length(); ++i) {
@@ -413,7 +399,7 @@ private:
     std::shared_ptr<RowBatch> _output;
 };
 
-Status ToRowBatchConverter:: convert(std::shared_ptr<RowBatch>* result) {
+Status ToRowBatchConverter::convert(std::shared_ptr<RowBatch>* result) {
     std::vector<SlotDescriptor*> slot_descs;
     for (auto tuple_desc : _row_desc.tuple_descriptors()) {
         for (auto desc : tuple_desc->slots()) {
@@ -452,8 +438,7 @@ Status ToRowBatchConverter:: convert(std::shared_ptr<RowBatch>* result) {
     return Status::OK();
 }
 
-Status convert_to_row_batch(const arrow::RecordBatch& batch,
-                            const RowDescriptor& row_desc,
+Status convert_to_row_batch(const arrow::RecordBatch& batch, const RowDescriptor& row_desc,
                             const std::shared_ptr<MemTracker>& tracker,
                             std::shared_ptr<RowBatch>* result) {
     ToRowBatchConverter converter(batch, row_desc, tracker);
@@ -467,28 +452,29 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
     arrow::Status a_st = arrow::ipc::GetRecordBatchSize(record_batch, &capacity);
     if (!a_st.ok()) {
         std::stringstream msg;
-        msg << "GetRecordBatchSize failure, reason: " << a_st.ToString(); 
+        msg << "GetRecordBatchSize failure, reason: " << a_st.ToString();
         return Status::InternalError(msg.str());
     }
     a_st = arrow::io::BufferOutputStream::Create(capacity, arrow::default_memory_pool(), &sink);
     if (!a_st.ok()) {
         std::stringstream msg;
-        msg << "create BufferOutputStream failure, reason: " << a_st.ToString(); 
+        msg << "create BufferOutputStream failure, reason: " << a_st.ToString();
         return Status::InternalError(msg.str());
     }
     std::shared_ptr<arrow::ipc::RecordBatchWriter> record_batch_writer;
     // create RecordBatch Writer
-    a_st = arrow::ipc::RecordBatchStreamWriter::Open(sink.get(), record_batch.schema(), &record_batch_writer);
+    a_st = arrow::ipc::RecordBatchStreamWriter::Open(sink.get(), record_batch.schema(),
+                                                     &record_batch_writer);
     if (!a_st.ok()) {
         std::stringstream msg;
-        msg << "open RecordBatchStreamWriter failure, reason: " << a_st.ToString(); 
+        msg << "open RecordBatchStreamWriter failure, reason: " << a_st.ToString();
         return Status::InternalError(msg.str());
     }
     // write RecordBatch to memory buffer outputstream
     a_st = record_batch_writer->WriteRecordBatch(record_batch);
     if (!a_st.ok()) {
         std::stringstream msg;
-        msg << "write record batch failure, reason: " << a_st.ToString(); 
+        msg << "write record batch failure, reason: " << a_st.ToString();
         return Status::InternalError(msg.str());
     }
     record_batch_writer->Close();
@@ -496,15 +482,13 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
     sink->Finish(&buffer);
     if (!a_st.ok()) {
         std::stringstream msg;
-        msg << "allocate result buffer failure, reason: " << a_st.ToString(); 
+        msg << "allocate result buffer failure, reason: " << a_st.ToString();
         return Status::InternalError(msg.str());
     }
     *result = buffer->ToString();
     // close the sink
     sink->Close();
     return Status::OK();
-
 }
 
-}
-
+} // namespace doris

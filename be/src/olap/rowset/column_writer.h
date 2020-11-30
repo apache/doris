@@ -24,15 +24,15 @@
 
 #include "olap/bloom_filter.hpp"
 #include "olap/bloom_filter_writer.h"
-#include "olap/out_stream.h"
-#include "olap/stream_index_writer.h"
-#include "olap/rowset/run_length_byte_writer.h"
-#include "olap/rowset/run_length_integer_writer.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/out_stream.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/run_length_byte_writer.h"
+#include "olap/rowset/run_length_integer_writer.h"
+#include "olap/stream_index_writer.h"
 
 namespace doris {
 
@@ -51,12 +51,9 @@ public:
     //    column_id: 创建的列在columns中的位置
     //    columns: 表的所有的列信息
     //    stream_factory: 用于创建输出流的工厂对象, 该对象的生命期由调用者所有
-    static ColumnWriter* create(
-            uint32_t column_id,
-            const TabletSchema& schema,
-            OutStreamFactory* stream_factory,
-            size_t num_rows_per_row_block,
-            double bf_fpp);
+    static ColumnWriter* create(uint32_t column_id, const TabletSchema& schema,
+                                OutStreamFactory* stream_factory, size_t num_rows_per_row_block,
+                                double bf_fpp);
 
     virtual ~ColumnWriter();
     virtual OLAPStatus init();
@@ -77,41 +74,24 @@ public:
     //   * zone_maps
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void save_encoding(ColumnEncodingMessage* encoding);
-    uint32_t column_id() const {
-        return _column_id;
-    }
+    uint32_t column_id() const { return _column_id; }
 
-    uint32_t unique_column_id() const {
-        return _column.unique_id();
-    }
+    uint32_t unique_column_id() const { return _column.unique_id(); }
 
-    virtual void get_bloom_filter_info(bool* has_bf_column,
-                                       uint32_t* bf_hash_function_num,
+    virtual void get_bloom_filter_info(bool* has_bf_column, uint32_t* bf_hash_function_num,
                                        uint32_t* bf_bit_num);
 
-    ColumnStatistics* segment_statistics() {
-        return &_segment_statistics;
-    }
+    ColumnStatistics* segment_statistics() { return &_segment_statistics; }
 
-    ColumnStatistics* block_statistics() {
-        return &_block_statistics;
-    }
+    ColumnStatistics* block_statistics() { return &_block_statistics; }
+
 protected:
-    ColumnWriter(uint32_t column_id,
-            OutStreamFactory* stream_factory,
-            const TabletColumn& column,
-            size_t num_rows_per_row_block,
-            double bf_fpp);
+    ColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory, const TabletColumn& column,
+                 size_t num_rows_per_row_block, double bf_fpp);
 
-    OutStreamFactory* stream_factory() {
-        return _stream_factory;
-    }
-    PositionEntryWriter* index_entry() {
-        return &_index_entry;
-    }
-    StreamIndexWriter* index() {
-        return &_index;
-    }
+    OutStreamFactory* stream_factory() { return _stream_factory; }
+    PositionEntryWriter* index_entry() { return &_index_entry; }
+    StreamIndexWriter* index() { return &_index; }
     // 记录当前Stream的位置,用于生成索引项
     virtual void record_position();
 
@@ -122,19 +102,17 @@ protected:
 private:
     void _remove_is_present_positions();
 
-    bool is_bf_column() {
-        return _column.is_bf_column();
-    }
+    bool is_bf_column() { return _column.is_bf_column(); }
 
     uint32_t _column_id;
     const TabletColumn& _column;
-    OutStreamFactory* _stream_factory; // 该对象由外部调用者所有
-    std::vector<ColumnWriter*> _sub_writers;   // 保存子列的writer
+    OutStreamFactory* _stream_factory;       // 该对象由外部调用者所有
+    std::vector<ColumnWriter*> _sub_writers; // 保存子列的writer
     PositionEntryWriter _index_entry;
     StreamIndexWriter _index;
-    BitFieldWriter* _is_present;       // 对于允许NULL的列记录NULL Bits
+    BitFieldWriter* _is_present; // 对于允许NULL的列记录NULL Bits
     OutStream* _is_present_stream;
-    OutStream* _index_stream;          // 注意对象的所有权是_stream_factory
+    OutStream* _index_stream; // 注意对象的所有权是_stream_factory
     bool _is_found_nulls;
     BloomFilter* _bf;
     BloomFilterIndexWriter _bf_index;
@@ -148,8 +126,7 @@ private:
 class ByteColumnWriter : public ColumnWriter {
 public:
     ByteColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
-                     const TabletColumn& column, size_t num_rows_per_row_block,
-                     double bf_fpp);
+                     const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp);
     virtual ~ByteColumnWriter();
     virtual OLAPStatus init();
 
@@ -179,9 +156,8 @@ public:
 
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void record_position();
-    virtual OLAPStatus flush() {
-        return OLAP_SUCCESS;
-    }
+    virtual OLAPStatus flush() { return OLAP_SUCCESS; }
+
 private:
     RunLengthByteWriter* _writer;
 
@@ -191,25 +167,16 @@ private:
 // 对于SHORT/INT/LONG类型的数据，统一使用int64作为存储的数据
 class IntegerColumnWriter {
 public:
-    IntegerColumnWriter(
-            uint32_t column_id,
-            uint32_t unique_column_id,
-            OutStreamFactory* stream_factory,
-            bool is_singed);
+    IntegerColumnWriter(uint32_t column_id, uint32_t unique_column_id,
+                        OutStreamFactory* stream_factory, bool is_singed);
     ~IntegerColumnWriter();
     OLAPStatus init();
-    OLAPStatus write(int64_t data) {
-        return _writer->write(data);
-    }
-    OLAPStatus finalize(ColumnDataHeaderMessage* header) {
-        return _writer->flush();
-    }
+    OLAPStatus write(int64_t data) { return _writer->write(data); }
+    OLAPStatus finalize(ColumnDataHeaderMessage* header) { return _writer->flush(); }
     void record_position(PositionEntryWriter* index_entry) {
         _writer->get_position(index_entry, false);
     }
-    OLAPStatus flush() {
-        return _writer->flush();
-    }
+    OLAPStatus flush() { return _writer->flush(); }
 
 private:
     uint32_t _column_id;
@@ -221,17 +188,14 @@ private:
     DISALLOW_COPY_AND_ASSIGN(IntegerColumnWriter);
 };
 
-template<class T, bool is_singed>
+template <class T, bool is_singed>
 class IntegerColumnWriterWrapper : public ColumnWriter {
 public:
-    IntegerColumnWriterWrapper(
-            uint32_t column_id,
-            OutStreamFactory* stream_factory,
-            const TabletColumn& column,
-            size_t num_rows_per_row_block,
-            double bf_fpp) : 
-            ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
-            _writer(column_id, column.unique_id(), stream_factory, is_singed) {}
+    IntegerColumnWriterWrapper(uint32_t column_id, OutStreamFactory* stream_factory,
+                               const TabletColumn& column, size_t num_rows_per_row_block,
+                               double bf_fpp)
+            : ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
+              _writer(column_id, column.unique_id(), stream_factory, is_singed) {}
 
     virtual ~IntegerColumnWriterWrapper() {}
 
@@ -267,7 +231,7 @@ public:
             _block_statistics.add(cell);
             if (!cell.is_null()) {
                 T value = *reinterpret_cast<const T*>(cell.cell_ptr());
-                res =  _writer.write(static_cast<int64_t>(value));
+                res = _writer.write(static_cast<int64_t>(value));
                 if (res != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to write integer, res=" << res;
                     return res;
@@ -310,23 +274,20 @@ public:
         ColumnWriter::record_position();
         _writer.record_position(index_entry());
     }
+
 private:
     IntegerColumnWriter _writer;
 
     DISALLOW_COPY_AND_ASSIGN(IntegerColumnWriterWrapper);
 };
 
-template<class T>
-class DoubleColumnWriterBase: public ColumnWriter {
+template <class T>
+class DoubleColumnWriterBase : public ColumnWriter {
 public:
-    DoubleColumnWriterBase(
-            uint32_t column_id, 
-            OutStreamFactory* stream_factory,
-            const TabletColumn& column,
-            size_t num_rows_per_row_block,
-            double bf_fpp) : 
-            ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
-            _stream(NULL) {}
+    DoubleColumnWriterBase(uint32_t column_id, OutStreamFactory* stream_factory,
+                           const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp)
+            : ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
+              _stream(NULL) {}
 
     virtual ~DoubleColumnWriterBase() {}
 
@@ -339,8 +300,7 @@ public:
         }
 
         OutStreamFactory* factory = stream_factory();
-        _stream = factory->create_stream(
-                unique_column_id(), StreamInfoMessage::DATA);
+        _stream = factory->create_stream(unique_column_id(), StreamInfoMessage::DATA);
 
         if (NULL == _stream) {
             OLAP_LOG_WARNING("fail to allocate DATA STREAM");
@@ -351,9 +311,7 @@ public:
         return OLAP_SUCCESS;
     }
 
-    virtual OLAPStatus flush() {
-        return OLAP_SUCCESS;
-    }
+    virtual OLAPStatus flush() { return OLAP_SUCCESS; }
 
     OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
         for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
@@ -415,8 +373,7 @@ typedef IntegerColumnWriterWrapper<int64_t, true> DiscreteDoubleColumnWriter;
 class VarStringColumnWriter : public ColumnWriter {
 public:
     VarStringColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
-                          const TabletColumn& column, size_t num_rows_per_row_block,
-                          double bf_fpp);
+                          const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp);
     virtual ~VarStringColumnWriter();
     virtual OLAPStatus init();
 
@@ -446,33 +403,30 @@ public:
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void save_encoding(ColumnEncodingMessage* encoding);
     virtual void record_position();
-    virtual OLAPStatus flush() {
-        return OLAP_SUCCESS;
-    }
+    virtual OLAPStatus flush() { return OLAP_SUCCESS; }
+
 protected:
     // 不使用cursor直接写入一条数据
     OLAPStatus write(const char* str, uint32_t length);
+
 private:
     // 可以在map中使用引用做key
     class DictKey {
     public:
         explicit DictKey(const std::string& str_ref) : _str_ref(str_ref) {}
-        bool operator < (const DictKey& other) const {
-            return _str_ref < other._str_ref;
-        }
-        bool operator == (const DictKey& other) const {
-            return _str_ref == other._str_ref;
-        }
-        const std::string& get() const {
-            return _str_ref;
-        }
+        bool operator<(const DictKey& other) const { return _str_ref < other._str_ref; }
+        bool operator==(const DictKey& other) const { return _str_ref == other._str_ref; }
+        const std::string& get() const { return _str_ref; }
+
     private:
         const std::string _str_ref;
     };
     typedef std::map<DictKey, uint32_t> StringDict;
+
 private:
     OLAPStatus _finalize_dict_encoding();
     OLAPStatus _finalize_direct_encoding();
+
 private:
     bool _use_dictionary_encoding;
     std::vector<uint32_t> _string_id;
@@ -491,11 +445,9 @@ private:
 // 特例化一下VarStringColumnWriter, 在write的时候提取数据再写入
 class FixLengthStringColumnWriter : public VarStringColumnWriter {
 public:
-    FixLengthStringColumnWriter(uint32_t column_id,
-            OutStreamFactory* stream_factory,
-            const TabletColumn& column,
-            size_t num_rows_per_row_block,
-            double bf_fpp);
+    FixLengthStringColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
+                                const TabletColumn& column, size_t num_rows_per_row_block,
+                                double bf_fpp);
     virtual ~FixLengthStringColumnWriter();
 
     OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
@@ -524,9 +476,8 @@ public:
         return OLAP_SUCCESS;
     }
 
-    virtual OLAPStatus flush() {
-        return OLAP_SUCCESS;
-    }
+    virtual OLAPStatus flush() { return OLAP_SUCCESS; }
+
 private:
     uint32_t _length;
 
@@ -542,8 +493,7 @@ typedef IntegerColumnWriterWrapper<uint64_t, false> DateTimeColumnWriter;
 class DecimalColumnWriter : public ColumnWriter {
 public:
     DecimalColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
-                        const TabletColumn& column, size_t num_rows_per_row_block,
-                        double bf_fpp);
+                        const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp);
     virtual ~DecimalColumnWriter();
     virtual OLAPStatus init();
 
@@ -577,9 +527,8 @@ public:
 
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void record_position();
-    virtual OLAPStatus flush() {
-        return OLAP_SUCCESS;
-    }
+    virtual OLAPStatus flush() { return OLAP_SUCCESS; }
+
 private:
     RunLengthIntegerWriter* _int_writer;
     RunLengthIntegerWriter* _frac_writer;
@@ -590,8 +539,7 @@ private:
 class LargeIntColumnWriter : public ColumnWriter {
 public:
     LargeIntColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
-                         const TabletColumn& column, size_t num_rows_per_row_block,
-                         double bf_fpp);
+                         const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp);
     virtual ~LargeIntColumnWriter();
     virtual OLAPStatus init();
 
@@ -624,9 +572,7 @@ public:
 
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void record_position();
-    virtual OLAPStatus flush() {
-        return OLAP_SUCCESS;
-    }
+    virtual OLAPStatus flush() { return OLAP_SUCCESS; }
 
 private:
     RunLengthIntegerWriter* _high_writer;
@@ -635,5 +581,5 @@ private:
     DISALLOW_COPY_AND_ASSIGN(LargeIntColumnWriter);
 };
 
-}  // namespace doris
+} // namespace doris
 #endif // DORIS_BE_SRC_OLAP_ROWSET_COLUMN_WRITER_H

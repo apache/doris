@@ -17,14 +17,14 @@
 
 #include "agent/utils.h"
 
-#include <cstdio>
-#include <fstream>
-#include <sstream>
-
 #include <rapidjson/document.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+
+#include <cstdio>
+#include <fstream>
+#include <sstream>
 
 #include "common/status.h"
 
@@ -37,22 +37,15 @@ using apache::thrift::transport::TTransportException;
 
 namespace doris {
 
-MasterServerClient::MasterServerClient(
-        const TMasterInfo& master_info,
-        FrontendServiceClientCache* client_cache) :
-        _master_info(master_info),
-        _client_cache(client_cache) {
-}
+MasterServerClient::MasterServerClient(const TMasterInfo& master_info,
+                                       FrontendServiceClientCache* client_cache)
+        : _master_info(master_info), _client_cache(client_cache) {}
 
-AgentStatus MasterServerClient::finish_task(
-        const TFinishTaskRequest& request,
-        TMasterResult* result) {
+AgentStatus MasterServerClient::finish_task(const TFinishTaskRequest& request,
+                                            TMasterResult* result) {
     Status client_status;
-    FrontendServiceConnection client(
-            _client_cache,
-            _master_info.network_address,
-            config::thrift_rpc_timeout_ms,
-            &client_status);
+    FrontendServiceConnection client(_client_cache, _master_info.network_address,
+                                     config::thrift_rpc_timeout_ms, &client_status);
 
     if (!client_status.ok()) {
         LOG(WARNING) << "fail to get master client from cache. "
@@ -81,8 +74,7 @@ AgentStatus MasterServerClient::finish_task(
         client.reopen(config::thrift_rpc_timeout_ms);
         LOG(WARNING) << "fail to finish_task. "
                      << "host=" << _master_info.network_address.hostname
-                     << ", port=" << _master_info.network_address.port
-                     << ", error=" << e.what();
+                     << ", port=" << _master_info.network_address.port << ", error=" << e.what();
         return DORIS_ERROR;
     }
 
@@ -91,11 +83,8 @@ AgentStatus MasterServerClient::finish_task(
 
 AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterResult* result) {
     Status client_status;
-    FrontendServiceConnection client(
-            _client_cache,
-            _master_info.network_address,
-            config::thrift_rpc_timeout_ms,
-            &client_status);
+    FrontendServiceConnection client(_client_cache, _master_info.network_address,
+                                     config::thrift_rpc_timeout_ms, &client_status);
 
     if (!client_status.ok()) {
         LOG(WARNING) << "fail to get master client from cache. "
@@ -143,15 +132,13 @@ AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterRes
     return DORIS_SUCCESS;
 }
 
-AgentStatus AgentUtils::rsync_from_remote(
-        const string& remote_host,
-        const string& remote_file_path,
-        const string& local_file_path,
-        const vector<string>& exclude_file_patterns,
-        uint32_t transport_speed_limit_kbps,
-        uint32_t timeout_second) {
+AgentStatus AgentUtils::rsync_from_remote(const string& remote_host, const string& remote_file_path,
+                                          const string& local_file_path,
+                                          const std::vector<string>& exclude_file_patterns,
+                                          uint32_t transport_speed_limit_kbps,
+                                          uint32_t timeout_second) {
     int ret_code = 0;
-    stringstream cmd_stream;
+    std::stringstream cmd_stream;
     cmd_stream << "rsync -r -q -e \"ssh -o StrictHostKeyChecking=no\"";
     for (auto exclude_file_pattern : exclude_file_patterns) {
         cmd_stream << " --exclude=" << exclude_file_pattern;
@@ -238,9 +225,9 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
     }
 
     // Execute command.
-    FILE *fp = popen(cmd.c_str(), "r");
+    FILE* fp = popen(cmd.c_str(), "r");
     if (fp == NULL) {
-        stringstream err_stream;
+        std::stringstream err_stream;
         err_stream << "popen failed. " << strerror(errno) << ", with errno: " << errno << ".\n";
         *errmsg = err_stream.str();
         return false;
@@ -258,9 +245,9 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
         if (errno == ECHILD) {
             *errmsg += "pclose cannot obtain the child status.\n";
         } else {
-            stringstream err_stream;
-            err_stream << "Close popen failed. " << strerror(errno) << ", with errno: "
-                       << errno << "\n";
+            std::stringstream err_stream;
+            err_stream << "Close popen failed. " << strerror(errno) << ", with errno: " << errno
+                       << "\n";
             *errmsg += err_stream.str();
         }
         return false;
@@ -269,7 +256,7 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
     // Get return code of command.
     int32_t status_child = WEXITSTATUS(rc);
     if (status_child == 0) {
-       return true;
+        return true;
     } else {
         return false;
     }
@@ -277,11 +264,10 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
 
 bool AgentUtils::write_json_to_file(const map<string, string>& info, const string& path) {
     rapidjson::Document json_info(rapidjson::kObjectType);
-    for (auto &it : info) {
-        json_info.AddMember(
-            rapidjson::Value(it.first.c_str(), json_info.GetAllocator()).Move(),
-            rapidjson::Value(it.second.c_str(), json_info.GetAllocator()).Move(),
-            json_info.GetAllocator());
+    for (auto& it : info) {
+        json_info.AddMember(rapidjson::Value(it.first.c_str(), json_info.GetAllocator()).Move(),
+                            rapidjson::Value(it.second.c_str(), json_info.GetAllocator()).Move(),
+                            json_info.GetAllocator());
     }
     rapidjson::StringBuffer json_info_str;
     rapidjson::Writer<rapidjson::StringBuffer> writer(json_info_str);
@@ -296,4 +282,4 @@ bool AgentUtils::write_json_to_file(const map<string, string>& info, const strin
     return true;
 }
 
-}  // namespace doris
+} // namespace doris

@@ -21,27 +21,25 @@
 
 namespace doris {
 
-const string ScanNode::_s_bytes_read_counter = "BytesRead";
-const string ScanNode::_s_rows_read_counter = "RowsRead";
-const string ScanNode::_s_total_throughput_counter = "TotalReadThroughput";
-const string ScanNode::_s_num_disks_accessed_counter = "NumDiskAccess";
+const std::string ScanNode::_s_bytes_read_counter = "BytesRead";
+const std::string ScanNode::_s_rows_read_counter = "RowsRead";
+const std::string ScanNode::_s_total_throughput_counter = "TotalReadThroughput";
+const std::string ScanNode::_s_num_disks_accessed_counter = "NumDiskAccess";
 
 Status ScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
-    _bytes_read_counter =
-        ADD_COUNTER(runtime_profile(), _s_bytes_read_counter, TUnit::BYTES);
+    _bytes_read_counter = ADD_COUNTER(runtime_profile(), _s_bytes_read_counter, TUnit::BYTES);
     //TODO: The _rows_read_counter == RowsReturned counter in exec node, there is no need to keep both of them
-    _rows_read_counter =
-        ADD_COUNTER(runtime_profile(), _s_rows_read_counter, TUnit::UNIT);
+    _rows_read_counter = ADD_COUNTER(runtime_profile(), _s_rows_read_counter, TUnit::UNIT);
 #ifndef BE_TEST
-    _total_throughput_counter = runtime_profile()->add_rate_counter(
-                                    _s_total_throughput_counter, _bytes_read_counter);
+    _total_throughput_counter =
+            runtime_profile()->add_rate_counter(_s_total_throughput_counter, _bytes_read_counter);
 #endif
     _num_disks_accessed_counter =
-        ADD_COUNTER(runtime_profile(), _s_num_disks_accessed_counter, TUnit::UNIT);
+            ADD_COUNTER(runtime_profile(), _s_num_disks_accessed_counter, TUnit::UNIT);
 
     return Status::OK();
 }
 
-}
+} // namespace doris

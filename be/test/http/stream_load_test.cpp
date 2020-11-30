@@ -17,10 +17,9 @@
 
 #include "http/action/stream_load.h"
 
-#include <gtest/gtest.h>
-
 #include <event2/http.h>
 #include <event2/http_struct.h>
+#include <gtest/gtest.h>
 #include <rapidjson/document.h>
 
 #include "exec/schema_scanner/schema_helper.h"
@@ -41,22 +40,17 @@ namespace doris {
 std::string k_response_str;
 
 // Send Unauthorized status with basic challenge
-void HttpChannel::send_basic_challenge(HttpRequest* req, const std::string& realm) {
-}
+void HttpChannel::send_basic_challenge(HttpRequest* req, const std::string& realm) {}
 
-void HttpChannel::send_error(HttpRequest* request, HttpStatus status) {
-}
+void HttpChannel::send_error(HttpRequest* request, HttpStatus status) {}
 
-void HttpChannel::send_reply(HttpRequest* request, HttpStatus status) {
-}
+void HttpChannel::send_reply(HttpRequest* request, HttpStatus status) {}
 
-void HttpChannel::send_reply(
-        HttpRequest* request, HttpStatus status, const std::string& content) {
+void HttpChannel::send_reply(HttpRequest* request, HttpStatus status, const std::string& content) {
     k_response_str = content;
 }
 
-void HttpChannel::send_file(HttpRequest* request, int fd, size_t off, size_t size) {
-}
+void HttpChannel::send_file(HttpRequest* request, int fd, size_t off, size_t size) {}
 
 extern TLoadTxnBeginResult k_stream_load_begin_result;
 extern TLoadTxnCommitResult k_stream_load_commit_result;
@@ -66,8 +60,8 @@ extern Status k_stream_load_plan_status;
 
 class StreamLoadActionTest : public testing::Test {
 public:
-    StreamLoadActionTest() { }
-    virtual ~StreamLoadActionTest() { }
+    StreamLoadActionTest() {}
+    virtual ~StreamLoadActionTest() {}
     void SetUp() override {
         k_stream_load_begin_result = TLoadTxnBeginResult();
         k_stream_load_commit_result = TLoadTxnCommitResult();
@@ -101,6 +95,7 @@ public:
             evhttp_request_free(_evhttp_req);
         }
     }
+
 private:
     ExecEnv _env;
     evhttp_request* _evhttp_req = nullptr;
@@ -181,7 +176,7 @@ TEST_F(StreamLoadActionTest, put_fail) {
 
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
-    Status status= Status::InternalError("TestFail");
+    Status status = Status::InternalError("TestFail");
     status.to_thrift(&k_stream_load_put_result.status);
     request.set_handler(&action);
     action.on_header(&request);
@@ -268,7 +263,7 @@ TEST_F(StreamLoadActionTest, plan_fail) {
     ASSERT_STREQ("Fail", doc["Status"].GetString());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

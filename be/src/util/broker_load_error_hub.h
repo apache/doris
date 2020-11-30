@@ -18,14 +18,13 @@
 #ifndef DORIS_BE_SRC_UTIL_BROKER_LOAD_ERROR_HUB_H
 #define DORIS_BE_SRC_UTIL_BROKER_LOAD_ERROR_HUB_H
 
-#include <sstream>
-#include <string>
 #include <mutex>
 #include <queue>
+#include <sstream>
+#include <string>
 
-
-#include "util/load_error_hub.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "util/load_error_hub.h"
 
 namespace doris {
 
@@ -45,16 +44,15 @@ public:
         std::string path;
         std::map<std::string, std::string> props;
 
-        BrokerInfo(const TBrokerErrorHubInfo& t_info,
-                   const std::string& error_log_file_name) :
-                props(t_info.prop) {
+        BrokerInfo(const TBrokerErrorHubInfo& t_info, const std::string& error_log_file_name)
+                : props(t_info.prop) {
             path = t_info.path + "/" + error_log_file_name;
             addrs.push_back(t_info.broker_addr);
         }
     };
 
     BrokerLoadErrorHub(ExecEnv* env, const TBrokerErrorHubInfo& info,
-            const std::string& error_log_file_name);
+                       const std::string& error_log_file_name);
 
     virtual ~BrokerLoadErrorHub();
 
@@ -85,4 +83,3 @@ private:
 } // end namespace doris
 
 #endif // DORIS_BE_SRC_UTIL_BROKER_LOAD_ERROR_HUB_H
-

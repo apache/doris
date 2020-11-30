@@ -18,19 +18,19 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_EXEC_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_EXEC_NODE_H
 
+#include <mutex>
 #include <sstream>
 #include <vector>
-#include <mutex>
 
 #include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "util/runtime_profile.h"
-#include "util/blocking_queue.hpp"
-#include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/query_statistics.h"
 #include "service/backend_options.h"
+#include "util/blocking_queue.hpp"
+#include "util/runtime_profile.h"
 #include "util/uid_util.h" // for print_id
 
 namespace doris {
@@ -134,11 +134,11 @@ public:
     // traversal. All nodes are placed in pool.
     // Returns error if 'plan' is corrupted, otherwise success.
     static Status create_tree(RuntimeState* state, ObjectPool* pool, const TPlan& plan,
-                             const DescriptorTbl& descs, ExecNode** root);
+                              const DescriptorTbl& descs, ExecNode** root);
 
     // Set debug action for node with given id in 'tree'
     static void set_debug_options(int node_id, TExecNodePhase::type phase,
-                                TDebugAction::type action, ExecNode* tree);
+                                  TDebugAction::type action, ExecNode* tree);
 
     // Collect all nodes of given 'node_type' that are part of this subtree, and return in
     // 'nodes'.
@@ -172,50 +172,24 @@ public:
     //   out: Stream to accumulate debug string.
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
 
-    const std::vector<ExprContext*>& conjunct_ctxs() const {
-        return _conjunct_ctxs;
-    }
+    const std::vector<ExprContext*>& conjunct_ctxs() const { return _conjunct_ctxs; }
 
-    int id() const {
-        return _id;
-    }
-    TPlanNodeType::type type() const {
-        return _type;
-    }
-    const RowDescriptor& row_desc() const {
-        return _row_descriptor;
-    }
-    int64_t rows_returned() const {
-        return _num_rows_returned;
-    }
-    int64_t limit() const {
-        return _limit;
-    }
-    bool reached_limit() {
-        return _limit != -1 && _num_rows_returned >= _limit;
-    }
-    const std::vector<TupleId>& get_tuple_ids() const {
-        return _tuple_ids;
-    }
+    int id() const { return _id; }
+    TPlanNodeType::type type() const { return _type; }
+    const RowDescriptor& row_desc() const { return _row_descriptor; }
+    int64_t rows_returned() const { return _num_rows_returned; }
+    int64_t limit() const { return _limit; }
+    bool reached_limit() { return _limit != -1 && _num_rows_returned >= _limit; }
+    const std::vector<TupleId>& get_tuple_ids() const { return _tuple_ids; }
 
-    RuntimeProfile* runtime_profile() {
-        return _runtime_profile.get();
-    }
-    RuntimeProfile::Counter* memory_used_counter() const {
-        return _memory_used_counter;
-    }
+    RuntimeProfile* runtime_profile() { return _runtime_profile.get(); }
+    RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
-    std::shared_ptr<MemTracker> mem_tracker() const {
-        return _mem_tracker;
-    }
+    std::shared_ptr<MemTracker> mem_tracker() const { return _mem_tracker; }
 
-    std::shared_ptr<MemTracker> expr_mem_tracker() const {
-        return _expr_mem_tracker;
-    }
+    std::shared_ptr<MemTracker> expr_mem_tracker() const { return _expr_mem_tracker; }
 
-    MemPool* expr_mem_pool() { 
-        return _expr_mem_pool.get(); 
-    }
+    MemPool* expr_mem_pool() { return _expr_mem_pool.get(); }
 
     // Extract node id from p->name().
     static int get_node_id_from_profile(RuntimeProfile* p);
@@ -253,7 +227,7 @@ protected:
     /// be cleaned up during Close().
     /// All functions are thread safe.
     class RowBatchQueue : public BlockingQueue<RowBatch*> {
-        public:
+    public:
         /// max_batches is the maximum number of row batches that can be queued.
         /// When the queue is full, producers will block.
         RowBatchQueue(int max_batches);
@@ -279,7 +253,7 @@ protected:
         /// Returns the number of io buffers that were released (for debug tracking)
         int Cleanup();
 
-        private:
+    private:
         /// Lock protecting cleanup_queue_
         // SpinLock lock_;
         // TODO(dhc): need to modify spinlock
@@ -289,7 +263,7 @@ protected:
         std::list<RowBatch*> cleanup_queue_;
     };
 
-    int _id;  // unique w/in single plan tree
+    int _id; // unique w/in single plan tree
     TPlanNodeType::type _type;
     ObjectPool* _pool;
     std::vector<Expr*> _conjuncts;
@@ -307,14 +281,14 @@ protected:
     TExecNodePhase::type _debug_phase;
     TDebugAction::type _debug_action;
 
-    int64_t _limit;  // -1: no limit
+    int64_t _limit; // -1: no limit
     int64_t _num_rows_returned;
 
     boost::scoped_ptr<RuntimeProfile> _runtime_profile;
-   
+
     /// Account for peak memory used by this node
     std::shared_ptr<MemTracker> _mem_tracker;
-   
+
     /// MemTracker used by 'expr_mem_pool_'.
     std::shared_ptr<MemTracker> _expr_mem_tracker;
 
@@ -332,20 +306,16 @@ protected:
     // "Codegen Enabled"
     boost::mutex _exec_options_lock;
     std::string _runtime_exec_options;
-   
+
     /// Buffer pool client for this node. Initialized with the node's minimum reservation
     /// in ClaimBufferReservation(). After initialization, the client must hold onto at
     /// least the minimum reservation so that it can be returned to the initial
     /// reservations pool in Close().
     BufferPool::ClientHandle _buffer_pool_client;
 
-    ExecNode* child(int i) {
-        return _children[i];
-    }
+    ExecNode* child(int i) { return _children[i]; }
 
-    bool is_closed() const {
-        return _is_closed;
-    }
+    bool is_closed() const { return _is_closed; }
 
     // TODO(zc)
     /// Pointer to the containing SubplanNode or NULL if not inside a subplan.
@@ -358,14 +328,14 @@ protected:
 
     // Create a single exec node derived from thrift node; place exec node in 'pool'.
     static Status create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
-                             const DescriptorTbl& descs, ExecNode** node);
+                              const DescriptorTbl& descs, ExecNode** node);
 
-    static Status create_tree_helper(RuntimeState* state, ObjectPool* pool, const std::vector<TPlanNode>& tnodes,
-                                   const DescriptorTbl& descs, ExecNode* parent, int* node_idx, ExecNode** root);
+    static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
+                                     const std::vector<TPlanNode>& tnodes,
+                                     const DescriptorTbl& descs, ExecNode* parent, int* node_idx,
+                                     ExecNode** root);
 
-    virtual bool is_scan_node() const {
-        return false;
-    }
+    virtual bool is_scan_node() const { return false; }
 
     void init_runtime_profile(const std::string& name);
 
@@ -389,26 +359,25 @@ private:
     bool _is_closed;
 };
 
-#define LIMIT_EXCEEDED(tracker, state, msg) \
-    do { \
-        stringstream str; \
-        str << "Memory exceed limit. " << msg << " "; \
-        str << "Backend: " << BackendOptions::get_localhost() << ", "; \
-        str << "fragment: " << print_id(state->fragment_instance_id()) << " "; \
+#define LIMIT_EXCEEDED(tracker, state, msg)                                                   \
+    do {                                                                                      \
+        stringstream str;                                                                     \
+        str << "Memory exceed limit. " << msg << " ";                                         \
+        str << "Backend: " << BackendOptions::get_localhost() << ", ";                        \
+        str << "fragment: " << print_id(state->fragment_instance_id()) << " ";                \
         str << "Used: " << tracker->consumption() << ", Limit: " << tracker->limit() << ". "; \
-        str << "You can change the limit by session variable exec_mem_limit."; \
-        return Status::MemoryLimitExceeded(str.str()); \
+        str << "You can change the limit by session variable exec_mem_limit.";                \
+        return Status::MemoryLimitExceeded(str.str());                                        \
     } while (false)
 
-#define RETURN_IF_LIMIT_EXCEEDED(state, msg) \
-    do { \
-        /* if (UNLIKELY(MemTracker::limit_exceeded(*(state)->mem_trackers()))) { */ \
+#define RETURN_IF_LIMIT_EXCEEDED(state, msg)                                                \
+    do {                                                                                    \
+        /* if (UNLIKELY(MemTracker::limit_exceeded(*(state)->mem_trackers()))) { */         \
         MemTracker* tracker = state->instance_mem_tracker()->find_limit_exceeded_tracker(); \
-        if (tracker != nullptr) { \
-            LIMIT_EXCEEDED(tracker, state, msg); \
-        } \
+        if (tracker != nullptr) {                                                           \
+            LIMIT_EXCEEDED(tracker, state, msg);                                            \
+        }                                                                                   \
     } while (false)
-}
+} // namespace doris
 
 #endif
-

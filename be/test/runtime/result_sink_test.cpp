@@ -15,29 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <iostream>
-#include <gtest/gtest.h>
 #include "runtime/result_sink.h"
-#include "exprs/expr.h"
-#include "exprs/int_literal.h"
+
+#include <gtest/gtest.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <iostream>
+
 #include "exprs/bool_literal.h"
+#include "exprs/expr.h"
 #include "exprs/float_literal.h"
+#include "exprs/int_literal.h"
 #include "exprs/string_literal.h"
 #include "exprs/timestamp_literal.h"
-#include "runtime/primitive_type.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
-#include "runtime/runtime_state.h"
-#include "runtime/result_buffer_mgr.h"
-#include "runtime/buffer_control_block.h"
-#include "util/mysql_row_buffer.h"
+#include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
-#include "gen_cpp/Exprs_types.h"
-#include "util/logging.h"
+#include "runtime/buffer_control_block.h"
+#include "runtime/primitive_type.h"
+#include "runtime/result_buffer_mgr.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/tuple_row.h"
 #include "util/cpu_info.h"
+#include "util/logging.h"
+#include "util/mysql_row_buffer.h"
 
 namespace doris {
 
@@ -63,13 +66,10 @@ public:
             _exprs.push_back(expr);
         }
     }
-    virtual ~ResultSinkTest() {
-        delete _runtime_state;
-    }
+    virtual ~ResultSinkTest() { delete _runtime_state; }
 
 protected:
-    virtual void SetUp() {
-    }
+    virtual void SetUp() {}
 
 private:
     ExecEnv _exec_env;
@@ -89,7 +89,7 @@ TEST_F(ResultSinkTest, init_normal) {
     ASSERT_TRUE(sink.close(_runtime_state, Status::OK()).ok());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

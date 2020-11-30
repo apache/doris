@@ -15,24 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/broker_scan_node.h"
-
-#include <string>
-#include <map>
-#include <vector>
-
 #include <gtest/gtest.h>
 #include <time.h>
+
+#include <map>
+#include <string>
+#include <vector>
+
 #include "common/object_pool.h"
-#include "runtime/tuple.h"
+#include "exec/broker_scan_node.h"
 #include "exec/local_file_reader.h"
 #include "exprs/cast_functions.h"
-#include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
-#include "runtime/row_batch.h"
-#include "runtime/user_function_cache.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/descriptors.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/tuple.h"
+#include "runtime/user_function_cache.h"
 
 namespace doris {
 
@@ -44,15 +44,15 @@ public:
     }
     void init();
     static void SetUpTestCase() {
-        UserFunctionCache::instance()->init("./be/test/runtime/test_data/user_function_cache/normal");
+        UserFunctionCache::instance()->init(
+                "./be/test/runtime/test_data/user_function_cache/normal");
         CastFunctions::init();
     }
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
+
 private:
     int create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id);
     int create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id);
@@ -72,12 +72,13 @@ private:
 #define DST_TUPLE_SLOT_ID_START 1
 #define SRC_TUPLE_SLOT_ID_START 21
 int ParquetScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
-    const char *columnNames[] = {"log_version", "log_time", "log_time_stamp", "js_version", "vst_cookie",
-                                "vst_ip", "vst_user_id", "vst_user_agent", "device_resolution", "page_url",
-                                "page_refer_url", "page_yyid", "page_type", "pos_type", "content_id", "media_id",
-                                "spm_cnt", "spm_pre", "scm_cnt", "partition_column"};
-    for (int i = 0; i < COLUMN_NUMBERS; i++)
-    {
+    const char* columnNames[] = {
+            "log_version",       "log_time", "log_time_stamp", "js_version",
+            "vst_cookie",        "vst_ip",   "vst_user_id",    "vst_user_agent",
+            "device_resolution", "page_url", "page_refer_url", "page_yyid",
+            "page_type",         "pos_type", "content_id",     "media_id",
+            "spm_cnt",           "spm_pre",  "scm_cnt",        "partition_column"};
+    for (int i = 0; i < COLUMN_NUMBERS; i++) {
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -94,9 +95,9 @@ int ParquetScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int nex
         }
         slot_desc.slotType = type;
         slot_desc.columnPos = i;
-        slot_desc.byteOffset = i*16+8; // 跳过前8个字节 这8个字节用于表示字段是否为null值
-        slot_desc.nullIndicatorByte = i/8;
-        slot_desc.nullIndicatorBit = i%8;
+        slot_desc.byteOffset = i * 16 + 8; // 跳过前8个字节 这8个字节用于表示字段是否为null值
+        slot_desc.nullIndicatorByte = i / 8;
+        slot_desc.nullIndicatorBit = i % 8;
         slot_desc.colName = columnNames[i];
         slot_desc.slotIdx = i + 1;
         slot_desc.isMaterialized = true;
@@ -108,7 +109,7 @@ int ParquetScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int nex
         // TTupleDescriptor source
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = TUPLE_ID_SRC;
-        t_tuple_desc.byteSize = COLUMN_NUMBERS*16+8;//此处8字节为了处理null值
+        t_tuple_desc.byteSize = COLUMN_NUMBERS * 16 + 8; //此处8字节为了处理null值
         t_tuple_desc.numNullBytes = 0;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
@@ -119,7 +120,7 @@ int ParquetScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int nex
 
 int ParquetScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
     int32_t byteOffset = 8; // 跳过前8个字节 这8个字节用于表示字段是否为null值
-    {//log_version
+    {                       //log_version
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -146,7 +147,7 @@ int ParquetScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int nex
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
     byteOffset += 16;
-    {// log_time
+    { // log_time
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -172,7 +173,7 @@ int ParquetScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int nex
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
     byteOffset += 8;
-    {// log_time_stamp
+    { // log_time_stamp
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -198,12 +199,13 @@ int ParquetScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int nex
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
     byteOffset += 8;
-    const char *columnNames[] = {"log_version", "log_time", "log_time_stamp", "js_version", "vst_cookie",
-                                "vst_ip", "vst_user_id", "vst_user_agent", "device_resolution", "page_url",
-                                "page_refer_url", "page_yyid", "page_type", "pos_type", "content_id", "media_id",
-                                "spm_cnt", "spm_pre", "scm_cnt", "partition_column"};
-    for (int i = 3; i < COLUMN_NUMBERS; i++, byteOffset+=16)
-    {
+    const char* columnNames[] = {
+            "log_version",       "log_time", "log_time_stamp", "js_version",
+            "vst_cookie",        "vst_ip",   "vst_user_id",    "vst_user_agent",
+            "device_resolution", "page_url", "page_refer_url", "page_yyid",
+            "page_type",         "pos_type", "content_id",     "media_id",
+            "spm_cnt",           "spm_pre",  "scm_cnt",        "partition_column"};
+    for (int i = 3; i < COLUMN_NUMBERS; i++, byteOffset += 16) {
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -221,10 +223,10 @@ int ParquetScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int nex
         slot_desc.slotType = type;
         slot_desc.columnPos = i;
         slot_desc.byteOffset = byteOffset;
-        slot_desc.nullIndicatorByte = i/8;
-        slot_desc.nullIndicatorBit = i%8;
+        slot_desc.nullIndicatorByte = i / 8;
+        slot_desc.nullIndicatorBit = i % 8;
         slot_desc.colName = columnNames[i];
-        slot_desc.slotIdx = i+1;
+        slot_desc.slotIdx = i + 1;
         slot_desc.isMaterialized = true;
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
@@ -235,7 +237,7 @@ int ParquetScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int nex
         // TTupleDescriptor dest
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = TUPLE_ID_DST;
-        t_tuple_desc.byteSize = byteOffset+8;//此处8字节为了处理null值
+        t_tuple_desc.byteSize = byteOffset + 8; //此处8字节为了处理null值
         t_tuple_desc.numNullBytes = 0;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
@@ -380,8 +382,7 @@ void ParquetScannerTest::create_expr_info() {
         _params.src_slot_ids.push_back(SRC_TUPLE_SLOT_ID_START + 2);
     }
     // couldn't convert type
-    for (int i = 3; i < COLUMN_NUMBERS; i++)
-    {
+    for (int i = 3; i < COLUMN_NUMBERS; i++) {
         TExprNode slot_ref;
         slot_ref.node_type = TExprNodeType::SLOT_REF;
         slot_ref.type = varchar_type;
@@ -403,7 +404,6 @@ void ParquetScannerTest::create_expr_info() {
 }
 
 void ParquetScannerTest::init() {
-
     create_expr_info();
     init_desc_table();
 
@@ -489,7 +489,7 @@ TEST_F(ParquetScannerTest, normal) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

@@ -17,8 +17,9 @@
 
 #include "runtime/string_buffer.hpp"
 
-#include <string>
 #include <gtest/gtest.h>
+
+#include <string>
 
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
@@ -72,7 +73,7 @@ TEST(StringBufferTest, Basic) {
     EXPECT_EQ(str.buffer_size(), strlen("HelloWorld"));
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
 #if 0
@@ -86,4 +87,3 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

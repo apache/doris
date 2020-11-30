@@ -30,8 +30,8 @@ namespace doris {
 
 const uint64_t BlockId::kInvalidId = 0;
 
-string BlockId::join_strings(const vector<BlockId>& blocks) {
-    vector<string> strings;
+std::string BlockId::join_strings(const std::vector<BlockId>& blocks) {
+    std::vector<string> strings;
     strings.reserve(blocks.size());
     for (const BlockId& block : blocks) {
         strings.push_back(block.to_string());

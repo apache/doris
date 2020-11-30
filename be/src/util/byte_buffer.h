@@ -38,7 +38,7 @@ struct ByteBuffer {
     ~ByteBuffer() { delete[] ptr; }
 
     void put_bytes(const char* data, size_t size) {
-        memcpy(ptr + pos , data, size);
+        memcpy(ptr + pos, data, size);
         pos += size;
     }
 
@@ -60,11 +60,10 @@ struct ByteBuffer {
     size_t pos;
     size_t limit;
     size_t capacity;
+
 private:
     ByteBuffer(size_t capacity_)
-        : ptr(new char[capacity_]), pos(0),
-        limit(capacity_), capacity(capacity_) {
-    }
+            : ptr(new char[capacity_]), pos(0), limit(capacity_), capacity(capacity_) {}
 };
 
-}
+} // namespace doris

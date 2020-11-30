@@ -17,30 +17,27 @@
 
 #include "http/http_request.h"
 
-#include <string>
-#include <sstream>
-#include <vector>
-#include <boost/foreach.hpp>
-#include <boost/algorithm/string.hpp>
-
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>
 #include <event2/keyvalq_struct.h>
 
-#include "http/http_handler.h"
+#include <boost/algorithm/string.hpp>
+#include <boost/foreach.hpp>
+#include <sstream>
+#include <string>
+#include <vector>
 
 #include "common/logging.h"
+#include "http/http_handler.h"
 #include "util/url_coding.h"
 
 namespace doris {
 
 static std::string s_empty = "";
 
-HttpRequest::HttpRequest(evhttp_request* evhttp_request)
-        : _ev_req(evhttp_request) {
-}
+HttpRequest::HttpRequest(evhttp_request* evhttp_request) : _ev_req(evhttp_request) {}
 
 HttpRequest::~HttpRequest() {
     if (_handler_ctx != nullptr) {
@@ -53,15 +50,13 @@ int HttpRequest::init_from_evhttp() {
     _method = to_http_method(evhttp_request_get_command(_ev_req));
     if (_method == HttpMethod::UNKNOWN) {
         LOG(WARNING) << "unknown method of HTTP request, method="
-            << evhttp_request_get_command(_ev_req);
+                     << evhttp_request_get_command(_ev_req);
         return -1;
     }
     _uri = evhttp_request_get_uri(_ev_req);
     // conver header
     auto headers = evhttp_request_get_input_headers(_ev_req);
-    for (auto header = headers->tqh_first;
-         header != nullptr;
-         header = header->next.tqe_next) {
+    for (auto header = headers->tqh_first; header != nullptr; header = header->next.tqe_next) {
         _headers.emplace(header->key, header->value);
     }
     // parse
@@ -77,9 +72,7 @@ int HttpRequest::init_from_evhttp() {
         LOG(WARNING) << "parse query str failed, query=" << query;
         return res;
     }
-    for (auto param = params.tqh_first;
-         param != nullptr;
-         param = param->next.tqe_next) {
+    for (auto param = params.tqh_first; param != nullptr; param = param->next.tqe_next) {
         _query_params.emplace(param->key, param->value);
     }
     _params.insert(_query_params.begin(), _query_params.end());
@@ -89,11 +82,11 @@ int HttpRequest::init_from_evhttp() {
 
 std::string HttpRequest::debug_string() const {
     std::stringstream ss;
-    ss << "HttpRequest: \n" 
-        << "method:" << _method << "\n"
-        << "uri:" << _uri << "\n"
-        << "raw_path:" << _raw_path << "\n"
-        << "headers: \n";
+    ss << "HttpRequest: \n"
+       << "method:" << _method << "\n"
+       << "uri:" << _uri << "\n"
+       << "raw_path:" << _raw_path << "\n"
+       << "headers: \n";
     for (auto& iter : _headers) {
         ss << "key=" << iter.first << ", value=" << iter.second << "\n";
     }
@@ -144,4 +137,4 @@ const char* HttpRequest::remote_host() const {
     return _ev_req->remote_host;
 }
 
-}
+} // namespace doris

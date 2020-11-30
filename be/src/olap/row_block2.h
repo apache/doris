@@ -23,10 +23,10 @@
 
 #include "common/status.h"
 #include "olap/column_block.h"
-#include "olap/schema.h"
-#include "olap/types.h"
-#include "olap/selection_vector.h"
 #include "olap/row_block.h"
+#include "olap/schema.h"
+#include "olap/selection_vector.h"
+#include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 
@@ -74,10 +74,8 @@ public:
     // low-level API to access memory for each column block(including data array and nullmap).
     // `cid` must be one of `schema()->column_ids()`.
     ColumnBlock column_block(ColumnId cid) const {
-        const TypeInfo* type_info = _schema.column(cid)->type_info();
-        uint8_t* data = _column_datas[cid];
-        uint8_t* null_bitmap = _column_null_bitmaps[cid];
-        return ColumnBlock(type_info, data, null_bitmap, _capacity, _pool.get());
+        ColumnVectorBatch* batch = _column_vector_batches[cid].get();
+        return {batch, _pool.get()};
     }
 
     // low-level API to access the underlying memory for row at `row_idx`.
@@ -87,17 +85,11 @@ public:
 
     const Schema* schema() const { return &_schema; }
 
-    uint16_t* selection_vector() const {
-        return _selection_vector;
-    }
+    uint16_t* selection_vector() const { return _selection_vector; }
 
-    uint16_t selected_size() const {
-        return _selected_size;
-    }
+    uint16_t selected_size() const { return _selected_size; }
 
-    void set_selected_size(uint16_t selected_size) {
-        _selected_size = selected_size;
-    }
+    void set_selected_size(uint16_t selected_size) { _selected_size = selected_size; }
 
     DelCondSatisfied delete_state() const { return _delete_state; }
 
@@ -113,14 +105,10 @@ public:
 private:
     Schema _schema;
     size_t _capacity;
-    // keeps fixed-size (field_size x capacity) data vector for each column,
-    // _column_datas[cid] == null if cid is not in `_schema`.
+    // _column_vector_batches[cid] == null if cid is not in `_schema`.
     // memory are not allocated from `_pool` because we don't wan't to reallocate them in clear()
-    std::vector<uint8_t*> _column_datas;
-    // keeps null bitmap for each column,
-    // _column_null_bitmaps[cid] == null if cid is not in `_schema` or the column is not null.
-    // memory are not allocated from `_pool` because we don't wan't to reallocate them in clear()
-    std::vector<uint8_t*> _column_null_bitmaps;
+    std::vector<std::unique_ptr<ColumnVectorBatch>> _column_vector_batches;
+
     size_t _num_rows;
     // manages the memory for slice's data
     std::shared_ptr<MemTracker> _tracker;
@@ -139,17 +127,13 @@ private:
 // and row index.
 class RowBlockRow {
 public:
-    RowBlockRow(const RowBlockV2* block, size_t row_index) : _block(block), _row_index(row_index) { }
+    RowBlockRow(const RowBlockV2* block, size_t row_index) : _block(block), _row_index(row_index) {}
 
     const RowBlockV2* row_block() const { return _block; }
     size_t row_index() const { return _row_index; }
 
-    ColumnBlock column_block(size_t col_idx) const {
-        return _block->column_block(col_idx);
-    }
-    bool is_null(size_t col_idx) const {
-        return column_block(col_idx).is_null(_row_index);
-    }
+    ColumnBlock column_block(size_t col_idx) const { return _block->column_block(col_idx); }
+    bool is_null(size_t col_idx) const { return column_block(col_idx).is_null(_row_index); }
     void set_is_null(size_t col_idx, bool is_null) {
         return column_block(col_idx).set_is_null(_row_index, is_null);
     }
@@ -163,9 +147,8 @@ public:
 
     std::string debug_string() const;
 
-    ColumnBlockCell cell(uint32_t cid) const {
-        return column_block(cid).cell(_row_index);
-    }
+    ColumnBlockCell cell(uint32_t cid) const { return column_block(cid).cell(_row_index); }
+
 private:
     const RowBlockV2* _block;
     size_t _row_index;
@@ -175,4 +158,4 @@ inline RowBlockRow RowBlockV2::row(size_t row_idx) const {
     return RowBlockRow(this, row_idx);
 }
 
-}
+} // namespace doris

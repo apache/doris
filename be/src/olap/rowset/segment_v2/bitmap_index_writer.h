@@ -48,9 +48,10 @@ public:
     virtual Status finish(fs::WritableBlock* file, ColumnIndexMetaPB* index_meta) = 0;
 
     virtual uint64_t size() const = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(BitmapIndexWriter);
 };
 
-} // segment_v2
+} // namespace segment_v2
 } // namespace doris

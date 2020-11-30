@@ -79,9 +79,11 @@ protected:
     std::shared_ptr<MetricEntity> _metric_entity = nullptr;
 
     std::string _full_name;
+
 public:
     IntCounter* query_scan_bytes;
     IntCounter* query_scan_rows;
+    IntCounter* query_scan_count;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(BaseTablet);

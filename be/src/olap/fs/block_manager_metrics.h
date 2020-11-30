@@ -52,4 +52,3 @@ struct BlockManagerMetrics {
 } // namespace internal
 } // namespace fs
 } // namespace doris
-

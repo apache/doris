@@ -18,6 +18,7 @@
 #include "util/dynamic_util.h"
 
 #include <dlfcn.h>
+
 #include <sstream>
 
 namespace doris {
@@ -53,8 +54,8 @@ void dynamic_close(void* handle) {
 // There is an issue of LSAN can't deal well with dlclose(), so we disable LSAN here, more details:
 // https://github.com/google/sanitizers/issues/89
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER)
-   dlclose(handle);
+    dlclose(handle);
 #endif
 }
 
-}
+} // namespace doris

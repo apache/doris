@@ -27,7 +27,6 @@ namespace doris {
 /// This task is used to migrate the specified tablet to the specified data directory.
 // Usually used for storage medium migration, or migration of tablets between disks.
 class EngineStorageMigrationTask : public EngineTask {
-
 public:
     virtual OLAPStatus execute();
 
@@ -37,11 +36,11 @@ public:
 
 private:
     OLAPStatus _migrate();
-    
+
     void _generate_new_header(uint64_t new_shard,
                               const std::vector<RowsetSharedPtr>& consistent_rowsets,
                               TabletMetaSharedPtr new_tablet_meta);
-    
+
     // TODO: hkp
     // rewrite this function
     OLAPStatus _copy_index_and_data_files(
@@ -56,5 +55,5 @@ private:
 
 }; // EngineTask
 
-} // doris
+} // namespace doris
 #endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H

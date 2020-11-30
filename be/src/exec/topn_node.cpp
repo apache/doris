@@ -17,6 +17,8 @@
 
 #include "exec/topn_node.h"
 
+#include <gperftools/profiler.h>
+
 #include <sstream>
 
 #include "exprs/expr.h"
@@ -31,22 +33,19 @@
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 #include "util/tuple_row_compare.h"
-#include <gperftools/profiler.h>
 
 namespace doris {
 
-TopNNode::TopNNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) :
-        ExecNode(pool, tnode, descs),
-        _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
-        _materialized_tuple_desc(NULL),
-        _tuple_row_less_than(NULL),
-        _tuple_pool(NULL),
-        _num_rows_skipped(0),
-        _priority_queue(NULL) {
-}
+TopNNode::TopNNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ExecNode(pool, tnode, descs),
+          _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
+          _materialized_tuple_desc(NULL),
+          _tuple_row_less_than(NULL),
+          _tuple_pool(NULL),
+          _num_rows_skipped(0),
+          _priority_queue(NULL) {}
 
-TopNNode::~TopNNode() {
-}
+TopNNode::~TopNNode() {}
 
 Status TopNNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
@@ -63,15 +62,15 @@ Status TopNNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _tuple_pool.reset(new MemPool(mem_tracker().get()));
-    RETURN_IF_ERROR(_sort_exec_exprs.prepare(
-            state, child(0)->row_desc(), _row_descriptor, expr_mem_tracker()));
+    RETURN_IF_ERROR(_sort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor,
+                                             expr_mem_tracker()));
     // AddExprCtxsToFree(_sort_exec_exprs);
 
     _tuple_row_less_than.reset(
             new TupleRowComparator(_sort_exec_exprs, _is_asc_order, _nulls_first));
 
-    _abort_on_default_limit_exceeded = _abort_on_default_limit_exceeded &&
-                                       state->abort_on_default_limit_exceeded();
+    _abort_on_default_limit_exceeded =
+            _abort_on_default_limit_exceeded && state->abort_on_default_limit_exceeded();
     _materialized_tuple_desc = _row_descriptor.tuple_descriptors()[0];
     return Status::OK();
 }
@@ -88,13 +87,13 @@ Status TopNNode::open(RuntimeState* state) {
     // regression. Why??
     if (_priority_queue.get() == NULL) {
         _priority_queue.reset(
-            new std::priority_queue<Tuple*, std::vector<Tuple*>, TupleRowComparator>(
-                *_tuple_row_less_than));
+                new std::priority_queue<Tuple*, std::vector<Tuple*>, TupleRowComparator>(
+                        *_tuple_row_less_than));
     }
 
     // Allocate memory for a temporary tuple.
-    _tmp_tuple = reinterpret_cast<Tuple*>(
-            _tuple_pool->allocate(_materialized_tuple_desc->byte_size()));
+    _tmp_tuple =
+            reinterpret_cast<Tuple*>(_tuple_pool->allocate(_materialized_tuple_desc->byte_size()));
     RETURN_IF_ERROR(child(0)->open(state));
 
     // Limit of 0, no need to fetch anything from children.
@@ -187,12 +186,14 @@ void TopNNode::insert_tuple_row(TupleRow* input_row) {
         insert_tuple = reinterpret_cast<Tuple*>(
                 _tuple_pool->allocate(_materialized_tuple_desc->byte_size()));
         insert_tuple->materialize_exprs<false>(input_row, *_materialized_tuple_desc,
-                _sort_exec_exprs.sort_tuple_slot_expr_ctxs(), _tuple_pool.get(), NULL, NULL);
+                                               _sort_exec_exprs.sort_tuple_slot_expr_ctxs(),
+                                               _tuple_pool.get(), NULL, NULL);
     } else {
         DCHECK(!_priority_queue->empty());
         Tuple* top_tuple = _priority_queue->top();
         _tmp_tuple->materialize_exprs<false>(input_row, *_materialized_tuple_desc,
-                _sort_exec_exprs.sort_tuple_slot_expr_ctxs(), NULL, NULL, NULL);
+                                             _sort_exec_exprs.sort_tuple_slot_expr_ctxs(), NULL,
+                                             NULL, NULL);
 
         if ((*_tuple_row_less_than)(_tmp_tuple, top_tuple)) {
             // TODO: DeepCopy will allocate new buffers for the string data.  This needs
@@ -226,14 +227,12 @@ void TopNNode::prepare_for_output() {
 void TopNNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << std::string(indentation_level * 2, ' ');
     *out << "TopNNode("
-        // << " ordering_exprs=" << Expr::debug_string(_lhs_ordering_expr_ctxs)
-        << Expr::debug_string(_sort_exec_exprs.lhs_ordering_expr_ctxs())
-        << " sort_order=[";
+         // << " ordering_exprs=" << Expr::debug_string(_lhs_ordering_expr_ctxs)
+         << Expr::debug_string(_sort_exec_exprs.lhs_ordering_expr_ctxs()) << " sort_order=[";
 
     for (int i = 0; i < _is_asc_order.size(); ++i) {
-        *out << (i > 0 ? " " : "")
-            << (_is_asc_order[i] ? "asc" : "desc")
-            << " nulls " << (_nulls_first[i] ? "first" : "last");
+        *out << (i > 0 ? " " : "") << (_is_asc_order[i] ? "asc" : "desc") << " nulls "
+             << (_nulls_first[i] ? "first" : "last");
     }
 
     *out << "]";
@@ -241,8 +240,7 @@ void TopNNode::debug_string(int indentation_level, std::stringstream* out) const
     *out << ")";
 }
 
-void TopNNode::push_down_predicate(
-        RuntimeState *state, std::list<ExprContext*> *expr_ctxs) {
+void TopNNode::push_down_predicate(RuntimeState* state, std::list<ExprContext*>* expr_ctxs) {
     std::list<ExprContext*>::iterator iter = expr_ctxs->begin();
     while (iter != expr_ctxs->end()) {
         if ((*iter)->root()->is_bound(&_tuple_ids)) {
@@ -258,4 +256,4 @@ void TopNNode::push_down_predicate(
     }
 }
 
-}
+} // namespace doris

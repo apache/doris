@@ -141,7 +141,8 @@ int main(int argc, char** argv) {
     MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 1);
     // Change the total TCMalloc thread cache size if necessary.
     if (!MallocExtension::instance()->SetNumericProperty(
-                "tcmalloc.max_total_thread_cache_bytes", doris::config::tc_max_total_thread_cache_bytes)) {
+                "tcmalloc.max_total_thread_cache_bytes",
+                doris::config::tc_max_total_thread_cache_bytes)) {
         fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
         return -1;
     }
@@ -154,7 +155,7 @@ int main(int argc, char** argv) {
         exit(-1);
     }
     auto it = paths.begin();
-    for (;it != paths.end();) {
+    for (; it != paths.end();) {
         if (!doris::check_datapath_rw(it->path)) {
             if (doris::config::ignore_broken_disk) {
                 LOG(WARNING) << "read write test file failed, path=" << it->path;

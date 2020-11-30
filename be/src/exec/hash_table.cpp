@@ -18,35 +18,33 @@
 #include "exec/hash_table.hpp"
 
 #include "exprs/expr.h"
-#include "runtime/raw_value.h"
-#include "runtime/string_value.hpp"
 #include "runtime/mem_tracker.h"
+#include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
+#include "runtime/string_value.hpp"
 #include "util/doris_metrics.h"
 
 namespace doris {
 
 const float HashTable::MAX_BUCKET_OCCUPANCY_FRACTION = 0.75f;
 
-HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
-                     const vector<ExprContext*>& probe_expr_ctxs,
-                     int num_build_tuples, bool stores_nulls, 
-                     const std::vector<bool>& finds_nulls,
-                     int32_t initial_seed,
-                     const std::shared_ptr<MemTracker>& mem_tracker, int64_t num_buckets) :
-        _build_expr_ctxs(build_expr_ctxs),
-        _probe_expr_ctxs(probe_expr_ctxs),
-        _num_build_tuples(num_build_tuples),
-        _stores_nulls(stores_nulls),
-        _finds_nulls(finds_nulls),
-        _initial_seed(initial_seed),
-        _node_byte_size(sizeof(Node) + sizeof(Tuple*) * _num_build_tuples),
-        _num_filled_buckets(0),
-        _nodes(NULL),
-        _num_nodes(0),
-        _exceeded_limit(false),
-        _mem_tracker(mem_tracker),
-        _mem_limit_exceeded(false) {
+HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
+                     const std::vector<ExprContext*>& probe_expr_ctxs, int num_build_tuples,
+                     bool stores_nulls, const std::vector<bool>& finds_nulls, int32_t initial_seed,
+                     const std::shared_ptr<MemTracker>& mem_tracker, int64_t num_buckets)
+        : _build_expr_ctxs(build_expr_ctxs),
+          _probe_expr_ctxs(probe_expr_ctxs),
+          _num_build_tuples(num_build_tuples),
+          _stores_nulls(stores_nulls),
+          _finds_nulls(finds_nulls),
+          _initial_seed(initial_seed),
+          _node_byte_size(sizeof(Node) + sizeof(Tuple*) * _num_build_tuples),
+          _num_filled_buckets(0),
+          _nodes(NULL),
+          _num_nodes(0),
+          _exceeded_limit(false),
+          _mem_tracker(mem_tracker),
+          _mem_limit_exceeded(false) {
     DCHECK(_mem_tracker);
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
 
@@ -57,8 +55,8 @@ HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
     _mem_tracker->Consume(_buckets.capacity() * sizeof(Bucket));
 
     // Compute the layout and buffer size to store the evaluated expr results
-    _results_buffer_size = Expr::compute_results_layout(_build_expr_ctxs,
-                           &_expr_values_buffer_offsets, &_var_result_begin);
+    _results_buffer_size = Expr::compute_results_layout(
+            _build_expr_ctxs, &_expr_values_buffer_offsets, &_var_result_begin);
     _expr_values_buffer = new uint8_t[_results_buffer_size];
     memset(_expr_values_buffer, 0, sizeof(uint8_t) * _results_buffer_size);
     _expr_value_null_bits = new uint8_t[_build_expr_ctxs.size()];
@@ -73,8 +71,7 @@ HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
     }
 }
 
-HashTable::~HashTable() {
-}
+HashTable::~HashTable() {}
 
 void HashTable::close() {
     // TODO: use tr1::array?
@@ -85,7 +82,7 @@ void HashTable::close() {
     _mem_tracker->Release(_buckets.size() * sizeof(Bucket));
 }
 
-bool HashTable::eval_row(TupleRow* row, const vector<ExprContext*>& ctxs) {
+bool HashTable::eval_row(TupleRow* row, const std::vector<ExprContext*>& ctxs) {
     // Put a non-zero constant in the result location for NULL.
     // We don't want(NULL, 1) to hash to the same as (0, 1).
     // This needs to be as big as the biggest primitive type since the bytes
@@ -149,7 +146,6 @@ uint32_t HashTable::hash_variable_len_row() {
                 hash = decimal->hash(hash);
             }
         }
-        
     }
 
     return hash;
@@ -175,7 +171,6 @@ bool HashTable::equals(TupleRow* build_row) {
 
         if (!RawValue::eq(loc, val, _build_expr_ctxs[i]->root()->type())) {
             return false;
-
         }
     }
 
@@ -299,4 +294,4 @@ std::string HashTable::debug_string(bool skip_empty, const RowDescriptor* desc) 
     return ss.str();
 }
 
-}
+} // namespace doris

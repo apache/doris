@@ -19,8 +19,8 @@
 
 #include "common/status.h"
 #include "env/env.h"
-#include "olap/storage_engine.h"
 #include "olap/fs/file_block_manager.h"
+#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 
 namespace doris {

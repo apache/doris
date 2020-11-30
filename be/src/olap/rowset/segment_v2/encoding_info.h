@@ -37,8 +37,7 @@ class PageDecoderOptions;
 class EncodingInfo {
 public:
     // Get EncodingInfo for TypeInfo and EncodingTypePB
-    static Status get(const TypeInfo* type_info,
-                      EncodingTypePB encoding_type,
+    static Status get(const TypeInfo* type_info, EncodingTypePB encoding_type,
                       const EncodingInfo** encoding);
 
     // optimize_value_search: whether the encoding scheme should optimize for ordered data
@@ -48,26 +47,29 @@ public:
     Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) const {
         return _create_builder_func(opts, builder);
     }
-    Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) const {
+    Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                               PageDecoder** decoder) const {
         return _create_decoder_func(data, opts, decoder);
     }
     FieldType type() const { return _type; }
     EncodingTypePB encoding() const { return _encoding; }
+
 private:
     friend class EncodingInfoResolver;
 
-    template<typename TypeEncodingTraits>
+    template <typename TypeEncodingTraits>
     explicit EncodingInfo(TypeEncodingTraits traits);
 
     using CreateBuilderFunc = std::function<Status(const PageBuilderOptions&, PageBuilder**)>;
     CreateBuilderFunc _create_builder_func;
 
-    using CreateDecoderFunc = std::function<Status(const Slice&, const PageDecoderOptions& opts, PageDecoder**)>;
+    using CreateDecoderFunc =
+            std::function<Status(const Slice&, const PageDecoderOptions& opts, PageDecoder**)>;
     CreateDecoderFunc _create_decoder_func;
 
     FieldType _type;
     EncodingTypePB _encoding;
 };
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

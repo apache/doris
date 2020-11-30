@@ -48,17 +48,19 @@ Status BitmapIndexIterator::seek_dictionary(const void* value, bool* exact_match
 Status BitmapIndexIterator::read_bitmap(rowid_t ordinal, Roaring* result) {
     DCHECK(0 <= ordinal && ordinal < _reader->bitmap_nums());
 
-    Slice value;
-    uint8_t nullmap;
     size_t num_to_read = 1;
-    ColumnBlock block(_reader->type_info(), (uint8_t*) &value, &nullmap, num_to_read, _pool.get());
+    std::unique_ptr<ColumnVectorBatch> cvb;
+    RETURN_IF_ERROR(
+            ColumnVectorBatch::create(num_to_read, false, _reader->type_info(), nullptr, &cvb));
+    ColumnBlock block(cvb.get(), _pool.get());
     ColumnBlockView column_block_view(&block);
 
     RETURN_IF_ERROR(_bitmap_column_iter.seek_to_ordinal(ordinal));
     size_t num_read = num_to_read;
     RETURN_IF_ERROR(_bitmap_column_iter.next_batch(&num_read, &column_block_view));
     DCHECK(num_to_read == num_read);
-    *result = Roaring::read(value.data, false);
+
+    *result = Roaring::read(reinterpret_cast<const Slice*>(block.data())->data, false);
     _pool->clear();
     return Status::OK();
 }

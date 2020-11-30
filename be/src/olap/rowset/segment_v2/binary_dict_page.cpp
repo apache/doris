@@ -18,23 +18,23 @@
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 
 #include "common/logging.h"
-#include "util/slice.h" // for Slice
 #include "gutil/strings/substitute.h" // for Substitute
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
+#include "util/slice.h" // for Slice
 
 namespace doris {
 namespace segment_v2 {
 
 using strings::Substitute;
 
-BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options) :
-    _options(options),
-    _finished(false),
-    _data_page_builder(nullptr),
-    _dict_builder(nullptr),
-    _encoding_type(DICT_ENCODING),
-    _tracker(new MemTracker()),
-    _pool(_tracker.get()) {
+BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
+        : _options(options),
+          _finished(false),
+          _data_page_builder(nullptr),
+          _dict_builder(nullptr),
+          _encoding_type(DICT_ENCODING),
+          _tracker(new MemTracker()),
+          _pool(_tracker.get()) {
     // initially use DICT_ENCODING
     // TODO: the data page builder type can be created by Factory according to user config
     _data_page_builder.reset(new BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>(options));
@@ -63,7 +63,8 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         uint32_t value_code = -1;
 
         if (_data_page_builder->count() == 0) {
-            _first_value.assign_copy(reinterpret_cast<const uint8_t*>(src->get_data()), src->get_size());
+            _first_value.assign_copy(reinterpret_cast<const uint8_t*>(src->get_data()),
+                                     src->get_size());
         }
 
         for (int i = 0; i < *count; ++i, ++src) {
@@ -78,7 +79,8 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                 if (src->size > 0) {
                     char* item_mem = (char*)_pool.allocate(src->size);
                     if (item_mem == nullptr) {
-                        return Status::MemoryAllocFailed(Substitute("memory allocate failed, size:$0", src->size));
+                        return Status::MemoryAllocFailed(
+                                strings::Substitute("memory allocate failed, size:$0", src->size));
                     }
                     dict_item.relocate(item_mem);
                 }
@@ -88,7 +90,8 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                 _dict_builder->update_prepared_size(dict_item.size);
             }
             size_t add_count = 1;
-            RETURN_IF_ERROR(_data_page_builder->add(reinterpret_cast<const uint8_t*>(&value_code), &add_count));
+            RETURN_IF_ERROR(_data_page_builder->add(reinterpret_cast<const uint8_t*>(&value_code),
+                                                    &add_count));
             if (add_count == 0) {
                 // current data page is full, stop processing remaining inputs
                 break;
@@ -119,8 +122,7 @@ void BinaryDictPageBuilder::reset() {
     _buffer.reserve(_options.data_page_size + BINARY_DICT_PAGE_HEADER_SIZE);
     _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
-    if (_encoding_type == DICT_ENCODING
-            && _dict_builder->is_page_full()) {
+    if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
         _data_page_builder.reset(new BinaryPlainPageBuilder(_options));
         _encoding_type = PLAIN_ENCODING;
     } else {
@@ -143,8 +145,9 @@ Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
     size_t add_count = 1;
     // here do not check is_page_full of dict_builder
     // because it is checked in add
-    for (auto& dict_item: _dict_items) {
-        RETURN_IF_ERROR(_dict_builder->add(reinterpret_cast<const uint8_t*>(&dict_item), &add_count));
+    for (auto& dict_item : _dict_items) {
+        RETURN_IF_ERROR(
+                _dict_builder->add(reinterpret_cast<const uint8_t*>(&dict_item), &add_count));
     }
     *dictionary_page = _dict_builder->finish();
     _dict_items.clear();
@@ -180,30 +183,35 @@ Status BinaryDictPageBuilder::get_last_value(void* value) const {
     return Status::OK();
 }
 
-BinaryDictPageDecoder::BinaryDictPageDecoder(Slice data, const PageDecoderOptions& options) :
-    _data(data),
-    _options(options),
-    _data_page_decoder(nullptr),
-    _parsed(false),
-    _encoding_type(UNKNOWN_ENCODING) { }
+BinaryDictPageDecoder::BinaryDictPageDecoder(Slice data, const PageDecoderOptions& options)
+        : _data(data),
+          _options(options),
+          _data_page_decoder(nullptr),
+          _parsed(false),
+          _encoding_type(UNKNOWN_ENCODING) {}
 
 Status BinaryDictPageDecoder::init() {
     CHECK(!_parsed);
     if (_data.size < BINARY_DICT_PAGE_HEADER_SIZE) {
-        return Status::Corruption(Substitute("invalid data size:$0, header size:$1",
-                _data.size, BINARY_DICT_PAGE_HEADER_SIZE));
+        return Status::Corruption(strings::Substitute("invalid data size:$0, header size:$1",
+                                                      _data.size, BINARY_DICT_PAGE_HEADER_SIZE));
     }
     size_t type = decode_fixed32_le((const uint8_t*)&_data.data[0]);
     _encoding_type = static_cast<EncodingTypePB>(type);
     _data.remove_prefix(BINARY_DICT_PAGE_HEADER_SIZE);
     if (_encoding_type == DICT_ENCODING) {
+        // copy the codewords into a temporary buffer first
+        // And then copy the strings corresponding to the codewords to the destination buffer
+        TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_INT);
+
+        RETURN_IF_ERROR(ColumnVectorBatch::create(0, false, type_info, nullptr, &_batch));
         _data_page_decoder.reset(new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
         _data_page_decoder.reset(new BinaryPlainPageDecoder(_data, _options));
     } else {
         LOG(WARNING) << "invalid encoding type:" << _encoding_type;
-        return Status::Corruption(Substitute("invalid encoding type:$0", _encoding_type));
+        return Status::Corruption(strings::Substitute("invalid encoding type:$0", _encoding_type));
     }
 
     RETURN_IF_ERROR(_data_page_decoder->init());
@@ -219,7 +227,7 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
     return _encoding_type == DICT_ENCODING;
 }
 
-void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder){
+void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder) {
     _dict_decoder = (BinaryPlainPageDecoder*)dict_decoder;
 };
 
@@ -235,24 +243,20 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
         return Status::OK();
     }
     Slice* out = reinterpret_cast<Slice*>(dst->data());
-    _code_buf.resize((*n) * sizeof(int32_t));
+    _batch->resize(*n);
 
-    // copy the codewords into a temporary buffer first
-    // And then copy the strings corresponding to the codewords to the destination buffer
-    TypeInfo *type_info = get_type_info(OLAP_FIELD_TYPE_INT);
-    // the data in page is not null
-    ColumnBlock column_block(type_info, _code_buf.data(), nullptr, *n, dst->column_block()->pool());
+    ColumnBlock column_block(_batch.get(), dst->column_block()->pool());
     ColumnBlockView tmp_block_view(&column_block);
     RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
     for (int i = 0; i < *n; ++i) {
-        int32_t codeword = *reinterpret_cast<int32_t*>(&_code_buf[i * sizeof(int32_t)]);
+        int32_t codeword = *reinterpret_cast<const int32_t*>(column_block.cell_ptr(i));
         // get the string from the dict decoder
         Slice element = _dict_decoder->string_at_index(codeword);
         if (element.size > 0) {
             char* destination = (char*)dst->column_block()->pool()->allocate(element.size);
             if (destination == nullptr) {
-                return Status::MemoryAllocFailed(Substitute(
-                    "memory allocate failed, size:$0", element.size));
+                return Status::MemoryAllocFailed(
+                        strings::Substitute("memory allocate failed, size:$0", element.size));
             }
             element.relocate(destination);
         }

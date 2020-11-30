@@ -16,13 +16,15 @@
 // under the License.
 
 #include "exprs/math_functions.h"
+
+#include <gtest/gtest.h>
+
 #include <iostream>
 #include <string>
+
 #include "exprs/anyval_util.h"
 #include "testutil/function_utils.h"
 #include "util/logging.h"
-
-#include <gtest/gtest.h>
 
 namespace doris {
 
@@ -151,7 +153,7 @@ TEST_F(MathFunctionsTest, rand) {
     DoubleVal dv2 = MathFunctions::rand_seed(ctx1, BigIntVal(0));
     MathFunctions::rand_close(ctx1, FunctionContext::THREAD_LOCAL);
 
-    ASSERT_EQ(dv1.val,  dv2.val);
+    ASSERT_EQ(dv1.val, dv2.val);
     delete utils1;
 
     MathFunctions::rand_prepare(ctx, FunctionContext::THREAD_LOCAL);

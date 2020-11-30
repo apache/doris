@@ -16,32 +16,32 @@
 // under the License.
 
 #include <gtest/gtest.h>
+
 #include <boost/shared_ptr.hpp>
-#include "util/logging.h"
-#include "util/cpu_info.h"
-#include "gen_cpp/internal_service.pb.h"
+
 #include "gen_cpp/PaloInternalService_types.h"
-#include "runtime/cache/result_cache.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/buffer_control_block.h"
+#include "runtime/cache/result_cache.h"
+#include "util/cpu_info.h"
+#include "util/logging.h"
 
 namespace doris {
 
 class PartitionCacheTest : public testing::Test {
 public:
-    PartitionCacheTest() {
-
-    }
+    PartitionCacheTest() {}
     virtual ~PartitionCacheTest() {
-//        clear();
+        //        clear();
     }
+
 protected:
-    virtual void SetUp() {
-    }
+    virtual void SetUp() {}
 
 private:
-    void init_default(){
+    void init_default() {
         LOG(WARNING) << "init test default\n";
-        init(16,4);
+        init(16, 4);
     }
     void init(int max_size, int ela_size);
     void clear();
@@ -55,7 +55,7 @@ private:
     PCacheResponse* _clear_response;
 };
 
-void PartitionCacheTest::init(int max_size, int ela_size){
+void PartitionCacheTest::init(int max_size, int ela_size) {
     LOG(WARNING) << "init test\n";
     _cache = new ResultCache(max_size, ela_size);
     _update_request = new PUpdateCacheRequest();
@@ -66,9 +66,9 @@ void PartitionCacheTest::init(int max_size, int ela_size){
     _clear_response = new PCacheResponse();
 }
 
-void PartitionCacheTest::clear(){
+void PartitionCacheTest::clear() {
     _clear_request->set_clear_type(PClearType::CLEAR_ALL);
-    _cache->clear(_clear_request, _clear_response);    
+    _cache->clear(_clear_request, _clear_response);
     SAFE_DELETE(_cache);
     SAFE_DELETE(_update_request);
     SAFE_DELETE(_update_response);
@@ -78,7 +78,7 @@ void PartitionCacheTest::clear(){
     SAFE_DELETE(_clear_response);
 }
 
-void set_sql_key(PUniqueId* sql_key, int64 hi, int64 lo){
+void set_sql_key(PUniqueId* sql_key, int64 hi, int64 lo) {
     sql_key->set_hi(hi);
     sql_key->set_lo(lo);
 }
@@ -121,7 +121,7 @@ TEST_F(PartitionCacheTest, update_data) {
 
 TEST_F(PartitionCacheTest, update_over_partition) {
     init_default();
-    PCacheStatus st = init_batch_data(1, 1, config::query_cache_max_partition_count+1);
+    PCacheStatus st = init_batch_data(1, 1, config::query_cache_max_partition_count + 1);
     ASSERT_TRUE(st == PCacheStatus::PARAM_ERROR);
     clear();
 }
@@ -130,7 +130,7 @@ TEST_F(PartitionCacheTest, cache_clear) {
     init_default();
     init_batch_data(1, 1, 1);
     _cache->clear(_clear_request, _clear_response);
-    ASSERT_EQ(_cache->get_cache_size(),0); 
+    ASSERT_EQ(_cache->get_cache_size(), 0);
     clear();
 }
 
@@ -237,12 +237,12 @@ TEST_F(PartitionCacheTest, fetch_invalid_key_range) {
     p1->set_partition_key(1);
     p1->set_last_version(1);
     p1->set_last_version_time(1);
-    
+
     PCacheParam* p2 = _fetch_request->add_params();
     p2->set_partition_key(2);
     p2->set_last_version(2);
     p2->set_last_version_time(2);
-    
+
     PCacheParam* p3 = _fetch_request->add_params();
     p3->set_partition_key(3);
     p3->set_last_version(3);
@@ -267,20 +267,20 @@ TEST_F(PartitionCacheTest, fetch_data_overdue) {
 
     LOG(WARNING) << "fetch_data_overdue:" << _fetch_result->status();
 
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::DATA_OVERDUE);    
+    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::DATA_OVERDUE);
     ASSERT_EQ(_fetch_result->values_size(), 0);
-    
+
     clear();
 }
 
 TEST_F(PartitionCacheTest, prune_data) {
-    init(1,1);
-    init_batch_data(129, 1, 1024);                    // 16*1024*128=2M
-    ASSERT_LE(_cache->get_cache_size(), 1*1024*1024);   //cache_size <= 1M
+    init(1, 1);
+    init_batch_data(129, 1, 1024);                        // 16*1024*128=2M
+    ASSERT_LE(_cache->get_cache_size(), 1 * 1024 * 1024); //cache_size <= 1M
     clear();
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -288,7 +288,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-     doris::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();

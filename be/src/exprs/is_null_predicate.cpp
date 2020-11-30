@@ -16,19 +16,19 @@
 // under the License.
 
 #include "exprs/is_null_predicate.h"
+
 #include "udf/udf.h"
 
 namespace doris {
 
-void IsNullPredicate::init() {
-}
+void IsNullPredicate::init() {}
 
-template<typename T>
+template <typename T>
 BooleanVal IsNullPredicate::is_null(FunctionContext* ctx, const T& val) {
     return val.is_null;
 }
 
-template<typename T>
+template <typename T>
 BooleanVal IsNullPredicate::is_not_null(FunctionContext* ctx, const T& val) {
     return !val.is_null;
 }
@@ -61,4 +61,4 @@ template BooleanVal IsNullPredicate::is_not_null(FunctionContext*, const DateTim
 template BooleanVal IsNullPredicate::is_not_null(FunctionContext*, const DecimalVal&);
 template BooleanVal IsNullPredicate::is_not_null(FunctionContext*, const DecimalV2Val&);
 
-}
+} // namespace doris

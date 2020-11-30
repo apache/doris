@@ -22,11 +22,11 @@
 #include <unistd.h>
 
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <map>
 #include <memory>
 #include <string>
-#include <functional>
 
 #include "common/logging.h"
 #include "gutil/atomicops.h"
@@ -174,7 +174,8 @@ void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& ca
     ANNOTATE_IGNORE_READS_AND_WRITES_END();
 }
 
-void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) const {
+void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
+                                        EasyJson* ej) const {
     const auto* category_name = FindOrNull(args, "group");
     if (category_name) {
         bool requested_all = (*category_name == "all");
@@ -184,7 +185,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
 
         // The critical section is as short as possible so as to minimize the delay
         // imposed on new threads that acquire the lock in write mode.
-        vector<ThreadDescriptor> descriptors_to_print;
+        std::vector<ThreadDescriptor> descriptors_to_print;
         if (!requested_all) {
             MutexLock l(&_lock);
             const auto* category = FindOrNull(_thread_categories, *category_name);
@@ -210,7 +211,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
         }
     } else {
         // List all thread groups and the number of threads running in each.
-        vector<pair<string, uint64_t>> thread_categories_info;
+        std::vector<pair<string, uint64_t>> thread_categories_info;
         uint64_t running;
         {
             MutexLock l(&_lock);
@@ -484,8 +485,8 @@ Status ThreadJoiner::join() {
 void register_thread_display_page(WebPageHandler* web_page_handler) {
     web_page_handler->register_template_page(
             "/threadz", "Threads",
-            std::bind(&ThreadMgr::display_thread_callback, thread_manager.get(), 
-            std::placeholders::_1, std::placeholders::_2),
+            std::bind(&ThreadMgr::display_thread_callback, thread_manager.get(),
+                      std::placeholders::_1, std::placeholders::_2),
             true);
 }
 } // namespace doris

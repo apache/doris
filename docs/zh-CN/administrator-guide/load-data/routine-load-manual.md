@@ -307,3 +307,5 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 7. period\_of\_auto\_resume\_min
     FE 配置项，默认是5分钟。Doris重新调度，只会在5分钟这个周期内，最多尝试3次. 如果3次都失败则锁定当前任务，后续不在进行调度。但可通过人为干预，进行手动恢复。
 
+## keyword
+    ROUTINE,LOAD

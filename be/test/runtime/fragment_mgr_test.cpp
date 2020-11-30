@@ -37,7 +37,8 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {}
 
-Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
+Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
+                                     const QueryFragmentsCtx* batch_ctx) {
     return s_prepare_status;
 }
 

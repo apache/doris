@@ -37,7 +37,6 @@ private:
     vector<TTabletId>* _error_tablet_ids;
 };
 
-} // doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H
-

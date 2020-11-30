@@ -50,6 +50,9 @@ public:
     // virtual Status reset(RuntimeState* state);
     virtual Status close(RuntimeState* state);
 
+protected:
+    void debug_string(int indentation_level, std::stringstream* out) const;
+
 private:
     /// Tuple id resolved in Prepare() to set tuple_desc_;
     const int _tuple_id;
@@ -99,6 +102,9 @@ private:
     /// to -1 if no child needs to be closed.
     int _to_close_child_idx;
 
+    // Time spent to evaluates exprs and materializes the results
+    RuntimeProfile::Counter* _materialize_exprs_evaluate_timer = nullptr;
+
     /// END: Members that must be Reset()
     /////////////////////////////////////////
 
@@ -123,8 +129,8 @@ private:
 
     /// Evaluates 'exprs' over 'row', materializes the results in 'tuple_buf'.
     /// and appends the new tuple to 'dst_batch'. Increments '_num_rows_returned'.
-    void materialize_exprs(const std::vector<ExprContext*>& exprs,
-                           TupleRow* row, uint8_t* tuple_buf, RowBatch* dst_batch);
+    void materialize_exprs(const std::vector<ExprContext*>& exprs, TupleRow* row,
+                           uint8_t* tuple_buf, RowBatch* dst_batch);
 
     Status get_error_msg(const std::vector<ExprContext*>& exprs);
 
@@ -135,24 +141,19 @@ private:
     }
 
     /// Returns true if there are still rows to be returned from passthrough children.
-    bool has_more_passthrough() const {
-        return _child_idx < _first_materialized_child_idx;
-    }
+    bool has_more_passthrough() const { return _child_idx < _first_materialized_child_idx; }
 
     /// Returns true if there are still rows to be returned from children that need
     /// materialization.
     bool has_more_materialized() const {
-        return _first_materialized_child_idx != _children.size() &&
-            _child_idx < _children.size();
+        return _first_materialized_child_idx != _children.size() && _child_idx < _children.size();
     }
 
     /// Returns true if there are still rows to be returned from constant expressions.
     bool has_more_const(const RuntimeState* state) const {
         return state->per_fragment_instance_idx() == 0 &&
-            _const_expr_list_idx < _const_expr_lists.size();
+               _const_expr_list_idx < _const_expr_lists.size();
     }
-
 };
 
-}
-
+} // namespace doris

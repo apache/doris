@@ -15,27 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/types.h"
-
 #include <gtest/gtest.h>
 
-#include "runtime/mem_tracker.h"
-#include "runtime/mem_pool.h"
-#include "util/slice.h"
 #include "olap/field.h"
+#include "olap/types.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
+#include "util/slice.h"
 
 namespace doris {
 
 class TypesTest : public testing::Test {
 public:
-    TypesTest() { }
-    virtual ~TypesTest() {
-    }
+    TypesTest() {}
+    virtual ~TypesTest() {}
 };
 
-template<FieldType field_type>
+template <FieldType field_type>
 void common_test(typename TypeTraits<field_type>::CppType src_val) {
-    TypeInfo* type = get_type_info(field_type);
+    TypeInfo* type = get_scalar_type_info(field_type);
 
     ASSERT_EQ(field_type, type->type());
     ASSERT_EQ(sizeof(src_val), type->size());
@@ -58,7 +56,6 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
         typename TypeTraits<field_type>::CppType dst_val;
         type->set_to_min((char*)&dst_val);
 
-
         ASSERT_FALSE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) > 0);
     }
@@ -71,7 +68,7 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
     }
 }
 
-template<FieldType fieldType>
+template <FieldType fieldType>
 void test_char(Slice src_val) {
     Field* field = FieldFactory::create_by_type(fieldType);
     field->_length = src_val.size;
@@ -116,12 +113,12 @@ void test_char(Slice src_val) {
     delete field;
 }
 
-template<>
+template <>
 void common_test<OLAP_FIELD_TYPE_CHAR>(Slice src_val) {
     test_char<OLAP_FIELD_TYPE_VARCHAR>(src_val);
 }
 
-template<>
+template <>
 void common_test<OLAP_FIELD_TYPE_VARCHAR>(Slice src_val) {
     test_char<OLAP_FIELD_TYPE_VARCHAR>(src_val);
 }
@@ -148,9 +145,85 @@ TEST(TypesTest, copy_and_equal) {
     common_test<OLAP_FIELD_TYPE_VARCHAR>(slice);
 }
 
+template <FieldType item_type>
+void common_test_array(Collection src_val) {
+    TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
+    int32 item_length = 0;
+    if (item_type == OLAP_FIELD_TYPE_CHAR || item_type == OLAP_FIELD_TYPE_VARCHAR) {
+        item_length = 10;
+    }
+    TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, item_length);
+    list_column.add_sub_column(item_column);
+
+    auto* array_type = dynamic_cast<ArrayTypeInfo*>(get_type_info(&list_column));
+
+    ASSERT_EQ(item_type, array_type->item_type_info()->type());
+
+    { // test deep copy
+        Collection dst_val;
+        auto tracker = std::make_shared<MemTracker>();
+        MemPool pool(tracker.get());
+        array_type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
+        ASSERT_TRUE(array_type->equal((char*)&src_val, (char*)&dst_val));
+        ASSERT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
+    }
+    { // test direct copy
+        bool null_signs[50];
+        uint8_t data[50];
+        Collection dst_val(data, sizeof(null_signs), null_signs);
+        array_type->direct_copy((char*)&dst_val, (char*)&src_val);
+        ASSERT_TRUE(array_type->equal((char*)&src_val, (char*)&dst_val));
+        ASSERT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
+    }
+}
+
+TEST(ArrayTypeTest, copy_and_equal) {
+    bool bool_array[3] = {true, false, true};
+    bool null_signs[3] = {true, true, true};
+    common_test_array<OLAP_FIELD_TYPE_BOOL>(Collection(bool_array, 3, null_signs));
+
+    uint8_t tiny_int_array[3] = {3, 4, 5};
+    common_test_array<OLAP_FIELD_TYPE_TINYINT>(Collection(tiny_int_array, 3, null_signs));
+
+    int16_t small_int_array[3] = {123, 234, 345};
+    common_test_array<OLAP_FIELD_TYPE_SMALLINT>(Collection(small_int_array, 3, null_signs));
+
+    int32_t int_array[3] = {-123454321, 123454321, 323412343};
+    common_test_array<OLAP_FIELD_TYPE_INT>(Collection(int_array, 3, null_signs));
+
+    uint32_t uint_array[3] = {123454321, 2342341, 52435234};
+    common_test_array<OLAP_FIELD_TYPE_UNSIGNED_INT>(Collection(uint_array, 3, null_signs));
+
+    int64_t bigint_array[3] = {123454321123456789L, 23534543234L, -123454321123456789L};
+    common_test_array<OLAP_FIELD_TYPE_BIGINT>(Collection(bigint_array, 3, null_signs));
+
+    __int128 large_int_array[3] = {1234567899L, 1234567899L, -12345631899L};
+    common_test_array<OLAP_FIELD_TYPE_LARGEINT>(Collection(large_int_array, 3, null_signs));
+
+    float float_array[3] = {1.11, 2.22, -3.33};
+    common_test_array<OLAP_FIELD_TYPE_FLOAT>(Collection(float_array, 3, null_signs));
+
+    double double_array[3] = {12221.11, 12221.11, -12221.11};
+    common_test_array<OLAP_FIELD_TYPE_DOUBLE>(Collection(double_array, 3, null_signs));
+
+    decimal12_t decimal_array[3] = {{123, 234}, {345, 453}, {4524, 2123}};
+    common_test_array<OLAP_FIELD_TYPE_DECIMAL>(Collection(decimal_array, 3, null_signs));
+
+    uint24_t date_array[3] = {(1988 << 9) | (2 << 5) | 1, (1998 << 9) | (2 << 5) | 1,
+                              (2008 << 9) | (2 << 5) | 1};
+    common_test_array<OLAP_FIELD_TYPE_DATE>(Collection(date_array, 3, null_signs));
+
+    int64_t datetime_array[3] = {19880201010203L, 19980201010203L, 20080204010203L};
+    common_test_array<OLAP_FIELD_TYPE_DATETIME>(Collection(datetime_array, 3, null_signs));
+
+    Slice char_array[3] = {"12345abcde", "12345abcde", "asdf322"};
+    common_test_array<OLAP_FIELD_TYPE_CHAR>(Collection(char_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_VARCHAR>(Collection(char_array, 3, null_signs));
+}
+
 } // namespace doris
 
-int main(int argc, char **argv) {
-    testing::InitGoogleTest(&argc, argv); 
+int main(int argc, char** argv) {
+    testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

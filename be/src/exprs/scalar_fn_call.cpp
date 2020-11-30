@@ -21,30 +21,27 @@
 
 #include "exprs/anyval_util.h"
 #include "exprs/expr_context.h"
-#include "runtime/user_function_cache.h"
 #include "runtime/runtime_state.h"
+#include "runtime/user_function_cache.h"
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
 #include "util/symbols_util.h"
 
 namespace doris {
 
-ScalarFnCall::ScalarFnCall(const TExprNode& node) : 
-        Expr(node),
-        _vararg_start_idx(node.__isset.vararg_start_idx ?  node.vararg_start_idx : -1),
-        _scalar_fn_wrapper(NULL),
-        _prepare_fn(NULL),
-        _close_fn(NULL),
-        _scalar_fn(NULL) {
+ScalarFnCall::ScalarFnCall(const TExprNode& node)
+        : Expr(node),
+          _vararg_start_idx(node.__isset.vararg_start_idx ? node.vararg_start_idx : -1),
+          _scalar_fn_wrapper(NULL),
+          _prepare_fn(NULL),
+          _close_fn(NULL),
+          _scalar_fn(NULL) {
     DCHECK_NE(_fn.binary_type, TFunctionBinaryType::HIVE);
 }
 
-ScalarFnCall::~ScalarFnCall() {
-}
+ScalarFnCall::~ScalarFnCall() {}
 
-Status ScalarFnCall::prepare(
-        RuntimeState* state, const RowDescriptor& desc,
-        ExprContext* context) {
+Status ScalarFnCall::prepare(RuntimeState* state, const RowDescriptor& desc, ExprContext* context) {
     RETURN_IF_ERROR(Expr::prepare(state, desc, context));
     if (_fn.scalar_fn.symbol.empty()) {
         // This path is intended to only be used during development to test FE
@@ -74,14 +71,14 @@ Status ScalarFnCall::prepare(
         }
     }
 
-    _fn_context_index = context->register_func(
-            state, return_type, arg_types, varargs_buffer_size);
+    _fn_context_index = context->register_func(state, return_type, arg_types, varargs_buffer_size);
     // _scalar_fn = OpcodeRegistry::instance()->get_function_ptr(_opcode);
     Status status = Status::OK();
     if (_scalar_fn == NULL) {
         if (SymbolsUtil::is_mangled(_fn.scalar_fn.symbol)) {
             status = UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, _fn.scalar_fn.symbol, _fn.hdfs_location, _fn.checksum, &_scalar_fn, &_cache_entry);
+                    _fn.id, _fn.scalar_fn.symbol, _fn.hdfs_location, _fn.checksum, &_scalar_fn,
+                    &_cache_entry);
         } else {
             std::vector<TypeDescriptor> arg_types;
             for (auto& t_type : _fn.arg_types) {
@@ -89,10 +86,10 @@ Status ScalarFnCall::prepare(
             }
             // ColumnType ret_type(INVALID_TYPE);
             // ret_type = ColumnType(thrift_to_type(_fn.ret_type));
-            std::string symbol = SymbolsUtil::mangle_user_function(
-                _fn.scalar_fn.symbol, arg_types, _fn.has_var_args, NULL);
+            std::string symbol = SymbolsUtil::mangle_user_function(_fn.scalar_fn.symbol, arg_types,
+                                                                   _fn.has_var_args, NULL);
             status = UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, symbol, _fn.hdfs_location, _fn.checksum, &_scalar_fn, &_cache_entry);
+                    _fn.id, symbol, _fn.hdfs_location, _fn.checksum, &_scalar_fn, &_cache_entry);
         }
     }
 #if 0
@@ -120,7 +117,7 @@ Status ScalarFnCall::prepare(
                 return status;
             } else {
                 DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::NATIVE);
-                return Status::InternalError(Substitute("Problem loading UDF '$0':\n$1",
+                return Status::InternalError(strings::Substitute("Problem loading UDF '$0':\n$1",
                                          _fn.name.function_name, status.GetDetail()));
                 return status;
             }
@@ -148,18 +145,18 @@ Status ScalarFnCall::prepare(
 #endif
     if (_fn.scalar_fn.__isset.prepare_fn_symbol) {
         RETURN_IF_ERROR(get_function(state, _fn.scalar_fn.prepare_fn_symbol,
-                                    reinterpret_cast<void**>(&_prepare_fn)));
+                                     reinterpret_cast<void**>(&_prepare_fn)));
     }
     if (_fn.scalar_fn.__isset.close_fn_symbol) {
         RETURN_IF_ERROR(get_function(state, _fn.scalar_fn.close_fn_symbol,
-                                    reinterpret_cast<void**>(&_close_fn)));
+                                     reinterpret_cast<void**>(&_close_fn)));
     }
 
     return status;
 }
 
-Status ScalarFnCall::open(
-        RuntimeState* state, ExprContext* ctx, FunctionContext::FunctionStateScope scope) {
+Status ScalarFnCall::open(RuntimeState* state, ExprContext* ctx,
+                          FunctionContext::FunctionStateScope scope) {
     // Opens and inits children
     RETURN_IF_ERROR(Expr::open(state, ctx, scope));
     FunctionContext* fn_ctx = ctx->fn_context(_fn_context_index);
@@ -216,8 +213,8 @@ Status ScalarFnCall::open(
     return Status::OK();
 }
 
-void ScalarFnCall::close(
-        RuntimeState* state, ExprContext* context, FunctionContext::FunctionStateScope scope) {
+void ScalarFnCall::close(RuntimeState* state, ExprContext* context,
+                         FunctionContext::FunctionStateScope scope) {
     if (_fn_context_index != -1 && _close_fn != NULL) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
         _close_fn(fn_ctx, FunctionContext::THREAD_LOCAL);
@@ -236,11 +233,11 @@ bool ScalarFnCall::is_constant() const {
 }
 
 Status ScalarFnCall::get_function(RuntimeState* state, const std::string& symbol, void** fn) {
-    if (_fn.binary_type == TFunctionBinaryType::NATIVE 
-            || _fn.binary_type == TFunctionBinaryType::BUILTIN
-            || _fn.binary_type == TFunctionBinaryType::HIVE) {
-        return UserFunctionCache::instance()->get_function_ptr(
-            _fn.id, symbol, _fn.hdfs_location, _fn.checksum, fn, &_cache_entry);
+    if (_fn.binary_type == TFunctionBinaryType::NATIVE ||
+        _fn.binary_type == TFunctionBinaryType::BUILTIN ||
+        _fn.binary_type == TFunctionBinaryType::HIVE) {
+        return UserFunctionCache::instance()->get_function_ptr(_fn.id, symbol, _fn.hdfs_location,
+                                                               _fn.checksum, fn, &_cache_entry);
     } else {
 #if 0
         DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::IR);
@@ -260,8 +257,8 @@ Status ScalarFnCall::get_function(RuntimeState* state, const std::string& symbol
     return Status::OK();
 }
 
-void ScalarFnCall::evaluate_children(
-        ExprContext* context, TupleRow* row, std::vector<AnyVal*>* input_vals) {
+void ScalarFnCall::evaluate_children(ExprContext* context, TupleRow* row,
+                                     std::vector<AnyVal*>* input_vals) {
     DCHECK_EQ(input_vals->size(), num_fixed_args());
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
     uint8_t* varargs_buffer = fn_ctx->impl()->varargs_buffer();
@@ -278,157 +275,137 @@ void ScalarFnCall::evaluate_children(
     }
 }
 
-template<typename RETURN_TYPE>
+template <typename RETURN_TYPE>
 RETURN_TYPE ScalarFnCall::interpret_eval(ExprContext* context, TupleRow* row) {
     DCHECK(_scalar_fn != NULL);
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
     std::vector<AnyVal*>* input_vals = fn_ctx->impl()->staging_input_vals();
-    
+
     evaluate_children(context, row, input_vals);
 
     if (_vararg_start_idx == -1) {
         switch (_children.size()) {
         case 0:
-            typedef RETURN_TYPE(*ScalarFn0)(FunctionContext*);
+            typedef RETURN_TYPE (*ScalarFn0)(FunctionContext*);
             return reinterpret_cast<ScalarFn0>(_scalar_fn)(fn_ctx);
         case 1:
-            typedef RETURN_TYPE(*ScalarFn1)(FunctionContext*, const AnyVal& a1);
-            return reinterpret_cast<ScalarFn1>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0]);
+            typedef RETURN_TYPE (*ScalarFn1)(FunctionContext*, const AnyVal& a1);
+            return reinterpret_cast<ScalarFn1>(_scalar_fn)(fn_ctx, *(*input_vals)[0]);
         case 2:
-            typedef RETURN_TYPE(*ScalarFn2)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2);
-            return reinterpret_cast<ScalarFn2>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1]);
+            typedef RETURN_TYPE (*ScalarFn2)(FunctionContext*, const AnyVal& a1, const AnyVal& a2);
+            return reinterpret_cast<ScalarFn2>(_scalar_fn)(fn_ctx, *(*input_vals)[0],
+                                                           *(*input_vals)[1]);
         case 3:
-            typedef RETURN_TYPE(*ScalarFn3)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2, const AnyVal& a3);
-            return reinterpret_cast<ScalarFn3>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1], *(*input_vals)[2]);
+            typedef RETURN_TYPE (*ScalarFn3)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
+                                             const AnyVal& a3);
+            return reinterpret_cast<ScalarFn3>(_scalar_fn)(fn_ctx, *(*input_vals)[0],
+                                                           *(*input_vals)[1], *(*input_vals)[2]);
         case 4:
-            typedef RETURN_TYPE(*ScalarFn4)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2, 
-                const AnyVal& a3, const AnyVal& a4);
-            return reinterpret_cast<ScalarFn4>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1], 
-                *(*input_vals)[2], *(*input_vals)[3]);
+            typedef RETURN_TYPE (*ScalarFn4)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
+                                             const AnyVal& a3, const AnyVal& a4);
+            return reinterpret_cast<ScalarFn4>(_scalar_fn)(fn_ctx, *(*input_vals)[0],
+                                                           *(*input_vals)[1], *(*input_vals)[2],
+                                                           *(*input_vals)[3]);
         case 5:
-            typedef RETURN_TYPE(*ScalarFn5)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2, 
-                const AnyVal& a3, const AnyVal& a4, const AnyVal& a5);
-            return reinterpret_cast<ScalarFn5>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1], 
-                *(*input_vals)[2], *(*input_vals)[3], *(*input_vals)[4]);
+            typedef RETURN_TYPE (*ScalarFn5)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
+                                             const AnyVal& a3, const AnyVal& a4, const AnyVal& a5);
+            return reinterpret_cast<ScalarFn5>(_scalar_fn)(fn_ctx, *(*input_vals)[0],
+                                                           *(*input_vals)[1], *(*input_vals)[2],
+                                                           *(*input_vals)[3], *(*input_vals)[4]);
         case 6:
-            typedef RETURN_TYPE(*ScalarFn6)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2, 
-                const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
-                const AnyVal& a6);
+            typedef RETURN_TYPE (*ScalarFn6)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
+                                             const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
+                                             const AnyVal& a6);
             return reinterpret_cast<ScalarFn6>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1],
-                *(*input_vals)[2], *(*input_vals)[3], *(*input_vals)[4], 
-                *(*input_vals)[5]);
+                    fn_ctx, *(*input_vals)[0], *(*input_vals)[1], *(*input_vals)[2],
+                    *(*input_vals)[3], *(*input_vals)[4], *(*input_vals)[5]);
         case 7:
-            typedef RETURN_TYPE(*ScalarFn7)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2, 
-                const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
-                const AnyVal& a6, const AnyVal& a7);
+            typedef RETURN_TYPE (*ScalarFn7)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
+                                             const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
+                                             const AnyVal& a6, const AnyVal& a7);
             return reinterpret_cast<ScalarFn7>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1],
-                *(*input_vals)[2], *(*input_vals)[3], *(*input_vals)[4], 
-                *(*input_vals)[5], *(*input_vals)[6]);
+                    fn_ctx, *(*input_vals)[0], *(*input_vals)[1], *(*input_vals)[2],
+                    *(*input_vals)[3], *(*input_vals)[4], *(*input_vals)[5], *(*input_vals)[6]);
         case 8:
-            typedef RETURN_TYPE(*ScalarFn8)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2, 
-                const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
-                const AnyVal& a6, const AnyVal& a7, const AnyVal& a8);
+            typedef RETURN_TYPE (*ScalarFn8)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
+                                             const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
+                                             const AnyVal& a6, const AnyVal& a7, const AnyVal& a8);
             return reinterpret_cast<ScalarFn8>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1],
-                *(*input_vals)[2], *(*input_vals)[3], *(*input_vals)[4], 
-                *(*input_vals)[5], *(*input_vals)[6], *(*input_vals)[7]);
+                    fn_ctx, *(*input_vals)[0], *(*input_vals)[1], *(*input_vals)[2],
+                    *(*input_vals)[3], *(*input_vals)[4], *(*input_vals)[5], *(*input_vals)[6],
+                    *(*input_vals)[7]);
         default:
             DCHECK(false) << "Interpreted path not implemented. We should have "
-                << "codegen'd the wrapper";
+                          << "codegen'd the wrapper";
         }
     } else {
         int num_varargs = _children.size() - num_fixed_args();
         const AnyVal* varargs = reinterpret_cast<AnyVal*>(fn_ctx->impl()->varargs_buffer());
         switch (num_fixed_args()) {
         case 0:
-            typedef RETURN_TYPE(*VarargFn0)(
-                FunctionContext*, int num_varargs, const AnyVal* varargs);
+            typedef RETURN_TYPE (*VarargFn0)(FunctionContext*, int num_varargs,
+                                             const AnyVal* varargs);
             return reinterpret_cast<VarargFn0>(_scalar_fn)(fn_ctx, num_varargs, varargs);
         case 1:
-            typedef RETURN_TYPE(*VarargFn1)(
-                FunctionContext*, const AnyVal& a1, int num_varargs, const AnyVal* varargs);
-            return reinterpret_cast<VarargFn1>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], num_varargs, varargs);
+            typedef RETURN_TYPE (*VarargFn1)(FunctionContext*, const AnyVal& a1, int num_varargs,
+                                             const AnyVal* varargs);
+            return reinterpret_cast<VarargFn1>(_scalar_fn)(fn_ctx, *(*input_vals)[0], num_varargs,
+                                                           varargs);
         case 2:
-            typedef RETURN_TYPE(*VarargFn2)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2, 
-                int num_varargs, const AnyVal* varargs);
-            return reinterpret_cast<VarargFn2>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1], 
-                num_varargs, varargs);
+            typedef RETURN_TYPE (*VarargFn2)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
+                                             int num_varargs, const AnyVal* varargs);
+            return reinterpret_cast<VarargFn2>(_scalar_fn)(fn_ctx, *(*input_vals)[0],
+                                                           *(*input_vals)[1], num_varargs, varargs);
         case 3:
-            typedef RETURN_TYPE(*VarargFn3)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2, 
-                const AnyVal& a3, int num_varargs, const AnyVal* varargs);
-            return reinterpret_cast<VarargFn3>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1], 
-                *(*input_vals)[2], num_varargs, varargs);
+            typedef RETURN_TYPE (*VarargFn3)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
+                                             const AnyVal& a3, int num_varargs,
+                                             const AnyVal* varargs);
+            return reinterpret_cast<VarargFn3>(_scalar_fn)(fn_ctx, *(*input_vals)[0],
+                                                           *(*input_vals)[1], *(*input_vals)[2],
+                                                           num_varargs, varargs);
         case 4:
-            typedef RETURN_TYPE(*VarargFn4)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2, 
-                const AnyVal& a3, const AnyVal& a4, int num_varargs,
-                const AnyVal* varargs);
-            return reinterpret_cast<VarargFn4>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1], 
-                *(*input_vals)[2], *(*input_vals)[3], num_varargs,
-                varargs);
+            typedef RETURN_TYPE (*VarargFn4)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
+                                             const AnyVal& a3, const AnyVal& a4, int num_varargs,
+                                             const AnyVal* varargs);
+            return reinterpret_cast<VarargFn4>(_scalar_fn)(fn_ctx, *(*input_vals)[0],
+                                                           *(*input_vals)[1], *(*input_vals)[2],
+                                                           *(*input_vals)[3], num_varargs, varargs);
         case 5:
-            typedef RETURN_TYPE(*VarargFn5)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2, 
-                const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
-                int num_varargs, const AnyVal* varargs);
+            typedef RETURN_TYPE (*VarargFn5)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
+                                             const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
+                                             int num_varargs, const AnyVal* varargs);
             return reinterpret_cast<VarargFn5>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1],
-                *(*input_vals)[2], *(*input_vals)[3], *(*input_vals)[4],
-                num_varargs, varargs);
+                    fn_ctx, *(*input_vals)[0], *(*input_vals)[1], *(*input_vals)[2],
+                    *(*input_vals)[3], *(*input_vals)[4], num_varargs, varargs);
         case 6:
-            typedef RETURN_TYPE(*VarargFn6)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2,
-                const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
-                const AnyVal& a6, int num_varargs, const AnyVal* varargs);
+            typedef RETURN_TYPE (*VarargFn6)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
+                                             const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
+                                             const AnyVal& a6, int num_varargs,
+                                             const AnyVal* varargs);
             return reinterpret_cast<VarargFn6>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1],
-                *(*input_vals)[2], *(*input_vals)[3], *(*input_vals)[4],
-                *(*input_vals)[5], num_varargs, varargs);
+                    fn_ctx, *(*input_vals)[0], *(*input_vals)[1], *(*input_vals)[2],
+                    *(*input_vals)[3], *(*input_vals)[4], *(*input_vals)[5], num_varargs, varargs);
         case 7:
-            typedef RETURN_TYPE(*VarargFn7)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2,
-                const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
-                const AnyVal& a6, const AnyVal& a7, int num_varargs, 
-                const AnyVal* varargs);
+            typedef RETURN_TYPE (*VarargFn7)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
+                                             const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
+                                             const AnyVal& a6, const AnyVal& a7, int num_varargs,
+                                             const AnyVal* varargs);
             return reinterpret_cast<VarargFn7>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1],
-                *(*input_vals)[2], *(*input_vals)[3], *(*input_vals)[4],
-                *(*input_vals)[5], *(*input_vals)[6], num_varargs, 
-                varargs);
+                    fn_ctx, *(*input_vals)[0], *(*input_vals)[1], *(*input_vals)[2],
+                    *(*input_vals)[3], *(*input_vals)[4], *(*input_vals)[5], *(*input_vals)[6],
+                    num_varargs, varargs);
         case 8:
-            typedef RETURN_TYPE(*VarargFn8)(
-                FunctionContext*, const AnyVal& a1, const AnyVal& a2,
-                const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
-                const AnyVal& a6, const AnyVal& a7, const AnyVal& a8, 
-                int num_varargs, const AnyVal* varargs);
+            typedef RETURN_TYPE (*VarargFn8)(FunctionContext*, const AnyVal& a1, const AnyVal& a2,
+                                             const AnyVal& a3, const AnyVal& a4, const AnyVal& a5,
+                                             const AnyVal& a6, const AnyVal& a7, const AnyVal& a8,
+                                             int num_varargs, const AnyVal* varargs);
             return reinterpret_cast<VarargFn8>(_scalar_fn)(
-                fn_ctx, *(*input_vals)[0], *(*input_vals)[1],
-                *(*input_vals)[2], *(*input_vals)[3], *(*input_vals)[4],
-                *(*input_vals)[5], *(*input_vals)[6], *(*input_vals)[7],
-                num_varargs, varargs);
+                    fn_ctx, *(*input_vals)[0], *(*input_vals)[1], *(*input_vals)[2],
+                    *(*input_vals)[3], *(*input_vals)[4], *(*input_vals)[5], *(*input_vals)[6],
+                    *(*input_vals)[7], num_varargs, varargs);
         default:
             DCHECK(false) << "Interpreted path not implemented. We should have "
-                << "codegen'd the wrapper";
+                          << "codegen'd the wrapper";
         }
     }
     return RETURN_TYPE::null();
@@ -521,10 +498,10 @@ FloatVal ScalarFnCall::get_float_val(ExprContext* context, TupleRow* row) {
 DoubleVal ScalarFnCall::get_double_val(ExprContext* context, TupleRow* row) {
     DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME);
     DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {      
+    if (_scalar_fn_wrapper == NULL) {
         return interpret_eval<DoubleVal>(context, row);
     }
-    
+
     DoubleWrapper fn = reinterpret_cast<DoubleWrapper>(_scalar_fn_wrapper);
     return fn(context, row);
 }
@@ -571,9 +548,8 @@ DecimalV2Val ScalarFnCall::get_decimalv2_val(ExprContext* context, TupleRow* row
 
 std::string ScalarFnCall::debug_string() const {
     std::stringstream out;
-    out << "ScalarFnCall(udf_type=" << _fn.binary_type
-        << " location=" << _fn.hdfs_location
+    out << "ScalarFnCall(udf_type=" << _fn.binary_type << " location=" << _fn.hdfs_location
         << " symbol_name=" << _fn.scalar_fn.symbol << Expr::debug_string() << ")";
     return out.str();
 }
-}
+} // namespace doris

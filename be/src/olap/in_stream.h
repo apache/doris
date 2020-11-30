@@ -27,8 +27,8 @@
 
 #include "olap/byte_buffer.h"
 #include "olap/compress.h"
-#include "olap/stream_index_reader.h"
 #include "olap/olap_common.h"
+#include "olap/stream_index_reader.h"
 
 namespace doris {
 
@@ -57,11 +57,8 @@ public:
     //     length - 流的总字节长度
     //     Decompressor - 如果流被压缩过,则提供一个解压缩函数,否则为NULL
     //     compress_buffer_size - 如果使用压缩,给出压缩的块大小
-    explicit InStream(std::vector<StorageByteBuffer*>* inputs,
-            const std::vector<uint64_t>& offsets,
-            uint64_t length,
-            Decompressor decompressor,
-            uint32_t compress_buffer_size);
+    explicit InStream(std::vector<StorageByteBuffer*>* inputs, const std::vector<uint64_t>& offsets,
+                      uint64_t length, Decompressor decompressor, uint32_t compress_buffer_size);
 
     ~InStream();
 
@@ -93,13 +90,9 @@ public:
         return length;
     }
 
-    uint64_t estimate_uncompressed_length() {
-        return _inputs.size() * _compress_buffer_size;
-    }
+    uint64_t estimate_uncompressed_length() { return _inputs.size() * _compress_buffer_size; }
 
-    bool eof() {
-        return _current_offset == _length;
-    }
+    bool eof() { return _current_offset == _length; }
 
     // 返回当前块剩余可读字节数
     uint64_t available();
@@ -113,6 +106,7 @@ public:
 
         return NULL;
     }
+
 private:
     OLAPStatus _assure_data();
     OLAPStatus _slice(uint64_t chunk_size, StorageByteBuffer** out_slice);
@@ -135,12 +129,7 @@ private:
 // 其实也可以直接和instream合在一起，先这么写着
 class InStreamBufferWrapper : public std::streambuf {
 public:
-    InStreamBufferWrapper(InStream* input) : 
-            std::streambuf(),
-            _stream(input),
-            _skip_size(0) {
-
-    }
+    InStreamBufferWrapper(InStream* input) : std::streambuf(), _stream(input), _skip_size(0) {}
     virtual ~InStreamBufferWrapper() {}
     virtual int_type underflow() {
         if (NULL != _stream) {
@@ -158,6 +147,7 @@ public:
 
         return traits_type::eof();
     }
+
 protected:
     InStream* _stream;
     size_t _skip_size;
@@ -199,6 +189,6 @@ inline OLAPStatus InStream::read(char* buffer, uint64_t* buf_size) {
     return res;
 }
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_IN_STREAM_H

@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_BIT_FIELD_WRITER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_BIT_FIELD_WRITER_H
 
-#include "olap/stream_index_writer.h"
 #include "olap/olap_define.h"
+#include "olap/stream_index_writer.h"
 
 namespace doris {
 
@@ -35,6 +35,7 @@ public:
     OLAPStatus write(bool bit_value);
     OLAPStatus flush();
     void get_position(PositionEntryWriter* index_entry) const;
+
 private:
     OLAPStatus _write_byte();
 
@@ -46,6 +47,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(BitFieldWriter);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_BIT_FIELD_WRITER_H

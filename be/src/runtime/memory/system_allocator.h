@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 namespace doris {
 
@@ -29,10 +29,10 @@ public:
     static uint8_t* allocate(size_t length);
 
     static void free(uint8_t* ptr, size_t length);
+
 private:
     static uint8_t* allocate_via_mmap(size_t length);
     static uint8_t* allocate_via_malloc(size_t length);
-
 };
 
-}
+} // namespace doris

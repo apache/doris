@@ -23,8 +23,8 @@
 #include <mutex>
 #include <set>
 #include <string>
-#include <vector>
 #include <unordered_map>
+#include <vector>
 
 #include "agent/status.h"
 #include "common/status.h"
@@ -32,9 +32,9 @@
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "olap/olap_define.h"
-#include "olap/tablet.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"
+#include "olap/tablet.h"
 
 namespace doris {
 
@@ -69,16 +69,15 @@ public:
 
     OLAPStatus drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
-    TabletSharedPtr find_best_tablet_to_compaction(
-            CompactionType compaction_type, DataDir* data_dir,
-            vector<TTabletId> &tablet_submitted_compaction);
+    TabletSharedPtr find_best_tablet_to_compaction(CompactionType compaction_type,
+                                                   DataDir* data_dir,
+                                                   vector<TTabletId>& tablet_submitted_compaction);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                bool include_deleted = false, std::string* err = nullptr);
 
-    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
-                               TabletUid tablet_uid, bool include_deleted = false,
-                               std::string* err = nullptr);
+    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
+                               bool include_deleted = false, std::string* err = nullptr);
 
     // Extract tablet_id and schema_hash from given path.
     //
@@ -102,15 +101,10 @@ public:
     //   where we should change tablet status from shutdown back to running
     OLAPStatus load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
                                      TSchemaHash schema_hash, const std::string& header,
-                                     bool update_meta,
-                                     bool force = false,
-                                     bool restore = false);
+                                     bool update_meta, bool force = false, bool restore = false);
 
-    OLAPStatus load_tablet_from_dir(DataDir* data_dir,
-                                    TTabletId tablet_id,
-                                    SchemaHash schema_hash,
-                                    const std::string& schema_hash_path,
-                                    bool force = false,
+    OLAPStatus load_tablet_from_dir(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
+                                    const std::string& schema_hash_path, bool force = false,
                                     bool restore = false);
 
     void release_schema_change_lock(TTabletId tablet_id);
@@ -128,7 +122,7 @@ public:
     bool try_schema_change_lock(TTabletId tablet_id);
 
     void try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
-        SchemaHash schema_hash, const string& schema_hash_path);
+                                       SchemaHash schema_hash, const string& schema_hash_path);
 
     void update_root_path_info(std::map<std::string, DataDirInfo>* path_map,
                                size_t* tablet_counter);
@@ -137,7 +131,7 @@ public:
 
     void do_tablet_meta_checkpoint(DataDir* data_dir);
 
-    void  obtain_specific_quantity_tablets(vector<TabletInfo> &tablets_info, int64_t num);
+    void obtain_specific_quantity_tablets(vector<TabletInfo>& tablets_info, int64_t num);
 
     void register_clone_tablet(int64_t tablet_id);
     void unregister_clone_tablet(int64_t tablet_id);
@@ -157,11 +151,9 @@ private:
                                            bool keep_files, bool drop_old);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
-    OLAPStatus _create_initial_rowset_unlocked(const TCreateTabletReq& request,
-                                              Tablet* tablet);
+    OLAPStatus _create_initial_rowset_unlocked(const TCreateTabletReq& request, Tablet* tablet);
 
-    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id,
-                                              TSchemaHash schema_hash,
+    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, TSchemaHash schema_hash,
                                               bool keep_files = false);
 
     OLAPStatus _drop_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash, bool keep_files);
@@ -179,8 +171,7 @@ private:
                                                          const bool is_schema_change,
                                                          const Tablet* base_tablet,
                                                          const std::vector<DataDir*>& data_dirs);
-    OLAPStatus _create_tablet_meta_unlocked(const TCreateTabletReq& request,
-                                            DataDir* store,
+    OLAPStatus _create_tablet_meta_unlocked(const TCreateTabletReq& request, DataDir* store,
                                             const bool is_schema_change_tablet,
                                             const Tablet* base_tablet,
                                             TabletMetaSharedPtr* tablet_meta);
@@ -210,8 +201,8 @@ private:
 
     const int32_t _tablet_map_lock_shard_size;
     // _tablet_map_lock_array[i] protect _tablet_map_array[i], i=0,1,2...,and i < _tablet_map_lock_shard_size
-    RWMutex *_tablet_map_lock_array;
-    tablet_map_t *_tablet_map_array;
+    RWMutex* _tablet_map_lock_array;
+    tablet_map_t* _tablet_map_array;
 
     // Protect _partition_tablet_map, should not be obtained before _tablet_map_lock to avoid dead lock
     RWMutex _partition_tablet_map_lock;
@@ -242,6 +233,6 @@ inline TabletManager::tablet_map_t& TabletManager::_get_tablet_map(TTabletId tab
     return _tablet_map_array[tabletId & (_tablet_map_lock_shard_size - 1)];
 }
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_TABLET_MANAGER_H

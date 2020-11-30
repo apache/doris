@@ -56,7 +56,6 @@ class SmallFileMgr;
 class FileBlockManager;
 class PluginMgr;
 
-
 class BackendServiceClient;
 class FrontendServiceClient;
 class TPaloBrokerServiceClient;

@@ -16,24 +16,20 @@
 // under the License.
 
 #include "exec/csv_scanner.h"
-#include "util/logging.h"
 
 #include <gtest/gtest.h>
+
+#include "util/logging.h"
 
 namespace doris {
 
 class CsvScannerTest : public testing::Test {
 public:
-    CsvScannerTest() {
-    }
+    CsvScannerTest() {}
 
 protected:
-    virtual void SetUp() {
-        init();
-    }
-    virtual void TearDown() {
-        system("rm -rf ./test_run");
-    }
+    virtual void SetUp() { init(); }
+    virtual void TearDown() { system("rm -rf ./test_run"); }
 
     void init();
 
@@ -102,4 +98,3 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

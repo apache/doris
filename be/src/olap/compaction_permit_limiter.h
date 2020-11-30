@@ -22,6 +22,7 @@
 
 #include "common/config.h"
 #include "olap/utils.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
 

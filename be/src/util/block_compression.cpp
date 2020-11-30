@@ -23,8 +23,8 @@
 #include <snappy/snappy.h>
 #include <zlib.h>
 
-#include "util/faststring.h"
 #include "gutil/strings/substitute.h"
+#include "util/faststring.h"
 
 namespace doris {
 
@@ -47,14 +47,14 @@ public:
         static Lz4BlockCompression s_instance;
         return &s_instance;
     }
-    ~Lz4BlockCompression() override { }
+    ~Lz4BlockCompression() override {}
 
     Status compress(const Slice& input, Slice* output) const override {
         auto compressed_len =
-            LZ4_compress_default(input.data, output->data, input.size, output->size);
+                LZ4_compress_default(input.data, output->data, input.size, output->size);
         if (compressed_len == 0) {
-            return Status::InvalidArgument(
-                Substitute("Output buffer's capacity is not enough, size=$0", output->size));
+            return Status::InvalidArgument(strings::Substitute(
+                    "Output buffer's capacity is not enough, size=$0", output->size));
         }
         output->size = compressed_len;
         return Status::OK();
@@ -62,18 +62,16 @@ public:
 
     Status decompress(const Slice& input, Slice* output) const override {
         auto decompressed_len =
-            LZ4_decompress_safe(input.data, output->data, input.size, output->size);
+                LZ4_decompress_safe(input.data, output->data, input.size, output->size);
         if (decompressed_len < 0) {
             return Status::InvalidArgument(
-                Substitute("fail to do LZ4 decompress, error=$0", decompressed_len));
+                    strings::Substitute("fail to do LZ4 decompress, error=$0", decompressed_len));
         }
         output->size = decompressed_len;
         return Status::OK();
     }
 
-    size_t max_compressed_len(size_t len) const override {
-        return LZ4_compressBound(len);
-    }
+    size_t max_compressed_len(size_t len) const override { return LZ4_compressBound(len); }
 };
 
 // Used for LZ4 frame format, decompress speed is two times faster than LZ4.
@@ -84,15 +82,14 @@ public:
         return &s_instance;
     }
 
-    ~Lz4fBlockCompression() override { }
+    ~Lz4fBlockCompression() override {}
 
     Status compress(const Slice& input, Slice* output) const override {
-        auto compressed_len =
-            LZ4F_compressFrame(output->data, output->size, input.data, input.size, &_s_preferences);
+        auto compressed_len = LZ4F_compressFrame(output->data, output->size, input.data, input.size,
+                                                 &_s_preferences);
         if (LZ4F_isError(compressed_len)) {
-            return Status::InvalidArgument(
-                Substitute("Fail to do LZ4F compress frame, msg=$0",
-                           LZ4F_getErrorName(compressed_len)));
+            return Status::InvalidArgument(strings::Substitute(
+                    "Fail to do LZ4F compress frame, msg=$0", LZ4F_getErrorName(compressed_len)));
         }
         output->size = compressed_len;
         return Status::OK();
@@ -101,9 +98,9 @@ public:
     Status compress(const std::vector<Slice>& inputs, Slice* output) const override {
         LZ4F_compressionContext_t ctx = nullptr;
         auto lres = LZ4F_createCompressionContext(&ctx, LZ4F_VERSION);
-        if (lres != 0)  {
-            return Status::InvalidArgument(
-                Substitute("Fail to do LZ4F compress, res=$0", LZ4F_getErrorName(lres)));
+        if (lres != 0) {
+            return Status::InvalidArgument(strings::Substitute("Fail to do LZ4F compress, res=$0",
+                                                               LZ4F_getErrorName(lres)));
         }
         auto st = _compress(ctx, inputs, output);
         LZ4F_freeCompressionContext(ctx);
@@ -114,8 +111,8 @@ public:
         LZ4F_decompressionContext_t ctx;
         auto lres = LZ4F_createDecompressionContext(&ctx, LZ4F_VERSION);
         if (LZ4F_isError(lres)) {
-            return Status::InvalidArgument(
-                Substitute("Fail to do LZ4F decompress, res=$0", LZ4F_getErrorName(lres)));
+            return Status::InvalidArgument(strings::Substitute("Fail to do LZ4F decompress, res=$0",
+                                                               LZ4F_getErrorName(lres)));
         }
         auto st = _decompress(ctx, input, output);
         LZ4F_freeDecompressionContext(ctx);
@@ -126,53 +123,50 @@ public:
         return std::max(LZ4F_compressBound(len, &_s_preferences),
                         LZ4F_compressFrameBound(len, &_s_preferences));
     }
+
 private:
-    Status _compress(LZ4F_compressionContext_t ctx,
-                     const std::vector<Slice>& inputs, Slice* output) const {
+    Status _compress(LZ4F_compressionContext_t ctx, const std::vector<Slice>& inputs,
+                     Slice* output) const {
         auto wbytes = LZ4F_compressBegin(ctx, output->data, output->size, &_s_preferences);
         if (LZ4F_isError(wbytes)) {
-            return Status::InvalidArgument(
-                Substitute("Fail to do LZ4F compress begin, res=$0", LZ4F_getErrorName(wbytes)));
+            return Status::InvalidArgument(strings::Substitute(
+                    "Fail to do LZ4F compress begin, res=$0", LZ4F_getErrorName(wbytes)));
         }
         size_t offset = wbytes;
         for (auto input : inputs) {
-            wbytes = LZ4F_compressUpdate(ctx,
-                                         output->data + offset, output->size - offset,
-                                         input.data, input.size,
-                                         nullptr);
+            wbytes = LZ4F_compressUpdate(ctx, output->data + offset, output->size - offset,
+                                         input.data, input.size, nullptr);
             if (LZ4F_isError(wbytes)) {
-                return Status::InvalidArgument(
-                    Substitute("Fail to do LZ4F compress update, res=$0", LZ4F_getErrorName(wbytes)));
+                return Status::InvalidArgument(strings::Substitute(
+                        "Fail to do LZ4F compress update, res=$0", LZ4F_getErrorName(wbytes)));
             }
             offset += wbytes;
         }
-        wbytes = LZ4F_compressEnd(ctx,
-                                  output->data + offset, output->size - offset,
-                                  nullptr);
+        wbytes = LZ4F_compressEnd(ctx, output->data + offset, output->size - offset, nullptr);
         if (LZ4F_isError(wbytes)) {
-            return Status::InvalidArgument(
-                Substitute("Fail to do LZ4F compress end, res=$0", LZ4F_getErrorName(wbytes)));
+            return Status::InvalidArgument(strings::Substitute(
+                    "Fail to do LZ4F compress end, res=$0", LZ4F_getErrorName(wbytes)));
         }
         offset += wbytes;
         output->size = offset;
         return Status::OK();
     }
 
-    Status _decompress(LZ4F_decompressionContext_t ctx,
-                       const Slice& input, Slice* output) const {
+    Status _decompress(LZ4F_decompressionContext_t ctx, const Slice& input, Slice* output) const {
         size_t input_size = input.size;
         auto lres =
-            LZ4F_decompress(ctx, output->data, &output->size, input.data, &input_size, nullptr);
+                LZ4F_decompress(ctx, output->data, &output->size, input.data, &input_size, nullptr);
         if (LZ4F_isError(lres)) {
-            return Status::InvalidArgument(
-                Substitute("Fail to do LZ4F decompress, res=$0", LZ4F_getErrorName(lres)));
+            return Status::InvalidArgument(strings::Substitute("Fail to do LZ4F decompress, res=$0",
+                                                               LZ4F_getErrorName(lres)));
         } else if (input_size != input.size) {
             return Status::InvalidArgument(
-                Substitute("Fail to do LZ4F decompress: trailing data left in compressed data, read=$0 vs given=$1",
-                           input_size, input.size));
+                    strings::Substitute("Fail to do LZ4F decompress: trailing data left in "
+                                        "compressed data, read=$0 vs given=$1",
+                                        input_size, input.size));
         } else if (lres != 0) {
-            return Status::InvalidArgument(
-                Substitute("Fail to do LZ4F decompress: expect more compressed data, expect=$0", lres));
+            return Status::InvalidArgument(strings::Substitute(
+                    "Fail to do LZ4F decompress: expect more compressed data, expect=$0", lres));
         }
         return Status::OK();
     }
@@ -182,21 +176,23 @@ private:
 };
 
 LZ4F_preferences_t Lz4fBlockCompression::_s_preferences = {
-    { 
-        LZ4F_max256KB, LZ4F_blockLinked,
-        LZ4F_noContentChecksum, LZ4F_frame,
-        0, // unknown content size,
-        {0, 0} // reserved, must be set to 0
-    },
-    0,   // compression level; 0 == default
-    0,   // autoflush
-    { 0, 0, 0, 0 },  // reserved, must be set to 0
+        {
+                LZ4F_max256KB,
+                LZ4F_blockLinked,
+                LZ4F_noContentChecksum,
+                LZ4F_frame,
+                0,     // unknown content size,
+                {0, 0} // reserved, must be set to 0
+        },
+        0,            // compression level; 0 == default
+        0,            // autoflush
+        {0, 0, 0, 0}, // reserved, must be set to 0
 };
-
 
 class SnappySlicesSource : public snappy::Source {
 public:
-    SnappySlicesSource(const std::vector<Slice>& slices) : _available(0), _cur_slice(0), _slice_off(0) {
+    SnappySlicesSource(const std::vector<Slice>& slices)
+            : _available(0), _cur_slice(0), _slice_off(0) {
         for (auto& slice : slices) {
             // We filter empty slice here to avoid complicated process
             if (slice.size == 0) {
@@ -206,7 +202,7 @@ public:
             _slices.push_back(slice);
         }
     }
-    ~SnappySlicesSource() override { }
+    ~SnappySlicesSource() override {}
 
     // Return the number of bytes left to read from the source
     size_t Available() const override { return _available; }
@@ -266,7 +262,7 @@ public:
         static SnappyBlockCompression s_instance;
         return &s_instance;
     }
-    ~SnappyBlockCompression() override { }
+    ~SnappyBlockCompression() override {}
 
     Status compress(const Slice& input, Slice* output) const override {
         snappy::RawCompress(input.data, input.size, output->data, &output->size);
@@ -300,13 +296,13 @@ public:
         static ZlibBlockCompression s_instance;
         return &s_instance;
     }
-    ~ZlibBlockCompression() { }
+    ~ZlibBlockCompression() {}
 
     Status compress(const Slice& input, Slice* output) const override {
         auto zres = ::compress((Bytef*)output->data, &output->size, (Bytef*)input.data, input.size);
         if (zres != Z_OK) {
             return Status::InvalidArgument(
-                Substitute("Fail to do ZLib compress, error=$0", zError(zres)));
+                    strings::Substitute("Fail to do ZLib compress, error=$0", zError(zres)));
         }
         return Status::OK();
     }
@@ -318,9 +314,8 @@ public:
         zstrm.opaque = Z_NULL;
         auto zres = deflateInit(&zstrm, Z_DEFAULT_COMPRESSION);
         if (zres != Z_OK) {
-            return Status::InvalidArgument(
-                Substitute("Fail to do ZLib stream compress, error=$0, res=$1",
-                           zError(zres), zres));
+            return Status::InvalidArgument(strings::Substitute(
+                    "Fail to do ZLib stream compress, error=$0, res=$1", zError(zres), zres));
         }
         // we assume that output is e
         zstrm.next_out = (Bytef*)output->data;
@@ -335,28 +330,27 @@ public:
 
             zres = deflate(&zstrm, flush);
             if (zres != Z_OK && zres != Z_STREAM_END) {
-                return Status::InvalidArgument(
-                    Substitute("Fail to do ZLib stream compress, error=$0, res=$1",
-                               zError(zres), zres));
+                return Status::InvalidArgument(strings::Substitute(
+                        "Fail to do ZLib stream compress, error=$0, res=$1", zError(zres), zres));
             }
         }
 
         output->size = zstrm.total_out;
         zres = deflateEnd(&zstrm);
         if (zres != Z_OK) {
-            return Status::InvalidArgument(
-                    Substitute("Fail to do deflateEnd on ZLib stream, error=$0, res=$1",
-                               zError(zres), zres));
+            return Status::InvalidArgument(strings::Substitute(
+                    "Fail to do deflateEnd on ZLib stream, error=$0, res=$1", zError(zres), zres));
         }
         return Status::OK();
     }
 
     Status decompress(const Slice& input, Slice* output) const override {
         size_t input_size = input.size;
-        auto zres = ::uncompress2((Bytef*)output->data, &output->size, (Bytef*)input.data, &input_size);
+        auto zres =
+                ::uncompress2((Bytef*)output->data, &output->size, (Bytef*)input.data, &input_size);
         if (zres != Z_OK) {
             return Status::InvalidArgument(
-                Substitute("Fail to do ZLib decompress, error=$0", zError(zres)));
+                    strings::Substitute("Fail to do ZLib decompress, error=$0", zError(zres)));
         }
         return Status::OK();
     }
@@ -367,8 +361,8 @@ public:
     }
 };
 
-Status get_block_compression_codec(
-        segment_v2::CompressionTypePB type, const BlockCompressionCodec** codec) {
+Status get_block_compression_codec(segment_v2::CompressionTypePB type,
+                                   const BlockCompressionCodec** codec) {
     switch (type) {
     case segment_v2::CompressionTypePB::NO_COMPRESSION:
         *codec = nullptr;
@@ -386,9 +380,9 @@ Status get_block_compression_codec(
         *codec = ZlibBlockCompression::instance();
         break;
     default:
-        return Status::NotFound(Substitute("unknown compression type($0)", type));
+        return Status::NotFound(strings::Substitute("unknown compression type($0)", type));
     }
     return Status::OK();
 }
 
-}
+} // namespace doris

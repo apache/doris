@@ -103,13 +103,12 @@ public:
     void notify_one();
 
 private:
-
     mutable pthread_cond_t _condition;
     pthread_mutex_t* _user_mutex;
 
     DISALLOW_COPY_AND_ASSIGN(ConditionVariable);
 };
 
-}  // namespace doris 
+} // namespace doris
 
 #endif // DORIS_BE_SRC_UTIL_CONDITION_VARIABLE_H

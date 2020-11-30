@@ -18,14 +18,14 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_READER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_READER_H
 
-#include "olap/rowset/rowset_reader.h"
-#include "olap/rowset/segment_group.h"
-#include "olap/rowset/column_data.h"
+#include <queue>
+#include <vector>
+
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
-
-#include <vector>
-#include <queue>
+#include "olap/rowset/column_data.h"
+#include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/segment_group.h"
 
 namespace doris {
 
@@ -47,7 +47,7 @@ struct AlphaMergeContext {
 };
 
 struct AlphaMergeContextComparator {
-    bool operator () (const AlphaMergeContext* x, const AlphaMergeContext* y) const;
+    bool operator()(const AlphaMergeContext* x, const AlphaMergeContext* y) const;
 };
 
 class AlphaRowsetReader : public RowsetReader {
@@ -76,7 +76,6 @@ public:
     int64_t filtered_rows() override;
 
 private:
-
     OLAPStatus _init_merge_ctxs(RowsetReaderContext* read_context);
 
     OLAPStatus _union_block(RowBlock** block);
@@ -128,7 +127,8 @@ private:
     OlapReaderStatistics* _stats = &_owned_stats;
 
     // a priority queue for merging rowsets
-    std::priority_queue<AlphaMergeContext*, vector<AlphaMergeContext*>, AlphaMergeContextComparator> _merge_heap;
+    std::priority_queue<AlphaMergeContext*, vector<AlphaMergeContext*>, AlphaMergeContextComparator>
+            _merge_heap;
 };
 
 } // namespace doris

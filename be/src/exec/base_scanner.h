@@ -19,8 +19,8 @@
 #define BE_SRC_EXEC_BASE_SCANNER_H_
 
 #include "common/status.h"
-#include "runtime/tuple.h"
 #include "exprs/expr.h"
+#include "runtime/tuple.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -34,21 +34,17 @@ class RuntimeState;
 class ExprContext;
 
 struct ScannerCounter {
-    ScannerCounter() :
-        num_rows_filtered(0),
-        num_rows_unselected(0) {
-    }
+    ScannerCounter() : num_rows_filtered(0), num_rows_unselected(0) {}
 
-    int64_t num_rows_filtered;  // unqualified rows (unmatched the dest schema, or no partition)
+    int64_t num_rows_filtered;   // unqualified rows (unmatched the dest schema, or no partition)
     int64_t num_rows_unselected; // rows filtered by predicates
 };
 
 class BaseScanner {
 public:
-    BaseScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params, ScannerCounter* counter);
-    virtual ~BaseScanner() {
-        Expr::close(_dest_expr_ctx, _state);
-    };
+    BaseScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
+                ScannerCounter* counter);
+    virtual ~BaseScanner() { Expr::close(_dest_expr_ctx, _state); };
 
     virtual Status init_expr_ctxes();
     // Open this scanner, will initialize information need to
@@ -61,7 +57,8 @@ public:
     virtual void close() = 0;
     bool fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
 
-    void fill_slots_of_columns_from_path(int start, const std::vector<std::string>& columns_from_path);
+    void fill_slots_of_columns_from_path(int start,
+                                         const std::vector<std::string>& columns_from_path);
 
 protected:
     RuntimeState* _state;

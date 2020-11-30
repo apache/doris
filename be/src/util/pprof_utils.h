@@ -26,13 +26,12 @@ namespace doris {
 
 class PprofUtils {
 public:
-    
     /// check and get "perf" cmd
     static Status get_perf_cmd(std::string* cmd);
-    
+
     /// get current BE process cmdline from '/proc/self/cmdline'
     static Status get_self_cmdline(std::string* cmd);
-    
+
     /// check and get "pprof" command, return the cmd abs path via "cmd".
     static Status get_pprof_cmd(std::string* cmd);
 
@@ -40,13 +39,15 @@ public:
     /// if is_file is true, the file_or_content is an abs path of perf file.
     /// if is_file is false, the file_or_content is the perf file content.
     /// the readable content is returned via "output"
-    static Status get_readable_profile(const std::string& file_or_content, bool is_file, std::stringstream* output);
+    static Status get_readable_profile(const std::string& file_or_content, bool is_file,
+                                       std::stringstream* output);
 
     /// generat flame graph of CPU profile of BE process.
     /// flame_graph_tool_dir is the dir will FlameGraph installed.
     /// if succeed, return return generated svg file path in "svg_file".
-    static Status generate_flamegraph(int32_t sample_seconds, const std::string& flame_graph_tool_dir, bool return_file, std::string* svg_file_or_content);
+    static Status generate_flamegraph(int32_t sample_seconds,
+                                      const std::string& flame_graph_tool_dir, bool return_file,
+                                      std::string* svg_file_or_content);
 };
 
-} // end namespace
-
+} // namespace doris

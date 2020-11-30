@@ -29,15 +29,15 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SetStmt;
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
-import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -55,6 +55,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.common.util.QueryPlannerProfile;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -90,12 +91,14 @@ import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.glassfish.jersey.internal.guava.Sets;
 
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -123,6 +126,8 @@ public class StmtExecutor {
     private PQueryStatistics statisticsForAuditLog;
     private boolean isCached;
 
+    private QueryPlannerProfile plannerProfile = new QueryPlannerProfile();
+
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
         this.context = context;
@@ -146,7 +151,8 @@ public class StmtExecutor {
     }
 
     // At the end of query execution, we begin to add up profile
-    public void initProfile(long beginTimeInNanoSecond) {
+    public void initProfile(QueryPlannerProfile plannerProfile) {
+        // Summary profile
         profile = new RuntimeProfile("Query");
         summaryProfile = new RuntimeProfile("Summary");
         summaryProfile.addInfoString(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
@@ -165,9 +171,14 @@ public class StmtExecutor {
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
         summaryProfile.addInfoString(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
 
+        RuntimeProfile plannerRuntimeProfile = new RuntimeProfile("Execution Summary");
+        plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
+        summaryProfile.addChild(plannerRuntimeProfile);
+
         profile.addChild(summaryProfile);
+
         if (coord != null) {
-            coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(beginTimeInNanoSecond));
+            coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(plannerProfile.getQueryBeginTime()));
             coord.endProfile();
             profile.addChild(coord.getQueryProfile());
             coord = null;
@@ -229,7 +240,7 @@ public class StmtExecutor {
     //  IOException: talk with client failed.
     public void execute() throws Exception {
 
-        long beginTimeInNanoSecond = TimeUtils.getStartTime();
+        plannerProfile.setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
         // set query id
@@ -253,6 +264,9 @@ public class StmtExecutor {
 
             if (isForwardToMaster()) {
                 forwardToMaster();
+                if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
+                    context.setQueryId(masterOpExecutor.getQueryId());
+                }
                 return;
             } else {
                 LOG.debug("no need to transfer to Master. stmt: {}", context.getStmtId());
@@ -270,7 +284,7 @@ public class StmtExecutor {
                         }
                         handleQueryStmt();
                         if (context.getSessionVariable().isReportSucc()) {
-                            writeProfile(beginTimeInNanoSecond);
+                            writeProfile();
                         }
                         break;
                     } catch (RpcException e) {
@@ -298,7 +312,7 @@ public class StmtExecutor {
                 try {
                     handleInsertStmt();
                     if (context.getSessionVariable().isReportSucc()) {
-                        writeProfile(beginTimeInNanoSecond);
+                        writeProfile();
                     }
                 } catch (Throwable t) {
                     LOG.warn("handle insert stmt fail", t);
@@ -364,8 +378,8 @@ public class StmtExecutor {
         masterOpExecutor.execute();
     }
 
-    private void writeProfile(long beginTimeInNanoSecond) {
-        initProfile(beginTimeInNanoSecond);
+    private void writeProfile() {
+        initProfile(plannerProfile);
         profile.computeTimeInChildProfile();
         StringBuilder builder = new StringBuilder();
         profile.prettyPrint(builder, "");
@@ -404,6 +418,7 @@ public class StmtExecutor {
             try {
                 parsedStmt = SqlParserUtils.getStmt(parser, originStmt.idx);
                 parsedStmt.setOrigStmt(originStmt);
+                parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             } catch (Error e) {
                 LOG.info("error happened when parsing stmt {}, id: {}", originStmt, context.getStmtId(), e);
                 throw new AnalysisException("sql parsing error, please check your sql");
@@ -446,9 +461,10 @@ public class StmtExecutor {
                 || parsedStmt instanceof CreateTableAsSelectStmt) {
             Map<String, Database> dbs = Maps.newTreeMap();
             QueryStmt queryStmt;
+            Set<String> parentViewNameSet = Sets.newHashSet();
             if (parsedStmt instanceof QueryStmt) {
                 queryStmt = (QueryStmt) parsedStmt;
-                queryStmt.getDbs(analyzer, dbs);
+                queryStmt.getDbs(analyzer, dbs, parentViewNameSet);
             } else {
                 InsertStmt insertStmt;
                 if (parsedStmt instanceof InsertStmt) {
@@ -456,7 +472,7 @@ public class StmtExecutor {
                 } else {
                     insertStmt = ((CreateTableAsSelectStmt) parsedStmt).getInsertStmt();
                 }
-                insertStmt.getDbs(analyzer, dbs);
+                insertStmt.getDbs(analyzer, dbs, parentViewNameSet);
             }
 
             lock(dbs);
@@ -533,6 +549,7 @@ public class StmtExecutor {
                 if (isExplain) parsedStmt.setIsExplain(isExplain, isVerbose);
             }
         }
+        plannerProfile.setQueryAnalysisFinishTime();
 
         // create plan
         planner = new Planner();
@@ -544,6 +561,8 @@ public class StmtExecutor {
         }
         // TODO(zc):
         // Preconditions.checkState(!analyzer.hasUnassignedConjuncts());
+
+        plannerProfile.setQueryPlanFinishTime();
     }
 
     private void resetAnalyzerAndStmt() {
@@ -747,6 +766,7 @@ public class StmtExecutor {
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
         coord.exec();
+        plannerProfile.setQueryScheduleFinishTime();
         while (true) {
             batch = coord.getNext();
             // for outfile query, there will be only one empty batch send back with eos flag
@@ -776,6 +796,7 @@ public class StmtExecutor {
         } else {
             context.getState().setOk(statisticsForAuditLog.returned_rows, 0, "");
         }
+        plannerProfile.setQueryFetchResultFinishTime();
     }
 
     // Process a select statement.
@@ -806,6 +827,7 @@ public class StmtExecutor {
         Throwable throwable = null;
 
         String label = insertStmt.getLabel();
+        LOG.info("Do insert [{}] with query id: {}", label, DebugUtil.printId(context.queryId()));
 
         long loadedRows = 0;
         int filteredRows = 0;

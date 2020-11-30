@@ -41,8 +41,8 @@ HyperLogLog::HyperLogLog(const Slice& src) {
 // Convert explicit values to register format, and clear explicit values.
 // NOTE: this function won't modify _type.
 void HyperLogLog::_convert_explicit_to_register() {
-    DCHECK(_type == HLL_DATA_EXPLICIT) << "_type(" << _type << ") should be explicit("
-        << HLL_DATA_EXPLICIT << ")";
+    DCHECK(_type == HLL_DATA_EXPLICIT)
+            << "_type(" << _type << ") should be explicit(" << HLL_DATA_EXPLICIT << ")";
     _registers = new uint8_t[HLL_REGISTERS_COUNT];
     memset(_registers, 0, HLL_REGISTERS_COUNT);
     for (auto value : _hash_set) {
@@ -165,8 +165,8 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
     }
     case HLL_DATA_EXPLICIT: {
         DCHECK(_hash_set.size() < HLL_EXPLICIT_INT64_NUM)
-            << "Number of explicit elements(" << _hash_set.size()
-            << ") should be less or equal than " << HLL_EXPLICIT_INT64_NUM;
+                << "Number of explicit elements(" << _hash_set.size()
+                << ") should be less or equal than " << HLL_EXPLICIT_INT64_NUM;
         *ptr++ = _type;
         *ptr++ = (uint8_t)_hash_set.size();
         for (auto hash_value : _hash_set) {
@@ -200,7 +200,7 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
                 if (_registers[i] == 0) {
                     continue;
                 }
-                // 2 bytes: register index 
+                // 2 bytes: register index
                 // 1 byte: register value
                 encode_fixed16_le(ptr, i);
                 ptr += 2;
@@ -272,45 +272,45 @@ bool HyperLogLog::deserialize(const Slice& slice) {
     // first byte : type
     _type = (HllDataType)*ptr++;
     switch (_type) {
-        case HLL_DATA_EMPTY:
-            break;
-        case HLL_DATA_EXPLICIT: {
-            // 2: number of explicit values
-            // make sure that num_explicit is positive
-            uint8_t num_explicits = *ptr++;
-            // 3+: 8 bytes hash value
-            for (int i = 0; i < num_explicits; ++i) {
-                _hash_set.insert(decode_fixed64_le(ptr));
-                ptr += 8;
-            }
-            break;
+    case HLL_DATA_EMPTY:
+        break;
+    case HLL_DATA_EXPLICIT: {
+        // 2: number of explicit values
+        // make sure that num_explicit is positive
+        uint8_t num_explicits = *ptr++;
+        // 3+: 8 bytes hash value
+        for (int i = 0; i < num_explicits; ++i) {
+            _hash_set.insert(decode_fixed64_le(ptr));
+            ptr += 8;
         }
-        case HLL_DATA_SPARSE: {
-            _registers = new uint8_t[HLL_REGISTERS_COUNT];
-            memset(_registers, 0, HLL_REGISTERS_COUNT);
+        break;
+    }
+    case HLL_DATA_SPARSE: {
+        _registers = new uint8_t[HLL_REGISTERS_COUNT];
+        memset(_registers, 0, HLL_REGISTERS_COUNT);
 
-            // 2-5(4 byte): number of registers
-            uint32_t num_registers = decode_fixed32_le(ptr);
-            ptr += 4;
-            for (uint32_t i = 0; i < num_registers; ++i) {
-                // 2 bytes: register index 
-                // 1 byte: register value
-                uint16_t register_idx = decode_fixed16_le(ptr);
-                ptr += 2;
-                _registers[register_idx] = *ptr++;
-            }
-            break;
+        // 2-5(4 byte): number of registers
+        uint32_t num_registers = decode_fixed32_le(ptr);
+        ptr += 4;
+        for (uint32_t i = 0; i < num_registers; ++i) {
+            // 2 bytes: register index
+            // 1 byte: register value
+            uint16_t register_idx = decode_fixed16_le(ptr);
+            ptr += 2;
+            _registers[register_idx] = *ptr++;
         }
-        case HLL_DATA_FULL: {
-            _registers = new uint8_t[HLL_REGISTERS_COUNT];
-            // 2+ : hll register value
-            memcpy(_registers, ptr, HLL_REGISTERS_COUNT);
-            break;
-        }
-        default:
-            // revert type to EMPTY
-            _type = HLL_DATA_EMPTY;
-            return false;
+        break;
+    }
+    case HLL_DATA_FULL: {
+        _registers = new uint8_t[HLL_REGISTERS_COUNT];
+        // 2+ : hll register value
+        memcpy(_registers, ptr, HLL_REGISTERS_COUNT);
+        break;
+    }
+    default:
+        // revert type to EMPTY
+        _type = HLL_DATA_EMPTY;
+        return false;
     }
     return true;
 }
@@ -361,10 +361,9 @@ int64_t HyperLogLog::estimate_cardinality() const {
     } else if (num_streams == 16384 && estimate < 72000) {
         // when Linear Couint change to HyperLogLog according to HyperLogLog Correction,
         // there are relatively large fluctuations, we fixed the problem refer to redis.
-        double bias = 5.9119 * 1.0e-18 * (estimate * estimate * estimate * estimate)
-                      - 1.4253 * 1.0e-12 * (estimate * estimate * estimate) +
-                      1.2940 * 1.0e-7 * (estimate * estimate)
-                      - 5.2921 * 1.0e-3 * estimate +
+        double bias = 5.9119 * 1.0e-18 * (estimate * estimate * estimate * estimate) -
+                      1.4253 * 1.0e-12 * (estimate * estimate * estimate) +
+                      1.2940 * 1.0e-7 * (estimate * estimate) - 5.2921 * 1.0e-3 * estimate +
                       83.3216;
         estimate -= estimate * (bias / 100);
     }
@@ -373,69 +372,69 @@ int64_t HyperLogLog::estimate_cardinality() const {
 
 void HllSetResolver::parse() {
     // skip LengthValueType
-    char*  pdata = _buf_ref;
+    char* pdata = _buf_ref;
     _set_type = (HllDataType)pdata[0];
     char* sparse_data = NULL;
     switch (_set_type) {
-        case HLL_DATA_EXPLICIT:
-            // first byte : type
-            // second～five byte : hash values's number
-            // five byte later : hash value
-            _explicit_num = (ExplicitLengthValueType) (pdata[sizeof(SetTypeValueType)]);
-            _explicit_value = (uint64_t*)(pdata + sizeof(SetTypeValueType)
-                    + sizeof(ExplicitLengthValueType));
-            break;
-        case HLL_DATA_SPARSE:
-            // first byte : type
-            // second ～（2^HLL_COLUMN_PRECISION)/8 byte : bitmap mark which is not zero
-            // 2^HLL_COLUMN_PRECISION)/8 ＋ 1以后value
-            _sparse_count = (SparseLengthValueType*)(pdata + sizeof (SetTypeValueType));
-            sparse_data = pdata + sizeof(SetTypeValueType) + sizeof(SparseLengthValueType);
-            for (int i = 0; i < *_sparse_count; i++) {
-                SparseIndexType* index = (SparseIndexType*)sparse_data;
-                sparse_data += sizeof(SparseIndexType);
-                SparseValueType* value = (SparseValueType*)sparse_data;
-                _sparse_map[*index] = *value;
-                sparse_data += sizeof(SetTypeValueType);
-            }
-            break;
-        case HLL_DATA_FULL:
-            // first byte : type
-            // second byte later : hll register value
-            _full_value_position = pdata + sizeof (SetTypeValueType);
-            break;
-        default:
-            // HLL_DATA_EMPTY
-            break;
+    case HLL_DATA_EXPLICIT:
+        // first byte : type
+        // second～five byte : hash values's number
+        // five byte later : hash value
+        _explicit_num = (ExplicitLengthValueType)(pdata[sizeof(SetTypeValueType)]);
+        _explicit_value =
+                (uint64_t*)(pdata + sizeof(SetTypeValueType) + sizeof(ExplicitLengthValueType));
+        break;
+    case HLL_DATA_SPARSE:
+        // first byte : type
+        // second ～（2^HLL_COLUMN_PRECISION)/8 byte : bitmap mark which is not zero
+        // 2^HLL_COLUMN_PRECISION)/8 ＋ 1以后value
+        _sparse_count = (SparseLengthValueType*)(pdata + sizeof(SetTypeValueType));
+        sparse_data = pdata + sizeof(SetTypeValueType) + sizeof(SparseLengthValueType);
+        for (int i = 0; i < *_sparse_count; i++) {
+            SparseIndexType* index = (SparseIndexType*)sparse_data;
+            sparse_data += sizeof(SparseIndexType);
+            SparseValueType* value = (SparseValueType*)sparse_data;
+            _sparse_map[*index] = *value;
+            sparse_data += sizeof(SetTypeValueType);
+        }
+        break;
+    case HLL_DATA_FULL:
+        // first byte : type
+        // second byte later : hll register value
+        _full_value_position = pdata + sizeof(SetTypeValueType);
+        break;
+    default:
+        // HLL_DATA_EMPTY
+        break;
     }
 }
 
-void HllSetHelper::set_sparse(
-        char *result, const std::map<int, uint8_t>& index_to_value, int& len) {
+void HllSetHelper::set_sparse(char* result, const std::map<int, uint8_t>& index_to_value,
+                              int& len) {
     result[0] = HLL_DATA_SPARSE;
     len = sizeof(HllSetResolver::SetTypeValueType) + sizeof(HllSetResolver::SparseLengthValueType);
     char* write_value_pos = result + len;
     for (std::map<int, uint8_t>::const_iterator iter = index_to_value.begin();
-            iter != index_to_value.end(); iter++) {
+         iter != index_to_value.end(); iter++) {
         write_value_pos[0] = (char)(iter->first & 0xff);
         write_value_pos[1] = (char)(iter->first >> 8 & 0xff);
         write_value_pos[2] = iter->second;
         write_value_pos += 3;
     }
     int registers_count = index_to_value.size();
-    len += registers_count * (sizeof(HllSetResolver::SparseIndexType)
-            + sizeof(HllSetResolver::SparseValueType));
+    len += registers_count *
+           (sizeof(HllSetResolver::SparseIndexType) + sizeof(HllSetResolver::SparseValueType));
     *(int*)(result + 1) = registers_count;
 }
 
 void HllSetHelper::set_explicit(char* result, const std::set<uint64_t>& hash_value_set, int& len) {
     result[0] = HLL_DATA_EXPLICIT;
     result[1] = (HllSetResolver::ExplicitLengthValueType)(hash_value_set.size());
-    len = sizeof(HllSetResolver::SetTypeValueType)
-        + sizeof(HllSetResolver::ExplicitLengthValueType);
+    len = sizeof(HllSetResolver::SetTypeValueType) +
+          sizeof(HllSetResolver::ExplicitLengthValueType);
     char* write_pos = result + len;
     for (std::set<uint64_t>::const_iterator iter = hash_value_set.begin();
-            iter != hash_value_set.end(); iter++) {
+         iter != hash_value_set.end(); iter++) {
         uint64_t hash_value = *iter;
         *(uint64_t*)write_pos = hash_value;
         write_pos += 8;
@@ -443,15 +442,14 @@ void HllSetHelper::set_explicit(char* result, const std::set<uint64_t>& hash_val
     len += sizeof(uint64_t) * hash_value_set.size();
 }
 
-void HllSetHelper::set_full(char* result,
-        const std::map<int, uint8_t>& index_to_value,
-        const int registers_len, int& len) {
+void HllSetHelper::set_full(char* result, const std::map<int, uint8_t>& index_to_value,
+                            const int registers_len, int& len) {
     result[0] = HLL_DATA_FULL;
     for (std::map<int, uint8_t>::const_iterator iter = index_to_value.begin();
-            iter != index_to_value.end(); iter++) {
+         iter != index_to_value.end(); iter++) {
         result[1 + iter->first] = iter->second;
     }
     len = registers_len + sizeof(HllSetResolver::SetTypeValueType);
 }
 
-}  // namespace doris
+} // namespace doris

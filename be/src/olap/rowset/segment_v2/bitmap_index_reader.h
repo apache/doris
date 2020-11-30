@@ -24,8 +24,8 @@
 #include "olap/column_block.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 
@@ -39,10 +39,8 @@ class IndexedColumnIterator;
 
 class BitmapIndexReader {
 public:
-    explicit BitmapIndexReader(const std::string& file_name,
-                               const BitmapIndexPB* bitmap_index_meta)
-        : _file_name(file_name),
-          _bitmap_index_meta(bitmap_index_meta){
+    explicit BitmapIndexReader(const std::string& file_name, const BitmapIndexPB* bitmap_index_meta)
+            : _file_name(file_name), _bitmap_index_meta(bitmap_index_meta) {
         _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
     }
 
@@ -51,13 +49,9 @@ public:
     // create a new column iterator. Client should delete returned iterator
     Status new_iterator(BitmapIndexIterator** iterator);
 
-    int64_t bitmap_nums() {
-        return _bitmap_column_reader->num_values();
-    }
+    int64_t bitmap_nums() { return _bitmap_column_reader->num_values(); }
 
-    const TypeInfo* type_info() {
-        return _typeinfo;
-    }
+    const TypeInfo* type_info() { return _typeinfo; }
 
 private:
     friend class BitmapIndexIterator;
@@ -106,13 +100,9 @@ public:
     // Read and union all bitmaps in range [from, to) into `result`
     Status read_union_bitmap(rowid_t from, rowid_t to, Roaring* result);
 
-    inline rowid_t bitmap_nums() const {
-        return _reader->bitmap_nums();
-    }
+    inline rowid_t bitmap_nums() const { return _reader->bitmap_nums(); }
 
-    inline rowid_t current_ordinal() const {
-        return _current_rowid;
-    }
+    inline rowid_t current_ordinal() const { return _current_rowid; }
 
 private:
     BitmapIndexReader* _reader;

@@ -15,9 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/olap_utils.h"
 #include "runtime/string_value.h"
+
 #include <cstring>
+
+#include "exec/olap_utils.h"
 
 namespace doris {
 
@@ -37,4 +39,4 @@ std::size_t operator-(const StringValue& v1, const StringValue& v2) {
     return 0;
 }
 
-}
+} // namespace doris

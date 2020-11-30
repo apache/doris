@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_HTTP_CHANNEL_H
 #define DORIS_BE_SRC_COMMON_UTIL_HTTP_CHANNEL_H
 
-#include <string>
 #include <cstdint>
+#include <string>
 
 #include "http/http_status.h"
 
@@ -47,9 +47,10 @@ public:
 
     static void send_file(HttpRequest* request, int fd, size_t off, size_t size);
 
-    static bool compress_content(const std::string& accept_encoding, const std::string& input, std::string* output);
+    static bool compress_content(const std::string& accept_encoding, const std::string& input,
+                                 std::string* output);
 };
 
-}
+} // namespace doris
 
 #endif
