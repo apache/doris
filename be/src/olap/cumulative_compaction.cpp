@@ -30,13 +30,6 @@ CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet, const std::st
 
 CumulativeCompaction::~CumulativeCompaction() {}
 
-OLAPStatus CumulativeCompaction::compact() {
-    RETURN_NOT_OK(prepare_compact());
-    RETURN_NOT_OK(execute_compact());
-
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus CumulativeCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
         return OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS;
@@ -64,7 +57,7 @@ OLAPStatus CumulativeCompaction::prepare_compact() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus CumulativeCompaction::execute_compact() {
+OLAPStatus CumulativeCompaction::execute_compact_impl() {
     MutexLock lock(_tablet->get_cumulative_lock(), TRY_LOCK);
     if (!lock.own_lock()) {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();

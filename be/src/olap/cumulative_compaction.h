@@ -31,10 +31,8 @@ public:
                          const std::shared_ptr<MemTracker>& parent_tracker);
     ~CumulativeCompaction() override;
 
-    OLAPStatus compact() override;
-
     OLAPStatus prepare_compact() override;
-    OLAPStatus execute_compact() override;
+    OLAPStatus execute_compact_impl() override;
 
     std::vector<RowsetSharedPtr> get_input_rowsets() { return _input_rowsets; }
 

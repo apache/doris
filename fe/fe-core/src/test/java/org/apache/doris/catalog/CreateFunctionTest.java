@@ -79,7 +79,7 @@ public class CreateFunctionTest {
                 "\"symbol\" =  \"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_9StringValE\",\n" +
                 "\"prepare_fn\" = \"_ZN9doris_udf13AddUdfPrepareEPNS_15FunctionContextENS0_18FunctionStateScopeE\",\n" +
                 "\"close_fn\" = \"_ZN9doris_udf11AddUdfCloseEPNS_15FunctionContextENS0_18FunctionStateScopeE\",\n" +
-                "\"object_file\" = \"http://nmg01-inf-dorishb00.nmg01.baidu.com:8456/libcmy_udf.so\"\n" +
+                "\"object_file\" = \"http://127.0.0.1:8008/libcmy_udf.so\"\n" +
                 ");";
         
         CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
