@@ -67,19 +67,19 @@ void CollectIterator::build_heap() {
         return;
     } else if (_merge) {
         DCHECK(!_rs_readers.empty());
-        // find base rowset(max rownum),
-        RowsetReaderSharedPtr base_reader = _rs_readers[0];
-        int base_reader_idx = 0;
-        for (size_t i = 1; i < _rs_readers.size(); ++i) {
-
-            if (_rs_readers[i]->rowset()->rowset_meta()->num_rows() > base_reader->rowset()->rowset_meta()->num_rows()) {
-                base_reader = _rs_readers[i];
-                base_reader_idx = i;
-            }
-        }
         // build merge heap with two children， a base rowset as level0iterator and
         // other cumulative rowsets as a level1iterator
-        if (_children.size() > 1 && base_reader_idx >= 0) {
+        if (_children.size() > 1) {
+            // find base rowset(max rownum),
+            RowsetReaderSharedPtr base_reader = _rs_readers[0];
+            int base_reader_idx = 0;
+            for (size_t i = 1; i < _rs_readers.size(); ++i) {
+                if (_rs_readers[i]->rowset()->rowset_meta()->num_rows() >
+                    base_reader->rowset()->rowset_meta()->num_rows()) {
+                    base_reader = _rs_readers[i];
+                    base_reader_idx = i;
+                }
+            }
             std::vector<LevelIterator*> cumu_children;
             for (size_t i = 0; i < _rs_readers.size(); ++i) {
                 if (i != base_reader_idx) {
@@ -213,12 +213,18 @@ OLAPStatus CollectIterator::Level0Iterator::next(const RowCursor** row, bool* de
 
 CollectIterator::Level1Iterator::Level1Iterator(
         const std::vector<CollectIterator::LevelIterator*>& children, bool merge, bool reverse)
-        : _children(children), _merge(merge), _reverse(reverse) {
-}
+        : _children(children), _merge(merge), _reverse(reverse) {}
 
 CollectIterator::LevelIterator::~LevelIterator() {}
 
-CollectIterator::Level1Iterator::~Level1Iterator() {}
+CollectIterator::Level1Iterator::~Level1Iterator() {
+    for (auto child : _children) {
+        if (child != nullptr) {
+            delete child;
+            child = nullptr;
+        }
+    }
+}
 
 // Read next row into *row.
 // Returns

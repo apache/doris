@@ -85,12 +85,12 @@ std::string Reader::KeysParam::to_string() const {
     }
 }
 
-    for (auto end_key : end_keys) {
-        ss << " end_keys=" << end_key->to_string();
-    }
-
-    return ss.str();
+for (auto end_key : end_keys) {
+    ss << " end_keys=" << end_key->to_string();
 }
+
+return ss.str();
+} // namespace doris
 
 Reader::Reader() {
     _tracker.reset(new MemTracker(-1));
@@ -140,13 +140,13 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
             break;
         }
     }
-    DCHECK(_next_row_func != nullptr) << "No next row function for type:"
-        << _tablet->keys_type();
+    DCHECK(_next_row_func != nullptr) << "No next row function for type:" << _tablet->keys_type();
 
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof) {
+OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+                                     bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
         return OLAP_SUCCESS;
@@ -161,7 +161,8 @@ OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, O
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof) {
+OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+                                     bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
         return OLAP_SUCCESS;
@@ -198,7 +199,8 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, O
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof) {
+OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
+                                        ObjectPool* agg_pool, bool* eof) {
     *eof = false;
     bool cur_delete_flag = false;
     int64_t merged_count = 0;
@@ -230,7 +232,8 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
             cur_delete_flag = _next_delete_flag;
             // if has sequence column, the higher version need to merge the lower versions
             if (_has_sequence_col) {
-                agg_update_row_with_sequence(_value_cids, row_cursor, *_next_key, _sequence_col_idx);
+                agg_update_row_with_sequence(_value_cids, row_cursor, *_next_key,
+                                             _sequence_col_idx);
             }
         }
 
@@ -311,7 +314,9 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
         _is_upper_keys_included.push_back(is_upper_key_included);
     }
 
-    if (eof) { return OLAP_SUCCESS; }
+    if (eof) {
+        return OLAP_SUCCESS;
+    }
 
     bool need_ordered_result = true;
     if (read_params.reader_type == READER_QUERY) {
@@ -457,7 +462,6 @@ OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
     return OLAP_SUCCESS;
 }
 
-
 void Reader::_init_seek_columns() {
     std::unordered_set<uint32_t> column_set(_return_columns.begin(), _return_columns.end());
     for (auto& it : _conditions.columns()) {
@@ -492,13 +496,13 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
     size_t start_key_size = read_params.start_key.size();
     _keys_param.start_keys.resize(start_key_size, nullptr);
     for (size_t i = 0; i < start_key_size; ++i) {
-        if ((_keys_param.start_keys[i] = new(nothrow) RowCursor()) == nullptr) {
+        if ((_keys_param.start_keys[i] = new (nothrow) RowCursor()) == nullptr) {
             OLAP_LOG_WARNING("fail to new RowCursor!");
             return OLAP_ERR_MALLOC_ERROR;
         }
 
-        OLAPStatus res = _keys_param.start_keys[i]->init_scan_key(_tablet->tablet_schema(),
-                                                       read_params.start_key[i].values());
+        OLAPStatus res = _keys_param.start_keys[i]->init_scan_key(
+                _tablet->tablet_schema(), read_params.start_key[i].values());
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
             return res;
@@ -514,13 +518,13 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
     size_t end_key_size = read_params.end_key.size();
     _keys_param.end_keys.resize(end_key_size, NULL);
     for (size_t i = 0; i < end_key_size; ++i) {
-        if ((_keys_param.end_keys[i] = new(nothrow) RowCursor()) == NULL) {
+        if ((_keys_param.end_keys[i] = new (nothrow) RowCursor()) == NULL) {
             OLAP_LOG_WARNING("fail to new RowCursor!");
             return OLAP_ERR_MALLOC_ERROR;
         }
 
         OLAPStatus res = _keys_param.end_keys[i]->init_scan_key(_tablet->tablet_schema(),
-                                                     read_params.end_key[i].values());
+                                                                read_params.end_key[i].values());
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
             return res;
@@ -549,94 +553,96 @@ void Reader::_init_conditions_param(const ReaderParams& read_params) {
     }
 }
 
-#define COMPARISON_PREDICATE_CONDITION_VALUE(NAME, PREDICATE) \
-ColumnPredicate* Reader::_new_##NAME##_pred(const TabletColumn& column, int index, const std::string& cond) { \
-    ColumnPredicate* predicate = nullptr; \
-    switch (column.type()) { \
-        case OLAP_FIELD_TYPE_TINYINT: { \
-            std::stringstream ss(cond); \
-            int32_t value = 0; \
-            ss >> value; \
-            predicate = new PREDICATE<int8_t>(index, value); \
-            break; \
-        } \
-        case OLAP_FIELD_TYPE_SMALLINT: { \
-            std::stringstream ss(cond); \
-            int16_t value = 0; \
-            ss >> value; \
-            predicate = new PREDICATE<int16_t>(index, value); \
-            break; \
-        } \
-        case OLAP_FIELD_TYPE_INT: { \
-            std::stringstream ss(cond); \
-            int32_t value = 0; \
-            ss >> value; \
-            predicate = new PREDICATE<int32_t>(index, value); \
-            break; \
-        } \
-        case OLAP_FIELD_TYPE_BIGINT: { \
-            std::stringstream ss(cond); \
-            int64_t value = 0; \
-            ss >> value; \
-            predicate = new PREDICATE<int64_t>(index, value); \
-            break; \
-        } \
-        case OLAP_FIELD_TYPE_LARGEINT: { \
-            std::stringstream ss(cond); \
-            int128_t value = 0; \
-            ss >> value; \
-            predicate = new PREDICATE<int128_t>(index, value); \
-            break; \
-        } \
-        case OLAP_FIELD_TYPE_DECIMAL: { \
-            decimal12_t value(0, 0); \
-            value.from_string(cond); \
-            predicate = new PREDICATE<decimal12_t>(index, value); \
-            break; \
-        } \
-        case OLAP_FIELD_TYPE_CHAR: {\
-            StringValue value; \
-            size_t length = std::max(static_cast<size_t>(column.length()), cond.length());\
+#define COMPARISON_PREDICATE_CONDITION_VALUE(NAME, PREDICATE)                              \
+    ColumnPredicate* Reader::_new_##NAME##_pred(const TabletColumn& column, int index,     \
+                                                const std::string& cond) {                 \
+        ColumnPredicate* predicate = nullptr;                                              \
+        switch (column.type()) {                                                           \
+        case OLAP_FIELD_TYPE_TINYINT: {                                                    \
+            std::stringstream ss(cond);                                                    \
+            int32_t value = 0;                                                             \
+            ss >> value;                                                                   \
+            predicate = new PREDICATE<int8_t>(index, value);                               \
+            break;                                                                         \
+        }                                                                                  \
+        case OLAP_FIELD_TYPE_SMALLINT: {                                                   \
+            std::stringstream ss(cond);                                                    \
+            int16_t value = 0;                                                             \
+            ss >> value;                                                                   \
+            predicate = new PREDICATE<int16_t>(index, value);                              \
+            break;                                                                         \
+        }                                                                                  \
+        case OLAP_FIELD_TYPE_INT: {                                                        \
+            std::stringstream ss(cond);                                                    \
+            int32_t value = 0;                                                             \
+            ss >> value;                                                                   \
+            predicate = new PREDICATE<int32_t>(index, value);                              \
+            break;                                                                         \
+        }                                                                                  \
+        case OLAP_FIELD_TYPE_BIGINT: {                                                     \
+            std::stringstream ss(cond);                                                    \
+            int64_t value = 0;                                                             \
+            ss >> value;                                                                   \
+            predicate = new PREDICATE<int64_t>(index, value);                              \
+            break;                                                                         \
+        }                                                                                  \
+        case OLAP_FIELD_TYPE_LARGEINT: {                                                   \
+            std::stringstream ss(cond);                                                    \
+            int128_t value = 0;                                                            \
+            ss >> value;                                                                   \
+            predicate = new PREDICATE<int128_t>(index, value);                             \
+            break;                                                                         \
+        }                                                                                  \
+        case OLAP_FIELD_TYPE_DECIMAL: {                                                    \
+            decimal12_t value(0, 0);                                                       \
+            value.from_string(cond);                                                       \
+            predicate = new PREDICATE<decimal12_t>(index, value);                          \
+            break;                                                                         \
+        }                                                                                  \
+        case OLAP_FIELD_TYPE_CHAR: {                                                       \
+            StringValue value;                                                             \
+            size_t length = std::max(static_cast<size_t>(column.length()), cond.length()); \
             char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length)); \
-            memset(buffer, 0, length); \
-            memory_copy(buffer, cond.c_str(), cond.length()); \
-            value.len = length; \
-            value.ptr = buffer; \
-            predicate = new PREDICATE<StringValue>(index, value); \
-            break; \
-        } \
-        case OLAP_FIELD_TYPE_VARCHAR: { \
-            StringValue value; \
-            int32_t length = cond.length(); \
+            memset(buffer, 0, length);                                                     \
+            memory_copy(buffer, cond.c_str(), cond.length());                              \
+            value.len = length;                                                            \
+            value.ptr = buffer;                                                            \
+            predicate = new PREDICATE<StringValue>(index, value);                          \
+            break;                                                                         \
+        }                                                                                  \
+        case OLAP_FIELD_TYPE_VARCHAR: {                                                    \
+            StringValue value;                                                             \
+            int32_t length = cond.length();                                                \
             char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length)); \
-            memory_copy(buffer, cond.c_str(), length); \
-            value.len = length; \
-            value.ptr = buffer; \
-            predicate = new PREDICATE<StringValue>(index, value); \
-            break; \
-        } \
-        case OLAP_FIELD_TYPE_DATE: { \
-            uint24_t value = timestamp_from_date(cond); \
-            predicate = new PREDICATE<uint24_t>(index, value); \
-            break; \
-        } \
-        case OLAP_FIELD_TYPE_DATETIME: { \
-            uint64_t value = timestamp_from_datetime(cond); \
-            predicate = new PREDICATE<uint64_t>(index, value); \
-            break; \
-        } \
-        case OLAP_FIELD_TYPE_BOOL: { \
-            std::stringstream ss(cond); \
-            bool value = false; \
-            ss >> value; \
-            predicate = new PREDICATE<bool>(index, value); \
-            break; \
-        } \
-        default: break; \
-    } \
- \
-    return predicate; \
-} \
+            memory_copy(buffer, cond.c_str(), length);                                     \
+            value.len = length;                                                            \
+            value.ptr = buffer;                                                            \
+            predicate = new PREDICATE<StringValue>(index, value);                          \
+            break;                                                                         \
+        }                                                                                  \
+        case OLAP_FIELD_TYPE_DATE: {                                                       \
+            uint24_t value = timestamp_from_date(cond);                                    \
+            predicate = new PREDICATE<uint24_t>(index, value);                             \
+            break;                                                                         \
+        }                                                                                  \
+        case OLAP_FIELD_TYPE_DATETIME: {                                                   \
+            uint64_t value = timestamp_from_datetime(cond);                                \
+            predicate = new PREDICATE<uint64_t>(index, value);                             \
+            break;                                                                         \
+        }                                                                                  \
+        case OLAP_FIELD_TYPE_BOOL: {                                                       \
+            std::stringstream ss(cond);                                                    \
+            bool value = false;                                                            \
+            ss >> value;                                                                   \
+            predicate = new PREDICATE<bool>(index, value);                                 \
+            break;                                                                         \
+        }                                                                                  \
+        default:                                                                           \
+            break;                                                                         \
+        }                                                                                  \
+                                                                                           \
+        return predicate;                                                                  \
+    }
 
 COMPARISON_PREDICATE_CONDITION_VALUE(eq, EqualPredicate)
 COMPARISON_PREDICATE_CONDITION_VALUE(ne, NotEqualPredicate)
@@ -668,120 +674,121 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
         predicate = _new_ge_pred(column, index, condition.condition_values[0]);
     } else if (condition.condition_op == "*=" && condition.condition_values.size() > 1) {
         switch (column.type()) {
-            case OLAP_FIELD_TYPE_TINYINT: {
-                std::set<int8_t> values;
-                for (auto& cond_val : condition.condition_values) {
-                    int32_t value = 0;
-                    std::stringstream ss(cond_val);
-                    ss >> value;
-                    values.insert(value);
-                }
-                predicate = new InListPredicate<int8_t>(index, std::move(values));
-                break;
+        case OLAP_FIELD_TYPE_TINYINT: {
+            std::set<int8_t> values;
+            for (auto& cond_val : condition.condition_values) {
+                int32_t value = 0;
+                std::stringstream ss(cond_val);
+                ss >> value;
+                values.insert(value);
             }
-            case OLAP_FIELD_TYPE_SMALLINT: {
-                std::set<int16_t> values;
-                for (auto& cond_val : condition.condition_values) {
-                    int16_t value = 0;
-                    std::stringstream ss(cond_val);
-                    ss >> value;
-                    values.insert(value);
-                }
-                predicate = new InListPredicate<int16_t>(index, std::move(values));
-                break;
+            predicate = new InListPredicate<int8_t>(index, std::move(values));
+            break;
+        }
+        case OLAP_FIELD_TYPE_SMALLINT: {
+            std::set<int16_t> values;
+            for (auto& cond_val : condition.condition_values) {
+                int16_t value = 0;
+                std::stringstream ss(cond_val);
+                ss >> value;
+                values.insert(value);
             }
-            case OLAP_FIELD_TYPE_INT: {
-                std::set<int32_t> values;
-                for (auto& cond_val : condition.condition_values) {
-                    int32_t value = 0;
-                    std::stringstream ss(cond_val);
-                    ss >> value;
-                    values.insert(value);
-                }
-                predicate = new InListPredicate<int32_t>(index, std::move(values));
-                break;
+            predicate = new InListPredicate<int16_t>(index, std::move(values));
+            break;
+        }
+        case OLAP_FIELD_TYPE_INT: {
+            std::set<int32_t> values;
+            for (auto& cond_val : condition.condition_values) {
+                int32_t value = 0;
+                std::stringstream ss(cond_val);
+                ss >> value;
+                values.insert(value);
             }
-            case OLAP_FIELD_TYPE_BIGINT: {
-                std::set<int64_t> values;
-                for (auto& cond_val : condition.condition_values) {
-                    int64_t value = 0;
-                    std::stringstream ss(cond_val);
-                    ss >> value;
-                    values.insert(value);
-                }
-                predicate = new InListPredicate<int64_t>(index, std::move(values));
-                break;
+            predicate = new InListPredicate<int32_t>(index, std::move(values));
+            break;
+        }
+        case OLAP_FIELD_TYPE_BIGINT: {
+            std::set<int64_t> values;
+            for (auto& cond_val : condition.condition_values) {
+                int64_t value = 0;
+                std::stringstream ss(cond_val);
+                ss >> value;
+                values.insert(value);
             }
-            case OLAP_FIELD_TYPE_LARGEINT: {
-                std::set<int128_t> values;
-                for (auto& cond_val : condition.condition_values) {
-                    int128_t value = 0;
-                    std::stringstream ss(cond_val);
-                    ss >> value;
-                    values.insert(value);
-                }
-                predicate = new InListPredicate<int128_t>(index, std::move(values));
-                break;
+            predicate = new InListPredicate<int64_t>(index, std::move(values));
+            break;
+        }
+        case OLAP_FIELD_TYPE_LARGEINT: {
+            std::set<int128_t> values;
+            for (auto& cond_val : condition.condition_values) {
+                int128_t value = 0;
+                std::stringstream ss(cond_val);
+                ss >> value;
+                values.insert(value);
             }
-            case OLAP_FIELD_TYPE_DECIMAL: {
-                std::set<decimal12_t> values;
-                for (auto& cond_val : condition.condition_values) {
-                    decimal12_t value;
-                    value.from_string(cond_val);
-                    values.insert(value);
-                }
-                predicate = new InListPredicate<decimal12_t>(index, std::move(values));
-                break;
+            predicate = new InListPredicate<int128_t>(index, std::move(values));
+            break;
+        }
+        case OLAP_FIELD_TYPE_DECIMAL: {
+            std::set<decimal12_t> values;
+            for (auto& cond_val : condition.condition_values) {
+                decimal12_t value;
+                value.from_string(cond_val);
+                values.insert(value);
             }
-            case OLAP_FIELD_TYPE_CHAR: {
-                std::set<StringValue> values;
-                for (auto& cond_val : condition.condition_values) {
-                    StringValue value;
-                    size_t length = std::max(static_cast<size_t>(column.length()), cond_val.length());
-                    char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length));
-                    memset(buffer, 0, length);
-                    memory_copy(buffer, cond_val.c_str(), cond_val.length());
-                    value.len = length;
-                    value.ptr = buffer;
-                    values.insert(value);
-                }
-                predicate = new InListPredicate<StringValue>(index, std::move(values));
-                break;
+            predicate = new InListPredicate<decimal12_t>(index, std::move(values));
+            break;
+        }
+        case OLAP_FIELD_TYPE_CHAR: {
+            std::set<StringValue> values;
+            for (auto& cond_val : condition.condition_values) {
+                StringValue value;
+                size_t length = std::max(static_cast<size_t>(column.length()), cond_val.length());
+                char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length));
+                memset(buffer, 0, length);
+                memory_copy(buffer, cond_val.c_str(), cond_val.length());
+                value.len = length;
+                value.ptr = buffer;
+                values.insert(value);
             }
-            case OLAP_FIELD_TYPE_VARCHAR: {
-                std::set<StringValue> values;
-                for (auto& cond_val : condition.condition_values) {
-                    StringValue value;
-                    int32_t length = cond_val.length();
-                    char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length));
-                    memory_copy(buffer, cond_val.c_str(), length);
-                    value.len = length;
-                    value.ptr = buffer;
-                    values.insert(value);
-                }
-                predicate = new InListPredicate<StringValue>(index, std::move(values));
-                break;
+            predicate = new InListPredicate<StringValue>(index, std::move(values));
+            break;
+        }
+        case OLAP_FIELD_TYPE_VARCHAR: {
+            std::set<StringValue> values;
+            for (auto& cond_val : condition.condition_values) {
+                StringValue value;
+                int32_t length = cond_val.length();
+                char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length));
+                memory_copy(buffer, cond_val.c_str(), length);
+                value.len = length;
+                value.ptr = buffer;
+                values.insert(value);
             }
-            case OLAP_FIELD_TYPE_DATE: {
-                std::set<uint24_t> values;
-                for (auto& cond_val : condition.condition_values) {
-                    uint24_t value = timestamp_from_date(cond_val);
-                    values.insert(value);
-                }
-                predicate = new InListPredicate<uint24_t>(index, std::move(values));
-                break;
+            predicate = new InListPredicate<StringValue>(index, std::move(values));
+            break;
+        }
+        case OLAP_FIELD_TYPE_DATE: {
+            std::set<uint24_t> values;
+            for (auto& cond_val : condition.condition_values) {
+                uint24_t value = timestamp_from_date(cond_val);
+                values.insert(value);
             }
-            case OLAP_FIELD_TYPE_DATETIME: {
-                std::set<uint64_t> values;
-                for (auto& cond_val : condition.condition_values) {
-                    uint64_t value = timestamp_from_datetime(cond_val);
-                    values.insert(value);
-                }
-                predicate = new InListPredicate<uint64_t>(index, std::move(values));
-                break;
+            predicate = new InListPredicate<uint24_t>(index, std::move(values));
+            break;
+        }
+        case OLAP_FIELD_TYPE_DATETIME: {
+            std::set<uint64_t> values;
+            for (auto& cond_val : condition.condition_values) {
+                uint64_t value = timestamp_from_datetime(cond_val);
+                values.insert(value);
             }
-            // OLAP_FIELD_TYPE_BOOL is not valid in this case.
-            default: break;
+            predicate = new InListPredicate<uint64_t>(index, std::move(values));
+            break;
+        }
+        // OLAP_FIELD_TYPE_BOOL is not valid in this case.
+        default:
+            break;
         }
     } else if (condition.condition_op == "is") {
         predicate = new NullPredicate(index, condition.condition_values[0] == "null");
@@ -793,8 +800,8 @@ void Reader::_init_load_bf_columns(const ReaderParams& read_params) {
     // add all columns with condition to _load_bf_columns
     for (const auto& cond_column : _conditions.columns()) {
         for (const Cond* cond : cond_column.second->conds()) {
-            if (cond->op == OP_EQ
-                    || (cond->op == OP_IN && cond->operand_set.size() < MAX_OP_IN_FIELD_NUM)) {
+            if (cond->op == OP_EQ ||
+                (cond->op == OP_IN && cond->operand_set.size() < MAX_OP_IN_FIELD_NUM)) {
                 _load_bf_columns.insert(cond_column.first);
             }
         }
@@ -853,19 +860,17 @@ void Reader::_init_load_bf_columns(const ReaderParams& read_params) {
 OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
     if (read_params.reader_type != READER_CUMULATIVE_COMPACTION) {
         _tablet->obtain_header_rdlock();
-        OLAPStatus ret = _delete_handler.init(_tablet->tablet_schema(),
-                                              _tablet->delete_predicates(),
-                                              read_params.version.second);
+        OLAPStatus ret = _delete_handler.init(
+                _tablet->tablet_schema(), _tablet->delete_predicates(), read_params.version.second);
         _tablet->release_header_lock();
 
         if (read_params.reader_type == READER_BASE_COMPACTION) {
             _filter_delete = true;
         }
         return ret;
-    }
-    else {
+    } else {
         return OLAP_SUCCESS;
     }
 }
 
-}  // namespace doris
+} // namespace doris
