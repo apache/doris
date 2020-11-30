@@ -303,7 +303,7 @@ private:
     scoped_refptr<Thread> _garbage_sweeper_thread;
     // thread to monitor disk stat
     scoped_refptr<Thread> _disk_stat_monitor_thread;
-    // threads to produce both base and cumulative compaction tasks
+    // thread to produce both base and cumulative compaction tasks
     scoped_refptr<Thread> _compaction_tasks_producer_thread;
     scoped_refptr<Thread> _fd_cache_clean_thread;
     // threads to clean all file descriptor not actively in use
