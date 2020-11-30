@@ -28,13 +28,6 @@ BaseCompaction::BaseCompaction(TabletSharedPtr tablet, const std::string& label,
 
 BaseCompaction::~BaseCompaction() {}
 
-OLAPStatus BaseCompaction::compact() {
-    RETURN_NOT_OK(prepare_compact());
-    RETURN_NOT_OK(execute_compact());
-
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus BaseCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -56,7 +49,7 @@ OLAPStatus BaseCompaction::prepare_compact() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BaseCompaction::execute_compact() {
+OLAPStatus BaseCompaction::execute_compact_impl() {
     MutexLock lock(_tablet->get_base_lock(), TRY_LOCK);
     if (!lock.own_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
