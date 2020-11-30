@@ -31,6 +31,13 @@ CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet, const std::st
 CumulativeCompaction::~CumulativeCompaction() {}
 
 OLAPStatus CumulativeCompaction::compact() {
+    RETURN_NOT_OK(prepare_compact());
+    RETURN_NOT_OK(execute_compact());
+
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus CumulativeCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
         return OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS;
     }
@@ -52,9 +59,28 @@ OLAPStatus CumulativeCompaction::compact() {
     RETURN_NOT_OK(pick_rowsets_to_compact());
     TRACE("rowsets picked");
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
+    _tablet->set_clone_occurred(false);
+
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus CumulativeCompaction::execute_compact() {
+    MutexLock lock(_tablet->get_cumulative_lock(), TRY_LOCK);
+    if (!lock.own_lock()) {
+        LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
+        return OLAP_ERR_CE_TRY_CE_LOCK_ERROR;
+    }
+    TRACE("got cumulative compaction lock");
+
+    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
+    // for compaction may change. In this case, current compaction task should not be executed.
+    if (_tablet->get_clone_occurred()) {
+        _tablet->set_clone_occurred(false);
+        return OLAP_ERR_CUMULATIVE_CLONE_OCCURRED;
+    }
 
     // 3. do cumulative compaction, merge rowsets
-    int64_t permits = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION);
+    int64_t permits = get_compaction_permits();
     RETURN_NOT_OK(do_compaction(permits));
     TRACE("compaction finished");
 
