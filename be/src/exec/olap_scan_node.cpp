@@ -830,6 +830,8 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
 
             // begin to push InPredicate value into ColumnValueRange
             HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
+            auto skip_invalid_value_count = 0;
+
             while (iter->has_next()) {
                 // column in (NULL,...) couldn't push down to StorageEngine
                 // so that discard whole ColumnValueRange
@@ -848,11 +850,12 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                     DateTimeValue date_value =
                         *reinterpret_cast<const DateTimeValue*>(iter->get_value());
                     if (date_value.check_loss_accuracy_cast_to_date()) {
-                        // There is must return empty data in olap_scan_node,
-                        // Because data value loss accuracy
-                        _eos = true;
+                        // There is may return empty data in olap_scan_node,
+                        // Because data value loss accuracy, skip this value
+                        skip_invalid_value_count++;
+                    } else {
+                        range->add_fixed_value(*reinterpret_cast<T *>(&date_value));
                     }
-                    range->add_fixed_value(*reinterpret_cast<T*>(&date_value));
                     break;
                 }
                 case TYPE_DECIMAL:
@@ -879,6 +882,12 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                 }
                 }
                 iter->next();
+            }
+
+            // all value in hybrid set in skip, means all in condition
+            // is invalid, so set eos = true
+            if (skip_invalid_value_count == pred->hybrid_set()->size()) {
+                _eos = true;
             }
 
             if (is_key_column(slot->col_name())) {
