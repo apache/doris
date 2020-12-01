@@ -33,6 +33,7 @@ add_library(Olap STATIC
     bloom_filter_reader.cpp
     bloom_filter_writer.cpp
     byte_buffer.cpp
+    collect_iterator.cpp
     compaction.cpp
     compaction_permit_limiter.cpp
     comparison_predicate.cpp
