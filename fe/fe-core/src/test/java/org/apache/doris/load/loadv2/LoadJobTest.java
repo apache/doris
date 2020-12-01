@@ -19,6 +19,7 @@
 package org.apache.doris.load.loadv2;
 
 import com.google.common.collect.Lists;
+import mockit.Injectable;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -187,18 +188,22 @@ public class LoadJobTest {
 
     @Test
     public void testUpdateStateToFinished(@Mocked MetricRepo metricRepo,
+                                          @Injectable LoadTask loadTask1,
             @Mocked LongCounterMetric longCounterMetric) {
         
         MetricRepo.COUNTER_LOAD_FINISHED = longCounterMetric;
         LoadJob loadJob = new BrokerLoadJob();
+        loadJob.idToTasks.put(1L, loadTask1);
         
         // TxnStateCallbackFactory factory = Catalog.getCurrentCatalog().getGlobalTransactionMgr().getCallbackFactory();
         Catalog catalog = Catalog.getCurrentCatalog();
         GlobalTransactionMgr mgr = new GlobalTransactionMgr(catalog);
         Deencapsulation.setField(catalog, "globalTransactionMgr", mgr);
+        Assert.assertEquals(1, loadJob.idToTasks.size());
         loadJob.updateState(JobState.FINISHED);
         Assert.assertEquals(JobState.FINISHED, loadJob.getState());
         Assert.assertNotEquals(-1, (long) Deencapsulation.getField(loadJob, "finishTimestamp"));
         Assert.assertEquals(100, (int)Deencapsulation.getField(loadJob, "progress"));
+        Assert.assertEquals(0, loadJob.idToTasks.size());
     }
 }
