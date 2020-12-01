@@ -646,7 +646,21 @@ public class FunctionCallExpr extends Expr {
                 }
             }
         }
-        this.type = fn.getReturnType();
+
+        if (fn.getFunctionName().getFunction().equals("str_to_date")) {
+            Expr child1 = getChild(1);
+            if (child1 instanceof StringLiteral) {
+                if (DateLiteral.hasTimePart(((StringLiteral)child1).getStringValue())) {
+                    this.type = Type.DATETIME;
+                } else {
+                    this.type = Type.DATE;
+                }
+            } else {
+                this.type = Type.DATETIME;
+            }
+        } else {
+            this.type = fn.getReturnType();
+        }
     }
 
     @Override

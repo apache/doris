@@ -498,12 +498,16 @@ public class DateLiteral extends LiteralExpr {
                 dateTime.getHourOfDay(),
                 dateTime.getMinuteOfHour(),
                 dateTime.getSecondOfMinute());
-        if(HAS_TIME_PART.matcher(pattern).matches()) {
+        if (HAS_TIME_PART.matcher(pattern).matches()) {
             dateLiteral.setType(Type.DATETIME);
         } else {
             dateLiteral.setType(Type.DATE);
         }
         return dateLiteral;
+    }
+
+    public static boolean hasTimePart(String format) {
+        return HAS_TIME_PART.matcher(format).matches();
     }
 
     //Return the date stored in the dateliteral as pattern format.
