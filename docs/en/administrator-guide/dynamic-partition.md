@@ -324,3 +324,10 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
     
     `curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_check_interval_seconds=432000`
     
+### Manually Modify Partitions
+
+When dynamic partition feature is enabled, Doris no longer allows manual modification of partitions.
+
+If you want to modify partitions manually when dynamic partition feature is already enabled, you need to set `dynamic_partition_enable` to `false` first, and then perform `add/drop` partitioning. After the operation is finished, set `dynamic_partition_enable` to `true` to start dynamic partition feature again.
+
+**Note**: Manually added partitions will also be deleted if they hit dynamic partition's delete history rule.

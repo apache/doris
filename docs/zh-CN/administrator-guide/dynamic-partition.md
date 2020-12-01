@@ -321,3 +321,11 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
     HTTP 协议：
     
     `curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_check_interval_seconds=432000`
+
+### 手动修改分区
+
+在开启动态分区功能后，Doris 不再允许手动修改分区。
+
+已经开通动态分区的情况下，如果想手动修改分区，需要先将 `dynamic_partition_enable` 置为 `false`，然后在执行 `add/drop` 分区操作。操作完成后，将 `dynamic_partition_enable` 置为 `true` 即可又开启动态分区功能。
+
+**注意**：手动添加的分区如果命中动态分区的删除历史分区规则，也会被删除。
