@@ -53,6 +53,7 @@ public:
 private:
     std::string _field;
     std::string _term;
+    bool _match_none;
 };
 
 // process range predicate field >= value or field < value etc.
