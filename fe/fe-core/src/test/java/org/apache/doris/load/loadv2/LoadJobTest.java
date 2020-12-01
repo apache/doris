@@ -19,7 +19,6 @@
 package org.apache.doris.load.loadv2;
 
 import com.google.common.collect.Lists;
-import mockit.Injectable;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -41,13 +40,13 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.collect.Maps;
 
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.Map;
 
 import mockit.Expectations;
+import mockit.Injectable;
 import mockit.Mocked;
 
 public class LoadJobTest {
