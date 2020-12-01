@@ -398,6 +398,16 @@ public:
         tv->type = _type;
     }
 
+    /**
+    * If the specific type returned by the 'str_to_date()' function is not recognized,
+    * it is directly set to 'TIME_DATETIME'.
+    * TODO:The result is returned according to the actual input date format
+    * add by songchuanyuan
+    **/
+    void to_datetime_val_time(doris_udf::DateTimeVal* tv) const {
+        tv->packed_time = to_int64_datetime_packed();
+    }
+
     static DateTimeValue from_datetime_val(const doris_udf::DateTimeVal& tv) {
         DateTimeValue value;
         value.from_packed_time(tv.packed_time);
