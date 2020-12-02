@@ -204,7 +204,7 @@ DateTimeVal TimestampFunctions::str_to_date(FunctionContext* ctx, const StringVa
         return DateTimeVal::null();
     }
     DateTimeVal ts_val;
-    ts_value.to_datetime_val_time(&ts_val);
+    ts_value.to_datetime_val(&ts_val);
     return ts_val;
 }
 

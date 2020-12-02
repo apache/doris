@@ -230,7 +230,6 @@ public class MysqlSerializer {
      * todo:The driver determines the number of bytes per character according to different character sets index
      * @param type
      * @return
-     * @add by songchuanyuan
      */
     private int getMysqlTypeLength(PrimitiveType type) {
         switch (type) {
@@ -254,7 +253,7 @@ public class MysqlSerializer {
             case DATE:
                 return 10;
             case DATETIME: {
-                if (type.getTimeType()) {
+                if (type.isTimeType()) {
                     return 10;
                 }  else {
                     return 19;

@@ -548,9 +548,8 @@ public enum PrimitiveType {
 
     /**
      * @return
-     * @add by songchuanyuan
      */
-    public boolean getTimeType() {
+    public boolean isTimeType() {
         return isTimeType;
     }
 
@@ -718,7 +717,6 @@ public enum PrimitiveType {
             }
             case DECIMAL:
             case DECIMALV2:
-                // update by songchuanyuan
                 return MysqlColType.MYSQL_TYPE_NEWDECIMAL;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
