@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -37,6 +38,8 @@ class Tablet;
 class TabletManager;
 class TabletMeta;
 class TxnManager;
+
+using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 // A DataDir used to manage data in same path.
 // Now, After DataDir was created, it will never be deleted for easy implementation.
@@ -132,6 +135,14 @@ public:
 
     void disks_compaction_num_increment(int64_t delta);
 
+    void init_compaction_heap();
+    void push_tablet_into_compaction_heap(CompactionType compaction_type, TabletSharedPtr tablet);
+    TabletSharedPtr pop_tablet_from_compaction_heap(
+            CompactionType compaction_type, std::vector<TTabletId>& tablet_submitted_compaction);
+    TabletSharedPtr find_best_tablet_to_compaction(
+            CompactionType compaction_type, std::vector<TabletSharedPtr>& candidate_tablets,
+            std::vector<TTabletId>& tablet_submitted_compaction);
+
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
@@ -207,6 +218,22 @@ private:
     IntGauge* disks_state;
     IntGauge* disks_compaction_score;
     IntGauge* disks_compaction_num;
+
+    std::mutex _base_compaction_heap_mutex;
+    std::mutex _cumulative_compaction_heap_mutex;
+    std::vector<TabletSharedPtr> _base_compaction_heap;
+    std::vector<TabletSharedPtr> _cumulative_compaction_heap;
+
+    class TabletScoreComparator {
+    public:
+        TabletScoreComparator(const CompactionType compaction_type) {
+            _compaction_type = compaction_type;
+        }
+        bool operator()(TabletSharedPtr &t1, TabletSharedPtr &t2);
+    private:
+        CompactionType _compaction_type;
+    };
+
 };
 
 } // namespace doris

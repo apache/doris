@@ -48,8 +48,6 @@ class CumulativeCompactionPolicy;
 class CumulativeCompaction;
 class BaseCompaction;
 
-using TabletSharedPtr = std::shared_ptr<Tablet>;
-
 class Tablet : public BaseTablet {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
@@ -243,6 +241,7 @@ public:
     void get_compaction_status(std::string* json_result);
 
     double calculate_scan_frequency();
+    double calculate_tablet_score_for_compaction(CompactionType compaction_type);
 
     int64_t prepare_compaction_and_calculate_permits(CompactionType compaction_type, TabletSharedPtr tablet);
     void execute_compaction(CompactionType compaction_type);

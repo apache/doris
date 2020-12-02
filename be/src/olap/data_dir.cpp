@@ -1018,4 +1018,158 @@ void DataDir::disks_compaction_score_increment(int64_t delta) {
 void DataDir::disks_compaction_num_increment(int64_t delta) {
     disks_compaction_num->increment(delta);
 }
+
+void DataDir::init_compaction_heap() {
+    for (std::set<TabletInfo>::iterator it = _tablet_set.begin(); it != _tablet_set.end(); it++) {
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                it->tablet_id, it->schema_hash);
+        if (tablet != nullptr) {
+            push_tablet_into_compaction_heap(CompactionType::BASE_COMPACTION, tablet);
+            push_tablet_into_compaction_heap(CompactionType::CUMULATIVE_COMPACTION, tablet);
+        }
+    }
+}
+
+void DataDir::push_tablet_into_compaction_heap(CompactionType compaction_type,
+                                               TabletSharedPtr tablet) {
+    if (compaction_type == CompactionType::BASE_COMPACTION) {
+        std::unique_lock<std::mutex> lock(_base_compaction_heap_mutex);
+        std::vector<TabletSharedPtr>::iterator it =
+                find(_base_compaction_heap.begin(), _base_compaction_heap.end(), tablet);
+        if (it == _base_compaction_heap.end()) {
+            _base_compaction_heap.push_back(tablet);
+        }
+        std::make_heap(_base_compaction_heap.begin(), _base_compaction_heap.end(),
+                       TabletScoreComparator(CompactionType::BASE_COMPACTION));
+        std::sort_heap(_base_compaction_heap.begin(), _base_compaction_heap.end(),
+                       TabletScoreComparator(CompactionType::BASE_COMPACTION));
+        while (_base_compaction_heap.size() > config::compaction_tablet_heap_size) {
+            _base_compaction_heap.pop_back();
+        }
+    } else {
+        std::unique_lock<std::mutex> lock(_cumulative_compaction_heap_mutex);
+        std::vector<TabletSharedPtr>::iterator it = find(_cumulative_compaction_heap.begin(),
+                                                         _cumulative_compaction_heap.end(), tablet);
+        if (it == _cumulative_compaction_heap.end()) {
+            _cumulative_compaction_heap.push_back(tablet);
+        }
+        std::make_heap(_cumulative_compaction_heap.begin(), _cumulative_compaction_heap.end(),
+                       TabletScoreComparator(CompactionType::CUMULATIVE_COMPACTION));
+        std::sort_heap(_cumulative_compaction_heap.begin(), _cumulative_compaction_heap.end(),
+                       TabletScoreComparator(CompactionType::CUMULATIVE_COMPACTION));
+        while (_cumulative_compaction_heap.size() > config::compaction_tablet_heap_size) {
+            _cumulative_compaction_heap.pop_back();
+        }
+    }
+}
+
+TabletSharedPtr DataDir::pop_tablet_from_compaction_heap(
+        CompactionType compaction_type, std::vector<TTabletId>& tablet_submitted_compaction) {
+    TabletSharedPtr tablet;
+    if (compaction_type == CompactionType::BASE_COMPACTION) {
+        std::unique_lock<std::mutex> lock(_base_compaction_heap_mutex);
+        tablet = find_best_tablet_to_compaction(CompactionType::BASE_COMPACTION,
+                                                _base_compaction_heap, tablet_submitted_compaction);
+    } else {
+        std::unique_lock<std::mutex> lock(_cumulative_compaction_heap_mutex);
+        tablet = find_best_tablet_to_compaction(CompactionType::CUMULATIVE_COMPACTION,
+                                                _cumulative_compaction_heap,
+                                                tablet_submitted_compaction);
+    }
+    return tablet;
+}
+
+TabletSharedPtr DataDir::find_best_tablet_to_compaction(
+        CompactionType compaction_type, std::vector<TabletSharedPtr>& candidate_tablets,
+        std::vector<TTabletId>& tablet_submitted_compaction) {
+    TabletSharedPtr best_tablet;
+    int64_t now_ms = UnixMillis();
+    const string& compaction_type_str =
+            compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
+    std::vector<TabletSharedPtr>::iterator tablet_ptr = candidate_tablets.begin();
+    for (; tablet_ptr != candidate_tablets.end(); tablet_ptr++) {
+        std::vector<TTabletId>::iterator it_tablet =
+                find(tablet_submitted_compaction.begin(), tablet_submitted_compaction.end(),
+                     (*tablet_ptr)->tablet_id());
+        if (it_tablet != tablet_submitted_compaction.end()) {
+            continue;
+        }
+
+        AlterTabletTaskSharedPtr cur_alter_task = (*tablet_ptr)->alter_task();
+        if (cur_alter_task != nullptr && cur_alter_task->alter_state() != ALTER_FINISHED &&
+            cur_alter_task->alter_state() != ALTER_FAILED) {
+            TabletSharedPtr related_tablet =
+                    StorageEngine::instance()->tablet_manager()->get_tablet(
+                            cur_alter_task->related_tablet_id(),
+                            cur_alter_task->related_schema_hash());
+            if (related_tablet != nullptr &&
+                (*tablet_ptr)->creation_time() > related_tablet->creation_time()) {
+                // Current tablet is newly created during schema-change or rollup, skip it
+                continue;
+            }
+        }
+
+        // A not-ready tablet maybe a newly created tablet under schema-change, skip it
+        if ((*tablet_ptr)->tablet_state() == TABLET_NOTREADY) {
+            continue;
+        }
+
+        if (!(*tablet_ptr)->is_used() || !(*tablet_ptr)->init_succeeded() ||
+            !(*tablet_ptr)->can_do_compaction()) {
+            continue;
+        }
+
+        int64_t last_failure_ms = (*tablet_ptr)->last_cumu_compaction_failure_time();
+        if (compaction_type == CompactionType::BASE_COMPACTION) {
+            last_failure_ms = (*tablet_ptr)->last_base_compaction_failure_time();
+        }
+        if (now_ms - last_failure_ms <= config::min_compaction_failure_interval_sec * 1000) {
+            VLOG(1) << "Too often to check compaction, skip it. "
+                    << "compaction_type=" << compaction_type_str
+                    << ", last_failure_time_ms=" << last_failure_ms
+                    << ", tablet_id=" << (*tablet_ptr)->tablet_id();
+            continue;
+        }
+
+        if (compaction_type == CompactionType::BASE_COMPACTION) {
+            MutexLock lock((*tablet_ptr)->get_base_lock(), TRY_LOCK);
+            if (!lock.own_lock()) {
+                continue;
+            }
+        } else {
+            MutexLock lock((*tablet_ptr)->get_cumulative_lock(), TRY_LOCK);
+            if (!lock.own_lock()) {
+                continue;
+            }
+        }
+
+        best_tablet = (*tablet_ptr);
+        candidate_tablets.erase(tablet_ptr);
+        break;
+    }
+    if (best_tablet != nullptr) {
+        VLOG(1) << "Found the best tablet for compaction. "
+                << "compaction_type=" << compaction_type_str
+                << ", tablet_id=" << best_tablet->tablet_id() << ", path=" << path()
+                << ", tablet_score="
+                << best_tablet->calculate_tablet_score_for_compaction(compaction_type);
+        // TODO(lingbin): Remove 'max' from metric name, it would be misunderstood as the
+        // biggest in history(like peak), but it is really just the value at current moment.
+        uint32_t compaction_score = best_tablet->calc_compaction_score(compaction_type);
+        if (compaction_type == CompactionType::BASE_COMPACTION) {
+            DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(compaction_score);
+        } else {
+            DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(
+                    compaction_score);
+        }
+    }
+    return best_tablet;
+}
+
+bool DataDir::TabletScoreComparator::operator()(TabletSharedPtr& t1, TabletSharedPtr& t2) {
+    double t1_score = t1->calculate_tablet_score_for_compaction(_compaction_type);
+    double t2_score = t2->calculate_tablet_score_for_compaction(_compaction_type);
+    return t1_score >= t2_score;
+}
+
 } // namespace doris

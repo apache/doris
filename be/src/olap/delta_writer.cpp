@@ -231,6 +231,9 @@ OLAPStatus DeltaWriter::close() {
 
     RETURN_NOT_OK(_flush_memtable_async());
     _mem_table.reset();
+    _tablet->data_dir()->push_tablet_into_compaction_heap(CompactionType::BASE_COMPACTION, _tablet);
+    _tablet->data_dir()->push_tablet_into_compaction_heap(CompactionType::CUMULATIVE_COMPACTION,
+                                                          _tablet);
     return OLAP_SUCCESS;
 }
 

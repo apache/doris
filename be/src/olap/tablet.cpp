@@ -1434,4 +1434,16 @@ void Tablet::reset_compaction(CompactionType compaction_type) {
     }
 }
 
+double Tablet::calculate_tablet_score_for_compaction(CompactionType compaction_type) {
+    uint32_t compaction_score = calc_compaction_score(compaction_type);
+    double scan_frequency = 0.0;
+    if (config::compaction_tablet_scan_frequency_factor != 0) {
+        scan_frequency = calculate_scan_frequency();
+    }
+    double tablet_score =
+            config::compaction_tablet_scan_frequency_factor * scan_frequency +
+            config::compaction_tablet_compaction_score_factor * compaction_score;
+    return tablet_score;
+}
+
 }  // namespace doris

@@ -217,6 +217,12 @@ BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构�
 * 描述：选择tablet进行compaction时，计算 tablet score 的公式中 compaction score的权重。
 * 默认值：1
 
+### `compaction_tablet_heap_size`
+
+* 类型：int32
+* 描述：base compaction堆和cumulative compaction堆中能够容纳的tablet数量。
+* 默认值：100
+
 ### `compaction_tablet_scan_frequency_factor`
 
 * 类型：int32
@@ -691,6 +697,12 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 可动态修改：是
 
 ### `scan_context_gc_interval_min`
+
+### `scan_count_push_tablet_into_compaction_heap`
+
+* 类型：int32
+* 描述：每次对于某个tablet的扫描此时达到`scan_count_push_tablet_into_compaction_heap`，该tablet就会被push到base compaction堆和cumulative compation堆中。
+* 默认值：1
 
 ### `scratch_dirs`
 

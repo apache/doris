@@ -222,6 +222,12 @@ This value is usually delivered by the FE to the BE by the heartbeat, no need to
 * Description: Coefficient for compaction score when calculating tablet score to find a tablet for compaction.
 * Default value: 1
 
+### `compaction_tablet_heap_size`
+
+* Type: int32
+* Description: The number of tablet that can be pushed into base compaction heap and cumulative compaction heap.
+* Default value: 100
+
 ### `compaction_tablet_scan_frequency_factor`
 
 * Type: int32
@@ -692,6 +698,12 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 * Dynamically modify: true
 
 ### `scan_context_gc_interval_min`
+
+### `scan_count_push_tablet_into_compaction_heap`
+
+* Type: int32
+* Description: A tablet will be push into base compaction heap and cumulative compaction heap after scan count for the tablet reaches `scan_count_push_tablet_into_compaction_heap`.
+* Default value: 1
 
 ### `scratch_dirs`
 

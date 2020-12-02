@@ -276,6 +276,12 @@ CONF_mDouble(base_cumulative_delta_ratio, "0.3");
 CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
 
+// Heap size of candidate tablets for compaction
+CONF_mInt32(compaction_tablet_heap_size, "100");
+// A tablet will be push into compaction heap after scan count for the tablet
+// reaches "scan_count_push_tablet_into_compaction_heap"
+CONF_mInt32(scan_count_push_tablet_into_compaction_heap, "1");
+
 // config the cumulative compaction policy
 // Valid configs: num_base, size_based
 // num_based policy, the original version of cumulative compaction, cumulative version compaction once.

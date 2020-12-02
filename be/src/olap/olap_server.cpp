@@ -319,6 +319,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     std::vector<DataDir*> data_dirs;
     for (auto& tmp_store : _store_map) {
         data_dirs.push_back(tmp_store.second);
+        tmp_store.second->init_compaction_heap();
         _tablet_submitted_compaction[tmp_store.second] = tablet_submitted;
     }
 
@@ -379,8 +380,20 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                     });
                     if (!st.ok()) {
                         _permit_limiter.release(permits);
+                        std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
+                        std::vector<TTabletId>::iterator it_tablet =
+                                find(_tablet_submitted_compaction[tablet->data_dir()].begin(),
+                                     _tablet_submitted_compaction[tablet->data_dir()].end(),
+                                     tablet->tablet_id());
+                        if (it_tablet !=
+                            _tablet_submitted_compaction[tablet->data_dir()].end()) {
+                            _tablet_submitted_compaction[tablet->data_dir()].erase(it_tablet);
+                            _wakeup_producer_flag = 1;
+                            _compaction_producer_sleep_cv.notify_one();
+                        }
                         // reset compaction
-                        tablet->reset_compaction(compaction_type); 
+                        tablet->reset_compaction(compaction_type);
+                        tablet->data_dir()->push_tablet_into_compaction_heap(compaction_type, tablet);
                     }
                 } else {
                     // reset compaction
@@ -403,8 +416,10 @@ std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
             continue;
         }
         if (!data_dir->reach_capacity_limit(0)) {
-            TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(
-                    compaction_type, data_dir, _tablet_submitted_compaction[data_dir]);
+            OlapStopWatch watch;
+            TabletSharedPtr tablet = data_dir->pop_tablet_from_compaction_heap(
+                    compaction_type, _tablet_submitted_compaction[data_dir]);
+            LOG(INFO) << "select tablet for compaction task. time=" << watch.get_elapse_time_us() / 1000.0 << "ms.";
             if (tablet != nullptr) {
                 tablets_compaction.emplace_back(tablet);
             }
