@@ -332,10 +332,12 @@ For a table, dynamic and manual partitioning can be freely converted, but they c
 
 If a table is not dynamically partitioned when it is created, it can be converted to dynamic partitioning at runtime by modifying the dynamic partitioning properties with `ALTER TABLE`, an example of which can be seen with `HELP ALTER TABLE`.
 
-**Note**: If `dynamic_partition.start` is set, historical partitions that are partitioned before the start offset of the dynamic partition will be deleted.
+When dynamic partitioning feature is enabled, Doris will no longer allow users to manage partitions manually, but will automatically manage partitions based on dynamic partition properties.
+
+**NOTICE**: If ``dynamic_partition.start` is set, historical partitions with a partition range before the start offset of the dynamic partition will be deleted.
 
 #### Converting Dynamic Partitioning to Manual Partitioning
 
-You can turn off dynamic partitioning and convert it to a manual partition table by executing `ALTER TABLE tbl_name SET ("dynamic_partition.enable" = "false") `.
+The dynamic partitioning feature can be disabled by executing `ALTER TABLE tbl_name SET ("dynamic_partition.enable" = "false") ` and converting it to a manual partition table.
 
-When dynamic partitioning is turned on, Doris no longer allows manual modification of partitions. If you need to modify a partition manually, you need to convert the table to a manual partition table before you can operate on its partition.
+When dynamic partitioning feature is turned off, Doris will no longer manage partitions automatically, and users will have to create or delete partitions manually by using `ALTER TABLE`.
