@@ -659,6 +659,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
         }
+        // when load job finished, there is no need to hold the tasks which are the biggest memory consumers.
+        idToTasks.clear();
     }
 
     protected boolean checkDataQuality() {
