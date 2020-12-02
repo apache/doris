@@ -18,7 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.EditLog;
@@ -97,6 +99,47 @@ public class DatabaseTest {
         } finally {
             db.writeUnlock();
         }
+    }
+
+    @Test
+    public void getTablesOnIdOrderOrThrowExceptionTest() throws MetaNotFoundException {
+        List<Column> baseSchema1 = new LinkedList<>();
+        OlapTable table1 = new OlapTable(2000L, "baseTable1", baseSchema1, KeysType.AGG_KEYS,
+                new SinglePartitionInfo(), new RandomDistributionInfo(10));
+        List<Column> baseSchema2 = new LinkedList<>();
+        OlapTable table2 = new OlapTable(2001L, "baseTable2", baseSchema2, KeysType.DUP_KEYS,
+                new SinglePartitionInfo(), new RandomDistributionInfo(10));
+        db.createTable(table1);
+        db.createTable(table2);
+        List<Long> tableIdList = Lists.newArrayList(2001L, 2000L);
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
+        Assert.assertEquals(2, tableList.size());
+        Assert.assertEquals(2000L, tableList.get(0).getId());
+        Assert.assertEquals(2001L, tableList.get(1).getId());
+        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, tableId=3000",
+                () -> db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(3000L)));
+    }
+
+    @Test
+    public void getTableOrThrowExceptionTest() throws MetaNotFoundException {
+        List<Column> baseSchema = new LinkedList<>();
+        OlapTable table = new OlapTable(2000L, "baseTable", baseSchema, KeysType.AGG_KEYS,
+                new SinglePartitionInfo(), new RandomDistributionInfo(10));
+        db.createTable(table);
+        Table resultTable1 = db.getTableOrThrowException(2000L, Table.TableType.OLAP);
+        Table resultTable2 = db.getTableOrThrowException("baseTable", Table.TableType.OLAP);
+        Assert.assertEquals(table, resultTable1);
+        Assert.assertEquals(table, resultTable2);
+        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, tableId=3000",
+                () -> db.getTableOrThrowException(3000L, Table.TableType.OLAP));
+        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, table=baseTable1",
+                () -> db.getTableOrThrowException("baseTable1", Table.TableType.OLAP));
+        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
+                "table type is not BROKER, tableId=2000, type=class org.apache.doris.catalog.OlapTable",
+                () -> db.getTableOrThrowException(2000L, Table.TableType.BROKER));
+        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
+                "table type is not BROKER, table=baseTable, type=class org.apache.doris.catalog.OlapTable",
+                () -> db.getTableOrThrowException("baseTable", Table.TableType.BROKER));
     }
 
     @Test

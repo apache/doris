@@ -366,8 +366,9 @@ public class Database extends MetaObject implements Writable {
         for (Long tableId : tableIdList) {
             Table table = idToTable.get(tableId);
             if (table == null) {
-                throw new MetaNotFoundException("unknown table, table=" + tableId);
+                throw new MetaNotFoundException("unknown table, tableId=" + tableId);
             }
+            tableList.add(table);
         }
         if (tableList.size() > 1) {
             return tableList.stream().sorted(Comparator.comparing(Table::getId)).collect(Collectors.toList());
@@ -405,7 +406,7 @@ public class Database extends MetaObject implements Writable {
             throw new MetaNotFoundException("unknown table, table=" + tableName);
         }
         if (table.getType() != tableType) {
-            throw new MetaNotFoundException("table type is not " + tableType + ", table=" + tableName + "type=" + table.getClass());
+            throw new MetaNotFoundException("table type is not " + tableType + ", table=" + tableName + ", type=" + table.getClass());
         }
         return table;
     }
@@ -432,7 +433,7 @@ public class Database extends MetaObject implements Writable {
             throw new MetaNotFoundException("unknown table, tableId=" + tableId);
         }
         if (table.getType() != tableType) {
-            throw new MetaNotFoundException("table type is not " + tableType + ", type=" + table.getClass());
+            throw new MetaNotFoundException("table type is not " + tableType + ", tableId=" + tableId +", type=" + table.getClass());
         }
         return table;
     }
