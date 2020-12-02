@@ -50,19 +50,39 @@ void ESQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* qu
 }
 
 TermQueryBuilder::TermQueryBuilder(const std::string& field, const std::string& term)
-        : _field(field), _term(term) {}
+        : _field(field), _term(term), _match_none(false) {}
 
 TermQueryBuilder::TermQueryBuilder(const ExtBinaryPredicate& binary_predicate)
-        : _field(binary_predicate.col.name), _term(binary_predicate.value.to_string()) {}
+        : _field(binary_predicate.col.name), _match_none(false) {
+        if (binary_predicate.col.type.type == PrimitiveType::TYPE_BOOLEAN) {
+            int val = atoi(binary_predicate.value.to_string().c_str());
+            if (val == 1) {
+                _term = std::string("true");
+            } else if (val == 0){
+                _term = std::string("false");
+            } else {
+                // keep semantic consistent with mysql
+                _match_none = true;
+            }
+        } else {
+            _term = binary_predicate.value.to_string();
+        }
+}
 
 void TermQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
     rapidjson::Document::AllocatorType& allocator = document->GetAllocator();
     rapidjson::Value term_node(rapidjson::kObjectType);
     term_node.SetObject();
-    rapidjson::Value field_value(_field.c_str(), allocator);
-    rapidjson::Value term_value(_term.c_str(), allocator);
-    term_node.AddMember(field_value, term_value, allocator);
-    query->AddMember("term", term_node, allocator);
+    if (!_match_none) {
+        rapidjson::Value field_value(_field.c_str(), allocator);
+        rapidjson::Value term_value(_term.c_str(), allocator);
+        term_node.AddMember(field_value, term_value, allocator);
+        query->AddMember("term", term_node, allocator);
+    } else {
+        // this would only appear `bool` column's predicate (a = 2)
+        query->AddMember("match_none", term_node, allocator);
+    }
+
 }
 
 RangeQueryBuilder::RangeQueryBuilder(const ExtBinaryPredicate& range_predicate)
