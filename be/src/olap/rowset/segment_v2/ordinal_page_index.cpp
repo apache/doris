@@ -80,6 +80,7 @@ Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     opts.stats = &tmp_stats;
     opts.use_page_cache = use_page_cache;
     opts.kept_in_memory = kept_in_memory;
+    opts.type = INDEX_PAGE;
 
     // read index page
     PageHandle page_handle;

@@ -192,7 +192,8 @@ Status ExecEnv::_init_mem_tracker() {
         LOG(WARNING) << "Config storage_page_cache_limit is greater than memory size, config="
                      << config::storage_page_cache_limit << ", memory=" << MemInfo::physical_mem();
     }
-    StoragePageCache::create_global_cache(storage_cache_limit);
+    int32_t index_page_cache_percentage = config::index_page_cache_percentage;
+    StoragePageCache::create_global_cache(storage_cache_limit, index_page_cache_percentage);
 
     // TODO(zc): The current memory usage configuration is a bit confusing,
     // we need to sort out the use of memory
