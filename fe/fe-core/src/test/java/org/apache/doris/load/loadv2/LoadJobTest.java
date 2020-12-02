@@ -40,13 +40,13 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.collect.Maps;
 
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.Map;
 
 import mockit.Expectations;
+import mockit.Injectable;
 import mockit.Mocked;
 
 public class LoadJobTest {
@@ -187,18 +187,22 @@ public class LoadJobTest {
 
     @Test
     public void testUpdateStateToFinished(@Mocked MetricRepo metricRepo,
+                                          @Injectable LoadTask loadTask1,
             @Mocked LongCounterMetric longCounterMetric) {
         
         MetricRepo.COUNTER_LOAD_FINISHED = longCounterMetric;
         LoadJob loadJob = new BrokerLoadJob();
+        loadJob.idToTasks.put(1L, loadTask1);
         
         // TxnStateCallbackFactory factory = Catalog.getCurrentCatalog().getGlobalTransactionMgr().getCallbackFactory();
         Catalog catalog = Catalog.getCurrentCatalog();
         GlobalTransactionMgr mgr = new GlobalTransactionMgr(catalog);
         Deencapsulation.setField(catalog, "globalTransactionMgr", mgr);
+        Assert.assertEquals(1, loadJob.idToTasks.size());
         loadJob.updateState(JobState.FINISHED);
         Assert.assertEquals(JobState.FINISHED, loadJob.getState());
         Assert.assertNotEquals(-1, (long) Deencapsulation.getField(loadJob, "finishTimestamp"));
         Assert.assertEquals(100, (int)Deencapsulation.getField(loadJob, "progress"));
+        Assert.assertEquals(0, loadJob.idToTasks.size());
     }
 }
