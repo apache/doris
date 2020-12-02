@@ -324,10 +324,18 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
     
     `curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_check_interval_seconds=432000`
     
-### Manually Modify Partitions
+### Converting dynamic and manual partition tables to each other
 
-When dynamic partition feature is enabled, Doris no longer allows manual modification of partitions.
+For a table, dynamic and manual partitioning can be freely converted, but they cannot exist at the same time, there is and only one state.
 
-If you want to modify partitions manually when dynamic partition feature is already enabled, you need to set `dynamic_partition_enable` to `false` first, and then perform `add/drop` partitioning. After the operation is finished, set `dynamic_partition_enable` to `true` to start dynamic partition feature again.
+#### Converting Manual Partitioning to Dynamic Partitioning
 
-**Note**: Manually added partitions will also be deleted if they hit dynamic partition's delete history rule.
+If a table is not dynamically partitioned when it is created, it can be converted to dynamic partitioning at runtime by modifying the dynamic partitioning properties with `ALTER TABLE`, an example of which can be seen with `HELP ALTER TABLE`.
+
+**Note**: If `dynamic_partition.start` is set, historical partitions that are partitioned before the start offset of the dynamic partition will be deleted.
+
+#### Converting Dynamic Partitioning to Manual Partitioning
+
+You can turn off dynamic partitioning and convert it to a manual partition table by executing `ALTER TABLE tbl_name SET ("dynamic_partition.enable" = "false") `.
+
+When dynamic partitioning is turned on, Doris no longer allows manual modification of partitions. If you need to modify a partition manually, you need to convert the table to a manual partition table before you can operate on its partition.
