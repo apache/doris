@@ -228,7 +228,12 @@ public class PublishVersionDaemon extends MasterDaemon {
             }
             
             if (shouldFinishTxn) {
-                globalTransactionMgr.finishTransaction(transactionState.getDbId(), transactionState.getTransactionId(), publishErrorReplicaIds);
+                try {
+                    // one transaction exception should not affect other transaction
+                    globalTransactionMgr.finishTransaction(transactionState.getDbId(), transactionState.getTransactionId(), publishErrorReplicaIds);
+                } catch (Exception e) {
+                    LOG.warn("error happends when finish transaction {} ", transactionState.getTransactionId(), e);
+                }
                 if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
                     // if finish transaction state failed, then update publish version time, should check 
                     // to finish after some interval
