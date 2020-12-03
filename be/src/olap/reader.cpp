@@ -119,13 +119,34 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
         return res;
     }
-    if (read_params.reader_type == READER_QUERY && _rs_readers.size() == 1 &&
-        !_rs_readers[0]->rowset()->rowset_meta()->is_segments_overlapping()) {
-        _next_row_func = &Reader::_dup_key_next_row;
+    bool single_version = false;
+    bool has_delete_rowset = false;
+    int nonoverlapping_count = 0;
+    for (auto rs_reader : _rs_readers) {
+        if (rs_reader->rowset()->rowset_meta()->delete_flag()) {
+            has_delete_rowset = true;
+            break;
+        }
+        if (rs_reader->rowset()->rowset_meta()->num_rows() > 0 &&
+            !rs_reader->rowset()->rowset_meta()->is_segments_overlapping()) {
+            ++nonoverlapping_count;
+        }
+    }
+    if (nonoverlapping_count == 1 && !has_delete_rowset) {
+        single_version = true;
+    }
+    if (single_version) {
+        LOG(INFO) << "======================================";
+        if (_tablet->keys_type() == AGG_KEYS) {
+            _next_row_func = &Reader::_direct_agg_key_next_row;
+        } else {
+            _next_row_func = &Reader::_direct_next_row;
+        }
     } else {
+        LOG(INFO) << "----------------------------------";
         switch (_tablet->keys_type()) {
         case KeysType::DUP_KEYS:
-            _next_row_func = &Reader::_dup_key_next_row;
+            _next_row_func = &Reader::_direct_next_row;
             break;
         case KeysType::UNIQUE_KEYS:
             _next_row_func = &Reader::_unique_key_next_row;
@@ -142,8 +163,8 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                     bool* eof) {
+OLAPStatus Reader::_direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+                                    bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
         return OLAP_SUCCESS;
@@ -156,6 +177,15 @@ OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, O
         }
     }
     return OLAP_SUCCESS;
+}
+OLAPStatus Reader::_direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
+                                            ObjectPool* agg_pool, bool* eof) {
+    if (UNLIKELY(_next_key == nullptr)) {
+        *eof = true;
+        return OLAP_SUCCESS;
+    }
+    init_row_with_others(row_cursor, *_next_key, mem_pool, agg_pool);
+    return _direct_next_row(row_cursor, mem_pool, agg_pool, eof);
 }
 
 OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,

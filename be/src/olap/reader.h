@@ -145,8 +145,10 @@ private:
 
     void _init_load_bf_columns(const ReaderParams& read_params);
 
-    OLAPStatus _dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                 bool* eof);
+    OLAPStatus _direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+                                bool* eof);
+    OLAPStatus _direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
+                                        ObjectPool* agg_pool, bool* eof);
     OLAPStatus _agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                  bool* eof);
     OLAPStatus _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
