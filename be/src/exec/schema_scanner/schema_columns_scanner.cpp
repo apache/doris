@@ -131,7 +131,7 @@ std::string SchemaColumnsScanner::to_mysql_data_type_string(TColumnDesc& desc) {
 std::string SchemaColumnsScanner::type_to_string(TColumnDesc& desc) {
     switch (desc.columnType) {
     case TPrimitiveType::BOOLEAN:
-        return "tinyint(4)";
+        return "tinyint(1)";
     case TPrimitiveType::TINYINT:
         return "tinyint(4)";
     case TPrimitiveType::SMALLINT:
