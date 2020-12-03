@@ -231,6 +231,16 @@ public class ColocateTableBalancerTest {
         changed = Deencapsulation.invoke(balancer, "relocateAndBalance", groupId, new HashSet<Long>(), allAvailBackendIds,
                                          colocateTableIndex, infoService, statistic, balancedBackendsPerBucketSeq);
         Assert.assertFalse(changed);
+
+        // 3. all backends are not available
+        colocateTableIndex = createColocateIndex(groupId, Lists.newArrayList(7L, 7L, 7L, 7L, 7L));
+        Deencapsulation.setField(colocateTableIndex, "group2Schema", group2Schema);
+        balancedBackendsPerBucketSeq = Lists.newArrayList();
+        allAvailBackendIds = Lists.newArrayList();
+        Set<Long> unAvailableBackendIds = Sets.newHashSet(7L);
+        changed = Deencapsulation.invoke(balancer, "relocateAndBalance", groupId, unAvailableBackendIds, allAvailBackendIds,
+                colocateTableIndex, infoService, statistic, balancedBackendsPerBucketSeq);
+        Assert.assertFalse(changed);
     }
 
     @Test

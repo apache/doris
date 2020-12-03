@@ -313,12 +313,12 @@ public class ColocateTableBalancer extends MasterDaemon {
             Preconditions.checkState(backendsPerBucketSeq.size() == hostsPerBucketSeq.size());
 
             long srcBeId = -1;
-            List<Integer> seqIndexes = null;
+            List<Integer> srcBeSeqIndexes = null;
             boolean hasUnavailableBe = false;
             // first choose the unavailable be as src be
             for (Long beId : unavailableBeIds) {
-                seqIndexes = getBeSeqIndexes(flatBackendsPerBucketSeq, beId);
-                if (seqIndexes.size() > 0) {
+                srcBeSeqIndexes = getBeSeqIndexes(flatBackendsPerBucketSeq, beId);
+                if (srcBeSeqIndexes.size() > 0) {
                     srcBeId = beId;
                     hasUnavailableBe = true;
                     break;
@@ -327,30 +327,33 @@ public class ColocateTableBalancer extends MasterDaemon {
             // sort backends with replica num in desc order
             List<Map.Entry<Long, Long>> backendWithReplicaNum =
                     getSortedBackendReplicaNumPairs(availableBeIds, unavailableBeIds, statistic, flatBackendsPerBucketSeq);
-            if (seqIndexes == null || seqIndexes.size() <= 0) {
-                // if there is only one available backend and no unavailable bucketId to relocate, end the outer loop
+            if (srcBeSeqIndexes == null || srcBeSeqIndexes.size() <= 0) {
+                // there is only one available backend and no unavailable bucketId to relocate, end the outer loop
                 if (backendWithReplicaNum.size() <= 1) {
                     break;
                 }
 
-                // choose max bucketId num be as src be
+                // there is no unavailable bucketId to relocate, choose max bucketId num be as src be
                 srcBeId = backendWithReplicaNum.get(0).getKey();
-                seqIndexes = getBeSeqIndexes(flatBackendsPerBucketSeq, srcBeId);
+                srcBeSeqIndexes = getBeSeqIndexes(flatBackendsPerBucketSeq, srcBeId);
+            } else if (backendWithReplicaNum.size() <= 0) {
+                // there is unavailable bucketId to relocate, but no available backend, end the outer loop
+                break;
             }
 
-            int i;
+            int leftBound;
             if (hasUnavailableBe) {
-                i = -1;
+                leftBound = -1;
             } else {
-                i = 0;
+                leftBound = 0;
             }
             int j = backendWithReplicaNum.size() - 1;
-            while (i < j) {
-                boolean isThisRoundChanged = false;
+            boolean isThisRoundChanged = false;
+            INNER: while (j > leftBound) {
                 // we try to use a low backend to replace the src backend.
-                // if replace failed(eg: both backends are on some host), select next low backend and try(j--)
+                // if replace failed(eg: both backends are on same host), select next low backend and try(j--)
                 Map.Entry<Long, Long> lowBackend = backendWithReplicaNum.get(j);
-                if ((!hasUnavailableBe) && (seqIndexes.size() - lowBackend.getValue()) <= 1) {
+                if ((!hasUnavailableBe) && (srcBeSeqIndexes.size() - lowBackend.getValue()) <= 1) {
                     // balanced
                     break OUT;
                 }
@@ -362,7 +365,7 @@ public class ColocateTableBalancer extends MasterDaemon {
                     return false;
                 }
 
-                for (int seqIndex : seqIndexes) {
+                for (int seqIndex : srcBeSeqIndexes) {
                     // the bucket index.
                     // eg: 0 / 3 = 0, so that the bucket index of the 4th backend id in flatBackendsPerBucketSeq is 0.
                     int bucketIndex = seqIndex / replicationNum;
@@ -377,27 +380,22 @@ public class ColocateTableBalancer extends MasterDaemon {
                         // flatBackendsPerBucketSeq is changed.
                         isChanged = true;
                         isThisRoundChanged = true;
-                        break;
+                        break INNER;
                     }
                 }
 
-                if (!isThisRoundChanged) {
-                    LOG.info("unable to replace backend {} with backend {} in colocate group {}",
-                            srcBeId, destBeId, groupId);
-                    if (--j == i) {
-                        // if all backends are checked but this round is not changed,
-                        // we should end the outer loop to avoid endless loops
-                        LOG.info("all backends are checked but this round is not changed, " +
-                                         "end outer loop in colocate group {}", groupId);
-                        break OUT;
-                    } else {
-                        // select another low backend and try again
-                        continue;
-                    }
-                }
-
-                break;
+                LOG.info("unable to replace backend {} with backend {} in colocate group {}",
+                        srcBeId, destBeId, groupId);
+                j--;
             } // end inner loop
+
+            if (!isThisRoundChanged) {
+                // if all backends are checked but this round is not changed,
+                // we should end the outer loop to avoid endless loops
+                LOG.info("all backends are checked but this round is not changed, " +
+                        "end outer loop in colocate group {}", groupId);
+                break;
+            }
         }
 
         if (isChanged) {
