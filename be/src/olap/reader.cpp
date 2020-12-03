@@ -119,8 +119,7 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
         return res;
     }
-
-    if (_rs_readers.size() == 1 &&
+    if (read_params.reader_type == READER_QUERY && _rs_readers.size() == 1 &&
         !_rs_readers[0]->rowset()->rowset_meta()->is_segments_overlapping()) {
         _next_row_func = &Reader::_dup_key_next_row;
     } else {
