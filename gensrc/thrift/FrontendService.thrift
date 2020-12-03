@@ -654,6 +654,26 @@ struct TSnapshotLoaderReportRequest {
     5: optional i32 total_num
 }
 
+enum TFrontendPingFrontendStatusCode {
+   OK = 0,
+   FAILED = 1
+}
+
+
+struct TFrontendPingFrontendRequest {
+   1: required i32 clusterId
+   2: required string token
+}
+
+struct TBootstrapResult {
+    1: required TFrontendPingFrontendStatusCode status
+    2: required string msg
+    3: required i32 queryPort
+    4: required i32 rpcPort
+    5: required i64 replayedJournalId
+    6: required string version
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1:TGetDbsParams params)
     TGetTablesResult getTableNames(1:TGetTablesParams params)
@@ -689,4 +709,6 @@ service FrontendService {
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
+
+    TBootstrapResult ping(1: TFrontendPingFrontendRequest request)
 }

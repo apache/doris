@@ -56,6 +56,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
+import org.apache.doris.thrift.TBootstrapResult;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TDescribeTableParams;
@@ -64,6 +65,7 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
@@ -957,6 +959,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return new TStatus(TStatusCode.OK);
         }
         return new TStatus(TStatusCode.CANCELLED);
+    }
+
+    @Override
+    public TBootstrapResult ping(TFrontendPingFrontendRequest request) throws TException {
+        return null;
     }
 
     private TNetworkAddress getClientAddr() {
