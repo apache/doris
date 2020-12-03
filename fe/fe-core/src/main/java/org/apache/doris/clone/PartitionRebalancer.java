@@ -255,13 +255,13 @@ public class PartitionRebalancer extends Rebalancer {
     }
 
     // The validation check cannot be accurate, cuz the production of moves do have ordering.
-    // When some moves failed, the cluster skew is different with the skew we used in production.
-    // So we can't do cluster skew check.
+    // If some moves failed, the cluster & partition skew is different to the skew when we getNextMove.
+    // So we can't do skew check.
     // Just do some basic checks, e.g. server available.
     private void checkMoveValidation(ReplicaMove move) throws IllegalStateException {
         boolean fromAvailable = infoService.checkBackendAvailable(move.fromBe);
         boolean toAvailable = infoService.checkBackendAvailable(move.toBe);
-        Preconditions.checkState(fromAvailable && toAvailable, move + "'s bes not all alive: from " + fromAvailable + ", to " + toAvailable);
+        Preconditions.checkState(fromAvailable && toAvailable, move + "'s bes are not all available: from " + fromAvailable + ", to " + toAvailable);
         // To be improved
     }
 
