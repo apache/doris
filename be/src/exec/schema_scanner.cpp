@@ -28,6 +28,7 @@
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
+#include "exec/schema_scanner/schema_statistics_scanner.h"
 
 namespace doris {
 
