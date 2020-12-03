@@ -179,7 +179,14 @@ OLAPStatus Reader::_direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_
         return OLAP_SUCCESS;
     }
     init_row_with_others(row_cursor, *_next_key, mem_pool, agg_pool);
-    return _direct_next_row(row_cursor, mem_pool, agg_pool, eof);
+    auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
+    if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
+        return res;
+    }
+    if (_need_agg_finalize) {
+        agg_finalize_row(_value_cids, row_cursor, mem_pool);
+    }
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
