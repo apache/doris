@@ -185,7 +185,7 @@ private:
     bool _has_sequence_col = false;
     int32_t _sequence_col_idx = -1;
     const RowCursor* _next_key = nullptr;
-    CollectIterator* _collect_iter = nullptr;
+    std::unique_ptr<CollectIterator> _collect_iter;
     std::vector<uint32_t> _key_cids;
     std::vector<uint32_t> _value_cids;
 

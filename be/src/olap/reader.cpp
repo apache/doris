@@ -90,7 +90,7 @@ std::string Reader::KeysParam::to_string() const {
     return ss.str();
 }
 
-Reader::Reader() {
+Reader::Reader() : _collect_iter(new CollectIterator()) {
     _tracker.reset(new MemTracker(-1));
     _predicate_mem_pool.reset(new MemPool(_tracker.get()));
 }
@@ -129,9 +129,9 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
         }
         if (rs_reader->rowset()->rowset_meta()->num_rows() > 0 &&
             !rs_reader->rowset()->rowset_meta()->is_segments_overlapping()) {
-                if (++nonoverlapping_count > 1) {
-                    break;
-                }
+            if (++nonoverlapping_count > 1) {
+                break;
+            }
         }
     }
     if (nonoverlapping_count == 1 && !has_delete_rowset) {
@@ -277,8 +277,6 @@ void Reader::close() {
     for (auto pred : _col_predicates) {
         delete pred;
     }
-
-    delete _collect_iter;
 }
 
 OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
@@ -375,7 +373,9 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
             LOG(WARNING) << "failed to add child to iterator";
             return res;
         }
-        _rs_readers.push_back(rs_reader);
+        if (res == OLAP_SUCCESS) {
+            _rs_readers.push_back(rs_reader);
+        }
     }
     _collect_iter->build_heap();
     _next_key = _collect_iter->current_row(&_next_delete_flag);
@@ -413,7 +413,6 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
 
     _init_seek_columns();
 
-    _collect_iter = new CollectIterator();
     _collect_iter->init(this);
 
     if (_tablet->tablet_schema().has_sequence_col()) {
