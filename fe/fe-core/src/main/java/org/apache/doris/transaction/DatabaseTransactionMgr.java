@@ -73,6 +73,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -659,24 +660,28 @@ public class DatabaseTransactionMgr {
         db.writeLock();
         try {
             boolean hasError = false;
-            for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
+            Iterator<TableCommitInfo> tableCommitInfoIterator = transactionState.getIdToTableCommitInfos().values().iterator();
+            while (tableCommitInfoIterator.hasNext()) {
+                TableCommitInfo tableCommitInfo = tableCommitInfoIterator.next();
                 long tableId = tableCommitInfo.getTableId();
                 OlapTable table = (OlapTable) db.getTable(tableId);
                 // table maybe dropped between commit and publish, ignore this error
                 if (table == null) {
-                    transactionState.removeTable(tableId);
+                    tableCommitInfoIterator.remove();
                     LOG.warn("table {} is dropped, skip version check and remove it from transaction state {}",
                             tableId,
                             transactionState);
                     continue;
                 }
                 PartitionInfo partitionInfo = table.getPartitionInfo();
-                for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
+                Iterator<PartitionCommitInfo> partitionCommitInfoIterator = tableCommitInfo.getIdToPartitionCommitInfo().values().iterator();
+                while (partitionCommitInfoIterator.hasNext()) {
+                    PartitionCommitInfo partitionCommitInfo = partitionCommitInfoIterator.next();
                     long partitionId = partitionCommitInfo.getPartitionId();
                     Partition partition = table.getPartition(partitionId);
                     // partition maybe dropped between commit and publish version, ignore this error
                     if (partition == null) {
-                        tableCommitInfo.removePartition(partitionId);
+                        partitionCommitInfoIterator.remove();
                         LOG.warn("partition {} is dropped, skip version check and remove it from transaction state {}",
                                 partitionId,
                                 transactionState);

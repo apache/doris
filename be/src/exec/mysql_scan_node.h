@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCAN_NODE_H
-#define  DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCAN_NODE_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCAN_NODE_H
+#define DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCAN_NODE_H
 
 #include <memory>
 
-#include "runtime/descriptors.h"
 #include "exec/mysql_scanner.h"
 #include "exec/scan_node.h"
+#include "runtime/descriptors.h"
 
 namespace doris {
 
@@ -62,7 +62,7 @@ private:
     // Writes a slot in _tuple from an MySQL value containing text data.
     // The Mysql value is converted into the appropriate target type.
     Status write_text_slot(char* value, int value_length, SlotDescriptor* slot,
-                         RuntimeState* state);
+                           RuntimeState* state);
 
     bool _is_init;
     MysqlScannerParam _my_param;
@@ -91,6 +91,6 @@ private:
     Tuple* _tuple = nullptr;
 };
 
-}
+} // namespace doris
 
 #endif

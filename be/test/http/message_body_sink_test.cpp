@@ -17,22 +17,21 @@
 
 #include "runtime/message_body_sink.h"
 
-#include <gtest/gtest.h>
-
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
+#include <gtest/gtest.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 namespace doris {
 
 class MessageBodySinkTest : public testing::Test {
 public:
-    MessageBodySinkTest() { }
-    virtual ~MessageBodySinkTest() { }
+    MessageBodySinkTest() {}
+    virtual ~MessageBodySinkTest() {}
 
-    void SetUp() override {
-    }
+    void SetUp() override {}
+
 private:
 };
 
@@ -55,7 +54,7 @@ TEST_F(MessageBodySinkTest, file_sink) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

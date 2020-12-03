@@ -63,8 +63,8 @@ public:
                 HttpChannel::send_reply(req, post_body);
             } else {
                 HttpChannel::send_reply(req, "empty");
-            } 
-        } 
+            }
+        }
     }
 };
 
@@ -76,8 +76,8 @@ static std::string hostname = "";
 
 class HttpClientTest : public testing::Test {
 public:
-    HttpClientTest() { }
-    ~HttpClientTest() override { }
+    HttpClientTest() {}
+    ~HttpClientTest() override {}
 
     static void SetUpTestCase() {
         s_server = new EvHttpServer(0);
@@ -90,9 +90,7 @@ public:
         hostname = "http://127.0.0.1:" + std::to_string(real_port);
     }
 
-    static void TearDownTestCase() {
-        delete s_server;
-    }
+    static void TearDownTestCase() { delete s_server; }
 };
 
 TEST_F(HttpClientTest, get_normal) {
@@ -171,7 +169,7 @@ TEST_F(HttpClientTest, post_failed) {
     ASSERT_TRUE(boost::algorithm::contains(st.get_error_msg(), not_found));
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

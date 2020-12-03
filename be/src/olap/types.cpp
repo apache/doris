@@ -21,26 +21,26 @@ namespace doris {
 
 void (*FieldTypeTraits<OLAP_FIELD_TYPE_CHAR>::set_to_max)(void*) = nullptr;
 
-template<typename TypeTraitsClass>
+template <typename TypeTraitsClass>
 ScalarTypeInfo::ScalarTypeInfo(TypeTraitsClass t)
-      : _equal(TypeTraitsClass::equal),
-        _cmp(TypeTraitsClass::cmp),
-        _shallow_copy(TypeTraitsClass::shallow_copy),
-        _deep_copy(TypeTraitsClass::deep_copy),
-        _copy_object(TypeTraitsClass::copy_object),
-        _direct_copy(TypeTraitsClass::direct_copy),
-        _convert_from(TypeTraitsClass::convert_from),
-        _from_string(TypeTraitsClass::from_string),
-        _to_string(TypeTraitsClass::to_string),
-        _set_to_max(TypeTraitsClass::set_to_max),
-        _set_to_min(TypeTraitsClass::set_to_min),
-        _hash_code(TypeTraitsClass::hash_code),
-        _size(TypeTraitsClass::size),
-        _field_type(TypeTraitsClass::type) {
-}
+        : _equal(TypeTraitsClass::equal),
+          _cmp(TypeTraitsClass::cmp),
+          _shallow_copy(TypeTraitsClass::shallow_copy),
+          _deep_copy(TypeTraitsClass::deep_copy),
+          _copy_object(TypeTraitsClass::copy_object),
+          _direct_copy(TypeTraitsClass::direct_copy),
+          _convert_from(TypeTraitsClass::convert_from),
+          _from_string(TypeTraitsClass::from_string),
+          _to_string(TypeTraitsClass::to_string),
+          _set_to_max(TypeTraitsClass::set_to_max),
+          _set_to_min(TypeTraitsClass::set_to_min),
+          _hash_code(TypeTraitsClass::hash_code),
+          _size(TypeTraitsClass::size),
+          _field_type(TypeTraitsClass::type) {}
 
 class ScalarTypeInfoResolver {
     DECLARE_SINGLETON(ScalarTypeInfoResolver);
+
 public:
     TypeInfo* get_type_info(const FieldType t) {
         auto pair = _scalar_type_mapping.find(t);
@@ -49,15 +49,15 @@ public:
     }
 
 private:
-    template<FieldType field_type> void add_mapping() {
+    template <FieldType field_type>
+    void add_mapping() {
         TypeTraits<field_type> traits;
         _scalar_type_mapping.emplace(field_type,
-                 std::shared_ptr<TypeInfo>(new ScalarTypeInfo(traits)));
+                                     std::shared_ptr<TypeInfo>(new ScalarTypeInfo(traits)));
     }
 
-    std::unordered_map<FieldType,
-        std::shared_ptr<TypeInfo>,
-        std::hash<size_t>> _scalar_type_mapping;
+    std::unordered_map<FieldType, std::shared_ptr<TypeInfo>, std::hash<size_t>>
+            _scalar_type_mapping;
 
     DISALLOW_COPY_AND_ASSIGN(ScalarTypeInfoResolver);
 };
@@ -90,14 +90,14 @@ bool is_scalar_type(FieldType field_type) {
     case OLAP_FIELD_TYPE_ARRAY:
     case OLAP_FIELD_TYPE_MAP:
         return false;
-    default: return true;
+    default:
+        return true;
     }
 }
 
 TypeInfo* get_scalar_type_info(FieldType field_type) {
     return ScalarTypeInfoResolver::instance()->get_type_info(field_type);
 }
-
 
 class ArrayTypeInfoResolver {
     DECLARE_SINGLETON(ArrayTypeInfoResolver);
@@ -108,11 +108,13 @@ public:
         DCHECK(pair != _type_mapping.end()) << "Bad field type: list<" << t << ">";
         return pair->second.get();
     }
+
 private:
-    template<FieldType item_type> void add_mapping() {
-        _type_mapping.emplace(item_type, std::shared_ptr<TypeInfo>(
-                new ArrayTypeInfo(get_scalar_type_info(item_type)))
-                );
+    template <FieldType item_type>
+    void add_mapping() {
+        _type_mapping.emplace(
+                item_type,
+                std::shared_ptr<TypeInfo>(new ArrayTypeInfo(get_scalar_type_info(item_type))));
     }
 
     // item_type_info -> list_type_info
@@ -149,14 +151,14 @@ TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
         return get_scalar_type_info(type);
     } else {
         switch (type) {
-            case OLAP_FIELD_TYPE_ARRAY: {
-                DCHECK(column_meta_pb->children_columns_size() == 1) << "more than 1 child type.";
-                FieldType child_type = (FieldType)column_meta_pb->children_columns(0).type();
-                return ArrayTypeInfoResolver::instance()->get_type_info(child_type);
-            }
-            default:
-                DCHECK(false) << "Bad field type: " << type;
-                return nullptr;
+        case OLAP_FIELD_TYPE_ARRAY: {
+            DCHECK(column_meta_pb->children_columns_size() == 1) << "more than 1 child type.";
+            FieldType child_type = (FieldType)column_meta_pb->children_columns(0).type();
+            return ArrayTypeInfoResolver::instance()->get_type_info(child_type);
+        }
+        default:
+            DCHECK(false) << "Bad field type: " << type;
+            return nullptr;
         }
     }
 }

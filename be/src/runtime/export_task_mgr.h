@@ -19,13 +19,13 @@
 #define DORIS_BE_SRC_RUNTIME_EXPORT_TASK_MGR_H
 
 #include <mutex>
-#include <vector>
 #include <unordered_set>
+#include <vector>
 
 #include "common/status.h"
-#include "util/lru_cache.hpp"
-#include "util/hash_util.hpp"
 #include "gen_cpp/Types_types.h"
+#include "util/hash_util.hpp"
+#include "util/lru_cache.hpp"
 
 namespace doris {
 
@@ -81,4 +81,3 @@ private:
 } // end namespace doris
 
 #endif // DORIS_BE_SRC_RUNTIME_EXPORT_TASK_MGR_H
-

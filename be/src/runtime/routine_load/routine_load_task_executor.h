@@ -21,12 +21,11 @@
 #include <map>
 #include <mutex>
 
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/routine_load/data_consumer_pool.h"
 #include "util/doris_metrics.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
-
-#include "gen_cpp/internal_service.pb.h"
 
 namespace doris {
 

@@ -33,17 +33,16 @@ public:
                    const std::shared_ptr<MemTracker>& parent_tracker);
     ~BaseCompaction() override;
 
-    OLAPStatus compact() override;
+    OLAPStatus prepare_compact() override;
+    OLAPStatus execute_compact_impl() override;
+
+    std::vector<RowsetSharedPtr> get_input_rowsets() { return _input_rowsets; }
 
 protected:
     OLAPStatus pick_rowsets_to_compact() override;
-    std::string compaction_name() const override {
-        return "base compaction";
-    }
+    std::string compaction_name() const override { return "base compaction"; }
 
-    ReaderType compaction_type() const override {
-        return ReaderType::READER_BASE_COMPACTION;
-    }
+    ReaderType compaction_type() const override { return ReaderType::READER_BASE_COMPACTION; }
 
 private:
     // check if all input rowsets are non overlapping among segments.
@@ -53,6 +52,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(BaseCompaction);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_BASE_COMPACTION_H

@@ -48,8 +48,7 @@ public:
 
     // Returns the space available on the file system containing 'directory_path'
     // in 'available_bytes'
-    static Status get_space_available(
-            const std::string& directory_path, uint64_t* available_bytes);
+    static Status get_space_available(const std::string& directory_path, uint64_t* available_bytes);
 
     // Returns the currently allowed maximum of possible file descriptors. In case of an
     // error returns 0.
@@ -58,6 +57,6 @@ public:
     static bool contain_path(const std::string& parent_path, const std::string& sub_path);
 };
 
-}
+} // namespace doris
 
 #endif

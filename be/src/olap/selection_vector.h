@@ -32,17 +32,15 @@ public:
     // Construct a new vector. The bits are initially in an indeterminate state.
     // Call set_all_true() if you require all rows to be initially selected.
     explicit SelectionVector(size_t row_capacity)
-    : _n_rows(row_capacity),
-      _n_bytes(BitmapSize(row_capacity)),
-      _bitmap(new uint8_t[_n_bytes]) {
+            : _n_rows(row_capacity),
+              _n_bytes(BitmapSize(row_capacity)),
+              _bitmap(new uint8_t[_n_bytes]) {
         CHECK_GT(_n_bytes, 0);
         set_all_false();
     }
 
     // return the number of selected rows.
-    size_t count_selected() const {
-        return Bits::Count(_bitmap.get(), _n_bytes);
-    }
+    size_t count_selected() const { return Bits::Count(_bitmap.get(), _n_bytes); }
 
     // Return true if any rows are selected, or false
     // This is equivalent to (count_selected() > 0), but faster.
@@ -63,9 +61,7 @@ public:
         pad_extra_bits_wit_zeroes();
     }
 
-    void set_all_false() {
-        memset(_bitmap.get(), 0, _n_bytes);
-    }
+    void set_all_false() { memset(_bitmap.get(), 0, _n_bytes); }
 
     void clear_bit(size_t row) {
         DCHECK_LT(row, _n_rows);
@@ -78,9 +74,7 @@ public:
 
     size_t nrows() const { return _n_rows; }
 
-    std::string to_string() const {
-        return BitmapToString(_bitmap.get(), _n_rows);
-    }
+    std::string to_string() const { return BitmapToString(_bitmap.get(), _n_rows); }
 
 private:
     // Pads any non-byte-aligned bits at the end of the SelectionVector with
@@ -137,12 +131,11 @@ inline bool SelectionVector::any_selected() const {
 // and the view will move forward by the appropriate amount. In this way, the
 // underlying selection vector can easily be updated batch-by-batch.
 class SelectionVectorView {
-   public:
+public:
     // Constructs a new SelectionVectorView.
     //
     // The 'sel_vec' object must outlive this SelectionVectorView.
-    explicit SelectionVectorView(SelectionVector* sel_vec)
-        : _sel_vec(sel_vec), _row_offset(0) {}
+    explicit SelectionVectorView(SelectionVector* sel_vec) : _sel_vec(sel_vec), _row_offset(0) {}
     void advance(size_t skip) {
         DCHECK_LE(skip, _sel_vec->nrows() - _row_offset);
         _row_offset += skip;
@@ -169,4 +162,4 @@ private:
     size_t _row_offset;
 };
 
-}
+} // namespace doris

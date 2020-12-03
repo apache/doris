@@ -45,4 +45,4 @@ std::string to_json(const Status& status) {
     return s.GetString();
 }
 
-}
+} // namespace doris

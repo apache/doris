@@ -18,14 +18,14 @@
 #ifndef DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H
 #define DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H
 
-#include "disk_io_mgr.h"
-
-#include <queue>
-#include <boost/thread/locks.hpp>
 #include <unistd.h>
+
+#include <boost/thread/locks.hpp>
+#include <queue>
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "disk_io_mgr.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
@@ -58,13 +58,13 @@ struct DiskIoMgr::DiskQueue {
             boost::unique_lock<boost::mutex> disk_lock(lock);
             // Check that the reader is not already on the queue
             DCHECK(find(request_contexts.begin(), request_contexts.end(), worker) ==
-                    request_contexts.end());
+                   request_contexts.end());
             request_contexts.push_back(worker);
         }
         work_available.notify_all();
     }
 
-    DiskQueue(int id) : disk_id(id) { }
+    DiskQueue(int id) : disk_id(id) {}
 };
 
 // Internal per request-context state. This object maintains a lot of state that is
@@ -289,7 +289,7 @@ private:
     // We currently populate one range per disk.
     // TODO: think about this some more.
     InternalQueue<ScanRange> _ready_to_start_ranges;
-    boost::condition_variable _ready_to_start_ranges_cv;  // used with _lock
+    boost::condition_variable _ready_to_start_ranges_cv; // used with _lock
 
     // Ranges that are blocked due to back pressure on outgoing buffers.
     InternalQueue<ScanRange> _blocked_ranges;
@@ -308,9 +308,7 @@ private:
         int& num_remaining_ranges() { return _num_remaining_ranges; }
 
         ScanRange* next_scan_range_to_start() { return _next_scan_range_to_start; }
-        void set_next_scan_range_to_start(ScanRange* range) {
-            _next_scan_range_to_start = range;
-        }
+        void set_next_scan_range_to_start(ScanRange* range) { _next_scan_range_to_start = range; }
 
         // We need to have a memory barrier to prevent this load from being reordered
         // with num_threads_in_op(), since these variables are set without the reader
@@ -333,19 +331,13 @@ private:
         const InternalQueue<WriteRange>* unstarted_write_ranges() const {
             return &_unstarted_write_ranges;
         }
-        const InternalQueue<RequestRange>* in_flight_ranges() const {
-            return &_in_flight_ranges;
-        }
+        const InternalQueue<RequestRange>* in_flight_ranges() const { return &_in_flight_ranges; }
 
         InternalQueue<ScanRange>* unstarted_scan_ranges() { return &_unstarted_scan_ranges; }
-        InternalQueue<WriteRange>* unstarted_write_ranges() {
-            return &_unstarted_write_ranges;
-        }
+        InternalQueue<WriteRange>* unstarted_write_ranges() { return &_unstarted_write_ranges; }
         InternalQueue<RequestRange>* in_flight_ranges() { return &_in_flight_ranges; }
 
-        PerDiskState() {
-            reset();
-        }
+        PerDiskState() { reset(); }
 
         // Schedules the request context on this disk if it's not already on the queue.
         // Context lock must be taken before this.
@@ -364,9 +356,7 @@ private:
             _is_on_queue = false;
         }
 
-        void decrement_request_thread() {
-            --_num_threads_in_op;
-        }
+        void decrement_request_thread() { --_num_threads_in_op; }
 
         // Decrement request thread count and do final cleanup if this is the last
         // thread. RequestContext lock must be taken before this.
@@ -467,4 +457,3 @@ private:
 } // namespace doris
 
 #endif // DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H
-

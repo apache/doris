@@ -17,10 +17,10 @@
 
 #include "util/path_util.h"
 
+#include <gtest/gtest.h>
+
 #include <string>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "common/config.h"
 #include "util/logging.h"
@@ -70,7 +70,7 @@ TEST(TestPathUtil, DirNameTest) {
 }
 
 TEST(TestPathUtil, SplitPathTest) {
-    using Vec = vector<string>;
+    using Vec = std::vector<string>;
     ASSERT_EQ(Vec({"/"}), path_util::split_path("/"));
     ASSERT_EQ(Vec({"/", "a", "b"}), path_util::split_path("/a/b"));
     ASSERT_EQ(Vec({"/", "a", "b"}), path_util::split_path("/a/b/"));

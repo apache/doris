@@ -32,7 +32,7 @@ namespace google {
 namespace protobuf {
 class Closure;
 }
-}
+} // namespace google
 
 namespace doris {
 
@@ -109,14 +109,13 @@ private:
     class SenderQueue;
 
     DataStreamRecvr(DataStreamMgr* stream_mgr, const std::shared_ptr<MemTracker>& parent_tracker,
-            const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
-            PlanNodeId dest_node_id, int num_senders, bool is_merging, 
-            int total_buffer_limit, RuntimeProfile* profile, 
-            std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr);
+                    const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
+                    PlanNodeId dest_node_id, int num_senders, bool is_merging,
+                    int total_buffer_limit, RuntimeProfile* profile,
+                    std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr);
 
     // If receive queue is full, done is enqueue pending, and return with *done is nullptr
-    void add_batch(const PRowBatch& batch, int sender_id,
-                   int be_number, int64_t packet_seq,
+    void add_batch(const PRowBatch& batch, int sender_id, int be_number, int64_t packet_seq,
                    ::google::protobuf::Closure** done);
 
     // Indicate that a particular sender is done. Delegated to the appropriate
@@ -178,7 +177,7 @@ private:
     // Time series of number of bytes received, samples _bytes_received_counter
     // RuntimeProfile::TimeSeriesCounter* _bytes_received_time_series_counter;
     RuntimeProfile::Counter* _deserialize_row_batch_timer;
-    
+
     // Time spent waiting until the first batch arrives across all queues.
     // TODO: Turn this into a wall-clock timer.
     RuntimeProfile::Counter* _first_batch_wait_total_timer;

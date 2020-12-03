@@ -22,7 +22,6 @@
 
 using std::shared_ptr;
 using std::string;
-using std::unique_ptr;
 
 namespace doris {
 namespace env_util {
@@ -33,14 +32,14 @@ Status open_file_for_write(Env* env, const string& path, shared_ptr<WritableFile
 
 Status open_file_for_write(const WritableFileOptions& opts, Env* env, const string& path,
                            shared_ptr<WritableFile>* file) {
-    unique_ptr<WritableFile> w;
+    std::unique_ptr<WritableFile> w;
     RETURN_IF_ERROR(env->new_writable_file(opts, path, &w));
     file->reset(w.release());
     return Status::OK();
 }
 
 Status open_file_for_random(Env* env, const string& path, shared_ptr<RandomAccessFile>* file) {
-    unique_ptr<RandomAccessFile> r;
+    std::unique_ptr<RandomAccessFile> r;
     RETURN_IF_ERROR(env->new_random_access_file(path, &r));
     file->reset(r.release());
     return Status::OK();
@@ -48,7 +47,7 @@ Status open_file_for_random(Env* env, const string& path, shared_ptr<RandomAcces
 
 static Status do_write_string_to_file(Env* env, const Slice& data, const std::string& fname,
                                       bool should_sync) {
-    unique_ptr<WritableFile> file;
+    std::unique_ptr<WritableFile> file;
     Status s = env->new_writable_file(fname, &file);
     if (!s.ok()) {
         return s;
@@ -78,13 +77,13 @@ Status write_string_to_file_sync(Env* env, const Slice& data, const std::string&
 
 Status read_file_to_string(Env* env, const std::string& fname, faststring* data) {
     data->clear();
-    unique_ptr<SequentialFile> file;
+    std::unique_ptr<SequentialFile> file;
     Status s = env->new_sequential_file(fname, &file);
     if (!s.ok()) {
         return s;
     }
     static const int kBufferSize = 8192;
-    unique_ptr<uint8_t[]> scratch(new uint8_t[kBufferSize]);
+    std::unique_ptr<uint8_t[]> scratch(new uint8_t[kBufferSize]);
     while (true) {
         Slice fragment(scratch.get(), kBufferSize);
         s = file->read(&fragment);

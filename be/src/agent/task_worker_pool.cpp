@@ -325,12 +325,11 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
         }
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         std::vector<TTabletInfo> finish_tablet_infos;
-        OLAPStatus create_status =
-                _env->storage_engine()->create_tablet(create_tablet_req);
+        OLAPStatus create_status = _env->storage_engine()->create_tablet(create_tablet_req);
         if (create_status != OLAPStatus::OLAP_SUCCESS) {
             LOG(WARNING) << "create table failed. status: " << create_status
                          << ", signature: " << agent_task_req.signature;
@@ -388,7 +387,7 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         }
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
         TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
@@ -450,8 +449,7 @@ void TaskWorkerPool::_alter_tablet_worker_thread_callback() {
             TTaskType::type task_type = agent_task_req.task_type;
             switch (task_type) {
             case TTaskType::ALTER:
-                _alter_tablet(agent_task_req, signature,
-                              task_type, &finish_task_request);
+                _alter_tablet(agent_task_req, signature, task_type, &finish_task_request);
                 break;
             default:
                 // pass
@@ -468,7 +466,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
                                    TFinishTaskRequest* finish_task_request) {
     AgentStatus status = DORIS_SUCCESS;
     TStatus task_status;
-    vector<string> error_msgs;
+    std::vector<string> error_msgs;
 
     string process_name;
     switch (task_type) {
@@ -516,7 +514,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
     finish_task_request->__set_task_type(task_type);
     finish_task_request->__set_signature(signature);
 
-    vector<TTabletInfo> finish_tablet_infos;
+    std::vector<TTabletInfo> finish_tablet_infos;
     if (status == DORIS_SUCCESS) {
         TTabletInfo tablet_info;
         status = _get_tablet_info(new_tablet_id, new_schema_hash, signature, &tablet_info);
@@ -578,10 +576,9 @@ void TaskWorkerPool::_push_worker_thread_callback() {
                 return;
             }
 
-            index = _get_next_task_index(
-                    config::push_worker_count_normal_priority +
-                            config::push_worker_count_high_priority,
-                    _tasks, priority);
+            index = _get_next_task_index(config::push_worker_count_normal_priority +
+                                                 config::push_worker_count_high_priority,
+                                         _tasks, priority);
 
             if (index < 0) {
                 // there is no high priority task. notify other thread to handle normal task
@@ -602,7 +599,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
 
         LOG(INFO) << "get push task. signature: " << agent_task_req.signature
                   << " priority: " << priority << " push_type: " << push_req.push_type;
-        vector<TTabletInfo> tablet_infos;
+        std::vector<TTabletInfo> tablet_infos;
 
         EngineBatchLoadTask engine_task(push_req, &tablet_infos, agent_task_req.signature, &status);
         _env->storage_engine()->execute_task(&engine_task);
@@ -613,7 +610,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
             continue;
         }
         // Return result to fe
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         TFinishTaskRequest finish_task_request;
@@ -626,8 +623,8 @@ void TaskWorkerPool::_push_worker_thread_callback() {
         }
 
         if (status == DORIS_SUCCESS) {
-            VLOG(3) << "push ok. signature: " << agent_task_req.signature 
-                << ", push_type: " << push_req.push_type;
+            VLOG(3) << "push ok. signature: " << agent_task_req.signature
+                    << ", push_type: " << push_req.push_type;
             error_msgs.push_back("push success");
 
             ++_s_report_version;
@@ -676,7 +673,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         LOG(INFO) << "get publish version task, signature:" << agent_task_req.signature;
 
         Status st;
-        vector<TTabletId> error_tablet_ids;
+        std::vector<TTabletId> error_tablet_ids;
         uint32_t retry_time = 0;
         OLAPStatus res = OLAP_SUCCESS;
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
@@ -740,7 +737,7 @@ void TaskWorkerPool::_clear_transaction_task_worker_thread_callback() {
                   << ", partition id size: " << clear_transaction_task_req.partition_id.size();
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         if (clear_transaction_task_req.transaction_id > 0) {
@@ -796,7 +793,7 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
         LOG(INFO) << "get update tablet meta task, signature:" << agent_task_req.signature;
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         for (auto tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
@@ -865,10 +862,10 @@ void TaskWorkerPool::_clone_worker_thread_callback() {
         DorisMetrics::instance()->clone_requests_total->increment(1);
         LOG(INFO) << "get clone task. signature:" << agent_task_req.signature;
 
-        vector<string> error_msgs;
-        vector<TTabletInfo> tablet_infos;
-        EngineCloneTask engine_task(clone_req, _master_info,
-                                    agent_task_req.signature, &error_msgs, &tablet_infos, &status);
+        std::vector<string> error_msgs;
+        std::vector<TTabletInfo> tablet_infos;
+        EngineCloneTask engine_task(clone_req, _master_info, agent_task_req.signature, &error_msgs,
+                                    &tablet_infos, &status);
         _env->storage_engine()->execute_task(&engine_task);
         // Return result to fe
         TStatus task_status;
@@ -919,23 +916,24 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
         // check request and get info
         TabletSharedPtr tablet;
         DataDir* dest_store;
-        if (_check_migrate_requset(storage_medium_migrate_req, tablet, &dest_store) != OLAP_SUCCESS) {
-            status_code = TStatusCode::RUNTIME_ERROR; 
+        if (_check_migrate_requset(storage_medium_migrate_req, tablet, &dest_store) !=
+            OLAP_SUCCESS) {
+            status_code = TStatusCode::RUNTIME_ERROR;
         } else {
             EngineStorageMigrationTask engine_task(tablet, dest_store);
             OLAPStatus res = _env->storage_engine()->execute_task(&engine_task);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "storage media migrate failed. status: " << res
-                    << ", signature: " << agent_task_req.signature;
+                             << ", signature: " << agent_task_req.signature;
                 status_code = TStatusCode::RUNTIME_ERROR;
             } else {
                 LOG(INFO) << "storage media migrate success. status:" << res << ","
-                    << ", signature:" << agent_task_req.signature;
+                          << ", signature:" << agent_task_req.signature;
             }
         }
 
         TStatus task_status;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
 
@@ -950,17 +948,14 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
     }
 }
 
-OLAPStatus TaskWorkerPool::_check_migrate_requset(
-        const TStorageMediumMigrateReq& req,
-        TabletSharedPtr& tablet,
-        DataDir** dest_store) {
-
+OLAPStatus TaskWorkerPool::_check_migrate_requset(const TStorageMediumMigrateReq& req,
+                                                  TabletSharedPtr& tablet, DataDir** dest_store) {
     int64_t tablet_id = req.tablet_id;
     int32_t schema_hash = req.schema_hash;
     tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
     if (tablet == nullptr) {
         LOG(WARNING) << "can't find tablet. tablet_id= " << tablet_id
-            << " schema_hash=" << schema_hash;
+                     << " schema_hash=" << schema_hash;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
@@ -979,7 +974,7 @@ OLAPStatus TaskWorkerPool::_check_migrate_requset(
         uint32_t count = StorageEngine::instance()->available_storage_medium_type_count();
         if (count <= 1) {
             LOG(INFO) << "available storage medium type count is less than 1, "
-                << "no need to migrate. count=" << count;
+                      << "no need to migrate. count=" << count;
             return OLAP_REQUEST_FAILED;
         }
         // check current tablet storage medium
@@ -987,7 +982,7 @@ OLAPStatus TaskWorkerPool::_check_migrate_requset(
         TStorageMedium::type src_storage_medium = tablet->data_dir()->storage_medium();
         if (src_storage_medium == storage_medium) {
             LOG(INFO) << "tablet is already on specified storage medium. "
-                << "storage_medium=" << storage_medium;
+                      << "storage_medium=" << storage_medium;
             return OLAP_REQUEST_FAILED;
         }
         // get a random store of specified storage medium
@@ -1004,7 +999,7 @@ OLAPStatus TaskWorkerPool::_check_migrate_requset(
     int64_t tablet_size = tablet->tablet_footprint();
     if ((*dest_store)->reach_capacity_limit(tablet_size)) {
         LOG(WARNING) << "reach the capacity limit of path: " << (*dest_store)->path()
-                << ", tablet size: " << tablet_size;
+                     << ", tablet size: " << tablet_size;
         return OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
     }
 
@@ -1030,7 +1025,7 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         }
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         uint32_t checksum = 0;
@@ -1080,15 +1075,16 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
 
         if (status != DORIS_SUCCESS) {
             DorisMetrics::instance()->report_task_requests_failed->increment(1);
-            LOG(WARNING) << "report task failed. status: " << status << ", master host: "
-                         << _master_info.network_address.hostname
+            LOG(WARNING) << "report task failed. status: " << status
+                         << ", master host: " << _master_info.network_address.hostname
                          << "port: " << _master_info.network_address.port;
         } else {
             LOG(INFO) << "finish report task. master host: "
-                << _master_info.network_address.hostname
-                << " port: " << _master_info.network_address.port;
+                      << _master_info.network_address.hostname
+                      << " port: " << _master_info.network_address.port;
         }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(config::report_task_interval_seconds)));
+    } while (!_stop_background_threads_latch.wait_for(
+            MonoDelta::FromSeconds(config::report_task_interval_seconds)));
 }
 
 /// disk state report thread will report disk state at a configurable fix interval.
@@ -1108,12 +1104,13 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
         }
 
         // wait at most report_disk_state_interval_seconds, or being notified
-        _worker_thread_condition_variable.wait_for(MonoDelta::FromSeconds(config::report_disk_state_interval_seconds));
+        _worker_thread_condition_variable.wait_for(
+                MonoDelta::FromSeconds(config::report_disk_state_interval_seconds));
         if (!_is_work) {
             break;
         }
 
-        vector<DataDirInfo> data_dir_infos;
+        std::vector<DataDirInfo> data_dir_infos;
         _env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
 
         map<string, TDisk> disks;
@@ -1136,13 +1133,13 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
 
         if (status != DORIS_SUCCESS) {
             DorisMetrics::instance()->report_disk_requests_failed->increment(1);
-            LOG(WARNING) << "report disk state failed. status: " << status << ", master host: "
-                         << _master_info.network_address.hostname
+            LOG(WARNING) << "report disk state failed. status: " << status
+                         << ", master host: " << _master_info.network_address.hostname
                          << ", port: " << _master_info.network_address.port;
         } else {
             LOG(INFO) << "finish report disk state. master host: "
-                << _master_info.network_address.hostname
-                << ", port: " << _master_info.network_address.port;
+                      << _master_info.network_address.hostname
+                      << ", port: " << _master_info.network_address.port;
         }
     }
     StorageEngine::instance()->deregister_report_listener(this);
@@ -1165,7 +1162,8 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
         }
 
         // wait at most report_tablet_interval_seconds, or being notified
-        _worker_thread_condition_variable.wait_for(MonoDelta::FromSeconds(config::report_tablet_interval_seconds));
+        _worker_thread_condition_variable.wait_for(
+                MonoDelta::FromSeconds(config::report_tablet_interval_seconds));
         if (!_is_work) {
             break;
         }
@@ -1194,8 +1192,8 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
                          << ", port:" << _master_info.network_address.port;
         } else {
             LOG(INFO) << "finish report tablets. master host: "
-                << _master_info.network_address.hostname
-                << ", port: " << _master_info.network_address.port;
+                      << _master_info.network_address.hostname
+                      << ", port: " << _master_info.network_address.port;
         }
     }
     StorageEngine::instance()->deregister_report_listener(this);
@@ -1223,8 +1221,7 @@ void TaskWorkerPool::_upload_worker_thread_callback() {
                   << ", job id:" << upload_request.job_id;
 
         std::map<int64_t, std::vector<std::string>> tablet_files;
-        SnapshotLoader loader(_env, upload_request.job_id,
-                              agent_task_req.signature);
+        SnapshotLoader loader(_env, upload_request.job_id, agent_task_req.signature);
         Status status = loader.upload(upload_request.src_dest_map, upload_request.broker_addr,
                                       upload_request.broker_prop, &tablet_files);
 
@@ -1282,8 +1279,7 @@ void TaskWorkerPool::_download_worker_thread_callback() {
 
         // TODO: download
         std::vector<int64_t> downloaded_tablet_ids;
-        SnapshotLoader loader(_env, download_request.job_id,
-                              agent_task_req.signature);
+        SnapshotLoader loader(_env, download_request.job_id, agent_task_req.signature);
         Status status = loader.download(download_request.src_dest_map, download_request.broker_addr,
                                         download_request.broker_prop, &downloaded_tablet_ids);
 
@@ -1332,7 +1328,7 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
         LOG(INFO) << "get snapshot task, signature:" << agent_task_req.signature;
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         string snapshot_path;
@@ -1413,7 +1409,7 @@ void TaskWorkerPool::_release_snapshot_thread_callback() {
         LOG(INFO) << "get release snapshot task, signature:" << agent_task_req.signature;
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         string& snapshot_path = release_snapshot_request.snapshot_path;
@@ -1482,13 +1478,13 @@ void TaskWorkerPool::_move_dir_thread_callback() {
                   << ", job id:" << move_dir_req.job_id;
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
         // TODO: move dir
-        AgentStatus status = _move_dir(
-                move_dir_req.tablet_id, move_dir_req.schema_hash, move_dir_req.src,
-                move_dir_req.job_id, true /* TODO */, &error_msgs);
+        AgentStatus status =
+                _move_dir(move_dir_req.tablet_id, move_dir_req.schema_hash, move_dir_req.src,
+                          move_dir_req.job_id, true /* TODO */, &error_msgs);
 
         if (status != DORIS_SUCCESS) {
             status_code = TStatusCode::RUNTIME_ERROR;

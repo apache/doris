@@ -29,14 +29,14 @@ TEST(FieldInfoTest, Add) {
     a += b;
     ASSERT_EQ(a_integer + 1, a.integer);
     ASSERT_EQ(a_fraction, a.fraction);
-    
+
     a.integer = -9223372036854775807L;
     a.fraction = -1;
     b.integer = 0;
     a += b;
     ASSERT_EQ(-9223372036854775807L, a.integer);
     ASSERT_EQ(-1, a.fraction);
-  
+
     a.integer = -1;
     a.fraction = 0;
     b.integer = -7;
@@ -49,7 +49,7 @@ TEST(FieldInfoTest, Add) {
     a.fraction = -1;
     b.integer = 0;
     b.fraction = -2;
-    a +=b;
+    a += b;
     ASSERT_EQ(0, a.integer);
     ASSERT_EQ(-3, a.fraction);
 
@@ -72,7 +72,7 @@ TEST(FieldInfoTest, Add) {
 
 } // namespace doris
 
-int main(int argc, char **argv) {
-    testing::InitGoogleTest(&argc, argv); 
+int main(int argc, char** argv) {
+    testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

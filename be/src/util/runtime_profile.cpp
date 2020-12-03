@@ -515,7 +515,8 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
     {
         boost::lock_guard<boost::mutex> l(_info_strings_lock);
         BOOST_FOREACH (const std::string& key, _info_strings_display_order) {
-            stream << prefix << "   - " << key << ": " << _info_strings.find(key)->second << std::endl;
+            stream << prefix << "   - " << key << ": " << _info_strings.find(key)->second
+                   << std::endl;
         }
     }
 

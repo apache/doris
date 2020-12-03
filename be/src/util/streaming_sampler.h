@@ -19,8 +19,9 @@
 #define DORIS_BE_SRC_UTIL_STREAMING_SAMPLER_H
 
 #include <string.h>
-#include <iostream>
+
 #include <boost/thread/lock_guard.hpp>
+#include <iostream>
 
 #include "util/spinlock.h"
 
@@ -33,27 +34,26 @@ namespace doris {
 /// The input period and the streaming sampler period do not need to match, the
 /// streaming sampler will average values.
 /// T is the type of the sample and must be a native numerical type (e.g. int or float).
-template<typename T, int MAX_SAMPLES>
+template <typename T, int MAX_SAMPLES>
 class StreamingSampler {
 public:
     StreamingSampler(int initial_period = 500)
-        : samples_collected_(0) ,
-        period_(initial_period),
-        current_sample_sum_(0),
-        current_sample_count_(0),
-        current_sample_total_time_(0) {
-        }
+            : samples_collected_(0),
+              period_(initial_period),
+              current_sample_sum_(0),
+              current_sample_count_(0),
+              current_sample_total_time_(0) {}
 
     /// Initialize the sampler with values.
     StreamingSampler(int period, const std::vector<T>& initial_samples)
-        : samples_collected_(initial_samples.size()),
-        period_(period),
-        current_sample_sum_(0),
-        current_sample_count_(0),
-        current_sample_total_time_(0) {
-            DCHECK_LE(samples_collected_, MAX_SAMPLES);
-            memcpy(samples_, &initial_samples[0], sizeof(T) * samples_collected_);
-        }
+            : samples_collected_(initial_samples.size()),
+              period_(period),
+              current_sample_sum_(0),
+              current_sample_count_(0),
+              current_sample_total_time_(0) {
+        DCHECK_LE(samples_collected_, MAX_SAMPLES);
+        memcpy(samples_, &initial_samples[0], sizeof(T) * samples_collected_);
+    }
 
     /// Add a sample to the sampler. 'ms' is the time elapsed since the last time this
     /// was called.
@@ -113,12 +113,12 @@ public:
         current_sample_total_time_ = 0;
     }
 
-    std::string DebugString(const std::string& prefix="") const {
+    std::string DebugString(const std::string& prefix = "") const {
         boost::lock_guard<SpinLock> l(lock_);
         std::stringstream ss;
         ss << prefix << "Period = " << period_ << std::endl
-            << prefix << "Num = " << samples_collected_ << std::endl
-            << prefix << "Samples = {";
+           << prefix << "Num = " << samples_collected_ << std::endl
+           << prefix << "Samples = {";
         for (int i = 0; i < samples_collected_; ++i) {
             ss << samples_[i] << ", ";
         }
@@ -149,6 +149,6 @@ private:
     int current_sample_total_time_;
 };
 
-}
+} // namespace doris
 
 #endif

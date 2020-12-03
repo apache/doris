@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gtest/gtest.h>
+
 #include "exprs/aggregate_functions.h"
 #include "testutil/function_utils.h"
-#include <gtest/gtest.h>
 
 namespace doris {
 
@@ -28,7 +29,7 @@ public:
 
 TEST_F(PercentileApproxTest, testSample) {
     FunctionUtils* futil = new FunctionUtils();
-    doris_udf::FunctionContext *context = futil->get_fn_ctx();
+    doris_udf::FunctionContext* context = futil->get_fn_ctx();
 
     DoubleVal doubleQ(0.9);
 
@@ -51,7 +52,7 @@ TEST_F(PercentileApproxTest, testSample) {
 
 TEST_F(PercentileApproxTest, testNoMerge) {
     FunctionUtils* futil = new FunctionUtils();
-    doris_udf::FunctionContext *context = futil->get_fn_ctx();
+    doris_udf::FunctionContext* context = futil->get_fn_ctx();
 
     DoubleVal doubleQ(0.9);
 
@@ -69,13 +70,13 @@ TEST_F(PercentileApproxTest, testNoMerge) {
 
 TEST_F(PercentileApproxTest, testSerialize) {
     FunctionUtils* futil = new FunctionUtils();
-    doris_udf::FunctionContext *context = futil->get_fn_ctx();
+    doris_udf::FunctionContext* context = futil->get_fn_ctx();
 
     DoubleVal doubleQ(0.999);
     StringVal stringVal;
     AggregateFunctions::percentile_approx_init(context, &stringVal);
 
-    for (int i = 1 ;i <= 100000 ; i++) {
+    for (int i = 1; i <= 100000; i++) {
         DoubleVal val(i);
         AggregateFunctions::percentile_approx_update(context, val, doubleQ, &stringVal);
     }
@@ -92,17 +93,19 @@ TEST_F(PercentileApproxTest, testSerialize) {
 
 TEST_F(PercentileApproxTest, testNullVale) {
     FunctionUtils* futil = new FunctionUtils();
-    doris_udf::FunctionContext *context = futil->get_fn_ctx();
+    doris_udf::FunctionContext* context = futil->get_fn_ctx();
 
     DoubleVal doubleQ(0.999);
     StringVal stringVal;
     AggregateFunctions::percentile_approx_init(context, &stringVal);
 
-    for (int i = 1 ;i <= 100000 ; i++) {
+    for (int i = 1; i <= 100000; i++) {
         if (i % 3 == 0) {
-            AggregateFunctions::percentile_approx_update(context, DoubleVal::null(), doubleQ, &stringVal);
+            AggregateFunctions::percentile_approx_update(context, DoubleVal::null(), doubleQ,
+                                                         &stringVal);
         } else {
-            AggregateFunctions::percentile_approx_update(context, DoubleVal(i), doubleQ, &stringVal);
+            AggregateFunctions::percentile_approx_update(context, DoubleVal(i), doubleQ,
+                                                         &stringVal);
         }
     }
     StringVal serialized = AggregateFunctions::percentile_approx_serialize(context, stringVal);
@@ -116,7 +119,7 @@ TEST_F(PercentileApproxTest, testNullVale) {
     delete futil;
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

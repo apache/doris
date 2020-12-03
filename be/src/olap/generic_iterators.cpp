@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/iterators.h"
-
 #include <queue>
 
+#include "olap/iterators.h"
+#include "olap/row.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor_cell.h"
-#include "olap/row.h"
 
 namespace doris {
 
@@ -42,15 +41,15 @@ class AutoIncrementIterator : public RowwiseIterator {
 public:
     // Will generate num_rows rows in total
     AutoIncrementIterator(const Schema& schema, size_t num_rows)
-        : _schema(schema), _num_rows(num_rows), _rows_returned(0) {
-    }
-    ~AutoIncrementIterator() override { }
+            : _schema(schema), _num_rows(num_rows), _rows_returned(0) {}
+    ~AutoIncrementIterator() override {}
 
     // NOTE: Currently, this function will ignore StorageReadOptions
     Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* block) override;
 
     const Schema& schema() const override { return _schema; }
+
 private:
     Schema _schema;
     size_t _num_rows;
@@ -114,9 +113,7 @@ Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
 class MergeIteratorContext {
 public:
     // This class don't take iter's ownership, client should delete it
-    MergeIteratorContext(RowwiseIterator* iter)
-        : _iter(iter), _block(iter->schema(), 1024) {
-    }
+    MergeIteratorContext(RowwiseIterator* iter) : _iter(iter), _block(iter->schema(), 1024) {}
 
     // Initialize this context and will prepare data for current_row()
     Status init(const StorageReadOptions& opts);
@@ -201,9 +198,7 @@ Status MergeIteratorContext::_load_next_block() {
 class MergeIterator : public RowwiseIterator {
 public:
     // MergeIterator takes the ownership of input iterators
-    MergeIterator(std::vector<RowwiseIterator*> iters)
-        : _origin_iters(std::move(iters)) {
-    }
+    MergeIterator(std::vector<RowwiseIterator*> iters) : _origin_iters(std::move(iters)) {}
 
     ~MergeIterator() override {
         for (auto iter : _origin_iters) {
@@ -216,9 +211,8 @@ public:
     Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* block) override;
 
-    const Schema& schema() const override {
-        return *_schema;
-    }
+    const Schema& schema() const override { return *_schema; }
+
 private:
     std::vector<RowwiseIterator*> _origin_iters;
     std::vector<MergeIteratorContext*> _merge_ctxs;
@@ -230,18 +224,18 @@ private:
             auto lhs_row = lhs->current_row();
             auto rhs_row = rhs->current_row();
             int cmp_res = compare_row(lhs_row, rhs_row);
-            if (cmp_res !=  0) {
+            if (cmp_res != 0) {
                 return cmp_res > 0;
             }
             // if row cursors equal, compare segment id.
             // here we sort segment id in reverse order, because of the row order in AGG_KEYS
             // dose no matter, but in UNIQUE_KEYS table we only read the latest is one, so we
-            // return the row in reverse order of segment id 
+            // return the row in reverse order of segment id
             return lhs->data_id() < rhs->data_id();
         }
     };
-    using MergeHeap = std::priority_queue<MergeIteratorContext*,
-            std::vector<MergeIteratorContext*>, MergeContextComparator>;
+    using MergeHeap = std::priority_queue<MergeIteratorContext*, std::vector<MergeIteratorContext*>,
+                                          MergeContextComparator>;
     std::unique_ptr<MergeHeap> _merge_heap;
 };
 
@@ -298,9 +292,7 @@ public:
     // Iterators' ownership it transfered to this class.
     // This class will delete all iterators when destructs
     // Client should not use iterators any more.
-    UnionIterator(std::vector<RowwiseIterator*> iters)
-        : _origin_iters(std::move(iters)) {
-    }
+    UnionIterator(std::vector<RowwiseIterator*> iters) : _origin_iters(std::move(iters)) {}
 
     ~UnionIterator() override {
         for (auto iter : _origin_iters) {
@@ -310,9 +302,7 @@ public:
     Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* block) override;
 
-    const Schema& schema() const override {
-        return _origin_iters[0]->schema();
-    }
+    const Schema& schema() const override { return _origin_iters[0]->schema(); }
 
 private:
     std::vector<RowwiseIterator*> _origin_iters;
@@ -360,4 +350,4 @@ RowwiseIterator* new_auto_increment_iterator(const Schema& schema, size_t num_ro
     return new AutoIncrementIterator(schema, num_rows);
 }
 
-}
+} // namespace doris

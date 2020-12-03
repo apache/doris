@@ -18,17 +18,15 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 #include <iostream>
+#include <string>
 
 namespace doris {
 
 // 24bit int type, used to store date type in storage
 struct uint24_t {
 public:
-    uint24_t() {
-        memset(data, 0, sizeof(data));
-    }
+    uint24_t() { memset(data, 0, sizeof(data)); }
 
     uint24_t(const uint24_t& value) {
         data[0] = value.data[0];
@@ -99,29 +97,17 @@ public:
         return *this;
     }
 
-    bool operator==(const uint24_t& value) const {
-        return cmp(value) == 0;
-    }
+    bool operator==(const uint24_t& value) const { return cmp(value) == 0; }
 
-    bool operator!=(const uint24_t& value) const {
-        return cmp(value) != 0;
-    }
+    bool operator!=(const uint24_t& value) const { return cmp(value) != 0; }
 
-    bool operator<(const uint24_t& value) const {
-        return cmp(value) < 0;
-    }
+    bool operator<(const uint24_t& value) const { return cmp(value) < 0; }
 
-    bool operator<=(const uint24_t& value) const {
-        return cmp(value) <= 0;
-    }
+    bool operator<=(const uint24_t& value) const { return cmp(value) <= 0; }
 
-    bool operator>(const uint24_t& value) const {
-        return cmp(value) > 0;
-    }
+    bool operator>(const uint24_t& value) const { return cmp(value) > 0; }
 
-    bool operator>=(const uint24_t& value) const {
-        return cmp(value) >= 0;
-    }
+    bool operator>=(const uint24_t& value) const { return cmp(value) >= 0; }
 
     int32_t cmp(const uint24_t& other) const {
         if (data[2] > other.data[2]) {
@@ -166,4 +152,4 @@ inline std::ostream& operator<<(std::ostream& os, const uint24_t& val) {
     return os;
 }
 
-}  // namespace doris
+} // namespace doris

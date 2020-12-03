@@ -16,6 +16,7 @@
 // under the License.
 
 #include "util/url_parser.h"
+
 #include "runtime/string_value.hpp"
 
 namespace doris {
@@ -204,11 +205,8 @@ bool UrlParser::parse_url(const StringValue& url, UrlPart part, StringValue* res
     return true;
 }
 
-bool UrlParser::parse_url_key(
-        const StringValue& url,
-        UrlPart part,
-        const StringValue& key,
-        StringValue* result) {
+bool UrlParser::parse_url_key(const StringValue& url, UrlPart part, const StringValue& key,
+                              StringValue* result) {
     // Part must be query to ask for a specific query key.
     if (part != QUERY) {
         return false;
@@ -232,7 +230,7 @@ bool UrlParser::parse_url_key(
         // Key pos must be != 0 because it must be preceded by a '?' or a '&'.
         // Check that the char before key_pos is either '?' or '&'.
         if (key_pos == 0 ||
-                (trimmed_url.ptr[key_pos - 1] != '?' && trimmed_url.ptr[key_pos - 1] != '&')) {
+            (trimmed_url.ptr[key_pos - 1] != '?' && trimmed_url.ptr[key_pos - 1] != '&')) {
             match = false;
         }
 
@@ -346,4 +344,4 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringValue& part) {
     }
 }
 
-}
+} // namespace doris

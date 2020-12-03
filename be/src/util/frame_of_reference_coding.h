@@ -18,14 +18,12 @@
 #ifndef DORIS_FRAME_OF_REFERENCE_CODING_H
 #define DORIS_FRAME_OF_REFERENCE_CODING_H
 
-
 #include <cstdlib>
 #include <iostream>
 #include <limits>
 
 #include "olap/olap_common.h"
 #include "olap/uint24.h"
-
 #include "util/bit_stream_utils.h"
 #include "util/bit_stream_utils.inline.h"
 #include "util/faststring.h"
@@ -40,11 +38,7 @@ static inline uint8_t bits_less_than_64(const uint64_t v) {
 static inline uint8_t bits_may_more_than_64(const uint128_t v) {
     uint64_t hi = v >> 64;
     uint64_t lo = v;
-    int z[3] = {
-            __builtin_clzll(hi),
-            __builtin_clzll(lo) + 64,
-            128
-    };
+    int z[3] = {__builtin_clzll(hi), __builtin_clzll(lo) + 64, 128};
     int idx = !hi + ((!lo) & (!hi));
     return 128 - z[idx];
 }
@@ -87,14 +81,12 @@ static inline uint8_t bits(const T v) {
 //
 // The OrderFlag is 1 represents ascending order, 0 represents  not ascending order
 // The last frame value num maybe less than 128
-template<typename T>
+template <typename T>
 class ForEncoder {
 public:
-    explicit ForEncoder(faststring* buffer): _buffer(buffer) {}
+    explicit ForEncoder(faststring* buffer) : _buffer(buffer) {}
 
-    void put(const T value) {
-        return put_batch(&value, 1);
-    }
+    void put(const T value) { return put_batch(&value, 1); }
 
     void put_batch(const T* value, size_t count);
 
@@ -104,9 +96,7 @@ public:
 
     // underlying buffer size + footer meta size.
     // Note: should call this method before flush.
-    uint32_t len() {
-        return _buffer->size() + _storage_formats.size() + _bit_widths.size() + 5;
-    }
+    uint32_t len() { return _buffer->size() + _storage_formats.size() + _bit_widths.size() + 5; }
 
     // Resets all the state in the encoder.
     void clear() {
@@ -116,7 +106,7 @@ public:
     }
 
 private:
-    void bit_pack(const T *input, uint8_t in_num, int bit_width, uint8_t *output);
+    void bit_pack(const T* input, uint8_t in_num, int bit_width, uint8_t* output);
 
     void bit_packing_one_frame_value(const T* input);
 
@@ -134,20 +124,16 @@ private:
     std::vector<uint8_t> _bit_widths;
 };
 
-template<typename T>
+template <typename T>
 class ForDecoder {
 public:
     explicit ForDecoder(const uint8_t* in_buffer, size_t buffer_len)
-        :_buffer (in_buffer),
-         _buffer_len (buffer_len),
-         _parsed(false){}
+            : _buffer(in_buffer), _buffer_len(buffer_len), _parsed(false) {}
 
     // read footer metadata
     bool init();
 
-    bool get(T* val) {
-        return get_batch(val, 1);
-    }
+    bool get(T* val) { return get_batch(val, 1); }
 
     // Gets the next batch value.  Returns false if there are no more.
     bool get_batch(T* val, size_t count);
@@ -158,17 +144,12 @@ public:
 
     bool seek_at_or_after_value(const void* value, bool* exact_match);
 
-    uint32_t current_index() const {
-        return _current_index;
-    }
+    uint32_t current_index() const { return _current_index; }
 
-    uint32_t count() const {
-        return _values_num;
-    }
+    uint32_t count() const { return _values_num; }
 
 private:
-
-    void bit_unpack(const uint8_t *input, uint8_t in_num, int bit_width, T *output);
+    void bit_unpack(const uint8_t* input, uint8_t in_num, int bit_width, T* output);
 
     inline uint32_t frame_size(uint32_t frame_index) {
         return (frame_index == _frame_count - 1) ? _last_frame_size : _max_frame_size;
@@ -206,7 +187,6 @@ private:
     uint32_t _current_decoded_frame = -1;
     std::vector<T> _out_buffer; // store values of decoded frame
 };
-}
-
+} // namespace doris
 
 #endif //DORIS_FRAME_OF_REFERENCE_CODING_H

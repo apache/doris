@@ -17,9 +17,9 @@
 
 #pragma once
 
+#include "gen_cpp/DataSinks_types.h"
 #include "runtime/result_writer.h"
 #include "runtime/runtime_state.h"
-#include "gen_cpp/DataSinks_types.h"
 
 namespace doris {
 
@@ -45,8 +45,8 @@ struct ResultFileOptions {
         file_format = t_opt.file_format;
         column_separator = t_opt.__isset.column_separator ? t_opt.column_separator : "\t";
         line_delimiter = t_opt.__isset.line_delimiter ? t_opt.line_delimiter : "\n";
-        max_file_size_bytes = t_opt.__isset.max_file_size_bytes ?
-                t_opt.max_file_size_bytes : max_file_size_bytes;
+        max_file_size_bytes =
+                t_opt.__isset.max_file_size_bytes ? t_opt.max_file_size_bytes : max_file_size_bytes;
 
         is_local_file = true;
         if (t_opt.__isset.broker_addresses) {
@@ -63,8 +63,8 @@ struct ResultFileOptions {
 class FileResultWriter final : public ResultWriter {
 public:
     FileResultWriter(const ResultFileOptions* file_option,
-            const std::vector<ExprContext*>& output_expr_ctxs,
-            RuntimeProfile* parent_profile);
+                     const std::vector<ExprContext*>& output_expr_ctxs,
+                     RuntimeProfile* parent_profile);
     virtual ~FileResultWriter();
 
     virtual Status init(RuntimeState* state) override;
@@ -90,7 +90,7 @@ private:
     Status _create_new_file_if_exceed_size();
 
 private:
-    RuntimeState* _state;   // not owned, set when init
+    RuntimeState* _state; // not owned, set when init
     const ResultFileOptions* _file_opts;
     const std::vector<ExprContext*>& _output_expr_ctxs;
 
@@ -113,7 +113,7 @@ private:
     // the suffix idx of export file name, start at 0
     int _file_idx = 0;
 
-    RuntimeProfile* _parent_profile;    // profile from result sink, not owned
+    RuntimeProfile* _parent_profile; // profile from result sink, not owned
     // total time cost on append batch operation
     RuntimeProfile::Counter* _append_row_batch_timer = nullptr;
     // tuple convert timer, child timer of _append_row_batch_timer
@@ -128,5 +128,4 @@ private:
     RuntimeProfile::Counter* _written_data_bytes = nullptr;
 };
 
-} // end of namespace
-
+} // namespace doris

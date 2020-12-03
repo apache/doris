@@ -26,7 +26,7 @@
 
 namespace doris {
 
-class CompoundPredicate: public Predicate {
+class CompoundPredicate : public Predicate {
 public:
     static void init();
     static BooleanVal compound_not(FunctionContext* context, const BooleanVal&);
@@ -39,25 +39,23 @@ protected:
     // virtual Status prepare(RuntimeState* state, const RowDescriptor& desc);
     virtual std::string debug_string() const;
 
-    virtual bool is_vectorized() const {
-        return false;
-    }
+    virtual bool is_vectorized() const { return false; }
 
 private:
     friend class OpcodeRegistry;
 };
 
 /// Expr for evaluating and (&&) operators
-class AndPredicate: public CompoundPredicate {
+class AndPredicate : public CompoundPredicate {
 public:
-    virtual Expr* clone(ObjectPool* pool) const override { 
+    virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new AndPredicate(*this));
     }
     virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
 
 protected:
     friend class Expr;
-    AndPredicate(const TExprNode& node) : CompoundPredicate(node) { }
+    AndPredicate(const TExprNode& node) : CompoundPredicate(node) {}
 
     virtual std::string debug_string() const {
         std::stringstream out;
@@ -70,16 +68,16 @@ private:
 };
 
 /// Expr for evaluating or (||) operators
-class OrPredicate: public CompoundPredicate {
+class OrPredicate : public CompoundPredicate {
 public:
-    virtual Expr* clone(ObjectPool* pool) const override { 
+    virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new OrPredicate(*this));
     }
     virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
 
 protected:
     friend class Expr;
-    OrPredicate(const TExprNode& node) : CompoundPredicate(node) { }
+    OrPredicate(const TExprNode& node) : CompoundPredicate(node) {}
 
     virtual std::string debug_string() const {
         std::stringstream out;
@@ -92,16 +90,16 @@ private:
 };
 
 /// Expr for evaluating or (||) operators
-class NotPredicate: public CompoundPredicate {
+class NotPredicate : public CompoundPredicate {
 public:
-    virtual Expr* clone(ObjectPool* pool) const override { 
+    virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new NotPredicate(*this));
     }
     virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
 
 protected:
     friend class Expr;
-    NotPredicate(const TExprNode& node) : CompoundPredicate(node) { }
+    NotPredicate(const TExprNode& node) : CompoundPredicate(node) {}
 
     virtual std::string debug_string() const {
         std::stringstream out;
@@ -112,6 +110,6 @@ protected:
 private:
     friend class OpcodeRegistry;
 };
-}
+} // namespace doris
 
 #endif

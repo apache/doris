@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/bloom_filter.hpp"
+
 #include <gtest/gtest.h>
 
 #include <string>
 
-#include "olap/bloom_filter.hpp"
 #include "common/configbase.h"
 #include "util/logging.h"
 
@@ -112,8 +113,9 @@ TEST_F(TestBloomFilter, bloom_filter_info) {
 
     bytes = "doris";
     bf.add_bytes(bytes.c_str(), bytes.size());
-    string buffer_expect = "bit_num:64 hash_function_num:6 "
-            "bit_set:0000100000000000100000010000000000010000001000000000000000000100";    
+    string buffer_expect =
+            "bit_num:64 hash_function_num:6 "
+            "bit_set:0000100000000000100000010000000000010000001000000000000000000100";
     string buffer = bf.to_string();
     ASSERT_TRUE(buffer_expect == buffer);
 
@@ -156,7 +158,7 @@ TEST_F(TestBloomFilter, bloom_filter_info) {
 
 } // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

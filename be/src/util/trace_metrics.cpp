@@ -17,6 +17,9 @@
 
 #include "util/trace_metrics.h"
 
+#include <glog/logging.h>
+#include <glog/stl_logging.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cstring>
@@ -25,9 +28,6 @@
 #include <ostream>
 #include <string>
 #include <utility>
-
-#include <glog/logging.h>
-#include <glog/stl_logging.h>
 
 #include "util/debug/leakcheck_disabler.h"
 
@@ -47,28 +47,27 @@ static InternMap* g_intern_map;
 } // anonymous namespace
 
 const char* TraceMetrics::InternName(const string& name) {
-  DCHECK(std::all_of(name.begin(), name.end(), [] (char c) { return isprint(c); } ))
-      << "not printable: " << name;
+    DCHECK(std::all_of(name.begin(), name.end(), [](char c) { return isprint(c); }))
+            << "not printable: " << name;
 
-  debug::ScopedLeakCheckDisabler no_leakcheck;
-  std::lock_guard<SpinLock> l(g_intern_map_lock);
-  if (g_intern_map == nullptr) {
-    g_intern_map = new InternMap();
-  }
+    debug::ScopedLeakCheckDisabler no_leakcheck;
+    std::lock_guard<SpinLock> l(g_intern_map_lock);
+    if (g_intern_map == nullptr) {
+        g_intern_map = new InternMap();
+    }
 
-  InternMap::iterator it = g_intern_map->find(name);
-  if (it != g_intern_map->end()) {
-    return it->second;
-  }
+    InternMap::iterator it = g_intern_map->find(name);
+    if (it != g_intern_map->end()) {
+        return it->second;
+    }
 
-  const char* dup = strdup(name.c_str());
-  (*g_intern_map)[name] = dup;
+    const char* dup = strdup(name.c_str());
+    (*g_intern_map)[name] = dup;
 
-  // We don't expect this map to grow large.
-  DCHECK_LT(g_intern_map->size(), 100) <<
-      "Too many interned strings: " << *g_intern_map;
+    // We don't expect this map to grow large.
+    DCHECK_LT(g_intern_map->size(), 100) << "Too many interned strings: " << *g_intern_map;
 
-  return dup;
+    return dup;
 }
 
 } // namespace doris

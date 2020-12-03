@@ -17,12 +17,12 @@
 
 #include "runtime/disk_io_mgr.h"
 
+#include <gtest/gtest.h>
 #include <sched.h>
 #include <sys/stat.h>
+
 #include <boost/bind.hpp>
 #include <boost/thread/thread.hpp>
-
-#include <gtest/gtest.h>
 
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
@@ -51,8 +51,8 @@ const int LARGE_MEM_LIMIT = 1024 * 1024 * 1024;
 class DiskIoMgrTest : public testing::Test {
 public:
     void write_validate_callback(int num_writes, DiskIoMgr::WriteRange** written_range,
-            DiskIoMgr* io_mgr, DiskIoMgr::RequestContext* reader, int32_t* data,
-            Status expected_status, const Status& status) {
+                                 DiskIoMgr* io_mgr, DiskIoMgr::RequestContext* reader,
+                                 int32_t* data, Status expected_status, const Status& status) {
         if (expected_status.code() == TStatusCode::CANCELLED) {
             EXPECT_TRUE(status.ok() || status.is_cancelled());
         } else {
@@ -61,9 +61,10 @@ public:
         if (status.ok()) {
             DiskIoMgr::ScanRange* scan_range = _pool->add(new DiskIoMgr::ScanRange());
             scan_range->reset(NULL, (*written_range)->file(), (*written_range)->len(),
-                    (*written_range)->offset(), 0, false, false, DiskIoMgr::ScanRange::NEVER_CACHE);
+                              (*written_range)->offset(), 0, false, false,
+                              DiskIoMgr::ScanRange::NEVER_CACHE);
             validate_sync_read(io_mgr, reader, scan_range, reinterpret_cast<const char*>(data),
-                    sizeof(int32_t));
+                               sizeof(int32_t));
         }
 
         {
@@ -115,7 +116,8 @@ protected:
     }
 
     static void validate_sync_read(DiskIoMgr* io_mgr, DiskIoMgr::RequestContext* reader,
-            DiskIoMgr::ScanRange* range, const char* expected, int expected_len = -1) {
+                                   DiskIoMgr::ScanRange* range, const char* expected,
+                                   int expected_len = -1) {
         DiskIoMgr::BufferDescriptor* buffer;
         Status status = io_mgr->read(reader, range, &buffer);
         ASSERT_TRUE(status.ok());
@@ -130,7 +132,7 @@ protected:
     }
 
     static void validate_scan_range(DiskIoMgr::ScanRange* range, const char* expected,
-            int expected_len, const Status& expected_status) {
+                                    int expected_len, const Status& expected_status) {
         char result[expected_len + 1];
         memset(result, 0, expected_len + 1);
 
@@ -143,8 +145,8 @@ protected:
                 break;
             }
             ASSERT_LE(buffer->len(), expected_len);
-            memcpy(result + range->offset() + buffer->scan_range_offset(),
-                    buffer->buffer(), buffer->len());
+            memcpy(result + range->offset() + buffer->scan_range_offset(), buffer->buffer(),
+                   buffer->len());
             buffer->return_buffer();
         }
         validate_empty_or_correct(expected, result, expected_len);
@@ -153,8 +155,9 @@ protected:
     // Continues pulling scan ranges from the io mgr until they are all done.
     // Updates num_ranges_processed with the number of ranges seen by this thread.
     static void scan_range_thread(DiskIoMgr* io_mgr, DiskIoMgr::RequestContext* reader,
-            const char* expected_result, int expected_len, const Status& expected_status,
-            int max_ranges, AtomicInt<int>* num_ranges_processed) {
+                                  const char* expected_result, int expected_len,
+                                  const Status& expected_status, int max_ranges,
+                                  AtomicInt<int>* num_ranges_processed) {
         int num_ranges = 0;
         while (max_ranges == 0 || num_ranges < max_ranges) {
             DiskIoMgr::ScanRange* range;
@@ -167,15 +170,16 @@ protected:
         }
     }
 
-    DiskIoMgr::ScanRange* init_range(int num_buffers, const char* file_path, int offset,
-            int len, int disk_id, int64_t mtime, void* meta_data = NULL, bool is_cached = false) {
+    DiskIoMgr::ScanRange* init_range(int num_buffers, const char* file_path, int offset, int len,
+                                     int disk_id, int64_t mtime, void* meta_data = NULL,
+                                     bool is_cached = false) {
         DiskIoMgr::ScanRange* range = _pool->add(new DiskIoMgr::ScanRange(num_buffers));
         range->reset(NULL, file_path, len, offset, disk_id, is_cached, true, mtime, meta_data);
         EXPECT_EQ(mtime, range->mtime());
         return range;
     }
 
-    scoped_ptr<ObjectPool> _pool;
+    boost::scoped_ptr<ObjectPool> _pool;
 
     mutex _written_mutex;
     condition_variable _writes_done;
@@ -195,12 +199,11 @@ TEST_F(DiskIoMgrTest, SingleWriter) {
     int64_t cur_offset = 0;
     int success = CreateTempFile(tmp_file.c_str(), file_size);
     if (success != 0) {
-        LOG(ERROR) << "Error creating temp file " << tmp_file.c_str() << " of size " <<
-            file_size;
+        LOG(ERROR) << "Error creating temp file " << tmp_file.c_str() << " of size " << file_size;
         EXPECT_TRUE(false);
     }
 
-    scoped_ptr<DiskIoMgr> read_io_mgr(new DiskIoMgr(1, 1, 1, 10));
+    boost::scoped_ptr<DiskIoMgr> read_io_mgr(new DiskIoMgr(1, 1, 1, 10));
     std::shared_ptr<MemTracker> reader_mem_tracker(new MemTracker(LARGE_MEM_LIMIT));
     Status status = read_io_mgr->init(reader_mem_tracker);
     ASSERT_TRUE(status.ok());
@@ -220,10 +223,10 @@ TEST_F(DiskIoMgrTest, SingleWriter) {
                 *data = rand();
                 DiskIoMgr::WriteRange** new_range = _pool->add(new DiskIoMgr::WriteRange*);
                 DiskIoMgr::WriteRange::WriteDoneCallback callback =
-                    bind(mem_fn(&DiskIoMgrTest::write_validate_callback), this, num_ranges,
-                            new_range, read_io_mgr.get(), reader, data, Status::OK(), _1);
-                *new_range = _pool->add(new DiskIoMgr::WriteRange(tmp_file, cur_offset,
-                            num_ranges % num_disks, callback));
+                        bind(mem_fn(&DiskIoMgrTest::write_validate_callback), this, num_ranges,
+                             new_range, read_io_mgr.get(), reader, data, Status::OK(), _1);
+                *new_range = _pool->add(new DiskIoMgr::WriteRange(
+                        tmp_file, cur_offset, num_ranges % num_disks, callback));
                 (*new_range)->set_data(reinterpret_cast<uint8_t*>(data), sizeof(int32_t));
                 Status add_status = io_mgr.add_write_range(writer, *new_range);
                 EXPECT_TRUE(add_status.ok());
@@ -262,10 +265,9 @@ TEST_F(DiskIoMgrTest, InvalidWrite) {
 
     // Write to a non-existent file.
     DiskIoMgr::WriteRange** new_range = _pool->add(new DiskIoMgr::WriteRange*);
-    DiskIoMgr::WriteRange::WriteDoneCallback callback =
-        bind(mem_fn(&DiskIoMgrTest::write_validate_callback), this, 2,
-                new_range, (DiskIoMgr*)NULL, (DiskIoMgr::RequestContext*)NULL,
-                data, Status::InternalError("Test Failure"), _1);
+    DiskIoMgr::WriteRange::WriteDoneCallback callback = bind(
+            mem_fn(&DiskIoMgrTest::write_validate_callback), this, 2, new_range, (DiskIoMgr*)NULL,
+            (DiskIoMgr::RequestContext*)NULL, data, Status::InternalError("Test Failure"), _1);
     *new_range = _pool->add(new DiskIoMgr::WriteRange(tmp_file, rand(), 0, callback));
 
     (*new_range)->set_data(reinterpret_cast<uint8_t*>(data), sizeof(int32_t));
@@ -281,9 +283,9 @@ TEST_F(DiskIoMgrTest, InvalidWrite) {
     }
 
     new_range = _pool->add(new DiskIoMgr::WriteRange*);
-    callback = bind(mem_fn(&DiskIoMgrTest::write_validate_callback), this, 2,
-            new_range, (DiskIoMgr*)NULL, (DiskIoMgr::RequestContext*)NULL,
-            data, Status::InternalError("Test Failure"), _1);
+    callback = bind(mem_fn(&DiskIoMgrTest::write_validate_callback), this, 2, new_range,
+                    (DiskIoMgr*)NULL, (DiskIoMgr::RequestContext*)NULL, data,
+                    Status::InternalError("Test Failure"), _1);
 
     *new_range = _pool->add(new DiskIoMgr::WriteRange(tmp_file, -1, 0, callback));
     (*new_range)->set_data(reinterpret_cast<uint8_t*>(data), sizeof(int32_t));
@@ -313,12 +315,11 @@ TEST_F(DiskIoMgrTest, SingleWriterCancel) {
     int64_t cur_offset = 0;
     int success = CreateTempFile(tmp_file.c_str(), file_size);
     if (success != 0) {
-        LOG(ERROR) << "Error creating temp file " << tmp_file.c_str() << " of size " <<
-            file_size;
+        LOG(ERROR) << "Error creating temp file " << tmp_file.c_str() << " of size " << file_size;
         EXPECT_TRUE(false);
     }
 
-    scoped_ptr<DiskIoMgr> read_io_mgr(new DiskIoMgr(1, 1, 1, 10));
+    boost::scoped_ptr<DiskIoMgr> read_io_mgr(new DiskIoMgr(1, 1, 1, 10));
     std::shared_ptr<MemTracker> reader_mem_tracker(new MemTracker(LARGE_MEM_LIMIT));
     Status status = read_io_mgr->init(reader_mem_tracker);
     ASSERT_TRUE(status.ok());
@@ -342,11 +343,11 @@ TEST_F(DiskIoMgrTest, SingleWriterCancel) {
                 *data = rand();
                 DiskIoMgr::WriteRange** new_range = _pool->add(new DiskIoMgr::WriteRange*);
                 DiskIoMgr::WriteRange::WriteDoneCallback callback =
-                    bind(mem_fn(&DiskIoMgrTest::write_validate_callback), this,
-                            num_ranges_before_cancel, new_range, read_io_mgr.get(), reader, data,
-                            Status::Cancelled(""), _1);
-                *new_range = _pool->add(new DiskIoMgr::WriteRange(tmp_file, cur_offset,
-                            num_ranges % num_disks, callback));
+                        bind(mem_fn(&DiskIoMgrTest::write_validate_callback), this,
+                             num_ranges_before_cancel, new_range, read_io_mgr.get(), reader, data,
+                             Status::Cancelled(""), _1);
+                *new_range = _pool->add(new DiskIoMgr::WriteRange(
+                        tmp_file, cur_offset, num_ranges % num_disks, callback));
                 (*new_range)->set_data(reinterpret_cast<uint8_t*>(data), sizeof(int32_t));
                 cur_offset += sizeof(int32_t);
                 Status add_status = io_mgr.add_write_range(writer, *new_range);
@@ -388,8 +389,8 @@ TEST_F(DiskIoMgrTest, SingleReader) {
                 for (int num_read_threads = 1; num_read_threads <= 5; ++num_read_threads) {
                     _pool.reset(new ObjectPool);
                     LOG(INFO) << "Starting test with num_threads_per_disk=" << num_threads_per_disk
-                        << " num_disk=" << num_disks << " num_buffers=" << num_buffers
-                        << " num_read_threads=" << num_read_threads;
+                              << " num_disk=" << num_disks << " num_buffers=" << num_buffers
+                              << " num_read_threads=" << num_read_threads;
 
                     if (++iters % 5000 == 0) {
                         LOG(ERROR) << "Starting iteration " << iters;
@@ -403,11 +404,11 @@ TEST_F(DiskIoMgrTest, SingleReader) {
                     status = io_mgr.register_context(&reader, reader_mem_tracker);
                     ASSERT_TRUE(status.ok());
 
-                    vector<DiskIoMgr::ScanRange*> ranges;
+                    std::vector<DiskIoMgr::ScanRange*> ranges;
                     for (int i = 0; i < len; ++i) {
                         int disk_id = i % num_disks;
                         ranges.push_back(init_range(num_buffers, tmp_file, 0, len, disk_id,
-                                    stat_val.st_mtime));
+                                                    stat_val.st_mtime));
                     }
                     status = io_mgr.add_scan_ranges(reader, ranges);
                     ASSERT_TRUE(status.ok());
@@ -415,8 +416,8 @@ TEST_F(DiskIoMgrTest, SingleReader) {
                     AtomicInt<int> num_ranges_processed;
                     thread_group threads;
                     for (int i = 0; i < num_read_threads; ++i) {
-                        threads.add_thread(new thread(scan_range_thread, &io_mgr, reader, data,
-                                    len, Status::OK(), 0, &num_ranges_processed));
+                        threads.add_thread(new thread(scan_range_thread, &io_mgr, reader, data, len,
+                                                      Status::OK(), 0, &num_ranges_processed));
                     }
                     threads.join_all();
 
@@ -448,7 +449,7 @@ TEST_F(DiskIoMgrTest, AddScanRangeTest) {
             for (int num_buffers = 1; num_buffers <= 5; ++num_buffers) {
                 _pool.reset(new ObjectPool);
                 LOG(INFO) << "Starting test with num_threads_per_disk=" << num_threads_per_disk
-                    << " num_disk=" << num_disks << " num_buffers=" << num_buffers;
+                          << " num_disk=" << num_disks << " num_buffers=" << num_buffers;
 
                 if (++iters % 5000 == 0) LOG(ERROR) << "Starting iteration " << iters;
                 DiskIoMgr io_mgr(num_disks, num_threads_per_disk, 1, 1);
@@ -460,17 +461,16 @@ TEST_F(DiskIoMgrTest, AddScanRangeTest) {
                 status = io_mgr.register_context(&reader, reader_mem_tracker);
                 ASSERT_TRUE(status.ok());
 
-                vector<DiskIoMgr::ScanRange*> ranges_first_half;
-                vector<DiskIoMgr::ScanRange*> ranges_second_half;
+                std::vector<DiskIoMgr::ScanRange*> ranges_first_half;
+                std::vector<DiskIoMgr::ScanRange*> ranges_second_half;
                 for (int i = 0; i < len; ++i) {
                     int disk_id = i % num_disks;
                     if (i > len / 2) {
-                        ranges_second_half.push_back(
-                                init_range(num_buffers, tmp_file, i, 1, disk_id,
-                                    stat_val.st_mtime));
+                        ranges_second_half.push_back(init_range(num_buffers, tmp_file, i, 1,
+                                                                disk_id, stat_val.st_mtime));
                     } else {
                         ranges_first_half.push_back(init_range(num_buffers, tmp_file, i, 1, disk_id,
-                                    stat_val.st_mtime));
+                                                               stat_val.st_mtime));
                     }
                 }
                 AtomicInt<int> num_ranges_processed;
@@ -481,7 +481,7 @@ TEST_F(DiskIoMgrTest, AddScanRangeTest) {
 
                 // Read a couple of them
                 scan_range_thread(&io_mgr, reader, data, strlen(data), Status::OK(), 2,
-                        &num_ranges_processed);
+                                  &num_ranges_processed);
 
                 // Issue second half
                 status = io_mgr.add_scan_ranges(reader, ranges_second_half);
@@ -491,7 +491,8 @@ TEST_F(DiskIoMgrTest, AddScanRangeTest) {
                 thread_group threads;
                 for (int i = 0; i < 3; ++i) {
                     threads.add_thread(new thread(scan_range_thread, &io_mgr, reader, data,
-                                strlen(data), Status::Cancelled(""), 0, &num_ranges_processed));
+                                                  strlen(data), Status::Cancelled(""), 0,
+                                                  &num_ranges_processed));
                 }
 
                 threads.join_all();
@@ -523,14 +524,14 @@ TEST_F(DiskIoMgrTest, SyncReadTest) {
         for (int num_disks = 1; num_disks <= 5; num_disks += 2) {
             for (int num_buffers = 1; num_buffers <= 5; ++num_buffers) {
                 _pool.reset(new ObjectPool);
-                LOG(INFO) << "Starting SyncReadTest test with num_threads_per_disk=" << num_threads_per_disk
-                    << " num_disk=" << num_disks << " num_buffers=" << num_buffers;
+                LOG(INFO) << "Starting SyncReadTest test with num_threads_per_disk="
+                          << num_threads_per_disk << " num_disk=" << num_disks
+                          << " num_buffers=" << num_buffers;
 
                 if (++iters % 5000 == 0) {
                     LOG(ERROR) << "Starting iteration " << iters;
                 }
-                DiskIoMgr io_mgr(
-                        num_disks, num_threads_per_disk, MIN_BUFFER_SIZE, MAX_BUFFER_SIZE);
+                DiskIoMgr io_mgr(num_disks, num_threads_per_disk, MIN_BUFFER_SIZE, MAX_BUFFER_SIZE);
 
                 Status status = io_mgr.init(mem_tracker);
                 ASSERT_TRUE(status.ok());
@@ -539,18 +540,18 @@ TEST_F(DiskIoMgrTest, SyncReadTest) {
                 status = io_mgr.register_context(&reader, reader_mem_tracker);
                 ASSERT_TRUE(status.ok());
 
-                DiskIoMgr::ScanRange* complete_range = init_range(1, tmp_file, 0, strlen(data), 0,
-                        stat_val.st_mtime);
+                DiskIoMgr::ScanRange* complete_range =
+                        init_range(1, tmp_file, 0, strlen(data), 0, stat_val.st_mtime);
 
                 // Issue some reads before the async ones are issued
                 validate_sync_read(&io_mgr, reader, complete_range, data);
                 validate_sync_read(&io_mgr, reader, complete_range, data);
 
-                vector<DiskIoMgr::ScanRange*> ranges;
+                std::vector<DiskIoMgr::ScanRange*> ranges;
                 for (int i = 0; i < len; ++i) {
                     int disk_id = i % num_disks;
-                    ranges.push_back(init_range(num_buffers, tmp_file, 0, len, disk_id,
-                                stat_val.st_mtime));
+                    ranges.push_back(
+                            init_range(num_buffers, tmp_file, 0, len, disk_id, stat_val.st_mtime));
                 }
                 status = io_mgr.add_scan_ranges(reader, ranges);
                 ASSERT_TRUE(status.ok());
@@ -559,7 +560,8 @@ TEST_F(DiskIoMgrTest, SyncReadTest) {
                 thread_group threads;
                 for (int i = 0; i < 5; ++i) {
                     threads.add_thread(new thread(scan_range_thread, &io_mgr, reader, data,
-                                strlen(data), Status::OK(), 0, &num_ranges_processed));
+                                                  strlen(data), Status::OK(), 0,
+                                                  &num_ranges_processed));
                 }
 
                 // Issue some more sync ranges
@@ -600,7 +602,7 @@ TEST_F(DiskIoMgrTest, SingleReaderCancel) {
             for (int num_buffers = 1; num_buffers <= 5; ++num_buffers) {
                 _pool.reset(new ObjectPool);
                 LOG(INFO) << "Starting test with num_threads_per_disk=" << num_threads_per_disk
-                    << " num_disk=" << num_disks << " num_buffers=" << num_buffers;
+                          << " num_disk=" << num_disks << " num_buffers=" << num_buffers;
 
                 if (++iters % 5000 == 0) LOG(ERROR) << "Starting iteration " << iters;
                 DiskIoMgr io_mgr(num_disks, num_threads_per_disk, 1, 1);
@@ -612,11 +614,11 @@ TEST_F(DiskIoMgrTest, SingleReaderCancel) {
                 status = io_mgr.register_context(&reader, reader_mem_tracker);
                 ASSERT_TRUE(status.ok());
 
-                vector<DiskIoMgr::ScanRange*> ranges;
+                std::vector<DiskIoMgr::ScanRange*> ranges;
                 for (int i = 0; i < len; ++i) {
                     int disk_id = i % num_disks;
-                    ranges.push_back(init_range(num_buffers, tmp_file, 0, len, disk_id,
-                                stat_val.st_mtime));
+                    ranges.push_back(
+                            init_range(num_buffers, tmp_file, 0, len, disk_id, stat_val.st_mtime));
                 }
                 status = io_mgr.add_scan_ranges(reader, ranges);
                 ASSERT_TRUE(status.ok());
@@ -626,7 +628,7 @@ TEST_F(DiskIoMgrTest, SingleReaderCancel) {
                 // Read half the ranges
                 for (int i = 0; i < num_succesful_ranges; ++i) {
                     scan_range_thread(&io_mgr, reader, data, strlen(data), Status::OK(), 1,
-                            &num_ranges_processed);
+                                      &num_ranges_processed);
                 }
                 EXPECT_EQ(num_ranges_processed, num_succesful_ranges);
 
@@ -634,7 +636,8 @@ TEST_F(DiskIoMgrTest, SingleReaderCancel) {
                 thread_group threads;
                 for (int i = 0; i < 3; ++i) {
                     threads.add_thread(new thread(scan_range_thread, &io_mgr, reader, data,
-                                strlen(data), Status::Cancelled(""), 0, &num_ranges_processed));
+                                                  strlen(data), Status::Cancelled(""), 0,
+                                                  &num_ranges_processed));
                 }
 
                 io_mgr.cancel_context(reader);
@@ -672,7 +675,8 @@ TEST_F(DiskIoMgrTest, MemTrackers) {
             LOG(ERROR) << "Starting iteration " << iters;
         }
 
-        std::shared_ptr<MemTracker> mem_tracker(new MemTracker(mem_limit_num_buffers * MAX_BUFFER_SIZE));
+        std::shared_ptr<MemTracker> mem_tracker(
+                new MemTracker(mem_limit_num_buffers * MAX_BUFFER_SIZE));
         DiskIoMgr io_mgr(1, 1, MIN_BUFFER_SIZE, MAX_BUFFER_SIZE);
 
         Status status = io_mgr.init(mem_tracker);
@@ -682,20 +686,19 @@ TEST_F(DiskIoMgrTest, MemTrackers) {
         status = io_mgr.register_context(&reader, reader_mem_tracker);
         ASSERT_TRUE(status.ok());
 
-        vector<DiskIoMgr::ScanRange*> ranges;
+        std::vector<DiskIoMgr::ScanRange*> ranges;
         for (int i = 0; i < num_buffers; ++i) {
-            ranges.push_back(init_range(num_buffers, tmp_file, 0, len, 0,
-                        stat_val.st_mtime));
+            ranges.push_back(init_range(num_buffers, tmp_file, 0, len, 0, stat_val.st_mtime));
         }
         status = io_mgr.add_scan_ranges(reader, ranges);
         ASSERT_TRUE(status.ok());
 
         // Don't return buffers to force memory pressure
-        vector<DiskIoMgr::BufferDescriptor*> buffers;
+        std::vector<DiskIoMgr::BufferDescriptor*> buffers;
 
         AtomicInt<int> num_ranges_processed;
         scan_range_thread(&io_mgr, reader, data, strlen(data), Status::MemoryLimitExceeded("Mem"),
-                1, &num_ranges_processed);
+                          1, &num_ranges_processed);
 
         char result[strlen(data) + 1];
         // Keep reading new ranges without returning buffers. This forces us
@@ -712,8 +715,8 @@ TEST_F(DiskIoMgrTest, MemTrackers) {
                 Status status = range->get_next(&buffer);
                 ASSERT_TRUE(status.ok() || status.is_mem_limit_exceeded());
                 if (buffer == NULL) break;
-                memcpy(result + range->offset() + buffer->scan_range_offset(),
-                        buffer->buffer(), buffer->len());
+                memcpy(result + range->offset() + buffer->scan_range_offset(), buffer->buffer(),
+                       buffer->len());
                 buffers.push_back(buffer);
             }
             validate_empty_or_correct(data, result, strlen(data));
@@ -767,7 +770,7 @@ TEST_F(DiskIoMgrTest, CachedReads) {
         validate_sync_read(&io_mgr, reader, complete_range, data);
         validate_sync_read(&io_mgr, reader, complete_range, data);
 
-        vector<DiskIoMgr::ScanRange*> ranges;
+        std::vector<DiskIoMgr::ScanRange*> ranges;
         for (int i = 0; i < len; ++i) {
             int disk_id = i % num_disks;
             ranges.push_back(init_range(num_buffers, tmp_file, 0, len, disk_id,
@@ -814,8 +817,7 @@ TEST_F(DiskIoMgrTest, MultipleReaderWriter) {
     string file_name = "/tmp/disk_io_mgr_test.txt";
     int success = CreateTempFile(file_name.c_str(), file_size);
     if (success != 0) {
-        LOG(ERROR) << "Error creating temp file " << file_name.c_str() << " of size " <<
-            file_size;
+        LOG(ERROR) << "Error creating temp file " << file_name.c_str() << " of size " << file_size;
         ASSERT_TRUE(false);
     }
 
@@ -824,7 +826,7 @@ TEST_F(DiskIoMgrTest, MultipleReaderWriter) {
     stat(file_name.c_str(), &stat_val);
 
     int64_t iters = 0;
-    vector<DiskIoMgr::RequestContext*> contexts(num_contexts);
+    std::vector<DiskIoMgr::RequestContext*> contexts(num_contexts);
     Status status;
     for (int iteration = 0; iteration < ITERATIONS; ++iteration) {
         for (int threads_per_disk = 1; threads_per_disk <= 5; ++threads_per_disk) {
@@ -845,29 +847,32 @@ TEST_F(DiskIoMgrTest, MultipleReaderWriter) {
                         }
                         AtomicInt<int> num_ranges_processed;
                         thread_group threads;
-                        vector<DiskIoMgr::ScanRange*> ranges;
-                        int num_scan_ranges = std::min<int>(num_reads_queued, write_offset - read_offset);
+                        std::vector<DiskIoMgr::ScanRange*> ranges;
+                        int num_scan_ranges =
+                                std::min<int>(num_reads_queued, write_offset - read_offset);
                         for (int i = 0; i < num_scan_ranges; ++i) {
                             ranges.push_back(init_range(1, file_name.c_str(), read_offset, 1,
-                                        i % num_disks, stat_val.st_mtime));
-                            threads.add_thread(new thread(scan_range_thread, &io_mgr,
-                                        contexts[context_index],
-                                        reinterpret_cast<const char*>(data + (read_offset % strlen(data))), 1,
-                                        Status::OK(), num_scan_ranges, &num_ranges_processed));
+                                                        i % num_disks, stat_val.st_mtime));
+                            threads.add_thread(new thread(
+                                    scan_range_thread, &io_mgr, contexts[context_index],
+                                    reinterpret_cast<const char*>(data +
+                                                                  (read_offset % strlen(data))),
+                                    1, Status::OK(), num_scan_ranges, &num_ranges_processed));
                             ++read_offset;
                         }
 
                         _num_ranges_written = 0;
-                        int num_write_ranges = std::min<int>(num_writes_queued, file_size - write_offset);
+                        int num_write_ranges =
+                                std::min<int>(num_writes_queued, file_size - write_offset);
                         for (int i = 0; i < num_write_ranges; ++i) {
                             DiskIoMgr::WriteRange::WriteDoneCallback callback =
-                                bind(mem_fn(&DiskIoMgrTest::write_complete_callback),
-                                        this, num_write_ranges, _1);
-                            DiskIoMgr::WriteRange* new_range = _pool->add(
-                                    new DiskIoMgr::WriteRange(file_name,
-                                        write_offset, i % num_disks, callback));
-                            new_range->set_data(reinterpret_cast<const uint8_t*>
-                                    (data + (write_offset % strlen(data))), 1);
+                                    bind(mem_fn(&DiskIoMgrTest::write_complete_callback), this,
+                                         num_write_ranges, _1);
+                            DiskIoMgr::WriteRange* new_range = _pool->add(new DiskIoMgr::WriteRange(
+                                    file_name, write_offset, i % num_disks, callback));
+                            new_range->set_data(reinterpret_cast<const uint8_t*>(
+                                                        data + (write_offset % strlen(data))),
+                                                1);
                             status = io_mgr.add_write_range(contexts[context_index], new_range);
                             ++write_offset;
                         }
@@ -881,15 +886,14 @@ TEST_F(DiskIoMgrTest, MultipleReaderWriter) {
 
                         threads.join_all();
                     } // for (int context_index
-                } // while (read_offset < file_size)
-
+                }     // while (read_offset < file_size)
 
                 for (int file_index = 0; file_index < num_contexts; ++file_index) {
                     io_mgr.unregister_context(contexts[file_index]);
                 }
             } // for (int num_disks
-        } // for (int threads_per_disk
-    } // for (int iteration
+        }     // for (int threads_per_disk
+    }         // for (int iteration
 }
 
 // This test will test multiple concurrent reads each reading a different file.
@@ -900,11 +904,11 @@ TEST_F(DiskIoMgrTest, MultipleReader) {
     const int ITERATIONS = 25;
     const int NUM_THREADS_PER_READER = 3;
 
-    vector<string> file_names;
-    vector<int64_t> mtimes;
-    vector<string> data;
-    vector<DiskIoMgr::RequestContext*> readers;
-    vector<char*> results;
+    std::vector<string> file_names;
+    std::vector<int64_t> mtimes;
+    std::vector<string> data;
+    std::vector<DiskIoMgr::RequestContext*> readers;
+    std::vector<char*> results;
 
     file_names.resize(NUM_READERS);
     readers.resize(NUM_READERS);
@@ -922,7 +926,7 @@ TEST_F(DiskIoMgrTest, MultipleReader) {
         }
         data[i] = string(buf, DATA_LEN);
 
-        stringstream ss;
+        std::stringstream ss;
         ss << "/tmp/disk_io_mgr_test" << i << ".txt";
         file_names[i] = ss.str();
         CreateTempFile(ss.str().c_str(), data[i].c_str());
@@ -944,7 +948,7 @@ TEST_F(DiskIoMgrTest, MultipleReader) {
                 for (int num_buffers = 1; num_buffers <= 5; ++num_buffers) {
                     _pool.reset(new ObjectPool);
                     LOG(INFO) << "Starting test with num_threads_per_disk=" << threads_per_disk
-                        << " num_disk=" << num_disks << " num_buffers=" << num_buffers;
+                              << " num_disk=" << num_disks << " num_buffers=" << num_buffers;
                     if (++iters % 2500 == 0) LOG(ERROR) << "Starting iteration " << iters;
 
                     DiskIoMgr io_mgr(num_disks, threads_per_disk, MIN_BUFFER_SIZE, MAX_BUFFER_SIZE);
@@ -955,12 +959,11 @@ TEST_F(DiskIoMgrTest, MultipleReader) {
                         status = io_mgr.register_context(&readers[i], NULL);
                         ASSERT_TRUE(status.ok());
 
-                        vector<DiskIoMgr::ScanRange*> ranges;
+                        std::vector<DiskIoMgr::ScanRange*> ranges;
                         for (int j = 0; j < DATA_LEN; ++j) {
                             int disk_id = j % num_disks;
-                            ranges.push_back(
-                                    init_range(num_buffers,file_names[i].c_str(), j, 1, disk_id,
-                                        mtimes[i]));
+                            ranges.push_back(init_range(num_buffers, file_names[i].c_str(), j, 1,
+                                                        disk_id, mtimes[i]));
                         }
                         status = io_mgr.add_scan_ranges(readers[i], ranges);
                         ASSERT_TRUE(status.ok());
@@ -971,8 +974,8 @@ TEST_F(DiskIoMgrTest, MultipleReader) {
                     for (int i = 0; i < NUM_READERS; ++i) {
                         for (int j = 0; j < NUM_THREADS_PER_READER; ++j) {
                             threads.add_thread(new thread(scan_range_thread, &io_mgr, readers[i],
-                                        data[i].c_str(), data[i].size(), Status::OK(), 0,
-                                        &num_ranges_processed));
+                                                          data[i].c_str(), data[i].size(),
+                                                          Status::OK(), 0, &num_ranges_processed));
                         }
                     }
                     threads.join_all();
@@ -1067,7 +1070,7 @@ TEST_F(DiskIoMgrTest, PartialRead) {
     stat(tmp_file, &stat_val);
 
     _pool.reset(new ObjectPool);
-    scoped_ptr<DiskIoMgr> io_mgr(new DiskIoMgr(1, 1, read_len, read_len));
+    boost::scoped_ptr<DiskIoMgr> io_mgr(new DiskIoMgr(1, 1, read_len, read_len));
 
     Status status = io_mgr->init(mem_tracker);
     ASSERT_TRUE(status.ok());
@@ -1112,4 +1115,3 @@ int main(int argc, char** argv) {
 
     return RUN_ALL_TESTS();
 }
-

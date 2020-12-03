@@ -17,14 +17,14 @@
 
 #pragma once
 
-#include <mutex>
-#include <ostream>
-#include <string>
-
 #include <boost/functional/hash.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
+#include <mutex>
+#include <ostream>
+#include <string>
+
 #include "util/spinlock.h"
 
 namespace doris {
@@ -46,4 +46,4 @@ private:
     SpinLock _uuid_gen_lock;
 };
 
-}
+} // namespace doris

@@ -28,19 +28,19 @@ class RowsetWriterContextBuilder;
 using RowsetWriterContextBuilderSharedPtr = std::shared_ptr<RowsetWriterContextBuilder>;
 
 struct RowsetWriterContext {
-    RowsetWriterContext() :
-        tablet_id(0),
-        tablet_schema_hash(0),
-        partition_id(0),
-        rowset_type(ALPHA_ROWSET),
-        rowset_path_prefix(""),
-        tablet_schema(nullptr),
-        rowset_state(PREPARED),
-        version(Version(0, 0)),
-        version_hash(0),
-        txn_id(0),
-        tablet_uid(0, 0),
-        segments_overlap(OVERLAP_UNKNOWN) {
+    RowsetWriterContext()
+            : tablet_id(0),
+              tablet_schema_hash(0),
+              partition_id(0),
+              rowset_type(ALPHA_ROWSET),
+              rowset_path_prefix(""),
+              tablet_schema(nullptr),
+              rowset_state(PREPARED),
+              version(Version(0, 0)),
+              version_hash(0),
+              txn_id(0),
+              tablet_uid(0, 0),
+              segments_overlap(OVERLAP_UNKNOWN) {
         load_id.set_hi(0);
         load_id.set_lo(0);
     }

@@ -17,28 +17,28 @@
 
 #include "olap/rowset/beta_rowset.h"
 
-#include <set>
 #include <stdio.h>  // for remove()
 #include <unistd.h> // for link()
 #include <util/file_utils.h>
+
+#include <set>
+
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/beta_rowset_reader.h"
 #include "olap/utils.h"
 
 namespace doris {
 
-std::string BetaRowset::segment_file_path(
-        const std::string& dir, const RowsetId& rowset_id, int segment_id) {
+std::string BetaRowset::segment_file_path(const std::string& dir, const RowsetId& rowset_id,
+                                          int segment_id) {
     return strings::Substitute("$0/$1_$2.dat", dir, rowset_id.to_string(), segment_id);
 }
 
-BetaRowset::BetaRowset(const TabletSchema* schema,
-                       string rowset_path,
+BetaRowset::BetaRowset(const TabletSchema* schema, string rowset_path,
                        RowsetMetaSharedPtr rowset_meta)
-    : Rowset(schema, std::move(rowset_path), std::move(rowset_meta)) {
-}
+        : Rowset(schema, std::move(rowset_path), std::move(rowset_meta)) {}
 
-BetaRowset::~BetaRowset() { }
+BetaRowset::~BetaRowset() {}
 
 OLAPStatus BetaRowset::init() {
     return OLAP_SUCCESS; // no op
@@ -67,14 +67,15 @@ OLAPStatus BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowset::create_reader(const std::shared_ptr<MemTracker>& parent_tracker, std::shared_ptr<RowsetReader>* result) {
+OLAPStatus BetaRowset::create_reader(const std::shared_ptr<MemTracker>& parent_tracker,
+                                     std::shared_ptr<RowsetReader>* result) {
     // NOTE: We use std::static_pointer_cast for performance
-    result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this()), parent_tracker));
+    result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this()),
+                                       parent_tracker));
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowset::split_range(const RowCursor& start_key,
-                                   const RowCursor& end_key,
+OLAPStatus BetaRowset::split_range(const RowCursor& start_key, const RowCursor& end_key,
                                    uint64_t request_block_row_count,
                                    std::vector<OlapTuple>* ranges) {
     ranges->emplace_back(start_key.to_tuple());
@@ -85,8 +86,8 @@ OLAPStatus BetaRowset::split_range(const RowCursor& start_key,
 OLAPStatus BetaRowset::remove() {
     // TODO should we close and remove all segment reader first?
     LOG(INFO) << "begin to remove files in rowset " << unique_id()
-            << ", version:" << start_version() << "-" << end_version()
-            << ", tabletid:" << _rowset_meta->tablet_id();
+              << ", version:" << start_version() << "-" << end_version()
+              << ", tabletid:" << _rowset_meta->tablet_id();
     bool success = true;
     for (int i = 0; i < num_segments(); ++i) {
         std::string path = segment_file_path(_rowset_path, rowset_id(), i);
@@ -123,7 +124,8 @@ OLAPStatus BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset
         //     use copy? or keep refcount to avoid being delete?
         if (link(src_file_path.c_str(), dst_link_path.c_str()) != 0) {
             LOG(WARNING) << "fail to create hard link. from=" << src_file_path << ", "
-                         << "to=" << dst_link_path << ", " << "errno=" << Errno::no();
+                         << "to=" << dst_link_path << ", "
+                         << "errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
         }
     }

@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_COMMON_UTIL_DEFAULT_PATH_HANDLERS_H
 
 #include <stdio.h>
+
 #include <memory>
 
 namespace doris {

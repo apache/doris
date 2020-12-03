@@ -26,22 +26,21 @@
 #include <string>
 
 #include "olap/bloom_filter_reader.h"
-#include "olap/rowset/column_reader.h"
-#include "olap/rowset/segment_group.h"
+#include "olap/column_predicate.h"
 #include "olap/compress.h"
-#include "olap/file_stream.h"
-#include "olap/in_stream.h"
-#include "olap/stream_index_reader.h"
 #include "olap/delete_handler.h"
 #include "olap/file_helper.h"
+#include "olap/file_stream.h"
+#include "olap/in_stream.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
 #include "olap/row_cursor.h"
-#include "runtime/runtime_state.h"
+#include "olap/rowset/column_reader.h"
+#include "olap/rowset/segment_group.h"
+#include "olap/stream_index_reader.h"
 #include "runtime/mem_pool.h"
-
-#include "olap/column_predicate.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -78,42 +77,32 @@ public:
     // 2. 读取blocks, 构造InStream
     // 3. 创建并初始化Readers
     // Outputs:
-    // next_block_id: 
+    // next_block_id:
     //      block with next_block_id would read if get_block called again.
     //      this field is used to set batch's limit when client found logical end is reach
-    OLAPStatus seek_to_block(uint32_t first_block, uint32_t last_block, bool without_filter, 
+    OLAPStatus seek_to_block(uint32_t first_block, uint32_t last_block, bool without_filter,
                              uint32_t* next_block_id, bool* eof);
 
     // get vector batch from this segment.
-    // next_block_id: 
+    // next_block_id:
     //      block with next_block_id would read if get_block called again.
     //      this field is used to set batch's limit when client found logical end is reach
     // ATTN: If you change batch to contain more columns, you must call seek_to_block again.
     OLAPStatus get_block(VectorizedRowBatch* batch, uint32_t* next_block_id, bool* eof);
 
-    bool eof() const {
-        return _eof;
-    }
+    bool eof() const { return _eof; }
 
     // 返回当前segment中block的数目
-    uint32_t block_count() const {
-        return _block_count;
-    }
+    uint32_t block_count() const { return _block_count; }
 
     // 返回当前segment中，每块的行数
-    uint32_t num_rows_in_block() {
-        return _num_rows_in_block;
-    }
+    uint32_t num_rows_in_block() { return _num_rows_in_block; }
 
-    bool is_using_mmap() {
-        return _is_using_mmap;
-    }
+    bool is_using_mmap() { return _is_using_mmap; }
 
     // 只允许在初始化之前选择，之后则无法更改
     // 暂时没有动态切换的需求
-    void set_is_using_mmap(bool is_using_mmap) {
-        _is_using_mmap = is_using_mmap;
-    }
+    void set_is_using_mmap(bool is_using_mmap) { _is_using_mmap = is_using_mmap; }
 
 private:
     typedef std::vector<ColumnId>::iterator ColumnIdIterator;
@@ -131,14 +120,11 @@ private:
         uint32_t offset_position;
     };
 
-    static  CacheKey _construct_index_stream_key(
-            char* buf,
-            size_t len,
-            const std::string& file_name,
-            ColumnId unique_column_id,
-            StreamInfoMessage::Kind kind);
+    static CacheKey _construct_index_stream_key(char* buf, size_t len, const std::string& file_name,
+                                                ColumnId unique_column_id,
+                                                StreamInfoMessage::Kind kind);
 
-    static  void _delete_cached_index_stream(const CacheKey& key, void* value);
+    static void _delete_cached_index_stream(const CacheKey& key, void* value);
 
     // 判断当前列是否需要读取
     // 当_include_columns为空时，直接返回true
@@ -196,8 +182,7 @@ private:
 
     // seek to block id without check. only seek in cids's read stream.
     // because some columns may not be read
-    OLAPStatus _seek_to_block_directly(
-        int64_t block_id, const std::vector<uint32_t>& cids);
+    OLAPStatus _seek_to_block_directly(int64_t block_id, const std::vector<uint32_t>& cids);
 
     // 跳转到某个row entry
     OLAPStatus _seek_to_row_entry(int64_t block_id);
@@ -205,13 +190,9 @@ private:
     OLAPStatus _reset_readers();
 
     // 获取当前的table级schema。
-    inline const TabletSchema& tablet_schema() {
-        return _segment_group->get_tablet_schema();
-    }
+    inline const TabletSchema& tablet_schema() { return _segment_group->get_tablet_schema(); }
 
-    inline const ColumnDataHeaderMessage& _header_message() {
-        return _file_header->message();
-    }
+    inline const ColumnDataHeaderMessage& _header_message() { return _file_header->message(); }
 
     OLAPStatus _init_include_blocks(uint32_t first_block, uint32_t last_block);
 
@@ -224,18 +205,17 @@ private:
                 continue;
             }
 
-            if ((_is_column_included(unique_column_id)
-                    && message.kind() == StreamInfoMessage::ROW_INDEX)
-                    || (_is_bf_column_included(unique_column_id)
-                    && message.kind() == StreamInfoMessage::BLOOM_FILTER)) {
+            if ((_is_column_included(unique_column_id) &&
+                 message.kind() == StreamInfoMessage::ROW_INDEX) ||
+                (_is_bf_column_included(unique_column_id) &&
+                 message.kind() == StreamInfoMessage::BLOOM_FILTER)) {
                 ++included_row_index_stream_num;
             }
         }
         return included_row_index_stream_num;
     }
 
-    OLAPStatus _load_to_vectorized_row_batch(
-        VectorizedRowBatch* batch, size_t size);
+    OLAPStatus _load_to_vectorized_row_batch(VectorizedRowBatch* batch, size_t size);
 
     FieldAggregationMethod _get_aggregation_by_index(uint32_t index) {
         const TabletSchema& tablet_schema = _segment_group->get_tablet_schema();
@@ -251,7 +231,7 @@ private:
         if (index < tablet_schema.num_columns()) {
             return tablet_schema.column(index).type();
         }
-    
+
         return OLAP_FIELD_TYPE_NONE;
     }
 
@@ -266,57 +246,56 @@ private:
     static const int32_t WORST_UNCOMPRESSED_SLOP = 2 + 8 * 512;
     static const uint32_t CURRENT_COLUMN_DATA_VERSION = 1;
 
-    std::string _file_name;                // 文件名
+    std::string _file_name; // 文件名
     SegmentGroup* _segment_group;
     uint32_t _segment_id;
     // columns that can be used by client. when client seek to range's start or end,
     // client may read more columns than normal read.
-    // For example: 
+    // For example:
     //  table1's schema is 'k1, k2, v1'. which k1, k2 is key column, v1 is value column.
     //  for query 'select sum(v1) from table1', client split all data to sub-range in logical,
     //  so, one sub-range need to seek to right position with k1 and k2; then only read v1.
     //  In this situation, _used_columns contains (k1, k2, v1)
     std::vector<uint32_t> _used_columns;
     UniqueIdSet _load_bf_columns;
-    const Conditions* _conditions;         // 列过滤条件
-    doris::FileHandler _file_handler;             // 文件handler
+    const Conditions* _conditions;    // 列过滤条件
+    doris::FileHandler _file_handler; // 文件handler
 
-    
     const DeleteHandler* _delete_handler = nullptr;
     DelCondSatisfied _delete_status;
 
-    bool _eof;                             // eof标志
+    bool _eof; // eof标志
 
     // If this field is true, client must to call seek_to_block before
     // calling get_block.
     bool _need_to_seek_block = true;
 
-    int64_t _end_block;                           // 本次读取的结束块
-    int64_t _current_block_id = 0;                       // 当前读取到的块
+    int64_t _end_block;            // 本次读取的结束块
+    int64_t _current_block_id = 0; // 当前读取到的块
 
     // this is set by _seek_to_block, when get_block is called, first
     // seek to this block_id, then read block.
     int64_t _next_block_id = 0;
-    int64_t _block_count;             // 每一列中，index entry的数目应该相等。
+    int64_t _block_count; // 每一列中，index entry的数目应该相等。
 
     uint64_t _num_rows_in_block;
     bool _null_supported;
-    uint64_t _header_length;           // Header(FixHeader+PB)大小，读数据时需要偏移
+    uint64_t _header_length; // Header(FixHeader+PB)大小，读数据时需要偏移
 
-    std::vector<ColumnReader*> _column_readers;    // 实际的数据读取器
+    std::vector<ColumnReader*> _column_readers;      // 实际的数据读取器
     std::vector<StreamIndexReader*> _column_indices; // 保存column的index
 
-    UniqueIdSet _include_columns;           // 用于判断该列是不是被包含
+    UniqueIdSet _include_columns; // 用于判断该列是不是被包含
     UniqueIdSet _include_bf_columns;
-    UniqueIdToColumnIdMap _tablet_id_to_unique_id_map; // tablet id到unique id的映射
-    UniqueIdToColumnIdMap _unique_id_to_tablet_id_map; // unique id到tablet id的映射
+    UniqueIdToColumnIdMap _tablet_id_to_unique_id_map;  // tablet id到unique id的映射
+    UniqueIdToColumnIdMap _unique_id_to_tablet_id_map;  // unique id到tablet id的映射
     UniqueIdToColumnIdMap _unique_id_to_segment_id_map; // unique id到segment id的映射
 
     std::map<ColumnId, StreamIndexReader*> _indices;
-    std::map<StreamName, ReadOnlyFileStream*> _streams;      //需要读取的流
-    UniqueIdEncodingMap _encodings_map;            // 保存encoding
+    std::map<StreamName, ReadOnlyFileStream*> _streams; //需要读取的流
+    UniqueIdEncodingMap _encodings_map;                 // 保存encoding
     std::map<ColumnId, BloomFilterIndexReader*> _bloom_filters;
-    Decompressor _decompressor;                    //根据压缩格式，设置的解压器
+    Decompressor _decompressor; //根据压缩格式，设置的解压器
     StorageByteBuffer* _mmap_buffer;
 
     /*
@@ -330,8 +309,8 @@ private:
     */
     uint8_t* _include_blocks;
     uint32_t _remain_block;
-    bool _need_block_filter;   //与include blocks组合使用，如果全不中，就不再读
-    bool _is_using_mmap;                     // 这个标记为true时，使用mmap来读取文件
+    bool _need_block_filter; //与include blocks组合使用，如果全不中，就不再读
+    bool _is_using_mmap;     // 这个标记为true时，使用mmap来读取文件
     bool _is_data_loaded;
     size_t _buffer_size;
 
@@ -343,7 +322,7 @@ private:
 
     StorageByteBuffer* _shared_buffer;
     Cache* _lru_cache;
-    RuntimeState* _runtime_state;  // 用于统计内存消耗等运行时信息
+    RuntimeState* _runtime_state; // 用于统计内存消耗等运行时信息
     OlapReaderStatistics* _stats;
 
     // Set when seek_to_block is called, valid until next seek_to_block is called.
@@ -352,6 +331,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(SegmentReader);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_READER_H

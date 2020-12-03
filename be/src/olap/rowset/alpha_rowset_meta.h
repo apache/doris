@@ -18,11 +18,11 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_META_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_META_H
 
-#include "olap/rowset/rowset_meta.h"
-
 #include <memory>
-#include <vector>
 #include <string>
+#include <vector>
+
+#include "olap/rowset/rowset_meta.h"
 
 namespace doris {
 
@@ -31,7 +31,6 @@ using AlphaRowsetMetaSharedPtr = std::shared_ptr<AlphaRowsetMeta>;
 
 class AlphaRowsetMeta : public RowsetMeta {
 public:
-
     void get_segment_groups(std::vector<SegmentGroupPB>* segment_groups);
 
     void add_segment_group(const SegmentGroupPB& segment_group);
@@ -39,6 +38,6 @@ public:
     void clear_segment_group();
 };
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_META_H

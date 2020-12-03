@@ -59,4 +59,4 @@ bool parse_id(const std::string& s, TUniqueId* id) {
     return valid;
 }
 
-}
+} // namespace doris

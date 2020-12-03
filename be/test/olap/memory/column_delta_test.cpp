@@ -40,7 +40,7 @@ TEST(ColumnDelta, Index) {
     size_t nblock = num_block(BaseSize, Column::BLOCK_SIZE);
     ASSERT_TRUE(delta->alloc(nblock, updates.size(), sizeof(uint32_t), false).ok());
     DeltaIndex* index = delta->index();
-    vector<uint32_t>& block_ends = index->block_ends();
+    std::vector<uint32_t>& block_ends = index->block_ends();
     Buffer& idxdata = index->_data;
     Buffer& data = delta->data();
     uint32_t cidx = 0;

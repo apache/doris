@@ -17,27 +17,27 @@
 
 #include "exec/csv_scan_node.h"
 
-#include <vector>
+#include <gtest/gtest.h>
 
 #include <boost/scoped_ptr.hpp>
-#include <gtest/gtest.h>
+#include <vector>
 
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
+#include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
-#include "util/cpu_info.h"
 #include "util/logging.h"
 
 namespace doris {
 
 class CsvScanNodeTest : public testing::Test {
 public:
-    CsvScanNodeTest(){}
-    ~CsvScanNodeTest(){}
+    CsvScanNodeTest() {}
+    ~CsvScanNodeTest() {}
 
 protected:
     virtual void SetUp() {
@@ -76,8 +76,7 @@ void CsvScanNodeTest::init() {
 }
 
 void CsvScanNodeTest::init_runtime_state() {
-    _state = _obj_pool.add(
-            new RuntimeState(TUniqueId(), TQueryOptions(), "", _env.get()));
+    _state = _obj_pool.add(new RuntimeState(TUniqueId(), TQueryOptions(), "", _env.get()));
     _state->set_desc_tbl(_desc_tbl);
     _state->_load_dir = "./test_run/output/";
     _state->init_mem_trackers(TUniqueId());
@@ -237,7 +236,6 @@ void CsvScanNodeTest::init_desc_tbl() {
     _tnode.csv_scan_node.__isset.default_values = true;
     _tnode.csv_scan_node.max_filter_ratio = 0.5;
     _tnode.__isset.csv_scan_node = true;
-
 }
 
 TEST_F(CsvScanNodeTest, NormalUse) {
@@ -270,9 +268,8 @@ TEST_F(CsvScanNodeTest, NormalUse) {
             std::cout << "input row: " << print_row(row, scan_node._row_descriptor) << std::endl;
 
             if (i == 0) {
-                ASSERT_EQ(
-                        std::string("[(1 -12345.67891 2015-04-20 abc\0\0)]", 35),
-                        print_row(row, scan_node._row_descriptor));
+                ASSERT_EQ(std::string("[(1 -12345.67891 2015-04-20 abc\0\0)]", 35),
+                          print_row(row, scan_node._row_descriptor));
             }
         }
     }
@@ -292,7 +289,6 @@ TEST_F(CsvScanNodeTest, continuousDelim) {
     status = scan_node.open(_state);
     ASSERT_TRUE(status.ok());
 
-
     RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), tracker.get());
     bool eos = false;
 
@@ -310,9 +306,8 @@ TEST_F(CsvScanNodeTest, continuousDelim) {
             std::cout << "input row: " << print_row(row, scan_node._row_descriptor) << std::endl;
 
             if (i == 0) {
-                ASSERT_EQ(
-                        std::string("[(1 -12345.67891 2015-04-20 \0\0\0\0\0)]", 35),
-                        print_row(row, scan_node._row_descriptor));
+                ASSERT_EQ(std::string("[(1 -12345.67891 2015-04-20 \0\0\0\0\0)]", 35),
+                          print_row(row, scan_node._row_descriptor));
             }
         }
     }
@@ -380,12 +375,11 @@ TEST_F(CsvScanNodeTest, fill_fix_len_stringi_test) {
             std::cout << "input row: " << print_row(row, scan_node._row_descriptor) << std::endl;
 
             if (i == 0) {
-                ASSERT_EQ(std::string(
-                        "[(1 12345.67891 2015-04-20 ab\0\0\0)]", 34),
-                        print_row(row, scan_node._row_descriptor));
+                ASSERT_EQ(std::string("[(1 12345.67891 2015-04-20 ab\0\0\0)]", 34),
+                          print_row(row, scan_node._row_descriptor));
                 Tuple* tuple = row->get_tuple(0);
-                StringValue* str_slot
-                        = tuple->get_string_slot(_t_desc_table.slotDescriptors[3].byteOffset);
+                StringValue* str_slot =
+                        tuple->get_string_slot(_t_desc_table.slotDescriptors[3].byteOffset);
                 std::cout << "str_slot len: " << str_slot->len << std::endl;
                 ASSERT_EQ(5, str_slot->len);
             }

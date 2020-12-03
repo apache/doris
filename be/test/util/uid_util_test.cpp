@@ -18,14 +18,14 @@
 #include "util/uid_util.h"
 
 #include <gtest/gtest.h>
+
 #include <iostream>
 
 namespace doris {
 class UidUtilTest : public testing::Test {
 public:
-    UidUtilTest() { }
-    virtual ~UidUtilTest() {
-    }
+    UidUtilTest() {}
+    virtual ~UidUtilTest() {}
 };
 
 TEST_F(UidUtilTest, UniqueId) {
@@ -110,11 +110,10 @@ TEST_F(UidUtilTest, Hash) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
-

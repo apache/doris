@@ -18,17 +18,16 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H
 
-#include "gen_cpp/olap_file.pb.h"
-
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "olap/olap_common.h"
+#include "common/logging.h"
+#include "gen_cpp/olap_file.pb.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
-#include "common/logging.h"
+#include "olap/olap_common.h"
 
 namespace doris {
 
@@ -37,7 +36,7 @@ using RowsetMetaSharedPtr = std::shared_ptr<RowsetMeta>;
 
 class RowsetMeta {
 public:
-    virtual ~RowsetMeta() { }
+    virtual ~RowsetMeta() {}
 
     virtual bool init(const std::string& pb_rowset_meta) {
         bool ret = _deserialize_from_pb(pb_rowset_meta);
@@ -63,9 +62,7 @@ public:
         return true;
     }
 
-    virtual bool serialize(std::string* value) {
-        return _serialize_to_pb(value);
-    }
+    virtual bool serialize(std::string* value) { return _serialize_to_pb(value); }
 
     virtual bool json_rowset_meta(std::string* json_rowset_meta) {
         json2pb::Pb2JsonOptions json_options;
@@ -74,9 +71,7 @@ public:
         return ret;
     }
 
-    RowsetId rowset_id() const {
-        return _rowset_id;
-    }
+    RowsetId rowset_id() const { return _rowset_id; }
 
     void set_rowset_id(const RowsetId& rowset_id) {
         // rowset id is a required field, just set it to 0
@@ -85,56 +80,38 @@ public:
         _rowset_meta_pb.set_rowset_id_v2(rowset_id.to_string());
     }
 
-    int64_t tablet_id() const {
-        return _rowset_meta_pb.tablet_id();
-    }
+    int64_t tablet_id() const { return _rowset_meta_pb.tablet_id(); }
 
-    void set_tablet_id(int64_t tablet_id) {
-        _rowset_meta_pb.set_tablet_id(tablet_id);
-    }
+    void set_tablet_id(int64_t tablet_id) { _rowset_meta_pb.set_tablet_id(tablet_id); }
 
-    TabletUid tablet_uid() const {
-        return _rowset_meta_pb.tablet_uid();
-    }
+    TabletUid tablet_uid() const { return _rowset_meta_pb.tablet_uid(); }
 
     void set_tablet_uid(TabletUid tablet_uid) {
         *(_rowset_meta_pb.mutable_tablet_uid()) = tablet_uid.to_proto();
     }
 
-    int64_t txn_id() const {
-        return _rowset_meta_pb.txn_id();
-    }
+    int64_t txn_id() const { return _rowset_meta_pb.txn_id(); }
 
-    void set_txn_id(int64_t txn_id) {
-        _rowset_meta_pb.set_txn_id(txn_id);
-    }
+    void set_txn_id(int64_t txn_id) { _rowset_meta_pb.set_txn_id(txn_id); }
 
-    int32_t tablet_schema_hash() const {
-        return _rowset_meta_pb.tablet_schema_hash();
-    }
+    int32_t tablet_schema_hash() const { return _rowset_meta_pb.tablet_schema_hash(); }
 
     void set_tablet_schema_hash(int64_t tablet_schema_hash) {
         _rowset_meta_pb.set_tablet_schema_hash(tablet_schema_hash);
     }
 
-    RowsetTypePB rowset_type() const {
-        return _rowset_meta_pb.rowset_type();
-    }
+    RowsetTypePB rowset_type() const { return _rowset_meta_pb.rowset_type(); }
 
-    void set_rowset_type(RowsetTypePB rowset_type) {
-        _rowset_meta_pb.set_rowset_type(rowset_type);
-    }
+    void set_rowset_type(RowsetTypePB rowset_type) { _rowset_meta_pb.set_rowset_type(rowset_type); }
 
-    RowsetStatePB rowset_state() const {
-        return _rowset_meta_pb.rowset_state();
-    }
+    RowsetStatePB rowset_state() const { return _rowset_meta_pb.rowset_state(); }
 
     void set_rowset_state(RowsetStatePB rowset_state) {
         _rowset_meta_pb.set_rowset_state(rowset_state);
     }
 
     Version version() const {
-        return { _rowset_meta_pb.start_version(), _rowset_meta_pb.end_version() };
+        return {_rowset_meta_pb.start_version(), _rowset_meta_pb.end_version()};
     }
 
     void set_version(Version version) {
@@ -143,68 +120,49 @@ public:
     }
 
     bool has_version() const {
-        return _rowset_meta_pb.has_start_version()
-            &&  _rowset_meta_pb.has_end_version();
+        return _rowset_meta_pb.has_start_version() && _rowset_meta_pb.has_end_version();
     }
 
-    int64_t start_version() const {
-        return _rowset_meta_pb.start_version();
-    }
+    int64_t start_version() const { return _rowset_meta_pb.start_version(); }
 
     void set_start_version(int64_t start_version) {
         _rowset_meta_pb.set_start_version(start_version);
     }
 
-    int64_t end_version() const {
-        return _rowset_meta_pb.end_version();
-    }
+    int64_t end_version() const { return _rowset_meta_pb.end_version(); }
 
-    void set_end_version(int64_t end_version) {
-        _rowset_meta_pb.set_end_version(end_version);
-    }
+    void set_end_version(int64_t end_version) { _rowset_meta_pb.set_end_version(end_version); }
 
-    VersionHash version_hash() const {
-        return _rowset_meta_pb.version_hash();
-    }
+    VersionHash version_hash() const { return _rowset_meta_pb.version_hash(); }
 
     void set_version_hash(VersionHash version_hash) {
         _rowset_meta_pb.set_version_hash(version_hash);
     }
 
-    int64_t num_rows() const {
-        return _rowset_meta_pb.num_rows();
-    }
+    int64_t num_rows() const { return _rowset_meta_pb.num_rows(); }
 
-    void set_num_rows(int64_t num_rows) {
-        _rowset_meta_pb.set_num_rows(num_rows);
-    }
+    void set_num_rows(int64_t num_rows) { _rowset_meta_pb.set_num_rows(num_rows); }
 
-    size_t total_disk_size() const {
-        return _rowset_meta_pb.total_disk_size();
-    }
+    size_t total_disk_size() const { return _rowset_meta_pb.total_disk_size(); }
 
     void set_total_disk_size(size_t total_disk_size) {
         _rowset_meta_pb.set_total_disk_size(total_disk_size);
     }
 
-    size_t data_disk_size() const {
-        return _rowset_meta_pb.data_disk_size();
-    }
+    size_t data_disk_size() const { return _rowset_meta_pb.data_disk_size(); }
 
     void set_data_disk_size(size_t data_disk_size) {
         _rowset_meta_pb.set_data_disk_size(data_disk_size);
     }
 
-    size_t index_disk_size() const {
-        return _rowset_meta_pb.index_disk_size();
-    }
+    size_t index_disk_size() const { return _rowset_meta_pb.index_disk_size(); }
 
     void set_index_disk_size(size_t index_disk_size) {
         _rowset_meta_pb.set_index_disk_size(index_disk_size);
     }
 
     void zone_maps(std::vector<ZoneMap>* zone_maps) {
-        for (const ZoneMap& zone_map: _rowset_meta_pb.zone_maps()) {
+        for (const ZoneMap& zone_map : _rowset_meta_pb.zone_maps()) {
             zone_maps->push_back(zone_map);
         }
     }
@@ -221,13 +179,9 @@ public:
         *new_zone_map = zone_map;
     }
 
-    bool has_delete_predicate() const {
-        return _rowset_meta_pb.has_delete_predicate();
-    }
+    bool has_delete_predicate() const { return _rowset_meta_pb.has_delete_predicate(); }
 
-    const DeletePredicatePB& delete_predicate() const {
-        return _rowset_meta_pb.delete_predicate();
-    }
+    const DeletePredicatePB& delete_predicate() const { return _rowset_meta_pb.delete_predicate(); }
 
     DeletePredicatePB* mutable_delete_predicate() {
         return _rowset_meta_pb.mutable_delete_predicate();
@@ -238,17 +192,11 @@ public:
         *new_delete_condition = delete_predicate;
     }
 
-    bool empty() const {
-        return _rowset_meta_pb.empty();
-    }
+    bool empty() const { return _rowset_meta_pb.empty(); }
 
-    void set_empty(bool empty) {
-        _rowset_meta_pb.set_empty(empty);
-    }
+    void set_empty(bool empty) { _rowset_meta_pb.set_empty(empty); }
 
-    PUniqueId load_id() const {
-        return _rowset_meta_pb.load_id();
-    }
+    PUniqueId load_id() const { return _rowset_meta_pb.load_id(); }
 
     void set_load_id(PUniqueId load_id) {
         PUniqueId* new_load_id = _rowset_meta_pb.mutable_load_id();
@@ -256,44 +204,30 @@ public:
         new_load_id->set_lo(load_id.lo());
     }
 
-    bool delete_flag() const {
-        return _rowset_meta_pb.delete_flag();
-    }
+    bool delete_flag() const { return _rowset_meta_pb.delete_flag(); }
 
-    void set_delete_flag(bool delete_flag) {
-        _rowset_meta_pb.set_delete_flag(delete_flag);
-    }
+    void set_delete_flag(bool delete_flag) { _rowset_meta_pb.set_delete_flag(delete_flag); }
 
-    int64_t creation_time() const {
-        return _rowset_meta_pb.creation_time();
-    }
+    int64_t creation_time() const { return _rowset_meta_pb.creation_time(); }
 
     void set_creation_time(int64_t creation_time) {
         return _rowset_meta_pb.set_creation_time(creation_time);
     }
 
-    int64_t partition_id() const {
-        return _rowset_meta_pb.partition_id();
-    }
+    int64_t partition_id() const { return _rowset_meta_pb.partition_id(); }
 
     void set_partition_id(int64_t partition_id) {
         return _rowset_meta_pb.set_partition_id(partition_id);
     }
 
-    int64_t num_segments() const {
-        return _rowset_meta_pb.num_segments();
-    }
+    int64_t num_segments() const { return _rowset_meta_pb.num_segments(); }
 
-    void set_num_segments(int64_t num_segments) {
-        _rowset_meta_pb.set_num_segments(num_segments);
-    }
+    void set_num_segments(int64_t num_segments) { _rowset_meta_pb.set_num_segments(num_segments); }
 
-    void to_rowset_pb(RowsetMetaPB* rs_meta_pb) const {
-        *rs_meta_pb = _rowset_meta_pb;
-    }
+    void to_rowset_pb(RowsetMetaPB* rs_meta_pb) const { *rs_meta_pb = _rowset_meta_pb; }
 
     bool is_singleton_delta() const {
-        return  has_version() && _rowset_meta_pb.start_version() == _rowset_meta_pb.end_version();
+        return has_version() && _rowset_meta_pb.start_version() == _rowset_meta_pb.end_version();
     }
 
     // Some time, we may check if this rowset is in rowset meta manager's meta by using RowsetMetaManager::check_rowset_meta.
@@ -301,17 +235,11 @@ public:
     // If we explicitly remove this rowset from rowset meta manager's meta, we can set _is_removed_from_rowset_meta to true,
     // And next time when we want to check if this rowset is in rowset mata manager's meta, we can
     // check is_remove_from_rowset_meta() first.
-    void set_remove_from_rowset_meta() {
-        _is_removed_from_rowset_meta = true;
-    }
+    void set_remove_from_rowset_meta() { _is_removed_from_rowset_meta = true; }
 
-    bool is_remove_from_rowset_meta() const {
-        return _is_removed_from_rowset_meta;
-    }
+    bool is_remove_from_rowset_meta() const { return _is_removed_from_rowset_meta; }
 
-    SegmentsOverlapPB segments_overlap() const {
-        return _rowset_meta_pb.segments_overlap_pb();
-    }
+    SegmentsOverlapPB segments_overlap() const { return _rowset_meta_pb.segments_overlap_pb(); }
 
     void set_segments_overlap(SegmentsOverlapPB segments_overlap) {
         _rowset_meta_pb.set_segments_overlap_pb(segments_overlap);
@@ -361,7 +289,7 @@ private:
 
     bool _serialize_to_pb(std::string* value) {
         if (value == nullptr) {
-           return false;
+            return false;
         }
         return _rowset_meta_pb.SerializeToString(value);
     }
@@ -400,13 +328,13 @@ private:
     friend bool operator==(const RowsetMeta& a, const RowsetMeta& b) {
         if (a._rowset_id != b._rowset_id) return false;
         if (a._is_removed_from_rowset_meta != b._is_removed_from_rowset_meta) return false;
-        if (!google::protobuf::util::MessageDifferencer::Equals(a._rowset_meta_pb, b._rowset_meta_pb)) return false;
+        if (!google::protobuf::util::MessageDifferencer::Equals(a._rowset_meta_pb,
+                                                                b._rowset_meta_pb))
+            return false;
         return true;
     }
 
-    friend bool operator!=(const RowsetMeta& a, const RowsetMeta& b) {
-        return !(a == b);
-    }
+    friend bool operator!=(const RowsetMeta& a, const RowsetMeta& b) { return !(a == b); }
 
 private:
     RowsetMetaPB _rowset_meta_pb;

@@ -44,7 +44,6 @@
 /// decision, e.g. not inlining a small function on a hot path.
 #define ALWAYS_INLINE __attribute__((always_inline))
 
-#define ALIGN_CACHE_LINE __attribute__ ((aligned (CACHE_LINE_SIZE)))
+#define ALIGN_CACHE_LINE __attribute__((aligned(CACHE_LINE_SIZE)))
 
 #endif
-

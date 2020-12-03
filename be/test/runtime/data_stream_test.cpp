@@ -220,7 +220,7 @@ protected:
     string _stmt;
 
     // RowBatch generation
-    scoped_ptr<RowBatch> _batch;
+    boost::scoped_ptr<RowBatch> _batch;
     int _next_val;
     int64_t* _tuple_mem;
 
@@ -232,7 +232,7 @@ protected:
     TDataStreamSink _broadcast_sink;
     TDataStreamSink _random_sink;
     TDataStreamSink _hash_sink;
-    vector<TPlanFragmentDestination> _dest;
+    std::vector<TPlanFragmentDestination> _dest;
 
     struct SenderInfo {
         thread* thread_handle;
@@ -241,7 +241,7 @@ protected:
 
         SenderInfo() : thread_handle(NULL), num_bytes_sent(0) {}
     };
-    vector<SenderInfo> _sender_info;
+    std::vector<SenderInfo> _sender_info;
 
     struct ReceiverInfo {
         TPartitionType::type stream_type;
@@ -267,7 +267,7 @@ protected:
             stream_recvr.reset();
         }
     };
-    vector<ReceiverInfo> _receiver_info;
+    std::vector<ReceiverInfo> _receiver_info;
 
     // Create an instance id and add it to _dest
     void get_next_instance_id(TUniqueId* instance_id) {
@@ -308,10 +308,10 @@ protected:
         EXPECT_TRUE(DescriptorTbl::create(&_obj_pool, thrift_desc_tbl, &_desc_tbl).ok());
         _runtime_state.set_desc_tbl(_desc_tbl);
 
-        vector<TTupleId> row_tids;
+        std::vector<TTupleId> row_tids;
         row_tids.push_back(0);
 
-        vector<bool> nullable_tuples;
+        std::vector<bool> nullable_tuples;
         nullable_tuples.push_back(false);
         _row_desc = _obj_pool.add(new RowDescriptor(*_desc_tbl, row_tids, nullable_tuples));
     }
@@ -339,9 +339,9 @@ protected:
         _rhs_slot_ctx->open(NULL);
         SortExecExprs* sort_exprs = _obj_pool.add(new SortExecExprs());
         sort_exprs->init(vector<ExprContext*>(1, _lhs_slot_ctx),
-                         vector<ExprContext*>(1, _rhs_slot_ctx));
-        _less_than = _obj_pool.add(
-                new TupleRowComparator(*sort_exprs, vector<bool>(1, true), vector<bool>(1, false)));
+                         std::vector<ExprContext*>(1, _rhs_slot_ctx));
+        _less_than = _obj_pool.add(new TupleRowComparator(*sort_exprs, std::vector<bool>(1, true),
+                                                          std::vector<bool>(1, false)));
     }
 
     // Create _batch, but don't fill it with data yet. Assumes we created _row_desc.
@@ -562,7 +562,7 @@ protected:
 
         EXPECT_TRUE(sender.prepare(&state).ok());
         EXPECT_TRUE(sender.open(&state).ok());
-        scoped_ptr<RowBatch> batch(create_row_batch());
+        boost::scoped_ptr<RowBatch> batch(create_row_batch());
         SenderInfo& info = _sender_info[sender_num];
         int next_val = 0;
 

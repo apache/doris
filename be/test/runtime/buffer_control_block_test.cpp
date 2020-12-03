@@ -15,23 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <pthread.h>
-#include <gtest/gtest.h>
 #include "runtime/buffer_control_block.h"
+
+#include <gtest/gtest.h>
+#include <pthread.h>
+
 #include "gen_cpp/PaloInternalService_types.h"
 
 namespace doris {
 
 class BufferControlBlockTest : public testing::Test {
 public:
-    BufferControlBlockTest() {
-    }
-    virtual ~BufferControlBlockTest() {
-    }
+    BufferControlBlockTest() {}
+    virtual ~BufferControlBlockTest() {}
 
 protected:
-    virtual void SetUp() {
-    }
+    virtual void SetUp() {}
 
 private:
 };
@@ -182,7 +181,7 @@ TEST_F(BufferControlBlockTest, get_then_close) {
     pthread_join(id, NULL);
 }
 
-}
+} // namespace doris
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!doris::config::init(conffile.c_str(), false)) {

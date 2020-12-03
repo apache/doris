@@ -15,20 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "plugin/plugin_loader.h"
+
 #include <boost/algorithm/string/predicate.hpp>
 #include <cstring>
 
-#include "plugin/plugin_loader.h"
-#include "plugin/plugin_zip.h"
-
+#include "env/env.h"
 #include "gutil/strings/substitute.h"
 #include "gutil/strings/util.h"
+#include "http/http_client.h"
+#include "plugin/plugin_zip.h"
 #include "util/dynamic_util.h"
 #include "util/file_utils.h"
-#include "http/http_client.h"
-#include "util/time.h"
 #include "util/md5.h"
-#include "env/env.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -38,14 +38,14 @@ static const std::string PLUGIN_VERSION_SYMBOL = "_plugin_interface_version";
 static const std::string PLUGIN_SIZE_SYMBOL = "_sizeof_plugin";
 static const std::string PLUGIN_STRUCT_SYMBOL = "_plugin";
 
-
 Status PluginLoader::open_valid() {
     return Status::OK();
 }
 
 Status PluginLoader::close_valid() {
     if (_plugin.get() != nullptr && (_plugin->flags & PLUGIN_NOT_DYNAMIC_UNINSTALL)) {
-        return Status::InternalError(Substitute("plugin $0 not allow dynamic uninstall", _name));
+        return Status::InternalError(
+                strings::Substitute("plugin $0 not allow dynamic uninstall", _name));
     }
 
     return Status::OK();
@@ -92,34 +92,36 @@ Status DynamicPluginLoader::open_plugin() {
 
     void* symbol;
     // check version symbol
-    RETURN_IF_ERROR(dynamic_lookup(_plugin_handler, (_name + PLUGIN_VERSION_SYMBOL).c_str(), &symbol));
+    RETURN_IF_ERROR(
+            dynamic_lookup(_plugin_handler, (_name + PLUGIN_VERSION_SYMBOL).c_str(), &symbol));
 
-    if (DORIS_PLUGIN_VERSION > *(int*) symbol) {
+    if (DORIS_PLUGIN_VERSION > *(int*)symbol) {
         return Status::InternalError("plugin compile version too old");
     }
 
     RETURN_IF_ERROR(dynamic_lookup(_plugin_handler, (_name + PLUGIN_SIZE_SYMBOL).c_str(), &symbol));
 
-    int plugin_size = *(int*) symbol;
+    int plugin_size = *(int*)symbol;
     if (plugin_size != sizeof(Plugin)) {
         return Status::InternalError("plugin struct error");
     }
 
     // check Plugin declaration
-    RETURN_IF_ERROR(dynamic_lookup(_plugin_handler, (_name + PLUGIN_STRUCT_SYMBOL).c_str(), &symbol));
+    RETURN_IF_ERROR(
+            dynamic_lookup(_plugin_handler, (_name + PLUGIN_STRUCT_SYMBOL).c_str(), &symbol));
 
-    Plugin* end_plugin = (Plugin*) ((char*) symbol + plugin_size);
+    Plugin* end_plugin = (Plugin*)((char*)symbol + plugin_size);
 
-    if (end_plugin->handler != nullptr || end_plugin->init != nullptr || end_plugin->close != nullptr) {
+    if (end_plugin->handler != nullptr || end_plugin->init != nullptr ||
+        end_plugin->close != nullptr) {
         return Status::InternalError("plugin struct error");
     }
-    
+
     _plugin = std::make_shared<Plugin>();
     std::memcpy(_plugin.get(), symbol, plugin_size);
-    
+
     return Status::OK();
 }
-
 
 Status DynamicPluginLoader::uninstall() {
     // close plugin
@@ -127,7 +129,7 @@ Status DynamicPluginLoader::uninstall() {
 
     // remove plugin install path
     RETURN_IF_ERROR(FileUtils::remove_all(_install_path + "/" + _name));
-    
+
     return Status::OK();
 }
 
@@ -154,8 +156,9 @@ Status DynamicPluginLoader::close_plugin() {
     return Status::OK();
 }
 
-BuiltinPluginLoader::BuiltinPluginLoader(const std::string& name, int type, const doris::Plugin* plugin) :
-        PluginLoader(name, type) {
+BuiltinPluginLoader::BuiltinPluginLoader(const std::string& name, int type,
+                                         const doris::Plugin* plugin)
+        : PluginLoader(name, type) {
     _plugin = std::make_shared<Plugin>();
     std::memcpy(_plugin.get(), plugin, sizeof(Plugin));
 }
@@ -163,11 +166,11 @@ BuiltinPluginLoader::BuiltinPluginLoader(const std::string& name, int type, cons
 Status BuiltinPluginLoader::install() {
     RETURN_IF_ERROR(open_valid());
     LOG(INFO) << "plugin: " << _plugin.get();
-    
+
     if (_plugin->init != nullptr) {
         _plugin->init(&_plugin->handler);
     }
-    
+
     return Status::OK();
 }
 
@@ -175,7 +178,7 @@ Status BuiltinPluginLoader::uninstall() {
     if (_close) {
         return Status::OK();
     }
-    
+
     if (_plugin.get() != nullptr) {
         RETURN_IF_ERROR(close_valid());
 
@@ -183,12 +186,12 @@ Status BuiltinPluginLoader::uninstall() {
             // todo: what should be send?
             _plugin->close(&_plugin->handler);
         }
-        
+
         _plugin.reset();
     }
-    
+
     _close = true;
     return Status::OK();
 }
 
-}
+} // namespace doris

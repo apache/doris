@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
-#define  DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
+#ifndef DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
+#define DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
 
 #include <stdint.h>
 
@@ -29,9 +29,7 @@ public:
     MysqlRowBuffer();
     ~MysqlRowBuffer();
 
-    void reset() {
-        _pos = _buf;
-    }
+    void reset() { _pos = _buf; }
 
     // TODO(zhaochun): add signed/unsigned support
     int push_tinyint(int8_t data);
@@ -48,15 +46,10 @@ public:
     // Becareful when use the returned pointer.
     char* reserved(int size);
 
-    const char* buf() const {
-        return _buf;
-    }
-    const char* pos() const {
-        return _pos;
-    }
-    int length() const {
-        return _pos - _buf;
-    }
+    const char* buf() const { return _buf; }
+    const char* pos() const { return _pos; }
+    int length() const { return _pos - _buf; }
+
 private:
     int reserve(int size);
 
@@ -66,8 +59,8 @@ private:
     char _default_buf[4096];
 };
 
-}
+} // namespace doris
 
-#endif  // DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
+#endif // DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
 
 /* vim: set ts=4 sw=4 sts=4 tw=100 noet: */

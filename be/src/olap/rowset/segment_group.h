@@ -26,16 +26,16 @@
 #include <utility>
 #include <vector>
 
-#include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/column_data_file.pb.h"
+#include "gen_cpp/olap_file.pb.h"
+#include "olap/column_mapping.h"
 #include "olap/field.h"
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/row_cursor.h"
 #include "olap/olap_index.h"
+#include "olap/row_cursor.h"
 #include "olap/utils.h"
-#include "olap/column_mapping.h"
 
 namespace doris {
 
@@ -46,15 +46,16 @@ namespace doris {
 // corresponding row block
 class SegmentGroup {
     friend class MemIndex;
+
 public:
     SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* tablet_schema,
-            const std::string& rowset_path_prefix, Version version,
-            VersionHash version_hash, bool delete_flag, int segment_group_id, int32_t num_segments);
+                 const std::string& rowset_path_prefix, Version version, VersionHash version_hash,
+                 bool delete_flag, int segment_group_id, int32_t num_segments);
 
     SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* tablet_schema,
-            const std::string& rowset_path_prefix, bool delete_flag,
-            int32_t segment_group_id, int32_t num_segments, bool is_pending,
-            TPartitionId partition_id, TTransactionId transaction_id);
+                 const std::string& rowset_path_prefix, bool delete_flag, int32_t segment_group_id,
+                 int32_t num_segments, bool is_pending, TPartitionId partition_id,
+                 TTransactionId transaction_id);
 
     virtual ~SegmentGroup();
 
@@ -63,20 +64,17 @@ public:
     bool index_loaded();
     OLAPStatus load_pb(const char* file, uint32_t seg_id);
 
-    bool has_zone_maps() {
-        return _zone_maps.size() != 0;
-    }
+    bool has_zone_maps() { return _zone_maps.size() != 0; }
 
     OLAPStatus add_zone_maps_for_linked_schema_change(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields,
-        const SchemaMapping& schema_mapping);
+            const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields,
+            const SchemaMapping& schema_mapping);
 
     OLAPStatus add_zone_maps(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields);
+            const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields);
 
-    OLAPStatus add_zone_maps(
-        std::vector<std::pair<std::string, std::string>> &zone_map_strings,
-        std::vector<bool> &null_vec);
+    OLAPStatus add_zone_maps(std::vector<std::pair<std::string, std::string>>& zone_map_strings,
+                             std::vector<bool>& null_vec);
 
     const std::vector<std::pair<WrapperField*, WrapperField*>>& get_zone_maps() {
         return _zone_maps;
@@ -90,10 +88,8 @@ public:
 
     // Finds position of first row block contain the smallest key equal
     // to or greater than 'key'. Returns true on success.
-    OLAPStatus find_short_key(const RowCursor& key,
-                          RowCursor* helper_cursor,
-                          bool find_last,
-                          RowBlockPosition* position) const;
+    OLAPStatus find_short_key(const RowCursor& key, RowCursor* helper_cursor, bool find_last,
+                              RowBlockPosition* position) const;
 
     // Returns position of the first row block in the index.
     OLAPStatus find_first_row_block(RowBlockPosition* position) const;
@@ -109,10 +105,8 @@ public:
     // Given two positions in an index, low and high, set output to be
     // the midpoint between those two positions.  Returns the distance
     // between low and high as computed by ComputeDistance.
-    OLAPStatus find_mid_point(const RowBlockPosition& low,
-                          const RowBlockPosition& high,
-                          RowBlockPosition* output,
-                          uint32_t* dis) const;
+    OLAPStatus find_mid_point(const RowBlockPosition& low, const RowBlockPosition& high,
+                              RowBlockPosition* output, uint32_t* dis) const;
 
     OLAPStatus find_prev_point(const RowBlockPosition& current, RowBlockPosition* prev) const;
 
@@ -160,7 +154,9 @@ public:
     inline bool delete_flag() const { return _delete_flag; }
 
     inline int32_t segment_group_id() const { return _segment_group_id; }
-    inline void set_segment_group_id(int32_t segment_group_id) { _segment_group_id = segment_group_id; }
+    inline void set_segment_group_id(int32_t segment_group_id) {
+        _segment_group_id = segment_group_id;
+    }
 
     inline PUniqueId load_id() const { return _load_id; }
     inline void set_load_id(const PUniqueId& load_id) { _load_id = load_id; }
@@ -168,33 +164,19 @@ public:
     inline int32_t num_segments() const { return _num_segments; }
     inline void set_num_segments(int32_t num_segments) { _num_segments = num_segments; }
 
-    size_t index_size() const {
-        return _index.index_size();
-    }
+    size_t index_size() const { return _index.index_size(); }
 
-    size_t data_size() const {
-        return _index.data_size();
-    }
+    size_t data_size() const { return _index.data_size(); }
 
-    int64_t num_rows() const {
-        return _index.num_rows();
-    }
+    int64_t num_rows() const { return _index.num_rows(); }
 
-    const size_t short_key_length() const {
-        return _short_key_length;
-    }
+    const size_t short_key_length() const { return _short_key_length; }
 
-    const size_t new_short_key_length() const {
-        return _new_short_key_length;
-    }
+    const size_t new_short_key_length() const { return _new_short_key_length; }
 
-    const std::vector<TabletColumn>& short_key_columns() const {
-        return _short_key_columns;
-    }
+    const std::vector<TabletColumn>& short_key_columns() const { return _short_key_columns; }
 
-    bool empty() const {
-        return _empty;
-    }
+    bool empty() const { return _empty; }
 
     bool zero_num_rows() const {
         // previous version may has non-sense file in disk.
@@ -202,9 +184,7 @@ public:
         return _index.zero_num_rows();
     }
 
-    void set_empty(bool empty) {
-        _empty = empty;
-    }
+    void set_empty(bool empty) { _empty = empty; }
 
     // return count of entries in MemIndex
     uint64_t num_index_entries() const;
@@ -217,9 +197,7 @@ public:
         return &(_seg_pb_map.at(seg_id));
     }
 
-    inline bool get_null_supported(uint32_t seg_id) {
-        return _index.get_null_supported(seg_id);
-    }
+    inline bool get_null_supported(uint32_t seg_id) { return _index.get_null_supported(seg_id); }
 
     std::string construct_index_file_path(const std::string& snapshot_path,
                                           int32_t segment_id) const;
@@ -230,8 +208,10 @@ public:
 
     // these two functions are for compatible, and will be deleted later
     // so it is better not to use it.
-    std::string construct_old_index_file_path(const std::string& path_prefix, int32_t segment_id) const;
-    std::string construct_old_data_file_path(const std::string& path_prefix, int32_t segment_id) const;
+    std::string construct_old_index_file_path(const std::string& path_prefix,
+                                              int32_t segment_id) const;
+    std::string construct_old_data_file_path(const std::string& path_prefix,
+                                             int32_t segment_id) const;
 
     size_t current_num_rows_per_row_block() const;
 
@@ -251,15 +231,13 @@ public:
 
     int64_t get_tablet_id();
 
-    const RowsetId& rowset_id() {
-        return _rowset_id;
-    }
+    const RowsetId& rowset_id() { return _rowset_id; }
 
     OLAPStatus convert_from_old_files(const std::string& snapshot_path,
-                             std::vector<std::string>* success_links);
-    
+                                      std::vector<std::string>* success_links);
+
     OLAPStatus convert_to_old_files(const std::string& snapshot_path,
-                             std::vector<std::string>* success_links);
+                                    std::vector<std::string>* success_links);
 
     OLAPStatus remove_old_files(std::vector<std::string>* links_to_remove);
 
@@ -268,33 +246,38 @@ public:
     OLAPStatus link_segments_to_path(const std::string& dest_path, const RowsetId& rowset_id);
 
 private:
-    
     std::string _construct_file_name(int32_t segment_id, const std::string& suffix) const;
-    std::string _construct_file_name(const RowsetId& rowset_id, int32_t segment_id, const std::string& suffix) const;
+    std::string _construct_file_name(const RowsetId& rowset_id, int32_t segment_id,
+                                     const std::string& suffix) const;
 
-    std::string _construct_old_pending_file_path(const std::string& path_prefix, int32_t segment_id, const std::string& suffix) const;
-    
-    std::string _construct_old_file_path(const std::string& path_prefix, int32_t segment_id, const std::string& suffix) const;
+    std::string _construct_old_pending_file_path(const std::string& path_prefix, int32_t segment_id,
+                                                 const std::string& suffix) const;
 
-    std::string _construct_err_sg_file_path(const std::string& path_prefix, int32_t segment_id, const std::string& suffix) const;
+    std::string _construct_old_file_path(const std::string& path_prefix, int32_t segment_id,
+                                         const std::string& suffix) const;
 
-    std::string _construct_err_sg_index_file_path(const std::string& path_prefix, int32_t segment_id) const;
-    
-    std::string _construct_err_sg_data_file_path(const std::string& path_prefix, int32_t segment_id) const;
+    std::string _construct_err_sg_file_path(const std::string& path_prefix, int32_t segment_id,
+                                            const std::string& suffix) const;
+
+    std::string _construct_err_sg_index_file_path(const std::string& path_prefix,
+                                                  int32_t segment_id) const;
+
+    std::string _construct_err_sg_data_file_path(const std::string& path_prefix,
+                                                 int32_t segment_id) const;
 
 private:
     int64_t _tablet_id;
     RowsetId _rowset_id;
     const TabletSchema* _schema;
-    std::string _rowset_path_prefix;    // path of rowset
-    Version _version;                  // version of associated data file
-    VersionHash _version_hash;         // version hash for this segment group
+    std::string _rowset_path_prefix; // path of rowset
+    Version _version;                // version of associated data file
+    VersionHash _version_hash;       // version hash for this segment group
     bool _delete_flag;
-    int32_t _segment_group_id;         // segment group id of segment group
-    PUniqueId _load_id;                // load id for segment group
-    int32_t _num_segments;             // number of segments in this segment group
-    bool _index_loaded;                // whether the segment group has been read
-    std::atomic<int64_t> _ref_count;   // reference count
+    int32_t _segment_group_id;       // segment group id of segment group
+    PUniqueId _load_id;              // load id for segment group
+    int32_t _num_segments;           // number of segments in this segment group
+    bool _index_loaded;              // whether the segment group has been read
+    std::atomic<int64_t> _ref_count; // reference count
     MemIndex _index;
     bool _is_pending;
     TPartitionId _partition_id;
@@ -327,7 +310,6 @@ private:
 
     std::vector<std::pair<WrapperField*, WrapperField*>> _zone_maps;
     std::unordered_map<uint32_t, FileHeader<ColumnDataHeaderMessage>> _seg_pb_map;
-
 };
 
 } // namespace doris

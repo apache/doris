@@ -19,18 +19,18 @@
 
 #include <gtest/gtest.h>
 
+#include "common/logging.h"
 #include "geo/geo_types.h"
 #include "geo/wkt_parse.h"
 #include "geo/wkt_parse_ctx.h"
 #include "s2/s2debug.h"
-#include "common/logging.h"
 
 namespace doris {
 
 class GeoTypesTest : public testing::Test {
 public:
-    GeoTypesTest() { }
-    virtual ~GeoTypesTest() { }
+    GeoTypesTest() {}
+    virtual ~GeoTypesTest() {}
 };
 
 TEST_F(GeoTypesTest, point_normal) {
@@ -154,7 +154,8 @@ TEST_F(GeoTypesTest, polygon_parse_fail) {
 }
 
 TEST_F(GeoTypesTest, polygon_hole_contains) {
-    const char* wkt = "POLYGON ((10 10, 50 10, 50 50, 10 50, 10 10), (20 20, 40 20, 40 40, 20 40, 20 20))";
+    const char* wkt =
+            "POLYGON ((10 10, 50 10, 50 50, 10 50, 10 10), (20 20, 40 20, 40 40, 20 40, 20 20))";
     GeoParseStatus status;
     std::unique_ptr<GeoShape> polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
     ASSERT_EQ(GEO_PARSE_OK, status);
@@ -200,7 +201,7 @@ TEST_F(GeoTypesTest, circle) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

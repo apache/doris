@@ -18,13 +18,14 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_THRIFT_SERVER_H
 #define DORIS_BE_SRC_COMMON_UTIL_THRIFT_SERVER_H
 
-#include <boost/thread.hpp>
-#include <boost/thread/mutex.hpp>
+#include <thrift/TProcessor.h>
+#include <thrift/server/TServer.h>
+
 #include <boost/scoped_ptr.hpp>
 #include <boost/shared_ptr.hpp>
+#include <boost/thread.hpp>
+#include <boost/thread/mutex.hpp>
 #include <boost/unordered_map.hpp>
-#include <thrift/server/TServer.h>
-#include <thrift/TProcessor.h>
 
 #include "common/status.h"
 #include "util/metrics.h"
@@ -74,11 +75,9 @@ public:
                  int num_worker_threads = DEFAULT_WORKER_THREADS,
                  ServerType server_type = THREADED);
 
-    ~ThriftServer() { }
+    ~ThriftServer() {}
 
-    int port() const {
-        return _port;
-    }
+    int port() const { return _port; }
 
     void stop();
     // Blocks until the server stops and exits its main thread.
@@ -94,9 +93,7 @@ public:
     Status start();
 
     // Sets the session handler which receives events when sessions are created or closed.
-    void set_session_handler(SessionHandlerIf* session) {
-        _session_handler = session;
-    }
+    void set_session_handler(SessionHandlerIf* session) { _session_handler = session; }
 
     // Returns a unique identifier for the current session. A session is
     // identified with the lifetime of a socket connection to this server.
@@ -152,6 +149,6 @@ private:
     IntCounter* thrift_connections_total;
 };
 
-}
+} // namespace doris
 
 #endif

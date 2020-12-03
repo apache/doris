@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include <memory>
 #include <iostream>
+#include <memory>
 
 #include "common/status.h"
 
@@ -36,7 +36,7 @@ namespace arrow {
 class Array;
 class RecordBatch;
 class Status;
-}
+} // namespace arrow
 
 namespace doris {
 
@@ -46,4 +46,4 @@ Status arrow_pretty_print(const arrow::Array& rb, std::ostream* os);
 
 Status to_status(const arrow::Status& status);
 
-}
+} // namespace doris

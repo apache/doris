@@ -70,12 +70,23 @@ public class HeartbeatMgrTest {
     public void testFrontendHbHandler() {
         new MockUp<Util>() {
             @Mock
-            public String getResultForUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
-                    int readTimeoutMs) {
+            public String getResultForUrl(String urlStr, String encodedAuthInfo,
+                                          int connectTimeoutMs, int readTimeoutMs) {
+
                 if (urlStr.contains("192.168.1.1")) {
-                    return "{\"replayedJournalId\":191224,\"queryPort\":9131,\"rpcPort\":9121,\"status\":\"OK\",\"msg\":\"Success\"}";
+                    return "{\"replayedJournalId\":191224," +
+                            "\"queryPort\":9131," +
+                            "\"rpcPort\":9121," +
+                            "\"status\":\"OK\"," +
+                            "\"msg\":\"Success\"," +
+                            "\"version\":\"test\"}";
                 } else {
-                    return "{\"replayedJournalId\":0,\"queryPort\":0,\"rpcPort\":0,\"status\":\"FAILED\",\"msg\":\"not ready\"}";
+                    return "{\"replayedJournalId\":0," +
+                            "\"queryPort\":0," +
+                            "\"rpcPort\":0," +
+                            "\"status\":\"FAILED\"," +
+                            "\"msg\":\"not ready\"," +
+                            "\"version\":\"unknown\"}";
                 }
             }
         };
@@ -83,13 +94,14 @@ public class HeartbeatMgrTest {
         Frontend fe = new Frontend(FrontendNodeType.FOLLOWER, "test", "192.168.1.1", 9010);
         FrontendHeartbeatHandler handler = new FrontendHeartbeatHandler(fe, 12345, "abcd");
         HeartbeatResponse response = handler.call();
-        
+
         Assert.assertTrue(response instanceof FrontendHbResponse);
         FrontendHbResponse hbResponse = (FrontendHbResponse) response;
         Assert.assertEquals(191224, hbResponse.getReplayedJournalId());
-        Assert.assertEquals(9121, hbResponse.getRpcPort());
         Assert.assertEquals(9131, hbResponse.getQueryPort());
+        Assert.assertEquals(9121, hbResponse.getRpcPort());
         Assert.assertEquals(HbStatus.OK, hbResponse.getStatus());
+        Assert.assertEquals("test", hbResponse.getVersion());
 
         Frontend fe2 = new Frontend(FrontendNodeType.FOLLOWER, "test2", "192.168.1.2", 9010);
         handler = new FrontendHeartbeatHandler(fe2, 12345, "abcd");
@@ -98,8 +110,8 @@ public class HeartbeatMgrTest {
         Assert.assertTrue(response instanceof FrontendHbResponse);
         hbResponse = (FrontendHbResponse) response;
         Assert.assertEquals(0, hbResponse.getReplayedJournalId());
-        Assert.assertEquals(0, hbResponse.getRpcPort());
         Assert.assertEquals(0, hbResponse.getQueryPort());
+        Assert.assertEquals(0, hbResponse.getRpcPort());
         Assert.assertEquals(HbStatus.BAD, hbResponse.getStatus());
 
     }

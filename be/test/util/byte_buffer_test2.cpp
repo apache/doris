@@ -15,18 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/byte_buffer.h"
-
 #include <gtest/gtest.h>
 
 #include "common/logging.h"
+#include "util/byte_buffer.h"
 
 namespace doris {
 
 class ByteBufferTest : public testing::Test {
 public:
-    ByteBufferTest() { }
-    virtual ~ByteBufferTest() { }
+    ByteBufferTest() {}
+    virtual ~ByteBufferTest() {}
 };
 
 TEST_F(ByteBufferTest, normal) {
@@ -50,7 +49,7 @@ TEST_F(ByteBufferTest, normal) {
     ASSERT_EQ(3, buf->remaining());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

@@ -17,8 +17,10 @@
 
 #include "exprs/hybrid_set.h"
 
-#include <string>
 #include <gtest/gtest.h>
+
+#include <string>
+
 #include "common/configbase.h"
 #include "util/logging.h"
 
@@ -27,8 +29,7 @@ namespace doris {
 // mock
 class HybridSetTest : public testing::Test {
 public:
-    HybridSetTest() {
-    }
+    HybridSetTest() {}
 
 protected:
 };
@@ -334,13 +335,13 @@ TEST_F(HybridSetTest, timestamp) {
     char s3[] = "  1990-10-20 10:10:10.123456";
     DateTimeValue v1;
     v1.from_date_str(s1, strlen(s1));
-        LOG(INFO) << v1.debug_string();
+    LOG(INFO) << v1.debug_string();
     DateTimeValue v2;
     v2.from_date_str(s2, strlen(s2));
-        LOG(INFO) << v2.debug_string();
+    LOG(INFO) << v2.debug_string();
     DateTimeValue v3;
     v3.from_date_str(s3, strlen(s3));
-        LOG(INFO) << v3.debug_string();
+    LOG(INFO) << v3.debug_string();
 
     set->insert(&v1);
     set->insert(&v2);
@@ -374,7 +375,7 @@ TEST_F(HybridSetTest, timestamp) {
     ASSERT_FALSE(set->find(&v23));
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -386,4 +387,3 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

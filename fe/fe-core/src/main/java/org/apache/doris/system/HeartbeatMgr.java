@@ -23,6 +23,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.http.rest.BootstrapFinishAction;
@@ -153,7 +154,7 @@ public class HeartbeatMgr extends MasterDaemon {
         // we also add a 'mocked' master Frontends heartbeat response to synchronize master info to other Frontends.
         hbPackage.addHbResponse(new FrontendHbResponse(masterFeNodeName,
                 Config.query_port, Config.rpc_port, Catalog.getCurrentCatalog().getEditLog().getMaxJournalId(),
-                System.currentTimeMillis()));
+                System.currentTimeMillis(), Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH));
 
         // write edit log
         Catalog.getCurrentCatalog().getEditLog().logHeartbeat(hbPackage);
@@ -190,7 +191,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(
                         hbResponse.getName(), hbResponse.getHost(), hbResponse.getPort());
                 if (broker != null) {
-                    boolean isChanged =  broker.handleHbResponse(hbResponse);
+                    boolean isChanged = broker.handleHbResponse(hbResponse);
                     if (hbResponse.getStatus() != HbStatus.OK) {
                         // invalid all connections cached in ClientPool
                         ClientPool.brokerPool.clearPool(new TNetworkAddress(broker.ip, broker.port));
@@ -281,7 +282,8 @@ public class HeartbeatMgr extends MasterDaemon {
                 // heartbeat to self
                 if (Catalog.getCurrentCatalog().isReady()) {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
-                            Catalog.getCurrentCatalog().getReplayedJournalId(), System.currentTimeMillis());
+                            Catalog.getCurrentCatalog().getReplayedJournalId(), System.currentTimeMillis(),
+                            Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
                 }
@@ -310,8 +312,9 @@ public class HeartbeatMgr extends MasterDaemon {
                         long replayedJournalId = root.getLong(BootstrapFinishAction.REPLAYED_JOURNAL_ID);
                         int queryPort = root.getInt(BootstrapFinishAction.QUERY_PORT);
                         int rpcPort = root.getInt(BootstrapFinishAction.RPC_PORT);
+                        String version = root.getString(BootstrapFinishAction.VERSION);
                         return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
-                                System.currentTimeMillis());
+                                System.currentTimeMillis(), version == null ? "unknown" : version);
                     }
                 } else if (root.has("code")) {
                     // new return
@@ -323,8 +326,9 @@ public class HeartbeatMgr extends MasterDaemon {
                         long replayedJournalId = dataObj.getLong(BootstrapFinishAction.REPLAYED_JOURNAL_ID);
                         int queryPort = dataObj.getInt(BootstrapFinishAction.QUERY_PORT);
                         int rpcPort = dataObj.getInt(BootstrapFinishAction.RPC_PORT);
+                        // TODO(wb) support new return for version here
                         return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
-                                System.currentTimeMillis());
+                                System.currentTimeMillis(), "unknown");
                     }
                 } else {
                     throw new Exception("invalid return value: " + result);

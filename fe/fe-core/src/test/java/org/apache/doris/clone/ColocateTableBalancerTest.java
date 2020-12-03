@@ -362,18 +362,75 @@ public class ColocateTableBalancerTest {
     }
 
     @Test
-    public void testGetAvailableBeIdsInGroup(@Mocked SystemInfoService infoService) {
-        List<Long> clusterAliveBackendIds = Lists.newArrayList(1L, 2L, 3L, 4L);
+    public void testGetAvailableBeIds(@Mocked SystemInfoService infoService,
+                                             @Mocked Backend myBackend2,
+                                             @Mocked Backend myBackend3,
+                                             @Mocked Backend myBackend4,
+                                             @Mocked Backend myBackend5) {
+        List<Long> clusterBackendIds = Lists.newArrayList(1L, 2L, 3L, 4L, 5L);
         new Expectations(){
             {
-                infoService.getClusterBackendIds("cluster1", true);
-                result = clusterAliveBackendIds;
+                infoService.getClusterBackendIds("cluster1", false);
+                result = clusterBackendIds;
+                minTimes = 0;
+
+                infoService.getBackend(1L);
+                result = null;
+                minTimes = 0;
+
+                // backend2 is available
+                infoService.getBackend(2L);
+                result = myBackend2;
+                minTimes = 0;
+                myBackend2.isAvailable();
+                result = true;
+                minTimes = 0;
+
+                // backend3 not available, and dead for a long time
+                infoService.getBackend(3L);
+                result = myBackend3;
+                minTimes = 0;
+                myBackend3.isAvailable();
+                result = false;
+                minTimes = 0;
+                myBackend3.isAlive();
+                result = false;
+                minTimes = 0;
+                myBackend3.getLastUpdateMs();
+                result = System.currentTimeMillis() - Config.tablet_repair_delay_factor_second * 1000 * 20;
+                minTimes = 0;
+
+                // backend4 available, not alive but dead for a short time
+                infoService.getBackend(4L);
+                result = myBackend4;
+                minTimes = 0;
+                myBackend4.isAvailable();
+                result = false;
+                minTimes = 0;
+                myBackend4.isAlive();
+                result = false;
+                minTimes = 0;
+                myBackend4.getLastUpdateMs();
+                result = System.currentTimeMillis();
+                minTimes = 0;
+
+                // backend5 not available, and in decommission
+                infoService.getBackend(5L);
+                result = myBackend5;
+                minTimes = 0;
+                myBackend5.isAvailable();
+                result = false;
+                minTimes = 0;
+                myBackend5.isAlive();
+                result = true;
+                minTimes = 0;
+                myBackend5.isDecommissioned();
+                result = true;
                 minTimes = 0;
             }
         };
 
-        Set<Long> unavailableBeIds = Sets.newHashSet(4L, 5L, 6L);
-        List<Long> availableBeIds = Deencapsulation.invoke(balancer, "getAvailableBeIdsInGroup","cluster1", infoService, unavailableBeIds);
-        Assert.assertArrayEquals(new long[]{1L, 2L, 3L}, availableBeIds.stream().mapToLong(i->i).sorted().toArray());
+        List<Long> availableBeIds = Deencapsulation.invoke(balancer, "getAvailableBeIds","cluster1", infoService);
+        Assert.assertArrayEquals(new long[]{2L, 4L}, availableBeIds.stream().mapToLong(i->i).sorted().toArray());
     }
 }

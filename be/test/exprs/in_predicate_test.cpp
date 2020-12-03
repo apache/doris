@@ -17,13 +17,14 @@
 
 #include "exprs/in_predicate.h"
 
-#include <string>
 #include <gtest/gtest.h>
 
+#include <string>
+
+#include "common/object_pool.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/runtime_state.h"
-#include "common/object_pool.h"
 
 namespace doris {
 
@@ -50,11 +51,8 @@ public:
     }
 
 protected:
-    virtual void SetUp() {
-        _data[0] = _data[1] = -1;
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() { _data[0] = _data[1] = -1; }
+    virtual void TearDown() {}
 
 private:
     TExprNode _in_node;
@@ -126,7 +124,7 @@ TEST_F(InPredicateTest, 100_const) {
     ASSERT_TRUE(*(bool*)in_pre.get_value(&_tuple_row));
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

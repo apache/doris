@@ -18,12 +18,13 @@
 #ifndef DORIS_BE_RUNTIME_LARGE_INT_VALUE_H
 #define DORIS_BE_RUNTIME_LARGE_INT_VALUE_H
 
-#include <sstream>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <string>
+
 #include <iostream>
+#include <sstream>
+#include <string>
 
 #include "runtime/decimal_value.h"
 #include "udf/udf.h"
@@ -31,8 +32,8 @@
 
 namespace doris {
 
-const __int128 MAX_INT128 = ~((__int128) 0x01 << 127);
-const __int128 MIN_INT128 = ((__int128) 0x01 << 127);
+const __int128 MAX_INT128 = ~((__int128)0x01 << 127);
+const __int128 MIN_INT128 = ((__int128)0x01 << 127);
 
 class LargeIntValue {
 public:
@@ -56,17 +57,17 @@ public:
     static std::string to_string(__int128 value) {
         char buf[64] = {0};
         int len = 64;
-        char *str = to_string(value, buf, &len); 
+        char* str = to_string(value, buf, &len);
         return std::string(str, len);
     }
 };
 
 std::ostream& operator<<(std::ostream& os, __int128 const& value);
 
-std::istream& operator>>(std::istream& is, __int128 & value);
+std::istream& operator>>(std::istream& is, __int128& value);
 
 std::size_t hash_value(LargeIntValue const& value);
 
-}
+} // namespace doris
 
 #endif

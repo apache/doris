@@ -60,12 +60,12 @@ size_t Column::memory() const {
     return base_memory + delta_memory;
 }
 
-string Column::debug_string() const {
+std::string Column::debug_string() const {
     return StringPrintf("Column(%s version=%zu)", _cs.debug_string().c_str(),
                         _versions.back().version);
 }
 
-Status Column::capture_version(uint64_t version, vector<ColumnDelta*>* deltas,
+Status Column::capture_version(uint64_t version, std::vector<ColumnDelta*>* deltas,
                                uint64_t* real_version) const {
     uint64_t base_version = _versions[_base_idx].version;
     *real_version = base_version;
@@ -119,7 +119,7 @@ void Column::capture_latest(vector<ColumnDelta*>* deltas, uint64_t* version) con
 Status Column::create_reader(uint64_t version, std::unique_ptr<ColumnReader>* reader) {
     ColumnType type = schema().type();
     bool nullable = schema().is_nullable();
-    vector<ColumnDelta*> deltas;
+    std::vector<ColumnDelta*> deltas;
     uint64_t real_version;
     RETURN_IF_ERROR(capture_version(version, &deltas, &real_version));
 
@@ -165,7 +165,7 @@ Status Column::create_reader(uint64_t version, std::unique_ptr<ColumnReader>* re
 Status Column::create_writer(std::unique_ptr<ColumnWriter>* writer) {
     ColumnType type = schema().type();
     bool nullable = schema().is_nullable();
-    vector<ColumnDelta*> deltas;
+    std::vector<ColumnDelta*> deltas;
     uint64_t real_version;
     capture_latest(&deltas, &real_version);
 

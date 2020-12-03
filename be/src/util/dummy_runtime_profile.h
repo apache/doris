@@ -26,13 +26,11 @@ class DummyProfile {
 public:
     DummyProfile() : _pool(), _profile(new RuntimeProfile("dummy", false)) {}
     RuntimeProfile* profile() { return _profile; }
-    virtual ~DummyProfile() {
-        delete _profile;
-    }
+    virtual ~DummyProfile() { delete _profile; }
 
 private:
     ObjectPool _pool;
     RuntimeProfile* const _profile;
 };
-}
+} // namespace doris
 #endif

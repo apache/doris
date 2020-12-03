@@ -31,30 +31,23 @@ class RuntimeState;
 // 4. call 'get_next' fetch data which is sorted.
 class Sorter {
 public:
-    virtual ~Sorter() { 
-    }
+    virtual ~Sorter() {}
 
-    virtual Status prepare(RuntimeState* state) {
-        return Status::OK();
-    }
+    virtual Status prepare(RuntimeState* state) { return Status::OK(); }
 
     // Add data to be sorted.
-    virtual Status add_batch(RowBatch* batch) {
-        return Status::OK();
-    }
+    virtual Status add_batch(RowBatch* batch) { return Status::OK(); }
 
     // call when all data be added
     virtual Status input_done() = 0;
 
-    // fetch data already sorted, 
+    // fetch data already sorted,
     // client must insure that call this function AFTER call input_done
     virtual Status get_next(RowBatch* batch, bool* eos) = 0;
 
-    virtual Status close(RuntimeState* state) {
-        return Status::OK();
-    }
+    virtual Status close(RuntimeState* state) { return Status::OK(); }
 };
 
-}
+} // namespace doris
 
 #endif

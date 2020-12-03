@@ -32,9 +32,8 @@ class RuntimeProfile;
 // convert the row batch to mysql protocol row
 class MysqlResultWriter final : public ResultWriter {
 public:
-    MysqlResultWriter(BufferControlBlock* sinker,
-            const std::vector<ExprContext*>& output_expr_ctxs,
-            RuntimeProfile* parent_profile);
+    MysqlResultWriter(BufferControlBlock* sinker, const std::vector<ExprContext*>& output_expr_ctxs,
+                      RuntimeProfile* parent_profile);
     virtual ~MysqlResultWriter();
 
     virtual Status init(RuntimeState* state) override;
@@ -65,5 +64,4 @@ private:
     RuntimeProfile::Counter* _sent_rows_counter = nullptr;
 };
 
-} // end of namespace
-
+} // namespace doris

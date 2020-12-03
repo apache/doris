@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
-#include "olap/olap_common.h"
 #include "olap/column_predicate.h"
+#include "olap/olap_common.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {

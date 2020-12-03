@@ -24,26 +24,24 @@
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
 // #include "util/runtime_profile_counters.h"
-#include "util/runtime_profile.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "util/runtime_profile.h"
 
-// #include "common/names.h"
+//
 
 namespace doris {
 
-UnionNode::UnionNode(ObjectPool* pool, const TPlanNode& tnode,
-    const DescriptorTbl& descs)
-    : ExecNode(pool, tnode, descs),
-      _tuple_id(tnode.union_node.tuple_id),
-      _tuple_desc(nullptr),
-      _first_materialized_child_idx(tnode.union_node.first_materialized_child_idx),
-      _child_idx(0),
-      _child_batch(nullptr),
-      _child_row_idx(0),
-      _child_eos(false),
-      _const_expr_list_idx(0),
-      _to_close_child_idx(-1) { 
-}
+UnionNode::UnionNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ExecNode(pool, tnode, descs),
+          _tuple_id(tnode.union_node.tuple_id),
+          _tuple_desc(nullptr),
+          _first_materialized_child_idx(tnode.union_node.first_materialized_child_idx),
+          _child_idx(0),
+          _child_batch(nullptr),
+          _child_row_idx(0),
+          _child_eos(false),
+          _const_expr_list_idx(0),
+          _to_close_child_idx(-1) {}
 
 Status UnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     // TODO(zc):
@@ -73,10 +71,11 @@ Status UnionNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
-    _materialize_exprs_evaluate_timer = ADD_TIMER(_runtime_profile, "MaterializeExprsEvaluateTimer");
+    _materialize_exprs_evaluate_timer =
+            ADD_TIMER(_runtime_profile, "MaterializeExprsEvaluateTimer");
     _codegend_union_materialize_batch_fns.resize(_child_expr_lists.size());
     // Prepare const expr lists.
-    for (const vector<ExprContext*>& exprs : _const_expr_lists) {
+    for (const std::vector<ExprContext*>& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(Expr::prepare(exprs, state, row_desc(), expr_mem_tracker()));
         // TODO(zc)
         // AddExprCtxsToFree(exprs);
@@ -98,11 +97,11 @@ Status UnionNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     // open const expr lists.
-    for (const vector<ExprContext*>& exprs : _const_expr_lists) {
+    for (const std::vector<ExprContext*>& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(Expr::open(exprs, state));
     }
     // open result expr lists.
-    for (const vector<ExprContext*>& exprs : _child_expr_lists) {
+    for (const std::vector<ExprContext*>& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(Expr::open(exprs, state));
     }
 
@@ -142,7 +141,7 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
     int64_t tuple_buf_size;
     uint8_t* tuple_buf;
     RETURN_IF_ERROR(
-        row_batch->resize_and_allocate_tuple_buffer(state, &tuple_buf_size, &tuple_buf));
+            row_batch->resize_and_allocate_tuple_buffer(state, &tuple_buf_size, &tuple_buf));
     memset(tuple_buf, 0, tuple_buf_size);
 
     while (has_more_materialized() && !row_batch->at_capacity()) {
@@ -152,15 +151,14 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
         // Child row batch was either never set or we're moving on to a different child.
         if (_child_batch.get() == nullptr) {
             DCHECK_LT(_child_idx, _children.size());
-            _child_batch.reset(new RowBatch(
-                    child(_child_idx)->row_desc(), state->batch_size(), mem_tracker().get()));
+            _child_batch.reset(new RowBatch(child(_child_idx)->row_desc(), state->batch_size(),
+                                            mem_tracker().get()));
             _child_row_idx = 0;
             // open the current child unless it's the first child, which was already opened in
             // UnionNode::open().
             if (_child_eos) RETURN_IF_ERROR(child(_child_idx)->open(state));
             // The first batch from each child is always fetched here.
-            RETURN_IF_ERROR(child(_child_idx)->get_next(
-                    state, _child_batch.get(), &_child_eos));
+            RETURN_IF_ERROR(child(_child_idx)->get_next(state, _child_batch.get(), &_child_eos));
         }
 
         while (!row_batch->at_capacity()) {
@@ -173,8 +171,8 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
                 _child_batch->reset();
                 _child_row_idx = 0;
                 // All batches except the first batch from each child are fetched here.
-                RETURN_IF_ERROR(child(_child_idx)->get_next(
-                        state, _child_batch.get(), &_child_eos));
+                RETURN_IF_ERROR(
+                        child(_child_idx)->get_next(state, _child_batch.get(), &_child_eos));
                 // If we fetched an empty batch, go back to the beginning of this while loop, and
                 // try again.
                 if (_child_batch->num_rows() == 0) continue;
@@ -215,12 +213,11 @@ Status UnionNode::get_next_const(RuntimeState* state, RowBatch* row_batch) {
     int64_t tuple_buf_size;
     uint8_t* tuple_buf;
     RETURN_IF_ERROR(
-        row_batch->resize_and_allocate_tuple_buffer(state, &tuple_buf_size, &tuple_buf));
+            row_batch->resize_and_allocate_tuple_buffer(state, &tuple_buf_size, &tuple_buf));
     memset(tuple_buf, 0, tuple_buf_size);
 
     while (_const_expr_list_idx < _const_expr_lists.size() && !row_batch->at_capacity()) {
-        materialize_exprs(
-            _const_expr_lists[_const_expr_list_idx], nullptr, tuple_buf, row_batch);
+        materialize_exprs(_const_expr_lists[_const_expr_list_idx], nullptr, tuple_buf, row_batch);
         RETURN_IF_ERROR(get_error_msg(_const_expr_lists[_const_expr_list_idx]));
         tuple_buf += _tuple_desc->byte_size();
         ++_const_expr_list_idx;
@@ -268,7 +265,7 @@ Status UnionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
     _num_rows_returned += num_rows_added;
 
     *eos = reached_limit() ||
-        (!has_more_passthrough() && !has_more_materialized() && !has_more_const(state));
+           (!has_more_passthrough() && !has_more_materialized() && !has_more_const(state));
 
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     return Status::OK();
@@ -303,7 +300,7 @@ Status UnionNode::close(RuntimeState* state) {
 void UnionNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "_union(_first_materialized_child_idx=" << _first_materialized_child_idx
-         << " _row_descriptor=[" <<  row_desc().debug_string() << "] "
+         << " _row_descriptor=[" << row_desc().debug_string() << "] "
          << " _child_expr_lists=[";
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
         *out << Expr::debug_string(_child_expr_lists[i]) << ", ";
@@ -313,5 +310,4 @@ void UnionNode::debug_string(int indentation_level, std::stringstream* out) cons
     *out << ")" << std::endl;
 }
 
-}
-
+} // namespace doris
