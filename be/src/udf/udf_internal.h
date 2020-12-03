@@ -102,6 +102,8 @@ public:
 
     std::string& string_result() { return _string_result; }
 
+    const doris_udf::FunctionContext::TypeDesc& get_return_type() const { return _return_type; } 
+
 private:
     friend class doris_udf::FunctionContext;
     friend class ExprContext;

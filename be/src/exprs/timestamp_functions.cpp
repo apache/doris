@@ -203,6 +203,26 @@ DateTimeVal TimestampFunctions::str_to_date(FunctionContext* ctx, const StringVa
                                        str.len)) {
         return DateTimeVal::null();
     }
+
+    /// The return type of str_to_date depends on whether the time part is included in the format.
+    /// If included, it is datetime, otherwise it is date.
+    /// If the format parameter is not constant, the return type will be datetime.
+    /// The above judgment has been completed in the FE query planning stage,
+    /// so here we directly set the value type to the return type set in the query plan.
+    ///
+    /// For example:
+    /// A table with one column k1 varchar, and has 2 lines:
+    ///     "%Y-%m-%d"
+    ///     "%Y-%m-%d %H:%i:%s"
+    /// Query:
+    ///     SELECT str_to_date("2020-09-01", k1) from tbl;
+    /// Result will be:
+    ///     2020-09-01 00:00:00
+    ///     2020-09-01 00:00:00
+    if (ctx->impl()->get_return_type().type == doris_udf::FunctionContext::Type::TYPE_DATETIME) {
+        ts_value.to_datetime();
+    }
+
     DateTimeVal ts_val;
     ts_value.to_datetime_val(&ts_val);
     return ts_val;
