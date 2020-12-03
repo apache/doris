@@ -1087,6 +1087,57 @@ public:
         return *this;
     }
 
+    // Compute the intersection between the current bitmap and the provided bitmap.
+    // Possible type transitions are:
+    // SINGLE -> EMPTY
+    // BITMAP -> EMPTY
+    // BITMAP -> SINGLE
+    BitmapValue& operator^=(const BitmapValue& rhs) {
+        switch (rhs._type) {
+            case EMPTY:
+                _type = EMPTY;
+                _bitmap.clear();
+                break;
+            case SINGLE:
+                switch (_type) {
+                    case EMPTY:
+                        break;
+                    case SINGLE:
+                        if (_sv != rhs._sv) {
+                            _type = EMPTY;
+                        }
+                        break;
+                    case BITMAP:
+                        if (!_bitmap.contains(rhs._sv)) {
+                            _type = EMPTY;
+                        } else {
+                            _type = SINGLE;
+                            _sv = rhs._sv;
+                        }
+                        _bitmap.clear();
+                        break;
+                }
+                break;
+            case BITMAP:
+                switch (_type) {
+                    case EMPTY:
+                        break;
+                    case SINGLE:
+                        if (!rhs._bitmap.contains(_sv)) {
+                            _type = EMPTY;
+                        }
+                        break;
+                    case BITMAP:
+                        _bitmap ^= rhs._bitmap;
+                        _convert_to_smaller_type();
+                        break;
+                }
+                break;
+        }
+        return *this;
+    }
+
+
     // check if value x is present
     bool contains(uint64_t x) {
         switch (_type) {

@@ -490,7 +490,7 @@ StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs
     }
 
     if (rhs.len == 0) {
-        bitmap ^= *reinterpret_cast<BitmapValue*>(rhs.ptr);
+        bitmap = *reinterpret_cast<BitmapValue*>(rhs.ptr);
     } else {
         bitmap ^= BitmapValue((char*)rhs.ptr);
     }
