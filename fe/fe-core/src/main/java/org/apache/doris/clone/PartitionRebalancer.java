@@ -172,7 +172,7 @@ public class PartitionRebalancer extends Rebalancer {
 
             TwoDimensionalGreedyAlgo.PartitionReplicaMove partitionMove = new TwoDimensionalGreedyAlgo.
                     PartitionReplicaMove(meta.getPartitionId(), meta.getIndexId(), move.fromBe, move.toBe);
-            boolean st = TwoDimensionalGreedyAlgo.ApplyMove(partitionMove, info.beByTotalReplicaCount, info.partitionInfoBySkew);
+            boolean st = TwoDimensionalGreedyAlgo.applyMove(partitionMove, info.beByTotalReplicaCount, info.partitionInfoBySkew);
             if (!st) {
                 // Can't apply this move, mark it failed, continue to apply the next.
                 toDeleteKeys.add(move.tabletId);

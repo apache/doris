@@ -109,8 +109,8 @@ public class ClusterLoadStatistic {
         // sort be stats by mix load score
         Collections.sort(beLoadStatistics, BackendLoadStatistic.MIX_COMPARATOR);
 
+        // <medium -> Multimap<totalReplicaCount -> beId>>
         // Only count the available be
-        // <medium -> multimap<totalReplicaCount -> beId>>
         for (TStorageMedium medium : TStorageMedium.values()) {
             TreeMultimap<Long, Long> beByTotalReplicaCount = TreeMultimap.create();
             beLoadStatistics.stream().filter(BackendLoadStatistic::isAvailable).forEach(beStat ->
@@ -118,9 +118,10 @@ public class ClusterLoadStatistic {
             beByTotalReplicaCountMaps.put(medium, beByTotalReplicaCount);
         }
 
-        // Actually partition is [partition_id, index_id]
-        // Multimap<skew -> PartitionBalanceInfo> (PartitionBalanceInfo: <partition id -> <partitionReplicaCount, beId>>)
-        // Get Available be ids here, aligned with the beByTotalReplicaCountMaps.
+        // Actually the partition is [partition_id, index_id], aka pid.
+        // Multimap<skew -> PartitionBalanceInfo>
+        //                  PartitionBalanceInfo: <pid -> <partitionReplicaCount, beId>>
+        // Only count available bes here, aligned with the beByTotalReplicaCountMaps.
         skewMaps = invertedIndex.buildPartitionInfoBySkew(beLoadStatistics.stream().filter(BackendLoadStatistic::isAvailable).
                 map(BackendLoadStatistic::getBeId).collect(Collectors.toList()));
     }

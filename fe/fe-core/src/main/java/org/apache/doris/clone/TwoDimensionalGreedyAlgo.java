@@ -34,6 +34,14 @@ import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+// A two-dimensional greedy rebalancing algorithm. From among moves that
+// decrease the skew of a most skewed partition, it prefers ones that reduce the
+// skew of the cluster. A cluster is considered balanced when the skew of every
+// partition is <= 1 and the skew of the cluster is <= 1.
+//
+// The skew of the cluster is defined as the difference between the maximum
+// total replica count over all bes and the minimum total replica
+// count over all bes.
 public class TwoDimensionalGreedyAlgo {
     private static final Logger LOG = LogManager.getLogger(TwoDimensionalGreedyAlgo.class);
 
@@ -127,8 +135,8 @@ public class TwoDimensionalGreedyAlgo {
 
         List<PartitionReplicaMove> moves = Lists.newArrayList();
         for (int i = 0; i < maxMovesNum; ++i) {
-            PartitionReplicaMove move = GetNextMove(info.beByTotalReplicaCount, info.partitionInfoBySkew);
-            if (move == null || !(ApplyMove(move, info.beByTotalReplicaCount, info.partitionInfoBySkew))) {
+            PartitionReplicaMove move = getNextMove(info.beByTotalReplicaCount, info.partitionInfoBySkew);
+            if (move == null || !(applyMove(move, info.beByTotalReplicaCount, info.partitionInfoBySkew))) {
                 // 1. No replicas to move.
                 // 2. Apply to info failed, it's useless to get next move from the same info.
                 break;
@@ -139,7 +147,7 @@ public class TwoDimensionalGreedyAlgo {
         return moves;
     }
 
-    private PartitionReplicaMove GetNextMove(TreeMultimap<Long, Long> beByTotalReplicaCount,
+    private PartitionReplicaMove getNextMove(TreeMultimap<Long, Long> beByTotalReplicaCount,
                                              TreeMultimap<Long, PartitionBalanceInfo> skewMap) {
         PartitionReplicaMove move = null;
         if (skewMap.isEmpty() || beByTotalReplicaCount.isEmpty()) {
@@ -171,11 +179,11 @@ public class TwoDimensionalGreedyAlgo {
                     pbi.partitionId, pbi.indexId, maxPartitionSkew,
                     minReplicaCount, maxReplicaCount);
 
-            // Compute the intersection of the tablet servers most loaded for the table
-            // with the tablet servers most loaded overall, and likewise for least loaded.
+            // Compute the intersection of the bes most loaded for the table
+            // with the bes most loaded overall, and likewise for least loaded.
             // These are our ideal candidates for moving from and to, respectively.
-            IntersectionResult maxLoaded = GetIntersection(ExtremumType.MAX, pbi.beByReplicaCount, beByTotalReplicaCount);
-            IntersectionResult minLoaded = GetIntersection(ExtremumType.MIN, pbi.beByReplicaCount, beByTotalReplicaCount);
+            IntersectionResult maxLoaded = getIntersection(ExtremumType.MAX, pbi.beByReplicaCount, beByTotalReplicaCount);
+            IntersectionResult minLoaded = getIntersection(ExtremumType.MIN, pbi.beByReplicaCount, beByTotalReplicaCount);
             LOG.info("partition-wise: min_count: {}, max_count: {}", minLoaded.replicaCountPartition, maxLoaded.replicaCountPartition);
             LOG.info("cluster-wise: min_count: {}, max_count: {}", minLoaded.replicaCountTotal, maxLoaded.replicaCountTotal);
             LOG.debug("min_loaded_intersection: {}, max_loaded_intersection: {}", minLoaded.intersection.toString(), maxLoaded.intersection.toString());
@@ -219,10 +227,10 @@ public class TwoDimensionalGreedyAlgo {
         return items.get(rand.nextInt(items.size()));
     }
 
-    public static IntersectionResult GetIntersection(ExtremumType extremumType, TreeMultimap<Long, Long> beByReplicaCount,
+    public static IntersectionResult getIntersection(ExtremumType extremumType, TreeMultimap<Long, Long> beByReplicaCount,
                                                      TreeMultimap<Long, Long> beByTotalReplicaCount) {
-        Pair<Long, Set<Long>> beSelectedByPartition = GetMinMaxLoadedServers(beByReplicaCount, extremumType);
-        Pair<Long, Set<Long>> beSelectedByTotal = GetMinMaxLoadedServers(beByTotalReplicaCount, extremumType);
+        Pair<Long, Set<Long>> beSelectedByPartition = getMinMaxLoadedServers(beByReplicaCount, extremumType);
+        Pair<Long, Set<Long>> beSelectedByTotal = getMinMaxLoadedServers(beByTotalReplicaCount, extremumType);
         Preconditions.checkNotNull(beSelectedByPartition);
         Preconditions.checkNotNull(beSelectedByTotal);
 
@@ -234,7 +242,7 @@ public class TwoDimensionalGreedyAlgo {
         return res;
     }
 
-    private static Pair<Long, Set<Long>> GetMinMaxLoadedServers(TreeMultimap<Long, Long> multimap, ExtremumType extremumType) {
+    private static Pair<Long, Set<Long>> getMinMaxLoadedServers(TreeMultimap<Long, Long> multimap, ExtremumType extremumType) {
         if (multimap.isEmpty()) {
             return null;
         }
@@ -244,10 +252,10 @@ public class TwoDimensionalGreedyAlgo {
 
     // Update the balance state in 'ClusterBalanceInfo'(the two maps) with the outcome of the move 'move'.
     // To support apply in-progress moves to current cluster balance info, if apply failed, the maps should not be modified.
-    public static boolean ApplyMove(PartitionReplicaMove move, TreeMultimap<Long, Long> beByTotalReplicaCount,
+    public static boolean applyMove(PartitionReplicaMove move, TreeMultimap<Long, Long> beByTotalReplicaCount,
                                     TreeMultimap<Long, PartitionBalanceInfo> skewMap) {
         // Update the total counts
-        MoveOneReplica(move.fromBe, move.toBe, beByTotalReplicaCount);
+        moveOneReplica(move.fromBe, move.toBe, beByTotalReplicaCount);
 
         try {
             PartitionBalanceInfo partitionBalanceInfo = null;
@@ -266,7 +274,7 @@ public class TwoDimensionalGreedyAlgo {
 
             Preconditions.checkState(skew != -1L, "partition is not in skew map");
             PartitionBalanceInfo newInfo = new PartitionBalanceInfo(partitionBalanceInfo);
-            MoveOneReplica(move.fromBe, move.toBe, newInfo.beByReplicaCount);
+            moveOneReplica(move.fromBe, move.toBe, newInfo.beByReplicaCount);
 
             skewMap.remove(skew, partitionBalanceInfo);
             long min_count = newInfo.beByReplicaCount.keySet().first();
@@ -274,7 +282,7 @@ public class TwoDimensionalGreedyAlgo {
             skewMap.put(max_count - min_count, newInfo);
         } catch (IllegalStateException e) {
             // If touch IllegalState, the skew map doesn't be modified, so we should rollback the move of beByTotalReplicaCount
-            MoveOneReplica(move.toBe, move.fromBe, beByTotalReplicaCount);
+            moveOneReplica(move.toBe, move.fromBe, beByTotalReplicaCount);
             LOG.info("{} apply failed, {}", move, e.getMessage());
             return false;
         } catch (Exception e) {
@@ -288,7 +296,7 @@ public class TwoDimensionalGreedyAlgo {
     // Applies to 'm' a move of a replica from the be with id 'src' to the be with id 'dst' by decrementing
     // the count of 'src' and incrementing the count of 'dst'.
     // If check failed, won't modify the map.
-    private static void MoveOneReplica(Long fromBe, Long toBe, TreeMultimap<Long, Long> m) throws IllegalStateException {
+    private static void moveOneReplica(Long fromBe, Long toBe, TreeMultimap<Long, Long> m) throws IllegalStateException {
         boolean foundSrc = false;
         boolean foundDst = false;
         Long countSrc = 0L;

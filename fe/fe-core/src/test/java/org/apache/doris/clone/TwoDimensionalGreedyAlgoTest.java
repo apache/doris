@@ -143,7 +143,7 @@ public class TwoDimensionalGreedyAlgoTest {
         // no info of partition
         TreeMultimap<Long, PartitionBalanceInfo> skewMap = TreeMultimap.create(Ordering.natural(), Ordering.arbitrary());
         try {
-            TwoDimensionalGreedyAlgo.ApplyMove(move, beByTotalReplicaCount, skewMap);
+            TwoDimensionalGreedyAlgo.applyMove(move, beByTotalReplicaCount, skewMap);
         } catch (Exception e) {
             Assert.assertSame(e.getClass(), IllegalStateException.class);
             LOG.info(e.getMessage());
@@ -154,7 +154,7 @@ public class TwoDimensionalGreedyAlgoTest {
         // invalid info of partition
         skewMap.put(6L, new PartitionBalanceInfo(11L, 22L));
         try {
-            TwoDimensionalGreedyAlgo.ApplyMove(move, beByTotalReplicaCount, skewMap);
+            TwoDimensionalGreedyAlgo.applyMove(move, beByTotalReplicaCount, skewMap);
         } catch (Exception e) {
             Assert.assertSame(e.getClass(), IllegalStateException.class);
             LOG.warn(e.getMessage());
