@@ -119,7 +119,7 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
         return res;
     }
-    bool single_version = false;
+    // When only one rowset has data, and this rowset is nonoverlapping, we can read directly without aggregation
     bool has_delete_rowset = false;
     int nonoverlapping_count = 0;
     for (auto rs_reader : _rs_readers) {
@@ -129,21 +129,15 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
         }
         if (rs_reader->rowset()->rowset_meta()->num_rows() > 0 &&
             !rs_reader->rowset()->rowset_meta()->is_segments_overlapping()) {
-            ++nonoverlapping_count;
+                if (++nonoverlapping_count > 1) {
+                    break;
+                }
         }
     }
     if (nonoverlapping_count == 1 && !has_delete_rowset) {
-        single_version = true;
-    }
-    if (single_version) {
-        LOG(INFO) << "======================================";
-        if (_tablet->keys_type() == AGG_KEYS) {
-            _next_row_func = &Reader::_direct_agg_key_next_row;
-        } else {
-            _next_row_func = &Reader::_direct_next_row;
-        }
+        _next_row_func = _tablet->keys_type() == AGG_KEYS ? &Reader::_direct_agg_key_next_row
+                                                          : &Reader::_direct_next_row;
     } else {
-        LOG(INFO) << "----------------------------------";
         switch (_tablet->keys_type()) {
         case KeysType::DUP_KEYS:
             _next_row_func = &Reader::_direct_next_row;
