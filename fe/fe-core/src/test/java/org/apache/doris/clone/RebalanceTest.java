@@ -187,7 +187,6 @@ public class RebalanceTest {
             }
         };
 
-        Config.rebalance_move_expire_after_access = 3000; // 3s
         Rebalancer rebalancer = new PartitionRebalancer(Catalog.getCurrentSystemInfo(), Catalog.getCurrentInvertedIndex());
 
         // Disable scheduler's rebalancer adding balance task, add balance tasks manually
