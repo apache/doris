@@ -40,12 +40,11 @@ OLAPStatus CollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
     std::unique_ptr<LevelIterator> child(new Level0Iterator(rs_reader, _reader));
     RETURN_NOT_OK(child->init());
     if (child->current_row() == nullptr) {
-        return OLAP_SUCCESS;
+        return OLAP_ERR_DATA_EOF;
     }
 
     LevelIterator* child_ptr = child.release();
     _children.push_back(child_ptr);
-    _rs_readers.push_back(rs_reader);
     return OLAP_SUCCESS;
 }
 
@@ -53,28 +52,28 @@ OLAPStatus CollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
 // status will be used as the base rowset, and the other rowsets will be merged first and
 // then merged with the base rowset.
 void CollectIterator::build_heap() {
-    DCHECK(_rs_readers.size() == _children.size());
+    DCHECK(_reader->_rs_readers.size() == _children.size());
     _reverse = _reader->_tablet->tablet_schema().keys_type() == KeysType::UNIQUE_KEYS;
     if (_children.empty()) {
         _inner_iter.reset(nullptr);
         return;
     } else if (_merge) {
-        DCHECK(!_rs_readers.empty());
+        DCHECK(!_reader->_rs_readers.empty());
         // build merge heap with two children， a base rowset as level0iterator and
         // other cumulative rowsets as a level1iterator
         if (_children.size() > 1) {
             // find base rowset(max rownum),
-            RowsetReaderSharedPtr base_reader = _rs_readers[0];
+            RowsetReaderSharedPtr base_reader = _reader->_rs_readers[0];
             int base_reader_idx = 0;
-            for (size_t i = 1; i < _rs_readers.size(); ++i) {
-                if (_rs_readers[i]->rowset()->rowset_meta()->num_rows() >
+            for (size_t i = 1; i < _reader->_rs_readers.size(); ++i) {
+                if (_reader->_rs_readers[i]->rowset()->rowset_meta()->num_rows() >
                     base_reader->rowset()->rowset_meta()->num_rows()) {
-                    base_reader = _rs_readers[i];
+                    base_reader = _reader->_rs_readers[i];
                     base_reader_idx = i;
                 }
             }
             std::vector<LevelIterator*> cumu_children;
-            for (size_t i = 0; i < _rs_readers.size(); ++i) {
+            for (size_t i = 0; i < _reader->_rs_readers.size(); ++i) {
                 if (i != base_reader_idx) {
                     cumu_children.push_back(_children[i]);
                 }

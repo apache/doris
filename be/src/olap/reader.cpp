@@ -90,7 +90,7 @@ std::string Reader::KeysParam::to_string() const {
     return ss.str();
 }
 
-Reader::Reader() {
+Reader::Reader() : _collect_iter(new CollectIterator()) {
     _tracker.reset(new MemTracker(-1));
     _predicate_mem_pool.reset(new MemPool(_tracker.get()));
 }
@@ -119,14 +119,28 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
         return res;
     }
-
-    if (_rs_readers.size() == 1 &&
-        !_rs_readers[0]->rowset()->rowset_meta()->is_segments_overlapping()) {
-        _next_row_func = &Reader::_dup_key_next_row;
+    // When only one rowset has data, and this rowset is nonoverlapping, we can read directly without aggregation
+    bool has_delete_rowset = false;
+    int nonoverlapping_count = 0;
+    for (auto rs_reader : _rs_readers) {
+        if (rs_reader->rowset()->rowset_meta()->delete_flag()) {
+            has_delete_rowset = true;
+            break;
+        }
+        if (rs_reader->rowset()->rowset_meta()->num_rows() > 0 &&
+            !rs_reader->rowset()->rowset_meta()->is_segments_overlapping()) {
+            if (++nonoverlapping_count > 1) {
+                break;
+            }
+        }
+    }
+    if (nonoverlapping_count == 1 && !has_delete_rowset) {
+        _next_row_func = _tablet->keys_type() == AGG_KEYS ? &Reader::_direct_agg_key_next_row
+                                                          : &Reader::_direct_next_row;
     } else {
         switch (_tablet->keys_type()) {
         case KeysType::DUP_KEYS:
-            _next_row_func = &Reader::_dup_key_next_row;
+            _next_row_func = &Reader::_direct_next_row;
             break;
         case KeysType::UNIQUE_KEYS:
             _next_row_func = &Reader::_unique_key_next_row;
@@ -143,8 +157,8 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                     bool* eof) {
+OLAPStatus Reader::_direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+                                    bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
         return OLAP_SUCCESS;
@@ -155,6 +169,22 @@ OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, O
         if (res != OLAP_ERR_DATA_EOF) {
             return res;
         }
+    }
+    return OLAP_SUCCESS;
+}
+OLAPStatus Reader::_direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
+                                            ObjectPool* agg_pool, bool* eof) {
+    if (UNLIKELY(_next_key == nullptr)) {
+        *eof = true;
+        return OLAP_SUCCESS;
+    }
+    init_row_with_others(row_cursor, *_next_key, mem_pool, agg_pool);
+    auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
+    if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
+        return res;
+    }
+    if (_need_agg_finalize) {
+        agg_finalize_row(_value_cids, row_cursor, mem_pool);
     }
     return OLAP_SUCCESS;
 }
@@ -254,8 +284,6 @@ void Reader::close() {
     for (auto pred : _col_predicates) {
         delete pred;
     }
-
-    delete _collect_iter;
 }
 
 OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
@@ -352,7 +380,9 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
             LOG(WARNING) << "failed to add child to iterator";
             return res;
         }
-        _rs_readers.push_back(rs_reader);
+        if (res == OLAP_SUCCESS) {
+            _rs_readers.push_back(rs_reader);
+        }
     }
     _collect_iter->build_heap();
     _next_key = _collect_iter->current_row(&_next_delete_flag);
@@ -390,7 +420,6 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
 
     _init_seek_columns();
 
-    _collect_iter = new CollectIterator();
     _collect_iter->init(this);
 
     if (_tablet->tablet_schema().has_sequence_col()) {
