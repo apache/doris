@@ -63,9 +63,9 @@ public class ClientPool {
     }
 
     public static GenericPool<HeartbeatService.Client> backendHeartbeatPool =
-            new GenericPool("BackendHeartbeatService", heartbeatConfig, heartbeatTimeoutMs);
+            new GenericPool("HeartbeatService", heartbeatConfig, heartbeatTimeoutMs);
     public static GenericPool<FrontendService.Client> frontendHeartbeatPool =
-            new GenericPool<>("FrontendHeartbeatService", heartbeatConfig, heartbeatTimeoutMs);
+            new GenericPool<>("FrontendService", heartbeatConfig, heartbeatTimeoutMs);
     public static GenericPool<FrontendService.Client> frontendPool =
             new GenericPool("FrontendService", backendConfig, backendTimeoutMs);
     public static GenericPool<BackendService.Client> backendPool =
