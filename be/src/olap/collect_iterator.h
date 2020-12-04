@@ -164,8 +164,6 @@ private:
 
     // Hold reader point to access read params, such as fetch conditions.
     Reader* _reader = nullptr;
-    std::vector<RowsetReaderSharedPtr> _rs_readers;
-
 };
 
 } // namespace doris
