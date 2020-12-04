@@ -238,7 +238,8 @@ Status MiniLoadAction::_load(HttpRequest* http_req, const std::string& file_path
     return Status(res.status);
 }
 
-Status MiniLoadAction::_merge_header(HttpRequest* http_req, std::map<std::string, std::string>* params) {
+Status MiniLoadAction::_merge_header(HttpRequest* http_req,
+                                     std::map<std::string, std::string>* params) {
     if (http_req == nullptr || params == nullptr) {
         return Status::OK();
     }
@@ -257,16 +258,19 @@ Status MiniLoadAction::_merge_header(HttpRequest* http_req, std::map<std::string
     if (!http_req->header(HTTP_PARTITIONS).empty()) {
         (*params)[HTTP_PARTITIONS] = http_req->header(HTTP_PARTITIONS);
         if (!http_req->header(HTTP_TEMP_PARTITIONS).empty()) {
-            return Status::InvalidArgument("Can not specify both partitions and temporary partitions");
+            return Status::InvalidArgument(
+                    "Can not specify both partitions and temporary partitions");
         }
     }
     if (!http_req->header(HTTP_TEMP_PARTITIONS).empty()) {
         (*params)[HTTP_TEMP_PARTITIONS] = http_req->header(HTTP_TEMP_PARTITIONS);
         if (!http_req->header(HTTP_PARTITIONS).empty()) {
-            return Status::InvalidArgument("Can not specify both partitions and temporary partitions");
+            return Status::InvalidArgument(
+                    "Can not specify both partitions and temporary partitions");
         }
     }
-    if (!http_req->header(HTTP_NEGATIVE).empty() && boost::iequals(http_req->header(HTTP_NEGATIVE), "true")) {
+    if (!http_req->header(HTTP_NEGATIVE).empty() &&
+        boost::iequals(http_req->header(HTTP_NEGATIVE), "true")) {
         (*params)[HTTP_NEGATIVE] = "true";
     } else {
         (*params)[HTTP_NEGATIVE] = "false";
@@ -294,28 +298,27 @@ Status MiniLoadAction::_merge_header(HttpRequest* http_req, std::map<std::string
     }
     if (!http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
         if (boost::iequals(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true")) {
-            (*params)[HTTP_STRIP_OUTER_ARRAY] =  "true";
+            (*params)[HTTP_STRIP_OUTER_ARRAY] = "true";
         } else {
-            (*params)[HTTP_STRIP_OUTER_ARRAY] =  "false";
+            (*params)[HTTP_STRIP_OUTER_ARRAY] = "false";
         }
     } else {
-        (*params)[HTTP_STRIP_OUTER_ARRAY] =  "false";
+        (*params)[HTTP_STRIP_OUTER_ARRAY] = "false";
     }
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
-        (*params)[HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL] =  http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL);
+        (*params)[HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL] =
+                http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL);
     }
     if (params->find(HTTP_MERGE_TYPE) == params->end()) {
         params->insert(std::make_pair(HTTP_MERGE_TYPE, "APPEND"));
     }
-    StringCaseMap<TMergeType::type> merge_type_map = {
-        { "APPEND", TMergeType::APPEND },
-        { "DELETE", TMergeType::DELETE },
-        { "MERGE", TMergeType::MERGE }
-    };
+    StringCaseMap<TMergeType::type> merge_type_map = {{"APPEND", TMergeType::APPEND},
+                                                      {"DELETE", TMergeType::DELETE},
+                                                      {"MERGE", TMergeType::MERGE}};
     if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
         std::string merge_type = http_req->header(HTTP_MERGE_TYPE);
         auto it = merge_type_map.find(merge_type);
-        if (it != merge_type_map.end() ) {
+        if (it != merge_type_map.end()) {
             (*params)[HTTP_MERGE_TYPE] = it->first;
         } else {
             return Status::InvalidArgument("Invalid merge type " + merge_type);
@@ -325,12 +328,12 @@ Status MiniLoadAction::_merge_header(HttpRequest* http_req, std::map<std::string
         if ((*params)[HTTP_MERGE_TYPE] == "MERGE") {
             (*params)[HTTP_DELETE_CONDITION] = http_req->header(HTTP_DELETE_CONDITION);
         } else {
-            return Status::InvalidArgument("not support delete when merge type is " + (*params)[HTTP_MERGE_TYPE] + ".");
+            return Status::InvalidArgument("not support delete when merge type is " +
+                                           (*params)[HTTP_MERGE_TYPE] + ".");
         }
     }
     return Status::OK();
 }
-
 
 static bool parse_auth(const std::string& auth, std::string* user, std::string* passwd,
                        std::string* cluster) {
