@@ -571,10 +571,8 @@ void Tablet::delete_expired_stale_rowset() {
 
 OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
                                                std::vector<Version>* version_path) const {
-    // OLAPStatus status = _rs_graph.capture_consistent_versions(spec_version, version_path);
     OLAPStatus status =
             _timestamped_version_tracker.capture_consistent_versions(spec_version, version_path);
-
     if (status != OLAP_SUCCESS) {
         std::vector<Version> missed_versions;
         calc_missed_versions_unlocked(spec_version.second, &missed_versions);
