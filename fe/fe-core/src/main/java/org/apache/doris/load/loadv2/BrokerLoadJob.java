@@ -29,8 +29,12 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
@@ -44,11 +48,11 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -65,6 +69,9 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     private static final Logger LOG = LogManager.getLogger(BrokerLoadJob.class);
 
+    // Profile of this load job, including all tasks' profiles
+    private RuntimeProfile jobProfile;
+
     // only for log replay
     public BrokerLoadJob() {
         super();
@@ -78,6 +85,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         this.timeoutSecond = Config.broker_load_default_timeout_second;
         this.brokerDesc = brokerDesc;
         this.jobType = EtlJobType.BROKER;
+        this.jobProfile = new RuntimeProfile("BrokerLoadJob " + id + ": " + label);
     }
 
     @Override
@@ -193,7 +201,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), execMemLimit,
-                        strictMode, transactionId, this, timezone, timeoutSecond);
+                        strictMode, transactionId, this, timezone, timeoutSecond, jobProfile);
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
                 task.init(loadId, attachment.getFileStatusByTable(aggKey),
@@ -260,6 +268,9 @@ public class BrokerLoadJob extends BulkLoadJob {
                               .build());
         }
 
+        // all loading task done, write profile
+        writeProfile();
+
         // check data quality
         if (!checkDataQuality()) {
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, DataQualityException.QUALITY_FAIL_MSG),
@@ -298,6 +309,28 @@ public class BrokerLoadJob extends BulkLoadJob {
         } finally {
             db.writeUnlock();
         }
+    }
+
+    private void writeProfile() {
+        RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
+        summaryProfile.addInfoString(ProfileManager.QUERY_ID, String.valueOf(id));
+        summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(createTimestamp));
+        summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(finishTimestamp));
+        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(finishTimestamp - createTimestamp));
+
+        summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Load");
+        summaryProfile.addInfoString(ProfileManager.QUERY_STATE, "N/A");
+        summaryProfile.addInfoString(ProfileManager.USER, "N/A");
+        summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, "N/A");
+        summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, "N/A");
+        summaryProfile.addInfoString(ProfileManager.IS_CACHED, "N/A");
+
+        // Add the summary profile to the first
+        jobProfile.addFirstChild(summaryProfile);
+        jobProfile.computeTimeInChildProfile();
+        StringBuilder builder = new StringBuilder();
+        jobProfile.prettyPrint(builder, "");
+        ProfileManager.getInstance().pushProfile(jobProfile);
     }
 
     private void updateLoadingStatus(BrokerLoadingTaskAttachment attachment) {
