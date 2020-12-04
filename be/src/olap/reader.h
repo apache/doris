@@ -81,7 +81,7 @@ struct ReaderParams {
 
 class Reader {
 public:
-    Reader() = default;
+    Reader();
     ~Reader();
 
     // Initialize Reader with tablet, data version and fetch range.

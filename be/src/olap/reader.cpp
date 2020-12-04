@@ -91,14 +91,16 @@ std::string Reader::KeysParam::to_string() const {
     return ss.str();
 }
 
+Reader::Reader() : _collect_iter(new CollectIterator()) {
+    _tracker.reset(new MemTracker(-1));
+    _predicate_mem_pool.reset(new MemPool(_tracker.get()));
+}
+
 Reader::~Reader() {
     close();
 }
 
 OLAPStatus Reader::init(const ReaderParams& read_params) {
-    _tracker.reset(new MemTracker(-1, read_params.tablet->full_name()));
-    _predicate_mem_pool.reset(new MemPool(_tracker.get()));
-
     OLAPStatus res = _init_params(read_params);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init reader when init params. res:" << res
@@ -169,6 +171,7 @@ OLAPStatus Reader::_direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, Ob
     }
     return OLAP_SUCCESS;
 }
+
 OLAPStatus Reader::_direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
                                             ObjectPool* agg_pool, bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
