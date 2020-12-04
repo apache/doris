@@ -171,6 +171,10 @@ public class LoadLoadingTask extends LoadTask {
     }
 
     public void createProfile(Coordinator coord) {
+        if (jobProfile == null) {
+            // No need to gather profile
+            return;
+        }
         // Summary profile
         profile = new RuntimeProfile("LoadTask: " + DebugUtil.printId(loadId));
         coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(beginTime));

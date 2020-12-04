@@ -40,6 +40,7 @@ import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
@@ -71,8 +72,10 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     // Profile of this load job, including all tasks' profiles
     private RuntimeProfile jobProfile;
+    // If set to true, the profile of load job with be pushed to ProfileManager
+    private boolean isReportSuccess = false;
 
-    // only for log replay
+    // for log replay and unit test
     public BrokerLoadJob() {
         super();
         this.jobType = EtlJobType.BROKER;
@@ -85,7 +88,9 @@ public class BrokerLoadJob extends BulkLoadJob {
         this.timeoutSecond = Config.broker_load_default_timeout_second;
         this.brokerDesc = brokerDesc;
         this.jobType = EtlJobType.BROKER;
-        this.jobProfile = new RuntimeProfile("BrokerLoadJob " + id + ": " + label);
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReportSucc()) {
+            isReportSuccess = true;
+        }
     }
 
     @Override
@@ -181,6 +186,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     private void createLoadingTask(Database db, BrokerPendingTaskAttachment attachment) throws UserException {
         // divide job into broker loading task by table
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
+        this.jobProfile = new RuntimeProfile("BrokerLoadJob " + id + ". " + label);
         db.readLock();
         try {
             for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry : fileGroupAggInfo.getAggKeyToFileGroups().entrySet()) {
@@ -201,7 +207,8 @@ public class BrokerLoadJob extends BulkLoadJob {
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), execMemLimit,
-                        strictMode, transactionId, this, timezone, timeoutSecond, jobProfile);
+                        strictMode, transactionId, this, timezone, timeoutSecond,
+                        isReportSuccess ? jobProfile : null);
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
                 task.init(loadId, attachment.getFileStatusByTable(aggKey),
@@ -268,9 +275,6 @@ public class BrokerLoadJob extends BulkLoadJob {
                               .build());
         }
 
-        // all loading task done, write profile
-        writeProfile();
-
         // check data quality
         if (!checkDataQuality()) {
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, DataQualityException.QUALITY_FAIL_MSG),
@@ -312,6 +316,10 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     private void writeProfile() {
+        if (!isReportSuccess) {
+            return;
+        }
+
         RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
         summaryProfile.addInfoString(ProfileManager.QUERY_ID, String.valueOf(id));
         summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(createTimestamp));
@@ -360,4 +368,11 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
         return String.valueOf(value);
     }
+
+    @Override
+    public void afterVisible(TransactionState txnState, boolean txnOperated) {
+        super.afterVisible(txnState, txnOperated);
+        writeProfile();
+    }
 }
+
