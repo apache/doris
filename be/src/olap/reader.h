@@ -76,12 +76,12 @@ struct ReaderParams {
 
     void check_validation() const;
 
-    std::string to_string();
+    std::string to_string() const;
 };
 
 class Reader {
 public:
-    Reader();
+    Reader() = default;
     ~Reader();
 
     // Initialize Reader with tablet, data version and fetch range.
