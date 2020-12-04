@@ -659,7 +659,6 @@ enum TFrontendPingFrontendStatusCode {
    FAILED = 1
 }
 
-
 struct TFrontendPingFrontendRequest {
    1: required i32 clusterId
    2: required string token
