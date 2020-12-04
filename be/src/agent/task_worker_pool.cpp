@@ -79,7 +79,7 @@ FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache;
 
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                                const TMasterInfo& master_info)
-        : _name(strings::Substitute("TaskWorkerPool.$0", TYPE_STRING(_task_worker_type))),
+        : _name(strings::Substitute("TaskWorkerPool.$0", TYPE_STRING(task_worker_type))),
           _master_info(master_info),
           _agent_utils(new AgentUtils()),
           _master_client(new MasterServerClient(_master_info, &_master_service_client_cache)),
