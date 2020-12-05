@@ -89,7 +89,6 @@ public:
     bool empty() const { return _segment_group->empty(); }
     bool zero_num_rows() const { return _segment_group->zero_num_rows(); }
 
-    // Return true if should be filtered out
     bool rowset_pruning_filter();
     int delete_pruning_filter();
     uint64_t get_filtered_rows();

@@ -87,6 +87,9 @@ static CondOp parse_op_type(const string& op) {
     return OP_NULL;
 }
 
+Cond::Cond()
+        : op(OP_NULL), operand_field(nullptr), min_value_field(nullptr), max_value_field(nullptr) {}
+
 Cond::~Cond() {
     delete operand_field;
     for (auto& it : operand_set) {
@@ -106,7 +109,6 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
     }
     if (op == OP_IS) {
         // 'is null' or 'is not null'
-        DCHECK_EQ(tcond.condition_values.size(), 1);
         auto operand = tcond.condition_values.begin();
         std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
@@ -121,7 +123,6 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
         }
         operand_field = f.release();
     } else if (op != OP_IN && op != OP_NOT_IN) {
-        DCHECK_EQ(tcond.condition_values.size(), 1);
         auto operand = tcond.condition_values.begin();
         std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
@@ -131,24 +132,22 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
         }
         OLAPStatus res = f->from_string(*operand);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("Convert from string failed. [name=%s, operand=%s, op_type=%d]",
+            OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                              tcond.column_name.c_str(), operand->c_str(), op);
             return res;
         }
         operand_field = f.release();
     } else {
-        DCHECK(op == OP_IN || op == OP_NOT_IN);
-        DCHECK(!tcond.condition_values.empty());
         for (auto& operand : tcond.condition_values) {
             std::unique_ptr<WrapperField> f(WrapperField::create(column, operand.length()));
-            if (f == nullptr) {
+            if (f == NULL) {
                 OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                                  tcond.column_name.c_str(), operand.c_str(), op);
                 return OLAP_ERR_INPUT_PARAMETER_ERROR;
             }
             OLAPStatus res = f->from_string(operand);
             if (res != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("Convert from string failed. [name=%s, operand=%s, op_type=%d]",
+                OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                                  tcond.column_name.c_str(), operand.c_str(), op);
                 return res;
             }
@@ -176,7 +175,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
 
 bool Cond::eval(const RowCursorCell& cell) const {
     if (cell.is_null() && op != OP_IS) {
-        //任何非OP_IS operand和NULL的运算都是false
+        //任何operand和NULL的运算都是false
         return false;
     }
 
@@ -267,6 +266,8 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
 }
 
 int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
+    //通过单列上的单个删除条件对version进行过滤。
+
     // When we apply column statistics, stat maybe null.
     if (stat.first == nullptr || stat.second == nullptr) {
         //for string type, the column statistics may be not recorded in block level
@@ -285,11 +286,9 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
     int ret = DEL_NOT_SATISFIED;
     switch (op) {
     case OP_EQ: {
-        int cmp1 = operand_field->cmp(stat.first);
-        int cmp2 = operand_field->cmp(stat.second);
-        if (cmp1 == 0 && cmp2 == 0) {
+        if (operand_field->cmp(stat.first) == 0 && operand_field->cmp(stat.second) == 0) {
             ret = DEL_SATISFIED;
-        } else if (cmp1 >= 0 && cmp2 <= 0) {
+        } else if (operand_field->cmp(stat.first) >= 0 && operand_field->cmp(stat.second) <= 0) {
             ret = DEL_PARTIAL_SATISFIED;
         } else {
             ret = DEL_NOT_SATISFIED;
@@ -297,11 +296,9 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
         return ret;
     }
     case OP_NE: {
-        int cmp1 = operand_field->cmp(stat.first);
-        int cmp2 = operand_field->cmp(stat.second);
-        if (cmp1 == 0 && cmp2 == 0) {
+        if (operand_field->cmp(stat.first) == 0 && operand_field->cmp(stat.second) == 0) {
             ret = DEL_NOT_SATISFIED;
-        } else if (cmp1 >= 0 && cmp2 <= 0) {
+        } else if (operand_field->cmp(stat.first) >= 0 && operand_field->cmp(stat.second) <= 0) {
             ret = DEL_PARTIAL_SATISFIED;
         } else {
             ret = DEL_SATISFIED;
@@ -358,8 +355,6 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
         } else {
             if (min_value_field->cmp(stat.second) <= 0 && max_value_field->cmp(stat.first) >= 0) {
                 ret = DEL_PARTIAL_SATISFIED;
-            } else {
-                ret = DEL_NOT_SATISFIED;
             }
         }
         return ret;
@@ -373,9 +368,6 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
             }
         } else {
             if (min_value_field->cmp(stat.second) > 0 || max_value_field->cmp(stat.first) < 0) {
-                // When there is no intersection, all entries in the range should be deleted.
-                ret = DEL_SATISFIED;
-            } else {
                 ret = DEL_PARTIAL_SATISFIED;
             }
         }
@@ -388,8 +380,8 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
             } else if (stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_PARTIAL_SATISFIED;
             } else {
-                CHECK(false) << "It will not happen when the stat's min is not null and max is null";
-                ret = DEL_SATISFIED;
+                //不会出现min不为NULL，max为NULL
+                ret = DEL_NOT_SATISFIED;
             }
         } else {
             if (stat.first->is_null() && stat.second->is_null()) {
@@ -397,20 +389,19 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
             } else if (stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_PARTIAL_SATISFIED;
             } else {
-                CHECK(false) << "It will not happen when the stat's min is not null and max is null";
                 ret = DEL_SATISFIED;
             }
         }
         return ret;
     }
     default:
-        LOG(WARNING) << "Not supported operation: " << op;
         break;
     }
     return ret;
 }
 
 bool Cond::eval(const BloomFilter& bf) const {
+    //通过单列上BloomFilter对block进行过滤。
     switch (op) {
     case OP_EQ: {
         bool existed = false;
@@ -452,6 +443,7 @@ bool Cond::eval(const BloomFilter& bf) const {
 }
 
 bool Cond::eval(const segment_v2::BloomFilter* bf) const {
+    //通过单列上BloomFilter对block进行过滤。
     switch (op) {
     case OP_EQ: {
         bool existed = false;
@@ -508,6 +500,7 @@ OLAPStatus CondColumn::add_cond(const TCondition& tcond, const TabletColumn& col
 }
 
 bool CondColumn::eval(const RowCursor& row) const {
+    //通过一列上的所有查询条件对单行数据进行过滤
     auto cell = row.cell(_col_index);
     for (auto& each_cond : _conds) {
         // As long as there is one condition not satisfied, we can return false
@@ -519,9 +512,9 @@ bool CondColumn::eval(const RowCursor& row) const {
     return true;
 }
 
-bool CondColumn::eval(const std::pair<WrapperField*, WrapperField*> &statistic) const {
+bool CondColumn::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const {
+    //通过一列上的所有查询条件对version进行过滤
     for (auto& each_cond : _conds) {
-        // As long as there is one condition not satisfied, we can return false
         if (!each_cond->eval(statistic)) {
             return false;
         }
@@ -531,6 +524,8 @@ bool CondColumn::eval(const std::pair<WrapperField*, WrapperField*> &statistic) 
 }
 
 int CondColumn::del_eval(const std::pair<WrapperField*, WrapperField*>& statistic) const {
+    //通过一列上的所有删除条件对version进行过滤
+
     /*
      * the relationship between cond A and B is A & B.
      * if all delete condition is satisfied, the data can be filtered.
@@ -565,6 +560,7 @@ int CondColumn::del_eval(const std::pair<WrapperField*, WrapperField*>& statisti
 }
 
 bool CondColumn::eval(const BloomFilter& bf) const {
+    //通过一列上的所有BloomFilter索引信息对block进行过滤
     for (auto& each_cond : _conds) {
         if (!each_cond->eval(bf)) {
             return false;
@@ -611,6 +607,7 @@ OLAPStatus Conditions::append_condition(const TCondition& tcond) {
 }
 
 bool Conditions::delete_conditions_eval(const RowCursor& row) const {
+    //通过所有列上的删除条件对rowcursor进行过滤
     if (_columns.empty()) {
         return false;
     }
@@ -680,6 +677,8 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
     }
 
     if (del_not_satisfied) {
+        // if the size of condcolumn vector is zero,
+        // the delete condtion is not satisfied.
         ret = DEL_NOT_SATISFIED;
     } else if (del_partial_satisfied) {
         ret = DEL_PARTIAL_SATISFIED;

@@ -65,7 +65,7 @@ private:
 
         virtual const RowCursor* current_row() const = 0;
 
-        virtual int64_t version() const = 0;
+        virtual int32_t version() const = 0;
 
         virtual OLAPStatus next(const RowCursor** row, bool* delete_flag) = 0;
         virtual ~LevelIterator() = 0;
@@ -96,13 +96,14 @@ private:
 
         const RowCursor* current_row() const;
 
-        int64_t version() const;
+        int32_t version() const;
 
         OLAPStatus next(const RowCursor** row, bool* delete_flag);
 
         ~Level0Iterator();
 
     private:
+        // refresh_current_row
         OLAPStatus _refresh_current_row();
 
         RowsetReaderSharedPtr _rs_reader;
@@ -124,7 +125,7 @@ private:
 
         const RowCursor* current_row() const;
 
-        int64_t version() const;
+        int32_t version() const;
 
         OLAPStatus next(const RowCursor** row, bool* delete_flag);
 
