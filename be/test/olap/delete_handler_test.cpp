@@ -34,7 +34,6 @@
 #include "olap/utils.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
-#include "util/cpu_info.h"
 
 using namespace std;
 using namespace doris;
@@ -451,6 +450,7 @@ protected:
 
 TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     OLAPStatus res;
+    DeleteConditionHandler cond_handler;
     std::vector<TCondition> conditions;
 
     // 测试数据中, k1,k2,k3,k4类型分别为int8, int16, int32, int64
@@ -572,6 +572,7 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
 
 TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     OLAPStatus res;
+    DeleteConditionHandler cond_handler;
     std::vector<TCondition> conditions;
 
     // 测试k1的值越上界，k1类型为int8
@@ -782,7 +783,6 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
 class TestDeleteHandler : public testing::Test {
 protected:
     void SetUp() {
-        CpuInfo::init();
         // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
@@ -825,6 +825,7 @@ protected:
 TEST_F(TestDeleteHandler, InitSuccess) {
     OLAPStatus res;
     std::vector<TCondition> conditions;
+    DeleteConditionHandler delete_condition_handler;
 
     // 往头文件中添加过滤条件
     TCondition condition;
@@ -895,7 +896,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(4, _delete_handler.conditions_num());
-    std::vector<int64_t> conds_version = _delete_handler.get_conds_version();
+    std::vector<int32_t> conds_version = _delete_handler.get_conds_version();
     EXPECT_EQ(4, conds_version.size());
     sort(conds_version.begin(), conds_version.end());
     EXPECT_EQ(1, conds_version[0]);
@@ -910,6 +911,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
 // 即只有满足一条过滤条件包含的所有子条件，这条数据才会被过滤
 TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     OLAPStatus res;
+    DeleteConditionHandler cond_handler;
     std::vector<TCondition> conditions;
 
     // 往Header中添加过滤条件
@@ -971,6 +973,7 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
 // 即如果存在多个过滤条件，会一次检查数据是否符合这些过滤条件；只要有一个过滤条件符合，则过滤数据
 TEST_F(TestDeleteHandler, FilterDataConditions) {
     OLAPStatus res;
+    DeleteConditionHandler cond_handler;
     std::vector<TCondition> conditions;
 
     // 往Header中添加过滤条件
@@ -1051,6 +1054,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
 // 测试在过滤时，版本号小于数据版本的过滤条件将不起作用
 TEST_F(TestDeleteHandler, FilterDataVersion) {
     OLAPStatus res;
+    DeleteConditionHandler cond_handler;
     std::vector<TCondition> conditions;
 
     // 往Header中添加过滤条件
