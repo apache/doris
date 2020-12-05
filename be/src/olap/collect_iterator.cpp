@@ -162,7 +162,7 @@ const RowCursor* CollectIterator::Level0Iterator::current_row() const {
     return _current_row;
 }
 
-int64_t CollectIterator::Level0Iterator::version() const {
+int32_t CollectIterator::Level0Iterator::version() const {
     return _rs_reader->version().second;
 }
 
@@ -172,7 +172,8 @@ OLAPStatus CollectIterator::Level0Iterator::_refresh_current_row() {
             size_t pos = _row_block->pos();
             _row_block->get_row(pos, &_row_cursor);
             if (_row_block->block_status() == DEL_PARTIAL_SATISFIED &&
-                _reader->_delete_handler.is_filter_data(version(), _row_cursor)) {
+                _reader->_delete_handler.is_filter_data(_rs_reader->version().second,
+                                                        _row_cursor)) {
                 _reader->_stats.rows_del_filtered++;
                 _row_block->pos_inc();
                 continue;
@@ -249,7 +250,7 @@ const RowCursor* CollectIterator::Level1Iterator::current_row() const {
     return nullptr;
 }
 
-int64_t CollectIterator::Level1Iterator::version() const {
+int32_t CollectIterator::Level1Iterator::version() const {
     if (_cur_child != nullptr) {
         return _cur_child->version();
     }
@@ -282,7 +283,7 @@ inline OLAPStatus CollectIterator::Level1Iterator::_merge_next(const RowCursor**
                                                                bool* delete_flag) {
     _heap->pop();
     auto res = _cur_child->next(row, delete_flag);
-    if (LIKELY(res == OLAP_SUCCESS)) {
+    if (res == OLAP_SUCCESS) {
         _heap->push(_cur_child);
         _cur_child = _heap->top();
     } else if (res == OLAP_ERR_DATA_EOF) {
