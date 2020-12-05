@@ -91,6 +91,9 @@ std::string Reader::KeysParam::to_string() const {
     return ss.str();
 }
 
+Reader::Reader() : _collect_iter(new CollectIterator()) {
+}
+
 Reader::~Reader() {
     close();
 }

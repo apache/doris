@@ -194,6 +194,8 @@ private:
     const TabletSchema* _schema = nullptr;
     // CondColumns in _index_conds are in 'AND' relationship
     CondColumns _columns; // list of condition column
+
+    DISALLOW_COPY_AND_ASSIGN(Conditions);
 };
 
 } // namespace doris

@@ -137,6 +137,8 @@ private:
     bool _is_inited = false;
     // DeleteConditions in _del_conds are in 'OR' relationship
     std::vector<DeleteConditions> _del_conds;
+
+    DISALLOW_COPY_AND_ASSIGN(DeleteHandler);
 };
 
 } // namespace doris

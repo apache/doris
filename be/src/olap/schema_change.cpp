@@ -95,7 +95,7 @@ RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema) {
 }
 
 RowBlockChanger::RowBlockChanger(const TabletSchema& tablet_schema,
-                                 const DeleteHandler& delete_handler) {
+                                 const DeleteHandler* delete_handler) {
     _schema_mapping.resize(tablet_schema.num_columns());
     _delete_handler = delete_handler;
 }
@@ -106,8 +106,6 @@ RowBlockChanger::~RowBlockChanger() {
         SAFE_DELETE(it->default_value);
     }
     _schema_mapping.clear();
-
-    _delete_handler.finalize();
 }
 
 ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) {
@@ -449,7 +447,7 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
 
         // filter data according to delete conditions specified in DeleteData command
         if (is_data_left_vec[row_index] == 1) {
-            if (_delete_handler.is_filter_data(data_version, read_helper)) {
+            if (_delete_handler != nullptr && _delete_handler->is_filter_data(data_version, read_helper)) {
                 is_data_left_vec[row_index] = 0;
             }
         }
@@ -1552,7 +1550,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         sc_params.base_tablet = base_tablet;
         sc_params.new_tablet = new_tablet;
         sc_params.ref_rowset_readers = rs_readers;
-        sc_params.delete_handler = delete_handler;
+        sc_params.delete_handler = &delete_handler;
         if (request.__isset.materialized_view_params) {
             for (auto item : request.materialized_view_params) {
                 AlterMaterializedViewParam mv_param;
