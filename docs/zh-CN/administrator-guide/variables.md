@@ -73,6 +73,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
 * `parallel_exchange_instance_num`
+* `allow_partition_column_nullable`
 
 只支持全局生效的变量包括：
 
@@ -359,3 +360,7 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
     在选择join的具体实现方式是broadcast join还是shuffle join时，如果broadcast join cost和shuffle join cost相等时，优先选择哪种join方式。
 
     目前该变量的可选值为"broadcast" 或者 "shuffle"。
+
+* `allow_partition_column_nullable`
+
+    建表时是否允许分区列为NULL。默认为true，表示允许为NULL。false 表示分区列必须被定义为NOT NULL

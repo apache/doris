@@ -96,7 +96,7 @@ under the License.
        * REPLACE_IF_NOT_NULL：这个聚合类型的含义是当且仅当新导入数据是非NULL值时会发生替换行为，如果新导入的数据是NULL，那么Doris仍然会保留原值。注意：如果用在建表时REPLACE_IF_NOT_NULL列指定了NOT NULL，那么Doris仍然会将其转化NULL，不会向用户报错。用户可以借助这个类型完成部分列导入的功能。
        * 该类型只对聚合模型(key_desc的type为AGGREGATE KEY)有用，其它模型不需要指这个。
 
-    是否允许为NULL: 默认不允许为 NULL。NULL 值在导入数据中用 \N 来表示
+    是否允许为NULL: 默认允许为 NULL。NULL 值在导入数据中用 \N 来表示
 
     注意：
         BITMAP_UNION聚合类型列在导入时的原始数据类型必须是TINYINT,SMALLINT,INT,BIGINT。
