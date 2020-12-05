@@ -171,7 +171,7 @@ public:
      * Remove value x
      *
      */
-    void remove(uint32_t x) { roarings[0].remove(x); }
+    void(uint32_t x) { roarings[0].remove(x); }
     void remove(uint64_t x) {
         auto roaring_iter = roarings.find(highBytes(x));
         if (roaring_iter != roarings.cend()) roaring_iter->second.remove(lowBytes(x));
@@ -1006,6 +1006,7 @@ public:
         }
     }
 
+
     // Compute the union between the current bitmap and the provided bitmap.
     // Possible type transitions are:
     // EMPTY  -> SINGLE
@@ -1051,6 +1052,7 @@ public:
         case SINGLE:
             switch (_type) {
             case EMPTY:
+                add();
                 break;
             case SINGLE:
                 if (_sv != rhs._sv) {
@@ -1095,36 +1097,42 @@ public:
     BitmapValue& operator^=(const BitmapValue& rhs) {
         switch (rhs._type) {
             case EMPTY:
-                _type = EMPTY;
-                _bitmap.clear();
                 break;
             case SINGLE:
                 switch (_type) {
                     case EMPTY:
+                        add(rhs._sv)
                         break;
                     case SINGLE:
-                        if (_sv != rhs._sv) {
+                        if (_sv = rhs._sv) {
                             _type = EMPTY;
+                            _bitmap.clear();
+                        }else{
+                            add(rhs._sv)
                         }
                         break;
                     case BITMAP:
                         if (!_bitmap.contains(rhs._sv)) {
-                            _type = EMPTY;
+                            add(rhs._sv);
                         } else {
-                            _type = SINGLE;
-                            _sv = rhs._sv;
+                            _bitmap.remove(rhs._sv);
                         }
-                        _bitmap.clear();
                         break;
                 }
                 break;
             case BITMAP:
                 switch (_type) {
                     case EMPTY:
+                        _bitmap = rhs._bitmap;
+                        _type = BITMAP;
                         break;
                     case SINGLE:
+                        _bitmap = rhs._bitmap;
+                        _type = BITMAP;
                         if (!rhs._bitmap.contains(_sv)) {
-                            _type = EMPTY;
+                            _bitmap.add(_sv);
+                        }else{
+                            _bitmap.remove(_sv);
                         }
                         break;
                     case BITMAP:
