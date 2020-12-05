@@ -171,7 +171,7 @@ public:
      * Remove value x
      *
      */
-    void(uint32_t x) { roarings[0].remove(x); }
+    void remove(uint32_t x) { roarings[0].remove(x); }
     void remove(uint64_t x) {
         auto roaring_iter = roarings.find(highBytes(x));
         if (roaring_iter != roarings.cend()) roaring_iter->second.remove(lowBytes(x));
@@ -1052,7 +1052,6 @@ public:
         case SINGLE:
             switch (_type) {
             case EMPTY:
-                add();
                 break;
             case SINGLE:
                 if (_sv != rhs._sv) {
@@ -1101,14 +1100,14 @@ public:
             case SINGLE:
                 switch (_type) {
                     case EMPTY:
-                        add(rhs._sv)
+                        add(rhs._sv);
                         break;
                     case SINGLE:
-                        if (_sv = rhs._sv) {
+                        if (_sv == rhs._sv) {
                             _type = EMPTY;
                             _bitmap.clear();
                         }else{
-                            add(rhs._sv)
+                            add(rhs._sv);
                         }
                         break;
                     case BITMAP:
