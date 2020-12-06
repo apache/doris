@@ -101,6 +101,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String STRIP_OUTER_ARRAY = "strip_outer_array";
     public static final String JSONPATHS = "jsonpaths";
     public static final String JSONROOT = "json_root";
+    public static final String NUM_AS_STRING = "num_as_string";
 
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
@@ -122,6 +123,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(FORMAT)
             .add(JSONPATHS)
             .add(STRIP_OUTER_ARRAY)
+            .add(NUM_AS_STRING)
             .add(JSONROOT)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
@@ -165,6 +167,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private String jsonPaths  = "";
     private String jsonRoot   = ""; // MUST be a jsonpath string
     private boolean stripOuterArray = false;
+    private boolean numAsString = false;
 
     // kafka related properties
     private String kafkaBrokerList;
@@ -253,6 +256,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public boolean isStripOuterArray() {
         return stripOuterArray;
+    }
+
+    public boolean isNumAsString() {
+        return numAsString;
     }
 
     public String getJsonPaths() {
@@ -431,6 +438,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 jsonPaths = jobProperties.get(JSONPATHS);
                 jsonRoot = jobProperties.get(JSONROOT);
                 stripOuterArray = Boolean.valueOf(jobProperties.getOrDefault(STRIP_OUTER_ARRAY, "false"));
+                numAsString = Boolean.valueOf(jobProperties.getOrDefault(NUM_AS_STRING, "false"));
             } else {
                 throw new UserException("Format type is invalid. format=`" + format + "`");
             }
