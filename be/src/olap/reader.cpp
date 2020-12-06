@@ -284,6 +284,9 @@ void Reader::close() {
     for (auto pred : _col_predicates) {
         delete pred;
     }
+    for (auto pred : _value_col_predicates) {
+        delete pred;
+    }
 }
 
 OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
@@ -365,6 +368,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.load_bf_columns = &_load_bf_columns;
     _reader_context.conditions = &_conditions;
     _reader_context.predicates = &_col_predicates;
+    _reader_context.value_predicates = &_value_col_predicates;
     _reader_context.lower_bound_keys = &_keys_param.start_keys;
     _reader_context.is_lower_keys_included = &_is_lower_keys_included;
     _reader_context.upper_bound_keys = &_keys_param.end_keys;
@@ -575,7 +579,13 @@ void Reader::_init_conditions_param(const ReaderParams& read_params) {
         DCHECK_EQ(OLAP_SUCCESS, _conditions.append_condition(condition));
         ColumnPredicate* predicate = _parse_to_predicate(condition);
         if (predicate != nullptr) {
-            _col_predicates.push_back(predicate);
+            if (_tablet->tablet_schema()
+                        .column(_tablet->field_index(condition.column_name))
+                        .aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
+                _value_col_predicates.push_back(predicate);
+            } else {
+                _col_predicates.push_back(predicate);
+            }
         }
     }
 }
@@ -685,9 +695,6 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
         return nullptr;
     }
     const TabletColumn& column = _tablet->tablet_schema().column(index);
-    if (column.aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
-        return nullptr;
-    }
     ColumnPredicate* predicate = nullptr;
     if (condition.condition_op == "*=" && condition.condition_values.size() == 1) {
         predicate = _new_eq_pred(column, index, condition.condition_values[0]);
@@ -820,6 +827,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
     } else if (condition.condition_op == "is") {
         predicate = new NullPredicate(index, condition.condition_values[0] == "null");
     }
+
     return predicate;
 }
 
