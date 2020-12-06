@@ -193,6 +193,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
      */
     private static final String PROPS_FORMAT = "format";
     private static final String PROPS_STRIP_OUTER_ARRAY = "strip_outer_array";
+    private static final String PROPS_NUM_AS_STRING = "num_as_string";
     private static final String PROPS_JSONPATHS = "jsonpaths";
     private static final String PROPS_JSONROOT = "json_root";
 
@@ -302,6 +303,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
             jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
+            jobProperties.put(PROPS_NUM_AS_STRING, "false");
             jobProperties.put(PROPS_JSONPATHS, "");
             jobProperties.put(PROPS_JSONROOT, "");
         } else if (stmt.getFormat().equals("json")) {
@@ -321,6 +323,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             } else {
                 jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
             }
+            if (stmt.isNumAsString()) {
+                jobProperties.put(PROPS_NUM_AS_STRING, "true");
+            } else {
+                jobProperties.put(PROPS_NUM_AS_STRING, "false");
+            }
+
         } else {
             throw new UserException("Invalid format type.");
         }
@@ -544,6 +552,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public boolean isStripOuterArray() {
         return Boolean.valueOf(jobProperties.get(PROPS_STRIP_OUTER_ARRAY));
+    }
+
+    public boolean isNumAsString() {
+        return Boolean.valueOf(jobProperties.get(PROPS_NUM_AS_STRING));
     }
 
     @Override

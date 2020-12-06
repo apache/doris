@@ -119,11 +119,11 @@ Doris supports extracting the data specified in Json through Json Path.
     ```
     
     Doris will use the specified Json Path for data matching and extraction.
-        
+    
 * Match non-primitive types
 
      The values that the previous example finally matched are all primitive types, such as Integer, String, and so on. Doris currently does not support complex types, such as Array, Map, etc. So when a non-primitive type is matched, Doris will convert the type to a Json format string and load it as a string type. Examples are as follows:
-    
+        
     ```
     { "id": 123, "city" : { "name" : "beijing", "region" : "haidian" }}
     ```
@@ -304,6 +304,45 @@ If you want to load the above data as expected, the load statement is as follows
 curl -v --location-trusted -u root: -H "format: json" -H "strip_outer_array: true" -H "jsonpaths: [\"$.k1\", \"$.k2\"]"- H "columns: k1, tmp_k2, k2 = ifnull(tmp_k2,'x')" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
 ```
 
+## LargetInt与Decimal
+
+Doris supports data types such as largeint and decimal with larger data range and higher data precision. However, due to the fact that the maximum range of the rapid JSON library used by Doris for the resolution of digital types is Int64 and double, there may be some problems when importing largeint or decimal by JSON format,  such as loss of precision, data conversion error, etc.
+
+For example：
+
+```
+[
+    {"k1": 1, "k2":9999999999999.999999 }
+]
+```
+
+
+The imported K2 column type is `Decimal (16,9)`the import data is: ` 9999999999.999999`. During the JSON load which cause the precision loss of double conversion, the imported data convert to: ` 10000000000.0002 `. It is a import error.
+
+To solve this problem, Doris provides a param `num_as_string `. Doris converts the numeric type to a string when parsing JSON data and JSON load without losing precision.
+
+```
+curl -v --location-trusted -u root: -H "format: json" -H "num_as_string: true" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+But using the param will cause unexpected side effects. Doris currently does not support composite types, such as Array, Map, etc. So when a non basic type is matched, Doris will convert the type to a string in JSON format.` num_as_string`will also convert compound type numbers into strings, for example：
+    
+JSON Data：
+
+    { "id": 123, "city" : { "name" : "beijing", "city_id" : 1 }}
+
+Not use `num_as_string `, the data of the city column is:
+
+`{ "name" : "beijing", "city_id" : 1 }`
+
+Use `num_as_string `, the data of the city column is:
+
+`{ "name" : "beijing", "city_id" : "1" }`
+
+Warning, the param leads to the city_id of the numeric type in the compound type is treated as a string column and quoted, which is different from the original data.
+
+Therefore, when using JSON load. we should try to avoid importing largeint, decimal and composite types at the same time. If you can't avoid it, you need to fully understand the **side effects**.
+
 ## Examples
 
 ### Stream Load
@@ -347,7 +386,7 @@ code    INT     NULL
         ```
         100     beijing     1
         ```
-        
+    
 2. Load sigle-line data 2
 
     ```
@@ -401,7 +440,7 @@ code    INT     NULL
         104     ["zhejiang","guangzhou"]    5
         105     {"order1":["guangzhou"]}    6
         ```
-        
+    
 4. Convert load data
 
     The data is still the multi-row data in Example 3. Now you need to add 1 to the `code` column in the loaded data and load it.
