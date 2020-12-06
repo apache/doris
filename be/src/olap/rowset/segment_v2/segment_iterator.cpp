@@ -109,8 +109,8 @@ SegmentIterator::~SegmentIterator() {
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
     _opts = opts;
-    if (opts.column_predicates != nullptr) {
-        _col_predicates = *(opts.column_predicates);
+    if (!opts.column_predicates.empty()) {
+        _col_predicates = opts.column_predicates;
     }
     return Status::OK();
 }
