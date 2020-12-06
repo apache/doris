@@ -42,6 +42,7 @@ public interface LoadTaskInfo {
     public String getJsonPaths();
     public String getJsonRoot();
     public boolean isStripOuterArray();
+    public boolean isNumAsString();
     public String getPath();
     public List<ImportColumnDesc> getColumnExprDescs();
     public boolean isStrictMode();

@@ -93,6 +93,7 @@ public class StreamLoadScanNode extends LoadScanNode {
                 rangeDesc.setJsonRoot(taskInfo.getJsonRoot());
             }
             rangeDesc.setStripOuterArray(taskInfo.isStripOuterArray());
+            rangeDesc.setNumAsString(taskInfo.isNumAsString());
         }
         rangeDesc.splittable = false;
         switch (taskInfo.getFileType()) {

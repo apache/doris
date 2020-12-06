@@ -306,6 +306,46 @@ curl -v --location-trusted -u root: -H "format: json" -H "strip_outer_array: tru
 curl -v --location-trusted -u root: -H "format: json" -H "strip_outer_array: true" -H "jsonpaths: [\"$.k1\", \"$.k2\"]" -H "columns: k1, tmp_k2, k2 = ifnull(tmp_k2, 'x')" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
 ```
 
+## LargetInt与Decimal
+
+Doris支持LargeInt与Decimal等数据范围更大，数据精度更高的数据类型。但是由于Doris使用的Rapid Json库对于数字类型能够解析的最大范围为Int64与Double，这导致了通过Json导入LargeInt或Decimal时可能会出现：精度丢失，数据转换出错等问题。
+
+示例数据如下：
+
+```
+[
+    {"k1": 1, "k2":9999999999999.999999 }
+]
+```
+
+
+导入k2列类型为`Decimal(16, 9)`，数据为:`9999999999999.999999`。在进行Json导入时，由于Double转换的精度丢失导致了导入的数据为：`10000000000000.0002`，引发了导入出错。
+
+为了解决这个问题，Doris在导入时提供了 `num_as_string`的开关。Doris在解析Json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
+
+```
+curl -v --location-trusted -u root: -H "format: json" -H "num_as_string: true" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+但是开启这个开关会引起一些意想不到的副作用。Doris 当前暂不支持复合类型，如 Array、Map 等。所以当匹配到一个非基本类型时，Doris 会将该类型转换为 Json 格式的字符串，而`num_as_string`会同样将复合类型的数字转换为字符串，举个例子：
+    
+Json 数据为：
+
+    { "id": 123, "city" : { "name" : "beijing", "city_id" : 1 }}
+
+不开启`num_as_string`时，导入的city列的数据为:
+
+`{ "name" : "beijing", "city_id" : 1 }`
+
+而开启了`num_as_string`时，导入的city列的数据为:
+
+`{ "name" : "beijing", "city_id" : "1" }`
+
+注意，这里导致了复合类型原先为1的数字类型的city_id被作为字符串列处理并添加上了引号，与原始数据相比，产生了变化。
+
+所以用在使用Json导入时，要尽量避免LargeInt与Decimal与复合类型的同时导入。如果无法避免，则需要充分了解开启`num_as_string`后对复合类型导入的**副作用**。
+
+
 ## 应用示例
 
 ### Stream Load
@@ -349,7 +389,7 @@ code    INT     NULL
         ```
         100     beijing     1
         ```
-        
+    
 2. 导入单行数据2
 
     ```
@@ -403,7 +443,7 @@ code    INT     NULL
         104     ["zhejiang","guangzhou"]    5
         105     {"order1":["guangzhou"]}    6
         ```
-        
+    
 4. 对导入数据进行转换
 
     数据依然是示例3中的多行数据，现需要对导入数据中的 `code` 列加1后导入。
