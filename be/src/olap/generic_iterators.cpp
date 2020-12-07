@@ -219,8 +219,11 @@ private:
 
     std::unique_ptr<Schema> _schema;
 
-    struct MergeContextComparator {
+    class MergeContextComparator {
+    public:
+        MergeContextComparator(OlapReaderStatistics* stats) : _stats(stats) {}
         bool operator()(const MergeIteratorContext* lhs, const MergeIteratorContext* rhs) const {
+            SCOPED_RAW_TIMER(&_stats->segment_compare_ns);
             auto lhs_row = lhs->current_row();
             auto rhs_row = rhs->current_row();
             int cmp_res = compare_row(lhs_row, rhs_row);
@@ -233,6 +236,9 @@ private:
             // return the row in reverse order of segment id
             return lhs->data_id() < rhs->data_id();
         }
+
+    private:
+        OlapReaderStatistics* _stats;
     };
     using MergeHeap = std::priority_queue<MergeIteratorContext*, std::vector<MergeIteratorContext*>,
                                           MergeContextComparator>;
@@ -244,7 +250,7 @@ Status MergeIterator::init(const StorageReadOptions& opts) {
         return Status::OK();
     }
     _schema.reset(new Schema(_origin_iters[0]->schema()));
-    _merge_heap.reset(new MergeHeap);
+    _merge_heap.reset(new MergeHeap(MergeContextComparator(opts.stats)));
 
     for (auto iter : _origin_iters) {
         std::unique_ptr<MergeIteratorContext> ctx(new MergeIteratorContext(iter));

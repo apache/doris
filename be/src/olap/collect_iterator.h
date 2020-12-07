@@ -55,7 +55,7 @@ private:
     // It currently contains two implementations, one is Level0Iterator,
     // which only reads data from the rowset reader, and the other is Level1Iterator,
     // which can read merged data from multiple LevelIterators through MergeHeap.
-    // By using Level1Iterator, some rowset readers can be merged in advance and 
+    // By using Level1Iterator, some rowset readers can be merged in advance and
     // then merged with other rowset readers.
     class LevelIterator {
     public:
@@ -69,17 +69,21 @@ private:
 
         virtual OLAPStatus next(const RowCursor** row, bool* delete_flag) = 0;
         virtual ~LevelIterator() = 0;
+
+    protected:
+        OlapReaderStatistics* _stats;
     };
     // Compare row cursors between multiple merge elements,
     // if row cursors equal, compare data version.
     class LevelIteratorComparator {
     public:
-        LevelIteratorComparator(const bool reverse = false) : _reverse(reverse) {}
+        LevelIteratorComparator(OlapReaderStatistics* stats, bool reverse = false)
+                : _stats(stats), _reverse(reverse) {}
         bool operator()(const LevelIterator* a, const LevelIterator* b);
 
     private:
-        bool _reverse;
         OlapReaderStatistics* _stats;
+        bool _reverse;
     };
 
     typedef std::priority_queue<LevelIterator*, std::vector<LevelIterator*>,
@@ -117,7 +121,8 @@ private:
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)
     class Level1Iterator : public LevelIterator {
     public:
-        Level1Iterator(const std::vector<LevelIterator*>& children, bool merge, bool reverse);
+        Level1Iterator(const std::vector<LevelIterator*>& children, OlapReaderStatistics* stats,
+                       bool merge, bool reverse);
 
         OLAPStatus init();
 
@@ -164,6 +169,7 @@ private:
 
     // Hold reader point to access read params, such as fetch conditions.
     Reader* _reader = nullptr;
+    OlapReaderStatistics* _stats;
 };
 
 } // namespace doris

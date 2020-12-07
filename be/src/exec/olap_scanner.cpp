@@ -500,6 +500,9 @@ void OlapScanner::update_counter() {
 
     COUNTER_UPDATE(_parent->_filtered_segment_counter, _reader->stats().filtered_segment_number);
     COUNTER_UPDATE(_parent->_total_segment_counter, _reader->stats().total_segment_number);
+    COUNTER_UPDATE(_parent->_index_load_timer, _reader->stats().index_load_ns);
+    COUNTER_UPDATE(_parent->_rowset_compare_timer, _reader->stats().rowset_compare_ns);
+    COUNTER_UPDATE(_parent->_segment_compare_timer, _reader->stats().segment_compare_ns);
 
     DorisMetrics::instance()->query_scan_bytes->increment(_compressed_bytes_read);
     DorisMetrics::instance()->query_scan_rows->increment(_raw_rows_read);

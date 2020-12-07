@@ -247,6 +247,8 @@ private:
     RuntimeProfile::Counter* _tablet_counter;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_compare_timer = nullptr;
+    RuntimeProfile::Counter* _segment_compare_timer = nullptr;
 
     TResourceInfo* _resource_info;
 

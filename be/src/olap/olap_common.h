@@ -266,6 +266,9 @@ struct OlapReaderStatistics {
     int64_t filtered_segment_number = 0;
     // total number of segment
     int64_t total_segment_number = 0;
+
+    int64_t rowset_compare_ns = 0;
+    int64_t segment_compare_ns = 0;
 };
 
 typedef uint32_t ColumnId;

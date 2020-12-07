@@ -78,24 +78,28 @@ void CollectIterator::build_heap() {
                     cumu_children.push_back(_children[i]);
                 }
             }
-            Level1Iterator* cumu_iter =
-                    new Level1Iterator(cumu_children, cumu_children.size() > 1, _reverse);
+            Level1Iterator* cumu_iter = new Level1Iterator(cumu_children, _reader->mutable_stats(),
+                                                           cumu_children.size() > 1, _reverse);
             cumu_iter->init();
             std::vector<LevelIterator*> children;
             children.push_back(_children[base_reader_idx]);
             children.push_back(cumu_iter);
-            _inner_iter.reset(new Level1Iterator(children, _merge, _reverse));
+            _inner_iter.reset(
+                    new Level1Iterator(children, _reader->mutable_stats(), _merge, _reverse));
         } else {
-            _inner_iter.reset(new Level1Iterator(_children, _merge, _reverse));
+            _inner_iter.reset(
+                    new Level1Iterator(_children, _reader->mutable_stats(), _merge, _reverse));
         }
     } else {
-        _inner_iter.reset(new Level1Iterator(_children, _merge, _reverse));
+        _inner_iter.reset(
+                new Level1Iterator(_children, _reader->mutable_stats(), _merge, _reverse));
     }
     _inner_iter->init();
 }
 
 bool CollectIterator::LevelIteratorComparator::operator()(const LevelIterator* a,
                                                           const LevelIterator* b) {
+    SCOPED_RAW_TIMER(&_stats->rowset_compare_ns);
     // First compare row cursor.
     const RowCursor* first = a->current_row();
     const RowCursor* second = b->current_row();
@@ -139,7 +143,9 @@ OLAPStatus CollectIterator::next(const RowCursor** row, bool* delete_flag) {
 }
 
 CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, Reader* reader)
-        : _rs_reader(rs_reader), _is_delete(rs_reader->delete_flag()), _reader(reader) {}
+        : _rs_reader(rs_reader), _is_delete(rs_reader->delete_flag()), _reader(reader) {
+    _stats = _reader->mutable_stats();
+}
 
 CollectIterator::Level0Iterator::~Level0Iterator() {}
 
@@ -204,8 +210,11 @@ OLAPStatus CollectIterator::Level0Iterator::next(const RowCursor** row, bool* de
 }
 
 CollectIterator::Level1Iterator::Level1Iterator(
-        const std::vector<CollectIterator::LevelIterator*>& children, bool merge, bool reverse)
-        : _children(children), _merge(merge), _reverse(reverse) {}
+        const std::vector<CollectIterator::LevelIterator*>& children, OlapReaderStatistics* stats,
+        bool merge, bool reverse)
+        : _children(children), _merge(merge), _reverse(reverse) {
+    _stats = stats;
+}
 
 CollectIterator::LevelIterator::~LevelIterator() {}
 
@@ -263,7 +272,7 @@ OLAPStatus CollectIterator::Level1Iterator::init() {
     }
     // Only when there are multiple children that need to be merged
     if (_merge && _children.size() > 1) {
-        _heap.reset(new MergeHeap(LevelIteratorComparator(_reverse)));
+        _heap.reset(new MergeHeap(LevelIteratorComparator(_stats, _reverse)));
         for (auto child : _children) {
             if (child == nullptr || child->current_row() == nullptr) {
                 continue;

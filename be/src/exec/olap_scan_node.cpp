@@ -136,6 +136,8 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
+    _rowset_compare_timer = ADD_TIMER(_scanner_profile, "RowsetCompareTime");
+    _segment_compare_timer = ADD_TIMER(_segment_profile, "SegmentCompareTime");
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
