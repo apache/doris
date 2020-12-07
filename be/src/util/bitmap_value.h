@@ -1088,7 +1088,7 @@ public:
         return *this;
     }
 
-    // Compute the intersection between the current bitmap and the provided bitmap.
+    // Compute the symmetric union between the current bitmap and the provided bitmap.
     // Possible type transitions are:
     // SINGLE -> EMPTY
     // BITMAP -> EMPTY
