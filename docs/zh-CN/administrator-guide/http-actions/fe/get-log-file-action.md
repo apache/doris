@@ -81,7 +81,7 @@ under the License.
 1. 获取对应类型的日志文件列表
 
     ```
-    HEAD /api/get_log/file?type=fe.audit.log
+    HEAD /api/get_log_file?type=fe.audit.log
     
     Response:
     
@@ -96,7 +96,7 @@ under the License.
 2. 下载日志文件
     
     ```
-    GET /api/get_log/file?type=fe.audit.log&file=fe.audit.log.20190528.1
+    GET /api/get_log_file?type=fe.audit.log&file=fe.audit.log.20190528.1
     
     Response:
     
