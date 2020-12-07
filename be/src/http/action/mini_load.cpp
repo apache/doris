@@ -648,8 +648,8 @@ void MiniLoadAction::_handle(HttpRequest* http_req) {
                                 "receipt size not equal with body size");
         return;
     }
-    auto st =
-            _load(http_req, ctx->file_path, ctx->load_check_req.user, ctx->load_check_req.cluster);
+    auto st = _load(http_req, ctx->file_path, ctx->load_check_req.user, ctx->load_check_req.cluster,
+                    ctx->bytes_written);
     std::string str = to_json(st);
     HttpChannel::send_reply(http_req, str);
 }
