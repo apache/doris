@@ -46,7 +46,7 @@ Status OdbcTableSink::init(const TDataSink& t_sink) {
     _odbc_param.connect_string = t_odbc_sink.connect_string;
     _odbc_param.output_expr_ctxs = _output_expr_ctxs;
     _odbc_tbl = t_odbc_sink.table;
-    _is_transaction = t_odbc_sink.is_transaction;
+    _use_transaction = t_odbc_sink.use_transaction;
 
     return Status::OK();
 }
@@ -68,7 +68,7 @@ Status OdbcTableSink::open(RuntimeState* state) {
     // create writer
     _writer.reset(new ODBCConnecter(_odbc_param));
     RETURN_IF_ERROR(_writer->open());
-    if (_is_transaction) {
+    if (_use_transaction) {
         RETURN_IF_ERROR(_writer->begin_trans());
     }
     RETURN_IF_ERROR(_writer->init_to_write());
@@ -81,7 +81,7 @@ Status OdbcTableSink::send(RuntimeState* state, RowBatch* batch) {
 
 Status OdbcTableSink::close(RuntimeState* state, Status exec_status) {
     Expr::close(_output_expr_ctxs, state);
-    if (exec_status.ok() && _is_transaction) {
+    if (exec_status.ok() && _use_transaction) {
         RETURN_IF_ERROR(_writer->finish_trans());
     }
     return Status::OK();

@@ -70,7 +70,7 @@ private:
     std::string _odbc_tbl;
     std::unique_ptr<ODBCConnecter> _writer;
     // whether use transaction
-    bool _is_transaction;
+    bool _use_transaction;
 
     RuntimeProfile* _profile;
     std::shared_ptr<MemTracker> _mem_tracker;

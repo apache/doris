@@ -86,7 +86,7 @@ struct TMysqlTableSink {
 struct TOdbcTableSink {
     1: optional string connect_string
     2: optional string table
-    3: optional bool is_transaction
+    3: optional bool use_transaction
 }
 
 // Following is used to split data read from 

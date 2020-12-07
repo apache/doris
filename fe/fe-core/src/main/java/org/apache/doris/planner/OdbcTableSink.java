@@ -30,14 +30,14 @@ public class OdbcTableSink extends DataSink {
     private final String tblName;
     private final String originTblName;
     private final String connectString;
-    private final boolean isTransaction;
+    private final boolean useTransaction;
 
     public OdbcTableSink(OdbcTable odbcTable) {
         connectString = odbcTable.getConnectString();
         originTblName = odbcTable.getName();
-        tblName = odbcTable.getOdbcTableName();
         odbcType = odbcTable.getOdbcTableType();
-        isTransaction = ConnectContext.get().getSessionVariable().isEnableOdbcTransaction();
+        tblName = odbcTable.databaseProperName(odbcType, odbcTable.getOdbcTableName());
+        useTransaction = ConnectContext.get().getSessionVariable().isEnableOdbcTransaction();
     }
 
     @Override
@@ -47,7 +47,7 @@ public class OdbcTableSink extends DataSink {
         strBuilder.append(prefix + "TABLENAME IN DORIS: ").append(originTblName).append("\n");
         strBuilder.append(prefix + "TABLE TYPE: ").append(odbcType.toString()).append("\n");
         strBuilder.append(prefix + "TABLENAME OF EXTERNAL TABLE: ").append(tblName).append("\n");
-        strBuilder.append(prefix + "EnableTransaction: ").append(isTransaction ? "true" : "false").append("\n");
+        strBuilder.append(prefix + "EnableTransaction: ").append(useTransaction ? "true" : "false").append("\n");
         return strBuilder.toString();
     }
 
@@ -57,7 +57,7 @@ public class OdbcTableSink extends DataSink {
         TOdbcTableSink odbcTableSink = new TOdbcTableSink();
         odbcTableSink.setConnectString(connectString);
         odbcTableSink.setTable(tblName);
-        odbcTableSink.setIsTransaction(isTransaction);
+        odbcTableSink.setUseTransaction(useTransaction);
         tDataSink.setOdbcTableSink(odbcTableSink);
         return tDataSink;
     }

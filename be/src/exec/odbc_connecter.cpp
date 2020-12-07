@@ -119,7 +119,7 @@ Status ODBCConnecter::query() {
     ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC, SQLAllocHandle(SQL_HANDLE_STMT, _dbc, &_stmt),
                  "alloc statement");
 
-    // Translate utf8 string to utf16 to use unicode code
+    // Translate utf8 string to utf16 to use unicode encoding
     auto wquery = utf8_to_wstring(_sql_str);
     ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT,
                  SQLExecDirectW(_stmt, (SQLWCHAR*)(wquery.c_str()), SQL_NTS), "exec direct");
@@ -207,7 +207,7 @@ Status ODBCConnecter::append(const std::string& table_name, RowBatch *batch) {
 Status ODBCConnecter::insert_row(const std::string& table_name, TupleRow *row) {
     std::stringstream ss;
 
-    // Construct Insert statement of mysql
+    // Construct Insert statement of odbc table
     ss << "INSERT INTO " << table_name << " VALUES (";
     int num_columns = _output_expr_ctxs.size();
     for (int i = 0; i < num_columns; ++i) {
@@ -303,7 +303,7 @@ Status ODBCConnecter::insert_row(const std::string& table_name, TupleRow *row) {
     }
     ss << ")";
 
-    // Translate utf8 string to utf16 to use unicode codeing
+    // Translate utf8 string to utf16 to use unicode encodeing
     auto insert_stmt = utf8_to_wstring(ss.str());
     ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT, SQLExecDirectW(_stmt, (SQLWCHAR*)(insert_stmt.c_str()), SQL_NTS), ss.str().c_str());
 

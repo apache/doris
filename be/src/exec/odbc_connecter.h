@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_ODBC_SCANNER_H
-#define DORIS_BE_SRC_QUERY_EXEC_ODBC_SCANNER_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_ODBC_CONNECTER_H
+#define DORIS_BE_SRC_QUERY_EXEC_ODBC_CONNECTER_H
 
 #include <sql.h>
 
