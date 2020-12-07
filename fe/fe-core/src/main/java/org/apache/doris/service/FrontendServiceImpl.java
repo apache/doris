@@ -57,7 +57,6 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
-import org.apache.doris.thrift.TBootstrapResult;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TDescribeTableParams;
@@ -67,6 +66,7 @@ import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
@@ -964,9 +964,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public TBootstrapResult ping(TFrontendPingFrontendRequest request) throws TException {
+    public TFrontendPingFrontendResult ping(TFrontendPingFrontendRequest request) throws TException {
         boolean isReady = Catalog.getCurrentCatalog().isReady();
-        TBootstrapResult result = new TBootstrapResult();
+        TFrontendPingFrontendResult result = new TFrontendPingFrontendResult();
         result.setStatus(TFrontendPingFrontendStatusCode.OK);
         if (isReady) {
             if (request.getClusterId() != Catalog.getCurrentCatalog().getClusterId()) {

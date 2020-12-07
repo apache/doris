@@ -33,12 +33,12 @@ import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TBackendInfo;
-import org.apache.doris.thrift.TBootstrapResult;
 import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPingBrokerRequest;
 import org.apache.doris.thrift.TBrokerVersion;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TMasterInfo;
@@ -347,15 +347,15 @@ public class HeartbeatMgr extends MasterDaemon {
             try {
                 client = ClientPool.frontendHeartbeatPool.borrowObject(addr);
                 TFrontendPingFrontendRequest request = new TFrontendPingFrontendRequest(clusterId, token);
-                TBootstrapResult bootstrapResult = client.ping(request);
+                TFrontendPingFrontendResult result = client.ping(request);
                 ok = true;
-                if (bootstrapResult.getStatus() == TFrontendPingFrontendStatusCode.OK) {
-                    return new FrontendHbResponse(fe.getNodeName(), bootstrapResult.getQueryPort(),
-                            bootstrapResult.getRpcPort(), bootstrapResult.getReplayedJournalId(),
-                            System.currentTimeMillis(), bootstrapResult.getVersion());
+                if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
+                    return new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
+                            result.getRpcPort(), result.getReplayedJournalId(),
+                            System.currentTimeMillis(), result.getVersion());
 
                 } else {
-                    return new FrontendHbResponse(fe.getNodeName(), bootstrapResult.getMsg());
+                    return new FrontendHbResponse(fe.getNodeName(), result.getMsg());
                 }
             } catch (Exception e) {
                 return new FrontendHbResponse(fe.getNodeName(),

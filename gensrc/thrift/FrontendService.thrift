@@ -664,7 +664,7 @@ struct TFrontendPingFrontendRequest {
    2: required string token
 }
 
-struct TBootstrapResult {
+struct TFrontendPingFrontendResult {
     1: required TFrontendPingFrontendStatusCode status
     2: required string msg
     3: required i32 queryPort
@@ -709,5 +709,5 @@ service FrontendService {
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
 
-    TBootstrapResult ping(1: TFrontendPingFrontendRequest request)
+    TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
 }

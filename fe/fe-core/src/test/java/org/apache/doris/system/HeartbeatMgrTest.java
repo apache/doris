@@ -29,19 +29,15 @@ import org.apache.doris.system.HeartbeatMgr.BrokerHeartbeatHandler;
 import org.apache.doris.system.HeartbeatMgr.FrontendHeartbeatHandler;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.FrontendService;
-import org.apache.doris.thrift.HeartbeatService;
-import org.apache.doris.thrift.TBootstrapResult;
 import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPingBrokerRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
-import org.apache.doris.thrift.THeartbeatResult;
-import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
-import org.apache.doris.thrift.TStatus;
 import org.apache.thrift.TException;
 import org.junit.Assert;
 import org.junit.Before;
@@ -145,7 +141,7 @@ public class HeartbeatMgrTest {
         };
 
         TFrontendPingFrontendRequest normalRequest = new TFrontendPingFrontendRequest(12345, "abcd");
-        TBootstrapResult normalResult = new TBootstrapResult();
+        TFrontendPingFrontendResult normalResult = new TFrontendPingFrontendResult();
         normalResult.setStatus(TFrontendPingFrontendStatusCode.OK);
         normalResult.setMsg("success");
         normalResult.setReplayedJournalId(191224);
@@ -154,7 +150,7 @@ public class HeartbeatMgrTest {
         normalResult.setVersion("test");
 
         TFrontendPingFrontendRequest badRequest = new TFrontendPingFrontendRequest(12345, "abcde");
-        TBootstrapResult badResult = new TBootstrapResult();
+        TFrontendPingFrontendResult badResult = new TFrontendPingFrontendResult();
         badResult.setStatus(TFrontendPingFrontendStatusCode.FAILED);
         badResult.setMsg("not ready");
 
