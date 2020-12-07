@@ -100,7 +100,7 @@ set(EXEC_FILES
     parquet_reader.cpp
     parquet_writer.cpp
     orc_scanner.cpp
-    odbc_scanner.cpp
+    odbc_connecter.cpp
     json_scanner.cpp
     assert_num_rows_node.cpp
 )
