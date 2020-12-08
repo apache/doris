@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/odbc_connecter.h"
+#include "exec/odbc_connector.h"
 
 #include <sqlext.h>
 
@@ -50,7 +50,7 @@ static std::u16string utf8_to_wstring(const std::string& str) {
 
 namespace doris {
 
-ODBCConnecter::ODBCConnecter(const ODBCConneterParam& param)
+ODBCConnector::ODBCConnector(const ODBCConnectorParam& param)
         : _connect_string(param.connect_string),
           _sql_str(param.query_string),
           _tuple_desc(param.tuple_desc),
@@ -62,7 +62,7 @@ ODBCConnecter::ODBCConnecter(const ODBCConneterParam& param)
           _dbc(nullptr),
           _stmt(nullptr) {}
 
-ODBCConnecter::~ODBCConnecter() {
+ODBCConnector::~ODBCConnector() {
     // do not commit transaction, roll back
     if (_is_in_transaction) {
         abort_trans();
@@ -82,7 +82,7 @@ ODBCConnecter::~ODBCConnecter() {
     }
 }
 
-Status ODBCConnecter::open() {
+Status ODBCConnector::open() {
     if (_is_open) {
         LOG(INFO) << "this scanner already opened";
         return Status::OK();
@@ -110,7 +110,7 @@ Status ODBCConnecter::open() {
     return Status::OK();
 }
 
-Status ODBCConnecter::query() {
+Status ODBCConnector::query() {
     if (!_is_open) {
         return Status::InternalError("Query before open.");
     }
@@ -164,7 +164,7 @@ Status ODBCConnecter::query() {
     return Status::OK();
 }
 
-Status ODBCConnecter::get_next_row(bool* eos) {
+Status ODBCConnector::get_next_row(bool* eos) {
     if (!_is_open) {
         return Status::InternalError("GetNextRow before open.");
     }
@@ -180,7 +180,7 @@ Status ODBCConnecter::get_next_row(bool* eos) {
     return Status::OK();
 }
 
-Status ODBCConnecter::init_to_write() {
+Status ODBCConnector::init_to_write() {
     if (!_is_open) {
         return Status::InternalError( "Init before open.");
     }
@@ -191,7 +191,7 @@ Status ODBCConnecter::init_to_write() {
     return Status::OK();
 }
 
-Status ODBCConnecter::append(const std::string& table_name, RowBatch *batch) {
+Status ODBCConnector::append(const std::string& table_name, RowBatch *batch) {
     if (batch == nullptr || batch->num_rows() == 0) {
         return Status::OK();
     }
@@ -204,7 +204,7 @@ Status ODBCConnecter::append(const std::string& table_name, RowBatch *batch) {
     return Status::OK();
 }
 
-Status ODBCConnecter::insert_row(const std::string& table_name, TupleRow *row) {
+Status ODBCConnector::insert_row(const std::string& table_name, TupleRow *row) {
     std::stringstream ss;
 
     // Construct Insert statement of odbc table
@@ -310,7 +310,7 @@ Status ODBCConnecter::insert_row(const std::string& table_name, TupleRow *row) {
     return Status::OK();
 }
 
-Status ODBCConnecter::begin_trans() {
+Status ODBCConnector::begin_trans() {
     if (!_is_open) {
         return Status::InternalError("Begin transaction before open.");
     }
@@ -323,7 +323,7 @@ Status ODBCConnecter::begin_trans() {
     return Status::OK();
 }
 
-Status ODBCConnecter::abort_trans() {
+Status ODBCConnector::abort_trans() {
     if (!_is_in_transaction) {
         return Status::InternalError("Abort transaction before begin trans.");
     }
@@ -335,7 +335,7 @@ Status ODBCConnecter::abort_trans() {
     return Status::OK();
 }
 
-Status ODBCConnecter::finish_trans() {
+Status ODBCConnector::finish_trans() {
     if (!_is_in_transaction) {
         return Status::InternalError("Abort transaction before begin trans.");
     }
@@ -348,7 +348,7 @@ Status ODBCConnecter::finish_trans() {
     return Status::OK();
 }
 
-Status ODBCConnecter::error_status(const std::string& prefix, const std::string& error_msg) {
+Status ODBCConnector::error_status(const std::string& prefix, const std::string& error_msg) {
     std::stringstream msg;
     msg << prefix << " Error: " << error_msg;
     LOG(WARNING) << msg.str();
@@ -361,7 +361,7 @@ Status ODBCConnecter::error_status(const std::string& prefix, const std::string&
 //      hHandle     ODBC handle
 //      hType       Type of handle (HANDLE_STMT, HANDLE_ENV, HANDLE_DBC)
 //      RetCode     Return code of failing command
-std::string ODBCConnecter::handle_diagnostic_record(SQLHANDLE hHandle, SQLSMALLINT hType,
+std::string ODBCConnector::handle_diagnostic_record(SQLHANDLE hHandle, SQLSMALLINT hType,
                                                   RETCODE RetCode) {
     SQLSMALLINT rec = 0;
     SQLINTEGER error;

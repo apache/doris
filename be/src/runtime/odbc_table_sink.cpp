@@ -66,7 +66,7 @@ Status OdbcTableSink::open(RuntimeState* state) {
     // Prepare the exprs to run.
     RETURN_IF_ERROR(Expr::open(_output_expr_ctxs, state));
     // create writer
-    _writer.reset(new ODBCConnecter(_odbc_param));
+    _writer.reset(new ODBCConnector(_odbc_param));
     RETURN_IF_ERROR(_writer->open());
     if (_use_transaction) {
         RETURN_IF_ERROR(_writer->begin_trans());

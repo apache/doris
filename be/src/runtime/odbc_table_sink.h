@@ -22,7 +22,7 @@
 
 #include "common/status.h"
 #include "exec/data_sink.h"
-#include "exec/odbc_connecter.h"
+#include "exec/odbc_connector.h"
 
 namespace doris {
 
@@ -66,9 +66,9 @@ private:
     const std::vector<TExpr>& _t_output_expr;
 
     std::vector<ExprContext*> _output_expr_ctxs;
-    ODBCConneterParam _odbc_param;
+    ODBCConnectorParam _odbc_param;
     std::string _odbc_tbl;
-    std::unique_ptr<ODBCConnecter> _writer;
+    std::unique_ptr<ODBCConnector> _writer;
     // whether use transaction
     bool _use_transaction;
 

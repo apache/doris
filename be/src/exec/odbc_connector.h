@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_ODBC_CONNECTER_H
-#define DORIS_BE_SRC_QUERY_EXEC_ODBC_CONNECTER_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_ODBC_CONNECTOR_H
+#define DORIS_BE_SRC_QUERY_EXEC_ODBC_CONNECTOR_H
 
 #include <sql.h>
 
@@ -34,7 +34,7 @@
 
 namespace doris {
 
-struct ODBCConneterParam {
+struct ODBCConnectorParam {
     std::string connect_string;
 
     // only use in query
@@ -58,11 +58,11 @@ struct DataBinding : public boost::noncopyable {
     ~DataBinding() { free(target_value_ptr); }
 };
 
-// ODBC Connecter for scan data from ODBC
-class ODBCConnecter {
+// ODBC Connector for scan data from ODBC
+class ODBCConnector {
 public:
-    ODBCConnecter(const ODBCConneterParam& param);
-    ~ODBCConnecter();
+    ODBCConnector(const ODBCConnectorParam& param);
+    ~ODBCConnector();
 
     Status open();
     // query for ODBC table
@@ -97,6 +97,7 @@ private:
 
     bool _is_open;
     bool _is_in_transaction;
+
 
     SQLSMALLINT _field_num;
     uint64_t _row_count;
