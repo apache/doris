@@ -22,7 +22,8 @@ public enum TransactionStatus {
     PREPARE(1),
     COMMITTED(2),
     VISIBLE(3),
-    ABORTED(4);
+    ABORTED(4),
+    TRANSACTION(5);
     
     private final int flag;
     

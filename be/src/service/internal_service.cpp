@@ -166,10 +166,10 @@ void PInternalServiceImpl<T>::cancel_plan_fragment(
 
     Status st;
     if (request->has_cancel_reason())  {
-        LOG(INFO) << "cancel framgent, fragment_instance_id=" << print_id(tid) << ", reason: " << request->cancel_reason();
+        LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid) << ", reason: " << request->cancel_reason();
         st = _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
     } else {
-        LOG(INFO) << "cancel framgent, fragment_instance_id=" << print_id(tid);
+        LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
         st = _exec_env->fragment_mgr()->cancel(tid);
     }
     if (!st.ok()) {
@@ -248,6 +248,67 @@ void PInternalServiceImpl<T>::clear_cache(google::protobuf::RpcController* contr
         google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     _exec_env->result_cache()->clear(request, response);
+}
+
+template<typename T>
+void PInternalServiceImpl<T>::send_data(google::protobuf::RpcController* controller,
+        const PSendDataRequest* request,
+        PSendDataResult* response,
+        google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+
+    const std::string data = request->data() + "\n";
+    TUniqueId fragment_instance_id;
+    fragment_instance_id.hi = request->fragment_instance_id().hi();
+    fragment_instance_id.lo = request->fragment_instance_id().lo();
+    auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
+    if (pipe == nullptr) {
+        response->mutable_status()->set_status_code(1);
+        response->mutable_status()->add_error_msgs("pipe is null");
+    } else {
+        pipe->append_and_flush(data.c_str(), data.length());
+        response->mutable_status()->set_status_code(0);
+    }
+}
+
+template<typename T>
+void PInternalServiceImpl<T>::commit(google::protobuf::RpcController* controller,
+        const PCommitRequest* request,
+        PCommitResult* response,
+        google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+
+    TUniqueId fragment_instance_id;
+    fragment_instance_id.hi = request->fragment_instance_id().hi();
+    fragment_instance_id.lo = request->fragment_instance_id().lo();
+    auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
+    if (pipe == nullptr) {
+        response->mutable_status()->set_status_code(1);
+        response->mutable_status()->add_error_msgs("pipe is null");
+    } else {
+        pipe->finish();
+        response->mutable_status()->set_status_code(0);
+    }
+}
+
+template<typename T>
+void PInternalServiceImpl<T>::rollback(google::protobuf::RpcController* controller,
+        const PRollbackRequest* request,
+        PRollbackResult* response,
+        google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+
+    TUniqueId fragment_instance_id;
+    fragment_instance_id.hi = request->fragment_instance_id().hi();
+    fragment_instance_id.lo = request->fragment_instance_id().lo();
+    auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
+    if (pipe == nullptr) {
+        response->mutable_status()->set_status_code(1);
+        response->mutable_status()->add_error_msgs("pipe is null");
+    } else {
+        pipe->cancel();
+        response->mutable_status()->set_status_code(0);
+    }
 }
 
 template class PInternalServiceImpl<PBackendService>;

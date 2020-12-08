@@ -27,7 +27,7 @@
 #include "util/byte_buffer.h"
 
 namespace doris {
-
+class StreamLoadContext;
 // StreamLoadPipe use to transfer data from producer to consumer
 // Data in pip is stored in chunks.
 class StreamLoadPipe : public MessageBodySink, public FileReader {
@@ -41,6 +41,7 @@ public:
         _total_length(total_length),
         _finished(false), _cancelled(false) {
     }
+
     virtual ~StreamLoadPipe() { }
 
     Status open() override {
@@ -128,6 +129,7 @@ public:
             }
             // finished
             if (_buf_queue.empty()) {
+                LOG(INFO) << "_buf_queue is empty";
                 DCHECK(_finished);
                 *data_size = bytes_read;
                 *eof = (bytes_read == 0);
@@ -137,7 +139,9 @@ public:
             size_t copy_size = std::min(*data_size - bytes_read, buf->remaining());
             buf->get_bytes((char*)data + bytes_read, copy_size);
             bytes_read += copy_size;
+            LOG(INFO) << "buf size: " << _buf_queue.size();
             if (!buf->has_remaining()) {
+                LOG(INFO) << "buf has no remaining";
                 _buf_queue.pop_front();
                 _buffered_bytes -= buf->limit;
                 _put_cond.notify_one();
@@ -165,7 +169,7 @@ public:
         return Status::InternalError("Not implemented");
     }
 
-    // called when comsumer finished
+    // called when consumer finished
     void close() override {
         cancel();
     }
@@ -189,7 +193,7 @@ public:
         return Status::OK();
     }
 
-    // called when producer/comsumer failed
+    // called when producer/consumer failed
     void cancel() override {
         {
             std::lock_guard<std::mutex> l(_lock);

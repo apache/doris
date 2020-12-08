@@ -17,40 +17,49 @@
 
 package org.apache.doris.rpc;
 
-import org.apache.doris.common.Config;
-import org.apache.doris.common.util.JdkUtils;
-import org.apache.doris.proto.PCancelPlanFragmentRequest;
-import org.apache.doris.proto.PCancelPlanFragmentResult;
-import org.apache.doris.proto.PExecPlanFragmentResult;
-import org.apache.doris.proto.PFetchDataResult;
-import org.apache.doris.proto.PPlanFragmentCancelReason;
-import org.apache.doris.proto.PProxyRequest;
-import org.apache.doris.proto.PProxyResult;
-import org.apache.doris.proto.PTriggerProfileReportResult;
-import org.apache.doris.proto.PUniqueId;
-import org.apache.doris.proto.PUpdateCacheRequest;
-import org.apache.doris.proto.PCacheResponse;
-import org.apache.doris.proto.PFetchCacheRequest;
-import org.apache.doris.proto.PFetchCacheResult;
-import org.apache.doris.proto.PClearCacheRequest;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TUniqueId;
-
 import com.baidu.bjf.remoting.protobuf.utils.JDKCompilerHelper;
 import com.baidu.bjf.remoting.protobuf.utils.compiler.JdkCompiler;
 import com.baidu.jprotobuf.pbrpc.client.ProtobufRpcProxy;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClient;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClientOptions;
 import com.google.common.collect.Maps;
-
+import org.apache.doris.common.Config;
+import org.apache.doris.common.util.JdkUtils;
+import org.apache.doris.proto.PCacheResponse;
+import org.apache.doris.proto.PCancelPlanFragmentRequest;
+import org.apache.doris.proto.PCancelPlanFragmentResult;
+import org.apache.doris.proto.PClearCacheRequest;
+import org.apache.doris.proto.PCommitRequest;
+import org.apache.doris.proto.PCommitResult;
+import org.apache.doris.proto.PExecPlanFragmentResult;
+import org.apache.doris.proto.PFetchCacheRequest;
+import org.apache.doris.proto.PFetchCacheResult;
+import org.apache.doris.proto.PFetchDataResult;
+import org.apache.doris.proto.PPlanFragmentCancelReason;
+import org.apache.doris.proto.PProxyRequest;
+import org.apache.doris.proto.PProxyResult;
+import org.apache.doris.proto.PRollbackRequest;
+import org.apache.doris.proto.PRollbackResult;
+import org.apache.doris.proto.PSendDataRequest;
+import org.apache.doris.proto.PSendDataResult;
+import org.apache.doris.proto.PTriggerProfileReportResult;
+import org.apache.doris.proto.PUniqueId;
+import org.apache.doris.proto.PUpdateCacheRequest;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class BackendServiceProxy {
     private static final Logger LOG = LogManager.getLogger(BackendServiceProxy.class);
@@ -228,4 +237,124 @@ public class BackendServiceProxy {
             throw new RpcException(address.hostname, e.getMessage());
         }
     }
+
+    public Future<PSendDataResult> sendData(
+            TNetworkAddress address, PSendDataRequest request) throws RpcException {
+        try {
+            final PBackendService service = getProxy(address);
+            return service.sendData(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to send data, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public void insertForTxn(PUniqueId fragmentInstanceId, String data, Backend backend)
+            throws TException, InterruptedException, ExecutionException, TimeoutException {
+        PSendDataRequest request = new PSendDataRequest();
+        request.fragment_instance_id = fragmentInstanceId;
+        request.data = data;
+        Future<PSendDataResult> future = execRemoteInsertAsync(backend, request);
+        PSendDataResult result = future.get(5, TimeUnit.SECONDS);
+        TStatusCode code = TStatusCode.findByValue(result.status.status_code);
+        if (code != TStatusCode.OK) {
+            throw new TException("failed to insert data: " + result.status.error_msgs);
+        }
+    }
+
+    public Future<PSendDataResult> execRemoteInsertAsync(
+            Backend backend, PSendDataRequest rpcParams) throws TException {
+        TNetworkAddress brpcAddress = null;
+        try {
+            brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        } catch (Exception e) {
+            throw new TException(e.getMessage());
+        }
+        try {
+            return BackendServiceProxy.getInstance().sendData(brpcAddress, rpcParams);
+        } catch (RpcException e) {
+            LOG.warn("failed to sendData.", e);
+            throw new TException("failed to sendData: " + e.getMessage());
+        }
+    }
+
+    public Future<PRollbackResult> rollback(
+            TNetworkAddress address, PRollbackRequest request) throws RpcException {
+        try {
+            final PBackendService service = getProxy(address);
+            return service.rollback(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to rollback, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public void rollbackForTxn(PUniqueId fragmentInstanceId, Backend backend)
+            throws TException, InterruptedException, ExecutionException, TimeoutException {
+        PRollbackRequest request = new PRollbackRequest();
+        request.fragment_instance_id = fragmentInstanceId;
+        Future<PRollbackResult> future = execRollbackAsync(backend, request);
+        PRollbackResult result = future.get(5, TimeUnit.SECONDS);
+        TStatusCode code = TStatusCode.findByValue(result.status.status_code);
+        if (code != TStatusCode.OK) {
+            throw new TException("failed to insert data: " + result.status.error_msgs);
+        }
+    }
+
+    public Future<PRollbackResult> execRollbackAsync(
+            Backend backend, PRollbackRequest rpcParams) throws TException {
+        TNetworkAddress brpcAddress = null;
+        try {
+            brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        } catch (Exception e) {
+            throw new TException(e.getMessage());
+        }
+        try {
+            return rollback(brpcAddress, rpcParams);
+        } catch (RpcException e) {
+            LOG.warn("failed to sendData.", e);
+            throw new TException("failed to sendData: " + e.getMessage());
+        }
+    }
+
+
+    public Future<PCommitResult> commit(
+            TNetworkAddress address, PCommitRequest request) throws RpcException {
+        try {
+            final PBackendService service = getProxy(address);
+            return service.commit(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to commit, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public void commitForTxn(PUniqueId fragmentInstanceId, Backend backend)
+            throws TException, InterruptedException, ExecutionException, TimeoutException {
+        PCommitRequest request = new PCommitRequest();
+        request.fragment_instance_id = fragmentInstanceId;
+        Future<PCommitResult> future = execCommitAsync(backend, request);
+        PCommitResult result = future.get(5, TimeUnit.SECONDS);
+        TStatusCode code = TStatusCode.findByValue(result.status.status_code);
+        if (code != TStatusCode.OK) {
+            throw new TException("failed to insert data: " + result.status.error_msgs);
+        }
+    }
+
+    public Future<PCommitResult> execCommitAsync(
+            Backend backend, PCommitRequest rpcParams) throws TException {
+        TNetworkAddress brpcAddress = null;
+        try {
+            brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        } catch (Exception e) {
+            throw new TException(e.getMessage());
+        }
+        try {
+            return commit(brpcAddress, rpcParams);
+        } catch (RpcException e) {
+            LOG.warn("failed to sendData.", e);
+            throw new TException("failed to sendData: " + e.getMessage());
+        }
+    }
+
 }

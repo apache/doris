@@ -17,20 +17,20 @@
 
 package org.apache.doris.qe;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
-import org.apache.doris.qe.QueryDetail;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
-
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -65,6 +65,10 @@ public class ConnectContext {
     protected volatile boolean isKilled;
     // Db
     protected volatile String currentDb = "";
+    protected volatile long currentDbId = -1;
+    // Transaction
+    protected volatile TTxnParams txnConf = null;
+    protected volatile Backend backend = null;
     // cluster name
     protected volatile String clusterName = "";
     // username@host of current login user
@@ -179,6 +183,26 @@ public class ConnectContext {
 
     public void setThreadLocalInfo() {
         threadLocalInfo.set(this);
+    }
+
+    public long getCurrentDbId() {
+        return currentDbId;
+    }
+
+    public TTxnParams getTxnConf() {
+        return txnConf;
+    }
+
+    public void setTxnConf(TTxnParams txnConf) {
+        this.txnConf = txnConf;
+    }
+
+    public Backend getBackend() {
+        return backend;
+    }
+
+    public void setBackend(Backend backend) {
+        this.backend = backend;
     }
 
     public TResourceInfo toResourceCtx() {
@@ -297,6 +321,12 @@ public class ConnectContext {
 
     public void setDatabase(String db) {
         currentDb = db;
+        Database database = Catalog.getCurrentCatalog().getDb(db);
+        if (database == null) {
+            currentDbId = -1;
+        } else {
+            currentDbId = database.getId();
+        }
     }
 
     public void setExecutor(StmtExecutor executor) {

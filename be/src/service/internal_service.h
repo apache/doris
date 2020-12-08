@@ -101,6 +101,22 @@ public:
         const PClearCacheRequest* request,
         PCacheResponse* response,
         google::protobuf::Closure* done) override;
+
+    void send_data(google::protobuf::RpcController* controller,
+        const PSendDataRequest* request,
+        PSendDataResult* response,
+        google::protobuf::Closure* done);
+
+    void commit(google::protobuf::RpcController* controller,
+        const PCommitRequest* request,
+        PCommitResult* response,
+        google::protobuf::Closure* done);
+
+    void rollback(google::protobuf::RpcController* controller,
+        const PRollbackRequest* request,
+        PRollbackResult* response,
+        google::protobuf::Closure* done);
+
 private:
     Status _exec_plan_fragment(brpc::Controller* cntl);
 private:

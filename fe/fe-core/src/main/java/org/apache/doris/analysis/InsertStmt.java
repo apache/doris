@@ -17,6 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BrokerTable;
@@ -31,6 +36,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -43,28 +49,46 @@ import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.UnionNode;
+import org.apache.doris.proto.PExecPlanFragmentResult;
+import org.apache.doris.proto.PStatus;
+import org.apache.doris.proto.PUniqueId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.service.FrontendServiceImpl;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TMergeType;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStreamLoadPutRequest;
+import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
-
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Insert into is performed to load data from the result of query stmt.
@@ -283,7 +307,8 @@ public class InsertStmt extends DdlStmt {
 
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
-        if (!isExplain() && !isTransactionBegin) {
+        if (!isExplain() && !isTransactionBegin &&
+                (analyzer.getContext().getTxnConf() == null || !analyzer.getContext().getTxnConf().isNeedTxn())) {
             if (Strings.isNullOrEmpty(label)) {
                 label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId());
             }
@@ -806,4 +831,119 @@ public class InsertStmt extends DdlStmt {
             return RedirectStatus.FORWARD_WITH_SYNC;
         }
     }
+
+    private void beginTxn(ConnectContext context) throws UserException, TException,
+            InterruptedException, ExecutionException, TimeoutException {
+        long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
+        if (Strings.isNullOrEmpty(label)) {
+            label = "insert_" + DebugUtil.printId(context.queryId());
+        }
+        LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
+        transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
+                Lists.newArrayList(targetTable.getId()), label,
+                new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                sourceType, timeoutSecond);
+        String authCodeUuid = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(
+                db.getId(), transactionId).getAuthCode();
+        context.getTxnConf().setAuthCodeUuid(authCodeUuid);
+        context.getTxnConf().setTxnId(transactionId);
+        context.getTxnConf().setDb(db.getFullName());
+        context.getTxnConf().setTbl(targetTable.getName());
+
+        FrontendServiceImpl frontendService = new FrontendServiceImpl(ExecuteEnv.getInstance());
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setTxnId(transactionId).setDb(context.getTxnConf().getDb()).setTbl(context.getTxnConf().getTbl())
+                .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
+                .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId());
+        TStreamLoadPutResult streamLoadPutResult = frontendService.streamLoadPut(request);
+        TNetworkAddress brpcAddress = new TNetworkAddress();
+        Backend backend = Catalog.getCurrentSystemInfo().getIdToBackend().values().iterator().next();
+        brpcAddress.setHostname(backend.getHost()).setPort(backend.getBrpcPort());
+        TExecPlanFragmentParams tRequest = streamLoadPutResult.getParams();
+        context.getTxnConf().setFragmentInstanceId(tRequest.params.fragment_instance_id);
+        tRequest.setTxnConf(context.getTxnConf()).setImportLabel(label);
+        tRequest.txn_conf.setUserIp(backend.getHost()).setTxnId(transactionId).setDb(db.getFullName())
+                .setTbl(targetTable.getName()).setAuthCodeUuid(authCodeUuid);
+        context.setBackend(backend);
+        PExecPlanFragmentResult result = execRemoteFragmentAsync(backend, tRequest)
+                .get(Config.remote_fragment_exec_timeout_ms, TimeUnit.MILLISECONDS);
+        if (result.status.error_msgs != null && !result.status.error_msgs.isEmpty()) {
+            throw new TException(result.status.error_msgs.get(0));
+        }
+    }
+
+    private static String getRowStringValue(PlanFragment planFragment) {
+        PlanNode planNode = planFragment.getPlanRoot();
+        if (planNode instanceof UnionNode) {
+            return ((UnionNode) planNode).getRowStringValue();
+        }
+        return "";
+    }
+
+    public void executeForTxn(ConnectContext context, Planner planner) throws UserException, TException,
+            InterruptedException, ExecutionException, TimeoutException {
+        if (context.getTxnConf().getTxnId() == -1) { // first time, begin txn
+            beginTxn(context);
+        } else {
+            transactionId = context.getTxnConf().getTxnId();
+        }
+        PUniqueId fragmentInstanceId = new PUniqueId();
+        fragmentInstanceId.hi = context.getTxnConf().getFragmentInstanceId().getHi();
+        fragmentInstanceId.lo = context.getTxnConf().getFragmentInstanceId().getLo();
+
+        for (PlanFragment planFragment : planner.getFragments()) {
+            String data = getRowStringValue(planFragment);
+            BackendServiceProxy.getInstance().insertForTxn(fragmentInstanceId, data, context.getBackend());
+        }
+    }
+
+    public Future<PExecPlanFragmentResult> execRemoteFragmentAsync(
+            Backend backend, TExecPlanFragmentParams rpcParams) throws TException {
+        TNetworkAddress brpcAddress = null;
+        try {
+            brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        } catch (Exception e) {
+            throw new TException(e.getMessage());
+        }
+        try {
+            return BackendServiceProxy.getInstance().execPlanFragmentAsync(brpcAddress, rpcParams);
+        } catch (RpcException e) {
+            // DO NOT throw exception here, return a complete future with error code,
+            // so that the following logic will cancel the fragment.
+            return new Future<PExecPlanFragmentResult>() {
+                @Override
+                public boolean cancel(boolean mayInterruptIfRunning) {
+                    return false;
+                }
+
+                @Override
+                public boolean isCancelled() {
+                    return false;
+                }
+
+                @Override
+                public boolean isDone() {
+                    return true;
+                }
+
+                @Override
+                public PExecPlanFragmentResult get() {
+                    PExecPlanFragmentResult result = new PExecPlanFragmentResult();
+                    PStatus pStatus = new PStatus();
+                    pStatus.error_msgs = Lists.newArrayList();
+                    pStatus.error_msgs.add(e.getMessage());
+                    // use THRIFT_RPC_ERROR so that this BE will be added to the blacklist later.
+                    pStatus.status_code = TStatusCode.THRIFT_RPC_ERROR.getValue();
+                    result.status = pStatus;
+                    return result;
+                }
+
+                @Override
+                public PExecPlanFragmentResult get(long timeout, TimeUnit unit) {
+                    return get();
+                }
+            };
+        }
+    }
+
 }

@@ -19,10 +19,16 @@ package org.apache.doris.rpc;
 
 import org.apache.doris.proto.PCancelPlanFragmentRequest;
 import org.apache.doris.proto.PCancelPlanFragmentResult;
+import org.apache.doris.proto.PCommitRequest;
+import org.apache.doris.proto.PCommitResult;
 import org.apache.doris.proto.PExecPlanFragmentResult;
 import org.apache.doris.proto.PFetchDataResult;
 import org.apache.doris.proto.PProxyRequest;
 import org.apache.doris.proto.PProxyResult;
+import org.apache.doris.proto.PRollbackRequest;
+import org.apache.doris.proto.PRollbackResult;
+import org.apache.doris.proto.PSendDataRequest;
+import org.apache.doris.proto.PSendDataResult;
 import org.apache.doris.proto.PTriggerProfileReportResult;
 import org.apache.doris.proto.PUpdateCacheRequest;
 import org.apache.doris.proto.PClearCacheRequest;
@@ -63,5 +69,14 @@ public interface PBackendService {
 
     @ProtobufRPC(serviceName = "PBackendService", methodName = "get_info", onceTalkTimeout = 10000)
     Future<PProxyResult> getInfo(PProxyRequest request);
+
+    @ProtobufRPC(serviceName = "PBackendService", methodName = "send_data", onceTalkTimeout = 10000)
+    Future<PSendDataResult> sendData(PSendDataRequest request);
+
+    @ProtobufRPC(serviceName = "PBackendService", methodName = "commit", onceTalkTimeout = 10000)
+    Future<PCommitResult> commit(PCommitRequest request);
+
+    @ProtobufRPC(serviceName = "PBackendService", methodName = "rollback", onceTalkTimeout = 10000)
+    Future<PRollbackResult> rollback(PRollbackRequest request);
 }
 

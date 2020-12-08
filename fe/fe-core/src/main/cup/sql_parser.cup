@@ -4523,15 +4523,15 @@ unsupported_stmt ::=
     :}
     | KW_BEGIN opt_work:work
     {:
-        RESULT = new UnsupportedStmt();
+        RESULT = new TransactionStmt();
     :}
     | KW_COMMIT opt_work opt_chain opt_release
     {:
-        RESULT = new UnsupportedStmt();
+        RESULT = new TransactionStmt();
     :}
     | KW_ROLLBACK opt_work opt_chain opt_release
     {:
-        RESULT = new UnsupportedStmt();
+        RESULT = new TransactionStmt();
     :}
     ;
 

@@ -30,6 +30,9 @@
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/exec_env.h"
 #include "runtime/datetime_value.h"
+#include "runtime/stream_load/stream_load_pipe.h"
+#include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "util/stopwatch.hpp"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -52,7 +55,7 @@
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(plan_fragment_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(plan_fragment_count, MetricUnit::NOUNIT);
 
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
@@ -132,7 +135,11 @@ public:
         return false;
     }
 
-    int get_timeout_second() const { return _timeout_second; } 
+    int get_timeout_second() const { return _timeout_second; }
+
+    void set_pipe(std::shared_ptr<StreamLoadPipe> pipe) { _pipe = pipe; }
+
+    std::shared_ptr<StreamLoadPipe> get_pipe() const { return _pipe; }
 
 private:
     void coordinator_callback(const Status& status, RuntimeProfile* profile, bool done);
@@ -141,7 +148,7 @@ private:
     TUniqueId _query_id;
     // Id of this instance
     TUniqueId _fragment_instance_id;
-    // Used to reoprt to coordinator which backend is over
+    // Used to report to coordinator which backend is over
     int _backend_num;
     ExecEnv* _exec_env;
     TNetworkAddress _coord_addr;
@@ -159,6 +166,8 @@ private:
     int _timeout_second;
 
     std::unique_ptr<std::thread> _exec_thread;
+
+    std::shared_ptr<StreamLoadPipe> _pipe;
 };
 
 FragmentExecState::FragmentExecState(
@@ -443,7 +452,58 @@ void FragmentMgr::exec_actual(
 
 Status FragmentMgr::exec_plan_fragment(
         const TExecPlanFragmentParams& params) {
-    return exec_plan_fragment(params, std::bind<void>(&empty_function, std::placeholders::_1));
+    if (params.txn_conf.need_txn) {
+        StreamLoadContext* stream_load_cxt = new StreamLoadContext(_exec_env);
+        stream_load_cxt->db = params.txn_conf.db;
+        stream_load_cxt->table = params.txn_conf.tbl;
+        stream_load_cxt->txn_id = params.txn_conf.txn_id;
+        stream_load_cxt->id = UniqueId(params.params.query_id);
+        stream_load_cxt->put_result.params = params;
+        stream_load_cxt->use_streaming = true;
+        stream_load_cxt->load_type = TLoadType::MANUL_LOAD;
+        stream_load_cxt->load_src_type = TLoadSourceType::RAW;
+        stream_load_cxt->label = params.import_label;
+        stream_load_cxt->format = TFileFormatType::FORMAT_CSV_PLAIN;
+        stream_load_cxt->timeout_second = 3600;
+        stream_load_cxt->auth.auth_code_uuid = params.txn_conf.auth_code_uuid;
+        stream_load_cxt->need_commit_self = true;
+        stream_load_cxt->ref();
+        auto pipe = std::make_shared<StreamLoadPipe>(
+                1024 * 1024 /* max_buffered_bytes */,
+                64 * 1024 /* min_chunk_size */,
+                0 /* total_length */);
+        stream_load_cxt->body_sink = pipe;
+
+        RETURN_IF_ERROR(_exec_env->load_stream_mgr()->put(stream_load_cxt->id, pipe));
+
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_cxt));
+        set_pipe(params.params.fragment_instance_id, pipe);
+        return Status::OK();
+    } else {
+        return exec_plan_fragment(params, std::bind<void>(&empty_function, std::placeholders::_1));
+    }
+}
+
+void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<StreamLoadPipe> pipe) {
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _fragment_map.find(fragment_instance_id);
+        if (iter != _fragment_map.end()) {
+            _fragment_map[fragment_instance_id]->set_pipe(pipe);
+        }
+    }
+}
+
+std::shared_ptr<StreamLoadPipe> FragmentMgr::get_pipe(const TUniqueId& fragment_instance_id) {
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _fragment_map.find(fragment_instance_id);
+        if (iter != _fragment_map.end()) {
+            return _fragment_map[fragment_instance_id]->get_pipe();
+        } else {
+            return nullptr;
+        }
+    }
 }
 
 Status FragmentMgr::exec_plan_fragment(
@@ -525,7 +585,7 @@ void FragmentMgr::cancel_worker() {
         }
         for (auto& id : to_delete) {
             cancel(id, PPlanFragmentCancelReason::TIMEOUT);
-            LOG(INFO) << "FragmentMgr cancel worker going to cancel timouet fragment " << print_id(id);
+            LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout fragment " << print_id(id);
         }
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(1)));
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";

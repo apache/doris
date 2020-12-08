@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import org.apache.doris.thrift.TTxnParams;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -179,13 +180,13 @@ public class Planner {
             distributedPlanner = new DistributedPlanner(plannerContext);
             fragments = distributedPlanner.createPlanFragments(singleNodePlan);
         }
-
         // Optimize the transfer of query statistic when query doesn't contain limit.
         PlanFragment rootFragment = fragments.get(fragments.size() - 1);
         QueryStatisticsTransferOptimizer queryStatisticTransferOptimizer = new QueryStatisticsTransferOptimizer(rootFragment);
         queryStatisticTransferOptimizer.optimizeQueryStatisticsTransfer();
 
-        if (statement instanceof InsertStmt) {
+        TTxnParams txnConf = analyzer.getContext().getTxnConf();
+        if (statement instanceof InsertStmt && (txnConf == null || !txnConf.isNeedTxn())) {
             InsertStmt insertStmt = (InsertStmt) statement;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());

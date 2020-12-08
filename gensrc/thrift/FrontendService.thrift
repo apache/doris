@@ -478,6 +478,7 @@ struct TMiniLoadBeginRequest {
     11: optional i64 auth_code
     12: optional i64 create_timestamp
     13: optional Types.TUniqueId request_id
+    14: optional string auth_code_uuid
 }
 
 struct TIsMethodSupportedRequest {
@@ -508,6 +509,7 @@ struct TLoadTxnBeginRequest {
     // The real value of timeout should be i32. i64 ensures the compatibility of interface.
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
+    12: optional string auth_code_uuid
 }
 
 struct TLoadTxnBeginResult {
@@ -558,6 +560,7 @@ struct TStreamLoadPutRequest {
     27: optional Types.TMergeType merge_type
     28: optional string delete_condition
     29: optional string sequence_col
+    30: optional string auth_code_uuid
 }
 
 struct TStreamLoadPutResult {
@@ -609,6 +612,7 @@ struct TLoadTxnCommitRequest {
     10: optional i64 auth_code
     11: optional TTxnCommitAttachment txnCommitAttachment
     12: optional i64 thrift_rpc_timeout_ms
+    13: optional string auth_code_uuid
 }
 
 struct TLoadTxnCommitResult {
@@ -626,6 +630,7 @@ struct TLoadTxnRollbackRequest {
     8: optional string reason
     9: optional i64 auth_code
     10: optional TTxnCommitAttachment txnCommitAttachment
+    11: optional string auth_code_uuid
 }
 
 struct TLoadTxnRollbackResult {

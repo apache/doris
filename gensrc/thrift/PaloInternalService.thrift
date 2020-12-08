@@ -216,6 +216,17 @@ enum PaloInternalServiceVersion {
 
 // ExecPlanFragment
 
+struct TTxnParams {
+  1: optional bool need_txn
+  2: optional string auth_code_uuid
+  3: optional i64 thrift_rpc_timeout_ms
+  4: optional string db
+  5: optional string tbl
+  6: optional string user_ip
+  7: optional i64 txn_id
+  8: optional Types.TUniqueId fragment_instance_id
+}
+
 struct TExecPlanFragmentParams {
   1: required PaloInternalServiceVersion protocol_version
 
@@ -257,6 +268,7 @@ struct TExecPlanFragmentParams {
   12: optional string db_name
   13: optional i64 load_job_id
   14: optional TLoadErrorHubInfo load_error_hub_info
+  15: optional TTxnParams txn_conf
 }
 
 struct TExecPlanFragmentResult {

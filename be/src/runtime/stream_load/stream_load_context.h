@@ -70,7 +70,7 @@ public:
 
     // partition -> begin offset, inclusive.
     std::map<int32_t, int64_t> begin_offset;
-    // partiton -> commit offset, inclusive.
+    // partition -> commit offset, inclusive.
     std::map<int32_t, int64_t> cmt_offset;
     //custom kafka property key -> value
     std::map<std::string, std::string> properties;
@@ -190,6 +190,7 @@ public:
     // to identified a specified data consumer.
     int64_t consumer_id;
 
+    bool need_commit_self = false;
 public:
     ExecEnv* exec_env() { return _exec_env; }
 

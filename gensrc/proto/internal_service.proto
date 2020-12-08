@@ -242,6 +242,31 @@ message PProxyResult {
     optional PKafkaMetaProxyResult kafka_meta_result = 2;
 };
 
+message PSendDataRequest {
+    required PUniqueId fragment_instance_id = 1;
+    optional string data = 2;
+}
+
+message PSendDataResult {
+    required PStatus status = 1;
+}
+
+message PCommitRequest {
+    required PUniqueId fragment_instance_id = 1;
+}
+
+message PCommitResult {
+    required PStatus status = 1;
+}
+
+message PRollbackRequest {
+    required PUniqueId fragment_instance_id = 1;
+}
+
+message PRollbackResult {
+    required PStatus status = 1;
+}
+
 // NOTE(zc): If you want to add new method here,
 // you MUST add same method to palo_internal_service.proto
 service PBackendService {
@@ -257,5 +282,8 @@ service PBackendService {
     rpc update_cache(PUpdateCacheRequest) returns (PCacheResponse);
     rpc fetch_cache(PFetchCacheRequest) returns (PFetchCacheResult);
     rpc clear_cache(PClearCacheRequest) returns (PCacheResponse);
+    rpc send_data(PSendDataRequest) returns (PSendDataResult);
+    rpc commit(PCommitRequest) returns (PCommitResult);
+    rpc rollback(PRollbackRequest) returns (PRollbackResult);
 };
 

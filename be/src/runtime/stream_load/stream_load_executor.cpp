@@ -51,9 +51,10 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
     LOG(INFO) << "begin to execute job. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
     auto st = _exec_env->fragment_mgr()->exec_plan_fragment(
-            ctx->put_result.params, [ctx](PlanFragmentExecutor* executor) {
+            ctx->put_result.params, [ctx, this](PlanFragmentExecutor* executor) {
                 ctx->commit_infos = std::move(executor->runtime_state()->tablet_commit_infos());
                 Status status = executor->status();
+                LOG(INFO) << "status.ok(): " << status.ok();
                 if (status.ok()) {
                     ctx->number_total_rows = executor->runtime_state()->num_rows_load_total();
                     ctx->number_loaded_rows = executor->runtime_state()->num_rows_load_success();
@@ -104,6 +105,10 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                 }
                 ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
                 ctx->promise.set_value(status);
+
+                if (ctx->need_commit_self) {
+                    this->commit_txn(ctx);
+                }
 
                 if (ctx->unref()) {
                     delete ctx;
@@ -282,7 +287,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
         break;
     }
     default:
-        // unknown load type, should not happend
+        // unknown load type, should not happened
         return false;
     }
 

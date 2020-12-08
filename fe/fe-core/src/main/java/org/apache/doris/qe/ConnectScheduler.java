@@ -17,16 +17,15 @@
 
 package org.apache.doris.qe;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.nio.NConnectContext;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,7 +45,7 @@ public class ConnectScheduler {
     private int maxConnections;
     private int numberConnection;
     private AtomicInteger nextConnectionId;
-    private Map<Long, ConnectContext> connectionMap = Maps.newHashMap();
+    private Map<Long, ConnectContext> connectionMap = Maps.newConcurrentMap();
     private Map<String, AtomicInteger> connByUser = Maps.newHashMap();
     private ExecutorService executor = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_connection_scheduler_threads_num, "connect-scheduler-pool", true);
 
@@ -116,6 +115,20 @@ public class ConnectScheduler {
     }
 
     public synchronized void unregisterConnection(ConnectContext ctx) {
+        if (ctx.getTxnConf() != null) {
+            ctx.setTxnConf(null);
+            if (ctx.currentDbId != -1 && ctx.getTxnConf().getTxnId() != -1) {
+                try {
+                    Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                            ctx.currentDbId, ctx.getTxnConf().getTxnId(), "timeout");
+                } catch (UserException e) {
+                    LOG.error("db: {}, txnId: {}, rollback error.", ctx.currentDb, ctx.getTxnConf().getTxnId(), e);
+                }
+                ctx.getTxnConf().setTxnId(-1);
+                ctx.getTxnConf().setDb("");
+                ctx.getTxnConf().setTbl("");
+            }
+        }
         if (connectionMap.remove((long) ctx.getConnectionId()) != null) {
             numberConnection--;
             AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());

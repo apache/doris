@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.doris.analysis.Expr;
@@ -37,5 +38,16 @@ public class UnionNode extends SetOperationNode {
     @Override
     protected void toThrift(TPlanNode msg) {
         toThrift(msg, TPlanNodeType.UNION_NODE);
+    }
+
+    public String getRowStringValue() {
+        if (constExprLists_.size() == 0) {
+            return "";
+        }
+        List<String> vals = new ArrayList<>();
+        for (Expr expr : constExprLists_.get(0)) {
+            vals.add(Expr.getStringValue(expr));
+        }
+        return String.join("\t", vals);
     }
 }
