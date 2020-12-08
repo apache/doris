@@ -76,7 +76,7 @@ struct ReaderParams {
 
     void check_validation() const;
 
-    std::string to_string();
+    std::string to_string() const;
 };
 
 class Reader {

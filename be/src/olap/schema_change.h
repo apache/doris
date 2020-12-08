@@ -49,7 +49,7 @@ bool count_field(RowCursor* read_helper, RowCursor* write_helper, const TabletCo
 
 class RowBlockChanger {
 public:
-    RowBlockChanger(const TabletSchema& tablet_schema, const DeleteHandler& delete_handler);
+    RowBlockChanger(const TabletSchema& tablet_schema, const DeleteHandler* delete_handler);
 
     RowBlockChanger(const TabletSchema& tablet_schema);
 
@@ -67,7 +67,7 @@ private:
     SchemaMapping _schema_mapping;
 
     // delete handler for filtering data which use specified in DELETE_DATA
-    DeleteHandler _delete_handler;
+    const DeleteHandler* _delete_handler = nullptr;
 
     DISALLOW_COPY_AND_ASSIGN(RowBlockChanger);
 };
@@ -210,7 +210,7 @@ private:
         TabletSharedPtr base_tablet;
         TabletSharedPtr new_tablet;
         std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
-        DeleteHandler delete_handler;
+        DeleteHandler* delete_handler = nullptr;
         std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;
     };
 
