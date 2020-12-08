@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -56,7 +58,7 @@ public class TableProperty implements Writable {
      * DEFAULT: depends on BE's config 'default_rowset_type'
      * V1: alpha rowset
      * V2: beta rowset
-     * 
+     *
      * This property should be set when creating the table, and can only be changed to V2 using Alter Table stmt.
      */
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
@@ -77,7 +79,7 @@ public class TableProperty implements Writable {
     public TableProperty buildProperty(short opCode) {
         switch (opCode) {
             case OperationType.OP_DYNAMIC_PARTITION:
-                buildDynamicProperty();
+                executeBuildDynamicProperty();
                 break;
             case OperationType.OP_MODIFY_REPLICATION_NUM:
                 buildReplicationNum();
@@ -90,7 +92,19 @@ public class TableProperty implements Writable {
         }
         return this;
     }
-    public TableProperty buildDynamicProperty() {
+    public TableProperty buildDynamicProperty() throws DdlException {
+        if (properties.containsKey(DynamicPartitionProperty.ENABLE)
+                && Boolean.valueOf(properties.get(DynamicPartitionProperty.ENABLE))
+                && !Config.dynamic_partition_enable) {
+            throw new DdlException("Could not create table with dynamic partition "
+                    + "when fe config dynamic_partition_enable is false. "
+                    + "Please ADMIN SET FRONTEND CONFIG (\"dynamic_partition_enable\" = \"true\") firstly.");
+        }
+        executeBuildDynamicProperty();
+        return this;
+    }
+
+    private TableProperty executeBuildDynamicProperty() {
         HashMap<String, String> dynamicPartitionProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().startsWith(DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
@@ -153,7 +167,7 @@ public class TableProperty implements Writable {
 
     public static TableProperty read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
-                .buildDynamicProperty()
+                .executeBuildDynamicProperty()
                 .buildReplicationNum()
                 .buildInMemory()
                 .buildStorageFormat();

@@ -5355,7 +5355,8 @@ public class Catalog {
         throw new DdlException("not implemented");
     }
 
-    public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
+    public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties)
+            throws DdlException {
         Map<String, String> logProperties = new HashMap<>(properties);
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
