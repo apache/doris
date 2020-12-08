@@ -33,14 +33,11 @@
 #include "gen_cpp/Types_types.h"
 #include "olap/options.h"
 #include "olap/row.h"
-#include "runtime/bufferpool/reservation_tracker.h"
-#include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/primitive_type.h"
-#include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/thread_resource_mgr.h"
+#include "runtime/test_env.h"
 #include "runtime/tuple_row.h"
 #include "testutil/desc_tbl_builder.h"
 #include "util/blocking_queue.hpp"
@@ -51,6 +48,7 @@ namespace doris {
 class MemoryScratchSinkTest : public testing::Test {
 public:
     MemoryScratchSinkTest() {
+        _env = std::make_shared<TestEnv>();
         {
             TExpr expr;
             {
@@ -67,12 +65,7 @@ public:
         }
     }
 
-    ~MemoryScratchSinkTest() {
-        delete _state;
-        delete _exec_env->_result_queue_mgr;
-        delete _exec_env->_thread_mgr;
-        delete _exec_env->_buffer_reservation;
-    }
+    ~MemoryScratchSinkTest() { delete _state; }
 
     virtual void SetUp() {
         config::periodic_counter_update_period_ms = 500;
@@ -96,7 +89,7 @@ public:
 
 private:
     ObjectPool _obj_pool;
-    ExecEnv* _exec_env = nullptr;
+    std::shared_ptr<TestEnv> _env;
     // std::vector<TExpr> _exprs;
     TDescriptorTable _t_desc_table;
     RuntimeState* _state = nullptr;
@@ -109,21 +102,17 @@ private:
 };
 
 void MemoryScratchSinkTest::init() {
-    _exec_env = ExecEnv::GetInstance();
     init_desc_tbl();
     init_runtime_state();
 }
 
 void MemoryScratchSinkTest::init_runtime_state() {
-    _exec_env->_result_queue_mgr = new ResultQueueMgr();
-    _exec_env->_thread_mgr = new ThreadResourceMgr();
-    _exec_env->_buffer_reservation = new ReservationTracker();
     TQueryOptions query_options;
     query_options.batch_size = 1024;
     TUniqueId query_id;
     query_id.lo = 10;
     query_id.hi = 100;
-    _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _exec_env);
+    _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _env->exec_env());
     _state->init_instance_mem_tracker();
     _mem_tracker =
             MemTracker::CreateTracker(-1, "MemoryScratchSinkTest", _state->instance_mem_tracker());
