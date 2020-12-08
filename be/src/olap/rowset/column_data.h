@@ -62,7 +62,7 @@ public:
     void set_read_params(const std::vector<uint32_t>& return_columns,
                          const std::vector<uint32_t>& seek_columns,
                          const std::set<uint32_t>& load_bf_columns, const Conditions& conditions,
-                         const std::vector<ColumnPredicate*>& col_predicates, bool is_using_cache,
+                         std::shared_ptr<std::vector<ColumnPredicate*>> col_predicates, bool is_using_cache,
                          RuntimeState* runtime_state);
 
     OLAPStatus get_first_row_block(RowBlock** row_block);
@@ -143,7 +143,7 @@ private:
     // 当到达文件末尾或者到达end key时设置此标志
     bool _eof;
     const Conditions* _conditions;
-    const std::vector<ColumnPredicate*>* _col_predicates;
+    std::shared_ptr<std::vector<ColumnPredicate*>> _col_predicates;
     const DeleteHandler* _delete_handler = nullptr;
     DelCondSatisfied _delete_status;
     RuntimeState* _runtime_state;

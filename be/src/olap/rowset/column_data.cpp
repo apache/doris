@@ -418,11 +418,11 @@ void ColumnData::set_read_params(const std::vector<uint32_t>& return_columns,
                                  const std::vector<uint32_t>& seek_columns,
                                  const std::set<uint32_t>& load_bf_columns,
                                  const Conditions& conditions,
-                                 const std::vector<ColumnPredicate*>& col_predicates,
+                                 std::shared_ptr<std::vector<ColumnPredicate*>> col_predicates,
                                  bool is_using_cache, RuntimeState* runtime_state) {
     _conditions = &conditions;
-    _col_predicates = &col_predicates;
-    _need_eval_predicates = !col_predicates.empty();
+    _col_predicates = col_predicates;
+    _need_eval_predicates = !col_predicates->empty();
     _is_using_cache = is_using_cache;
     _runtime_state = runtime_state;
     _return_columns = return_columns;
