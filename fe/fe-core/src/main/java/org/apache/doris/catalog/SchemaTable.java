@@ -322,7 +322,30 @@ public class SchemaTable extends Table {
                                         .column("CHARACTER_SET_CLIENT", ScalarType.createVarchar(32))
                                         .column("COLLATION_CONNECTION", ScalarType.createVarchar(32))
                                         .build()))
+                    .put("statistics",
+                            new SchemaTable(
+                                    SystemIdGenerator.getNextId(),
+                                    "statistics",
+                                    TableType.SCHEMA,
+                                    builder()
+                                            .column("TABLE_CATALOG", ScalarType.createVarchar(512))
+                                            .column("TABLE_SCHEMA", ScalarType.createVarchar(64))
+                                            .column("TABLE_NAME", ScalarType.createVarchar(64))
+                                            .column("NON_UNIQUE", ScalarType.createType(PrimitiveType.BIGINT))
+                                            .column("INDEX_SCHEMA", ScalarType.createVarchar(64))
+                                            .column("INDEX_NAME", ScalarType.createVarchar(64))
+                                            .column("SEQ_IN_INDEX", ScalarType.createType(PrimitiveType.BIGINT))
+                                            .column("COLUMN_NAME", ScalarType.createVarchar(64))
+                                            .column("COLLATION", ScalarType.createVarchar(1))
+                                            .column("CARDINALITY", ScalarType.createType(PrimitiveType.BIGINT))
+                                            .column("SUB_PART", ScalarType.createType(PrimitiveType.BIGINT))
+                                            .column("PACKED", ScalarType.createVarchar(10))
+                                            .column("NULLABLE", ScalarType.createVarchar(3))
+                                            .column("INDEX_TYPE", ScalarType.createVarchar(16))
+                                            .column("COMMENT", ScalarType.createVarchar(16))
+                                            .build()))
                     .build();
+    //  statistics is table provides information about table indexes in mysql: 5.7
     // views column is from show create table views in mysql: 5.5.6
 
     public static class Builder {

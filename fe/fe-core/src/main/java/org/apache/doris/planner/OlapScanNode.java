@@ -630,6 +630,7 @@ public class OlapScanNode extends ScanNode {
         if (null != sortColumn) {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }
+	msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
     }
 
     // export some tablets

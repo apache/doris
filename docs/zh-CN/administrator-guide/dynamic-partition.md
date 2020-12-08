@@ -321,3 +321,21 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
     HTTP 协议：
     
     `curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_check_interval_seconds=432000`
+
+### 动态分区表与手动分区表相互转换
+
+对于一个表来说，动态分区和手动分区可以自由转换，但二者不能同时存在，有且只有一种状态。
+
+#### 手动分区转换为动态分区
+
+如果一个表在创建时未指定动态分区，可以通过 `ALTER TABLE` 在运行时修改动态分区相关属性来转化为动态分区，具体示例可以通过 `HELP ALTER TABLE` 查看。
+
+开启动态分区功能后，Doris 将不再允许用户手动管理分区，会根据动态分区属性来自动管理分区。
+
+**注意**：如果已设定 `dynamic_partition.start`，分区范围在动态分区起始偏移之前的历史分区将会被删除。
+
+#### 动态分区转换为手动分区
+
+通过执行 `ALTER TABLE tbl_name SET ("dynamic_partition.enable" = "false")` 即可关闭动态分区功能，将其转换为手动分区表。
+
+关闭动态分区功能后，Doris 将不再自动管理分区，需要用户手动通过 `ALTER TABLE` 的方式创建或删除分区。
