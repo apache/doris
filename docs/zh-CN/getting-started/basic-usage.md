@@ -41,7 +41,7 @@ mysql -h FE_HOST -P9030 -uroot
 
 > `fe_host` 是任一 FE 节点的 ip 地址。`9030` 是 fe.conf 中的 query_port 配置。
 
-登陆后，可以通过以下命令修改 root 密码
+登录后，可以通过以下命令修改 root 密码
 
 ```
 SET PASSWORD FOR 'root' = PASSWORD('your_password');
