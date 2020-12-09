@@ -758,6 +758,10 @@ Status OlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescrip
     RETURN_IF_ERROR(normalize_noneq_binary_predicate(slot, &range));
 
     // 3. Add range to Column->ColumnValueRange map
+    if (range.is_empty_value_range()) {
+        _eos = true;
+    }
+    
     _column_value_ranges[slot->col_name()] = range;
 
     return Status::OK();
@@ -781,8 +785,8 @@ template <class T>
 Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                                                    ColumnValueRange<T>* range) {
     std::vector<uint32_t> filter_conjuncts_index;
-    bool meet_eq_binary = false;
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
+        ColumnValueRange<T> temp_range("", range->type(), std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
         // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
         if (TExprOpcode::FILTER_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
             InPredicate* pred = dynamic_cast<InPredicate*>(_conjunct_ctxs[conj_idx]->root());
@@ -836,14 +840,14 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                 // column in (NULL,...) couldn't push down to StorageEngine
                 // so that discard whole ColumnValueRange
                 if (NULL == iter->get_value()) {
-                    range->clear();
+                    temp_range.clear();
                     break;
                 }
 
                 switch (slot->type().type) {
                 case TYPE_TINYINT: {
                     int32_t v = *reinterpret_cast<int8_t*>(const_cast<void*>(iter->get_value()));
-                    range->add_fixed_value(*reinterpret_cast<T*>(&v));
+                    temp_range.add_fixed_value(*reinterpret_cast<T*>(&v));
                     break;
                 }
                 case TYPE_DATE: {
@@ -854,7 +858,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                         // Because data value loss accuracy, skip this value
                         skip_invalid_value_count++;
                     } else {
-                        range->add_fixed_value(*reinterpret_cast<T *>(&date_value));
+                        temp_range.add_fixed_value(*reinterpret_cast<T *>(&date_value));
                     }
                     break;
                 }
@@ -868,13 +872,13 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                 case TYPE_INT:
                 case TYPE_BIGINT:
                 case TYPE_DATETIME: {
-                    range->add_fixed_value(
+                    temp_range.add_fixed_value(
                             *reinterpret_cast<T*>(const_cast<void*>(iter->get_value())));
                     break;
                 }
                 case TYPE_BOOLEAN: {
                     bool v = *reinterpret_cast<bool*>(const_cast<void*>(iter->get_value()));
-                    range->add_fixed_value(*reinterpret_cast<T*>(&v));
+                    temp_range.add_fixed_value(*reinterpret_cast<T*>(&v));
                     break;
                 }
                 default: {
@@ -890,9 +894,11 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                 _eos = true;
             }
 
-            if (is_key_column(slot->col_name())) {
+            if (is_key_column(slot->col_name()) && temp_range.is_fixed_value_range()) {
                 filter_conjuncts_index.emplace_back(conj_idx);
             }
+
+            range->intersection(temp_range);
         } // end of handle in predicate
 
         // 2. Normalize eq conjuncts like 'where col = value'
@@ -937,14 +943,11 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                     continue;
                 }
 
-                // begin to push condition value into ColumnValueRange
-                // clear the ColumnValueRange before adding new fixed values.
-                // because for AND compound predicates, it can overwrite previous conditions
-                range->clear();
+
                 switch (slot->type().type) {
                     case TYPE_TINYINT: {
                         int32_t v = *reinterpret_cast<int8_t*>(value);
-                        range->add_fixed_value(*reinterpret_cast<T*>(&v));
+                        temp_range.add_fixed_value(*reinterpret_cast<T*>(&v));
                         break;
                     }
                     case TYPE_DATE: {
@@ -955,7 +958,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                            // Because data value loss accuracy
                            _eos = true;
                         }
-                        range->add_fixed_value(*reinterpret_cast<T*>(&date_value));
+                        temp_range.add_fixed_value(*reinterpret_cast<T*>(&date_value));
                         break;
                     }
                     case TYPE_DECIMAL:
@@ -968,12 +971,12 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                     case TYPE_INT:
                     case TYPE_BIGINT:
                     case TYPE_LARGEINT: {
-                        range->add_fixed_value(*reinterpret_cast<T*>(value));
+                        temp_range.add_fixed_value(*reinterpret_cast<T*>(value));
                         break;
                     }
                     case TYPE_BOOLEAN: {
                         bool v = *reinterpret_cast<bool*>(value);
-                        range->add_fixed_value(*reinterpret_cast<T*>(&v));
+                        temp_range.add_fixed_value(*reinterpret_cast<T*>(&v));
                         break;
                     }
                     default: {
@@ -986,37 +989,15 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                 if (is_key_column(slot->col_name())) {
                     filter_conjuncts_index.emplace_back(conj_idx);
                 }
-                meet_eq_binary = true;
+                range->intersection(temp_range);
             } // end for each binary predicate child
         }     // end of handling eq binary predicate
-
-
-        if (range->get_fixed_value_size() > 0) {
-            // this columns already meet some eq predicates(IN or Binary),
-            // There is no need to continue to iterate.
-            // TODO(cmy): In fact, this part of the judgment should be completed in
-            // the FE query planning stage. For the following predicate conditions,
-            // it should be possible to eliminate at the FE side.
-            //      WHERE A = 1 and A in (2,3,4)
-
-            if (meet_eq_binary) {
-                // meet_eq_binary is true, means we meet at least one eq binary predicate.
-                // this flag is to handle following case:
-                // There are 2 conjuncts, first in a InPredicate, and second is a BinaryPredicate.
-                // Firstly, we met a InPredicate, and add lots of values in ColumnValueRange,
-                // if breaks, doris will read many rows filtered by these values.
-                // But if continue to handle the BinaryPredicate, the value in ColumnValueRange
-                // may become only one, which can reduce the rows read from storage engine.
-                // So the strategy is to use the BinaryPredicate as much as possible.
-                break;
-            }
-        }
     }
 
+    // exceed limit, no conditions will be pushed down to storage engine.
     if (range->get_fixed_value_size() > _max_pushdown_conditions_per_column) {
-        // exceed limit, no conditions will be pushed down to storage engine.
         range->clear();
-    } else {
+    }  else {
         std::copy(filter_conjuncts_index.cbegin(), filter_conjuncts_index.cend(),
                 std::inserter(_pushed_conjuncts_index, _pushed_conjuncts_index.begin()));
     }
@@ -1156,8 +1137,6 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                         << " value: " << *reinterpret_cast<T*>(value);
             }
         }
-
-
     }
 
     std::copy(filter_conjuncts_index.cbegin(), filter_conjuncts_index.cend(),

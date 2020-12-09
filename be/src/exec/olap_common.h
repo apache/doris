@@ -73,6 +73,8 @@ public:
 
     bool has_intersection(ColumnValueRange<T>& range);
 
+    void intersection(ColumnValueRange<T>& range);
+
     void set_empty_value_range() {
         _fixed_values.clear();
         _low_value = _type_max;
@@ -430,7 +432,6 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
                 }
 
                 break;
-                break;
             }
 
             default: {
@@ -493,6 +494,55 @@ bool ColumnValueRange<T>::is_in_range(const T& value) {
     }
 
     return false;
+}
+
+template <class T>
+void ColumnValueRange<T>::intersection(ColumnValueRange<T>& range) {
+    // 1. clear if column type not match
+    if (_column_type != range._column_type) {
+        set_empty_value_range();
+    }
+
+    // 2. clear if any range is empty
+    if (is_empty_value_range() || range.is_empty_value_range()) {
+        set_empty_value_range();
+    }
+
+    std::set<T> result_values;
+    // 3. fixed_value intersection
+    if (is_fixed_value_range() || range.is_fixed_value_range()) {
+        if (is_fixed_value_range() && range.is_fixed_value_range()) {
+            set_intersection(_fixed_values.begin(), _fixed_values.end(), range._fixed_values.begin(),
+                             range._fixed_values.end(),
+                             std::inserter(result_values, result_values.begin()));
+        } else if (is_fixed_value_range() && !range.is_fixed_value_range()) {
+            iterator_type iter = _fixed_values.begin();
+
+            while (iter != _fixed_values.end()) {
+                if (range.is_in_range(*iter)) {
+                    result_values.insert(*iter);
+                }
+                ++iter;
+            }
+        } else if (!is_fixed_value_range() && range.is_fixed_value_range()) {
+            iterator_type iter = range._fixed_values.begin();
+            while (iter != range._fixed_values.end()) {
+                if (this->is_in_range(*iter)) {
+                    result_values.insert(*iter);
+                }
+                ++iter;
+            }
+        }
+
+        if (!result_values.empty()) {
+            _fixed_values = std::move(result_values);
+        } else {
+            set_empty_value_range();
+        }
+    } else {
+        add_range(range._high_op, range._high_value);
+        add_range(range._low_op, range._low_value);
+    }
 }
 
 template <class T>
