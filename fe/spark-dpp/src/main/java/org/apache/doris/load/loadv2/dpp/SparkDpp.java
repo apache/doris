@@ -97,7 +97,6 @@ public final class SparkDpp implements java.io.Serializable {
     private SparkSession spark = null;
     private EtlJobConfig etlJobConfig = null;
     private LongAccumulator abnormalRowAcc = null;
-    private LongAccumulator unselectedRowAcc = null;
     private LongAccumulator scannedRowsAcc = null;
     private LongAccumulator fileNumberAcc = null;
     private LongAccumulator fileSizeAcc = null;
@@ -120,7 +119,6 @@ public final class SparkDpp implements java.io.Serializable {
 
     public void init() {
         abnormalRowAcc = spark.sparkContext().longAccumulator("abnormalRowAcc");
-        unselectedRowAcc = spark.sparkContext().longAccumulator("unselectedRowAcc");
         scannedRowsAcc = spark.sparkContext().longAccumulator("scannedRowsAcc");
         fileNumberAcc = spark.sparkContext().longAccumulator("fileNumberAcc");
         fileSizeAcc = spark.sparkContext().longAccumulator("fileSizeAcc");
@@ -854,6 +852,10 @@ public final class SparkDpp implements java.io.Serializable {
             sql.append(column.columnName).append(",");
         });
         sql.deleteCharAt(sql.length() - 1).append(" from ").append(hiveDbTableName);
+        if (!Strings.isNullOrEmpty(fileGroup.where)) {
+            sql.append(" where ").append(fileGroup.where);
+        }
+
         Dataset<Row> dataframe = spark.sql(sql.toString());
         dataframe = checkDataFromHiveWithStrictMode(dataframe, baseIndex, fileGroup.columnMappings.keySet(), etlJobConfig.properties.strictMode,
                     dstTableSchema);
@@ -987,12 +989,6 @@ public final class SparkDpp implements java.io.Serializable {
                     if (fileGroupDataframe == null) {
                         LOG.info("no data for file file group:" + fileGroup);
                         continue;
-                    }
-                    if (!Strings.isNullOrEmpty(fileGroup.where)) {
-                        long originalSize = fileGroupDataframe.count();
-                        fileGroupDataframe = fileGroupDataframe.filter(fileGroup.where);
-                        long currentSize = fileGroupDataframe.count();
-                        unselectedRowAcc.add(currentSize - originalSize);
                     }
 
                     JavaPairRDD<List<Object>, Object[]> ret = fillTupleWithPartitionColumn(
