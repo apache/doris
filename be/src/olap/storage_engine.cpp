@@ -519,8 +519,6 @@ void StorageEngine::stop() {
         }                               \
     }
 
-    THREADS_JOIN(_base_compaction_threads);
-    THREADS_JOIN(_cumulative_compaction_threads);
     THREADS_JOIN(_path_gc_threads);
     THREADS_JOIN(_path_scan_threads);
     THREADS_JOIN(_tablet_checkpoint_threads);
