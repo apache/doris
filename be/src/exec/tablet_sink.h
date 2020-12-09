@@ -400,6 +400,11 @@ private:
 
     // the timeout of load channels opened by this tablet sink. in second
     int64_t _load_channel_timeout_s = 0;
+
+	// True if this sink has been closed once
+	bool _is_closed = false;
+	// Save the status of close() method
+	Status _close_status;
 };
 
 } // namespace stream_load
