@@ -251,9 +251,9 @@ Replication_num
     * The BE data storage directory can be explicitly specified as SSD or HDD (differentiated by .SSD or .HDD suffix). When you build a table, you can uniformly specify the media for all Partition initial storage. Note that the suffix is ​​to explicitly specify the disk media without checking to see if it matches the actual media type.
     * The default initial storage media can be specified by `default_storage_medium= XXX` in the fe configuration file `fe.conf`, or, if not, by default, HDD. If specified as an SSD, the data is initially stored on the SSD.
     * If storage\_cooldown\_time is not specified, the data is automatically migrated from the SSD to the HDD after 30 days by default. If storage\_cooldown\_time is specified, the data will not migrate until the storage_cooldown_time time is reached.
-    * Note that when storage_medium is specified, if FE parameter 'enable_strict_storage_medium_check' is' True 'this parameter is simply a' do your best 'setting. Even if SSD storage media is not set up within the cluster, no errors are reported, and it is automatically stored in the available data directory.
+    * Note that when storage_medium is specified, if FE parameter 'enable_strict_storage_medium_check' is' False 'this parameter is simply a' do your best 'setting. Even if SSD storage media is not set up within the cluster, no errors are reported, and it is automatically stored in the available data directory.
       Similarly, if the SSD media is not accessible and space is insufficient, it is possible to initially store data directly on other available media. When the data is due to be migrated to an HDD, the migration may also fail (but will try again and again) if the HDD medium is not accessible and space is insufficient.
-      If FE parameter 'enable_strict_storage_medium_check' is' False ', then 'Failed to find enough host in all Backends with storage medium is SSD' will be reported when SSD storage medium is not set in the cluster.
+      If FE parameter 'enable_strict_storage_medium_check' is' True ', then 'Failed to find enough host in all Backends with storage medium is SSD' will be reported when SSD storage medium is not set in the cluster.
 
 ### ENGINE
 
