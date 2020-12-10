@@ -764,11 +764,6 @@ public class DataDescription {
         if (isNegative && mergeType != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("Negative is only used when merge type is append.");
         }
-        if (((columnDef == null || columnDef.isEmpty()) && (columnMappingList == null || columnMappingList.isEmpty()))
-                && mergeType == LoadTask.MergeType.MERGE) {
-            throw new AnalysisException("column mapping must be provided when merge type is MERGE.");
-
-        }
     }
 
     public void analyzeWithoutCheckPriv(String fullDbName) throws AnalysisException {

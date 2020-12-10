@@ -255,9 +255,6 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (mergeType == LoadTask.MergeType.MERGE) {
             columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
-            if (!request.isSetColumns()) {
-                throw new AnalysisException("column mapping must be provided when merge type is MERGE.");
-            }
         }  else if (mergeType == LoadTask.MergeType.DELETE) {
             columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
         }
