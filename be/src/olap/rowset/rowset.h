@@ -25,6 +25,7 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "gutil/macros.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
@@ -36,7 +37,6 @@ class Rowset;
 using RowsetSharedPtr = std::shared_ptr<Rowset>;
 class RowsetFactory;
 class RowsetReader;
-class TabletSchema;
 
 // the rowset state transfer graph:
 //    ROWSET_UNLOADED    <--|
@@ -159,6 +159,7 @@ public:
     bool delete_flag() const { return rowset_meta()->delete_flag(); }
     int64_t num_segments() const { return rowset_meta()->num_segments(); }
     void to_rowset_pb(RowsetMetaPB* rs_meta) { return rowset_meta()->to_rowset_pb(rs_meta); }
+    inline KeysType keys_type() { return _schema->keys_type(); }
 
     // remove all files in this rowset
     // TODO should we rename the method to remove_files() to be more specific?

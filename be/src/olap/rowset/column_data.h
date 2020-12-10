@@ -62,7 +62,7 @@ public:
     void set_read_params(const std::vector<uint32_t>& return_columns,
                          const std::vector<uint32_t>& seek_columns,
                          const std::set<uint32_t>& load_bf_columns, const Conditions& conditions,
-                         const std::vector<ColumnPredicate*>& col_predicates, bool is_using_cache,
+                         std::shared_ptr<std::vector<ColumnPredicate*>> col_predicates, bool is_using_cache,
                          RuntimeState* runtime_state);
 
     OLAPStatus get_first_row_block(RowBlock** row_block);
@@ -89,6 +89,7 @@ public:
     bool empty() const { return _segment_group->empty(); }
     bool zero_num_rows() const { return _segment_group->zero_num_rows(); }
 
+    // Return true if should be filtered out
     bool rowset_pruning_filter();
     int delete_pruning_filter();
     uint64_t get_filtered_rows();
@@ -143,7 +144,7 @@ private:
     // 当到达文件末尾或者到达end key时设置此标志
     bool _eof;
     const Conditions* _conditions;
-    const std::vector<ColumnPredicate*>* _col_predicates;
+    std::shared_ptr<std::vector<ColumnPredicate*>> _col_predicates;
     const DeleteHandler* _delete_handler = nullptr;
     DelCondSatisfied _delete_status;
     RuntimeState* _runtime_state;

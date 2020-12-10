@@ -67,7 +67,7 @@ public:
 
 private:
     Status _load(HttpRequest* req, const std::string& file_path, const std::string& user,
-                 const std::string& cluster);
+                 const std::string& cluster, int64_t file_size);
 
     Status data_saved_dir(const LoadHandle& desc, const std::string& table, std::string* file_path);
 
@@ -95,6 +95,8 @@ private:
     Status _on_new_handle(StreamLoadContext* ctx);
 
     bool _is_streaming(HttpRequest* req);
+
+    Status _merge_header(HttpRequest* http_req, std::map<std::string, std::string>* params);
 
     const std::string _streaming_function_name = "STREAMING_MINI_LOAD";
 

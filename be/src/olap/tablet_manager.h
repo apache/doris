@@ -47,7 +47,7 @@ class DataDir;
 class TabletManager {
 public:
     TabletManager(int32_t tablet_map_lock_shard_size);
-    ~TabletManager();
+    ~TabletManager() = default;
 
     bool check_tablet_id_exist(TTabletId tablet_id);
 
@@ -182,7 +182,7 @@ private:
 
     void _remove_tablet_from_partition(const Tablet& tablet);
 
-    inline RWMutex& _get_tablet_map_lock(TTabletId tabletId);
+    RWMutex* _get_tablets_shard_lock(TTabletId tabletId);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
@@ -199,10 +199,17 @@ private:
     // tablet_id -> TabletInstances
     typedef std::unordered_map<int64_t, TableInstances> tablet_map_t;
 
-    const int32_t _tablet_map_lock_shard_size;
-    // _tablet_map_lock_array[i] protect _tablet_map_array[i], i=0,1,2...,and i < _tablet_map_lock_shard_size
-    RWMutex* _tablet_map_lock_array;
-    tablet_map_t* _tablet_map_array;
+    struct tablets_shard {
+        // protect tablet_map, tablets_under_clone and tablets_under_restore
+        std::unique_ptr<RWMutex> lock;
+        tablet_map_t tablet_map;
+        std::set<int64_t> tablets_under_clone;
+        std::set<int64_t> tablets_under_restore;
+    };
+
+    const int32_t _tablets_shards_size;
+    const int32_t _tablets_shards_mask;
+    std::vector<tablets_shard> _tablets_shards;
 
     // Protect _partition_tablet_map, should not be obtained before _tablet_map_lock to avoid dead lock
     RWMutex _partition_tablet_map_lock;
@@ -219,19 +226,10 @@ private:
     // last update time of tablet stat cache
     int64_t _last_update_stat_ms;
 
-    inline tablet_map_t& _get_tablet_map(TTabletId tablet_id);
+    tablet_map_t& _get_tablet_map(TTabletId tablet_id);
 
-    std::set<int64_t> _tablets_under_clone;
-    std::set<int64_t> _tablets_under_restore;
+    tablets_shard& _get_tablets_shard(TTabletId tabletId);
 };
-
-inline RWMutex& TabletManager::_get_tablet_map_lock(TTabletId tabletId) {
-    return _tablet_map_lock_array[tabletId & (_tablet_map_lock_shard_size - 1)];
-}
-
-inline TabletManager::tablet_map_t& TabletManager::_get_tablet_map(TTabletId tabletId) {
-    return _tablet_map_array[tabletId & (_tablet_map_lock_shard_size - 1)];
-}
 
 } // namespace doris
 

@@ -108,6 +108,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_SCAN_KEY_NUM = "max_scan_key_num";
     public static final String MAX_PUSHDOWN_CONDITIONS_PER_COLUMN = "max_pushdown_conditions_per_column";
 
+    // when true, the partition column must be set to NOT NULL.
+    public static final String ALLOW_PARTITION_COLUMN_NULLABLE = "allow_partition_column_nullable";
+
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
@@ -269,6 +272,9 @@ public class SessionVariable implements Serializable, Writable {
     private int maxPushdownConditionsPerColumn = -1;
     @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
     private boolean showHiddenColumns = false;
+
+    @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE)
+    private boolean allowPartitionColumnNullable = true;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -527,6 +533,8 @@ public class SessionVariable implements Serializable, Writable {
     public void setShowHiddenColumns(boolean showHiddenColumns) {
         this.showHiddenColumns = showHiddenColumns;
     }
+
+    public boolean isAllowPartitionColumnNullable() { return allowPartitionColumnNullable; }
 
 
     // Serialize to thrift object

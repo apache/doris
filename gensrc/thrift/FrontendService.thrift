@@ -415,6 +415,7 @@ struct TMiniLoadRequest {
     11: optional i64 timestamp
     12: optional string user_ip
     13: optional bool is_retry
+    14: optional list<i64> file_size
 }
 
 struct TUpdateMiniEtlTaskStatusRequest {
@@ -572,6 +573,7 @@ struct TStreamLoadPutRequest {
     27: optional Types.TMergeType merge_type
     28: optional string delete_condition
     29: optional string sequence_col
+    30: optional bool num_as_string
 }
 
 struct TStreamLoadPutResult {

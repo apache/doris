@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
 
@@ -37,11 +38,15 @@ import java.util.Map;
 //   "password" = "password0"
 // )
 public class BrokerDesc implements Writable {
+    // just for multi load
+    public final static String MULTI_LOAD_BROKER = "__DORIS_MULTI_LOAD_BROKER__";
+    public final static String MULTI_LOAD_BROKER_BACKEND_KEY = "__DORIS_MULTI_LOAD_BROKER_BACKEND__";
     private String name;
     private Map<String, String> properties;
 
     // Only used for recovery
     private BrokerDesc() {
+        this.properties = Maps.newHashMap();
     }
 
     public BrokerDesc(String name, Map<String, String> properties) {
@@ -58,6 +63,17 @@ public class BrokerDesc implements Writable {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public boolean isMultiLoadBroker() {
+        return this.name.equalsIgnoreCase(MULTI_LOAD_BROKER);
+    }
+
+    public TFileType getFileType() {
+        if (isMultiLoadBroker()) {
+            return TFileType.FILE_LOCAL;
+        }
+        return TFileType.FILE_BROKER;
     }
 
     @Override

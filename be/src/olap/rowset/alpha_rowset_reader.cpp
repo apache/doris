@@ -354,10 +354,23 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
                 continue;
             }
         } else {
+            std::shared_ptr<std::vector<ColumnPredicate*>> predicates =
+                    std::make_shared<std::vector<ColumnPredicate*>>();
+            if (read_context->predicates != nullptr) {
+                predicates->insert(predicates->end(), read_context->predicates->begin(),
+                                   read_context->predicates->end());
+            }
+            // if unique table with rowset [0-x] or [0-1] [2-y] [...],
+            // value column predicates can be pushdown on rowset [0-x] or [2-y]
+            if (read_context->value_predicates != nullptr && _rowset->keys_type() == UNIQUE_KEYS &&
+                (_rowset->start_version() == 0 || _rowset->start_version() == 2)) {
+                predicates->insert(predicates->end(), read_context->value_predicates->begin(),
+                                   read_context->value_predicates->end());
+            }
             new_column_data->set_read_params(
                     *read_context->return_columns, *read_context->seek_columns,
-                    *read_context->load_bf_columns, *read_context->conditions,
-                    *read_context->predicates, use_index_stream_cache, read_context->runtime_state);
+                    *read_context->load_bf_columns, *read_context->conditions, predicates,
+                    use_index_stream_cache, read_context->runtime_state);
             // filter
             if (new_column_data->rowset_pruning_filter()) {
                 _stats->rows_stats_filtered += new_column_data->num_rows();

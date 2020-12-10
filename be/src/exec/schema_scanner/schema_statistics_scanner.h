@@ -15,33 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.http.rest;
+#ifndef DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_STATISTICS_SCANNER_H
+#define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_STATISTICS_SCANNER_H
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+#include "exec/schema_scanner.h"
+#include "gen_cpp/FrontendService_types.h"
 
-// Base restful result
-public class RestBaseResult {
-    private static final RestBaseResult OK = new RestBaseResult();
-    public ActionStatus status;
-    public String msg;
+namespace doris {
+class SchemaStatisticsScanner : public SchemaScanner {
+public:
+    SchemaStatisticsScanner();
+    virtual ~SchemaStatisticsScanner();
 
-    public RestBaseResult() {
-        status = ActionStatus.OK;
-        msg = "Success";
-    }
+private:
+    static SchemaScanner::ColumnDesc _s_cols_statistics[];
 
-    public RestBaseResult(String msg) {
-        status = ActionStatus.FAILED;
-        this.msg = msg;
-    }
-
-    public static RestBaseResult getOk() {
-        return OK;
-    }
-
-    public String toJson() {
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(this);
-    }
+};
 }
+
+#endif // DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_STATISTICS_SCANNER_H

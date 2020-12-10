@@ -29,6 +29,7 @@ import org.apache.doris.common.DdlException;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 import java.util.Map;
@@ -77,6 +78,10 @@ public class RangePartitionDesc extends PartitionDesc {
                     }
                     if (columnDef.getType().isFloatingPointType()) {
                         throw new AnalysisException("Floating point type column can not be partition column");
+                    }
+                    if (!ConnectContext.get().getSessionVariable().isAllowPartitionColumnNullable()
+                            && columnDef.isAllowNull()) {
+                        throw new AnalysisException("The partition column must be NOT NULL");
                     }
                     found = true;
                     break;
@@ -155,6 +160,11 @@ public class RangePartitionDesc extends PartitionDesc {
 
                     if (column.getType().isFloatingPointType()) {
                         throw new DdlException("Floating point type column can not be partition column");
+                    }
+
+                    if (!ConnectContext.get().getSessionVariable().isAllowPartitionColumnNullable()
+                            && column.isAllowNull()) {
+                        throw new DdlException("The partition column must be NOT NULL");
                     }
 
                     try {

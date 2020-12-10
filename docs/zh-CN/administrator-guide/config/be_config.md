@@ -168,6 +168,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 用户可以将该配置的值调大来获取更好的QPS性能。更多的信息可以参考`https://github.com/apache/incubator-brpc/blob/master/docs/cn/benchmark.md`。
 
 ### `brpc_port`
+
 * 类型：int32
 * 描述：BE 上的 brpc 的端口，用于 BE 之间通讯
 * 默认值：8060
@@ -175,11 +176,18 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 ### `buffer_pool_clean_pages_limit`
 
 ### `buffer_pool_limit`
+
 * 类型：string
 * 描述：buffer pool之中最大的可分配内存
 * 默认值：80G
 
 BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构，通过buffer page来进行内存管理，并能够实现数据的落盘。并发的所有查询的内存申请都会通过buffer pool来申请。当前buffer pool仅作用在**AggregationNode**与**ExchangeNode**。
+
+### `check_auto_compaction_interval_seconds`
+
+* 类型：int32
+* 描述：当自动执行compaction的功能关闭时，检查自动compaction开关是否被开启的时间间隔。
+* 默认值：5
 
 ### `check_consistency_worker_count`
 
@@ -220,6 +228,11 @@ tablet score可以通过以下公式计算：
 
 tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
 
+### `compaction_task_num_per_disk`
+
+* 类型：int32
+* 描述：每个磁盘可以并发执行的compaction任务数量。
+* 默认值：2
 
 ### `compress_rowbatches`
 * 类型：bool
@@ -229,6 +242,12 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 * 默认值：true
 
 ### `create_tablet_worker_count`
+
+### `cumulative_compaction_rounds_for_each_base_compaction_round`
+
+* 类型：int32
+* 描述：Compaction任务的生产者每次连续生产多少轮cumulative compaction任务后生产一轮base compaction。
+* 默认值：9
 
 ### `disable_auto_compaction`
 
@@ -502,7 +521,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `max_client_cache_size_per_host`
 
-### `max_compaction_concurrency`
+### `max_compaction_threads`
+
+* 类型：int32
+* 描述：Compaction线程池中线程数量的最大值。
+* 默认值：10
 
 ### `max_consumer_num_per_group`
 
@@ -566,6 +589,12 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述：在 cumulative compaction 过程中，当选中的 tablet 没能成功的进行版本合并，则会等待一段时间后才会再次有可能被选中。等待的这段时间就是这个配置的值。
 * 默认值：600
 * 单位：秒
+
+### `min_compaction_threads`
+
+* 类型：int32
+* 描述：Compaction线程池中线程数量的最小值。
+* 默认值：10
 
 ### `min_cumulative_compaction_num_singleton_deltas`
 

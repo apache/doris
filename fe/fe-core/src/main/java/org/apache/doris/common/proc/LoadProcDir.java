@@ -41,6 +41,9 @@ public class LoadProcDir implements ProcDirInterface {
     // label and state column index of result
     public static final int LABEL_INDEX = 1;
     public static final int STATE_INDEX = 2;
+    public static final int ERR_MSG_INDEX = 7;
+    public static final int URL_INDEX = 13;
+    public static final int JOB_DETAILS_INDEX = 14;
 
     private static final int LIMIT = 2000;
 

@@ -1481,6 +1481,19 @@ public class Load {
         }
     }
 
+    public boolean isUncommittedLabel(long dbId, String label) throws DdlException {
+        readLock();
+        try {
+            if (dbToMiniLabels.containsKey(dbId)) {
+                Map<String, Long> uncommittedLabels = dbToMiniLabels.get(dbId);
+                return uncommittedLabels.containsKey(label);
+            }
+        } finally {
+            readUnlock();
+        }
+        return false;
+    }
+
     public boolean isLabelUsed(long dbId, String label) throws DdlException {
         readLock();
         try {
@@ -1530,27 +1543,32 @@ public class Load {
 
         // check dbToMiniLabel
         if (checkMini) {
-            if (dbToMiniLabels.containsKey(dbId)) {
-                Map<String, Long> uncommittedLabels = dbToMiniLabels.get(dbId);
-                if (uncommittedLabels.containsKey(label)) {
-                    if (timestamp == -1) {
-                        throw new LabelAlreadyUsedException(label);
+            return checkMultiLabelUsed(dbId, label, timestamp);
+        }
+
+        return false;
+    }
+
+    private boolean checkMultiLabelUsed(long dbId, String label, long timestamp) throws DdlException {
+        if (dbToMiniLabels.containsKey(dbId)) {
+            Map<String, Long> uncommittedLabels = dbToMiniLabels.get(dbId);
+            if (uncommittedLabels.containsKey(label)) {
+                if (timestamp == -1) {
+                    throw new LabelAlreadyUsedException(label);
+                } else {
+                    if (timestamp == uncommittedLabels.get(label)) {
+                        // this timestamp is used to verify if this label check is a retry request from backend.
+                        // if the timestamp in request is same as timestamp in existing load job,
+                        // which means this load job is already submitted
+                        LOG.info("get a retry mini load request with label: {}, timestamp: {}. return ok",
+                                label, timestamp);
+                        return true;
                     } else {
-                        if (timestamp == uncommittedLabels.get(label)) {
-                            // this timestamp is used to verify if this label check is a retry request from backend.
-                            // if the timestamp in request is same as timestamp in existing load job,
-                            // which means this load job is already submitted
-                            LOG.info("get a retry mini load request with label: {}, timestamp: {}. return ok",
-                                    label, timestamp);
-                            return true;
-                        } else {
-                            throw new LabelAlreadyUsedException(label);
-                        }
+                        throw new LabelAlreadyUsedException(label);
                     }
                 }
             }
         }
-
         return false;
     }
 

@@ -164,8 +164,16 @@ Status OlapScanner::_init_params(const std::vector<OlapScanRange*>& key_ranges,
     // TODO(zc)
     _params.profile = _profile;
     _params.runtime_state = _runtime_state;
-
-    if (_aggregation) {
+    // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
+    bool single_version =
+            (_params.rs_readers.size() == 1 &&
+             _params.rs_readers[0]->rowset()->start_version() == 0 &&
+             !_params.rs_readers[0]->rowset()->rowset_meta()->is_segments_overlapping()) ||
+            (_params.rs_readers.size() == 2 &&
+             _params.rs_readers[1]->rowset()->rowset_meta()->num_rows() == 0 &&
+             _params.rs_readers[1]->rowset()->start_version() == 2 &&
+             !_params.rs_readers[1]->rowset()->rowset_meta()->is_segments_overlapping());
+    if (_aggregation || single_version) {
         _params.return_columns = _return_columns;
     } else {
         for (size_t i = 0; i < _tablet->num_key_columns(); ++i) {

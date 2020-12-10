@@ -40,6 +40,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -71,6 +72,9 @@ public class BrokerFileGroup implements Writable {
     private List<Long> partitionIds; // can be null, means no partition specified
     private List<String> filePaths;
 
+    // this only used in multi load, all filePaths is file not dir
+    private List<Long> fileSize;
+
     private List<String> fileFieldNames;
     private List<String> columnsFromPath;
     // columnExprList includes all fileFieldNames, columnsFromPath and column mappings
@@ -88,6 +92,13 @@ public class BrokerFileGroup implements Writable {
     // load from table
     private long srcTableId = -1;
     private boolean isLoadFromTable = false;
+
+    // for multi load
+    private TNetworkAddress beAddr;
+    private long backendID;
+    private boolean stripOuterArray = false;
+    private String jsonPaths = "";
+    private String jsonRoot = "";
 
     // for unit test and edit log persistence
     private BrokerFileGroup() {
@@ -171,14 +182,18 @@ public class BrokerFileGroup implements Writable {
 
         fileFormat = dataDescription.getFileFormat();
         if (fileFormat != null) {
-            if (!fileFormat.toLowerCase().equals("parquet") && !fileFormat.toLowerCase().equals("csv") && !fileFormat.toLowerCase().equals("orc")) {
-                throw new DdlException("File Format Type "+fileFormat+" is invalid.");
+            if (!fileFormat.equalsIgnoreCase("parquet")
+                    && !fileFormat.equalsIgnoreCase("csv")
+                    && !fileFormat.equalsIgnoreCase("orc")
+                    && !fileFormat.equalsIgnoreCase("json")) {
+                throw new DdlException("File Format Type " + fileFormat + " is invalid.");
             }
         }
         isNegative = dataDescription.isNegative();
 
         // FilePath
         filePaths = dataDescription.getFilePaths();
+        fileSize = dataDescription.getFileSize();
 
         if (dataDescription.isLoadFromTable()) {
             String srcTableName = dataDescription.getSrcTableName();
@@ -205,6 +220,13 @@ public class BrokerFileGroup implements Writable {
             }
             srcTableId = srcTable.getId();
             isLoadFromTable = true;
+        }
+        beAddr = dataDescription.getBeAddr();
+        backendID = dataDescription.getBackendId();
+        if (fileFormat != null && fileFormat.equalsIgnoreCase("json")) {
+            stripOuterArray = dataDescription.isStripOuterArray();
+            jsonPaths = dataDescription.getJsonPaths();
+            jsonRoot = dataDescription.getJsonRoot();
         }
     }
 
@@ -278,6 +300,46 @@ public class BrokerFileGroup implements Writable {
 
     public boolean hasSequenceCol() {
         return !Strings.isNullOrEmpty(sequenceCol);
+    }
+
+    public List<Long> getFileSize() {
+        return fileSize;
+    }
+
+    public void setFileSize(List<Long> fileSize) {
+        this.fileSize = fileSize;
+    }
+
+    public TNetworkAddress getBeAddr() {
+        return beAddr;
+    }
+
+    public long getBackendID() {
+        return backendID;
+    }
+
+    public boolean isStripOuterArray() {
+        return stripOuterArray;
+    }
+
+    public void setStripOuterArray(boolean stripOuterArray) {
+        this.stripOuterArray = stripOuterArray;
+    }
+
+    public String getJsonPaths() {
+        return jsonPaths;
+    }
+
+    public void setJsonPaths(String jsonPaths) {
+        this.jsonPaths = jsonPaths;
+    }
+
+    public String getJsonRoot() {
+        return jsonRoot;
+    }
+
+    public void setJsonRoot(String jsonRoot) {
+        this.jsonRoot = jsonRoot;
     }
 
     public boolean isBinaryFileFormat() {
