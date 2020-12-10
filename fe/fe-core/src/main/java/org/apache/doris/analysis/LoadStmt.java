@@ -81,7 +81,7 @@ public class LoadStmt extends DdlStmt {
     private static final String VERSION = "version";
     public static final String STRICT_MODE = "strict_mode";
     public static final String TIMEZONE = "timezone";
-    
+
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
     public static final String BOS_ACCESSKEY = "bos_accesskey";
@@ -95,6 +95,24 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_LINE_DELIMITER = "line_delimiter";
     public static final String KEY_IN_PARAM_PARTITIONS = "partitions";
     public static final String KEY_IN_PARAM_FORMAT_TYPE = "format";
+
+    public static final String KEY_IN_PARAM_WHERE = "where";
+    public static final String KEY_IN_PARAM_MAX_FILTER_RATIO = "max_filter_ratio";
+    public static final String KEY_IN_PARAM_TIMEOUT = "timeout";
+    public static final String KEY_IN_PARAM_TEMP_PARTITIONS = "temporary_partitions";
+    public static final String KEY_IN_PARAM_NEGATIVE = "negative";
+    public static final String KEY_IN_PARAM_STRICT_MODE = "strict_mode";
+    public static final String KEY_IN_PARAM_TIMEZONE = "timezone";
+    public static final String KEY_IN_PARAM_EXEC_MEM_LIMIT = "exec_mem_limit";
+    public static final String KEY_IN_PARAM_JSONPATHS  = "jsonpaths";
+    public static final String KEY_IN_PARAM_JSONROOT  = "json_root";
+    public static final String KEY_IN_PARAM_STRIP_OUTER_ARRAY = "strip_outer_array";
+    public static final String KEY_IN_PARAM_MERGE_TYPE = "merge_type";
+    public static final String KEY_IN_PARAM_DELETE_CONDITION = "delete";
+    public static final String KEY_IN_PARAM_FUNCTION_COLUMN = "function_column";
+    public static final String KEY_IN_PARAM_SEQUENCE_COL = "sequence_col";
+    public static final String KEY_IN_PARAM_BACKEND_ID = "backend_id";
+
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
@@ -102,6 +120,7 @@ public class LoadStmt extends DdlStmt {
     private final ResourceDesc resourceDesc;
     private final Map<String, String> properties;
     private String user;
+
     private EtlJobType etlJobType = EtlJobType.UNKNOWN;
 
     private String version = "v2";
@@ -317,7 +336,7 @@ public class LoadStmt extends DdlStmt {
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
-        } else {
+        } else if (etlJobType != EtlJobType.UNKNOWN) {
             // if cluster is null, use default hadoop cluster
             // if cluster is not null, use this hadoop cluster
             etlJobType = EtlJobType.HADOOP;
@@ -344,6 +363,11 @@ public class LoadStmt extends DdlStmt {
     public String getVersion() {
         return version;
     }
+
+    public void setEtlJobType(EtlJobType etlJobType) {
+        this.etlJobType = etlJobType;
+    }
+
 
     @Override
     public String toSql() {
