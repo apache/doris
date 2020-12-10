@@ -336,7 +336,7 @@ public class LoadStmt extends DdlStmt {
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
-        } else if (etlJobType != EtlJobType.UNKNOWN) {
+        } else {
             // if cluster is null, use default hadoop cluster
             // if cluster is not null, use this hadoop cluster
             etlJobType = EtlJobType.HADOOP;
