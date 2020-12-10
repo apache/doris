@@ -92,5 +92,8 @@ public class RoutineLoadDesc {
         if (mergeType == LoadTask.MergeType.MERGE && deleteCondition == null) {
             throw new AnalysisException("Excepted DELETE ON clause when merge type is MERGE.");
         }
+        if (mergeType == LoadTask.MergeType.MERGE && columnsInfo == null) {
+            throw new AnalysisException("column mapping must be provided when merge type is MERGE.");
+        }
     }
 }
