@@ -285,23 +285,6 @@ public class BrokerScanNode extends LoadScanNode {
         return locations;
     }
 
-    private TScanRangeLocations newLocations(TBrokerScanRangeParams params)
-            throws UserException {
-        // Generate on broker scan range
-        TBrokerScanRange brokerScanRange = new TBrokerScanRange();
-        brokerScanRange.setParams(params);
-
-        // Scan range
-        TScanRange scanRange = new TScanRange();
-        scanRange.setBrokerScanRange(brokerScanRange);
-
-        // Locations
-        TScanRangeLocations locations = new TScanRangeLocations();
-        locations.setScanRange(scanRange);
-
-        return locations;
-    }
-
     private TBrokerScanRange brokerScanRange(TScanRangeLocations locations) {
         return locations.scan_range.broker_scan_range;
     }
