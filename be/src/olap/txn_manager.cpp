@@ -251,7 +251,7 @@ OLAPStatus TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                   << " partition_id: " << key.first << ", transaction_id: " << key.second
                   << ", tablet: " << tablet_info.to_string()
                   << ", rowsetid: " << rowset_ptr->rowset_id()
-                  << ", version: " << rowset_ptr->version().first;
+                  << ", version: " << rowset_ptr->version().second;
     }
     return OLAP_SUCCESS;
 }
@@ -380,7 +380,7 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
                              << ",partition_id: " << key.first << ", transaction_id: " << key.second
                              << ", tablet: " << tablet_info.to_string()
                              << ", rowset id: " << load_info.rowset->rowset_id()
-                             << ", version: " << load_info.rowset->version().first;
+                             << ", version: " << load_info.rowset->version().second;
                 return OLAP_ERR_TRANSACTION_ALREADY_VISIBLE;
             } else {
                 RowsetMetaManager::remove(meta, tablet_uid, load_info.rowset->rowset_id());
