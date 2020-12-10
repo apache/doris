@@ -155,6 +155,7 @@ private:
     bool _num_as_string;
     RuntimeProfile::Counter* _bytes_read_counter;
     RuntimeProfile::Counter* _read_timer;
+    RuntimeProfile::Counter* _file_read_timer;
 
     std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
     std::vector<JsonPath> _parsed_json_root;

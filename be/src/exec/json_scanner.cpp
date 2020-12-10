@@ -54,6 +54,7 @@ Status JsonScanner::open() {
 }
 
 Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
+    SCOPED_TIMER(_read_timer);
     // Get one line
     while (!_scanner_eof) {
         if (_cur_file_reader == nullptr || _cur_file_eof) {
@@ -197,7 +198,8 @@ JsonReader::JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProf
           _num_as_string(num_as_string),
           _json_doc(nullptr) {
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
-    _read_timer = ADD_TIMER(_profile, "FileReadTime");
+    _read_timer = ADD_TIMER(_profile, "ReadTime");
+    _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
 }
 
 JsonReader::~JsonReader() {
@@ -269,7 +271,7 @@ void JsonReader::_close() {
 // return Status::OK() if parse succeed or reach EOF.
 Status JsonReader::_parse_json_doc(bool* eof) {
     // read a whole message, must be delete json_str by `delete[]`
-    SCOPED_TIMER(_read_timer);
+    SCOPED_TIMER(_file_read_timer);
     uint8_t* json_str = nullptr;
     size_t length = 0;
     RETURN_IF_ERROR(_file_reader->read_one_message(&json_str, &length));
