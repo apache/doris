@@ -289,6 +289,10 @@ TEST_F(PartitionCacheTest, fetch_not_continue_partition) {
     p1->set_partition_key(1);
     p1->set_last_version(1);
     p1->set_last_version_time(1);
+    PCacheParam* p2 = _fetch_request->add_params();
+    p2->set_partition_key(2);
+    p2->set_last_version(2);
+    p2->set_last_version_time(2);
     PCacheParam* p3 = _fetch_request->add_params();
     p3->set_partition_key(3);
     p3->set_last_version(1);
