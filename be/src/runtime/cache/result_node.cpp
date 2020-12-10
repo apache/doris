@@ -208,6 +208,7 @@ PCacheStatus ResultNode::fetch_partition(const PFetchCacheRequest* request,
                 param_idx++;
                 part_it++;
             } else {
+                find = false;
                 status = PCacheStatus::DATA_OVERDUE;
                 break;
             }
