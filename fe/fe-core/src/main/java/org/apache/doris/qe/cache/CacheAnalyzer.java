@@ -416,11 +416,16 @@ public class CacheAnalyzer {
         CacheTable table = new CacheTable();
         table.olapTable = olapTable;
         for (Partition partition : olapTable.getPartitions()) {
-            if (partition.getVisibleVersionTime() >= table.latestTime &&
-                    partition.getVisibleVersion() > table.latestVersion) {
+            if (partition.getVisibleVersionTime() > table.latestTime) {
                 table.latestPartitionId = partition.getId();
                 table.latestTime = partition.getVisibleVersionTime();
                 table.latestVersion = partition.getVisibleVersion();
+            } else if (partition.getVisibleVersionTime() == table.latestTime) {
+                if (partition.getVisibleVersion() > table.latestVersion) {
+                    table.latestPartitionId = partition.getId();
+                    table.latestTime = partition.getVisibleVersionTime();
+                    table.latestVersion = partition.getVisibleVersion();
+                }
             }
         }
         return table;
