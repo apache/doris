@@ -127,12 +127,12 @@ public class DataDescription {
      * For hadoop load, this param is also used to persistence.
      * The function in this param is copied from 'parsedColumnExprList'
      */
-    private Map<String, Pair<String, List<String>>> columnToHadoopFunction = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private final Map<String, Pair<String, List<String>>> columnToHadoopFunction = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     private boolean isHadoopLoad = false;
 
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
-    private Expr deleteCondition;
+    private final Expr deleteCondition;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -618,7 +618,7 @@ public class DataDescription {
         if (columnDef == null || columnDef.isEmpty()) {
             return;
         }
-        String columnsSQL = new String("COLUMNS (" + columnDef + ")");
+        String columnsSQL = "COLUMNS (" + columnDef + ")";
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
         ImportColumnsStmt columnsStmt;
         try {
@@ -767,6 +767,7 @@ public class DataDescription {
         if (((columnDef == null || columnDef.isEmpty()) && (columnMappingList == null || columnMappingList.isEmpty()))
                 && mergeType == LoadTask.MergeType.MERGE) {
             throw new AnalysisException("column mapping must be provided when merge type is MERGE.");
+
         }
     }
 
