@@ -32,6 +32,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -208,6 +209,8 @@ public class BackupHandlerTest {
                 OlapTable tbl = (OlapTable) db.getTable(CatalogMocker.TEST_TBL_NAME);
                 List<Table> tbls = Lists.newArrayList();
                 tbls.add(tbl);
+                List<Resource> resources = Lists.newArrayList();
+                BackupMeta backupMeta = new BackupMeta(tbls, resources);
                 Map<Long, SnapshotInfo> snapshotInfos = Maps.newHashMap();
                 for (Partition part : tbl.getPartitions()) {
                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -222,7 +225,7 @@ public class BackupHandlerTest {
                 
                 BackupJobInfo info = BackupJobInfo.fromCatalog(System.currentTimeMillis(),
                                                                "ss2", CatalogMocker.TEST_DB_NAME, 
-                                                               CatalogMocker.TEST_DB_ID, tbls, snapshotInfos);
+                                                               CatalogMocker.TEST_DB_ID, backupMeta, snapshotInfos);
                 infos.add(info);
                 return Status.OK;
             }

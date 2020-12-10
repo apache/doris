@@ -19,6 +19,8 @@ package org.apache.doris.catalog;
 
 import com.google.common.collect.Maps;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -292,6 +294,20 @@ public class OdbcTable extends Table {
         return TABLE_TYPE_MAP.get(getOdbcTableTypeName());
     }
 
+    @Override
+    public OdbcTable clone() {
+        OdbcTable copied = new OdbcTable();
+        if (!DeepCopy.copy(this, copied, OdbcTable.class, FeConstants.meta_version)) {
+            LOG.warn("failed to copy odbc table: " + getName());
+            return null;
+        }
+        return copied;
+    }
+
+    public void resetIdsForRestore(Catalog catalog){
+        id = catalog.getNextId();
+    }
+
     public TTableDescriptor toThrift() {
         TOdbcTable tOdbcTable = new TOdbcTable();
 
@@ -310,35 +326,39 @@ public class OdbcTable extends Table {
         return tTableDescriptor;
     }
 
+    // TODO(ml): change to md5 of string signature
     @Override
     public int getSignature(int signatureVersion) {
         Adler32 adler32 = new Adler32();
         adler32.update(signatureVersion);
-        String charsetName = "UTF-8";
+        final String charsetName = "UTF-8";
 
         try {
-            // resource name
-            adler32.update(odbcCatalogResourceName.getBytes(charsetName));
             // name
             adler32.update(name.getBytes(charsetName));
             // type
             adler32.update(type.name().getBytes(charsetName));
-            // host
-            adler32.update(host.getBytes(charsetName));
-            // port
-            adler32.update(port.getBytes(charsetName));
-            // username
-            adler32.update(userName.getBytes(charsetName));
-            // passwd
-            adler32.update(passwd.getBytes(charsetName));
-            // odbc db
-            adler32.update(odbcDatabaseName.getBytes(charsetName));
-            // odbc table
-            adler32.update(odbcTableName.getBytes(charsetName));
-            // odbc driver
-            adler32.update(driver.getBytes(charsetName));
-            // odbc type
-            adler32.update(odbcTableTypeName.getBytes(charsetName));
+            if (odbcCatalogResourceName !=null) {
+                // resource name
+                adler32.update(odbcCatalogResourceName.getBytes(charsetName));
+                // odbc db
+                adler32.update(odbcDatabaseName.getBytes(charsetName));
+                // odbc table
+                adler32.update(odbcTableName.getBytes(charsetName));
+            } else {
+                // host
+                adler32.update(host.getBytes(charsetName));
+                // port
+                adler32.update(port.getBytes(charsetName));
+                // username
+                adler32.update(userName.getBytes(charsetName));
+                // passwd
+                adler32.update(passwd.getBytes(charsetName));
+                // odbc driver
+                adler32.update(driver.getBytes(charsetName));
+                // odbc type
+                adler32.update(odbcTableTypeName.getBytes(charsetName));
+            }
         } catch (UnsupportedEncodingException e) {
             LOG.error("encoding error", e);
             return -1;

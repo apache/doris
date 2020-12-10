@@ -26,13 +26,18 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.load.loadv2.SparkRepository;
 import org.apache.doris.load.loadv2.SparkYarnConfigFiles;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.util.Map;
+
+import com.google.gson.annotations.SerializedName;
 
 /**
  * Spark resource for etl or query.
@@ -61,6 +66,8 @@ import java.util.Map;
  * DROP RESOURCE "spark0";
  */
 public class SparkResource extends Resource {
+    private static final Logger LOG = LogManager.getLogger(SparkResource.class);
+
     private static final String SPARK_MASTER = "spark.master";
     private static final String SPARK_SUBMIT_DEPLOY_MODE = "spark.submit.deployMode";
     private static final String WORKING_DIR = "working_dir";

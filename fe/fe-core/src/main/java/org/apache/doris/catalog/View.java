@@ -21,9 +21,12 @@ import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -35,8 +38,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
+import java.io.UnsupportedEncodingException;
 import java.lang.ref.SoftReference;
 import java.util.List;
+import java.util.zip.Adler32;
 
 /**
  * Table metadata representing a catalog view or a local view from a WITH clause.
@@ -47,7 +52,7 @@ import java.util.List;
  * affect the metadata of the underlying tables (if any).
  */
 public class View extends Table {
-    private static final Logger LOG = LogManager.getLogger(Catalog.class);
+    private static final Logger LOG = LogManager.getLogger(View.class);
 
     // The original SQL-string given as view definition. Set during analysis.
     // Corresponds to Hive's viewOriginalText.
@@ -136,6 +141,10 @@ public class View extends Table {
         this.sqlMode = sqlMode;
     }
 
+    public void setSqlMode(long sqlMode) {
+        this.sqlMode = sqlMode;
+    }
+
     public String getInlineViewDef() {
         return inlineViewDef;
     }
@@ -199,7 +208,55 @@ public class View extends Table {
         return explicitColLabels;
     }
 
-    public boolean hasColLabels() { return colLabels_ != null; }
+    public boolean hasColLabels() {
+        return colLabels_ != null;
+    }
+
+    // TODO(ml): change to md5 of string signature
+    public int getSignature(int signatureVersion) {
+        Adler32 adler32 = new Adler32();
+        adler32.update(signatureVersion);
+        final String charsetName = "UTF-8";
+
+        try {
+            // table name
+            adler32.update(name.getBytes(charsetName));
+            LOG.debug("signature. view name: {}", name);
+            // type
+            adler32.update(type.name().getBytes(charsetName));
+            LOG.debug("signature. view type: {}", type.name());
+            // schema
+            adler32.update(Util.schemaHash(0, fullSchema, null, 0));
+            LOG.debug("signature. view col hash: {}", Util.schemaHash(0, fullSchema, null, 0));
+            // inline view def
+            adler32.update(inlineViewDef.getBytes(charsetName));
+            LOG.debug("signature. view def: {}", inlineViewDef);
+            // sql mode
+            adler32.update(Long.toString(sqlMode).getBytes(charsetName));
+            LOG.debug("signature. sql mode: {}", sqlMode);
+        } catch (UnsupportedEncodingException e) {
+            LOG.error("encoding error", e);
+            return -1;
+        }
+
+        LOG.debug("signature: {}", Math.abs((int) adler32.getValue()));
+        return Math.abs((int) adler32.getValue());
+    }
+
+    @Override
+    public View clone() {
+        View copied = new View();
+        if (!DeepCopy.copy(this, copied, View.class, FeConstants.meta_version)) {
+            LOG.warn("failed to copy view: " + getName());
+            return null;
+        }
+        copied.setSqlMode(this.sqlMode);
+        return copied;
+    }
+
+    public void resetIdsForRestore(Catalog catalog){
+        id = catalog.getNextId();
+    }
 
     @Override
     public void write(DataOutput out) throws IOException {
