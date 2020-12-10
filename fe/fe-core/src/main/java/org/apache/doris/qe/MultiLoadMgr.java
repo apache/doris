@@ -376,6 +376,7 @@ public class MultiLoadMgr {
             LoadStmt loadStmt = new LoadStmt(commitLabel, dataDescriptions, brokerDesc, null, properties);
             loadStmt.setEtlJobType(EtlJobType.BROKER);
             loadStmt.setOrigStmt(new OriginStatement("", 0));
+            loadStmt.setUserInfo(ConnectContext.get().getCurrentUserIdentity());
             Analyzer analyzer = new Analyzer(ConnectContext.get().getCatalog(), ConnectContext.get());
             try {
                 loadStmt.analyze(analyzer);
