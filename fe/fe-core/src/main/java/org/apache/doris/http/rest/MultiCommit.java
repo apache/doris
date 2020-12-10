@@ -64,8 +64,14 @@ public class MultiCommit extends RestBaseAction {
         if (redirectToMaster(request, response)) {
             return;
         }
-        execEnv.getMultiLoadMgr().commit(fullDbName, label);
-        sendResult(request, response, RestBaseResult.getOk());
+        RestBaseResult result =  new RestBaseResult();
+        try {
+            execEnv.getMultiLoadMgr().commit(fullDbName, label);
+        } catch (Exception e) {
+            result.msg = e.getMessage();
+            result.status = ActionStatus.FAILED;
+        }
+        sendResult(request, response, result);
     }
 }
 
