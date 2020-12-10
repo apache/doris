@@ -79,6 +79,12 @@ public class MultiStart extends RestBaseAction {
                 properties.put(key, value);
             }
         }
+        for (String key : keys) {
+            String value = request.getRequest().headers().get(key);
+            if (!Strings.isNullOrEmpty(value)) {
+                properties.put(key, value);
+            }
+        }
         execEnv.getMultiLoadMgr().startMulti(fullDbName, label, properties);
         sendResult(request, response, RestBaseResult.getOk());
     }
