@@ -86,7 +86,7 @@ For more help, see `HELP ALTER TABLE'.
 
 ## 2 Rollup
 
-Rollup can be understood as a physical index structure of Table. ** Physicalization ** is because its data is physically stored independently, and ** indexing ** means that Rollup can adjust column order to increase the hit rate of prefix index, or reduce key column to increase data aggregation.
+Rollup can be understood as a materialized index structure of Table. ** materialized ** because data is store as a concrete ("materialized") table independently, and ** indexing ** means that Rollup can adjust column order to increase the hit rate of prefix index, or reduce key column to increase data aggregation.
 
 Examples are given below.
 
