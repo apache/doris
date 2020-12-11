@@ -380,6 +380,10 @@ public class PartitionRange {
             hitRange = Cache.HitRange.Right;
         }
 
+        if (begin == 0 && end == partitionSingleList.size() - 1) {
+            hitRange = Cache.HitRange.None;
+        }
+
         rangeList.add(partitionSingleList.get(begin));
         rangeList.add(partitionSingleList.get(end));
         LOG.info("the new range for scan be is [{},{}], hit range", rangeList.get(0).getCacheKey().realValue(),
