@@ -376,6 +376,7 @@ public class MultiLoadMgr {
             LoadStmt loadStmt = new LoadStmt(commitLabel, dataDescriptions, brokerDesc, null, properties);
             loadStmt.setEtlJobType(EtlJobType.BROKER);
             loadStmt.setOrigStmt(new OriginStatement("", 0));
+            loadStmt.setUserInfo(ConnectContext.get().getCurrentUserIdentity());
             Analyzer analyzer = new Analyzer(ConnectContext.get().getCatalog(), ConnectContext.get());
             try {
                 loadStmt.analyze(analyzer);
@@ -496,10 +497,6 @@ public class MultiLoadMgr {
                 if (properties.get(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION) != null) {
                     deleteCondition = parseWhereExpr(properties.get(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION));
                 }
-                backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
-                if (backend == null) {
-                    throw new DdlException("Backend [" + backendId + "] not found. ");
-                }
                 if (fileFormat != null && fileFormat.equalsIgnoreCase("json")) {
                     stripOuterArray = Boolean.valueOf(
                             properties.getOrDefault(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY, "false"));
@@ -507,11 +504,14 @@ public class MultiLoadMgr {
                     jsonRoot = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_JSONROOT, "");
                 }
             }
-
             DataDescription dataDescription = new DataDescription(tbl, partitionNames, files, null, columnSeparator,
                     fileFormat, null, isNegative, null, whereExpr, mergeType, deleteCondition,
                     sequenceColName);
             dataDescription.setColumnDef(colString);
+            backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
+            if (backend == null) {
+                throw new DdlException("Backend [" + backendId + "] not found. ");
+            }
             dataDescription.setBeAddr(new TNetworkAddress(backend.getHost(), backend.getHeartbeatPort()));
             dataDescription.setFileSize(fileSizes);
             dataDescription.setBackendId(backendId);
