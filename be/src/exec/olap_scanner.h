@@ -26,7 +26,7 @@
 
 #include "common/status.h"
 #include "exec/exec_node.h"
-#include "exec/olap_common.h"
+#include "exec/olap_utils.h"
 #include "exprs/expr.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
