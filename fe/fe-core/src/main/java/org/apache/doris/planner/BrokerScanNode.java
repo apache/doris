@@ -21,10 +21,13 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -34,6 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerRangeDesc;
@@ -219,6 +223,16 @@ public class BrokerScanNode extends LoadScanNode {
         List<ImportColumnDesc> columnExprs = Lists.newArrayList();
         if (isLoad()) {
             columnExprs = context.fileGroup.getColumnExprList();
+            if (mergeType == LoadTask.MergeType.MERGE) {
+                columnExprs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
+            } else if (mergeType == LoadTask.MergeType.DELETE) {
+                columnExprs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
+            }
+            // add columnExpr for sequence column
+            if (context.fileGroup.hasSequenceCol()) {
+                columnExprs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                        new SlotRef(null, context.fileGroup.getSequenceCol())));
+            }
         }
 
         Load.initColumns(targetTable, columnExprs,
@@ -267,23 +281,6 @@ public class BrokerScanNode extends LoadScanNode {
         location.setBackendId(selectedBackend.getId());
         location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
         locations.addToLocations(location);
-
-        return locations;
-    }
-
-    private TScanRangeLocations newLocations(TBrokerScanRangeParams params)
-            throws UserException {
-        // Generate on broker scan range
-        TBrokerScanRange brokerScanRange = new TBrokerScanRange();
-        brokerScanRange.setParams(params);
-
-        // Scan range
-        TScanRange scanRange = new TScanRange();
-        scanRange.setBrokerScanRange(brokerScanRange);
-
-        // Locations
-        TScanRangeLocations locations = new TScanRangeLocations();
-        locations.setScanRange(scanRange);
 
         return locations;
     }
