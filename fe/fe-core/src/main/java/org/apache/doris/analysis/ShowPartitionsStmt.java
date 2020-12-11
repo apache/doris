@@ -248,8 +248,11 @@ public class ShowPartitionsStmt extends ShowStmt {
 
     @Override
     public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("SHOW PARTITIONS FROM ");
+        StringBuilder sb = new StringBuilder("SHOW ");
+        if (isTempPartition) {
+            sb.append("TEMPORARY ");
+        }
+        sb.append("PARTITIONS FROM ");
         if (!Strings.isNullOrEmpty(dbName)) {
             sb.append("`").append(dbName).append("`");
         }
