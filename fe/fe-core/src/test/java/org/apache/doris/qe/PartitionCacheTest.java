@@ -24,6 +24,7 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -38,6 +39,8 @@ import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -65,8 +68,10 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -359,7 +364,7 @@ public class PartitionCacheTest {
         Column column3 = new Column("eventid", ScalarType.INT);
         Column column4 = new Column("eventtime", ScalarType.DATETIME);
         List<Column> columns = Lists.newArrayList(column1, column2, column3,column4);
-        PartitionInfo partInfo = new RangePartitionInfo(Lists.newArrayList(column1));
+        RangePartitionInfo partInfo = new RangePartitionInfo(Lists.newArrayList(column1));
         MaterializedIndex baseIndex = new MaterializedIndex(30001, IndexState.NORMAL);
         RandomDistributionInfo distInfo = new RandomDistributionInfo(10);
 
@@ -371,6 +376,72 @@ public class PartitionCacheTest {
         part14.setVisibleVersion(1,1578934800000L,1);     //2020-01-14 1:00:00
         Partition part15 = new Partition(20200115, "p20200115", baseIndex, distInfo);
         part15.setVisibleVersion(2,1579053661000L,2);     //2020-01-15 10:01:01
+
+        short num = 1;
+        PartitionKey lower12 = null;
+        try {
+            lower12 = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20200112")),
+                    Lists.newArrayList(column1));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        PartitionKey upper12 = null;
+        try {
+            upper12 = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20200113")),
+                    Lists.newArrayList(column1));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        Range<PartitionKey> range12 = Range.closedOpen(lower12, upper12);
+        partInfo.addPartition(20200112, false, range12,new DataProperty(TStorageMedium.SSD), num,false);
+        PartitionKey lower13 = null;
+        try {
+            lower13 = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20200113")),
+                    Lists.newArrayList(column1));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        PartitionKey upper13 = null;
+        try {
+            upper13 = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20200114")),
+                    Lists.newArrayList(column1));
+        } catch (Exception e) {
+
+        }
+        Range<PartitionKey> range13 = Range.closedOpen(lower13, upper13);
+        partInfo.addPartition(20200113, false, range13, new DataProperty(TStorageMedium.SSD), num,false);
+        PartitionKey lower14 = null;
+        try {
+            lower14 = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20200114")),
+                    Lists.newArrayList(column1));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        PartitionKey upper14 = null;
+        try {
+            upper14 = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20200115")),
+                    Lists.newArrayList(column1));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        Range<PartitionKey> range14 = Range.closedOpen(lower14, upper14);
+        partInfo.addPartition(20200114, false, range14, new DataProperty(TStorageMedium.SSD), num,false);
+        PartitionKey lower15 = null;
+        try {
+            lower15 = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20200115")),
+                    Lists.newArrayList(column1));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        PartitionKey upper15 = null;
+        try {
+            upper15 = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20200116")),
+                    Lists.newArrayList(column1));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        Range<PartitionKey> range15 = Range.closedOpen(lower15, upper15);
+        partInfo.addPartition(20200115, false, range15, new DataProperty(TStorageMedium.SSD), num,false);
 
         OlapTable table = new OlapTable(30000L, "appevent", columns,KeysType.DUP_KEYS, partInfo, distInfo);
         
@@ -387,7 +458,6 @@ public class PartitionCacheTest {
         table.addPartition(part13);
         table.addPartition(part14);
         table.addPartition(part15);
-
         return table;
     }
 
@@ -843,6 +913,49 @@ public class PartitionCacheTest {
                 "((`eventdate` > '2020-01-13') AND (`eventdate` < '2020-01-16')) AND (`eventid` = 1) GROUP BY `eventdate`) tbl GROUP BY `eventdate`");
         } catch(Exception e){
             LOG.warn("sub ex={}",e);
+            Assert.fail(e.getMessage());
+        }
+    }
+
+    @Test
+    public void testSemiRangePartition() throws Exception {
+        Catalog.getCurrentSystemInfo();
+        StatementBase parseStmt = parseSql(
+                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-13\" GROUP BY eventdate"
+        );
+        List<ScanNode> scanNodes = Lists.newArrayList(createEventScanNode());
+        CacheAnalyzer ca = new CacheAnalyzer(context,parseStmt, scanNodes);
+        RangePartitionInfo partitionInfo = new RangePartitionInfo();
+        try {
+            ca.checkCacheMode(1579053661000L); //2020-1-15 10:01:01
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        Assert.assertEquals(ca.getCacheMode(), CacheMode.Partition);      //assert cache model first
+        SelectStmt selectStmt = (SelectStmt) parseStmt;
+
+        try{
+            PartitionCache cache = (PartitionCache) ca.getCache();
+            cache.rewriteSelectStmt(null);
+            Assert.assertEquals(cache.getNokeyStmt().getWhereClause(),null);
+
+            PartitionRange range = cache.getPartitionRange();
+            boolean flag = range.analytics();
+            Assert.assertEquals(flag,true);
+
+            int size = range.getPartitionSingleList().size();
+            LOG.warn("Rewrite partition range size={}", size);
+            Assert.assertEquals(size, 3);
+
+            String sql;
+            range.setCacheFlag(20200113L);    //get data from cache
+
+            hitRange = range.buildDiskPartitionRange(newRangeList);
+            cache.rewriteSelectStmt(newRangeList);
+            sql = ca.getRewriteStmt().getWhereClause().toSql();
+            Assert.assertEquals(sql,"(`eventdate` >= '2020-01-14') AND (`eventdate` < '2020-01-16')");
+        } catch(Exception e){
+            LOG.warn("ex={}",e);
             Assert.fail(e.getMessage());
         }
     }

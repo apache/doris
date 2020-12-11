@@ -28,11 +28,13 @@ import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableRef;
+
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
@@ -45,6 +47,7 @@ import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -52,6 +55,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Analyze which caching mode a SQL is suitable for
@@ -254,6 +258,7 @@ public class CacheAnalyzer {
         }
         //Check if whereClause have one CompoundPredicate of partition column
         List<CompoundPredicate> compoundPredicates = Lists.newArrayList();
+        rewriteSemiRangeQuery(this.selectStmt, partColumn);
         getPartitionKeyFromSelectStmt(this.selectStmt, partColumn, compoundPredicates);
         if (compoundPredicates.size() != 1) {
             LOG.debug("empty or more than one predicates contain partition column, queryid {}", DebugUtil.printId(queryId));
@@ -306,6 +311,32 @@ public class CacheAnalyzer {
                 QueryStmt queryStmt = viewRef.getViewStmt();
                 if (queryStmt instanceof SelectStmt) {
                     getPartitionKeyFromSelectStmt((SelectStmt) queryStmt, partColumn, compoundPredicates);
+                }
+            }
+        }
+    }
+
+    private void rewriteSemiRangeQuery(SelectStmt stmt, Column partColumn) {
+        Expr where = stmt.getWhereClause();
+        if (where instanceof BinaryPredicate) {
+            BinaryPredicate bp = (BinaryPredicate) where;
+            if (bp.getOp() == BinaryPredicate.Operator.GE || bp.getOp() == BinaryPredicate.Operator.GT) {
+                String column = getColumnName(bp);
+                if (partColumn.getName().equalsIgnoreCase(column)) {
+                    List<Map.Entry<Long, Range<PartitionKey>>> partitions = partitionInfo.getSortedRangeMap(false);
+                    Range<PartitionKey> range = partitions.get(partitions.size()-1).getValue();
+                    BinaryPredicate newBP = new BinaryPredicate(BinaryPredicate.Operator.LT, bp.getChild(0), range.upperEndpoint().getKeys().get(0));
+                    CompoundPredicate newWhere = new CompoundPredicate(CompoundPredicate.Operator.AND, bp, newBP);
+                    stmt.setWhereClause(newWhere);
+                }
+            } else if (bp.getOp() == BinaryPredicate.Operator.LE || bp.getOp() == BinaryPredicate.Operator.LT) {
+                String column = getColumnName(bp);
+                if (partColumn.getName().equalsIgnoreCase(column)) {
+                    List<Map.Entry<Long, Range<PartitionKey>>> partitions = partitionInfo.getSortedRangeMap(false);
+                    Range<PartitionKey> range = partitions.get(0).getValue();
+                    BinaryPredicate newBP = new BinaryPredicate(BinaryPredicate.Operator.GE, bp.getChild(0), range.lowerEndpoint().getKeys().get(0));
+                    CompoundPredicate newWhere = new CompoundPredicate(CompoundPredicate.Operator.AND, bp, newBP);
+                    stmt.setWhereClause(newWhere);
                 }
             }
         }
