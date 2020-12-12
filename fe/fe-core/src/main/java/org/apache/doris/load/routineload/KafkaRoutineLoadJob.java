@@ -44,14 +44,14 @@ import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.TransactionStatus;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -231,13 +231,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         super.updateProgress(attachment);
-        this.progress.update(attachment.getProgress());
+        this.progress.update(attachment);
     }
 
     @Override
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
         super.replayUpdateProgress(attachment);
-        this.progress.update(attachment.getProgress());
+        this.progress.update(attachment);
     }
 
     @Override

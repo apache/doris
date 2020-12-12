@@ -36,12 +36,12 @@ import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Queues;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -130,6 +130,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             if (!allocateTaskToBe(routineLoadTaskInfo)) {
                 // allocate failed, push it back to the queue to wait next scheduling
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
+                return;
             }
         } catch (UserException e) {
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).
@@ -152,6 +153,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 // set BE id to -1 to release the BE slot
                 routineLoadTaskInfo.setBeId(-1);
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
+                return;
             }
         } catch (Exception e) {
             // exception happens, PAUSE the job
@@ -196,6 +198,10 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             submitTask(routineLoadTaskInfo.getBeId(), tRoutineLoadTask);
             LOG.debug("send routine load task cost(ms): {}, job id: {}", 
                     (System.currentTimeMillis() - startTime), routineLoadTaskInfo.getJobId());
+            if (tRoutineLoadTask.isSetKafkaLoadInfo()) {
+                LOG.debug("send kafka routine load task {} with partition offset: {}, job: {}",
+                        tRoutineLoadTask.label, tRoutineLoadTask.kafka_load_info.partition_begin_offset, tRoutineLoadTask.getJobId());
+            }
         } catch (LoadException e) {
             // submit task failed (such as TOO_MANY_TASKS error), but txn has already begun.
             // Here we will still set the ExecuteStartTime of this task, which means

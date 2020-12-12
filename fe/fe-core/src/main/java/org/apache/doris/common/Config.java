@@ -68,7 +68,8 @@ public class Config extends ConfigBase {
     public static String sys_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
     @ConfField public static String sys_log_level = "INFO"; 
     @ConfField public static int sys_log_roll_num = 10;
-    @ConfField public static String[] sys_log_verbose_modules = {"org.apache.thrift", "org.apache.doris.thrift", "org.apache.doris.http", "org.apache.doris.service.FrontendServiceImpl"};
+    @ConfField
+    public static String[] sys_log_verbose_modules = {};
     @ConfField public static String sys_log_roll_interval = "DAY";
     @ConfField public static String sys_log_delete_age = "7d";
     @Deprecated

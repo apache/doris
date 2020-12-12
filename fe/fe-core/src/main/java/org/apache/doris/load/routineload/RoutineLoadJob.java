@@ -69,6 +69,10 @@ import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -77,8 +81,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -880,6 +882,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 taskBeId = routineLoadTaskInfo.getBeId();
                 executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.COMMITTED);
                 ++committedTaskNum;
+                LOG.debug("routine load task committed. task id: {}, job id: {}", txnState.getLabel(), id);
             }
         } catch (Throwable e) {
             LOG.warn("after committed failed", e);
@@ -1049,8 +1052,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                           + " maybe task was aborted by master when timeout")
                                   .build());
             }
-        } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState.getTransactionStatus())) {
+        } else if (txnState.getTransactionStatus() == TransactionStatus.COMMITTED
+                && checkCommitInfo(rlTaskTxnCommitAttachment, txnState.getTransactionStatus())) {
             // step2: update job progress
+            // only committed task need to update progress
             updateProgress(rlTaskTxnCommitAttachment);
         }
 
