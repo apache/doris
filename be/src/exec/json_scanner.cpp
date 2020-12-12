@@ -274,7 +274,7 @@ void JsonReader::_close() {
 Status JsonReader::_parse_json_doc(bool* eof) {
     std::unique_ptr<uint8_t[]> json_str; 
     size_t length = 0;
-    RETURN_IF_ERROR(_file_reader->read_one_message(json_str, &length));
+    RETURN_IF_ERROR(_file_reader->read_one_message(&json_str, &length));
     if (length == 0) {
         *eof = true;
         return Status::OK();
