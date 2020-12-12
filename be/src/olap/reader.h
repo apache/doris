@@ -76,7 +76,7 @@ struct ReaderParams {
 
     void check_validation() const;
 
-    std::string to_string();
+    std::string to_string() const;
 };
 
 class Reader {
@@ -171,6 +171,7 @@ private:
     std::vector<bool> _is_upper_keys_included;
     Conditions _conditions;
     std::vector<ColumnPredicate*> _col_predicates;
+    std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 
     OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool,

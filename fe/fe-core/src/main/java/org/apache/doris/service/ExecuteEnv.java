@@ -27,8 +27,9 @@ public class ExecuteEnv {
     private MultiLoadMgr multiLoadMgr;
     private ConnectScheduler scheduler;
 
-    public ExecuteEnv() {
+    private ExecuteEnv() {
         multiLoadMgr = new MultiLoadMgr();
+        scheduler = new ConnectScheduler(Config.qe_max_connection);
     }
 
     public static ExecuteEnv getInstance() {
@@ -40,11 +41,6 @@ public class ExecuteEnv {
             }
         }
         return INSTANCE;
-    }
-
-    public static void setup() {
-        ExecuteEnv env = getInstance();
-        env.scheduler = new ConnectScheduler(Config.qe_max_connection);
     }
 
     public ConnectScheduler getScheduler() {

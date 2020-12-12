@@ -51,6 +51,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             .add(CreateRoutineLoadStmt.JSONPATHS)
             .add(CreateRoutineLoadStmt.JSONROOT)
             .add(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)
+            .add(CreateRoutineLoadStmt.NUM_AS_STRING)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .build();
@@ -180,6 +181,12 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             boolean stripOuterArray = Boolean.valueOf(jobProperties.get(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY));
             analyzedJobProperties.put(jobProperties.get(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY),
                     String.valueOf(stripOuterArray));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.NUM_AS_STRING)) {
+            boolean numAsString = Boolean.valueOf(jobProperties.get(CreateRoutineLoadStmt.NUM_AS_STRING));
+            analyzedJobProperties.put(jobProperties.get(CreateRoutineLoadStmt.NUM_AS_STRING),
+                    String.valueOf(numAsString));
         }
     }
 

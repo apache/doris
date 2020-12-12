@@ -138,6 +138,8 @@ Status JsonScanner::open_next_reader() {
     std::string json_root = "";
     std::string jsonpath = "";
     bool strip_outer_array = false;
+    bool num_as_string = false;
+
     if (range.__isset.jsonpaths) {
         jsonpath = range.jsonpaths;
     }
@@ -147,7 +149,10 @@ Status JsonScanner::open_next_reader() {
     if (range.__isset.strip_outer_array) {
         strip_outer_array = range.strip_outer_array;
     }
-    _cur_file_reader = new JsonReader(_state, _counter, _profile, file, strip_outer_array);
+    if (range.__isset.num_as_string) {
+        num_as_string = range.num_as_string;
+    }
+    _cur_file_reader = new JsonReader(_state, _counter, _profile, file, strip_outer_array, num_as_string);
     RETURN_IF_ERROR(_cur_file_reader->init(jsonpath, json_root));
 
     return Status::OK();
@@ -178,18 +183,23 @@ rapidjson::Value::ConstValueIterator JsonDataInternal::get_next() {
 }
 
 ////// class JsonReader
-JsonReader::JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
-                       FileReader* file_reader, bool strip_outer_array)
-        : _handle_json_callback(nullptr),
-          _next_line(0),
-          _total_lines(0),
-          _state(state),
-          _counter(counter),
-          _profile(profile),
-          _file_reader(file_reader),
-          _closed(false),
-          _strip_outer_array(strip_outer_array),
-          _json_doc(nullptr) {
+JsonReader::JsonReader(
+        RuntimeState* state, ScannerCounter* counter,
+        RuntimeProfile* profile,
+        FileReader* file_reader,
+        bool strip_outer_array,
+        bool num_as_string) :
+            _handle_json_callback(nullptr),
+            _next_line(0),
+            _total_lines(0),
+            _state(state),
+            _counter(counter),
+            _profile(profile),
+            _file_reader(file_reader),
+            _closed(false),
+            _strip_outer_array(strip_outer_array),
+            _num_as_string(num_as_string),
+            _json_doc(nullptr) {
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "FileReadTime");
 }
@@ -262,7 +272,6 @@ void JsonReader::_close() {
 // return other error if encounter other problemes.
 // return Status::OK() if parse succeed or reach EOF.
 Status JsonReader::_parse_json_doc(bool* eof) {
-    // read a whole message, must be delete json_str by `delete[]`
     std::unique_ptr<uint8_t[]> json_str; 
     size_t length = 0;
     RETURN_IF_ERROR(_file_reader->read_one_message(json_str, &length));
@@ -270,8 +279,19 @@ Status JsonReader::_parse_json_doc(bool* eof) {
         *eof = true;
         return Status::OK();
     }
+
+    bool has_parse_error = false;
     // parse jsondata to JsonDoc
-    if (_origin_json_doc.Parse((char*)json_str.get(), length).HasParseError()) {
+
+    // As the issue: https://github.com/Tencent/rapidjson/issues/1458
+    // Now, rapidjson only support uint64_t, So lagreint load cause bug. We use kParseNumbersAsStringsFlag.
+    if (_num_as_string) {
+        has_parse_error = _origin_json_doc.Parse<rapidjson::kParseNumbersAsStringsFlag>((char*)json_str.get(), length).HasParseError();
+    } else {
+        has_parse_error = _origin_json_doc.Parse((char*)json_str.get(), length).HasParseError();
+    }
+
+    if (has_parse_error) {
         std::stringstream str_error;
         str_error << "Parse json data for JsonDoc failed. code = "
                   << _origin_json_doc.GetParseError() << ", error-info:"

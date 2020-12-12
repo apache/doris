@@ -53,14 +53,14 @@ Explain:
 2) heartbeat_port is the heartbeat port of the node
 3) Adding and deleting nodes are synchronous operations. These two operations do not take into account the existing data on the node, the node is directly deleted from the metadata, please use cautiously.
 4) Node offline operations are used to secure offline nodes. This operation is asynchronous. If successful, the node will eventually be removed from the metadata. If it fails, the offline will not be completed.
-5) The downline operation of the node can be cancelled manually. See CANCEL DECOMMISSION for details
+5) The offline operation of the node can be cancelled manually. See CANCEL DECOMMISSION for details
 6) Load error hub:
 Currently, two types of Hub are supported: Mysql and Broker. You need to specify "type" = "mysql" or "type" = "broker" in PROPERTIES.
 If you need to delete the current load error hub, you can set type to null.
 1) When using the Mysql type, the error information generated when importing will be inserted into the specified MySQL library table, and then the error information can be viewed directly through the show load warnings statement.
 
 Hub of Mysql type needs to specify the following parameters:
-guest guest
+host：mysql host
 port：mysql port
 user：mysql user
 password：mysql password
@@ -84,7 +84,7 @@ ALTER SYSTEM ADD FREE BACKEND "host:port";
 3. Delete two nodes
 ALTER SYSTEM DROP BACKEND "host1:port", "host2:port";
 
-4. Two downline nodes
+4. offline two nodes
 ALTER SYSTEM DECOMMISSION BACKEND "host1:port", "host2:port";
 
 5. Add two Hdfs Broker

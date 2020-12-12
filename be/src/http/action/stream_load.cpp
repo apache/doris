@@ -399,6 +399,15 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     } else {
         request.__set_strip_outer_array(false);
     }
+    if (!http_req->header(HTTP_NUM_AS_STRING).empty()) {
+        if (boost::iequals(http_req->header(HTTP_NUM_AS_STRING), "true")) {
+            request.__set_num_as_string(true);
+        } else {
+            request.__set_num_as_string(false);
+        }
+    } else {
+        request.__set_num_as_string(false);
+    }
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
         request.__set_sequence_col(
                 http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL));

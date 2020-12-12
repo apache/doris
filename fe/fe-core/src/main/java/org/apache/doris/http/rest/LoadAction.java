@@ -106,32 +106,27 @@ public class LoadAction extends RestBaseAction {
         // check auth
         checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.LOAD);
 
+        TNetworkAddress redirectAddr;
         if (!isStreamLoad && !Strings.isNullOrEmpty(request.getSingleParameter(SUB_LABEL_NAME_PARAM))) {
             // only multi mini load need to redirect to Master, because only Master has the info of table to
             // the Backend which the file exists.
             if (redirectToMaster(request, response)) {
                 return;
             }
-        }
-
-        // Choose a backend sequentially.
-        List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(1, true, false, clusterName);
-        if (backendIds == null) {
-            throw new DdlException("No backend alive.");
-        }
-
-        Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
-        if (backend == null) {
-            throw new DdlException("No backend alive.");
-        }
-
-        TNetworkAddress redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
-
-        if (!isStreamLoad) {
-            String subLabel = request.getSingleParameter(SUB_LABEL_NAME_PARAM);
-            if (!Strings.isNullOrEmpty(subLabel)) {
-                redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label, tableName, redirectAddr);
+            redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label);
+        } else {
+            // Choose a backend sequentially.
+            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(1, true, false, clusterName);
+            if (backendIds == null) {
+                throw new DdlException("No backend alive.");
             }
+
+            Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            if (backend == null) {
+                throw new DdlException("No backend alive.");
+            }
+
+            redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
         }
 
         LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",

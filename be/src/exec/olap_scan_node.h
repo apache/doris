@@ -133,7 +133,14 @@ protected:
         VLOG(1) << s.str() << "\n]";
     }
 
+    // In order to ensure the accuracy of the query result
+    // only key column conjuncts will be remove as idle conjunct
+    bool is_key_column(const std::string& key_name);
+    void remove_pushed_conjuncts(RuntimeState *state);
+
     Status start_scan(RuntimeState* state);
+
+    void eval_const_conjuncts();
     Status normalize_conjuncts();
     Status build_olap_filters();
     Status build_scan_key();
@@ -178,6 +185,9 @@ private:
     int _tuple_idx;
     // string slots
     std::vector<SlotDescriptor*> _string_slots;
+    // conjunct's index which already be push down storage engine
+    // should be remove in olap_scan_node, no need check this conjunct again
+    std::set<uint32_t> _pushed_conjuncts_index;
 
     bool _eos;
 

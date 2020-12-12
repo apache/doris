@@ -71,7 +71,7 @@ public:
     // used to fiter rows in row block
     // TODO(hkp): refactor the column predicate framework
     // to unify Conditions and ColumnPredicate
-    const std::vector<ColumnPredicate*>* column_predicates = nullptr;
+    std::vector<ColumnPredicate*> column_predicates;
 
     // REQUIRED (null is not allowed)
     OlapReaderStatistics* stats = nullptr;
