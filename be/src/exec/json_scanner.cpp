@@ -263,25 +263,23 @@ void JsonReader::_close() {
 // return Status::OK() if parse succeed or reach EOF.
 Status JsonReader::_parse_json_doc(bool* eof) {
     // read a whole message, must be delete json_str by `delete[]`
-    uint8_t* json_str = nullptr;
+    std::unique_ptr<uint8_t[]> json_str; 
     size_t length = 0;
-    RETURN_IF_ERROR(_file_reader->read_one_message(&json_str, &length));
+    RETURN_IF_ERROR(_file_reader->read_one_message(json_str, &length));
     if (length == 0) {
         *eof = true;
         return Status::OK();
     }
     // parse jsondata to JsonDoc
-    if (_origin_json_doc.Parse((char*)json_str, length).HasParseError()) {
+    if (_origin_json_doc.Parse((char*)json_str.get(), length).HasParseError()) {
         std::stringstream str_error;
         str_error << "Parse json data for JsonDoc failed. code = "
                   << _origin_json_doc.GetParseError() << ", error-info:"
                   << rapidjson::GetParseError_En(_origin_json_doc.GetParseError());
-        _state->append_error_msg_to_file(std::string((char*)json_str, length), str_error.str());
+        _state->append_error_msg_to_file(std::string((char*)json_str.get(), length), str_error.str());
         _counter->num_rows_filtered++;
-        delete[] json_str;
         return Status::DataQualityError(str_error.str());
     }
-    delete[] json_str;
 
     // set json root
     if (_parsed_json_root.size() != 0) {
