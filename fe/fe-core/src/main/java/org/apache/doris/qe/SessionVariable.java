@@ -76,7 +76,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
-    
+
+    public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_PARTITION_CACHE = "enable_partition_cache";
 
@@ -234,6 +235,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT)
     private boolean enableInsertStrict = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
+    private boolean enableOdbcTransaction = false;
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE)
     private boolean enableSqlCache = false;
@@ -426,6 +430,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableBucketShuffleJoin() {
         return enableBucketShuffleJoin;
+    }
+
+    public boolean isEnableOdbcTransaction() {
+        return enableOdbcTransaction;
     }
 
     public String getPreferJoinMethod() {return preferJoinMethod; }

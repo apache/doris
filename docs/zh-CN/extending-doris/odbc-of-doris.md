@@ -30,6 +30,7 @@ ODBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(
 
  1. 支持各种数据源接入Doris
  2. 支持Doris与各种数据源中的表联合查询，进行更加复杂的分析操作
+  3. 通过insert into将Doris执行的查询结果写入外部的数据源
 
 本文档主要介绍该功能的实现原理、使用方式等。
 
@@ -130,9 +131,27 @@ FileUsage       = 1
 
 
 ```
-select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
+select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris';
 ```
 
+### 数据写入
+
+在Doris中建立ODBC外表后，可以通过insert into语句直接写入数据，也可以将Doris执行完查询之后的结果写入ODBC外表，或者是从一个ODBC外表将数据导入另一个ODBC外表。
+
+
+```
+insert into oracle_table values(1, "doris");
+insert into oracle_table select * from postgre_table;
+```
+#### 事务
+
+Doris的数据是由一组batch的方式写入外部表的，如果中途导入中断，之前写入数据可能需要回滚。所以ODBC外表支持数据写入时的事务，事务的支持需要通过session variable：`enable_odbc_transcation `设置。
+
+```
+set enable_odbc_transcation = true; 
+```
+
+事务保证了ODBC外表数据写入的原子性，但是一定程度上会降低数据写入的性能，可以考虑酌情开启该功能。
 
 
 ## 类型匹配
