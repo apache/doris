@@ -244,6 +244,7 @@ private:
     Status _status;
     RuntimeState* _runtime_state;
     RuntimeProfile::Counter* _scan_timer;
+    RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
     RuntimeProfile::Counter* _tablet_counter;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
