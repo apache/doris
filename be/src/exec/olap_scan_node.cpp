@@ -124,6 +124,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _index_load_timer = ADD_TIMER(_segment_profile, "IndexLoadTime_V1");
 
     _scan_timer = ADD_TIMER(_scanner_profile, "ScanTime");
+    _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScanCpuTime");
 
     _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);
@@ -290,6 +291,7 @@ Status OlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
     RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
     statistics->add_scan_bytes(_read_compressed_counter->value());
     statistics->add_scan_rows(_raw_rows_counter->value());
+    statistics->add_cpu_ms(_scan_cpu_timer->value() / NANOS_PER_MILLIS);
     return Status::OK();
 }
 
@@ -1308,6 +1310,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
+    SCOPED_CPU_TIMER(_scan_cpu_timer);
     Status status = Status::OK();
     bool eos = false;
     RuntimeState* state = scanner->runtime_state();
