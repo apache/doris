@@ -31,6 +31,7 @@
 #include "runtime/export_sink.h"
 #include "runtime/memory_scratch_sink.h"
 #include "runtime/mysql_table_sink.h"
+#include "runtime/odbc_table_sink.h"
 #include "runtime/result_sink.h"
 #include "runtime/runtime_state.h"
 #include "util/logging.h"
@@ -93,7 +94,15 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
                 "Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
 #endif
     }
-
+    case TDataSinkType::ODBC_TABLE_SINK: {
+        if (!thrift_sink.__isset.odbc_table_sink) {
+            return Status::InternalError("Missing data odbc sink.");
+        }
+        OdbcTableSink* odbc_tbl_sink = new OdbcTableSink(pool,
+                                                         row_desc, output_exprs);
+        sink->reset(odbc_tbl_sink);
+        break;
+    }
     case TDataSinkType::DATA_SPLIT_SINK: {
         if (!thrift_sink.__isset.split_sink) {
             return Status::InternalError("Missing data split buffer sink.");
