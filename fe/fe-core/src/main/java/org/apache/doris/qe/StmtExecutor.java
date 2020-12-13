@@ -1125,6 +1125,9 @@ public class StmtExecutor {
         if (statisticsForAuditLog.scan_rows == null) {
             statisticsForAuditLog.scan_rows = 0L;
         }
+        if (statisticsForAuditLog.cpu_ms == null) {
+            statisticsForAuditLog.cpu_ms = 0L;
+        }
         return statisticsForAuditLog;
     }
 }
