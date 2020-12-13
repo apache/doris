@@ -442,6 +442,7 @@ struct TMasterOpRequest {
     14: optional Types.TUserIdentity current_user_ident
     15: optional i32 stmtIdx  // the idx of the sql in multi statements
     16: optional PaloInternalService.TQueryOptions query_options
+    17: optional Types.TUniqueId query_id // when this is a query, we translate this query id to master
 }
 
 struct TColumnDefinition {
