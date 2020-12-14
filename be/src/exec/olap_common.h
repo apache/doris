@@ -56,7 +56,7 @@ public:
     typedef typename std::set<T>::iterator iterator_type;
     ColumnValueRange();
     ColumnValueRange(std::string col_name, PrimitiveType type);
-    ColumnValueRange(std::string col_name, PrimitiveType type, T min, T max);
+    ColumnValueRange(std::string col_name, PrimitiveType type, const T& min, const T& max);
 
     // should add fixed value before add range
     Status add_fixed_value(T value);
@@ -250,11 +250,11 @@ ColumnValueRange<T>::ColumnValueRange() : _column_type(INVALID_TYPE) {}
 
 template <class T>
 ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type)
-        : ColumnValueRange(col_name, type, TYPE_MIN, TYPE_MAX){}
+        : ColumnValueRange(std::move(col_name), type, TYPE_MIN, TYPE_MAX){}
 
 template <class T>
-ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, T min, T max)
-        : _column_name(col_name),
+ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, const T& min, const T& max)
+        : _column_name(std::move(col_name)),
           _column_type(type),
           _low_value(min),
           _high_value(max),
