@@ -1310,7 +1310,6 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
-    SCOPED_CPU_TIMER(_scan_cpu_timer);
     Status status = Status::OK();
     bool eos = false;
     RuntimeState* state = scanner->runtime_state();
