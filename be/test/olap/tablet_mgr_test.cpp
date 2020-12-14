@@ -58,7 +58,7 @@ public:
         FileUtils::create_dir(_engine_data_path + "/meta");
 
         std::vector<StorePath> paths;
-        paths.emplace_back("_engine_data_path", -1);
+        paths.emplace_back(_engine_data_path, -1);
         EngineOptions options;
         options.store_paths = paths;
         options.backend_uid = UniqueId::gen_uid();
