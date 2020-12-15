@@ -238,7 +238,7 @@ TEST_F(TopNFunctionsTest, test_date_type) {
     DateTimeValue dt(20201001000000);
     doris_udf::DateTimeVal dt_val;
     dt.to_datetime_val(&dt_val);
-for (uint32_t i = 0; i < 10; ++i) {
+    for (uint32_t i = 0; i < 10; ++i) {
         TopNFunctions::topn_update(ctx, dt_val, 1, &dst1);
     }
     StringVal serialized = TopNFunctions::topn_serialize(ctx, dst1);

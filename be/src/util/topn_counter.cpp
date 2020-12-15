@@ -16,6 +16,9 @@
 // under the License.
 
 #include <algorithm>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
+
 #include "gen_cpp/olap_common.pb.h"
 #include "topn_counter.h"
 #include "slice.h"
@@ -99,7 +102,7 @@ void TopNCounter::merge(doris::TopNCounter &&other) {
 
     uint64_t m1 = this_full ? _counter_vec->back().get_count() : 0;
     uint64_t m2 = another_full ? other._counter_vec->back().get_count() : 0;
-   
+
     if (another_full == true) {
         for (auto &entry : *(this->_counter_map)) {
             entry.second.add_count(m2);
@@ -123,16 +126,17 @@ void TopNCounter::finalize(std::string& finalize_str) {
     if (!_ordered) {
         sort_retain(_top_num);
     }
-    std::ostringstream oss;
+    // use json format print
+    rapidjson::StringBuffer buffer;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
     uint32_t k = 0;
+    writer.StartObject();
     for (std::vector<Counter>::const_iterator it = _counter_vec->begin(); it != _counter_vec->end() && k < _top_num; ++it, ++k) {
-        oss << it->get_item() << ":" << it->get_count() << ", ";
+        writer.Key(it->get_item().data());
+        writer.Uint64(it->get_count());
     }
-    finalize_str = oss.str();
-    // remove last ', ' char
-    if (finalize_str.size() > 0) {
-        finalize_str.erase(finalize_str.size()-2);
-    }
+    writer.EndObject();
+    finalize_str = buffer.GetString();
 }
 
 }
