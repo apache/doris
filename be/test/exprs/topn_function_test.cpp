@@ -178,7 +178,7 @@ TEST_F(TopNFunctionsTest, topn_update) {
     TopNFunctions::topn_update(ctx, src3, 2, &dst);
 
     StringVal result = TopNFunctions::topn_finalize(ctx, dst);
-    StringVal expected("a:10, b:2");
+    StringVal expected("{\"a\":10,\"b\":2}");
     ASSERT_EQ(expected, result);
 }
 
@@ -210,7 +210,7 @@ TEST_F(TopNFunctionsTest, topn_merge) {
     TopNFunctions::topn_merge(ctx, val1, &dst);
     TopNFunctions::topn_merge(ctx, val2, &dst);
     StringVal result = TopNFunctions::topn_finalize(ctx, dst);
-    StringVal expected("a:20, b:8");
+    StringVal expected("{\"a\":20,\"b\":8}");
     ASSERT_EQ(expected, result);
 }
 
@@ -227,7 +227,7 @@ TEST_F(TopNFunctionsTest, test_null_value) {
     TopNFunctions::topn_init(ctx, &dst2);
     TopNFunctions::topn_merge(ctx, serialized, &dst2);
     StringVal result = TopNFunctions::topn_finalize(ctx, dst2);
-    StringVal expected("");
+    StringVal expected("{}");
     ASSERT_EQ(expected, result);
 }
 
@@ -247,7 +247,7 @@ TEST_F(TopNFunctionsTest, test_date_type) {
     TopNFunctions::topn_init(ctx, &dst2);
     TopNFunctions::topn_merge(ctx, serialized, &dst2);
     StringVal result = TopNFunctions::topn_finalize(ctx, dst2);
-    StringVal expected("2020-10-01 00:00:00:10");
+    StringVal expected("{\"2020-10-01 00:00:00\":10}");
     ASSERT_EQ(expected, result);
 }
 

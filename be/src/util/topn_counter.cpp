@@ -16,7 +16,7 @@
 // under the License.
 
 #include <algorithm>
-#include <rapidjson/prettywriter.h>
+#include <rapidjson/writer.h>
 #include <rapidjson/stringbuffer.h>
 
 #include "gen_cpp/olap_common.pb.h"
@@ -128,7 +128,7 @@ void TopNCounter::finalize(std::string& finalize_str) {
     }
     // use json format print
     rapidjson::StringBuffer buffer;
-    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     uint32_t k = 0;
     writer.StartObject();
     for (std::vector<Counter>::const_iterator it = _counter_vec->begin(); it != _counter_vec->end() && k < _top_num; ++it, ++k) {
