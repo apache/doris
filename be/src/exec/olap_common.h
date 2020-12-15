@@ -31,7 +31,7 @@
 #include "exec/scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/tuple.h"
-#include "runtime/datetime_value.h"
+#include "runtime/type_limit.h"
 #include "runtime/descriptors.h"
 #include "runtime/string_value.hpp"
 
@@ -42,6 +42,11 @@ std::string cast_to_string(T value) {
     return boost::lexical_cast<std::string>(value);
 }
 
+// TYPE_TINYINT should cast to int32_t to first
+// because it need to convert to num not char for build Olap fetch Query
+template <>
+std::string cast_to_string(int8_t);
+
 /**
  * @brief Column's value range
  **/
@@ -50,7 +55,8 @@ class ColumnValueRange {
 public:
     typedef typename std::set<T>::iterator iterator_type;
     ColumnValueRange();
-    ColumnValueRange(std::string col_name, PrimitiveType type, T min, T max);
+    ColumnValueRange(std::string col_name, PrimitiveType type);
+    ColumnValueRange(std::string col_name, PrimitiveType type, const T& min, const T& max);
 
     // should add fixed value before add range
     Status add_fixed_value(T value);
@@ -73,10 +79,12 @@ public:
 
     bool has_intersection(ColumnValueRange<T>& range);
 
+    void intersection(ColumnValueRange<T>& range);
+
     void set_empty_value_range() {
         _fixed_values.clear();
-        _low_value = _type_max;
-        _high_value = _type_min;
+        _low_value = TYPE_MAX;
+        _high_value = TYPE_MIN;
     }
 
     const std::set<T>& get_fixed_value_set() const { return _fixed_values; }
@@ -85,9 +93,9 @@ public:
 
     T get_range_min_value() const { return _low_value; }
 
-    bool is_low_value_mininum() const { return _low_value == _type_min; }
+    bool is_low_value_mininum() const { return _low_value == TYPE_MIN; }
 
-    bool is_high_value_maximum() const { return _high_value == _type_max; }
+    bool is_high_value_maximum() const { return _high_value == TYPE_MAX; }
 
     bool is_begin_include() const { return _low_op == FILTER_LARGER_OR_EQUAL; }
 
@@ -112,7 +120,7 @@ public:
             }
         } else {
             TCondition low;
-            if (_type_min != _low_value || FILTER_LARGER_OR_EQUAL != _low_op) {
+            if (TYPE_MIN != _low_value || FILTER_LARGER_OR_EQUAL != _low_op) {
                 low.__set_column_name(_column_name);
                 low.__set_condition_op((_low_op == FILTER_LARGER_OR_EQUAL ? ">=" : ">>"));
                 low.condition_values.push_back(cast_to_string(_low_value));
@@ -123,7 +131,7 @@ public:
             }
 
             TCondition high;
-            if (_type_max != _high_value || FILTER_LESS_OR_EQUAL != _high_op) {
+            if (TYPE_MAX != _high_value || FILTER_LESS_OR_EQUAL != _high_op) {
                 high.__set_column_name(_column_name);
                 high.__set_condition_op((_high_op == FILTER_LESS_OR_EQUAL ? "<=" : "<<"));
                 high.condition_values.push_back(cast_to_string(_high_value));
@@ -137,20 +145,30 @@ public:
 
     void clear() {
         _fixed_values.clear();
-        _low_value = _type_min;
-        _high_value = _type_max;
+        _low_value = TYPE_MIN;
+        _high_value = TYPE_MAX;
         _low_op = FILTER_LARGER_OR_EQUAL;
         _high_op = FILTER_LESS_OR_EQUAL;
+    }
+
+    bool is_whole_range() const {
+        return _fixed_values.empty() && _low_value == TYPE_MIN && _high_value == TYPE_MAX &&
+            _low_op == FILTER_LARGER_OR_EQUAL && _high_op == FILTER_LESS_OR_EQUAL;
+    }
+
+    static ColumnValueRange<T> create_empty_column_value_range(PrimitiveType type) {
+        return ColumnValueRange<T>("", type, type_limit<T>::max(), type_limit<T>::min());
     }
 
 protected:
     bool is_in_range(const T& value);
 
 private:
+    const static T TYPE_MIN;                // Column type's min value
+    const static T TYPE_MAX;                // Column type's max value
+
     std::string _column_name;
     PrimitiveType _column_type; // Column type (eg: TINYINT,SMALLINT,INT,BIGINT)
-    T _type_min;                // Column type's min value
-    T _type_max;                // Column type's max value
     T _low_value;               // Column's low value, closed interval at left
     T _high_value;              // Column's high value, open interval at right
     SQLFilterOp _low_op;
@@ -223,14 +241,21 @@ typedef boost::variant<ColumnValueRange<int8_t>, ColumnValueRange<int16_t>,
         ColumnValueRangeType;
 
 template <class T>
+const T ColumnValueRange<T>::TYPE_MIN = type_limit<T>::min();
+template <class T>
+const T ColumnValueRange<T>::TYPE_MAX = type_limit<T>::max();
+
+template <class T>
 ColumnValueRange<T>::ColumnValueRange() : _column_type(INVALID_TYPE) {}
 
 template <class T>
-ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, T min, T max)
-        : _column_name(col_name),
+ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type)
+        : ColumnValueRange(std::move(col_name), type, TYPE_MIN, TYPE_MAX){}
+
+template <class T>
+ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, const T& min, const T& max)
+        : _column_name(std::move(col_name)),
           _column_type(type),
-          _type_min(min),
-          _type_max(max),
           _low_value(min),
           _high_value(max),
           _low_op(FILTER_LARGER_OR_EQUAL),
@@ -325,14 +350,12 @@ void ColumnValueRange<T>::convert_to_fixed_value() {
         ++_low_value;
     }
 
-    if (_high_op == FILTER_LESS) {
-        for (T v = _low_value; v < _high_value; ++v) {
-            _fixed_values.insert(v);
-        }
-    } else {
-        for (T v = _low_value; v <= _high_value; ++v) {
-            _fixed_values.insert(v);
-        }
+    for (T v = _low_value; v < _high_value; ++v) {
+        _fixed_values.insert(v);
+    }
+
+    if (_high_op == FILTER_LESS_OR_EQUAL) {
+        _fixed_values.insert(_high_value);
     }
 }
 
@@ -391,8 +414,8 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
         }
         }
 
-        _high_value = _type_min;
-        _low_value = _type_max;
+        _high_value = TYPE_MIN;
+        _low_value = TYPE_MAX;
     } else {
         if (_high_value > _low_value) {
             switch (op) {
@@ -430,7 +453,6 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
                 }
 
                 break;
-                break;
             }
 
             default: {
@@ -442,8 +464,8 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
         if (FILTER_LARGER_OR_EQUAL == _low_op && FILTER_LESS_OR_EQUAL == _high_op &&
             _high_value == _low_value) {
             add_fixed_value(_high_value);
-            _high_value = _type_min;
-            _low_value = _type_max;
+            _high_value = TYPE_MIN;
+            _low_value = TYPE_MAX;
         }
     }
 
@@ -493,6 +515,55 @@ bool ColumnValueRange<T>::is_in_range(const T& value) {
     }
 
     return false;
+}
+
+template <class T>
+void ColumnValueRange<T>::intersection(ColumnValueRange<T>& range) {
+    // 1. clear if column type not match
+    if (_column_type != range._column_type) {
+        set_empty_value_range();
+    }
+
+    // 2. clear if any range is empty
+    if (is_empty_value_range() || range.is_empty_value_range()) {
+        set_empty_value_range();
+    }
+
+    std::set<T> result_values;
+    // 3. fixed_value intersection
+    if (is_fixed_value_range() || range.is_fixed_value_range()) {
+        if (is_fixed_value_range() && range.is_fixed_value_range()) {
+            set_intersection(_fixed_values.begin(), _fixed_values.end(), range._fixed_values.begin(),
+                             range._fixed_values.end(),
+                             std::inserter(result_values, result_values.begin()));
+        } else if (is_fixed_value_range() && !range.is_fixed_value_range()) {
+            iterator_type iter = _fixed_values.begin();
+
+            while (iter != _fixed_values.end()) {
+                if (range.is_in_range(*iter)) {
+                    result_values.insert(*iter);
+                }
+                ++iter;
+            }
+        } else if (!is_fixed_value_range() && range.is_fixed_value_range()) {
+            iterator_type iter = range._fixed_values.begin();
+            while (iter != range._fixed_values.end()) {
+                if (this->is_in_range(*iter)) {
+                    result_values.insert(*iter);
+                }
+                ++iter;
+            }
+        }
+
+        if (!result_values.empty()) {
+            _fixed_values = std::move(result_values);
+        } else {
+            set_empty_value_range();
+        }
+    } else {
+        add_range(range._high_op, range._high_value);
+        add_range(range._low_op, range._low_value);
+    }
 }
 
 template <class T>
