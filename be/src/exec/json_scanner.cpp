@@ -272,7 +272,7 @@ void JsonReader::_close() {
 Status JsonReader::_parse_json_doc(bool* eof) {
     // read a whole message, must be delete json_str by `delete[]`
     SCOPED_TIMER(_file_read_timer);
-    uint8_t* json_str = nullptr;
+    std::unique_ptr<uint8_t[]> json_str; 
     size_t length = 0;
     RETURN_IF_ERROR(_file_reader->read_one_message(&json_str, &length));
     _bytes_read_counter += length;
@@ -283,15 +283,16 @@ Status JsonReader::_parse_json_doc(bool* eof) {
 
     bool has_parse_error = false;
     // parse jsondata to JsonDoc
+
     // As the issue: https://github.com/Tencent/rapidjson/issues/1458
     // Now, rapidjson only support uint64_t, So lagreint load cause bug. We use kParseNumbersAsStringsFlag.
     if (_num_as_string) {
         has_parse_error =
                 _origin_json_doc
-                        .Parse<rapidjson::kParseNumbersAsStringsFlag>((char*)json_str, length)
+                        .Parse<rapidjson::kParseNumbersAsStringsFlag>((char*)json_str.get(), length)
                         .HasParseError();
     } else {
-        has_parse_error = _origin_json_doc.Parse((char*)json_str, length).HasParseError();
+        has_parse_error = _origin_json_doc.Parse((char*)json_str.get(), length).HasParseError();
     }
 
     if (has_parse_error) {
@@ -299,12 +300,10 @@ Status JsonReader::_parse_json_doc(bool* eof) {
         str_error << "Parse json data for JsonDoc failed. code = "
                   << _origin_json_doc.GetParseError() << ", error-info:"
                   << rapidjson::GetParseError_En(_origin_json_doc.GetParseError());
-        _state->append_error_msg_to_file(std::string((char*)json_str, length), str_error.str());
+        _state->append_error_msg_to_file(std::string((char*)json_str.get(), length), str_error.str());
         _counter->num_rows_filtered++;
-        delete[] json_str;
         return Status::DataQualityError(str_error.str());
     }
-    delete[] json_str;
 
     // set json root
     if (_parsed_json_root.size() != 0) {
