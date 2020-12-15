@@ -59,8 +59,6 @@ static uint32_t calc_days_in_year(uint32_t year) {
     return is_leap(year) ? 366 : 365;
 }
 
-DateTimeValue DateTimeValue::_s_min_datetime_value(0, TIME_DATETIME, 0, 0, 0, 0, 0, 1, 1);
-DateTimeValue DateTimeValue::_s_max_datetime_value(0, TIME_DATETIME, 23, 59, 59, 0, 9999, 12, 31);
 RE2 DateTimeValue::time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
 
 bool DateTimeValue::check_range() const {

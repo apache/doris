@@ -26,6 +26,7 @@
 #include "exec/olap_common.h"
 #include "exec/olap_scanner.h"
 #include "exec/scan_node.h"
+#include "exprs/in_predicate.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch_interface.hpp"
 #include "runtime/vectorized_row_batch.h"
@@ -171,6 +172,13 @@ private:
 
     void construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot,
                                               const std::string& is_null_str);
+
+    bool should_push_down_in_predicate(SlotDescriptor* slot, InPredicate* in_pred);
+
+    std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred, int conj_idx, int child_idx);
+
+    template <typename T>
+    static Status insert_value_to_range(ColumnValueRange<T>& range, PrimitiveType type, void* value);
 
     friend class OlapScanner;
 
