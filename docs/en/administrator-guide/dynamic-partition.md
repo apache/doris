@@ -83,7 +83,7 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     The unit for dynamic partition scheduling. Can be specified as `HOUR`,`DAY`,` WEEK`, and `MONTH`, means to create or delete partitions by hour, day, week, and month, respectively.
 
-    When specified as `HOUR`, the suffix format of the dynamically created partition name is `yyyyMMddHH`, for example, `2020032501`.
+    When specified as `HOUR`, the suffix format of the dynamically created partition name is `yyyyMMddHH`, for example, `2020032501`. *When the time unit is HOUR, the data type of partition column cannot be DATE.*
 
     When specified as `DAY`, the suffix format of the dynamically created partition name is `yyyyMMdd`, for example, `20200325`.
 
