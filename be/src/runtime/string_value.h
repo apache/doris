@@ -29,6 +29,9 @@ namespace doris {
 // The returned StringValue of all functions that return StringValue
 // shares its buffer the parent.
 struct StringValue {
+    const static char MIN_CHAR;
+    const static char MAX_CHAR;
+
     static const int MAX_LENGTH = (1 << 30);
     // TODO: change ptr to an offset relative to a contiguous memory block,
     // so that we can send row batches between nodes without having to swizzle
@@ -104,6 +107,10 @@ struct StringValue {
     static StringValue from_string_val(const doris_udf::StringVal& sv) {
         return StringValue(reinterpret_cast<char*>(sv.ptr), sv.len);
     }
+
+    static StringValue min_string_val();
+
+    static StringValue max_string_val();
 };
 
 // This function must be called 'hash_value' to be picked up by boost.

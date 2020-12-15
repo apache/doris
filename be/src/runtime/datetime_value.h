@@ -426,9 +426,15 @@ public:
         return std::string(buf, end - buf);
     }
 
-    static DateTimeValue datetime_min_value() { return _s_min_datetime_value; }
-
-    static DateTimeValue datetime_max_value() { return _s_max_datetime_value; }
+    static DateTimeValue datetime_min_value() {
+        static DateTimeValue _s_min_datetime_value(0, TIME_DATETIME, 0, 0, 0, 0, 0, 1, 1);
+        return _s_min_datetime_value;
+    }
+    
+    static DateTimeValue datetime_max_value() {
+        static DateTimeValue _s_max_datetime_value(0, TIME_DATETIME, 23, 59, 59, 0, 9999, 12, 31);
+        return _s_max_datetime_value;
+    }
 
     int64_t second_diff(const DateTimeValue& rhs) const {
         int day_diff = daynr() - rhs.daynr();
@@ -542,8 +548,6 @@ private:
               _day(day),
               _microsecond(microsecond) {}
 
-    static DateTimeValue _s_min_datetime_value;
-    static DateTimeValue _s_max_datetime_value;
     // RE2 obj is thread safe
     static RE2 time_zone_offset_format_reg;
 };
