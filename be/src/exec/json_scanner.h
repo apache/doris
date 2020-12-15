@@ -103,8 +103,8 @@ struct JsonPath;
 // return other error Status if encounter other errors.
 class JsonReader {
 public:
-    JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile, FileReader* file_reader,
-               bool strip_outer_array, bool num_as_string);
+    JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
+               FileReader* file_reader, bool strip_outer_array, bool num_as_string);
 
     ~JsonReader();
 
@@ -129,7 +129,8 @@ private:
                     const uint8_t* value, int32_t len);
     Status _parse_json_doc(bool* eof);
     void _set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
-                          const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
+                          const std::vector<SlotDescriptor*>& slot_descs,
+                          const std::vector<rapidjson::Value>& value_key, MemPool* tuple_pool,
                           bool* valid);
     void _write_data_to_tuple(rapidjson::Value::ConstValueIterator value, SlotDescriptor* desc,
                               Tuple* tuple, MemPool* tuple_pool, bool* valid);
@@ -154,6 +155,7 @@ private:
     bool _num_as_string;
     RuntimeProfile::Counter* _bytes_read_counter;
     RuntimeProfile::Counter* _read_timer;
+    RuntimeProfile::Counter* _file_read_timer;
 
     std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
     std::vector<JsonPath> _parsed_json_root;
