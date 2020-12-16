@@ -53,6 +53,7 @@ EasyJson TabletsDistributionAction::get_tablets_distribution() {
     EasyJson data = tablets_distribution_ej.Set("data", EasyJson::kObject);
     data["host"] = _host;
     EasyJson tablets_distribution = data.Set("tablets_distribution", EasyJson::kArray);
+    int64_t tablet_total_number = 0;
     std::map<int64_t, std::map<DataDir*, int>>::iterator partition_iter = tablets_num_on_disk.begin();
     for (; partition_iter != tablets_num_on_disk.end(); partition_iter++) {
         EasyJson partition = tablets_distribution.PushBack(EasyJson::kObject);
@@ -63,6 +64,7 @@ EasyJson TabletsDistributionAction::get_tablets_distribution() {
             EasyJson disk = disks.PushBack(EasyJson::kObject);
             disk["disk_path"] = disk_iter->first->path();
             disk["tablets_num"] = disk_iter->second;
+            tablet_total_number += disk_iter->second;
             disk["tablets_total_size"] = tablets_size_on_disk[partition_iter->first][disk_iter->first];
             EasyJson tablets = disk.Set("tablets", EasyJson::kArray);
             for (int i = 0; i < tablets_info_on_disk[partition_iter->first][disk_iter->first].size(); i++) {
@@ -73,40 +75,9 @@ EasyJson TabletsDistributionAction::get_tablets_distribution() {
             }
         }
     }
-    tablets_distribution_ej["count"] = 0;
+    tablets_distribution_ej["count"] = tablet_total_number;
     return tablets_distribution_ej;
 }
-/*
-EasyJson TabletsDistributionAction::get_tablets_distribution() {
-    std::map<int64_t, std::map<DataDir*, int>> tablets_num_on_disk;
-    std::map<int64_t, std::map<DataDir*, int>> tablets_size_on_disk;
-    std::map<int64_t, std::map<DataDir*, std::vector<TabletInfo>>> tablets_info_on_disk;
-    TabletManager* tablet_manager = StorageEngine::instance()->tablet_manager();
-    tablet_manager->get_tablets_distribution_on_different_disks(tablets_num_on_disk, tablets_size_on_disk, tablets_info_on_disk);
 
-    EasyJson tablets_distribution_ej;
-    tablets_distribution_ej["msg"] = "OK";
-    tablets_distribution_ej["code"] = 0;
-    EasyJson data = tablets_distribution_ej.Set("data", EasyJson::kObject);
-    data["host"] = _host;
-    EasyJson tablets_distribution = data.Set("tablets_distribution", EasyJson::kArray);
-    std::map<int64_t, std::map<DataDir*, int>>::iterator partition_iter = tablets_num_on_disk.begin();
-    for (; partition_iter != tablets_num_on_disk.end(); partition_iter++) {
-        EasyJson partition = tablets_distribution.PushBack(EasyJson::kObject);
-        partition["partition_id"] = partition_iter->first;
-        EasyJson disks = partition.Set("disks", EasyJson::kArray);
-        std::map<DataDir*, int>::iterator disk_iter = (partition_iter->second).begin();
-        int disk_id = 0;
-        for (; disk_iter != (partition_iter->second).end(); disk_iter++) {
-            EasyJson disk = disks.PushBack(EasyJson::kObject);
-            disk["disk_id"] = ++disk_id;
-            disk["tablets_num"] = disk_iter->second;
-            disk["tablets_size"] = tablets_size_on_disk[partition_iter->first][disk_iter->first];
-        }
-    }
-    tablets_distribution_ej["count"] = 0;
-    return tablets_distribution_ej;
-}
-*/
 } // namespace doris
 
