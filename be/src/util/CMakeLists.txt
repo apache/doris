@@ -102,6 +102,7 @@ set(UTIL_FILES
   brpc_stub_cache.cpp
   zlib.cpp
   pprof_utils.cpp
+  topn_counter.cpp
 )
 
 if (WITH_MYSQL)

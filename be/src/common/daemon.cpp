@@ -41,6 +41,7 @@
 #include "exprs/string_functions.h"
 #include "exprs/time_operators.h"
 #include "exprs/timestamp_functions.h"
+#include "exprs/topn_function.h"
 #include "exprs/utility_functions.h"
 #include "geo/geo_functions.h"
 #include "olap/options.h"
@@ -261,6 +262,7 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     BitmapFunctions::init();
     HllFunctions::init();
     HashFunctions::init();
+    TopNFunctions::init();
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();
