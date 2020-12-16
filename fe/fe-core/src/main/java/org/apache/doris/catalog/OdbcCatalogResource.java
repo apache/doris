@@ -102,7 +102,13 @@ public class OdbcCatalogResource extends Resource {
     protected void getProcNodeData(BaseProcResult result) {
         String lowerCaseType = type.name().toLowerCase();
         for (Map.Entry<String, String> entry : configs.entrySet()) {
-            result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
+            // it's dangerous to show password in show odbc resource
+            // so we use empty string to replace the real password
+            if (entry.getKey().equals(PASSWORD)) {
+                result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), ""));
+            } else {
+                result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
+            }
         }
     }
 }
