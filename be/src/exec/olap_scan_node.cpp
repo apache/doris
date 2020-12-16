@@ -711,7 +711,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool->add(scanner);
             RETURN_IF_ERROR(
-                    scanner->prepare(*scan_range, scanner_ranges, _olap_filter, _is_null_vector));
+                    scanner->prepare(*scan_range, scanner_ranges, _olap_filter));
 
             _olap_scanners.push_back(scanner);
             disk_set.insert(scanner->scan_disk());
@@ -840,12 +840,8 @@ std::pair<bool, void*> OlapScanNode::should_push_down_eq_predicate(doris::SlotDe
     }
 
     // get value in result pair
-    result_pair.second = _conjunct_ctxs[conj_idx]->get_value(expr, NULL);
-    // TODO(lhp) push down is null predicate to storage engine
-    // for case: where col = null
-    if (result_pair.second != nullptr) {
-        result_pair.first = true;
-    }
+    result_pair = std::make_pair(true, _conjunct_ctxs[conj_idx]->get_value(expr, NULL));
+
     return result_pair;
 }
 
@@ -908,7 +904,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
 
         // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
         if (TExprOpcode::FILTER_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
-            InPredicate* pred = dynamic_cast<InPredicate*>(_conjunct_ctxs[conj_idx]->root());
+            InPredicate* pred = dynamic_cast<InPredicate *>(_conjunct_ctxs[conj_idx]->root());
             if (!should_push_down_in_predicate(slot, pred)) {
                 continue;
             }
@@ -916,30 +912,25 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
             // begin to push InPredicate value into ColumnValueRange
             HybridSetBase::IteratorBase* iter = pred->hybrid_set()->begin();
             while (iter->has_next()) {
-                // column in (NULL,...) couldn't push down to StorageEngine
-                // so set clear() temp_range to whole range
+                // column in (NULL) is always false so continue to
+                // dispose next item
                 if (NULL == iter->get_value()) {
-                    temp_range.clear();
-                    break;
+                    continue;
                 }
                 auto value = const_cast<void*>(iter->get_value());
                 RETURN_IF_ERROR(insert_value_to_range(temp_range, slot->type().type, value));
                 iter->next();
             }
 
-            // only where a in ('a', 'b', NULL) contain NULL will
-            // clear temp_range to whole range, no need do intersection
-            if (!temp_range.is_whole_range()) {
-               if (is_key_column(slot->col_name())) {
-                   filter_conjuncts_index.emplace_back(conj_idx);
-               }
-               range->intersection(temp_range);
+            if (is_key_column(slot->col_name())) {
+                filter_conjuncts_index.emplace_back(conj_idx);
             }
+            range->intersection(temp_range);
         } // end of handle in predicate
 
-        // 2. Normalize eq conjuncts like 'where col = value'
-        if (TExprNodeType::BINARY_PRED == _conjunct_ctxs[conj_idx]->root()->node_type() &&
-            FILTER_IN == to_olap_filter_type(_conjunct_ctxs[conj_idx]->root()->op(), false)) {
+            // 2. Normalize eq conjuncts like 'where col = value'
+        else if (TExprNodeType::BINARY_PRED == _conjunct_ctxs[conj_idx]->root()->node_type() &&
+                 FILTER_IN == to_olap_filter_type(_conjunct_ctxs[conj_idx]->root()->op(), false)) {
             Expr* pred = _conjunct_ctxs[conj_idx]->root();
             DCHECK(pred->get_num_children() == 2);
 
@@ -951,9 +942,12 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                 if (!result_pair.first) {
                     continue;
                 }
-                auto value = result_pair.second;
 
-                RETURN_IF_ERROR(insert_value_to_range(temp_range, slot->type().type, value));
+                auto value = result_pair.second;
+                // where A = NULL should return empty result set
+                if (value != nullptr) {
+                    RETURN_IF_ERROR(insert_value_to_range(temp_range, slot->type().type, value));
+                }
 
                 if (is_key_column(slot->col_name())) {
                     filter_conjuncts_index.emplace_back(conj_idx);
@@ -965,7 +959,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
 
     // exceed limit, no conditions will be pushed down to storage engine.
     if (range->get_fixed_value_size() > _max_pushdown_conditions_per_column) {
-        range->clear();
+        range->set_whole_value_range();
     } else {
         std::copy(filter_conjuncts_index.cbegin(), filter_conjuncts_index.cend(),
                 std::inserter(_pushed_conjuncts_index, _pushed_conjuncts_index.begin()));
@@ -973,32 +967,34 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
     return Status::OK();
 }
 
-void OlapScanNode::construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot,
-                                                        const std::string& is_null_str) {
+template <typename T>
+bool OlapScanNode::normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
+                const std::string& is_null_str, ColumnValueRange<T>* range) {
     if (expr->node_type() != TExprNodeType::SLOT_REF) {
-        return;
+        return false;
     }
 
     std::vector<SlotId> slot_ids;
     if (1 != expr->get_slot_ids(&slot_ids)) {
-        return;
+        return false;
     }
 
     if (slot_ids[0] != slot->id()) {
-        return;
+        return false;
     }
-    TCondition is_null;
-    is_null.column_name = slot->col_name();
-    is_null.condition_op = "is";
-    is_null.condition_values.push_back(is_null_str);
-    _is_null_vector.push_back(is_null);
-    return;
+
+    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(range->type());
+    temp_range.set_contain_null(is_null_str == "null");
+    range->intersection(temp_range);
+
+    return true;
 }
 
 template <class T>
 Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                                                       ColumnValueRange<T>* range) {
     std::vector<uint32_t> filter_conjuncts_index;
+
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         Expr* root_expr = _conjunct_ctxs[conj_idx]->root();
         if (TExprNodeType::BINARY_PRED != root_expr->node_type() ||
@@ -1006,14 +1002,19 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
             FILTER_NOT_IN == to_olap_filter_type(root_expr->op(), false)) {
             if (TExprNodeType::FUNCTION_CALL == root_expr->node_type()) {
                 std::string is_null_str;
-                if (root_expr->is_null_scalar_function(is_null_str)) {
-                    construct_is_null_pred_in_where_pred(root_expr->get_child(0), slot,
-                                                         is_null_str);
+                // 1. dispose the where pred "A is null" and "A is not null"
+                if (root_expr->is_null_scalar_function(is_null_str) &&
+                    normalize_is_null_predicate(root_expr, slot, is_null_str, range)) {
+                    // if column is key column should push down conjunct storage engine
+                    if (is_key_column(slot->col_name())) {
+                        filter_conjuncts_index.emplace_back(conj_idx);
+                    }
                 }
             }
             continue;
         }
 
+        // 2. dispose the where pred "A <,<=" and "A >,>="
         Expr* pred = _conjunct_ctxs[conj_idx]->root();
         DCHECK(pred->get_num_children() == 2);
 
