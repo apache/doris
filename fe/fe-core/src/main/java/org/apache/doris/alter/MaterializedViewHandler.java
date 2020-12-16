@@ -444,6 +444,10 @@ public class MaterializedViewHandler extends AlterHandler {
                 if (mvColumnItem.isKey()) {
                     ++numOfKeys;
                 }
+                if (baseColumn == null) {
+                    throw new DdlException("The mv column of agg or uniq table cannot be transformed "
+                            + "from original column[" + mvColumnItem.getBaseColumnName() + "]");
+                }
                 Preconditions.checkNotNull(baseColumn, "Column[" + mvColumnName + "] does not exist");
                 AggregateType baseAggregationType = baseColumn.getAggregationType();
                 AggregateType mvAggregationType = mvColumnItem.getAggregationType();
