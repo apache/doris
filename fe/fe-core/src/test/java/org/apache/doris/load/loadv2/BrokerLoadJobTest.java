@@ -17,22 +17,23 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.BrokerTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
@@ -45,29 +46,29 @@ import org.apache.doris.planner.BrokerScanNode;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.task.MasterTaskExecutor;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.UUID;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-import org.apache.doris.thrift.TUniqueId;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 public class BrokerLoadJobTest {
 
@@ -358,8 +359,10 @@ public class BrokerLoadJobTest {
         fileGroups.add(brokerFileGroup);
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        RuntimeProfile jobProfile = new RuntimeProfile("test");
         LoadLoadingTask task = new LoadLoadingTask(database, olapTable,brokerDesc, fileGroups,
-                100, 100,false, 100, callback, "", 100);
+                100, 100, false, 100, callback, "", 100,
+                jobProfile);
         try {
             UserIdentity userInfo = new UserIdentity("root", "localhost");
             userInfo.setIsAnalyzed();

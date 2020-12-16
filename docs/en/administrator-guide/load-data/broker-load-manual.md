@@ -456,6 +456,14 @@ We will only discuss the case of a single BE. If the user cluster has more than 
 		
 		```
 
+### Performance analysis
+
+You can execute `set is_report_success=true` to open the load job profile before submitting the import job. After the import job is completed, you can view the profile of the import job in the `Queris` tab of the FE web page.
+
+This profile can help analyze the running status of the import job.
+
+Currently, the profile can only be viewed after the job is successfully executed.
+
 ### Complete examples
 
 Data situation: User data in HDFS, file address is hdfs://abc.com:8888/store_sales, HDFS authentication user name is root, password is password, data size is about 30G, hope to import into database bj_sales table store_sales.
