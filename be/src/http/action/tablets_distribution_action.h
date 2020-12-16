@@ -28,7 +28,7 @@ class TabletsDistributionAction : public HttpHandler {
 public:
     TabletsDistributionAction();
     void handle(HttpRequest *req) override;
-    EasyJson get_tablets_distribution();
+    EasyJson get_tablets_distribution(uint64_t partition_id);
     std::string host() { return _host; }
 
 private:

@@ -19,6 +19,8 @@
 
 #include <string>
 
+#include "common/status.h"
+#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_request.h"
 #include "http/http_headers.h"
@@ -26,6 +28,7 @@
 #include "service/backend_options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "util/json_util.h"
 
 namespace doris {
 
@@ -37,10 +40,24 @@ TabletsDistributionAction::TabletsDistributionAction() {
 
 void TabletsDistributionAction::handle(HttpRequest *req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
-    HttpChannel::send_reply(req, HttpStatus::OK, get_tablets_distribution().ToString());
+
+    std::string req_partition_id = req->param("partition_id");
+    uint64_t partition_id = 0;
+    if (req_partition_id != "") {
+        try {
+            partition_id = std::stoull(req_partition_id);
+        } catch (const std::exception& e) {
+            LOG(WARNING) << "invalid argument. partition_id:" << req_partition_id;
+            Status status = Status::InternalError(strings::Substitute("invalid argument: partition_id"));
+            std::string status_result = to_json(status);
+            HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
+            return;
+        }
+    }
+    HttpChannel::send_reply(req, HttpStatus::OK, get_tablets_distribution(partition_id).ToString());
 }
 
-EasyJson TabletsDistributionAction::get_tablets_distribution() {
+EasyJson TabletsDistributionAction::get_tablets_distribution(uint64_t partition_id) {
     std::map<int64_t, std::map<DataDir*, int>> tablets_num_on_disk;
     std::map<int64_t, std::map<DataDir*, int>> tablets_size_on_disk;
     std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>> tablets_info_on_disk;
@@ -56,6 +73,9 @@ EasyJson TabletsDistributionAction::get_tablets_distribution() {
     int64_t tablet_total_number = 0;
     std::map<int64_t, std::map<DataDir*, int>>::iterator partition_iter = tablets_num_on_disk.begin();
     for (; partition_iter != tablets_num_on_disk.end(); partition_iter++) {
+        if (partition_id != 0 && partition_id != partition_iter->first) {
+            continue;
+        }
         EasyJson partition = tablets_distribution.PushBack(EasyJson::kObject);
         partition["partition_id"] = partition_iter->first;
         EasyJson disks = partition.Set("disks", EasyJson::kArray);
@@ -66,12 +86,14 @@ EasyJson TabletsDistributionAction::get_tablets_distribution() {
             disk["tablets_num"] = disk_iter->second;
             tablet_total_number += disk_iter->second;
             disk["tablets_total_size"] = tablets_size_on_disk[partition_iter->first][disk_iter->first];
-            EasyJson tablets = disk.Set("tablets", EasyJson::kArray);
-            for (int i = 0; i < tablets_info_on_disk[partition_iter->first][disk_iter->first].size(); i++) {
-                EasyJson tablet = tablets.PushBack(EasyJson::kObject);
-                tablet["tablet_id"] = tablets_info_on_disk[partition_iter->first][disk_iter->first][i].tablet_id;
-                tablet["schema_hash"] = tablets_info_on_disk[partition_iter->first][disk_iter->first][i].schema_hash;
-                tablet["tablet_size"] = tablets_info_on_disk[partition_iter->first][disk_iter->first][i].tablet_size;
+            if (partition_id != 0) {
+                EasyJson tablets = disk.Set("tablets", EasyJson::kArray);
+                for (int i = 0; i < tablets_info_on_disk[partition_iter->first][disk_iter->first].size(); i++) {
+                    EasyJson tablet = tablets.PushBack(EasyJson::kObject);
+                    tablet["tablet_id"] = tablets_info_on_disk[partition_iter->first][disk_iter->first][i].tablet_id;
+                    tablet["schema_hash"] = tablets_info_on_disk[partition_iter->first][disk_iter->first][i].schema_hash;
+                    tablet["tablet_size"] = tablets_info_on_disk[partition_iter->first][disk_iter->first][i].tablet_size;
+                }
             }
         }
     }
