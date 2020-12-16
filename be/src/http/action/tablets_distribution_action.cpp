@@ -61,7 +61,7 @@ EasyJson TabletsDistributionAction::get_tablets_distribution() {
         std::map<DataDir*, int>::iterator disk_iter = (partition_iter->second).begin();
         for (; disk_iter != (partition_iter->second).end(); disk_iter++) {
             EasyJson disk = disks.PushBack(EasyJson::kObject);
-            disk["disk_path_hash"] = disk_iter->first->path_hash();
+            disk["disk_path"] = disk_iter->first->path();
             disk["tablets_num"] = disk_iter->second;
             disk["tablets_total_size"] = tablets_size_on_disk[partition_iter->first][disk_iter->first];
             EasyJson tablets = disk.Set("tablets", EasyJson::kArray);
@@ -69,7 +69,7 @@ EasyJson TabletsDistributionAction::get_tablets_distribution() {
                 EasyJson tablet = tablets.PushBack(EasyJson::kObject);
                 tablet["tablet_id"] = tablets_info_on_disk[partition_iter->first][disk_iter->first][i].tablet_id;
                 tablet["schema_hash"] = tablets_info_on_disk[partition_iter->first][disk_iter->first][i].schema_hash;
-                tablet["tablet_footprint"] = tablets_info_on_disk[partition_iter->first][disk_iter->first][i].tablet_size;
+                tablet["tablet_size"] = tablets_info_on_disk[partition_iter->first][disk_iter->first][i].tablet_size;
             }
         }
     }
