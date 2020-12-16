@@ -27,6 +27,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.Coordinator;
@@ -64,11 +66,15 @@ public class LoadLoadingTask extends LoadTask {
 
     private LoadingTaskPlanner planner;
 
+    private RuntimeProfile jobProfile;
+    private RuntimeProfile profile;
+    private long beginTime;
+
     public LoadLoadingTask(Database db, OlapTable table,
                            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
                            long jobDeadlineMs, long execMemLimit, boolean strictMode,
                            long txnId, LoadTaskCallback callback, String timezone,
-                           long timeoutS) {
+                           long timeoutS, RuntimeProfile profile) {
         super(callback, TaskType.LOADING);
         this.db = db;
         this.table = table;
@@ -82,6 +88,7 @@ public class LoadLoadingTask extends LoadTask {
         this.retryTime = 2; // 2 times is enough
         this.timezone = timezone;
         this.timeoutS = timeoutS;
+        this.jobProfile = profile;
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList, int fileNum, UserIdentity userInfo) throws UserException {
@@ -100,6 +107,7 @@ public class LoadLoadingTask extends LoadTask {
         LOG.info("begin to execute loading task. load id: {} job: {}. db: {}, tbl: {}. left retry: {}",
                 DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
         retryTime--;
+        beginTime = System.nanoTime();
         executeOnce();
     }
 
@@ -148,6 +156,8 @@ public class LoadLoadingTask extends LoadTask {
                                                              curCoordinator.getLoadCounters(),
                                                              curCoordinator.getTrackingUrl(),
                                                              TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()));
+                // Create profile of this task and add to the job profile.
+                createProfile(curCoordinator);
             } else {
                 throw new LoadException(status.getErrorMsg());
             }
@@ -158,6 +168,19 @@ public class LoadLoadingTask extends LoadTask {
 
     private long getLeftTimeMs() {
         return jobDeadlineMs - System.currentTimeMillis();
+    }
+
+    public void createProfile(Coordinator coord) {
+        if (jobProfile == null) {
+            // No need to gather profile
+            return;
+        }
+        // Summary profile
+        profile = new RuntimeProfile("LoadTask: " + DebugUtil.printId(loadId));
+        coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(beginTime));
+        coord.endProfile();
+        profile.addChild(coord.getQueryProfile());
+        jobProfile.addChild(profile);
     }
 
     @Override
