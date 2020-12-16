@@ -992,6 +992,11 @@ void DataDir::update_user_data_size(int64_t size) {
     disks_data_used_capacity->set_value(size);
 }
 
+size_t DataDir::tablet_size() const {
+    std::lock_guard<std::mutex> l(_mutex);
+    return _tablet_set.size();
+}
+
 bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
     double used_pct = (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
                       (double)_disk_capacity_bytes;
