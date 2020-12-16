@@ -253,7 +253,7 @@ Syntax:
         ```
         PROPERTIES (
             "dynamic_partition.enable" = "true|false",
-            "dynamic_partition.time_unit" = "DAY|WEEK|MONTH",
+            "dynamic_partition.time_unit" = "HOUR|DAY|WEEK|MONTH",
             "dynamic_partitoin.end" = "${integer_value}",
             "dynamic_partition.prefix" = "${string_value}",
             "dynamic_partition.buckets" = "${integer_value}
@@ -262,7 +262,8 @@ Syntax:
        
        Dynamic_partition. Enable: specifies whether dynamic partitioning at the table level is enabled
        
-       Dynamic_partition. Time_unit: used to specify the time unit for dynamically adding partitions, which can be selected as DAY, WEEK, and MONTH.
+       Dynamic_partition. Time_unit: used to specify the time unit for dynamically adding partitions, which can be selected as HOUR, DAY, WEEK, and MONTH.
+                                     Attention: When the time unit is HOUR, the data type of partition column cannot be DATE.
        
        Dynamic_partition. End: used to specify the number of partitions created in advance
        
