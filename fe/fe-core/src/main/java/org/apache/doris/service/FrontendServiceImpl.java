@@ -37,6 +37,7 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.Version;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.MiniEtlTaskInfo;
@@ -64,6 +65,9 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendResult;
+import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
@@ -957,6 +961,40 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return new TStatus(TStatusCode.OK);
         }
         return new TStatus(TStatusCode.CANCELLED);
+    }
+
+    @Override
+    public TFrontendPingFrontendResult ping(TFrontendPingFrontendRequest request) throws TException {
+        boolean isReady = Catalog.getCurrentCatalog().isReady();
+        TFrontendPingFrontendResult result = new TFrontendPingFrontendResult();
+        result.setStatus(TFrontendPingFrontendStatusCode.OK);
+        if (isReady) {
+            if (request.getClusterId() != Catalog.getCurrentCatalog().getClusterId()) {
+                result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
+                result.setMsg("invalid cluster id: " + Catalog.getCurrentCatalog().getClusterId());
+            }
+
+            if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
+                if (!request.getToken().equals(Catalog.getCurrentCatalog().getToken())) {
+                    result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
+                    result.setMsg("invalid token: " + Catalog.getCurrentCatalog().getToken());
+                }
+            }
+
+            if (result.status == TFrontendPingFrontendStatusCode.OK) {
+                // cluster id and token are valid, return replayed journal id
+                long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
+                result.setMsg("success");
+                result.setReplayedJournalId(replayedJournalId);
+                result.setQueryPort(Config.query_port);
+                result.setRpcPort(Config.rpc_port);
+                result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+            }
+        } else {
+            result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
+            result.setMsg("not ready");
+        }
+        return result;
     }
 
     private TNetworkAddress getClientAddr() {
