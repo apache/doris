@@ -42,12 +42,14 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
@@ -198,31 +200,65 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return currentTaskConcurrentNum;
     }
 
-    // case1: BE execute the task successfully and commit it to FE, but failed on FE(such as db renamed, not found),
-    //        after commit failed, BE try to rollback this txn, and loaded rows in its attachment is larger than 0.
-    //        In this case, FE should not update the progress.
-    //
-    // case2: partitionIdToOffset must be not empty when loaded rows > 0
-    //        be commit txn but fe throw error when committing txn,
-    //        fe rollback txn without partitionIdToOffset by itself
-    //        this task should not be commit
-    //        otherwise currentErrorNum and currentTotalNum is updated when progress is not updated
+
+    // Through the transaction status and attachment information, to determine whether the progress needs to be updated.
     @Override
     protected boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
-                                      TransactionStatus txnStatus) {
-        if (rlTaskTxnCommitAttachment.getLoadedRows() > 0 && txnStatus == TransactionStatus.ABORTED) {
-            // case 1
+                                      TransactionState txnState) throws LoadException {
+
+        boolean isRowsMatched = isRowsMatched(rlTaskTxnCommitAttachment);
+        if (!isRowsMatched) {
+            // Currently we found 2 cases that may cause rows not matched:
+            // 1. task failed for some reason such as RPC error.
+            // 2. FE abort the timeout txn, in this case, the attachment does not has progress info.
+            if (txnState.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                // This should not happen.
+                // If the transaction is COMMITTED, the consumed rows number and offset increment must match.
+                // pause the job to observe.
+                throw new LoadException("kafka routine load rows not matched but txn is COMMITTED. txn: "
+                        + txnState.getTransactionId());
+            } else if (txnState.getTransactionStatus() == TransactionStatus.ABORTED) {
+                // If the number of rows does not match and the transaction status is abort,
+                // it means that this task may have failed for other reasons, such as RPC error.
+                // and the offset should not be updated.
+                return false;
+            }
+            // Other txn status except ABORTED and COMMITTED should not allowed here.
+            Preconditions.checkState(false, "txn " + txnState.getTransactionId() + ", status: "
+                    + txnState.getTransactionStatus());
+        } else {
+            if (rlTaskTxnCommitAttachment.getLoadedRows() > 0 && txnState.getTransactionStatus() == TransactionStatus.ABORTED) {
+                // Rows are matched, and at least 1 row is loaded, but txn is aborted for some reason(such as db renamed, not found)
+                // In this case, we should not update the progress.
+                return false;
+            }
+        }
+
+        // Other case, update the progress:
+        // Case 1:
+        //      Rows are matched, but all rows are filtered(loaded rows is zero), the txn is ABORTED.
+        //      No matter it is aborted because of all rows are filtered, or becaue other reason,
+        //      We can safely return true to update the progress the skip these filtered rows and go on.
+        // Case 2:
+        //      Rows are matched, at least 1 row is loaded, thn txn is COMMITTED.
+        //      This is the normal case, go update the progress.
+        return true;
+    }
+
+    private boolean isRowsMatched(RLTaskTxnCommitAttachment attachment) {
+        long totalRows = attachment.getTotalRows();
+        KafkaProgress newProgress = (KafkaProgress) attachment.getProgress();
+        KafkaProgress currentProgress = (KafkaProgress) this.progress;
+        if (!currentProgress.isPartitionMatched(newProgress)) {
+            LOG.warn("kafka progress partition not matched. current: {}, reported: {}, job: {}",
+                    currentProgress, newProgress, id);
             return false;
         }
 
-        if (rlTaskTxnCommitAttachment.getLoadedRows() > 0
-                && (!((KafkaProgress) rlTaskTxnCommitAttachment.getProgress()).hasPartition())) {
-            // case 2
-            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()))
-                    .add("job_id", id)
-                    .add("loaded_rows", rlTaskTxnCommitAttachment.getLoadedRows())
-                    .add("progress_partition_offset_size", 0)
-                    .add("msg", "commit attachment info is incorrect"));
+        long offsetDiff = currentProgress.offsetDiff(newProgress);
+        if (offsetDiff != totalRows) {
+            LOG.warn("kafka progress offset increment {} does not match with total rows {}. job: {}",
+                    offsetDiff, totalRows, id);
             return false;
         }
         return true;

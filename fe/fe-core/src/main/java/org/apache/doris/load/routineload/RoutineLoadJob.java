@@ -41,6 +41,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InternalErrorCode;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -1052,8 +1053,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                           + " maybe task was aborted by master when timeout")
                                   .build());
             }
-        } else if (txnState.getTransactionStatus() == TransactionStatus.COMMITTED
-                && checkCommitInfo(rlTaskTxnCommitAttachment, txnState.getTransactionStatus())) {
+        } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState)) {
             // step2: update job progress
             // only committed task need to update progress
             updateProgress(rlTaskTxnCommitAttachment);
@@ -1260,8 +1260,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     // check the correctness of commit info
-    protected abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
-            TransactionStatus txnStatus);
+    protected abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment, TransactionState txnState) throws LoadException;
 
     protected abstract String getStatistic();
 
