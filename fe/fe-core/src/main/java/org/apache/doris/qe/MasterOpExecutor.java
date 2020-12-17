@@ -95,6 +95,9 @@ public class MasterOpExecutor {
         queryOptions.setQueryTimeout(ctx.getSessionVariable().getQueryTimeoutS());
         queryOptions.setLoadMemLimit(ctx.getSessionVariable().getLoadMemLimit());
         params.setQueryOptions(queryOptions);
+        if (null != ctx.queryId()) {
+            params.setQueryId(ctx.queryId());
+        }
 
         LOG.info("Forward statement {} to Master {}", ctx.getStmtId(), thriftAddress);
 
@@ -110,6 +113,7 @@ public class MasterOpExecutor {
             if (e.getType() == TTransportException.TIMED_OUT) {
                 throw e;
             } else {
+                LOG.warn("Forward statement "+ ctx.getStmtId() +" to Master " + thriftAddress + " twice", e);
                 result = client.forward(params);
                 isReturnToPool = true;
             }

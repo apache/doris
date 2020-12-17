@@ -235,17 +235,25 @@ public class StmtExecutor {
         return parsedStmt;
     }
 
-    // Execute one statement.
+    // query with a random sql
+    public void execute() throws Exception {
+        UUID uuid = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        execute(queryId);
+    }
+
+    // Execute one statement with queryId
+    // The queryId will be set in ConnectContext
+    // This queryId will also be send to master FE for exec master only query.
+    // query id in ConnectContext will be changed when retry exec a query or master FE return a different one.
     // Exception:
     //  IOException: talk with client failed.
-    public void execute() throws Exception {
+    public void execute(TUniqueId queryId) throws Exception {
 
         plannerProfile.setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
-        // set query id
-        UUID uuid = UUID.randomUUID();
-        context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+        context.setQueryId(queryId);
 
         try {
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
@@ -265,6 +273,8 @@ public class StmtExecutor {
             if (isForwardToMaster()) {
                 forwardToMaster();
                 if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
+                    // If the query id changed in master, we set it in context.
+                    // WARN: when query timeout, this code may not be reach.
                     context.setQueryId(masterOpExecutor.getQueryId());
                 }
                 return;
@@ -279,8 +289,10 @@ public class StmtExecutor {
                     try {
                         //reset query id for each retry
                         if (i > 0) {
-                            uuid = UUID.randomUUID();
-                            context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+                            UUID uuid = UUID.randomUUID();
+                            TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+                            LOG.warn("Query {} {} times with new query id: {}", DebugUtil.printId(queryId), i, newQueryId);
+                            context.setQueryId(newQueryId);
                         }
                         handleQueryStmt();
                         if (context.getSessionVariable().isReportSucc()) {
@@ -1112,6 +1124,9 @@ public class StmtExecutor {
         }
         if (statisticsForAuditLog.scan_rows == null) {
             statisticsForAuditLog.scan_rows = 0L;
+        }
+        if (statisticsForAuditLog.cpu_ms == null) {
+            statisticsForAuditLog.cpu_ms = 0L;
         }
         return statisticsForAuditLog;
     }

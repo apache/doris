@@ -506,8 +506,8 @@ IdentifierOrKwContents = [:digit:]*[:jletter:][:jletterdigit:]* | "&&" | "||"
 IdentifierOrKw = \`{IdentifierOrKwContents}\` | {IdentifierOrKwContents}
 IntegerLiteral = [:digit:][:digit:]*
 QuotedIdentifier = \`(\`\`|[^\`])*\`
-SingleQuoteStringLiteral = \'(\\.|[^\\\'])*\'
-DoubleQuoteStringLiteral = \"(\\.|[^\\\"])*\"
+SingleQuoteStringLiteral = \'(\\.|[^\\\']|\'\')*\'
+DoubleQuoteStringLiteral = \"(\\.|[^\\\"]|\"\")*\"
 
 FLit1 = [0-9]+ \. [0-9]*
 FLit2 = \. [0-9]+
@@ -595,12 +595,12 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 
 {SingleQuoteStringLiteral} {
   return newToken(SqlParserSymbols.STRING_LITERAL,
-                  escapeBackSlash(yytext().substring(1, yytext().length()-1)));
+      escapeBackSlash(yytext().substring(1, yytext().length()-1)).replaceAll("''", "'"));
 }
 
 {DoubleQuoteStringLiteral} {
   return newToken(SqlParserSymbols.STRING_LITERAL,
-                  escapeBackSlash(yytext().substring(1, yytext().length()-1)));
+      escapeBackSlash(yytext().substring(1, yytext().length()-1)).replaceAll("\"\"", "\""));
 }
 
 {CommentedHintBegin} {

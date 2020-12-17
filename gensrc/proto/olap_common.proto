@@ -48,3 +48,13 @@ enum CompressKind {
     COMPRESS_LZ4 = 2;
 }
 
+message PCounter {
+    required string item = 1;
+    required uint64 count = 2;
+}
+
+message PTopNCounter {
+    required uint32 top_num = 1;
+    required uint32 space_expand_rate = 2;
+    repeated PCounter counter = 3;
+}

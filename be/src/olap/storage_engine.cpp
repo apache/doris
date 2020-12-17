@@ -434,7 +434,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     for (int i = 0; i < stores.size(); i++) {
         int j = i + 1;
         if (j < stores.size()) {
-            if (stores[i]->tablet_set().size() > stores[j]->tablet_set().size()) {
+            if (stores[i]->tablet_size() > stores[j]->tablet_size()) {
                 std::swap(stores[i], stores[j]);
             }
             std::random_shuffle(stores.begin() + j, stores.end());
