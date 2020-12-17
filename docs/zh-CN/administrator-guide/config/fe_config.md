@@ -445,6 +445,10 @@ HTTP服务允许接收请求的Header的最大长度，单位为比特，默认�
 
 ### `max_distribution_pruner_recursion_depth`
 
+### `max_exec_mem_limit`
+
+该配置控制会话参数 `exec_mem_limit`，仅对SELECT语句生效，默认为0，即不起作用。
+
 ### `max_layout_length_per_row`
 
 ### `max_load_timeout_second`
@@ -452,6 +456,10 @@ HTTP服务允许接收请求的Header的最大长度，单位为比特，默认�
 ### `max_mysql_service_task_threads_num`
 
 ### `max_query_retry_time`
+
+### `max_query_timeout`
+
+该配置控制会话参数 `query_timeout`，仅对SELECT语句生效，默认为0，即不起作用。
 
 ### `max_routine_load_job_num`
 

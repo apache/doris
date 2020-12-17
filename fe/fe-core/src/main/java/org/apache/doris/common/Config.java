@@ -931,6 +931,22 @@ public class Config extends ConfigBase {
     public static int max_query_retry_time = 2;
 
     /**
+     * The max value for session variable query_timeout.
+     * For SELECT statement only.
+     * Default 0, which means not working.
+     */
+    @ConfField(mutable = true)
+    public static int max_query_timeout = 0;
+
+    /**
+     * The max value for session variable exec_mem_limit.
+     * For SELECT statement only.
+     * Default 0, which means not working.
+     */
+    @ConfField(mutable = true)
+    public static long max_exec_mem_limit = 0L;
+
+    /**
      * The tryLock timeout configuration of catalog lock.
      * Normally it does not need to change, unless you need to test something.
      */

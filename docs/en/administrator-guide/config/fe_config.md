@@ -451,6 +451,10 @@ Can cooperate with `mix_clone_task_timeout_sec` to control the maximum and minim
 
 ### `max_distribution_pruner_recursion_depth`
 
+### `max_exec_mem_limit`
+
+This config controls the session parameter `exec_mem_limit`, which only works with the SELECT statement. Defaults to 0, which means not working.
+
 ### `max_layout_length_per_row`
 
 ### `max_load_timeout_second`
@@ -458,6 +462,10 @@ Can cooperate with `mix_clone_task_timeout_sec` to control the maximum and minim
 ### `max_mysql_service_task_threads_num`
 
 ### `max_query_retry_time`
+
+### `max_query_timeout`
+
+This config controls the session parameter `query_timeout`, which only works with the SELECT statement. Defaults to 0, which means not working.
 
 ### `max_routine_load_job_num`
 

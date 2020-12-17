@@ -285,7 +285,15 @@ public class StmtExecutor {
             if (parsedStmt instanceof QueryStmt) {
                 context.getState().setIsQuery(true);
                 int retryTime = Config.max_query_retry_time;
-                for (int i = 0; i < retryTime; i ++) {
+                for (int i = 0; i < retryTime; ++i) {
+                    int originTimeout = context.getSessionVariable().getQueryTimeoutS();
+                    int realTimeout = 0 < Config.max_query_timeout && Config.max_query_timeout < originTimeout ?
+                            Config.max_query_timeout : originTimeout;
+                    context.getSessionVariable().setQueryTimeoutS(realTimeout);
+                    long originMemLimit = context.getSessionVariable().getMaxExecMemByte();
+                    long realMemLimit = 0L < Config.max_exec_mem_limit && Config.max_exec_mem_limit < originMemLimit ?
+                            Config.max_exec_mem_limit : originMemLimit;
+                    context.getSessionVariable().setMaxExecMemByte(realMemLimit);
                     try {
                         //reset query id for each retry
                         if (i > 0) {
@@ -309,6 +317,8 @@ public class StmtExecutor {
                             throw e;
                         }
                     } finally {
+                        context.getSessionVariable().setQueryTimeoutS(originTimeout);
+                        context.getSessionVariable().setMaxExecMemByte(originMemLimit);
                         QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
                     }
                 }
@@ -697,6 +707,7 @@ public class StmtExecutor {
         coord = new Coordinator(context, analyzer, planner);
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+        coord.setTimeout(context.getSessionVariable().getQueryTimeoutS());
         coord.exec();
 
         while (true) {
