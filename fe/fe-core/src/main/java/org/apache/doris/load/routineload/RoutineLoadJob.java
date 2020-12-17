@@ -1055,7 +1055,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             }
         } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState)) {
             // step2: update job progress
-            // only committed task need to update progress
             updateProgress(rlTaskTxnCommitAttachment);
         }
 
