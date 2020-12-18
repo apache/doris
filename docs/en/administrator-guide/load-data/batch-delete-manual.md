@@ -124,10 +124,10 @@ Routine load adds a mapping to the `columns` field. The mapping method is the sa
 
 ## Enable bulk delete support
 There are two ways of enabling batch delete support:
-1. By adding ʻenable_batch_delete_by_default=true` in the fe configuration file, all newly created tables after restarting fe support batch deletion, this option defaults to false
+1. By adding `enable_batch_delete_by_default=true` in the fe configuration file, all newly created tables after restarting fe support batch deletion, this option defaults to false
 
 2. For tables that have not changed the above fe configuration or for existing tables that do not support the bulk delete function, you can use the following statement:
-ʻALTER TABLE tablename ENABLE FEATURE "BATCH_DELETE"` to enable batch delete.
+`ALTER TABLE tablename ENABLE FEATURE "BATCH_DELETE"` to enable the batch delete.
 
 If you want to determine whether a table supports batch delete, you can set a session variable to display the hidden columns `SET show_hidden_columns=true`, and then use `desc tablename`, if there is a `__DELETE_SIGN__` column in the output, it is supported, if not, it is not supported
 ## Note

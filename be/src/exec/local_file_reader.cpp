@@ -53,21 +53,17 @@ bool LocalFileReader::closed() {
 }
 
 // Read all bytes
-Status LocalFileReader::read_one_message(uint8_t** buf, size_t* length) {
+Status LocalFileReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) {
     bool eof;
     int64_t file_size = size() - _current_offset;
     if (file_size <= 0) {
-        *buf = nullptr;
+        buf->reset();
         *length = 0;
         return Status::OK();
     }
     *length = file_size;
-    *buf = new uint8_t[file_size];
-    read(*buf, length, &eof);
-    if (*length == 0) {
-        delete *buf;
-        *buf = nullptr;
-    }
+    buf->reset(new uint8_t[file_size]);
+    read(buf->get(), length, &eof);
     return Status::OK();
 }
 

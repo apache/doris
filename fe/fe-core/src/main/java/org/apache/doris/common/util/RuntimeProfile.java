@@ -24,16 +24,17 @@ import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TUnit;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Formatter;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -58,7 +59,7 @@ public class RuntimeProfile {
     private Map<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
 
     private Map<String, TreeSet<String>> childCounterMap = Maps.newHashMap();
-    private List<Pair<RuntimeProfile, Boolean>> childList = Lists.newArrayList();
+    private LinkedList<Pair<RuntimeProfile, Boolean>> childList = Lists.newLinkedList();
 
     private String name;
     
@@ -316,6 +317,16 @@ public class RuntimeProfile {
         this.childMap.put(child.name, child);
         Pair<RuntimeProfile, Boolean> pair = Pair.create(child, true);
         this.childList.add(pair);
+    }
+
+    public void addFirstChild(RuntimeProfile child) {
+        if (child == null) {
+            return;
+        }
+
+        this.childMap.put(child.name, child);
+        Pair<RuntimeProfile, Boolean> pair = Pair.create(child, true);
+        this.childList.addFirst(pair);
     }
 
     // Because the profile of summary and child fragment is not a real parent-child relationship

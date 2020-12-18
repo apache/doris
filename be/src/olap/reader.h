@@ -76,7 +76,7 @@ struct ReaderParams {
 
     void check_validation() const;
 
-    std::string to_string();
+    std::string to_string() const;
 };
 
 class Reader {
@@ -145,8 +145,10 @@ private:
 
     void _init_load_bf_columns(const ReaderParams& read_params);
 
-    OLAPStatus _dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                 bool* eof);
+    OLAPStatus _direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+                                bool* eof);
+    OLAPStatus _direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
+                                        ObjectPool* agg_pool, bool* eof);
     OLAPStatus _agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                  bool* eof);
     OLAPStatus _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
@@ -169,6 +171,7 @@ private:
     std::vector<bool> _is_upper_keys_included;
     Conditions _conditions;
     std::vector<ColumnPredicate*> _col_predicates;
+    std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 
     OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool,
@@ -183,7 +186,7 @@ private:
     bool _has_sequence_col = false;
     int32_t _sequence_col_idx = -1;
     const RowCursor* _next_key = nullptr;
-    CollectIterator* _collect_iter = nullptr;
+    std::unique_ptr<CollectIterator> _collect_iter;
     std::vector<uint32_t> _key_cids;
     std::vector<uint32_t> _value_cids;
 

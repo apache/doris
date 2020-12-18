@@ -55,6 +55,7 @@ public class RestBaseAction extends BaseAction {
             execute(request, response);
         } catch (DdlException e) {
             if (e instanceof UnauthorizedException) {
+                response.appendContent(e.getMessage());
                 response.updateHeader(HttpHeaderNames.WWW_AUTHENTICATE.toString(), "Basic realm=\"\"");
                 writeResponse(request, response, HttpResponseStatus.UNAUTHORIZED);
             } else {
