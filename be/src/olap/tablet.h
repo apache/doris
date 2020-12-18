@@ -246,6 +246,7 @@ public:
 
     int64_t prepare_compaction_and_calculate_permits(CompactionType compaction_type, TabletSharedPtr tablet);
     void execute_compaction(CompactionType compaction_type);
+    void reset_compaction(CompactionType compaction_type);
 
     void set_clone_occurred(bool clone_occurred) { _is_clone_occurred = clone_occurred; }
     bool get_clone_occurred() { return _is_clone_occurred; }
