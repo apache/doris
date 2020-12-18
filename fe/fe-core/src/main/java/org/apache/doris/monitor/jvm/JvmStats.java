@@ -213,12 +213,12 @@ public class JvmStats {
         static final String THREADS = "threads";
         static final String COUNT = "count";
         static final String PEAK_COUNT = "peak_count";
-        static final String THREADS_NEW_COUNT = "threads_new_count";
-        static final String THREADS_RUNNING_COUNT = "threads_runnable_count";
-        static final String THREADS_BLOCKED_COUNT = "threads_blocked_count";
-        static final String THREADS_WAITING_COUNT = "threads_waiting_count";
-        static final String THREADS_TIMED_WAITING_COUNT = "threads_timed_waiting_count";
-        static final String THREADS_TERMINATED_COUNT = "threads_terminated_count";
+        static final String NEW_COUNT = "new_count";
+        static final String RUNNING_COUNT = "runnable_count";
+        static final String BLOCKED_COUNT = "blocked_count";
+        static final String WAITING_COUNT = "waiting_count";
+        static final String TIMED_WAITING_COUNT = "timed_waiting_count";
+        static final String TERMINATED_COUNT = "terminated_count";
 
         static final String GC = "gc";
         static final String COLLECTORS = "collectors";
