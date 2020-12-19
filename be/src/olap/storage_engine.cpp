@@ -806,6 +806,7 @@ OLAPStatus StorageEngine::create_tablet(const TCreateTabletReq& request) {
         LOG(WARNING) << "there is no available disk that can be used to create tablet.";
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
+    TRACE("got data directory for create tablet");
     return _tablet_manager->create_tablet(request, stores);
 }
 
