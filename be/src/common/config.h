@@ -331,6 +331,9 @@ CONF_mInt64(row_step_for_compaction_merge_log, "0");
 CONF_mInt32(base_compaction_trace_threshold, "10");
 CONF_mInt32(cumulative_compaction_trace_threshold, "2");
 
+// Threshold to logging agent task trace, in seconds.
+CONF_mInt32(agent_task_trace_threshold_sec, "2");
+
 // time interval to record tablet scan count in second for the purpose of calculating tablet scan frequency
 CONF_mInt64(tablet_scan_frequency_time_node_interval_second, "300");
 // coefficient for tablet scan frequency and compaction score when finding a tablet for compaction
