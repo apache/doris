@@ -1183,9 +1183,10 @@ public class Coordinator {
             }
             addressToScanRanges.get(address).add(filteredNodeScanRanges);
         }
-
+        FragmentScanRangeAssignment assignment = params.scanRangeAssignment;
         for (Map.Entry<TNetworkAddress, List<Map<Integer, List<TScanRangeParams>>>> addressScanRange : addressToScanRanges.entrySet()) {
             List<Map<Integer, List<TScanRangeParams>>> scanRange = addressScanRange.getValue();
+            Map<Integer, List<TScanRangeParams>> range = findOrInsert(assignment, addressScanRange.getKey(), new HashMap<Integer, List<TScanRangeParams>>());
             int expectedInstanceNum = 1;
             if (parallelExecInstanceNum > 1) {
                 //the scan instance num should not larger than the tablets num
@@ -1200,13 +1201,17 @@ public class Coordinator {
             for (List<Map<Integer, List<TScanRangeParams>>> perInstanceScanRange : perInstanceScanRanges) {
                 FInstanceExecParam instanceParam = new FInstanceExecParam(null, addressScanRange.getKey(), 0, params);
 
+
                 for (Map<Integer, List<TScanRangeParams>> nodeScanRangeMap : perInstanceScanRange) {
                     for (Map.Entry<Integer, List<TScanRangeParams>> nodeScanRange : nodeScanRangeMap.entrySet()) {
                         if (!instanceParam.perNodeScanRanges.containsKey(nodeScanRange.getKey())) {
+                            range.put(nodeScanRange.getKey(), nodeScanRange.getValue());
                             instanceParam.perNodeScanRanges.put(nodeScanRange.getKey(), nodeScanRange.getValue());
                         } else {
+                            range.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
                             instanceParam.perNodeScanRanges.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
                         }
+
                     }
                 }
                 params.instanceExecParams.add(instanceParam);
