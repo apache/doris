@@ -18,6 +18,13 @@
 package org.apache.doris.load.routineload;
 
 
+import java_cup.runtime.Symbol;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.catalog.Catalog;
@@ -28,25 +35,20 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
-
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 
 import org.apache.kafka.common.PartitionInfo;
 import org.junit.Assert;
 import org.junit.Test;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import java.util.List;
 import java.util.Map;
-
-import java_cup.runtime.Symbol;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 public class RoutineLoadJobTest {
 
@@ -96,11 +98,18 @@ public class RoutineLoadJobTest {
 
     @Test
     public void testAfterAborted(@Injectable TransactionState transactionState,
-                                 @Injectable KafkaTaskInfo routineLoadTaskInfo,
-                                 @Injectable KafkaProgress progress) throws UserException {
+                                 @Injectable KafkaTaskInfo routineLoadTaskInfo) throws UserException {
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         long txnId = 1L;
+
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        TKafkaRLTaskProgress tKafkaRLTaskProgress = new TKafkaRLTaskProgress();
+        tKafkaRLTaskProgress.partitionCmtOffset = Maps.newHashMap();
+        KafkaProgress kafkaProgress = new KafkaProgress(tKafkaRLTaskProgress);
+        Deencapsulation.setField(attachment, "progress", kafkaProgress);
+
+        KafkaProgress currentProgress = new KafkaProgress(tKafkaRLTaskProgress);
 
         new Expectations() {
             {
@@ -112,7 +121,7 @@ public class RoutineLoadJobTest {
                 result = txnId;
                 transactionState.getTxnCommitAttachment();
                 minTimes = 0;
-                result = new RLTaskTxnCommitAttachment();
+                result = attachment;
                 routineLoadTaskInfo.getPartitions();
                 minTimes = 0;
                 result = Lists.newArrayList();
@@ -129,7 +138,7 @@ public class RoutineLoadJobTest {
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
-        Deencapsulation.setField(routineLoadJob, "progress", progress);
+        Deencapsulation.setField(routineLoadJob, "progress", currentProgress);
         routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
 
         Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, routineLoadJob.getState());
