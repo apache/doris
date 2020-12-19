@@ -51,8 +51,10 @@
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
 #include "util/monotime.h"
+#include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
+#include "util/trace.h"
 
 using std::deque;
 using std::list;
@@ -257,6 +259,7 @@ void TaskWorkerPool::_remove_task_info(const TTaskType::type task_type, int64_t 
     EnumToString(TTaskType, task_type, type_str);
     LOG(INFO) << "remove task info. type=" << type_str << ", signature=" << signature
               << ", queue_size=" << queue_size;
+    TRACE("remove task info");
 }
 
 void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request) {
@@ -278,6 +281,7 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
         }
         sleep(config::sleep_one_second);
     }
+    TRACE("finish task");
 }
 
 uint32_t TaskWorkerPool::_get_next_task_index(int32_t thread_count,
@@ -324,6 +328,17 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             _tasks.pop_front();
         }
 
+        scoped_refptr<Trace> trace(new Trace);
+        MonotonicStopWatch watch;
+        watch.start();
+        SCOPED_CLEANUP({
+            if (watch.elapsed_time() / 1e9 > config::agent_task_trace_threshold_sec) {
+                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+            }
+        });
+        ADOPT_TRACE(trace.get());
+        TRACE("start to create tablet $0", create_tablet_req.tablet_id);
+
         TStatusCode::type status_code = TStatusCode::OK;
         std::vector<string> error_msgs;
         TStatus task_status;
@@ -351,6 +366,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
             finish_tablet_infos.push_back(tablet_info);
         }
+        TRACE("StorageEngine create tablet finish, status: $0", create_status);
 
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
