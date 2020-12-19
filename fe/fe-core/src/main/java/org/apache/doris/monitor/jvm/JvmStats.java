@@ -100,6 +100,7 @@ public class JvmStats {
                 case WAITING:       threadsWaiting++;       break;
                 case TIMED_WAITING: threadsTimedWaiting++;  break;
                 case TERMINATED:    threadsTerminated++;    break;
+                default:                                    break;
             }
         }
         Threads threads = new Threads(threadMXBean.getThreadCount(), threadMXBean.getPeakThreadCount(), threadsNew,
