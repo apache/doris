@@ -41,6 +41,7 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -146,6 +147,26 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
+    @Override
+    public void beforeCommitted(TransactionState txnState) throws TransactionException {
+        super.beforeCommitted(txnState);
+
+        RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
+        boolean isRowsMatched = isRowsMatched(rlTaskTxnCommitAttachment);
+        if (!isRowsMatched) {
+            // This should not happen.
+            // If the transaction is COMMITTED, the consumed rows number and offset increment must match.
+            // pause the job to observe.
+            try {
+                updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.INTERNAL_ERR,
+                                "load rows not matched but txn is COMMITTED. txn: " + txnState.getTransactionId()),
+                        false /* not replay */);
+            } catch (UserException e) {
+                LOG.warn("should not happen. job id: {}", id, e);
+            }
+            throw new TransactionException("load rows not matched but txn is COMMITTED.");
+        }
+    }
 
     @Override
     public void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException {
@@ -210,19 +231,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             // Currently we found 2 cases that may cause rows not matched:
             // 1. task failed for some reason such as RPC error.
             // 2. FE abort the timeout txn, in this case, the attachment does not has progress info.
-            if (txnState.getTransactionStatus() == TransactionStatus.COMMITTED) {
-                // This should not happen.
-                // If the transaction is COMMITTED, the consumed rows number and offset increment must match.
-                // pause the job to observe.
-                throw new LoadException("kafka routine load rows not matched but txn is COMMITTED. txn: "
-                        + txnState.getTransactionId());
-            } else if (txnState.getTransactionStatus() == TransactionStatus.ABORTED) {
+            if (txnState.getTransactionStatus() == TransactionStatus.ABORTED) {
                 // If the number of rows does not match and the transaction status is abort,
                 // it means that this task may have failed for other reasons, such as RPC error.
                 // and the offset should not be updated.
                 return false;
             }
-            // Other txn status except ABORTED and COMMITTED should not allowed here.
+            // If rows not match and transaction is COMMITTED, it should already be checked in "beforeCommitted" phase.
+            // So other txn status except ABORTED should not allowed here.
             Preconditions.checkState(false, "txn " + txnState.getTransactionId() + ", status: "
                     + txnState.getTransactionStatus());
         } else {
