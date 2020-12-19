@@ -387,18 +387,20 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
                 ret = DEL_SATISFIED;
             } else if (stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_PARTIAL_SATISFIED;
+            } else if (!stat.first->is_null() && !stat.second->is_null()){
+                ret = DEL_NOT_SATISFIED;
             } else {
                 CHECK(false) << "It will not happen when the stat's min is not null and max is null";
-                ret = DEL_SATISFIED;
             }
         } else {
             if (stat.first->is_null() && stat.second->is_null()) {
                 ret = DEL_NOT_SATISFIED;
             } else if (stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_PARTIAL_SATISFIED;
+            } else if (!stat.first->is_null() && !stat.second->is_null()){
+                ret = DEL_SATISFIED;
             } else {
                 CHECK(false) << "It will not happen when the stat's min is not null and max is null";
-                ret = DEL_SATISFIED;
             }
         }
         return ret;
