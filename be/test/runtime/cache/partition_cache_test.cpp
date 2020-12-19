@@ -280,6 +280,31 @@ TEST_F(PartitionCacheTest, prune_data) {
     clear();
 }
 
+TEST_F(PartitionCacheTest, fetch_not_continue_partition) {
+    init_default();
+    init_batch_data(1, 1, 1);
+    init_batch_data(1, 3, 1);
+    set_sql_key(_fetch_request->mutable_sql_key(), 1, 1);
+    PCacheParam* p1 = _fetch_request->add_params();
+    p1->set_partition_key(1);
+    p1->set_last_version(1);
+    p1->set_last_version_time(1);
+    PCacheParam* p2 = _fetch_request->add_params();
+    p2->set_partition_key(2);
+    p2->set_last_version(2);
+    p2->set_last_version_time(2);
+    PCacheParam* p3 = _fetch_request->add_params();
+    p3->set_partition_key(3);
+    p3->set_last_version(1);
+    p3->set_last_version_time(1);
+    _cache->fetch(_fetch_request, _fetch_result);
+    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::CACHE_OK);
+    ASSERT_EQ(_fetch_result->values_size(), 2);
+    ASSERT_EQ(_fetch_result->values(0).rows(0), "0123456789abcdef");
+    ASSERT_EQ(_fetch_result->values(1).rows(0), "0123456789abcdef");
+    clear();
+}
+
 } // namespace doris
 
 int main(int argc, char** argv) {
