@@ -246,6 +246,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private boolean isRowsMatched(RLTaskTxnCommitAttachment attachment) {
         long totalRows = attachment.getTotalRows();
+
         KafkaProgress newProgress = (KafkaProgress) attachment.getProgress();
         KafkaProgress currentProgress = (KafkaProgress) this.progress;
         if (!currentProgress.isPartitionMatched(newProgress)) {
@@ -255,6 +256,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
 
         long offsetDiff = currentProgress.offsetDiff(newProgress);
+        // because the progress reported from BE is the "already-consumed" offset(newProgress)
+        // the progress saved in job is the "next-to-be-consumed" offset(this.progress)
+        // So we should plus 1 offset for each parrition
+        offsetDiff += currentProgress.getPartitionNum();
         if (offsetDiff != totalRows) {
             LOG.warn("kafka progress offset increment {} does not match with total rows {}. job: {}",
                     offsetDiff, totalRows, id);

@@ -17,9 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import mockit.Injectable;
-import mockit.Mocked;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.FakeCatalog;
@@ -69,6 +66,9 @@ import java.util.UUID;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class GlobalTransactionMgrTest {
 
@@ -341,7 +341,7 @@ public class GlobalTransactionMgrTest {
         rlTaskTxnCommitAttachment.setLoadSourceType(TLoadSourceType.KAFKA);
         TKafkaRLTaskProgress tKafkaRLTaskProgress = new TKafkaRLTaskProgress();
         Map<Integer, Long> kafkaProgress = Maps.newHashMap();
-        kafkaProgress.put(1, 101L);
+        kafkaProgress.put(1, 100L); // start from 0, so rows number is 101, and consumed offset is 100
         tKafkaRLTaskProgress.setPartitionCmtOffset(kafkaProgress);
         rlTaskTxnCommitAttachment.setKafkaRLTaskProgress(tKafkaRLTaskProgress);
         TxnCommitAttachment txnCommitAttachment = new RLTaskTxnCommitAttachment(rlTaskTxnCommitAttachment);
@@ -354,7 +354,7 @@ public class GlobalTransactionMgrTest {
 
         Assert.assertEquals(Long.valueOf(101), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
         Assert.assertEquals(Long.valueOf(1), Deencapsulation.getField(routineLoadJob, "currentErrorRows"));
-        Assert.assertEquals(Long.valueOf(102L), ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
+        Assert.assertEquals(Long.valueOf(101L), ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
         // todo(ml): change to assert queue
         // Assert.assertEquals(1, routineLoadManager.getNeedScheduleTasksQueue().size());
         // Assert.assertNotEquals("label", routineLoadManager.getNeedScheduleTasksQueue().peek().getId());
@@ -407,7 +407,7 @@ public class GlobalTransactionMgrTest {
         rlTaskTxnCommitAttachment.setLoadSourceType(TLoadSourceType.KAFKA);
         TKafkaRLTaskProgress tKafkaRLTaskProgress = new TKafkaRLTaskProgress();
         Map<Integer, Long> kafkaProgress = Maps.newHashMap();
-        kafkaProgress.put(1, 111L);
+        kafkaProgress.put(1, 110L); // start from 0, so rows number is 111, consumed offset is 110
         tKafkaRLTaskProgress.setPartitionCmtOffset(kafkaProgress);
         rlTaskTxnCommitAttachment.setKafkaRLTaskProgress(tKafkaRLTaskProgress);
         TxnCommitAttachment txnCommitAttachment = new RLTaskTxnCommitAttachment(rlTaskTxnCommitAttachment);
@@ -421,7 +421,7 @@ public class GlobalTransactionMgrTest {
         // current total rows and error rows will be reset after job pause, so here they should be 0.
         Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
         Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentErrorRows"));
-        Assert.assertEquals(Long.valueOf(112L),
+        Assert.assertEquals(Long.valueOf(111L),
                 ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
         // todo(ml): change to assert queue
         // Assert.assertEquals(0, routineLoadManager.getNeedScheduleTasksQueue().size());

@@ -53,7 +53,7 @@ public class KafkaProgress extends RoutineLoadProgress {
     public static final long OFFSET_END_VAL = -1;
 
     // (partition id, begin offset)
-    // the offset the next msg to be consumed
+    // the offset saved here is the next offset need to be consumed
     private Map<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
 
     public KafkaProgress() {
@@ -107,6 +107,8 @@ public class KafkaProgress extends RoutineLoadProgress {
             } else if (entry.getValue() == -2) {
                 showPartitionIdToOffset.put(entry.getKey(), OFFSET_BEGINNING);
             } else {
+                // The offset saved in partitionIdToOffset is the next offset to be consumed.
+                // So here we minus 1 to return the "already consumed" offset.
                 showPartitionIdToOffset.put(entry.getKey(), "" + (entry.getValue() - 1));
             }
         }
@@ -138,6 +140,10 @@ public class KafkaProgress extends RoutineLoadProgress {
             diff += (newProgress.getOffsetByPartition(entry.getKey()) - entry.getValue());
         }
         return diff;
+    }
+
+    public int getPartitionNum() {
+        return this.partitionIdToOffset.keySet().size();
     }
 
     @Override

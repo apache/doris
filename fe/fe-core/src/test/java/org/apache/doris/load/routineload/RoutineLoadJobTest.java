@@ -17,14 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-
-import java_cup.runtime.Symbol;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.catalog.Catalog;
@@ -49,6 +41,13 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+
+import java_cup.runtime.Symbol;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 public class RoutineLoadJobTest {
 
