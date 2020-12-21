@@ -153,18 +153,27 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
         RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
         boolean isRowsMatched = isRowsMatched(rlTaskTxnCommitAttachment);
-        if (!isRowsMatched) {
-            // This should not happen.
-            // If the transaction is COMMITTED, the consumed rows number and offset increment must match.
-            // pause the job to observe.
-            try {
-                updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.INTERNAL_ERR,
-                                "load rows not matched but txn is COMMITTED. txn: " + txnState.getTransactionId()),
-                        false /* not replay */);
-            } catch (UserException e) {
-                LOG.warn("should not happen. job id: {}", id, e);
+        try {
+            if (!isRowsMatched) {
+                // This should not happen.
+                // If the transaction is COMMITTED, the consumed rows number and offset increment must match.
+                // pause the job to observe.
+                try {
+                    updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.INTERNAL_ERR,
+                                    "load rows not matched but txn is COMMITTED. txn: " + txnState.getTransactionId()),
+                            false /* not replay */);
+                } catch (UserException e) {
+                    LOG.warn("should not happen. job id: {}", id, e);
+                }
+                throw new TransactionException("load rows not matched but txn is COMMITTED.");
             }
-            throw new TransactionException("load rows not matched but txn is COMMITTED.");
+        } finally {
+            if (!isRowsMatched) {
+                // We lock it in super.beforeCommitted(txnState).
+                // If rows are not matched, exception will be thrown, and must unlock it.
+                writeUnlock();
+                LOG.debug("unlock write lock of routine load job before check: {}", id);
+            }
         }
     }
 
@@ -265,17 +274,20 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
         KafkaProgress newProgress = (KafkaProgress) attachment.getProgress();
         KafkaProgress currentProgress = (KafkaProgress) this.progress;
-        if (!currentProgress.isPartitionMatched(newProgress)) {
-            LOG.warn("kafka progress partition not matched. current: {}, reported: {}, job: {}",
-                    currentProgress, newProgress, id);
+
+        // Check the partition number. The partition number reported from BE task must <= partition number in job.
+        if (currentProgress.getPartitionNum() < newProgress.getPartitionNum()) {
+            LOG.warn("The partition number in reported kafka progress is larger than partition number if job." +
+                            " reported: {}, job: {}, id: {}",
+                    newProgress.getPartitionNum(), currentProgress.getPartitionNum(), id);
             return false;
         }
 
         long offsetDiff = currentProgress.offsetDiff(newProgress);
         // because the progress reported from BE is the "already-consumed" offset(newProgress)
         // the progress saved in job is the "next-to-be-consumed" offset(this.progress)
-        // So we should plus 1 offset for each parrition
-        offsetDiff += currentProgress.getPartitionNum();
+        // So we should plus 1 offset for each reported partition
+        offsetDiff += newProgress.getPartitionNum();
         if (offsetDiff != totalRows) {
             LOG.warn("kafka progress offset increment {} does not match with total rows {}. job: {}",
                     offsetDiff, totalRows, id);

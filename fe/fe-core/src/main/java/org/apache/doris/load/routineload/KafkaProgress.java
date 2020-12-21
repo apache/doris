@@ -133,11 +133,12 @@ public class KafkaProgress extends RoutineLoadProgress {
         return this.partitionIdToOffset.keySet().equals(otherProgress.partitionIdToOffset.keySet());
     }
 
-    // return the offset diff of this progress and the given progress
+    // return the offset diff of this progress and the given progress.
+    // the partition in newProgress must be in this progress.
     public long offsetDiff(KafkaProgress newProgress) {
         long diff = 0;
-        for (Map.Entry<Integer, Long> entry : this.partitionIdToOffset.entrySet()) {
-            diff += (newProgress.getOffsetByPartition(entry.getKey()) - entry.getValue());
+        for (Map.Entry<Integer, Long> entry : newProgress.partitionIdToOffset.entrySet()) {
+            diff += (entry.getValue() - getOffsetByPartition(entry.getKey()));
         }
         return diff;
     }
