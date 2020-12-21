@@ -41,7 +41,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InternalErrorCode;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -881,7 +880,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                         entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
                 RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
                 taskBeId = routineLoadTaskInfo.getBeId();
-                executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.COMMITTED);
+                executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.COMMITTED, null);
                 ++committedTaskNum;
                 LOG.debug("routine load task committed. task id: {}, job id: {}", txnState.getLabel(), id);
             }
@@ -993,8 +992,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                       .build());
                 }
                 ++abortedTaskNum;
+                TransactionState.TxnStatusChangeReason txnStatusChangeReason = null;
                 if (txnStatusChangeReasonString != null) {
-                    TransactionState.TxnStatusChangeReason txnStatusChangeReason =
+                    txnStatusChangeReason =
                             TransactionState.TxnStatusChangeReason.fromString(txnStatusChangeReasonString);
                     if (txnStatusChangeReason != null) {
                         switch (txnStatusChangeReason) {
@@ -1013,7 +1013,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     // TODO(ml): use previous be id depend on change reason
                 }
                 // step2: commit task , update progress, maybe create a new task
-                executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.ABORTED);
+                executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.ABORTED, txnStatusChangeReason);
             }
         } catch (Exception e) {
             String msg = "be " + taskBeId + " abort task " + txnState.getLabel() + " failed with error " + e.getMessage();
@@ -1041,7 +1041,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     // check task exists or not before call method
     private void executeTaskOnTxnStatusChanged(RoutineLoadTaskInfo routineLoadTaskInfo, TransactionState txnState,
-            TransactionStatus txnStatus) throws UserException {
+            TransactionStatus txnStatus, TransactionState.TxnStatusChangeReason txnStatusChangeReason) throws UserException {
         // step0: get progress from transaction state
         RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
         if (rlTaskTxnCommitAttachment == null) {
@@ -1053,7 +1053,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                           + " maybe task was aborted by master when timeout")
                                   .build());
             }
-        } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState)) {
+        } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState, txnStatusChangeReason)) {
             // step2: update job progress
             updateProgress(rlTaskTxnCommitAttachment);
         }
@@ -1259,7 +1259,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     // check the correctness of commit info
-    protected abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment, TransactionState txnState) throws LoadException;
+    protected abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
+                                               TransactionState txnState,
+                                               TransactionState.TxnStatusChangeReason txnStatusChangeReason);
 
     protected abstract String getStatistic();
 

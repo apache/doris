@@ -128,25 +128,6 @@ public class KafkaProgress extends RoutineLoadProgress {
         }
     }
 
-    // check if the given progress has same partitions with this one
-    public boolean isPartitionMatched(KafkaProgress otherProgress) {
-        return this.partitionIdToOffset.keySet().equals(otherProgress.partitionIdToOffset.keySet());
-    }
-
-    // return the offset diff of this progress and the given progress.
-    // the partition in newProgress must be in this progress.
-    public long offsetDiff(KafkaProgress newProgress) {
-        long diff = 0;
-        for (Map.Entry<Integer, Long> entry : newProgress.partitionIdToOffset.entrySet()) {
-            diff += (entry.getValue() - getOffsetByPartition(entry.getKey()));
-        }
-        return diff;
-    }
-
-    public int getPartitionNum() {
-        return this.partitionIdToOffset.keySet().size();
-    }
-
     @Override
     public String toString() {
         Map<Integer, String> showPartitionIdToOffset = Maps.newHashMap();
