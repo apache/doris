@@ -408,6 +408,15 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     } else {
         request.__set_num_as_string(false);
     }
+    if (!http_req->header(HTTP_FUZZY_PARSE).empty()) {
+        if (boost::iequals(http_req->header(HTTP_FUZZY_PARSE), "true")) {
+            request.__set_fuzzy_parse(true);
+        } else {
+            request.__set_fuzzy_parse(false);
+        }
+    } else {
+        request.__set_fuzzy_parse(false);
+    }
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
         request.__set_sequence_col(
                 http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL));
