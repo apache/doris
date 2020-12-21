@@ -99,6 +99,7 @@ public class BrokerFileGroup implements Writable {
     private boolean stripOuterArray = false;
     private String jsonPaths = "";
     private String jsonRoot = "";
+    private boolean fuzzyParse = true;
 
     // for unit test and edit log persistence
     private BrokerFileGroup() {
@@ -324,6 +325,14 @@ public class BrokerFileGroup implements Writable {
 
     public void setStripOuterArray(boolean stripOuterArray) {
         this.stripOuterArray = stripOuterArray;
+    }
+
+    public boolean isFuzzyParse() {
+        return fuzzyParse;
+    }
+
+    public void setFuzzyParse(boolean fuzzyParse) {
+        this.fuzzyParse = fuzzyParse;
     }
 
     public String getJsonPaths() {

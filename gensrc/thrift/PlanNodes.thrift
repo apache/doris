@@ -133,6 +133,7 @@ struct TBrokerRangeDesc {
     13: optional string json_root;
     //  it's usefull when format_type == FORMAT_JSON
     14: optional bool num_as_string;
+    15: optional bool fuzzy_parse;
 }
 
 struct TBrokerScanRangeParams {

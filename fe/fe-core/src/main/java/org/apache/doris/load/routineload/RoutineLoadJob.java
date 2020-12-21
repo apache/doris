@@ -196,6 +196,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     private static final String PROPS_NUM_AS_STRING = "num_as_string";
     private static final String PROPS_JSONPATHS = "jsonpaths";
     private static final String PROPS_JSONROOT = "json_root";
+    private static final String PROPS_FUZZY_PARSE = "fuzzy_parse";
 
     protected int currentTaskConcurrentNum;
     protected RoutineLoadProgress progress;
@@ -306,6 +307,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             jobProperties.put(PROPS_NUM_AS_STRING, "false");
             jobProperties.put(PROPS_JSONPATHS, "");
             jobProperties.put(PROPS_JSONROOT, "");
+            jobProperties.put(PROPS_FUZZY_PARSE, "false");
         } else if (stmt.getFormat().equals("json")) {
             jobProperties.put(PROPS_FORMAT, "json");
             if (!Strings.isNullOrEmpty(stmt.getJsonPaths())) {
@@ -327,6 +329,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 jobProperties.put(PROPS_NUM_AS_STRING, "true");
             } else {
                 jobProperties.put(PROPS_NUM_AS_STRING, "false");
+            }
+            if (stmt.isFuzzyParse()) {
+                jobProperties.put(PROPS_FUZZY_PARSE, "true");
+            } else {
+                jobProperties.put(PROPS_FUZZY_PARSE, "false");
             }
 
         } else {
@@ -556,6 +563,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public boolean isNumAsString() {
         return Boolean.valueOf(jobProperties.get(PROPS_NUM_AS_STRING));
+    }
+
+    public boolean isFuzzyParse() {
+        return Boolean.valueOf(jobProperties.get(PROPS_FUZZY_PARSE));
     }
 
     @Override
