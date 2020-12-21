@@ -228,6 +228,7 @@ public class BrokerFileGroup implements Writable {
             stripOuterArray = dataDescription.isStripOuterArray();
             jsonPaths = dataDescription.getJsonPaths();
             jsonRoot = dataDescription.getJsonRoot();
+            fuzzyParse = dataDescription.isFuzzyParse();
         }
     }
 

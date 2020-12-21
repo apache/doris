@@ -60,6 +60,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private boolean numAsString;
     private String jsonPaths;
     private String jsonRoot;
+    private boolean fuzzyParse;
 
     // optional
     private List<ImportColumnDesc> columnExprDescs = Lists.newArrayList();
@@ -146,6 +147,11 @@ public class StreamLoadTask implements LoadTaskInfo {
     @Override
     public boolean isNumAsString() {
         return numAsString;
+    }
+
+    @Override
+    public boolean isFuzzyParse() {
+        return fuzzyParse;
     }
 
     public void setStripOuterArray(boolean stripOuterArray) {
