@@ -108,6 +108,7 @@ set(RUNTIME_FILES
     memory/chunk_allocator.cpp
     cache/result_node.cpp
     cache/result_cache.cpp
+    odbc_table_sink.cpp	
 )
 
 if (WITH_MYSQL)

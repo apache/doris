@@ -251,7 +251,7 @@ public class StreamLoadTask implements LoadTaskInfo {
             deleteCondition = parseWhereExpr(request.getDeleteCondition());
         }
         if (negative && mergeType != LoadTask.MergeType.APPEND) {
-            throw new AnalysisException("Negative is only used when merge type is append.");
+            throw new AnalysisException("Negative is only used when merge type is APPEND.");
         }
         if (mergeType == LoadTask.MergeType.MERGE) {
             columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));

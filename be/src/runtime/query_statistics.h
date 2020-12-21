@@ -32,16 +32,19 @@ class QueryStatisticsRecvr;
 // or plan's statistics and QueryStatisticsRecvr is responsible for collecting it.
 class QueryStatistics {
 public:
-    QueryStatistics() : scan_rows(0), scan_bytes(0), returned_rows(0) {}
+    QueryStatistics() : scan_rows(0), scan_bytes(0), cpu_ms(0), returned_rows(0) {}
 
     void merge(const QueryStatistics& other) {
         scan_rows += other.scan_rows;
         scan_bytes += other.scan_bytes;
+        cpu_ms += other.cpu_ms;
     }
 
     void add_scan_rows(int64_t scan_rows) { this->scan_rows += scan_rows; }
 
     void add_scan_bytes(int64_t scan_bytes) { this->scan_bytes += scan_bytes; }
+
+    void add_cpu_ms(int64_t cpu_ms) { this->cpu_ms += cpu_ms; }
 
     void set_returned_rows(int64_t num_rows) { this->returned_rows = num_rows; }
 
@@ -50,6 +53,7 @@ public:
     void clear() {
         scan_rows = 0;
         scan_bytes = 0;
+        cpu_ms = 0;
         returned_rows = 0;
     }
 
@@ -57,17 +61,20 @@ public:
         DCHECK(statistics != nullptr);
         statistics->set_scan_rows(scan_rows);
         statistics->set_scan_bytes(scan_bytes);
+        statistics->set_cpu_ms(cpu_ms);
         statistics->set_returned_rows(returned_rows);
     }
 
     void merge_pb(const PQueryStatistics& statistics) {
         scan_rows += statistics.scan_rows();
         scan_bytes += statistics.scan_bytes();
+        cpu_ms += statistics.cpu_ms();
     }
 
 private:
     int64_t scan_rows;
     int64_t scan_bytes;
+    int64_t cpu_ms;
     // number rows returned by query.
     // only set once by result sink when closing.
     int64_t returned_rows;

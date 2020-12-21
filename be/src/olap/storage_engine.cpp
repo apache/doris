@@ -434,7 +434,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     for (int i = 0; i < stores.size(); i++) {
         int j = i + 1;
         if (j < stores.size()) {
-            if (stores[i]->tablet_set().size() > stores[j]->tablet_set().size()) {
+            if (stores[i]->tablet_size() > stores[j]->tablet_size()) {
                 std::swap(stores[i], stores[j]);
             }
             std::random_shuffle(stores.begin() + j, stores.end());
@@ -519,8 +519,6 @@ void StorageEngine::stop() {
         }                               \
     }
 
-    THREADS_JOIN(_base_compaction_threads);
-    THREADS_JOIN(_cumulative_compaction_threads);
     THREADS_JOIN(_path_gc_threads);
     THREADS_JOIN(_path_scan_threads);
     THREADS_JOIN(_tablet_checkpoint_threads);
@@ -808,6 +806,7 @@ OLAPStatus StorageEngine::create_tablet(const TCreateTabletReq& request) {
         LOG(WARNING) << "there is no available disk that can be used to create tablet.";
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
+    TRACE("got data directory for create tablet");
     return _tablet_manager->create_tablet(request, stores);
 }
 

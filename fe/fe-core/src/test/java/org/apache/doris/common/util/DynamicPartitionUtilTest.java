@@ -17,10 +17,16 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DynamicPartitionProperty;
+import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Maps;
 
+import com.clearspring.analytics.util.Lists;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -28,6 +34,7 @@ import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 
@@ -207,6 +214,23 @@ public class DynamicPartitionUtilTest {
         Assert.assertEquals("2019-11-27", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "MONTH");
         Assert.assertEquals("201911", partName);
+    }
+
+    @Test
+    public void testCheckTimeUnit() {
+        DynamicPartitionUtil dynamicPartitionUtil = new DynamicPartitionUtil();
+        RangePartitionInfo rangePartitionInfo = new RangePartitionInfo();
+        Deencapsulation.setField(rangePartitionInfo, "isMultiColumnPartition", false);
+        List<Column> partitionColumnList = Lists.newArrayList();
+        Column partitionColumn = new Column();
+        partitionColumn.setType(Type.DATE);
+        Deencapsulation.setField(rangePartitionInfo, partitionColumnList);
+        try {
+            Deencapsulation.invoke(dynamicPartitionUtil, "checkTimeUnit", "HOUR", rangePartitionInfo);
+            Assert.fail();
+        } catch (Exception e) {
+            System.out.print(e.getMessage());
+        }
     }
 
 }

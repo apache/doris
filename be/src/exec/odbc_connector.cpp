@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/odbc_scanner.h"
+#include "exec/odbc_connector.h"
 
 #include <sqlext.h>
 
@@ -23,7 +23,9 @@
 #include <codecvt>
 
 #include "common/logging.h"
+#include "exprs/expr.h"
 #include "runtime/primitive_type.h"
+#include "util/types.h"
 
 #define ODBC_DISPOSE(h, ht, x, op)                                        \
     {                                                                     \
@@ -48,10 +50,11 @@ static std::u16string utf8_to_wstring(const std::string& str) {
 
 namespace doris {
 
-ODBCScanner::ODBCScanner(const ODBCScannerParam& param)
+ODBCConnector::ODBCConnector(const ODBCConnectorParam& param)
         : _connect_string(param.connect_string),
           _sql_str(param.query_string),
           _tuple_desc(param.tuple_desc),
+          _output_expr_ctxs(std::move(param.output_expr_ctxs)),
           _is_open(false),
           _field_num(0),
           _row_count(0),
@@ -59,7 +62,12 @@ ODBCScanner::ODBCScanner(const ODBCScannerParam& param)
           _dbc(nullptr),
           _stmt(nullptr) {}
 
-ODBCScanner::~ODBCScanner() {
+ODBCConnector::~ODBCConnector() {
+    // do not commit transaction, roll back
+    if (_is_in_transaction) {
+        abort_trans();
+    }
+
     if (_stmt != nullptr) {
         SQLFreeHandle(SQL_HANDLE_STMT, _stmt);
     }
@@ -74,7 +82,7 @@ ODBCScanner::~ODBCScanner() {
     }
 }
 
-Status ODBCScanner::open() {
+Status ODBCConnector::open() {
     if (_is_open) {
         LOG(INFO) << "this scanner already opened";
         return Status::OK();
@@ -102,7 +110,7 @@ Status ODBCScanner::open() {
     return Status::OK();
 }
 
-Status ODBCScanner::query() {
+Status ODBCConnector::query() {
     if (!_is_open) {
         return Status::InternalError("Query before open.");
     }
@@ -111,7 +119,7 @@ Status ODBCScanner::query() {
     ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC, SQLAllocHandle(SQL_HANDLE_STMT, _dbc, &_stmt),
                  "alloc statement");
 
-    // Translate utf8 string to utf16 to use unicode code
+    // Translate utf8 string to utf16 to use unicode encoding
     auto wquery = utf8_to_wstring(_sql_str);
     ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT,
                  SQLExecDirectW(_stmt, (SQLWCHAR*)(wquery.c_str()), SQL_NTS), "exec direct");
@@ -156,7 +164,7 @@ Status ODBCScanner::query() {
     return Status::OK();
 }
 
-Status ODBCScanner::get_next_row(bool* eos) {
+Status ODBCConnector::get_next_row(bool* eos) {
     if (!_is_open) {
         return Status::InternalError("GetNextRow before open.");
     }
@@ -172,7 +180,175 @@ Status ODBCScanner::get_next_row(bool* eos) {
     return Status::OK();
 }
 
-Status ODBCScanner::error_status(const std::string& prefix, const std::string& error_msg) {
+Status ODBCConnector::init_to_write() {
+    if (!_is_open) {
+        return Status::InternalError( "Init before open.");
+    }
+
+    // Allocate a statement handle
+    ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC, SQLAllocHandle(SQL_HANDLE_STMT, _dbc, &_stmt), "alloc statement");
+
+    return Status::OK();
+}
+
+Status ODBCConnector::append(const std::string& table_name, RowBatch *batch) {
+    if (batch == nullptr || batch->num_rows() == 0) {
+        return Status::OK();
+    }
+
+    int num_rows = batch->num_rows();
+    for (int i = 0; i < num_rows; ++i) {
+        RETURN_IF_ERROR(insert_row(table_name, batch->get_row(i)));
+    }
+
+    return Status::OK();
+}
+
+Status ODBCConnector::insert_row(const std::string& table_name, TupleRow *row) {
+    std::stringstream ss;
+
+    // Construct Insert statement of odbc table
+    ss << "INSERT INTO " << table_name << " VALUES (";
+    int num_columns = _output_expr_ctxs.size();
+    for (int i = 0; i < num_columns; ++i) {
+        if (i != 0) {
+            ss << ", ";
+        }
+        void* item = _output_expr_ctxs[i]->get_value(row);
+        if (item == nullptr) {
+            ss << "NULL";
+            continue;
+        }
+        switch (_output_expr_ctxs[i]->root()->type().type) {
+            case TYPE_BOOLEAN:
+            case TYPE_TINYINT:
+                ss << (int)*static_cast<int8_t*>(item);
+                break;
+            case TYPE_SMALLINT:
+                ss << *static_cast<int16_t*>(item);
+                break;
+            case TYPE_INT:
+                ss << *static_cast<int32_t*>(item);
+                break;
+            case TYPE_BIGINT:
+                ss << *static_cast<int64_t*>(item);
+                break;
+            case TYPE_FLOAT:
+                ss << *static_cast<float*>(item);
+                break;
+            case TYPE_DOUBLE:
+                ss << *static_cast<double*>(item);
+                break;
+            case TYPE_DATE:
+            case TYPE_DATETIME: {
+                char buf[64];
+                const DateTimeValue* time_val = (const DateTimeValue*)(item);
+                time_val->to_string(buf);
+                ss << "\'" << buf << "\'";
+                break;
+            }
+            case TYPE_VARCHAR:
+            case TYPE_CHAR: {
+                const StringValue* string_val = (const StringValue*)(item);
+
+                if (string_val->ptr == NULL) {
+                    if (string_val->len == 0) {
+                        ss << "\'\'";
+                    } else {
+                        ss << "NULL";
+                    }
+                } else {
+                    ss << "\'";
+                    for (int j = 0; j < string_val->len ; ++j) {
+                        ss << string_val->ptr[j];
+                    }
+                    ss << "\'";
+                }
+                break;
+            }
+            case TYPE_DECIMAL: {
+                const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
+                std::string decimal_str;
+                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+
+                if (output_scale > 0 && output_scale <= 30) {
+                    decimal_str = decimal_val->to_string(output_scale);
+                } else {
+                    decimal_str = decimal_val->to_string();
+                }
+                ss << decimal_str;
+                break;
+            }
+            case TYPE_DECIMALV2: {
+                const DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
+                std::string decimal_str;
+                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+
+                if (output_scale > 0 && output_scale <= 30) {
+                    decimal_str = decimal_val.to_string(output_scale);
+                } else {
+                    decimal_str = decimal_val.to_string();
+                }
+                ss << decimal_str;
+                break;
+            }
+
+            default: {
+                std::stringstream err_ss;
+                err_ss << "can't convert this type to mysql type. type = " <<
+                       _output_expr_ctxs[i]->root()->type();
+                return Status::InternalError(err_ss.str());
+            }
+        }
+    }
+    ss << ")";
+
+    // Translate utf8 string to utf16 to use unicode encodeing
+    auto insert_stmt = utf8_to_wstring(ss.str());
+    ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT, SQLExecDirectW(_stmt, (SQLWCHAR*)(insert_stmt.c_str()), SQL_NTS), ss.str().c_str());
+
+    return Status::OK();
+}
+
+Status ODBCConnector::begin_trans() {
+    if (!_is_open) {
+        return Status::InternalError("Begin transaction before open.");
+    }
+
+    ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC,
+                 SQLSetConnectAttr(_dbc, SQL_ATTR_AUTOCOMMIT, (SQLPOINTER)SQL_AUTOCOMMIT_OFF, SQL_IS_UINTEGER),
+                 "Begin transcation");
+    _is_in_transaction = true;
+
+    return Status::OK();
+}
+
+Status ODBCConnector::abort_trans() {
+    if (!_is_in_transaction) {
+        return Status::InternalError("Abort transaction before begin trans.");
+    }
+
+    ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC,
+                 SQLEndTran(SQL_HANDLE_DBC, _dbc, SQL_ROLLBACK),
+                 "Abort transcation");
+
+    return Status::OK();
+}
+
+Status ODBCConnector::finish_trans() {
+    if (!_is_in_transaction) {
+        return Status::InternalError("Abort transaction before begin trans.");
+    }
+
+    ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC,
+                 SQLEndTran(SQL_HANDLE_DBC, _dbc, SQL_COMMIT),
+                 "commit transcation");
+    _is_in_transaction = false;
+
+    return Status::OK();
+}
+
+Status ODBCConnector::error_status(const std::string& prefix, const std::string& error_msg) {
     std::stringstream msg;
     msg << prefix << " Error: " << error_msg;
     LOG(WARNING) << msg.str();
@@ -185,7 +361,7 @@ Status ODBCScanner::error_status(const std::string& prefix, const std::string& e
 //      hHandle     ODBC handle
 //      hType       Type of handle (HANDLE_STMT, HANDLE_ENV, HANDLE_DBC)
 //      RetCode     Return code of failing command
-std::string ODBCScanner::handle_diagnostic_record(SQLHANDLE hHandle, SQLSMALLINT hType,
+std::string ODBCConnector::handle_diagnostic_record(SQLHANDLE hHandle, SQLSMALLINT hType,
                                                   RETCODE RetCode) {
     SQLSMALLINT rec = 0;
     SQLINTEGER error;

@@ -1255,6 +1255,25 @@ public class QueryPlanTest {
     }
 
     @Test
+    public void testOdbcSink() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        // insert into odbc_oracle table
+        String queryStr = "explain insert into odbc_oracle select * from odbc_mysql";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("TABLENAME IN DORIS: odbc_oracle"));
+        Assert.assertTrue(explainString.contains("TABLE TYPE: ORACLE"));
+        Assert.assertTrue(explainString.contains("TABLENAME OF EXTERNAL TABLE: tbl1"));
+
+        // enable transaction of ODBC Sink
+        Deencapsulation.setField(connectContext.getSessionVariable(), "enableOdbcTransaction", true);
+        queryStr = "explain insert into odbc_oracle select * from odbc_mysql";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("EnableTransaction: true"));
+    }
+
+
+    @Test
     public void testPreferBroadcastJoin() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String queryStr = "explain select * from (select k1 from jointest group by k1)t2, jointest t1 where t1.k1 = t2.k1";

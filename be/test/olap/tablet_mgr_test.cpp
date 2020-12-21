@@ -48,19 +48,17 @@ static StorageEngine* k_engine = nullptr;
 class TabletMgrTest : public testing::Test {
 public:
     virtual void SetUp() {
-        config::tablet_map_shard_size = 1;
-        config::txn_map_shard_size = 1;
-        config::txn_shard_size = 1;
         string test_engine_data_path = "./be/test/olap/test_data/converter_test_data/data";
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
         boost::filesystem::remove_all(_engine_data_path);
         FileUtils::create_dir(_engine_data_path);
         FileUtils::create_dir(_engine_data_path + "/meta");
 
-        std::vector<StorePath> paths;
-        paths.emplace_back("_engine_data_path", -1);
+        config::tablet_map_shard_size = 1;
+        config::txn_map_shard_size = 1;
+        config::txn_shard_size = 1;
         EngineOptions options;
-        options.store_paths = paths;
+        // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
         if (k_engine == nullptr) {
             k_engine = new StorageEngine(options);

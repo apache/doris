@@ -30,12 +30,16 @@ import org.apache.doris.http.rest.BootstrapFinishAction;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TBackendInfo;
 import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPingBrokerRequest;
 import org.apache.doris.thrift.TBrokerVersion;
+import org.apache.doris.thrift.TFrontendPingFrontendRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendResult;
+import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -106,11 +110,7 @@ public class HeartbeatMgr extends MasterDaemon {
 
         // send frontend heartbeat
         List<Frontend> frontends = Catalog.getCurrentCatalog().getFrontends(null);
-        String masterFeNodeName = "";
         for (Frontend frontend : frontends) {
-            if (frontend.getHost().equals(masterInfo.get().getNetworkAddress().getHostname())) {
-                masterFeNodeName = frontend.getNodeName();
-            }
             FrontendHeartbeatHandler handler = new FrontendHeartbeatHandler(frontend,
                     Catalog.getCurrentCatalog().getClusterId(),
                     Catalog.getCurrentCatalog().getToken());
@@ -151,12 +151,6 @@ public class HeartbeatMgr extends MasterDaemon {
             }
         } // end for all results
 
-        // we also add a 'mocked' master Frontends heartbeat response to synchronize master info to other Frontends.
-        hbPackage.addHbResponse(new FrontendHbResponse(masterFeNodeName,
-                Config.query_port, Config.rpc_port, Catalog.getCurrentCatalog().getEditLog().getMaxJournalId(),
-                System.currentTimeMillis(), Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH));
-
-        // write edit log
         Catalog.getCurrentCatalog().getEditLog().logHeartbeat(hbPackage);
     }
 
@@ -221,7 +215,7 @@ public class HeartbeatMgr extends MasterDaemon {
             TNetworkAddress beAddr = new TNetworkAddress(backend.getHost(), backend.getHeartbeatPort());
             boolean ok = false;
             try {
-                client = ClientPool.heartbeatPool.borrowObject(beAddr);
+                client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
 
                 TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
                 copiedMasterInfo.setBackendIp(backend.getHost());
@@ -256,9 +250,9 @@ public class HeartbeatMgr extends MasterDaemon {
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
             } finally {
                 if (ok) {
-                    ClientPool.heartbeatPool.returnObject(beAddr, client);
+                    ClientPool.backendHeartbeatPool.returnObject(beAddr, client);
                 } else {
-                    ClientPool.heartbeatPool.invalidateObject(beAddr, client);
+                    ClientPool.backendHeartbeatPool.invalidateObject(beAddr, client);
                 }
             }
         }
@@ -282,13 +276,20 @@ public class HeartbeatMgr extends MasterDaemon {
                 // heartbeat to self
                 if (Catalog.getCurrentCatalog().isReady()) {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
-                            Catalog.getCurrentCatalog().getReplayedJournalId(), System.currentTimeMillis(),
+                            Catalog.getCurrentCatalog().getMaxJournalId(), System.currentTimeMillis(),
                             Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
                 }
             }
+            if (Config.enable_fe_heartbeat_by_thrift) {
+                return getHeartbeatResponseByThrift();
+            } else {
+                return getHeartbeatResponseByHttp();
+            }
+        }
 
+        private HeartbeatResponse getHeartbeatResponseByHttp() {
             String url = "http://" + fe.getHost() + ":" + Config.http_port
                     + "/api/bootstrap?cluster_id=" + clusterId + "&token=" + token;
             try {
@@ -336,6 +337,35 @@ public class HeartbeatMgr extends MasterDaemon {
             } catch (Exception e) {
                 return new FrontendHbResponse(fe.getNodeName(),
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
+            }
+        }
+
+        private HeartbeatResponse getHeartbeatResponseByThrift() {
+            FrontendService.Client client = null;
+            TNetworkAddress addr = new TNetworkAddress(fe.getHost(), fe.getRpcPort());
+            boolean ok = false;
+            try {
+                client = ClientPool.frontendHeartbeatPool.borrowObject(addr);
+                TFrontendPingFrontendRequest request = new TFrontendPingFrontendRequest(clusterId, token);
+                TFrontendPingFrontendResult result = client.ping(request);
+                ok = true;
+                if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
+                    return new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
+                            result.getRpcPort(), result.getReplayedJournalId(),
+                            System.currentTimeMillis(), result.getVersion());
+
+                } else {
+                    return new FrontendHbResponse(fe.getNodeName(), result.getMsg());
+                }
+            } catch (Exception e) {
+                return new FrontendHbResponse(fe.getNodeName(),
+                        Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
+            } finally {
+                if (ok) {
+                    ClientPool.frontendHeartbeatPool.returnObject(addr, client);
+                } else {
+                    ClientPool.frontendHeartbeatPool.invalidateObject(addr, client);
+                }
             }
         }
     }
