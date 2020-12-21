@@ -1250,12 +1250,25 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 
     state->resource_pool()->release_thread_token(true);
     VLOG(1) << "TransferThread finish.";
-    std::unique_lock<std::mutex> l(_row_batches_lock);
-    _transfer_done = true;
+    {
+        std::unique_lock<std::mutex> l(_row_batches_lock);
+        _transfer_done = true;
+    }
     _row_batch_added_cv.notify_all();
+
+    std::unique_lock<std::mutex> l(_scan_batches_lock);
+    while (_running_thread != 0) {
+        l.unlock();
+        SleepFor(MonoDelta::FromMilliseconds(5));
+        l.lock();
+    }
+    VLOG(1) << "Scanner threads have been exited. TransferThread exit.";
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
+    // Do not use ScopedTimer. There is no guarantee that, the counter
+    // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
+    ThreadCpuStopWatch cpu_watch;
     Status status = Status::OK();
     bool eos = false;
     RuntimeState* state = scanner->runtime_state();
@@ -1344,7 +1357,6 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         if (!eos) {
             _olap_scanners.push_front(scanner);
         }
-        _running_thread--;
     }
     if (eos) {
         // close out of batches lock. we do this before _progress update
@@ -1358,7 +1370,14 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             _scanner_done = true;
         }
     }
+
+    _scan_cpu_timer->update(cpu_watch.elapsed_time());
     _scan_batch_added_cv.notify_one();
+
+    // The transfer thead will wait for `_running_thread==0`, to make sure all scanner threads won't access class members.
+    // Do not access class members after this code.
+    std::unique_lock<std::mutex> l(_scan_batches_lock);
+    _running_thread--;
 }
 
 Status OlapScanNode::add_one_batch(RowBatchInterface* row_batch) {
