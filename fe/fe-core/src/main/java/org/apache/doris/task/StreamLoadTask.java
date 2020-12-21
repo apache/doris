@@ -86,6 +86,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         this.jsonRoot = "";
         this.stripOuterArray = false;
         this.numAsString = false;
+        this.fuzzyParse = false;
     }
 
     public TUniqueId getId() {
@@ -152,6 +153,10 @@ public class StreamLoadTask implements LoadTaskInfo {
     @Override
     public boolean isFuzzyParse() {
         return fuzzyParse;
+    }
+
+    public void setFuzzyParse(boolean fuzzyParse) {
+        this.fuzzyParse = fuzzyParse;
     }
 
     public void setStripOuterArray(boolean stripOuterArray) {
@@ -245,6 +250,7 @@ public class StreamLoadTask implements LoadTaskInfo {
             }
             stripOuterArray = request.isStripOuterArray();
             numAsString = request.isNumAsString();
+            fuzzyParse = request.isFuzzyParse();
         }
         if (request.isSetMergeType()) {
             try {
