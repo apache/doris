@@ -4371,8 +4371,10 @@ public class Catalog {
                 Preconditions.checkState(chosenBackendIds.size() == replicationNum, chosenBackendIds.size() + " vs. "+ replicationNum);
             }
 
-            if (groupId != null) {
+            if (groupId != null && chooseBackendsArbitrary) {
                 colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+                ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+                editLog.logColocateBackendsPerBucketSeq(info);
             }
 
         } else {
