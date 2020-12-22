@@ -38,10 +38,7 @@ public:
     }
 
     void unlock() {
-        // Memory barrier here. All updates before the unlock need to be made visible.
-        __sync_synchronize();
-        DCHECK(_locked);
-        _locked = false;
+        __sync_bool_compare_and_swap(&_locked, true, false);
     }
 
     // Tries to acquire the lock

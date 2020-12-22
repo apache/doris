@@ -324,7 +324,8 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 
     int round = 0;
     CompactionType compaction_type;
-    while (true) {
+    int32_t interval = 1;
+    do {
         if (!config::disable_auto_compaction) {
             if (round < config::cumulative_compaction_rounds_for_each_base_compaction_round) {
                 compaction_type = CompactionType::CUMULATIVE_COMPACTION;
@@ -387,10 +388,11 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                     tablet->reset_compaction(compaction_type);
                 }
             }
+            interval = 1;
         } else {
-            sleep(config::check_auto_compaction_interval_seconds);
+            interval = config::check_auto_compaction_interval_seconds * 1000;
         }
-    }
+    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromMilliseconds(interval)));
 }
 
 std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
