@@ -444,7 +444,7 @@ void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
         *valid = false; // current row is invalid
         return;
     }
-    
+
     int nullcount = 0;
     for (auto v : slot_descs) {
         rapidjson::Value::ConstMemberIterator it = objectValue.MemberEnd();
