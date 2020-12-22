@@ -1012,15 +1012,15 @@ public class Config extends ConfigBase {
 
     // Rebalancer type(ignore case): BeLoad, Partition. If type parse failed, use BeLoad as default.
     @ConfField(masterOnly = true)
-    public static String rebalancer_type = "BeLoad";
+    public static String tablet_rebalancer_type = "BeLoad";
 
     // Valid only if use PartitionRebalancer.
     @ConfField(mutable = true, masterOnly = true)
-    public static long rebalance_move_expire_after_access = 600; // 600s
+    public static long partition_rebalance_move_expire_after_access = 600; // 600s
 
     // Valid only if use PartitionRebalancer
     @ConfField(mutable = true, masterOnly = true)
-    public static int rebalance_max_moves_num_per_selection = 10;
+    public static int partition_rebalance_max_moves_num_per_selection = 10;
 
     // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
     // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost

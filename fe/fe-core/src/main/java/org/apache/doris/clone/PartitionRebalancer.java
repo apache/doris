@@ -93,7 +93,7 @@ public class PartitionRebalancer extends Rebalancer {
         LOG.debug("Cluster {}-{}: peek max skew {}, assume {} in-progress moves are succeeded {}", clusterName, medium,
                 skews.isEmpty() ? 0 : skews.last(), movesInProgressList.size(), movesInProgressList);
 
-        List<TwoDimensionalGreedyAlgo.PartitionReplicaMove> moves = algo.getNextMoves(clusterBalanceInfo, Config.rebalance_max_moves_num_per_selection);
+        List<TwoDimensionalGreedyAlgo.PartitionReplicaMove> moves = algo.getNextMoves(clusterBalanceInfo, Config.partition_rebalance_max_moves_num_per_selection);
 
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
         List<Long> inProgressIds = movesInProgressList.stream().map(m -> m.tabletId).collect(Collectors.toList());
@@ -283,7 +283,7 @@ public class PartitionRebalancer extends Rebalancer {
     @Override
     public void updateLoadStatistic(Map<String, ClusterLoadStatistic> statisticMap) {
         super.updateLoadStatistic(statisticMap);
-        movesInProgressCache.updateCatalog(statisticMap, Config.rebalance_move_expire_after_access);
+        movesInProgressCache.updateCatalog(statisticMap, Config.partition_rebalance_move_expire_after_access);
         // perform Cache maintenance
         movesInProgressCache.cleanUp();
         LOG.debug("Move succeeded/total :{}/{}, current {}",
