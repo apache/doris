@@ -391,6 +391,11 @@ public class StmtExecutor {
     }
 
     private void writeProfile() {
+        long timeConsuming = System.currentTimeMillis() - context.getStartTime();
+        if (timeConsuming < context.getSessionVariable().getReportQueryTimeThreshold()) {
+            return;
+        }
+
         initProfile(plannerProfile);
         profile.computeTimeInChildProfile();
         StringBuilder builder = new StringBuilder();

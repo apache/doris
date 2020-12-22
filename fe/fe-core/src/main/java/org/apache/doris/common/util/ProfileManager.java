@@ -21,6 +21,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,7 +49,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 public class ProfileManager {
     private static final Logger LOG = LogManager.getLogger(ProfileManager.class);
     private static ProfileManager INSTANCE = null;
-    private static final int ARRAY_SIZE = 100;
+    public static volatile int ARRAY_SIZE = 100;
     // private static final int TOTAL_LEN = 1000 * ARRAY_SIZE ;
     public static final String QUERY_ID = "Query ID";
     public static final String START_TIME = "Start Time";
@@ -119,7 +120,10 @@ public class ProfileManager {
         
         profileMap.put(queryId, element);
         writeLock.lock();
-        try { 
+        try {
+            if (ConnectContext.get() != null) {
+                ARRAY_SIZE = ConnectContext.get().getSessionVariable().getReportQuerySize();
+            }
             if (profileDeque.size() >= ARRAY_SIZE) {
                 profileMap.remove(profileDeque.getFirst().infoStrings.get(QUERY_ID));
                 profileDeque.removeFirst();

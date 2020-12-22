@@ -112,6 +112,11 @@ public class SessionVariable implements Serializable, Writable {
     // when true, the partition column must be set to NOT NULL.
     public static final String ALLOW_PARTITION_COLUMN_NULLABLE = "allow_partition_column_nullable";
 
+    // array size of report query
+    public static final String REPORT_QUERY_SIZE = "report_query_size";
+    // time threshold of report query profile
+    public static final String REPORT_QUERY_TIME_THRESHOLD = "report_query_time_threshold";
+
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
@@ -279,6 +284,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE)
     private boolean allowPartitionColumnNullable = true;
+
+    @VariableMgr.VarAttr(name = REPORT_QUERY_SIZE)
+    private int reportQuerySize = 100;
+
+    @VariableMgr.VarAttr(name = REPORT_QUERY_TIME_THRESHOLD)
+    private int reportQueryTimeThreshold = -1;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -543,6 +554,22 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isAllowPartitionColumnNullable() { return allowPartitionColumnNullable; }
+
+    public int getReportQuerySize() {
+        return reportQuerySize;
+    }
+
+    public void setReportQuerySize(int reportQuerySize) {
+        this.reportQuerySize = reportQuerySize;
+    }
+
+    public int getReportQueryTimeThreshold() {
+        return reportQueryTimeThreshold;
+    }
+
+    public void setReportQueryTimeThreshold(int reportQueryTimeThreshold) {
+        this.reportQueryTimeThreshold = reportQueryTimeThreshold;
+    }
 
 
     // Serialize to thrift object
