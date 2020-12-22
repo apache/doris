@@ -182,7 +182,7 @@ private:
     bool _need_agg_finalize = true;
     ReaderType _reader_type = READER_QUERY;
     bool _next_delete_flag = false;
-    bool _filter_delete = false;
+    bool _filter_delete = false;  // Whether to delete the filtered rows
     bool _has_sequence_col = false;
     int32_t _sequence_col_idx = -1;
     const RowCursor* _next_key = nullptr;

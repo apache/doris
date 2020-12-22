@@ -38,27 +38,30 @@ class WrapperField;
 class RowCursorCell;
 
 enum CondOp {
-    OP_NULL = -1, // invalid op
-    OP_EQ = 0,    // equal
-    OP_NE = 1,    // not equal
-    OP_LT = 2,    // less than
-    OP_LE = 3,    // less or equal
-    OP_GT = 4,    // greater than
-    OP_GE = 5,    // greater or equal
-    OP_IN = 6,    // in
-    OP_IS = 7,    // is null or not null
-    OP_NOT_IN = 8 // not in
+    OP_NULL = -1,   // invalid op
+    OP_EQ = 0,      // equal
+    OP_NE = 1,      // not equal
+    OP_LT = 2,      // less than
+    OP_LE = 3,      // less or equal
+    OP_GT = 4,      // greater than
+    OP_GE = 5,      // greater or equal
+    OP_IN = 6,      // in
+    OP_IS = 7,      // is null or not null
+    OP_NOT_IN = 8,  // not in
+    OP_ALL = 100    // all satisfied
 };
 
 // Hash functor for IN set
 struct FieldHash {
-    size_t operator()(const WrapperField* field) const { return field->hash_code(); }
+    size_t operator()(const std::shared_ptr<WrapperField>& field) const {
+        return field->hash_code();
+    }
 };
 
 // Equal function for IN set
 struct FieldEqual {
-    bool operator()(const WrapperField* left, const WrapperField* right) const {
-        return left->cmp(right) == 0;
+    bool operator()(const std::shared_ptr<WrapperField>& left, const std::shared_ptr<WrapperField>& right) const {
+        return left->cmp(right.get()) == 0;
     }
 };
 
@@ -66,9 +69,12 @@ struct FieldEqual {
 struct Cond {
 public:
     Cond() = default;
-    ~Cond();
 
     OLAPStatus init(const TCondition& tcond, const TabletColumn& column);
+
+    OLAPStatus intersection_cond(const Cond& other);
+
+    OLAPStatus union_cond(const Cond& other);
 
     // 用一行数据的指定列同条件进行比较，如果符合过滤条件，
     // 即按照此条件，行应被过滤掉，则返回true，否则返回false
@@ -86,13 +92,13 @@ public:
 
     CondOp op = OP_NULL;
     // valid when op is not OP_IN and OP_NOT_IN
-    WrapperField* operand_field = nullptr;
+    std::shared_ptr<WrapperField> operand_field;
     // valid when op is OP_IN or OP_NOT_IN
-    typedef std::unordered_set<const WrapperField*, FieldHash, FieldEqual> FieldSet;
+    typedef std::unordered_set<std::shared_ptr<WrapperField>, FieldHash, FieldEqual> FieldSet;
     FieldSet operand_set;
     // valid when op is OP_IN or OP_NOT_IN, represents the minimum or maximum value of in elements
-    WrapperField* min_value_field = nullptr;
-    WrapperField* max_value_field = nullptr;
+    std::shared_ptr<WrapperField> min_value_field;
+    std::shared_ptr<WrapperField> max_value_field;
 };
 
 // 所有归属于同一列上的条件二元组，聚合在一个CondColumn上
@@ -101,9 +107,9 @@ public:
     CondColumn(const TabletSchema& tablet_schema, int32_t index) : _col_index(index) {
         _is_key = tablet_schema.column(_col_index).is_key();
     }
-    ~CondColumn();
 
     OLAPStatus add_cond(const TCondition& tcond, const TabletColumn& column);
+    void merge_cond(const CondColumn& cond_col);
 
     // 对一行数据中的指定列，用所有过滤条件进行比较，如果所有条件都满足，则过滤此行
     // Return true means this row should be filtered out, otherwise return false
@@ -134,7 +140,7 @@ public:
 
     inline bool is_key() const { return _is_key; }
 
-    const std::vector<Cond*>& conds() const { return _conds; }
+    const std::vector<std::shared_ptr<Cond>>& conds() const { return _conds; }
 
 private:
     friend class Conditions;
@@ -142,7 +148,7 @@ private:
     bool _is_key = false;
     int32_t _col_index = 0;
     // Conds in _conds are in 'AND' relationship
-    std::vector<Cond*> _conds;
+    std::vector<std::shared_ptr<Cond>> _conds;
 };
 
 // 一次请求所关联的条件
@@ -156,10 +162,10 @@ public:
     ~Conditions() { finalize(); }
 
     void finalize() {
-        for (auto& it : _columns) {
+        for (auto& it : _cond_cols) {
             delete it.second;
         }
-        _columns.clear();
+        _cond_cols.clear();
     }
 
     // TODO(yingchun): should do it in constructor
@@ -170,7 +176,10 @@ public:
     // 1. column不属于key列
     // 2. column类型是double, float
     OLAPStatus append_condition(const TCondition& condition);
-    
+
+    // Now only support to merge on a same single column
+    bool merge_del_condition(const CondColumns& cond_cols);
+
     // 通过所有列上的删除条件对RowCursor进行过滤
     // Return true means this row should be filtered out, otherwise return false
     bool delete_conditions_eval(const RowCursor& row) const;
@@ -181,7 +190,7 @@ public:
     // Whether the rowset satisfied delete condition
     int delete_pruning_filter(const std::vector<KeyRange>& zone_maps) const;
 
-    const CondColumns& columns() const { return _columns; }
+    const CondColumns& columns() const { return _cond_cols; }
 
     CondColumn* get_column(int32_t cid) const;
 
@@ -192,8 +201,9 @@ private:
 
 private:
     const TabletSchema* _schema = nullptr;
-    // CondColumns in _index_conds are in 'AND' relationship
-    CondColumns _columns; // list of condition column
+
+    // CondColumns in _cond_cols are in 'AND' relationship
+    CondColumns _cond_cols; // list of condition column
 
     DISALLOW_COPY_AND_ASSIGN(Conditions);
 };

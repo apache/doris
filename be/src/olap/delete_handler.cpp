@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "common/logging.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
 #include "olap/olap_cond.h"
@@ -224,11 +225,28 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     return true;
 }
 
+void DeleteHandler::_merge_del_conds() {
+    _merged_del_conds.filter_version = _version;
+    _merged_del_conds.del_cond = new (std::nothrow) Conditions();
+    CHECK(_merged_del_conds.del_cond != nullptr) << "fail to malloc Conditions. size=" << sizeof(Conditions);
+    _merged_del_conds.del_cond->set_tablet_schema(_schema);
+
+    for (const auto& del_cond : _del_conds) {
+        DCHECK_LE(del_cond.filter_version, _version);
+        _merged_del_conds_valid = _merged_del_conds.del_cond->merge_del_condition(del_cond.del_cond->columns());
+        if (!_merged_del_conds_valid) {
+            break;
+        }
+    }
+}
+
 OLAPStatus DeleteHandler::init(const TabletSchema& schema,
                                const DelPredicateArray& delete_conditions, int64_t version) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
 
+    _version = version;
+    _schema = &schema;
     for (const auto& delete_condition : delete_conditions) {
         // 跳过版本号大于version的过滤条件
         if (delete_condition.version() > version) {
@@ -279,16 +297,25 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
         _del_conds.push_back(temp);
     }
 
+    _merge_del_conds();
+
     _is_inited = true;
 
     return OLAP_SUCCESS;
 }
 
 bool DeleteHandler::is_filter_data(const int64_t data_version, const RowCursor& row) const {
-    // 根据语义，存储在_del_conds的删除条件应该是OR关系
-    // 因此，只要数据符合其中一条过滤条件，则返回true
+    // Return true when this row can be filtered by _merged_del_conds
+    if (_merged_del_conds_valid && data_version <= _merged_del_conds.filter_version &&
+        _merged_del_conds.del_cond->delete_conditions_eval(row)) {
+        return true;
+    }
+
+    // DeleteConditions in _del_conds are in 'OR' relationship,
+    // return true when this row could be filtered by any DeleteConditions
     for (const auto& del_cond : _del_conds) {
-        if (data_version <= del_cond.filter_version && del_cond.del_cond->delete_conditions_eval(row)) {
+        if (data_version <= del_cond.filter_version &&
+            del_cond.del_cond->delete_conditions_eval(row)) {
             return true;
         }
     }
@@ -298,6 +325,7 @@ bool DeleteHandler::is_filter_data(const int64_t data_version, const RowCursor& 
 
 std::vector<int64_t> DeleteHandler::get_conds_version() {
     std::vector<int64_t> conds_version;
+    conds_version.reserve(_del_conds.size());
     for (const auto& cond : _del_conds) {
         conds_version.push_back(cond.filter_version);
     }
@@ -309,6 +337,8 @@ void DeleteHandler::finalize() {
         return;
     }
 
+    delete _merged_del_conds.del_cond;
+    _merged_del_conds.del_cond = nullptr;
     for (auto& cond : _del_conds) {
         cond.del_cond->finalize();
         delete cond.del_cond;

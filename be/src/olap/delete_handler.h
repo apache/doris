@@ -134,9 +134,15 @@ private:
     // Use regular expression to extract 'column_name', 'op' and 'operands'
     bool _parse_condition(const std::string& condition_str, TCondition* condition);
 
+    void _merge_del_conds();
+
     bool _is_inited = false;
+    int64_t _version = 0;
+    const TabletSchema* _schema = nullptr;
     // DeleteConditions in _del_conds are in 'OR' relationship
     std::vector<DeleteConditions> _del_conds;
+    bool _merged_del_conds_valid = true;
+    DeleteConditions _merged_del_conds;
 
     DISALLOW_COPY_AND_ASSIGN(DeleteHandler);
 };

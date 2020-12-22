@@ -87,15 +87,6 @@ static CondOp parse_op_type(const string& op) {
     return OP_NULL;
 }
 
-Cond::~Cond() {
-    delete operand_field;
-    for (auto& it : operand_set) {
-        delete it;
-    }
-    min_value_field = nullptr;
-    max_value_field = nullptr;
-}
-
 OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
     // Parse op type
     op = parse_op_type(tcond.condition_op);
@@ -108,7 +99,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
         // 'is null' or 'is not null'
         DCHECK_EQ(tcond.condition_values.size(), 1);
         auto operand = tcond.condition_values.begin();
-        std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
+        std::shared_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
             OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                              tcond.column_name.c_str(), operand->c_str(), op);
@@ -119,11 +110,11 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
         } else {
             f->set_not_null();
         }
-        operand_field = f.release();
+        operand_field = f;
     } else if (op != OP_IN && op != OP_NOT_IN) {
         DCHECK_EQ(tcond.condition_values.size(), 1);
         auto operand = tcond.condition_values.begin();
-        std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
+        std::shared_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
             OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                              tcond.column_name.c_str(), operand->c_str(), op);
@@ -135,12 +126,12 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
                              tcond.column_name.c_str(), operand->c_str(), op);
             return res;
         }
-        operand_field = f.release();
+        operand_field = f;
     } else {
         DCHECK(op == OP_IN || op == OP_NOT_IN);
         DCHECK(!tcond.condition_values.empty());
         for (auto& operand : tcond.condition_values) {
-            std::unique_ptr<WrapperField> f(WrapperField::create(column, operand.length()));
+            std::shared_ptr<WrapperField> f(WrapperField::create(column, operand.length()));
             if (f == nullptr) {
                 OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                                  tcond.column_name.c_str(), operand.c_str(), op);
@@ -152,26 +143,399 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
                                  tcond.column_name.c_str(), operand.c_str(), op);
                 return res;
             }
-            if (min_value_field == nullptr || f->cmp(min_value_field) < 0) {
-                min_value_field = f.get();
+            if (min_value_field == nullptr || f->cmp(min_value_field.get()) < 0) {
+                min_value_field = f;
             }
 
-            if (max_value_field == nullptr || f->cmp(max_value_field) > 0) {
-                max_value_field = f.get();
+            if (max_value_field == nullptr || f->cmp(max_value_field.get()) > 0) {
+                max_value_field = f;
             }
 
-            auto insert_result = operand_set.insert(f.get());
+            auto insert_result = operand_set.insert(f);
             if (!insert_result.second) {
                 LOG(WARNING) << "Duplicate operand in in-predicate.[condition=" << operand << "]";
-                // Duplicated, let std::unique_ptr delete field
-            } else {
-                // Normal case, release this std::unique_ptr
-                f.release();
             }
         }
     }
 
     return OLAP_SUCCESS;
+}
+
+OLAPStatus Cond::intersection_cond(const Cond& other) {
+    DCHECK(op == other.op ||
+          (op == OP_NOT_IN && other.op == OP_NE) ||
+          (op == OP_NE && other.op == OP_NOT_IN) ||
+          (op == OP_IN && other.op == OP_EQ) ||
+          (op == OP_EQ && other.op == OP_IN) ||
+          (op == OP_LT && other.op == OP_LE) ||
+          (op == OP_LE && other.op == OP_LT) ||
+          (op == OP_GT && other.op == OP_GE) ||
+          (op == OP_GE && other.op == OP_GT)) << "op: " << op << ", other.op: " << other.op;
+    switch (op) {
+        case OP_EQ:
+            if (other.op == OP_EQ) {
+                if (operand_field->field()->compare_cell(*operand_field, *(other.operand_field)) != 0) {
+                    // No intersection, all not satisfied
+                    op = OP_NULL;
+                    return OLAP_SUCCESS;
+                }
+            } else {
+                DCHECK_EQ(other.op, OP_IN) << "op: " << op << ", other.op: " << other.op;
+                if (other.operand_set.find(operand_field) == other.operand_set.end()) {
+                    // No intersection, all not satisfied
+                    op = OP_NULL;
+                    return OLAP_SUCCESS;
+                }
+            }
+            return OLAP_SUCCESS;
+        case OP_NE:
+            if (other.op == OP_NE) {
+                int cmp = operand_field->field()->compare_cell(*operand_field, *(other.operand_field));
+                if (cmp != 0) {
+                    // Transfer to OP_NOT_IN if they OP_NE to two different values
+                    op = OP_NOT_IN;
+                    operand_set.insert(operand_field);
+                    operand_set.insert(other.operand_field);
+                    min_value_field = cmp < 0 ? operand_field : other.operand_field;
+                    max_value_field = cmp > 0 ? operand_field : other.operand_field;
+                    // Invalidate operand_field after transferring to operand_set
+                    operand_field = nullptr;
+                }
+            } else {
+                DCHECK_EQ(other.op, OP_NOT_IN) << "op: " << op << ", other.op: " << other.op;
+                if (other.operand_set.size() == 1 &&
+                    operand_field->field()->compare_cell(*operand_field, *(other.min_value_field)) == 0) {
+                    // Do nothing if the other's only one value equal to operand_field
+                    return OLAP_SUCCESS;
+                }
+                // Transfer to OP_NOT_IN otherwise
+                op = OP_NOT_IN;
+                operand_set = other.operand_set;
+                min_value_field = other.min_value_field;
+                max_value_field = other.max_value_field;
+
+                if (operand_set.find(operand_field) != operand_set.end()) {
+                    // Exist a same value in operand_set, do nothing but release and invalidate operand_field
+                    operand_field = nullptr;
+                    return OLAP_SUCCESS;
+                }
+
+                // Insert and update min & max
+                operand_set.insert(operand_field);
+                if (operand_field->field()->compare_cell(*operand_field, *(min_value_field)) < 0) {
+                    min_value_field = operand_field;
+                }
+                if (operand_field->field()->compare_cell(*operand_field, *(max_value_field)) > 0) {
+                    max_value_field = operand_field;
+                }
+
+                // Invalidate operand_field after inserting to operand_set
+                operand_field = nullptr;
+            }
+            return OLAP_SUCCESS;
+        case OP_LT:
+        case OP_LE: {
+            int cmp = operand_field->field()->compare_cell(*operand_field, *(other.operand_field));
+            if (op == other.op) {
+                if (cmp > 0) {
+                    operand_field = other.operand_field;
+                }
+                return OLAP_SUCCESS;
+            }
+            if (cmp == 0) {
+                op = OP_LT;
+            }
+            return OLAP_SUCCESS;
+        }
+        case OP_GT:
+        case OP_GE: {
+            int cmp = operand_field->field()->compare_cell(*operand_field, *(other.operand_field));
+            if (op == other.op) {
+                if (cmp < 0) {
+                    operand_field = other.operand_field;
+                }
+                return OLAP_SUCCESS;
+            }
+            if (cmp == 0) {
+                op = OP_GT;
+            }
+            return OLAP_SUCCESS;
+        }
+        case OP_IN:
+            if (other.op == OP_IN) {
+                for (auto operand = operand_set.begin(); operand != operand_set.end();) {
+                    if (other.operand_set.find(*operand) == other.operand_set.end()) {
+                        // Not in other's operand_set, invalidate and release it
+                        operand = operand_set.erase(operand);
+                    } else {
+                        ++operand;
+                    }
+                }
+                if (operand_set.empty()) {
+                    // No intersection, all not satisfied
+                    op = OP_NULL;
+                    return OLAP_SUCCESS;
+                }
+
+                min_value_field = nullptr;
+                max_value_field = nullptr;
+                if (operand_set.size() == 1) {
+                    // Transfer to OP_EQ
+                    op = OP_EQ;
+                    operand_field = *operand_set.begin();
+                    operand_set.clear();
+                    return OLAP_SUCCESS;
+                }
+
+                // Update min & max
+                for (const auto& operand : operand_set) {
+                    if (min_value_field == nullptr || operand->field()->compare_cell(*min_value_field, *(operand)) > 0) {
+                        min_value_field = operand;
+                    }
+                    if (max_value_field == nullptr || operand->field()->compare_cell(*max_value_field, *(operand)) < 0) {
+                        max_value_field = operand;
+                    }
+                }
+            } else {
+                DCHECK_EQ(other.op, OP_EQ) << "op: " << op << ", other.op: " << other.op;
+                if (operand_set.find(other.operand_field) == operand_set.end()) {
+                    // No intersection, all not satisfied
+                    op = OP_NULL;
+                    return OLAP_SUCCESS;
+                }
+
+                // Transfer to OP_EQ
+                op = OP_EQ;
+                operand_field = other.operand_field;
+
+                // Invalidate
+                operand_set.clear();
+                min_value_field = nullptr;
+                max_value_field = nullptr;
+            }
+            return OLAP_SUCCESS;
+        case OP_NOT_IN:
+            if (other.op == OP_NOT_IN) {
+                // Update min & max
+                if (min_value_field->field()->compare_cell(*min_value_field, *(other.min_value_field)) > 0) {
+                    min_value_field = other.min_value_field;
+                }
+                if (max_value_field->field()->compare_cell(*max_value_field, *(other.max_value_field)) < 0) {
+                    max_value_field = other.max_value_field;
+                }
+                // Update operand_set
+                operand_set.insert(other.operand_set.begin(), other.operand_set.end());
+            } else {
+                DCHECK_EQ(other.op, OP_NE) << "op: " << op << ", other.op: " << other.op;
+                if (operand_set.find(other.operand_field) != operand_set.end()) {
+                    // Exist a same value in operand_set, do nothing but release and invalidate this operand
+                    return OLAP_SUCCESS;
+                }
+
+                // Update min & max
+                if (other.operand_field->field()->compare_cell(*min_value_field, *(other.operand_field)) > 0) {
+                    min_value_field = other.operand_field;
+                }
+                if (other.operand_field->field()->compare_cell(*max_value_field, *(other.operand_field)) < 0) {
+                    max_value_field = other.operand_field;
+                }
+
+                // Update operand_set
+                operand_set.insert(other.operand_field);
+            }
+            return OLAP_SUCCESS;
+        case OP_IS:
+            if (operand_field->is_null() != other.operand_field->is_null()) {
+                // No intersection, all not satisfied
+                op = OP_NULL;
+                return OLAP_SUCCESS;
+            }
+            return OLAP_SUCCESS;
+        default:
+            op = OP_ALL;;
+            return OLAP_ERR_READER_INITIALIZE_ERROR;
+    }
+}
+
+OLAPStatus Cond::union_cond(const Cond& other) {
+    DCHECK(op == other.op ||
+           (op == OP_NOT_IN && other.op == OP_NE) ||
+           (op == OP_NE && other.op == OP_NOT_IN) ||
+           (op == OP_IN && other.op == OP_EQ) ||
+           (op == OP_EQ && other.op == OP_IN) ||
+           (op == OP_LT && other.op == OP_LE) ||
+           (op == OP_LE && other.op == OP_LT) ||
+           (op == OP_GT && other.op == OP_GE) ||
+           (op == OP_GE && other.op == OP_GT)) << "op: " << op << ", other.op: " << other.op;
+    switch (op) {
+        case OP_EQ:
+            if (other.op == OP_EQ) {
+                int cmp = operand_field->field()->compare_cell(*operand_field, *(other.operand_field));
+                if (cmp != 0) {
+                    // Transfer to OP_IN if they OP_EQ to two different values
+                    op = OP_IN;
+                    operand_set.insert(operand_field);
+                    operand_set.insert(other.operand_field);
+                    min_value_field = cmp < 0 ? operand_field : other.operand_field;
+                    max_value_field = cmp > 0 ? operand_field : other.operand_field;
+                    // Invalidate operand_field after transferring to operand_set
+                    operand_field = nullptr;
+                }
+            } else {
+                DCHECK_EQ(other.op, OP_IN) << "op: " << op << ", other.op: " << other.op;
+                // Transfer to OP_IN
+                op = OP_IN;
+                operand_set = other.operand_set;
+                min_value_field = other.min_value_field;
+                max_value_field = other.max_value_field;
+
+                if (operand_set.find(operand_field) == operand_set.end()) {
+                    // Insert and update min & max
+                    operand_set.insert(operand_field);
+                    if (operand_field->field()->compare_cell(*operand_field, *(min_value_field)) < 0) {
+                        min_value_field = operand_field;
+                    }
+                    if (operand_field->field()->compare_cell(*operand_field, *(max_value_field)) > 0) {
+                        max_value_field = operand_field;
+                    }
+                }
+                operand_field = nullptr;
+            }
+            return OLAP_SUCCESS;
+        case OP_NE:
+            if (other.op == OP_NE) {
+                int cmp = operand_field->field()->compare_cell(*operand_field, *(other.operand_field));
+                if (cmp != 0) {
+                    // All satisfied
+                    op = OP_ALL;
+                    operand_field = nullptr;
+                }
+            } else {
+                DCHECK_EQ(other.op, OP_NOT_IN) << "op: " << op << ", other.op: " << other.op;
+                if (other.operand_set.find(operand_field) == other.operand_set.end()) {
+                    // All satisfied
+                    op = OP_ALL;
+                    operand_field = nullptr;
+                }
+            }
+            return OLAP_SUCCESS;
+        case OP_LT:
+        case OP_LE: {
+            int cmp = operand_field->field()->compare_cell(*operand_field, *(other.operand_field));
+            if (op == other.op) {
+                if (cmp < 0) {
+                    operand_field = other.operand_field;
+                }
+                return OLAP_SUCCESS;
+            }
+            if (cmp == 0) {
+                op = OP_LE;
+            }
+            return OLAP_SUCCESS;
+        }
+        case OP_GT:
+        case OP_GE: {
+            int cmp = operand_field->field()->compare_cell(*operand_field, *(other.operand_field));
+            if (op == other.op) {
+                if (cmp > 0) {
+                    operand_field = other.operand_field;
+                }
+                return OLAP_SUCCESS;
+            }
+            if (cmp == 0) {
+                op = OP_GE;
+            }
+            return OLAP_SUCCESS;
+        }
+        case OP_IN:
+            if (other.op == OP_IN) {
+                for (const auto& operand : other.operand_set) {
+                    if (operand_set.find(operand) == operand_set.end()) {
+                        operand_set.insert(operand);
+                        if (operand->field()->compare_cell(*min_value_field, *operand) > 0) {
+                            min_value_field = operand;
+                        }
+                        if (operand->field()->compare_cell(*max_value_field, *operand) < 0) {
+                            max_value_field = operand;
+                        }
+                    }
+                }
+            } else {
+                DCHECK_EQ(other.op, OP_EQ) << "op: " << op << ", other.op: " << other.op;
+                if (operand_set.find(other.operand_field) == operand_set.end()) {
+                    operand_set.insert(other.operand_field);
+                    if (other.operand_field->field()->compare_cell(*min_value_field, *(other.operand_field)) > 0) {
+                        min_value_field = other.operand_field;
+                    }
+                    if (other.operand_field->field()->compare_cell(*max_value_field, *(other.operand_field)) < 0) {
+                        max_value_field = other.operand_field;
+                    }
+                }
+            }
+            return OLAP_SUCCESS;
+        case OP_NOT_IN:
+            if (other.op == OP_NOT_IN) {
+                for (auto operand = operand_set.begin(); operand != operand_set.end();) {
+                    if (other.operand_set.find(*operand) != other.operand_set.end()) {
+                        ++operand;
+                    } else {
+                        operand = operand_set.erase(operand);
+                    }
+                }
+                min_value_field = nullptr;
+                max_value_field = nullptr;
+                if (operand_set.empty()) {
+                    // All satisfied
+                    op = OP_ALL;
+                    return OLAP_SUCCESS;
+                }
+
+                if (operand_set.size() == 1) {
+                    // Transfer to OP_NE
+                    op = OP_NE;
+                    operand_field = *operand_set.begin();
+                    operand_set.clear();
+                    return OLAP_SUCCESS;
+                }
+
+                // Update min & max
+                for (const auto& operand : operand_set) {
+                    if (min_value_field == nullptr || operand->field()->compare_cell(*min_value_field, *(operand)) > 0) {
+                        min_value_field = operand;
+                    }
+                    if (max_value_field == nullptr || operand->field()->compare_cell(*max_value_field, *(operand)) < 0) {
+                        max_value_field = operand;
+                    }
+                }
+            } else {
+                DCHECK_EQ(other.op, OP_NE) << "op: " << op << ", other.op: " << other.op;
+                min_value_field = nullptr;
+                max_value_field = nullptr;
+                if (operand_set.find(other.operand_field) == operand_set.end()) {
+                    // All satisfied
+                    op = OP_ALL;
+                    operand_set.clear();
+                    return OLAP_SUCCESS;
+                }
+
+                // Transfer to OP_NE
+                op = OP_NE;
+                operand_field = other.operand_field;
+                operand_set.clear();
+            }
+            return OLAP_SUCCESS;
+        case OP_IS:
+            if (operand_field->is_null() != other.operand_field->is_null()) {
+                // All satisfied
+                op = OP_ALL;
+                operand_field = nullptr;
+                return OLAP_SUCCESS;
+            }
+            return OLAP_SUCCESS;
+        default:
+            op = OP_ALL;;
+            return OLAP_ERR_READER_INITIALIZE_ERROR;
+    }
 }
 
 bool Cond::eval(const RowCursorCell& cell) const {
@@ -194,15 +558,15 @@ bool Cond::eval(const RowCursorCell& cell) const {
     case OP_GE:
         return operand_field->field()->compare_cell(*operand_field, cell) <= 0;
     case OP_IN: {
-        WrapperField wrapperField(const_cast<Field*>(min_value_field->field()), cell);
-        auto ret = operand_set.find(&wrapperField) != operand_set.end();
-        wrapperField.release_field();
+        auto wrapperField = std::make_shared<WrapperField>(const_cast<Field*>(min_value_field->field()), cell);
+        auto ret = operand_set.find(wrapperField) != operand_set.end();
+        wrapperField->release_field();
         return ret;
     }
     case OP_NOT_IN: {
-        WrapperField wrapperField(const_cast<Field*>(min_value_field->field()), cell);
-        auto ret = operand_set.find(&wrapperField) == operand_set.end();
-        wrapperField.release_field();
+        auto wrapperField = std::make_shared<WrapperField>(const_cast<Field*>(min_value_field->field()), cell);
+        auto ret = operand_set.find(wrapperField) == operand_set.end();
+        wrapperField->release_field();
         return ret;
     }
     case OP_IS: {
@@ -350,7 +714,7 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
     }
     case OP_IN: {
         if (stat.first->cmp(stat.second) == 0) {
-            if (operand_set.find(stat.first) != operand_set.end()) {
+            if (operand_set.find(std::shared_ptr<WrapperField>(stat.first, [](WrapperField*){})) != operand_set.end()) {
                 ret = DEL_SATISFIED;
             } else {
                 ret = DEL_NOT_SATISFIED;
@@ -366,7 +730,7 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
     }
     case OP_NOT_IN: {
         if (stat.first->cmp(stat.second) == 0) {
-            if (operand_set.find(stat.first) == operand_set.end()) {
+            if (operand_set.find(std::shared_ptr<WrapperField>(stat.first, [](WrapperField*){})) == operand_set.end()) {
                 ret = DEL_SATISFIED;
             } else {
                 ret = DEL_NOT_SATISFIED;
@@ -492,21 +856,37 @@ bool Cond::eval(const segment_v2::BloomFilter* bf) const {
     return true;
 }
 
-CondColumn::~CondColumn() {
-    for (auto& it : _conds) {
-        delete it;
-    }
-}
-
 // PRECONDITION 1. index is valid; 2. at least has one operand
 OLAPStatus CondColumn::add_cond(const TCondition& tcond, const TabletColumn& column) {
-    std::unique_ptr<Cond> cond(new Cond());
+    auto cond = std::make_shared<Cond>();
     auto res = cond->init(tcond, column);
     if (res != OLAP_SUCCESS) {
         return res;
     }
-    _conds.push_back(cond.release());
+    _conds.push_back(cond);
     return OLAP_SUCCESS;
+}
+
+void CondColumn::merge_cond(const CondColumn& cond_col) {
+    DCHECK_EQ(_is_key, cond_col._is_key);
+    DCHECK_EQ(_col_index, cond_col._col_index);
+
+    for (auto& cond1 : _conds) {
+        for (const auto& cond2 : cond_col._conds) {
+            if ((cond1->op == cond2->op) ||
+                (cond1->op == OP_NOT_IN && cond2->op == OP_NE) ||
+                (cond1->op == OP_NE && cond2->op == OP_NOT_IN) ||
+                (cond1->op == OP_IN && cond2->op == OP_EQ) ||
+                (cond1->op == OP_EQ && cond2->op == OP_IN) ||
+                (cond1->op == OP_LT && cond2->op == OP_LE) ||
+                (cond1->op == OP_LE && cond2->op == OP_LT) ||
+                (cond1->op == OP_GT && cond2->op == OP_GE) ||
+                (cond1->op == OP_GE && cond2->op == OP_GT)) {
+                CHECK_EQ(cond1->union_cond(*cond2), OLAP_SUCCESS);
+                break;
+            }
+        }
+    }
 }
 
 bool CondColumn::eval(const RowCursor& row) const {
@@ -601,10 +981,10 @@ OLAPStatus Conditions::append_condition(const TCondition& tcond) {
     }
 
     CondColumn* cond_col = nullptr;
-    auto it = _columns.find(index);
-    if (it == _columns.end()) {
+    auto it = _cond_cols.find(index);
+    if (it == _cond_cols.end()) {
         cond_col = new CondColumn(*_schema, index);
-        _columns[index] = cond_col;
+        _cond_cols[index] = cond_col;
     } else {
         cond_col = it->second;
     }
@@ -612,19 +992,42 @@ OLAPStatus Conditions::append_condition(const TCondition& tcond) {
     return cond_col->add_cond(tcond, column);
 }
 
+bool Conditions::merge_del_condition(const CondColumns& cond_cols) {
+    if (cond_cols.size() > 1) {
+        // Only support to merge on single column
+        return false;
+    }
+    for (const auto& cond_col : cond_cols) {
+        int32_t index = cond_col.first;
+        auto it = _cond_cols.find(index);
+        if (it == _cond_cols.end()) {
+            if (!_cond_cols.empty()) {
+                // Only support to merge on the same column
+                return false;
+            }
+            CondColumn* new_cond_col = new CondColumn(*_schema, index);
+            new_cond_col->_conds = cond_col.second->conds();
+            _cond_cols[index] = new_cond_col;
+        } else {
+            it->second->merge_cond(*cond_col.second);
+        }
+    }
+    return true;
+}
+
 bool Conditions::delete_conditions_eval(const RowCursor& row) const {
-    if (_columns.empty()) {
+    if (_cond_cols.empty()) {
         return false;
     }
 
-    for (auto& each_cond : _columns) {
-        if (_cond_column_is_key_or_duplicate(each_cond.second) && !each_cond.second->eval(row)) {
+    for (const auto& cond_col : _cond_cols) {
+        if (_cond_column_is_key_or_duplicate(cond_col.second) && !cond_col.second->eval(row)) {
             return false;
         }
     }
 
     VLOG_NOTICE << "Row meets the delete conditions. "
-            << "condition_count=" << _columns.size() << ", row=" << row.to_string();
+            << "condition_count=" << _cond_cols.size() << ", row=" << row.to_string();
     return true;
 }
 
@@ -632,10 +1035,10 @@ bool Conditions::rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) c
     // ZoneMap will store min/max of rowset.
     // The function is to filter rowset using ZoneMaps
     // and query predicates.
-    for (auto& cond_it : _columns) {
-        if (_cond_column_is_key_or_duplicate(cond_it.second)) {
-            if (cond_it.first < zone_maps.size() &&
-                !cond_it.second->eval(zone_maps.at(cond_it.first))) {
+    for (const auto& cond_col : _cond_cols) {
+        if (_cond_column_is_key_or_duplicate(cond_col.second)) {
+            if (cond_col.first < zone_maps.size() &&
+                !cond_col.second->eval(zone_maps.at(cond_col.first))) {
                 return true;
             }
         }
@@ -644,9 +1047,10 @@ bool Conditions::rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) c
 }
 
 int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) const {
-    if (_columns.empty()) {
+    if (_cond_cols.empty()) {
         return DEL_NOT_SATISFIED;
     }
+
     // ZoneMap and DeletePredicate are all stored in TabletMeta.
     // This function is to filter rowset using ZoneMap and Delete Predicate.
     /*
@@ -658,19 +1062,19 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
     int ret = DEL_NOT_SATISFIED;
     bool del_partial_satisfied = false;
     bool del_not_satisfied = false;
-    for (auto& cond_it : _columns) {
+    for (auto& cond_col : _cond_cols) {
         /*
          * this is base on the assumption that the delete condition
          * is only about key field, not about value field except the storage model is duplicate.
         */
-        if (_cond_column_is_key_or_duplicate(cond_it.second) && cond_it.first > zone_maps.size()) {
+        if (_cond_column_is_key_or_duplicate(cond_col.second) && cond_col.first > zone_maps.size()) {
             LOG(WARNING) << "where condition not equal column statistics size. "
-                         << "cond_id=" << cond_it.first << ", zone_map_size=" << zone_maps.size();
+                         << "cond_id=" << cond_col.first << ", zone_map_size=" << zone_maps.size();
             del_partial_satisfied = true;
             continue;
         }
 
-        int del_ret = cond_it.second->del_eval(zone_maps.at(cond_it.first));
+        int del_ret = cond_col.second->del_eval(zone_maps.at(cond_col.first));
         if (DEL_SATISFIED == del_ret) {
             continue;
         } else if (DEL_PARTIAL_SATISFIED == del_ret) {
@@ -692,8 +1096,8 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
 }
 
 CondColumn* Conditions::get_column(int32_t cid) const {
-    auto iter = _columns.find(cid);
-    if (iter != _columns.end()) {
+    auto iter = _cond_cols.find(cid);
+    if (iter != _cond_cols.end()) {
         return iter->second;
     }
     return nullptr;

@@ -394,14 +394,14 @@ OLAPStatus SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t
 
             bool del_partial_satisfied = false;
             bool del_not_satisfied = false;
-            for (auto& i : delete_condition.del_cond->columns()) {
-                ColumnId table_column_id = i.first;
+            for (const auto& col_cond : delete_condition.del_cond->columns()) {
+                ColumnId table_column_id = col_cond.first;
                 ColumnId unique_column_id = _tablet_id_to_unique_id_map[table_column_id];
                 if (0 == _unique_id_to_segment_id_map.count(unique_column_id)) {
                     continue;
                 }
                 StreamIndexReader* index_reader = _indices[unique_column_id];
-                int del_ret = i.second->del_eval(index_reader->entry(j).column_statistic().pair());
+                int del_ret = col_cond.second->del_eval(index_reader->entry(j).column_statistic().pair());
                 if (DEL_SATISFIED == del_ret) {
                     continue;
                 } else if (DEL_PARTIAL_SATISFIED == del_ret) {
@@ -412,7 +412,7 @@ OLAPStatus SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t
                 }
             }
 
-            if (true == del_not_satisfied || 0 == delete_condition.del_cond->columns().size()) {
+            if (true == del_not_satisfied || delete_condition.del_cond->columns().empty()) {
                 //if state is DEL_PARTIAL_SATISFIED last_time, cannot be set as DEL_NOT_SATISFIED
                 //it is special for for delete condition
                 if (DEL_PARTIAL_SATISFIED == _include_blocks[j]) {
@@ -471,21 +471,21 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
 
     _pick_delete_row_groups(first_block, last_block);
 
-    if (NULL == _conditions || _conditions->columns().size() == 0) {
+    if (NULL == _conditions || _conditions->columns().empty()) {
         return OLAP_SUCCESS;
     }
 
     OlapStopWatch timer;
     timer.reset();
 
-    for (auto& i : _conditions->columns()) {
-        FieldAggregationMethod aggregation = _get_aggregation_by_index(i.first);
+    for (const auto& cond_col : _conditions->columns()) {
+        FieldAggregationMethod aggregation = _get_aggregation_by_index(cond_col.first);
         bool is_continue = (aggregation == OLAP_FIELD_AGGREGATION_NONE);
         if (!is_continue) {
             continue;
         }
 
-        ColumnId table_column_id = i.first;
+        ColumnId table_column_id = cond_col.first;
         ColumnId unique_column_id = _tablet_id_to_unique_id_map[table_column_id];
         if (0 == _unique_id_to_segment_id_map.count(unique_column_id)) {
             continue;
@@ -496,7 +496,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
                 continue;
             }
 
-            if (!i.second->eval(index_reader->entry(j).column_statistic().pair())) {
+            if (!cond_col.second->eval(index_reader->entry(j).column_statistic().pair())) {
                 _include_blocks[j] = DEL_SATISFIED;
                 --_remain_block;
 
