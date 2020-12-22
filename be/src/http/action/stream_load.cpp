@@ -128,6 +128,8 @@ void StreamLoadAction::handle(HttpRequest* req) {
     }
 
     auto str = ctx->to_json();
+    // add new line at end
+    str = str + '\n';
     HttpChannel::send_reply(req, str);
 
     // update statstics
@@ -195,6 +197,8 @@ int StreamLoadAction::on_header(HttpRequest* req) {
             ctx->body_sink->cancel();
         }
         auto str = ctx->to_json();
+        // add new line at end
+        str = str + '\n';
         HttpChannel::send_reply(req, str);
         streaming_load_current_processing->increment(-1);
         return -1;

@@ -932,6 +932,7 @@ void MiniLoadAction::_new_handle(HttpRequest* req) {
     }
 
     std::string str = ctx->to_json_for_mini_load();
+    str += '\n';
     HttpChannel::send_reply(req, str);
 }
 
