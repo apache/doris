@@ -283,6 +283,9 @@ CONF_mInt32(max_compaction_threads, "10");
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
 
+// sleep interval in ms after generated compaction tasks
+CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10")
+
 // Compaction task number per disk.
 CONF_mInt32(compaction_task_num_per_disk, "2");
 
