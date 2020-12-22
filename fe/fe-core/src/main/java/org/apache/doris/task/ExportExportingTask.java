@@ -266,14 +266,6 @@ public class ExportExportingTask extends MasterTask {
     }
 
     private void registerProfile() {
-        if (ConnectContext.get() != null) {
-            long timeConsuming = System.currentTimeMillis() - job.getCreateTimeMs();
-            long timeThreshold = ConnectContext.get().getSessionVariable().getReportQueryTimeThreshold();
-            if (timeConsuming < timeThreshold) {
-                return;
-            }
-        }
-
         initProfile();
         for (RuntimeProfile p : fragmentProfiles) {
             profile.addChild(p);

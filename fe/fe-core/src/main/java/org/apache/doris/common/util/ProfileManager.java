@@ -108,8 +108,17 @@ public class ProfileManager {
         if (profile == null) {
             return;
         }
-        
+
         ProfileElement element = createElement(profile);
+        long endTime = TimeUtils.timeStringToLong(element.infoStrings.get(ProfileManager.END_TIME));
+        long startTime = TimeUtils.timeStringToLong(element.infoStrings.get(ProfileManager.START_TIME));
+        if (ConnectContext.get() != null) {
+            ARRAY_SIZE = ConnectContext.get().getSessionVariable().getReportQuerySize();
+            long timeThreshold = ConnectContext.get().getSessionVariable().getReportQueryTimeThreshold();
+            if (endTime - startTime < timeThreshold) {
+                return;
+            }
+        }
         String queryId = element.infoStrings.get(ProfileManager.QUERY_ID);
         // check when push in, which can ensure every element in the list has QUERY_ID column,
         // so there is no need to check when remove element from list.
@@ -121,9 +130,6 @@ public class ProfileManager {
         profileMap.put(queryId, element);
         writeLock.lock();
         try {
-            if (ConnectContext.get() != null) {
-                ARRAY_SIZE = ConnectContext.get().getSessionVariable().getReportQuerySize();
-            }
             if (profileDeque.size() >= ARRAY_SIZE) {
                 profileMap.remove(profileDeque.getFirst().infoStrings.get(QUERY_ID));
                 profileDeque.removeFirst();

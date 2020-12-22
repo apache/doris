@@ -288,6 +288,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = REPORT_QUERY_SIZE)
     private int reportQuerySize = 100;
 
+    // time threshold of reporting query profile (ms)
     @VariableMgr.VarAttr(name = REPORT_QUERY_TIME_THRESHOLD)
     private int reportQueryTimeThreshold = -1;
 
