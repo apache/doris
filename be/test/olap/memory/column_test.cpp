@@ -21,16 +21,17 @@
 
 #include "olap/memory/column_reader.h"
 #include "olap/memory/column_writer.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 namespace memory {
 
+static const size_t InsertCount = LOOP_LESS_OR_MORE(1000, 1000000);
+static const size_t UpdateTime = 70;
+static const size_t UpdateCount = LOOP_LESS_OR_MORE(10, 10000);
+
 template <class CppType, ColumnType CT>
 struct ColumnTest {
-    static const size_t InsertCount = 1000000;
-    static const size_t UpdateTime = 70;
-    static const size_t UpdateCount = 10000;
-
     static bool is_null(CppType v) { return ((int64_t)v) % 10 == 0; }
 
     static void test_not_null() {

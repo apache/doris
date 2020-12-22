@@ -43,8 +43,13 @@ class TypedColumnWriter;
 // Note: support single-writer multi-reader concurrency.
 class Column : public RefCountedThreadSafe<Column> {
 public:
-    static const uint32_t BLOCK_SIZE = 1 << 16;
-    static const uint32_t BLOCK_MASK = 0xffff;
+#ifndef BE_TEST
+    static const uint32_t BLOCK_SIZE_SHIFT = 16;
+#else
+    static const uint32_t BLOCK_SIZE_SHIFT = 4;
+#endif
+    static const uint32_t BLOCK_SIZE = 1 << BLOCK_SIZE_SHIFT;
+    static const uint32_t BLOCK_MASK = BLOCK_SIZE - 1;
     // Base vector capacity min grow step size
     static const uint32_t BASE_CAPACITY_MIN_STEP_SIZE = 8;
     // Base vector capacity max grow step size
@@ -53,7 +58,7 @@ public:
     static const uint32_t VERSION_CAPACITY_STEP_SIZE = 8;
 
     // Get block id by rowid
-    static uint32_t block_id(uint32_t rid) { return rid >> 16; }
+    static uint32_t block_id(uint32_t rid) { return rid >> BLOCK_SIZE_SHIFT; }
 
     // Get index in block by rowid
     static uint32_t index_in_block(uint32_t rid) { return rid & BLOCK_MASK; }
