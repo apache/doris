@@ -253,7 +253,7 @@ public class ExportExportingTask extends MasterTask {
         long currentTimestamp = System.currentTimeMillis();
         long totalTimeMs = currentTimestamp - job.getStartTimeMs();
         summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
-        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
+        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, String.valueOf(totalTimeMs));
 
         summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, job.getState().toString());

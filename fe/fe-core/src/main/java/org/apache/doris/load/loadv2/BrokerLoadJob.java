@@ -324,7 +324,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         summaryProfile.addInfoString(ProfileManager.QUERY_ID, String.valueOf(id));
         summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(createTimestamp));
         summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(finishTimestamp));
-        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(finishTimestamp - createTimestamp));
+        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, String.valueOf(finishTimestamp - createTimestamp));
 
         summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Load");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, "N/A");

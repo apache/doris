@@ -110,12 +110,12 @@ public class ProfileManager {
         }
 
         ProfileElement element = createElement(profile);
-        long endTime = TimeUtils.timeStringToLong(element.infoStrings.get(ProfileManager.END_TIME));
-        long startTime = TimeUtils.timeStringToLong(element.infoStrings.get(ProfileManager.START_TIME));
+        long timeConsuming = Long.parseLong(element.infoStrings.get(ProfileManager.TOTAL_TIME));
+        element.infoStrings.put(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(timeConsuming));
         if (ConnectContext.get() != null) {
             ARRAY_SIZE = ConnectContext.get().getSessionVariable().getReportQuerySize();
             long timeThreshold = ConnectContext.get().getSessionVariable().getReportQueryTimeThreshold();
-            if (endTime - startTime < timeThreshold) {
+            if (timeConsuming < timeThreshold) {
                 return;
             }
         }
