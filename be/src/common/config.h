@@ -609,8 +609,8 @@ CONF_Int32(query_cache_max_partition_count, "1024");
 // This is to avoid too many version num.
 CONF_mInt32(max_tablet_version_num, "500");
 
-// Frontend mainly use two thrift sever type: THREAD_POOL, THREADED. if fe use THREADED model for thrift server,
-// the thrift_server_type_of_fe should be set THREADED to make be thrift client to fe constructed with TFramedTransport
+// Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
+// the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
 CONF_String(thrift_server_type_of_fe, "THREAD_POOL");
 
 } // namespace config
