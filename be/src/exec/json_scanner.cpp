@@ -18,7 +18,6 @@
 #include "exec/json_scanner.h"
 
 #include <algorithm>
-#include <unordered_map>
 
 #include "env/env.h"
 #include "exec/broker_reader.h"
@@ -435,7 +434,6 @@ void JsonReader::_write_data_to_tuple(rapidjson::Value::ConstValueIterator value
 // for simple format json
 void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
                                   const std::vector<SlotDescriptor*>& slot_descs,
-                                  const std::unordered_map<std::string, int>& name_map,
                                   MemPool* tuple_pool, bool* valid) {
     if (!objectValue.IsObject()) {
         // Here we expect the incoming `objectValue` to be a Json Object, such as {"key" : "value"},
@@ -446,13 +444,13 @@ void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
         *valid = false; // current row is invalid
         return;
     }
-
+    
     int nullcount = 0;
     for (auto v : slot_descs) {
         rapidjson::Value::ConstMemberIterator it = objectValue.MemberEnd();
         if (_fuzzy_parse) {
-            auto idx_it = name_map.find(v->col_name());
-            if (idx_it != name_map.end() && idx_it->second < objectValue.MemberCount()) {
+            auto idx_it = _name_map.find(v->col_name());
+            if (idx_it != _name_map.end() && idx_it->second < objectValue.MemberCount()) {
                 it = objectValue.MemberBegin() + idx_it->second;
             }
         } else {
@@ -503,11 +501,6 @@ void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
 Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
                                        MemPool* tuple_pool, bool* eof) {
     // If you use a string as the key to find the json object, strlen will be called every time, so the key is constructed in advance
-    std::unordered_map<std::string, int> name_map;
-    std::vector<rapidjson::Value> value_key;
-    for (auto v : slot_descs) {
-        value_key.emplace_back(v->col_name().c_str(), v->col_name().size());
-    }
     do {
         bool valid = false;
         if (_next_line >= _total_lines) { // parse json and generic document
@@ -519,6 +512,7 @@ Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescr
             if (*eof) {          // read all data, then return
                 return Status::OK();
             }
+            _name_map.clear();
             rapidjson::Value* objectValue = nullptr;
             if (_json_doc->IsArray()) {
                 _total_lines = _json_doc->Size();
@@ -542,7 +536,7 @@ Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescr
                     for (int i = 0; i < objectValue->MemberCount(); ++i) {
                         auto it = objectValue->MemberBegin() + i;
                         if (v->col_name() == it->name.GetString()) {
-                            name_map[v->col_name()] = i;
+                            _name_map[v->col_name()] = i;
                             break;
                         }
                     }
@@ -552,9 +546,9 @@ Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescr
 
         if (_json_doc->IsArray()) {                                   // handle case 1
             rapidjson::Value& objectValue = (*_json_doc)[_next_line]; // json object
-            _set_tuple_value(objectValue, tuple, slot_descs, name_map, tuple_pool, &valid);
+            _set_tuple_value(objectValue, tuple, slot_descs, tuple_pool, &valid);
         } else { // handle case 2
-            _set_tuple_value(*_json_doc, tuple, slot_descs, name_map, tuple_pool, &valid);
+            _set_tuple_value(*_json_doc, tuple, slot_descs, tuple_pool, &valid);
         }
         _next_line++;
         if (!valid) {
