@@ -55,6 +55,7 @@ public class OdbcTable extends Table {
     private static final String ODBC_DRIVER = "driver";
     private static final String ODBC_TYPE = "odbc_type";
 
+    // map now odbc external table Doris support now
     private static Map<String, TOdbcTableType> TABLE_TYPE_MAP;
     static {
         Map<String, TOdbcTableType> tempMap = new HashMap<>();
@@ -62,6 +63,19 @@ public class OdbcTable extends Table {
         tempMap.put("mysql", TOdbcTableType.MYSQL);
         tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
+    }
+
+    // For different databases, special characters need to be escaped
+    private static String mysqlProperName(String name) {
+        return "`" + name + "`";
+    }
+    
+    public static String databaseProperName(TOdbcTableType tableType, String name) {
+        switch (tableType) {
+            case MYSQL:
+                return mysqlProperName(name);
+        }
+        return name;
     }
 
     private String odbcCatalogResourceName;

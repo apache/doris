@@ -75,6 +75,8 @@ public class AuditEvent {
     public String feIp = "";
     @AuditField(value = "Stmt")
     public String stmt = "";
+    @AuditField(value = "CpuTimeMS")
+    public long cpuTimeMs = -1;
 
     public static class AuditEventBuilder {
 
@@ -124,6 +126,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setScanBytes(long scanBytes) {
             auditEvent.scanBytes = scanBytes;
+            return this;
+        }
+
+        public AuditEventBuilder setCpuTimeMs(long cpuTimeMs) {
+            auditEvent.cpuTimeMs = cpuTimeMs;
             return this;
         }
 

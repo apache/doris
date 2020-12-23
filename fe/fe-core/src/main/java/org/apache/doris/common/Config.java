@@ -68,7 +68,8 @@ public class Config extends ConfigBase {
     public static String sys_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
     @ConfField public static String sys_log_level = "INFO"; 
     @ConfField public static int sys_log_roll_num = 10;
-    @ConfField public static String[] sys_log_verbose_modules = {"org.apache.thrift", "org.apache.doris.thrift", "org.apache.doris.http", "org.apache.doris.service.FrontendServiceImpl"};
+    @ConfField
+    public static String[] sys_log_verbose_modules = {};
     @ConfField public static String sys_log_roll_interval = "DAY";
     @ConfField public static String sys_log_delete_age = "7d";
     @Deprecated
@@ -1301,4 +1302,13 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static boolean enable_alpha_rowset = false;
+
+    /**
+     * This config is used to solve fe heartbeat response read_timeout problem,
+     * When config is set to be true, master will get fe heartbeat response by thrift protocol
+     * instead of http protocol. In order to maintain compatibility with the old version,
+     * the default is false, and the configuration cannot be changed to true until all fe are upgraded.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_fe_heartbeat_by_thrift = false;
 }

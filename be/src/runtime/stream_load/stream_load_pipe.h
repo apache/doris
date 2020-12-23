@@ -86,7 +86,7 @@ public:
     // If _total_length == -1, this should be a Kafka routine load task,
     // just get the next buffer directly from the buffer queue, because one buffer contains a complete piece of data.
     // Otherwise, this should be a stream load task that needs to read the specified amount of data.
-    Status read_one_message(uint8_t** data, size_t* length) override {
+    Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length) override {
         if (_total_length < -1) {
             std::stringstream ss;
             ss << "invalid, _total_length is: " << _total_length;
@@ -102,10 +102,10 @@ public:
         }
 
         // _total_length > 0, read the entire data
-        *data = new uint8_t[_total_length];
+        data->reset(new uint8_t[_total_length]);
         *length = _total_length;
         bool eof = false;
-        Status st = read(*data, length, &eof);
+        Status st = read(data->get(), length, &eof);
         if (eof) {
             *length = 0;
         }
@@ -188,7 +188,7 @@ public:
 
 private:
     // read the next buffer from _buf_queue
-    Status _read_next_buffer(uint8_t** data, size_t* length) {
+    Status _read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_t* length) {
         std::unique_lock<std::mutex> l(_lock);
         while (!_cancelled && !_finished && _buf_queue.empty()) {
             _get_cond.wait(l);
@@ -200,14 +200,14 @@ private:
         // finished
         if (_buf_queue.empty()) {
             DCHECK(_finished);
-            *data = nullptr;
+            data->reset();
             *length = 0;
             return Status::OK();
         }
         auto buf = _buf_queue.front();
         *length = buf->remaining();
-        *data = new uint8_t[*length];
-        buf->get_bytes((char*)(*data), *length);
+        data->reset(new uint8_t[*length]);
+        buf->get_bytes((char*)(data->get()), *length);
 
         _buf_queue.pop_front();
         _buffered_bytes -= buf->limit;

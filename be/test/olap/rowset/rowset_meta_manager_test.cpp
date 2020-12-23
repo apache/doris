@@ -49,10 +49,8 @@ public:
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
-        std::vector<StorePath> paths;
-        paths.emplace_back("_engine_data_path", -1);
         EngineOptions options;
-        options.store_paths = paths;
+        // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
         if (k_engine == nullptr) {
             k_engine = new StorageEngine(options);
