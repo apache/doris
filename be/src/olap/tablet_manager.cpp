@@ -51,6 +51,7 @@
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
 #include "util/time.h"
+#include "util/trace.h"
 
 using std::list;
 using std::map;
@@ -211,6 +212,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
               << ", schema_hash=" << schema_hash;
 
     WriteLock wlock(_get_tablets_shard_lock(tablet_id));
+    TRACE("got tablets shard lock");
     // Make create_tablet operation to be idempotent:
     // 1. Return true if tablet with same tablet_id and schema_hash exist;
     //           false if tablet with same tablet_id but different schema_hash exist.
@@ -251,6 +253,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         stores.clear();
         stores.push_back(base_tablet->data_dir());
     }
+    TRACE("got base tablet");
 
     // set alter type to schema-change. it is useless
     TabletSharedPtr tablet = _internal_create_tablet_unlocked(
@@ -260,6 +263,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
+    TRACE("succeed to create tablet");
 
     LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id
               << ", schema_hash=" << schema_hash;
@@ -282,6 +286,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
     if (tablet == nullptr) {
         return nullptr;
     }
+    TRACE("create tablet meta");
 
     int64_t new_tablet_id = request.tablet_id;
     int32_t new_schema_hash = request.tablet_schema.schema_hash;
@@ -314,6 +319,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
                 LOG(WARNING) << "fail to create initial version for tablet. res=" << res;
                 break;
             }
+            TRACE("create initial rowset");
         }
         if (is_schema_change) {
             if (request.__isset.base_tablet_id && request.base_tablet_id > 0) {
@@ -341,6 +347,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
                 int64_t new_creation_time = base_tablet->creation_time() + 1;
                 tablet->set_creation_time(new_creation_time);
             }
+            TRACE("update schema change info");
         }
         // Add tablet to StorageEngine will make it visible to user
         res = _add_tablet_unlocked(new_tablet_id, new_schema_hash, tablet, true, false);
@@ -358,6 +365,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
             LOG(WARNING) << "fail to get tablet. res=" << res;
             break;
         }
+        TRACE("add tablet to StorageEngine");
     } while (0);
 
     if (res == OLAP_SUCCESS) {
@@ -373,6 +381,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
         tablet->delete_all_files();
         TabletMetaManager::remove(data_dir, new_tablet_id, new_schema_hash);
     }
+    TRACE("revert changes on error");
     return nullptr;
 }
 

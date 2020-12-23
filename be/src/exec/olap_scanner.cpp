@@ -257,7 +257,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     {
         SCOPED_TIMER(_parent->_scan_timer);
-        SCOPED_TIMER(_parent->_scan_cpu_timer);
+        SCOPED_CPU_TIMER(_parent->_scan_cpu_timer);
         while (true) {
             // Batch is full, break
             if (batch->is_full()) {
