@@ -330,8 +330,7 @@ OLAPStatus AlphaRowset::init() {
             // table value column, so when first start the two number is not the same,
             // it causes start failed. When `expect_zone_maps_num > zone_maps_size` it may be the first start after upgrade
             if (expect_zone_maps_num > zone_maps_size) {
-                LOG(WARNING)
-                        << "tablet: " << _rowset_meta->tablet_id() << " expect zone map size is "
+                VLOG(1) << "tablet: " << _rowset_meta->tablet_id() << " expect zone map size is "
                         << expect_zone_maps_num << ", actual num is " << zone_maps_size
                         << ". If this is not the first start after upgrade, please pay attention!";
             }
