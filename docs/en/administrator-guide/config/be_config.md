@@ -226,7 +226,7 @@ This value is usually delivered by the FE to the BE by the heartbeat, no need to
 
 * Type: int32
 * Description: The number of tablet that can be pushed into base compaction heap and cumulative compaction heap.
-* Default value: 100
+* Default value: 20
 
 ### `compaction_tablet_scan_frequency_factor`
 

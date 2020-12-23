@@ -221,7 +221,7 @@ BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构�
 
 * 类型：int32
 * 描述：base compaction堆和cumulative compaction堆中能够容纳的tablet数量。
-* 默认值：100
+* 默认值：20
 
 ### `compaction_tablet_scan_frequency_factor`
 
