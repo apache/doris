@@ -1032,6 +1032,7 @@ void DataDir::init_compaction_heap() {
 
 void DataDir::push_tablet_into_compaction_heap(CompactionType compaction_type,
                                                TabletSharedPtr tablet) {
+    OlapStopWatch watch;
     if (compaction_type == CompactionType::BASE_COMPACTION) {
         std::unique_lock<std::mutex> lock(_base_compaction_heap_mutex);
         std::vector<TabletSharedPtr>::iterator it =
@@ -1061,10 +1062,13 @@ void DataDir::push_tablet_into_compaction_heap(CompactionType compaction_type,
             _cumulative_compaction_heap.pop_back();
         }
     }
+    LOG(INFO) << "push tablet into compaction heap. tablet=" << tablet->full_name()
+              << ". time=" << watch.get_elapse_time_us() / 1000.0 << "ms.";
 }
 
 TabletSharedPtr DataDir::pop_tablet_from_compaction_heap(
         CompactionType compaction_type, std::vector<TTabletId>& tablet_submitted_compaction) {
+    OlapStopWatch watch;
     TabletSharedPtr tablet;
     if (compaction_type == CompactionType::BASE_COMPACTION) {
         std::unique_lock<std::mutex> lock(_base_compaction_heap_mutex);
@@ -1076,6 +1080,7 @@ TabletSharedPtr DataDir::pop_tablet_from_compaction_heap(
                                                 _cumulative_compaction_heap,
                                                 tablet_submitted_compaction);
     }
+    LOG(INFO) << "pop tablet from compaction heap. time=" << watch.get_elapse_time_us() / 1000.0 << "ms.";
     return tablet;
 }
 

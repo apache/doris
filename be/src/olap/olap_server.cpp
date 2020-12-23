@@ -416,10 +416,8 @@ std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
             continue;
         }
         if (!data_dir->reach_capacity_limit(0)) {
-            OlapStopWatch watch;
             TabletSharedPtr tablet = data_dir->pop_tablet_from_compaction_heap(
                     compaction_type, _tablet_submitted_compaction[data_dir]);
-            LOG(INFO) << "select tablet for compaction task. time=" << watch.get_elapse_time_us() / 1000.0 << "ms.";
             if (tablet != nullptr) {
                 tablets_compaction.emplace_back(tablet);
             }
