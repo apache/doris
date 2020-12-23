@@ -181,7 +181,7 @@ WITH BROKER `broker_name`
     
     If larger than 1GB, may be: `my_file_0.csv, result_1.csv, ...`.
     
-    Some notes: 
+    Please Note: 
     1. Paths that do not exist are automatically created.
     2. These parameters(access.key/secret.key/endpointneed) need to be confirmed with `Tecent Cloud COS`. In particular, the value of endpoint does not need to be filled in bucket_name。
 
