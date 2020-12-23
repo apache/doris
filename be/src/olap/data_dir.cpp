@@ -1062,8 +1062,8 @@ void DataDir::push_tablet_into_compaction_heap(CompactionType compaction_type,
             _cumulative_compaction_heap.pop_back();
         }
     }
-    LOG(INFO) << "push tablet into compaction heap. tablet=" << tablet->full_name()
-              << ". time=" << watch.get_elapse_time_us() / 1000.0 << "ms.";
+    VLOG(1) << "push tablet into compaction heap. tablet=" << tablet->full_name()
+            << ". time=" << watch.get_elapse_time_us() / 1000.0 << "ms.";
 }
 
 TabletSharedPtr DataDir::pop_tablet_from_compaction_heap(
@@ -1080,7 +1080,7 @@ TabletSharedPtr DataDir::pop_tablet_from_compaction_heap(
                                                 _cumulative_compaction_heap,
                                                 tablet_submitted_compaction);
     }
-    LOG(INFO) << "pop tablet from compaction heap. time=" << watch.get_elapse_time_us() / 1000.0 << "ms.";
+    VLOG(1) << "pop tablet from compaction heap. time=" << watch.get_elapse_time_us() / 1000.0 << "ms.";
     return tablet;
 }
 

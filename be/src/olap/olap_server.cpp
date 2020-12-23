@@ -376,7 +376,8 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                           _compaction_producer_sleep_cv.notify_one();
                       }
                       // reset compaction
-                      tablet->reset_compaction(compaction_type); 
+                      tablet->reset_compaction(compaction_type);
+                      tablet->data_dir()->push_tablet_into_compaction_heap(compaction_type, tablet);
                     });
                     if (!st.ok()) {
                         _permit_limiter.release(permits);
