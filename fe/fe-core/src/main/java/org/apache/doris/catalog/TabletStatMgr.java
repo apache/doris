@@ -28,10 +28,10 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TTabletStat;
 import org.apache.doris.thrift.TTabletStatResult;
 
-import com.google.common.collect.ImmutableMap;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;
@@ -61,7 +61,7 @@ public class TabletStatMgr extends MasterDaemon {
                 client = ClientPool.backendPool.borrowObject(address);
                 TTabletStatResult result = client.getTabletStat();
 
-                LOG.info("get tablet stat from backend: {}, num: {}", backend.getId(), result.getTabletsStatsSize());
+                LOG.debug("get tablet stat from backend: {}, num: {}", backend.getId(), result.getTabletsStatsSize());
                 updateTabletStat(backend.getId(), result);
 
                 ok = true;
@@ -112,7 +112,7 @@ public class TabletStatMgr extends MasterDaemon {
                             index.setRowCount(indexRowCount);
                         } // end for indices
                     } // end for partitions
-                    LOG.info("finished to set row num for table: {} in database: {}",
+                    LOG.debug("finished to set row num for table: {} in database: {}",
                              table.getName(), db.getFullName());
                 }
             } finally {

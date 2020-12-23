@@ -36,11 +36,11 @@ CONF_Int32(brpc_port, "8060");
 // the number of bthreads for brpc, the default value is set to -1, which means the number of bthreads is #cpu-cores
 CONF_Int32(brpc_num_threads, "-1")
 
-        // Declare a selection strategy for those servers have many ips.
-        // Note that there should at most one ip match this list.
-        // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
-        // If no ip match this rule, will choose one randomly.
-        CONF_String(priority_networks, "");
+// Declare a selection strategy for those servers have many ips.
+// Note that there should at most one ip match this list.
+// this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
+// If no ip match this rule, will choose one randomly.
+CONF_String(priority_networks, "");
 
 ////
 //// tcmalloc gc parameter
@@ -259,7 +259,7 @@ CONF_Int64(index_stream_cache_capacity, "10737418240");
 // CONF_Int64(max_packed_row_block_size, "20971520");
 
 // Cache for storage page size
-CONF_String(storage_page_cache_limit, "20G");
+CONF_String(storage_page_cache_limit, "20%");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
 
@@ -372,7 +372,7 @@ CONF_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // or encounter 'tablet writer write failed' error when loading.
 // CONF_Int32(tablet_writer_rpc_timeout_sec, "600");
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
-CONF_mInt32(olap_table_sink_send_interval_ms, "10");
+CONF_mInt32(olap_table_sink_send_interval_ms, "1");
 
 // Fragment thread pool
 CONF_Int32(fragment_pool_thread_num_min, "64");
