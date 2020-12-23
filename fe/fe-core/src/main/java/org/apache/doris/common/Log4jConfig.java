@@ -108,6 +108,8 @@ public class Log4jConfig extends XmlConfiguration {
     private static String logXmlConfTemplate;
     // dir of fe.conf
     public static String confDir;
+    // custom conf dir
+    public static String customConfDir;
 
     private static void reconfig() throws IOException {
         String newXmlConfTemplate = xmlConfTemplate;
@@ -180,7 +182,7 @@ public class Log4jConfig extends XmlConfiguration {
         System.out.println(newXmlConfTemplate);
         System.out.println("=====");
         logXmlConfTemplate = newXmlConfTemplate;
-        SpringLog4j2Config.writeSpringLogConf(confDir);
+        SpringLog4j2Config.writeSpringLogConf(customConfDir);
 
         // new SimpleLog4jConfiguration with xmlConfTemplate
         ByteArrayInputStream bis = new ByteArrayInputStream(newXmlConfTemplate.getBytes("UTF-8"));
@@ -221,6 +223,7 @@ public class Log4jConfig extends XmlConfiguration {
         verboseModules = Config.sys_log_verbose_modules;
         auditModules = Config.audit_log_modules;
         confDir = dorisConfDir;
+        customConfDir = Config.custom_config_dir;
         reconfig();
     }
 

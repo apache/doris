@@ -129,6 +129,12 @@ public class InsertStmt extends DdlStmt {
      */
     private boolean isTransactionBegin = false;
 
+    private boolean isValuesOrConstantSelect = false;
+
+    public boolean isValuesOrConstantSelect() {
+        return isValuesOrConstantSelect;
+    }
+
     public InsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source, List<String> hints) {
         this.tblName = target.getTblName();
         this.targetPartitionNames = target.getPartitionNames();
@@ -140,6 +146,8 @@ public class InsertStmt extends DdlStmt {
         if (!Strings.isNullOrEmpty(label)) {
             isUserSpecifiedLabel = true;
         }
+
+        this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
     }
 
     // Ctor for CreateTableAsSelectStmt
@@ -488,7 +496,7 @@ public class InsertStmt extends DdlStmt {
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema()) ;
         
         // handle VALUES() or SELECT constant list
-        if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getTableRefs().isEmpty()) {
+        if (isValuesOrConstantSelect) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
             if (selectStmt.getValueList() != null) {
                 // INSERT INTO VALUES(...)
