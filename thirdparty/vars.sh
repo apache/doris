@@ -283,10 +283,10 @@ CCTZ_SOURCE="cctz-2.3"
 CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
 
 # datatables, bootstrap 3 and jQuery 3
-DATATABLES_DOWNLOAD="https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.22"
+DATATABLES_DOWNLOAD="https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.23"
 DATATABLES_NAME="DataTables.zip"
-DATATABLES_SOURCE="DataTables-1.10.22"
-DATATABLES_MD5SUM="62558846fc6a6db1428e7816a2a351f7"
+DATATABLES_SOURCE="DataTables-1.10.23"
+DATATABLES_MD5SUM="f7f18a9f39d692ec33b5536bff617232"
 
 # bootstrap table js
 BOOTSTRAP_TABLE_JS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/bootstrap-table.min.js"
