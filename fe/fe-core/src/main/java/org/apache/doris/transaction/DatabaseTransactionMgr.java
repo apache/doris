@@ -54,16 +54,16 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUniqueId;
 
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataOutput;
 import java.io.IOException;
@@ -291,7 +291,8 @@ public class DatabaseTransactionMgr {
             checkRunningTxnExceedLimit(sourceType);
 
             long tid = idGenerator.getNextTransactionId();
-            LOG.info("begin transaction: txn id {} with label {} from coordinator {}", tid, label, coordinator);
+            LOG.info("begin transaction: txn id {} with label {} from coordinator {}, listner id: {}",
+                    tid, label, coordinator, listenerId);
             TransactionState transactionState = new TransactionState(dbId, tableIdList, tid, label, requestId, sourceType,
                     coordinator, listenerId, timeoutSecond * 1000);
             transactionState.setPrepareTime(System.currentTimeMillis());
