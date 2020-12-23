@@ -47,7 +47,9 @@ struct ColumnTest {
         scoped_refptr<Column> newc;
         ASSERT_TRUE(writer->finalize(2).ok());
         ASSERT_TRUE(writer->get_new_column(&newc).ok());
-        EXPECT_TRUE(c.get() != newc.get());
+        if (!AllowSlowTests()) {
+            EXPECT_TRUE(c.get() != newc.get());
+        }
         std::unique_ptr<ColumnReader> readc;
         ASSERT_TRUE(newc->create_reader(2, &readc).ok());
         for (uint32_t i = 0; i < values.size(); i++) {
@@ -74,7 +76,9 @@ struct ColumnTest {
         scoped_refptr<Column> newc;
         ASSERT_TRUE(writer->finalize(2).ok());
         ASSERT_TRUE(writer->get_new_column(&newc).ok());
-        EXPECT_TRUE(c.get() != newc.get());
+        if (!AllowSlowTests()) {
+            EXPECT_TRUE(c.get() != newc.get());
+        }
         std::unique_ptr<ColumnReader> readc;
         ASSERT_TRUE(newc->create_reader(2, &readc).ok());
         for (uint32_t i = 0; i < values.size(); i++) {
