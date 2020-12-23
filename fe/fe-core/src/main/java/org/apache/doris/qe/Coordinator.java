@@ -1560,14 +1560,20 @@ public class Coordinator {
                     break;
                 }
             }
-
-            buckendIdToBucketCountMap.put(buckendId, buckendIdToBucketCountMap.get(buckendId) + 1);
             Reference<Long> backendIdRef = new Reference<Long>();
             TNetworkAddress execHostPort = SimpleScheduler.getHost(buckendId, seqLocation.locations, idToBackend, backendIdRef);
             if (execHostPort == null) {
                 throw new UserException("there is no scanNode Backend");
             }
-
+            if (backendIdRef.getRef() != buckendId) {
+                if (!buckendIdToBucketCountMap.containsKey(backendIdRef.getRef())) {
+                    buckendIdToBucketCountMap.put(backendIdRef.getRef(), 1);
+                } else {
+                    buckendIdToBucketCountMap.put(backendIdRef.getRef(), buckendIdToBucketCountMap.get(backendIdRef.getRef())+1);
+                }
+            } else {
+                buckendIdToBucketCountMap.put(buckendId, buckendIdToBucketCountMap.get(buckendId) + 1);
+            }
             addressToBackendID.put(execHostPort, backendIdRef.getRef());
             this.fragmentIdToSeqToAddressMap.get(fragmentId).put(bucketSeq, execHostPort);
         }
