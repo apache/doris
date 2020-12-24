@@ -1014,7 +1014,7 @@ public class Config extends ConfigBase {
     @ConfField(masterOnly = true)
     public static String tablet_rebalancer_type = "BeLoad";
 
-    // Valid only if use PartitionRebalancer.
+    // Valid only if use PartitionRebalancer. If this changed, cached moves will be cleared.
     @ConfField(mutable = true, masterOnly = true)
     public static long partition_rebalance_move_expire_after_access = 600; // 600s
 

@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 
 /*
  * MovesInProgressCache caches the in-progress moves for each cluster and each medium(every cache could be called Cell).
- * The expireAfterAccess config can be reset when updating, it will clear the current cache.
+ * The expireAfterAccess config is changed when updating, all moves in all Cell will be cleared.
  */
 public class MovesInProgressCache {
     private static final Logger LOG = LogManager.getLogger(MovesInProgressCache.class);
@@ -58,7 +58,7 @@ public class MovesInProgressCache {
 
     public void updateMapping(Map<String, ClusterLoadStatistic> statisticMap, long expireAfterAccessSecond) {
         if (lastExpireConfig != expireAfterAccessSecond) {
-            LOG.debug("Reset cache expireAfterAccess, last {}s, now {}s. Cache will be cleared.", lastExpireConfig, expireAfterAccessSecond);
+            LOG.debug("Reset expireAfterAccess, last {}s, now {}s. Moves will be cleared.", lastExpireConfig, expireAfterAccessSecond);
             movesInProgressMap.clear();
             lastExpireConfig = expireAfterAccessSecond;
         }
