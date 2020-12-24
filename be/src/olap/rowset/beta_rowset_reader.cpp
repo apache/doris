@@ -61,7 +61,19 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
         read_context->delete_handler->get_delete_conditions_after_version(
                 _rowset->end_version(), &read_options.delete_conditions);
     }
-    read_options.column_predicates = read_context->predicates;
+    if (read_context->predicates != nullptr) {
+        read_options.column_predicates.insert(read_options.column_predicates.end(),
+                                              read_context->predicates->begin(),
+                                              read_context->predicates->end());
+    }
+    // if unique table with rowset [0-x] or [0-1] [2-y] [...],
+    // value column predicates can be pushdown on rowset [0-x] or [2-y]
+    if (read_context->value_predicates != nullptr && _rowset->keys_type() == UNIQUE_KEYS &&
+        (_rowset->start_version() == 0 || _rowset->start_version() == 2)) {
+        read_options.column_predicates.insert(read_options.column_predicates.end(),
+                                              read_context->value_predicates->begin(),
+                                              read_context->value_predicates->end());
+    }
     read_options.use_page_cache = read_context->use_page_cache;
 
     // create iterator for each segment

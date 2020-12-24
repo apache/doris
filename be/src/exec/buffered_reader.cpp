@@ -50,8 +50,9 @@ Status BufferedReader::open() {
 }
 
 //not support
-Status BufferedReader::read_one_message(uint8_t** buf, size_t* length) {
+Status BufferedReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) {
     return Status::NotSupported("Not support");
+
 }
 
 Status BufferedReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {

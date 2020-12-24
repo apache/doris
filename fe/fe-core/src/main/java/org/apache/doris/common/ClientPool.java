@@ -62,8 +62,10 @@ public class ClientPool {
         brokerPoolConfig.setMaxWaitMillis(500);    //  wait for the connection
     }
 
-    public static GenericPool<HeartbeatService.Client> heartbeatPool =
-            new GenericPool("HeartbeatService", heartbeatConfig, heartbeatTimeoutMs); 
+    public static GenericPool<HeartbeatService.Client> backendHeartbeatPool =
+            new GenericPool("HeartbeatService", heartbeatConfig, heartbeatTimeoutMs);
+    public static GenericPool<FrontendService.Client> frontendHeartbeatPool =
+            new GenericPool<>("FrontendService", heartbeatConfig, heartbeatTimeoutMs);
     public static GenericPool<FrontendService.Client> frontendPool =
             new GenericPool("FrontendService", backendConfig, backendTimeoutMs);
     public static GenericPool<BackendService.Client> backendPool =

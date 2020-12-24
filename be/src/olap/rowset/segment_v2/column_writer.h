@@ -50,6 +50,15 @@ struct ColumnWriterOptions {
     bool need_zone_map = false;
     bool need_bitmap_index = false;
     bool need_bloom_filter = false;
+    std::string to_string() {
+        std::stringstream ss;
+        ss << std::boolalpha << "meta=" << meta->DebugString()
+           << ", data_page_size=" << data_page_size
+           << ", compression_min_space_saving = " << compression_min_space_saving
+           << ", need_zone_map=" << need_zone_map << ", need_bitmap_index=" << need_bitmap_index
+           << ", need_bloom_filter" << need_bloom_filter;
+        return ss.str();
+    }
 };
 
 class BitmapIndexWriter;

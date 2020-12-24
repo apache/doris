@@ -262,6 +262,15 @@ public:
     /// Calculates the biased STDDEV, uses KnuthVar Init-Update-Merge functions
     static DoubleVal knuth_stddev_pop_finalize(FunctionContext* context, const StringVal& val);
 
+    // variance/stddev for decimals.
+    static void decimalv2_knuth_var_init(FunctionContext* context, StringVal* val);
+    static void knuth_var_update(FunctionContext* context, const DecimalV2Val& src, StringVal* val);
+    static void decimalv2_knuth_var_merge(FunctionContext* context, const StringVal& src, StringVal* val);
+    static DecimalV2Val decimalv2_knuth_var_finalize(FunctionContext* context, const StringVal& val);
+    static DecimalV2Val decimalv2_knuth_var_pop_finalize(FunctionContext* context, const StringVal& val);
+    static DecimalV2Val decimalv2_knuth_stddev_finalize(FunctionContext* context, const StringVal& val);
+    static DecimalV2Val decimalv2_knuth_stddev_pop_finalize(FunctionContext* context, const StringVal& val);
+
     /// ----------------------------- Analytic Functions ---------------------------------
     /// Analytic functions implement the UDA interface (except Merge(), Serialize()) and are
     /// used internally by the AnalyticEvalNode. Some analytic functions store intermediate

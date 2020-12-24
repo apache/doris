@@ -28,6 +28,7 @@
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "util/hash_util.hpp"
+#include "util/time.h"
 
 namespace doris {
 
@@ -205,6 +206,8 @@ private:
     // Number of rows returned by this fragment
     RuntimeProfile::Counter* _rows_produced_counter;
 
+    RuntimeProfile::Counter* _fragment_cpu_timer;
+
     // Average number of thread tokens for the duration of the plan fragment execution.
     // Fragments that do a lot of cpu work (non-coordinator fragment) will have at
     // least 1 token.  Fragments that contain a hdfs scan node will have 1+ tokens
@@ -257,7 +260,7 @@ private:
 
     const DescriptorTbl& desc_tbl() { return _runtime_state->desc_tbl(); }
 
-    void collect_query_statistics();
+    void _collect_query_statistics();
 };
 
 // Save the common components of fragments in a query.

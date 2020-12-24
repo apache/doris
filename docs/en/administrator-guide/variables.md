@@ -73,6 +73,7 @@ Variables that support both session-level and global-level setting include:
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
 * `parallel_exchange_instance_num`
+* `allow_partition_column_nullable`
 
 Variables that support only global-level setting include:
 
@@ -360,3 +361,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     When choosing the join method(broadcast join or shuffle join), if the broadcast join cost and shuffle join cost are equal, which join method should we prefer.
 
     Currently, the optional values for this variable are "broadcast" or "shuffle".
+
+* `allow_partition_column_nullable`
+
+    Whether to allow the partition column to be NULL when creating the table. The default is true, which means NULL is allowed. false means the partition column must be defined as NOT NULL.

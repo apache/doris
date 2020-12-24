@@ -263,8 +263,8 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
             << zonemap_col_num << " vs. " << schema_mapping.size();
 
     for (size_t i = 0; i < zonemap_col_num; ++i) {
-        // in duplicated table update from 0.11 to 0.12, zone map index may be missed and may not a new column.
-        if (_schema->keys_type() == DUP_KEYS && schema_mapping[i].ref_column != -1 &&
+        // in duplicate/unique table update from 0.11 to 0.12, zone map index may be missed and may not a new column.
+        if (_schema->keys_type() != AGG_KEYS && schema_mapping[i].ref_column != -1 &&
             schema_mapping[i].ref_column >= zone_map_fields.size()) {
             // the sequence of columns in _zone_maps and _schema must be consistent, so here
             // process should not add missed zonemap and we break the loop.
@@ -729,7 +729,7 @@ const TabletSchema& SegmentGroup::get_tablet_schema() {
 }
 
 int SegmentGroup::get_num_zone_map_columns() {
-    if (_schema->keys_type() == KeysType::DUP_KEYS) {
+    if (_schema->keys_type() != KeysType::AGG_KEYS) {
         return _schema->num_columns();
     }
     return _schema->num_key_columns();

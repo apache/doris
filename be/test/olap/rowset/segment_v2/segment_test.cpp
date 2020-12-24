@@ -307,7 +307,7 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
 
             OlapReaderStatistics stats;
             StorageReadOptions read_opts;
-            read_opts.column_predicates = &predicates;
+            read_opts.column_predicates = predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -331,7 +331,7 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
 
             OlapReaderStatistics stats;
             StorageReadOptions read_opts;
-            read_opts.column_predicates = &predicates;
+            read_opts.column_predicates = predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -383,7 +383,7 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
 
             OlapReaderStatistics stats;
             StorageReadOptions read_opts;
-            read_opts.column_predicates = &predicates;
+            read_opts.column_predicates = predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -543,7 +543,8 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             while (left > 0) {
                 int rows_read = left > 1024 ? 1024 : left;
                 block.clear();
-                ASSERT_TRUE(iter->next_batch(&block).ok());
+                auto s = iter->next_batch(&block);
+                ASSERT_TRUE(s.ok()) << s.to_string();
                 ASSERT_EQ(rows_read, block.num_rows());
                 ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
                 left -= rows_read;
@@ -603,6 +604,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
 
     // segment write
     std::string dname = "./ut_dir/segment_write_size";
+    FileUtils::remove_all(dname);
     FileUtils::create_dir(dname);
 
     SegmentWriterOptions opts;
@@ -612,10 +614,10 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     std::unique_ptr<fs::WritableBlock> wblock;
     fs::CreateBlockOptions wblock_opts({fname});
     Status st = fs::fs_util::block_manager()->create_block(wblock_opts, &wblock);
-    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(st.ok()) << st.to_string();
     SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
     st = writer.init(10);
-    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(st.ok()) << st.to_string();
 
     RowCursor row;
     auto olap_st = row.init(*tablet_schema);
@@ -1026,7 +1028,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
 
             StorageReadOptions read_opts;
             OlapReaderStatistics stats;
-            read_opts.column_predicates = &column_predicates;
+            read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -1048,7 +1050,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
 
             StorageReadOptions read_opts;
             OlapReaderStatistics stats;
-            read_opts.column_predicates = &column_predicates;
+            read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -1070,7 +1072,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
 
             StorageReadOptions read_opts;
             OlapReaderStatistics stats;
-            read_opts.column_predicates = &column_predicates;
+            read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -1094,7 +1096,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
 
             StorageReadOptions read_opts;
             OlapReaderStatistics stats;
-            read_opts.column_predicates = &column_predicates;
+            read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -1117,7 +1119,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
 
             StorageReadOptions read_opts;
             OlapReaderStatistics stats;
-            read_opts.column_predicates = &column_predicates;
+            read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;

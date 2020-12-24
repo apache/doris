@@ -69,6 +69,10 @@ import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -77,8 +81,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -193,6 +195,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
      */
     private static final String PROPS_FORMAT = "format";
     private static final String PROPS_STRIP_OUTER_ARRAY = "strip_outer_array";
+    private static final String PROPS_NUM_AS_STRING = "num_as_string";
     private static final String PROPS_JSONPATHS = "jsonpaths";
     private static final String PROPS_JSONROOT = "json_root";
 
@@ -302,6 +305,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
             jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
+            jobProperties.put(PROPS_NUM_AS_STRING, "false");
             jobProperties.put(PROPS_JSONPATHS, "");
             jobProperties.put(PROPS_JSONROOT, "");
         } else if (stmt.getFormat().equals("json")) {
@@ -321,6 +325,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             } else {
                 jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
             }
+            if (stmt.isNumAsString()) {
+                jobProperties.put(PROPS_NUM_AS_STRING, "true");
+            } else {
+                jobProperties.put(PROPS_NUM_AS_STRING, "false");
+            }
+
         } else {
             throw new UserException("Invalid format type.");
         }
@@ -544,6 +554,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public boolean isStripOuterArray() {
         return Boolean.valueOf(jobProperties.get(PROPS_STRIP_OUTER_ARRAY));
+    }
+
+    public boolean isNumAsString() {
+        return Boolean.valueOf(jobProperties.get(PROPS_NUM_AS_STRING));
     }
 
     @Override
@@ -866,8 +880,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                         entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
                 RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
                 taskBeId = routineLoadTaskInfo.getBeId();
-                executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.COMMITTED);
+                executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.COMMITTED, null);
                 ++committedTaskNum;
+                LOG.debug("routine load task committed. task id: {}, job id: {}", txnState.getLabel(), id);
             }
         } catch (Throwable e) {
             LOG.warn("after committed failed", e);
@@ -977,8 +992,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                       .build());
                 }
                 ++abortedTaskNum;
+                TransactionState.TxnStatusChangeReason txnStatusChangeReason = null;
                 if (txnStatusChangeReasonString != null) {
-                    TransactionState.TxnStatusChangeReason txnStatusChangeReason =
+                    txnStatusChangeReason =
                             TransactionState.TxnStatusChangeReason.fromString(txnStatusChangeReasonString);
                     if (txnStatusChangeReason != null) {
                         switch (txnStatusChangeReason) {
@@ -997,7 +1013,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     // TODO(ml): use previous be id depend on change reason
                 }
                 // step2: commit task , update progress, maybe create a new task
-                executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.ABORTED);
+                executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.ABORTED, txnStatusChangeReason);
             }
         } catch (Exception e) {
             String msg = "be " + taskBeId + " abort task " + txnState.getLabel() + " failed with error " + e.getMessage();
@@ -1025,7 +1041,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     // check task exists or not before call method
     private void executeTaskOnTxnStatusChanged(RoutineLoadTaskInfo routineLoadTaskInfo, TransactionState txnState,
-            TransactionStatus txnStatus) throws UserException {
+            TransactionStatus txnStatus, TransactionState.TxnStatusChangeReason txnStatusChangeReason) throws UserException {
         // step0: get progress from transaction state
         RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
         if (rlTaskTxnCommitAttachment == null) {
@@ -1037,7 +1053,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                           + " maybe task was aborted by master when timeout")
                                   .build());
             }
-        } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState.getTransactionStatus())) {
+        } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState, txnStatusChangeReason)) {
             // step2: update job progress
             updateProgress(rlTaskTxnCommitAttachment);
         }
@@ -1244,7 +1260,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     // check the correctness of commit info
     protected abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
-            TransactionStatus txnStatus);
+                                               TransactionState txnState,
+                                               TransactionState.TxnStatusChangeReason txnStatusChangeReason);
 
     protected abstract String getStatistic();
 

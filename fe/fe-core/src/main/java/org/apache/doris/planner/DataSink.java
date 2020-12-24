@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.catalog.MysqlTable;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TDataSink;
@@ -54,6 +55,8 @@ public abstract class DataSink {
     public static DataSink createDataSink(Table table) throws AnalysisException {
         if (table instanceof MysqlTable) {
             return new MysqlTableSink((MysqlTable) table);
+        } else if (table instanceof OdbcTable) {
+            return new OdbcTableSink((OdbcTable)table);
         } else {
             throw new AnalysisException("Unknown table type " + table.getType());
         }

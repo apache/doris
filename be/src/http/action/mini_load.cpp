@@ -57,6 +57,7 @@
 #include "util/file_utils.h"
 #include "util/json_util.h"
 #include "util/string_parser.hpp"
+#include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 #include "util/url_coding.h"
@@ -155,10 +156,12 @@ Status MiniLoadAction::data_saved_dir(const LoadHandle& desc, const std::string&
 }
 
 Status MiniLoadAction::_load(HttpRequest* http_req, const std::string& file_path,
-                             const std::string& user, const std::string& cluster) {
+                             const std::string& user, const std::string& cluster,
+                             int64_t file_size) {
     // Prepare request parameters.
     std::map<std::string, std::string> params(http_req->query_params().begin(),
                                               http_req->query_params().end());
+    RETURN_IF_ERROR(_merge_header(http_req, &params));
     params.erase(LABEL_KEY);
     params.erase(SUB_LABEL_KEY);
 
@@ -191,11 +194,12 @@ Status MiniLoadAction::_load(HttpRequest* http_req, const std::string& file_path
         }
         req.__set_properties(params);
         req.files.push_back(file_path);
+        req.__isset.file_size = true;
+        req.file_size.push_back(file_size);
         req.backend.__set_hostname(BackendOptions::get_localhost());
         req.backend.__set_port(config::be_port);
 
         req.__set_timestamp(GetCurrentTimeMicros());
-
         try {
             client->miniLoad(res, req);
         } catch (apache::thrift::transport::TTransportException& e) {
@@ -232,6 +236,103 @@ Status MiniLoadAction::_load(HttpRequest* http_req, const std::string& file_path
     }
 
     return Status(res.status);
+}
+
+Status MiniLoadAction::_merge_header(HttpRequest* http_req,
+                                     std::map<std::string, std::string>* params) {
+    if (http_req == nullptr || params == nullptr) {
+        return Status::OK();
+    }
+    if (!http_req->header(HTTP_FORMAT_KEY).empty()) {
+        (*params)[HTTP_FORMAT_KEY] = http_req->header(HTTP_FORMAT_KEY);
+    }
+    if (!http_req->header(HTTP_COLUMNS).empty()) {
+        (*params)[HTTP_COLUMNS] = http_req->header(HTTP_COLUMNS);
+    }
+    if (!http_req->header(HTTP_WHERE).empty()) {
+        (*params)[HTTP_WHERE] = http_req->header(HTTP_WHERE);
+    }
+    if (!http_req->header(HTTP_COLUMN_SEPARATOR).empty()) {
+        (*params)[HTTP_COLUMN_SEPARATOR] = http_req->header(HTTP_COLUMN_SEPARATOR);
+    }
+    if (!http_req->header(HTTP_PARTITIONS).empty()) {
+        (*params)[HTTP_PARTITIONS] = http_req->header(HTTP_PARTITIONS);
+        if (!http_req->header(HTTP_TEMP_PARTITIONS).empty()) {
+            return Status::InvalidArgument(
+                    "Can not specify both partitions and temporary partitions");
+        }
+    }
+    if (!http_req->header(HTTP_TEMP_PARTITIONS).empty()) {
+        (*params)[HTTP_TEMP_PARTITIONS] = http_req->header(HTTP_TEMP_PARTITIONS);
+        if (!http_req->header(HTTP_PARTITIONS).empty()) {
+            return Status::InvalidArgument(
+                    "Can not specify both partitions and temporary partitions");
+        }
+    }
+    if (!http_req->header(HTTP_NEGATIVE).empty() &&
+        boost::iequals(http_req->header(HTTP_NEGATIVE), "true")) {
+        (*params)[HTTP_NEGATIVE] = "true";
+    } else {
+        (*params)[HTTP_NEGATIVE] = "false";
+    }
+    if (!http_req->header(HTTP_STRICT_MODE).empty()) {
+        if (boost::iequals(http_req->header(HTTP_STRICT_MODE), "false")) {
+            (*params)[HTTP_STRICT_MODE] = "false";
+        } else if (boost::iequals(http_req->header(HTTP_STRICT_MODE), "true")) {
+            (*params)[HTTP_STRICT_MODE] = "true";
+        } else {
+            return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
+        }
+    }
+    if (!http_req->header(HTTP_TIMEZONE).empty()) {
+        (*params)[HTTP_TIMEZONE] = http_req->header(HTTP_TIMEZONE);
+    }
+    if (!http_req->header(HTTP_EXEC_MEM_LIMIT).empty()) {
+        (*params)[HTTP_EXEC_MEM_LIMIT] = http_req->header(HTTP_EXEC_MEM_LIMIT);
+    }
+    if (!http_req->header(HTTP_JSONPATHS).empty()) {
+        (*params)[HTTP_JSONPATHS] = http_req->header(HTTP_JSONPATHS);
+    }
+    if (!http_req->header(HTTP_JSONROOT).empty()) {
+        (*params)[HTTP_JSONROOT] = http_req->header(HTTP_JSONROOT);
+    }
+    if (!http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
+        if (boost::iequals(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true")) {
+            (*params)[HTTP_STRIP_OUTER_ARRAY] = "true";
+        } else {
+            (*params)[HTTP_STRIP_OUTER_ARRAY] = "false";
+        }
+    } else {
+        (*params)[HTTP_STRIP_OUTER_ARRAY] = "false";
+    }
+    if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
+        (*params)[HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL] =
+                http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL);
+    }
+    if (params->find(HTTP_MERGE_TYPE) == params->end()) {
+        params->insert(std::make_pair(HTTP_MERGE_TYPE, "APPEND"));
+    }
+    StringCaseMap<TMergeType::type> merge_type_map = {{"APPEND", TMergeType::APPEND},
+                                                      {"DELETE", TMergeType::DELETE},
+                                                      {"MERGE", TMergeType::MERGE}};
+    if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
+        std::string merge_type = http_req->header(HTTP_MERGE_TYPE);
+        auto it = merge_type_map.find(merge_type);
+        if (it != merge_type_map.end()) {
+            (*params)[HTTP_MERGE_TYPE] = it->first;
+        } else {
+            return Status::InvalidArgument("Invalid merge type " + merge_type);
+        }
+    }
+    if (!http_req->header(HTTP_DELETE_CONDITION).empty()) {
+        if ((*params)[HTTP_MERGE_TYPE] == "MERGE") {
+            (*params)[HTTP_DELETE_CONDITION] = http_req->header(HTTP_DELETE_CONDITION);
+        } else {
+            return Status::InvalidArgument("not support delete when merge type is " +
+                                           (*params)[HTTP_MERGE_TYPE] + ".");
+        }
+    }
+    return Status::OK();
 }
 
 static bool parse_auth(const std::string& auth, std::string* user, std::string* passwd,
@@ -547,8 +648,8 @@ void MiniLoadAction::_handle(HttpRequest* http_req) {
                                 "receipt size not equal with body size");
         return;
     }
-    auto st =
-            _load(http_req, ctx->file_path, ctx->load_check_req.user, ctx->load_check_req.cluster);
+    auto st = _load(http_req, ctx->file_path, ctx->load_check_req.user, ctx->load_check_req.cluster,
+                    ctx->bytes_written);
     std::string str = to_json(st);
     HttpChannel::send_reply(http_req, str);
 }

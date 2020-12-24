@@ -20,7 +20,7 @@
 
 #include <memory>
 
-#include "exec/odbc_scanner.h"
+#include "exec/odbc_connector.h"
 #include "exec/scan_node.h"
 #include "runtime/descriptors.h"
 
@@ -82,8 +82,8 @@ private:
     std::unique_ptr<MemPool> _tuple_pool;
 
     // Scanner of ODBC.
-    std::unique_ptr<ODBCScanner> _odbc_scanner;
-    ODBCScannerParam _odbc_param;
+    std::unique_ptr<ODBCConnector> _odbc_scanner;
+    ODBCConnectorParam _odbc_param;
     // Helper class for converting text to other types;
     std::unique_ptr<TextConverter> _text_converter;
     // Current tuple.

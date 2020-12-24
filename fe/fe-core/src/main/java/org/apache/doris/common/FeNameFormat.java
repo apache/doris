@@ -26,7 +26,7 @@ import com.google.common.base.Strings;
 public class FeNameFormat {
     private static final String LABEL_REGEX = "^[-_A-Za-z0-9]{1,128}$";
     private static final String COMMON_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,63}$";
-    private static final String COLUMN_NAME_REGEX = "^[_a-zA-Z][a-zA-Z0-9_]{0,63}$";
+    private static final String COLUMN_NAME_REGEX = "^[_a-zA-Z@][a-zA-Z0-9_]{0,63}$";
 
     public static final String FORBIDDEN_PARTITION_NAME = "placeholder_";
 

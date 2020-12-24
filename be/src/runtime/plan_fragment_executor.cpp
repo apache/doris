@@ -218,6 +218,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     // set up profile counters
     profile()->add_child(_plan->runtime_profile(), true, NULL);
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
+    _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
 
     _row_batch.reset(new RowBatch(_plan->row_desc(), _runtime_state->batch_size(),
                                   _runtime_state->instance_mem_tracker().get()));
@@ -264,6 +265,7 @@ Status PlanFragmentExecutor::open() {
 
 Status PlanFragmentExecutor::open_internal() {
     {
+        SCOPED_CPU_TIMER(_fragment_cpu_timer);
         SCOPED_TIMER(profile()->total_time_counter());
         RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
     }
@@ -271,14 +273,19 @@ Status PlanFragmentExecutor::open_internal() {
     if (_sink.get() == NULL) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_sink->open(runtime_state()));
+    {
+        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        RETURN_IF_ERROR(_sink->open(runtime_state()));
+    }
 
     // If there is a sink, do all the work of driving it here, so that
     // when this returns the query has actually finished
     RowBatch* batch = NULL;
-
     while (true) {
-        RETURN_IF_ERROR(get_next_internal(&batch));
+        {
+            SCOPED_CPU_TIMER(_fragment_cpu_timer);
+            RETURN_IF_ERROR(get_next_internal(&batch));
+        }
 
         if (batch == NULL) {
             break;
@@ -295,9 +302,10 @@ Status PlanFragmentExecutor::open_internal() {
         }
 
         SCOPED_TIMER(profile()->total_time_counter());
+        SCOPED_CPU_TIMER(_fragment_cpu_timer);
         // Collect this plan and sub plan statistics, and send to parent plan.
         if (_collect_query_statistics_with_every_batch) {
-            collect_query_statistics();
+            _collect_query_statistics();
         }
         RETURN_IF_ERROR(_sink->send(runtime_state(), batch));
     }
@@ -315,7 +323,7 @@ Status PlanFragmentExecutor::open_internal() {
     // audit the sinks to check that this is ok, or change that behaviour.
     {
         SCOPED_TIMER(profile()->total_time_counter());
-        collect_query_statistics();
+        _collect_query_statistics();
         Status status;
         {
             boost::lock_guard<boost::mutex> l(_status_lock);
@@ -337,9 +345,10 @@ Status PlanFragmentExecutor::open_internal() {
     return Status::OK();
 }
 
-void PlanFragmentExecutor::collect_query_statistics() {
+void PlanFragmentExecutor::_collect_query_statistics() {
     _query_statistics->clear();
     _plan->collect_query_statistics(_query_statistics.get());
+    _query_statistics->add_cpu_ms(_fragment_cpu_timer->value() / NANOS_PER_MILLIS);
 }
 
 void PlanFragmentExecutor::report_profile() {

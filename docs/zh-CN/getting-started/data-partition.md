@@ -254,9 +254,9 @@ PARTITION BY RANGE(`date`, `id`)
     * BE 的数据存储目录可以显式的指定为 SSD 或者 HDD（通过 .SSD 或者 .HDD 后缀区分）。建表时，可以统一指定所有 Partition 初始存储的介质。注意，后缀作用是显式指定磁盘介质，而不会检查是否与实际介质类型相符。
     * 默认初始存储介质可通过fe的配置文件 `fe.conf` 中指定 `default_storage_medium=xxx`，如果没有指定，则默认为 HDD。如果指定为 SSD，则数据初始存放在 SSD 上。
     * 如果没有指定 storage\_cooldown\_time，则默认 30 天后，数据会从 SSD 自动迁移到 HDD 上。如果指定了 storage\_cooldown\_time，则在到达 storage_cooldown_time 时间后，数据才会迁移。
-    * 注意，当指定 storage_medium 时，如果FE参数 `enable_strict_storage_medium_check` 为 `True` 该参数只是一个“尽力而为”的设置。即使集群内没有设置 SSD 存储介质，也不会报错，而是自动存储在可用的数据目录中。
+    * 注意，当指定 storage_medium 时，如果FE参数 `enable_strict_storage_medium_check` 为 `False` 该参数只是一个“尽力而为”的设置。即使集群内没有设置 SSD 存储介质，也不会报错，而是自动存储在可用的数据目录中。
       同样，如果 SSD 介质不可访问、空间不足，都可能导致数据初始直接存储在其他可用介质上。而数据到期迁移到 HDD 时，如果 HDD 介质不可访问、空间不足，也可能迁移失败（但是会不断尝试）。
-      如果FE参数 `enable_strict_storage_medium_check` 为 `False` 则当集群内没有设置 SSD 存储介质时，会报错 `Failed to find enough host in all backends with storage medium is SSD`。
+      如果FE参数 `enable_strict_storage_medium_check` 为 `True` 则当集群内没有设置 SSD 存储介质时，会报错 `Failed to find enough host in all backends with storage medium is SSD`。
 
 ### ENGINE
 

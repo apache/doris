@@ -183,11 +183,18 @@ User can set this configuration to a larger value to get better QPS performance.
 ### `buffer_pool_clean_pages_limit`
 
 ### `buffer_pool_limit`
+
 * Type: string
 * Description: The largest allocatable memory of the buffer pool
 * Default value: 80G
 
 The maximum amount of memory available in the BE buffer pool. The buffer pool is a new memory management structure of BE, which manages the memory by the buffer page and enables spill data to disk. The memory for all concurrent queries will be allocated from the buffer pool. The current buffer pool only works on **AggregationNode** and **ExchangeNode**.
+
+### `check_auto_compaction_interval_seconds`
+
+* Type: int32
+* Description: Check the configuration of auto compaction in seconds when auto compaction disabled.
+* Default value: 5
 
 ### `check_consistency_worker_count`
 
@@ -226,6 +233,12 @@ Tablet score can be calculated like this:
 
 tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
 
+### `compaction_task_num_per_disk`
+
+* Type: int32
+* Description: The number of compaction tasks which execute in parallel for a disk.
+* Default value: 2
+
 ### `compress_rowbatches`
 
 * Type: bool
@@ -233,6 +246,12 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 * Default value: true
 
 ### `create_tablet_worker_count`
+
+### `cumulative_compaction_rounds_for_each_base_compaction_round`
+
+* Type: int32
+* Description: How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
+* Default value: 9
 
 ### `disable_auto_compaction`
 
@@ -503,7 +522,11 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `max_client_cache_size_per_host`
 
-### `max_compaction_concurrency`
+### `max_compaction_threads`
+
+* Type: int32
+* Description: The maximum of thread number in compaction thread pool.
+* Default value: 10
 
 ### `max_consumer_num_per_group`
 
@@ -567,6 +590,12 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 * Description: During the cumulative compaction process, when the selected tablet fails to be merged successfully, it will wait for a period of time before it may be selected again. The waiting period is the value of this configuration.
 * Default value: 600
 * Unit: seconds
+
+### `min_compaction_threads`
+
+* Type: int32
+* Description: The minimum of thread number in compaction thread pool.
+* Default value: 10
 
 ### `min_cumulative_compaction_num_singleton_deltas`
 
