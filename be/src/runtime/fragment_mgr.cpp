@@ -39,6 +39,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/plan_fragment_executor.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -95,9 +96,16 @@ public:
 
     TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
 
+    TUniqueId query_id() const { return _query_id; }
+
     PlanFragmentExecutor* executor() { return &_executor; }
 
     const DateTimeValue& start_time() const { return _start_time; }
+
+    void set_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
+        _merge_controller_handler = handler;
+    }
 
     // Update status of this fragment execute
     Status update_status(Status status) {
@@ -156,6 +164,8 @@ private:
 
     // This context is shared by all fragments of this host in a query
     std::shared_ptr<QueryFragmentsCtx> _fragments_ctx;
+
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 };
 
 FragmentExecState::FragmentExecState(const TUniqueId& query_id,
@@ -520,6 +530,10 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                                                params.backend_num, _exec_env, fragments_ctx));
     }
 
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
+    _runtimefilter_controller.add_entity(params, &handler);
+    exec_state->set_merge_controller_handler(handler);
+
     RETURN_IF_ERROR(exec_state->prepare(params));
     {
         std::lock_guard<std::mutex> lock(_lock);
@@ -716,6 +730,36 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
     return exec_plan_fragment(exec_fragment_params);
+}
+
+Status FragmentMgr::apply_filter(const PPublishFilterRequest* request, const char* data) {
+    UniqueId fragment_instance_id = request->fragment_id();
+    TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
+    std::shared_ptr<FragmentExecState> fragment_state;
+
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _fragment_map.find(tfragment_instance_id);
+        if (iter == _fragment_map.end()) {
+            LOG(WARNING) << "unknown.... fragment-id:" << fragment_instance_id;
+            return Status::InvalidArgument("fragment-id");
+        }
+        fragment_state = iter->second;
+    }
+    DCHECK(fragment_state != nullptr);
+    RuntimeFilterMgr* runtime_filter_mgr =
+            fragment_state->executor()->runtime_state()->runtime_filter_mgr();
+
+    Status st = runtime_filter_mgr->update_filter(request, data);
+    return st;
+}
+
+Status FragmentMgr::merge_filter(const PMergeFilterRequest* request, const char* attach_data) {
+    UniqueId queryid = request->query_id();
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
+    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
+    RETURN_IF_ERROR(filter_controller->merge(request, attach_data));
+    return Status::OK();
 }
 
 } // namespace doris

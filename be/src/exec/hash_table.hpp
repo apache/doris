@@ -22,6 +22,57 @@
 
 namespace doris {
 
+inline bool HashTable::emplace_key(TupleRow* row, TupleRow** dest_addr) {
+    bool has_nulls = eval_build_row(row);
+
+    if (!_stores_nulls && has_nulls) {
+        return false;
+    }
+
+    uint32_t hash = hash_current_row();
+    int64_t bucket_idx = hash & (_num_buckets - 1);
+
+    Bucket* bucket = &_buckets[bucket_idx];
+    Node* node = bucket->_node;
+
+    bool will_insert = true;
+
+    if (node == nullptr) {
+        will_insert = true;
+    } else {
+        Node* last_node = node;
+        while (node != nullptr) {
+            if (node->_hash == hash && equals(node->data())) {
+                will_insert = false;
+                break;
+            }
+            last_node = node;
+            node = node->_next;
+        }
+        node = last_node;
+    }
+    if (will_insert) {
+        if (_num_filled_buckets > _num_buckets_till_resize) {
+            resize_buckets(_num_buckets * 2);
+        }
+        if (_current_used == _current_capacity) {
+            grow_node_array();
+        }
+        Node* alloc_node =
+                reinterpret_cast<Node*>(_current_nodes + _node_byte_size * _current_used++);
+        ++_num_nodes;
+        TupleRow* data = alloc_node->data();
+        *dest_addr = data;
+        alloc_node->_hash = hash;
+        if (node == nullptr) {
+            add_to_bucket(&_buckets[bucket_idx], alloc_node);
+        } else {
+            node->_next = alloc_node;
+        }
+    }
+    return will_insert;
+}
+
 inline HashTable::Iterator HashTable::find(TupleRow* probe_row, bool probe) {
     bool has_nulls = probe ? eval_probe_row(probe_row) : eval_build_row(probe_row);
 
@@ -100,11 +151,13 @@ inline void HashTable::add_to_bucket(Bucket* bucket, Node* node) {
 
     node->_next = bucket->_node;
     bucket->_node = node;
+    bucket->_size++;
 }
 
 inline void HashTable::move_node(Bucket* from_bucket, Bucket* to_bucket, Node* node,
                                  Node* previous_node) {
     Node* next_node = node->_next;
+    from_bucket->_size--;
 
     if (previous_node != NULL) {
         previous_node->_next = next_node;
@@ -118,6 +171,24 @@ inline void HashTable::move_node(Bucket* from_bucket, Bucket* to_bucket, Node* n
     }
 
     add_to_bucket(to_bucket, node);
+}
+
+inline std::pair<int64_t, int64_t> HashTable::minmax_node() {
+    bool has_value = false;
+    int64_t min_size = std::numeric_limits<int64_t>::max();
+    int64_t max_size = std::numeric_limits<int64_t>::min();
+    for (const auto bucket : _buckets) {
+        int64_t counter = bucket._size;
+        if (counter > 0) {
+            has_value = true;
+            min_size = std::min(counter, min_size);
+            max_size = std::max(counter, max_size);
+        }
+    }
+    if (!has_value) {
+        return std::make_pair(0, 0);
+    }
+    return std::make_pair(min_size, max_size);
 }
 
 template <bool check_match>

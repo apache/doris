@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "exprs/bloomfilter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_cond.h"
@@ -67,7 +68,10 @@ struct ReaderParams {
     std::string end_range;
     std::vector<OlapTuple> start_key;
     std::vector<OlapTuple> end_key;
+
     std::vector<TCondition> conditions;
+    std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+
     // The ColumnData will be set when using Merger, eg Cumulative, BE.
     std::vector<RowsetReaderSharedPtr> rs_readers;
     std::vector<uint32_t> return_columns;
@@ -101,7 +105,8 @@ public:
     uint64_t merged_rows() const { return _merged_rows; }
 
     uint64_t filtered_rows() const {
-        return _stats.rows_del_filtered + _stats.rows_conditions_filtered + _stats.rows_vec_del_cond_filtered;
+        return _stats.rows_del_filtered + _stats.rows_conditions_filtered +
+               _stats.rows_vec_del_cond_filtered;
     }
 
     const OlapReaderStatistics& stats() const { return _stats; }
@@ -124,7 +129,8 @@ private:
 
     OLAPStatus _init_params(const ReaderParams& read_params);
 
-    OLAPStatus _capture_rs_readers(const ReaderParams& read_params, std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
+    OLAPStatus _capture_rs_readers(const ReaderParams& read_params,
+                                   std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
 
     bool _optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr>& rs_readers);
 
@@ -132,14 +138,23 @@ private:
 
     void _init_conditions_param(const ReaderParams& read_params);
 
-    ColumnPredicate* _new_eq_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
-    ColumnPredicate* _new_ne_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
-    ColumnPredicate* _new_lt_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
-    ColumnPredicate* _new_le_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
-    ColumnPredicate* _new_gt_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
-    ColumnPredicate* _new_ge_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
+    ColumnPredicate* _new_eq_pred(const TabletColumn& column, int index, const std::string& cond,
+                                  bool opposite) const;
+    ColumnPredicate* _new_ne_pred(const TabletColumn& column, int index, const std::string& cond,
+                                  bool opposite) const;
+    ColumnPredicate* _new_lt_pred(const TabletColumn& column, int index, const std::string& cond,
+                                  bool opposite) const;
+    ColumnPredicate* _new_le_pred(const TabletColumn& column, int index, const std::string& cond,
+                                  bool opposite) const;
+    ColumnPredicate* _new_gt_pred(const TabletColumn& column, int index, const std::string& cond,
+                                  bool opposite) const;
+    ColumnPredicate* _new_ge_pred(const TabletColumn& column, int index, const std::string& cond,
+                                  bool opposite) const;
 
     ColumnPredicate* _parse_to_predicate(const TCondition& condition, bool opposite = false) const;
+
+    ColumnPredicate* _parse_to_predicate(
+            const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);
 
     OLAPStatus _init_delete_condition(const ReaderParams& read_params);
 
