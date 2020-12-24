@@ -40,10 +40,17 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
+/*
+ * PartitionRebalancer will decrease the skew of partitions. The skew of the partition is defined as the difference
+ * between the maximum replica count of the partition over all bes and the minimum replica count over all bes.
+ * Only consider about the replica count for each partition, never consider the replica size(disk usage).
+ * To fewer moves, we use TwoDimensionalGreedyAlgo which two dims are cluster & partition.
+ * It prefers a move that reduce the skew of the cluster when we want to rebalance a max skew partition.
+ */
 public class PartitionRebalancer extends Rebalancer {
     private static final Logger LOG = LogManager.getLogger(PartitionRebalancer.class);
 
-    private final TwoDimensionalGreedyAlgo algo = new TwoDimensionalGreedyAlgo();
+    private final TwoDimensionalGreedyRebalanceAlgo algo = new TwoDimensionalGreedyRebalanceAlgo();
     protected final MovesInProgressCache movesInProgressCache = new MovesInProgressCache();
 
     private final AtomicLong counterBalanceMoveCreated = new AtomicLong(0);
@@ -84,6 +91,8 @@ public class PartitionRebalancer extends Rebalancer {
                     .filter(m -> !toDeleteKeys.contains(m.tabletId)).collect(Collectors.toList());
         }
 
+        // The balancing tasks of other cluster or medium might have failed. We use the upper limit value
+        // `total num of in-progress moves` to avoid useless selections.
         if (movesInProgressCache.size() > Config.max_balancing_tablets) {
             LOG.debug("Total in-progress moves > {}", Config.max_balancing_tablets);
             return Lists.newArrayList();
@@ -93,11 +102,11 @@ public class PartitionRebalancer extends Rebalancer {
         LOG.debug("Cluster {}-{}: peek max skew {}, assume {} in-progress moves are succeeded {}", clusterName, medium,
                 skews.isEmpty() ? 0 : skews.last(), movesInProgressList.size(), movesInProgressList);
 
-        List<TwoDimensionalGreedyAlgo.PartitionReplicaMove> moves = algo.getNextMoves(clusterBalanceInfo, Config.partition_rebalance_max_moves_num_per_selection);
+        List<TwoDimensionalGreedyRebalanceAlgo.PartitionReplicaMove> moves = algo.getNextMoves(clusterBalanceInfo, Config.partition_rebalance_max_moves_num_per_selection);
 
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
         List<Long> inProgressIds = movesInProgressList.stream().map(m -> m.tabletId).collect(Collectors.toList());
-        for (TwoDimensionalGreedyAlgo.PartitionReplicaMove move : moves) {
+        for (TwoDimensionalGreedyRebalanceAlgo.PartitionReplicaMove move : moves) {
             // Find all tablets of the specified partition that would have a replica at the source be,
             // but would not have a replica at the destination be. That is to satisfy the restriction
             // of having no more than one replica of the same tablet per be.
@@ -170,9 +179,9 @@ public class PartitionRebalancer extends Rebalancer {
                 continue;
             }
 
-            TwoDimensionalGreedyAlgo.PartitionReplicaMove partitionMove = new TwoDimensionalGreedyAlgo.
+            TwoDimensionalGreedyRebalanceAlgo.PartitionReplicaMove partitionMove = new TwoDimensionalGreedyRebalanceAlgo.
                     PartitionReplicaMove(meta.getPartitionId(), meta.getIndexId(), move.fromBe, move.toBe);
-            boolean st = TwoDimensionalGreedyAlgo.applyMove(partitionMove, info.beByTotalReplicaCount, info.partitionInfoBySkew);
+            boolean st = TwoDimensionalGreedyRebalanceAlgo.applyMove(partitionMove, info.beByTotalReplicaCount, info.partitionInfoBySkew);
             if (!st) {
                 // Can't apply this move, mark it failed, continue to apply the next.
                 toDeleteKeys.add(move.tabletId);
@@ -283,8 +292,8 @@ public class PartitionRebalancer extends Rebalancer {
     @Override
     public void updateLoadStatistic(Map<String, ClusterLoadStatistic> statisticMap) {
         super.updateLoadStatistic(statisticMap);
-        movesInProgressCache.updateCatalog(statisticMap, Config.partition_rebalance_move_expire_after_access);
-        // perform Cache maintenance
+        movesInProgressCache.updateMapping(statisticMap, Config.partition_rebalance_move_expire_after_access);
+        // Perform cache maintenance
         movesInProgressCache.cleanUp();
         LOG.debug("Move succeeded/total :{}/{}, current {}",
                 counterBalanceMoveSucceeded.get(), counterBalanceMoveCreated.get(), movesInProgressCache);

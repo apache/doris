@@ -22,7 +22,7 @@ import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
 import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
-import org.apache.doris.clone.TwoDimensionalGreedyAlgo.PartitionReplicaMove;
+import org.apache.doris.clone.TwoDimensionalGreedyRebalanceAlgo.PartitionReplicaMove;
 import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
 import org.apache.doris.common.Pair;
 import org.apache.logging.log4j.Level;
@@ -38,10 +38,10 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.IntStream;
 
-public class TwoDimensionalGreedyAlgoTest {
-    private static final Logger LOG = LogManager.getLogger(TwoDimensionalGreedyAlgoTest.class);
+public class TwoDimensionalGreedyRebalanceAlgoTest {
+    private static final Logger LOG = LogManager.getLogger(TwoDimensionalGreedyRebalanceAlgoTest.class);
 
-    TwoDimensionalGreedyAlgo algo = new TwoDimensionalGreedyAlgo(TwoDimensionalGreedyAlgo.EqualSkewOption.PICK_FIRST);
+    TwoDimensionalGreedyRebalanceAlgo algo = new TwoDimensionalGreedyRebalanceAlgo(TwoDimensionalGreedyRebalanceAlgo.EqualSkewOption.PICK_FIRST);
 
     // Structure to describe rebalancing-related state of the cluster expressively
     // enough for the tests.
@@ -143,7 +143,7 @@ public class TwoDimensionalGreedyAlgoTest {
         // no info of partition
         TreeMultimap<Long, PartitionBalanceInfo> skewMap = TreeMultimap.create(Ordering.natural(), Ordering.arbitrary());
         try {
-            TwoDimensionalGreedyAlgo.applyMove(move, beByTotalReplicaCount, skewMap);
+            TwoDimensionalGreedyRebalanceAlgo.applyMove(move, beByTotalReplicaCount, skewMap);
         } catch (Exception e) {
             Assert.assertSame(e.getClass(), IllegalStateException.class);
             LOG.info(e.getMessage());
@@ -154,7 +154,7 @@ public class TwoDimensionalGreedyAlgoTest {
         // invalid info of partition
         skewMap.put(6L, new PartitionBalanceInfo(11L, 22L));
         try {
-            TwoDimensionalGreedyAlgo.applyMove(move, beByTotalReplicaCount, skewMap);
+            TwoDimensionalGreedyRebalanceAlgo.applyMove(move, beByTotalReplicaCount, skewMap);
         } catch (Exception e) {
             Assert.assertSame(e.getClass(), IllegalStateException.class);
             LOG.warn(e.getMessage());

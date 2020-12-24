@@ -34,16 +34,14 @@ import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-// A two-dimensional greedy rebalancing algorithm. From among moves that
-// decrease the skew of a most skewed partition, it prefers ones that reduce the
-// skew of the cluster. A cluster is considered balanced when the skew of every
-// partition is <= 1 and the skew of the cluster is <= 1.
-//
-// The skew of the cluster is defined as the difference between the maximum
-// total replica count over all bes and the minimum total replica
-// count over all bes.
-public class TwoDimensionalGreedyAlgo {
-    private static final Logger LOG = LogManager.getLogger(TwoDimensionalGreedyAlgo.class);
+// A two-dimensional greedy rebalancing algorithm. The two dim are cluster and partition.
+// From among moves that decrease the skew of a most skewed partition, it prefers ones that reduce the skew of the cluster.
+// A cluster is considered balanced when the skew of every partition is <= 1 and the skew of the cluster is <= 1.
+// The skew of the cluster is defined as the difference between the maximum total replica count over all bes and the
+// minimum total replica count over all bes.
+// This class is modified from kudu TwoDimensionalGreedyAlgo.
+public class TwoDimensionalGreedyRebalanceAlgo {
+    private static final Logger LOG = LogManager.getLogger(TwoDimensionalGreedyRebalanceAlgo.class);
 
     private final EqualSkewOption equalSkewOption;
     private static final Random rand = new Random(System.currentTimeMillis());
@@ -105,11 +103,11 @@ public class TwoDimensionalGreedyAlgo {
         List<Long> intersection;
     }
 
-    TwoDimensionalGreedyAlgo() {
+    TwoDimensionalGreedyRebalanceAlgo() {
         this(EqualSkewOption.PICK_RANDOM);
     }
 
-    TwoDimensionalGreedyAlgo(EqualSkewOption equalSkewOption) {
+    TwoDimensionalGreedyRebalanceAlgo(EqualSkewOption equalSkewOption) {
         this.equalSkewOption = equalSkewOption;
     }
 

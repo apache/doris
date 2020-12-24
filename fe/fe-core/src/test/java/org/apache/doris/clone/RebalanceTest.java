@@ -283,12 +283,18 @@ public class RebalanceTest {
 
     @Test
     public void testMoveInProgressMap() {
+        Configurator.setLevel("org.apache.doris.clone.MovesInProgressCache", Level.DEBUG);
         MovesInProgressCache m = new MovesInProgressCache();
-        m.updateCatalog(statisticMap, 1);
+        m.updateMapping(statisticMap, 3);
         m.getCache(SystemInfoService.DEFAULT_CLUSTER, TStorageMedium.HDD).get().put(1L, new Pair<>(null, -1L));
         m.getCache(SystemInfoService.DEFAULT_CLUSTER, TStorageMedium.SSD).get().put(2L, new Pair<>(null, -1L));
         m.getCache(SystemInfoService.DEFAULT_CLUSTER, TStorageMedium.SSD).get().put(3L, new Pair<>(null, -1L));
         Assert.assertEquals(3, m.size());
+        // reset the expireAfterAccess, the whole cache map will be cleared.
+        m.updateMapping(statisticMap, 1);
+        Assert.assertEquals(0, m.size());
+
+        m.getCache(SystemInfoService.DEFAULT_CLUSTER, TStorageMedium.SSD).get().put(3L, new Pair<>(null, -1L));
         try {
             Thread.sleep(1000);
             m.cleanUp();

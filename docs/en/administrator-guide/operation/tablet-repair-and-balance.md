@@ -214,7 +214,7 @@ At the same time, in order to ensure the weight of the initial priority, we stip
 
 ## Duplicate Equilibrium
 
-Doris automatically balances replicas within the cluster. Currently supports two rebalance strategies, BeLoad and Partition.
+Doris automatically balances replicas within the cluster. Currently supports two rebalance strategies, BeLoad and Partition. BeLoad rebalance will consider about the disk usage and replica count for each BE. Partition rebalance just aim at replica count for each partition, this helps to avoid hot spots. If you want high read/write performance, you may need this. Note that Partition rebalance do not consider about the disk usage, pay more attention to it when you are using Partition rebalance. The strategy selection config is not mutable at runtime. 
 
 ### BeLoad
 

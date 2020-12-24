@@ -22,6 +22,8 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.Maps;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.List;
@@ -30,9 +32,16 @@ import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+/*
+ * MovesInProgressCache caches the in-progress moves for each cluster and each medium(every cache could be called Cell).
+ * The expireAfterAccess config can be reset when updating, it will clear the current cache.
+ */
 public class MovesInProgressCache {
+    private static final Logger LOG = LogManager.getLogger(MovesInProgressCache.class);
+
     // cluster -> medium -> moves in progress
     private final Map<String, Map<TStorageMedium, Cell>> movesInProgressMap = Maps.newHashMap();
+    private long lastExpireConfig = -1L;
 
     // TabletId -> Pair<Move, ToDeleteReplicaId>, 'ToDeleteReplicaId == -1' means this move haven't been scheduled successfully.
     public static class Cell {
@@ -47,17 +56,19 @@ public class MovesInProgressCache {
         }
     }
 
-    public void updateCatalog(Map<String, ClusterLoadStatistic> statisticMap, long expireAfterAccessSecond) {
-        updateCatalog(statisticMap, expireAfterAccessSecond, TimeUnit.SECONDS);
-    }
+    public void updateMapping(Map<String, ClusterLoadStatistic> statisticMap, long expireAfterAccessSecond) {
+        if (lastExpireConfig != expireAfterAccessSecond) {
+            LOG.debug("Reset cache expireAfterAccess, last {}s, now {}s. Cache will be cleared.", lastExpireConfig, expireAfterAccessSecond);
+            movesInProgressMap.clear();
+            lastExpireConfig = expireAfterAccessSecond;
+        }
 
-    public void updateCatalog(Map<String, ClusterLoadStatistic> statisticMap, long duration, TimeUnit unit) {
         movesInProgressMap.keySet().stream().filter(k -> !statisticMap.containsKey(k)).forEach(movesInProgressMap::remove);
 
         List<String> toAdd = statisticMap.keySet().stream().filter(k -> !movesInProgressMap.containsKey(k)).collect(Collectors.toList());
         for (String cluster : toAdd) {
             Map<TStorageMedium, Cell> cacheMap = Maps.newHashMap();
-            Arrays.stream(TStorageMedium.values()).forEach(m -> cacheMap.put(m, new Cell(duration, unit)));
+            Arrays.stream(TStorageMedium.values()).forEach(m -> cacheMap.put(m, new Cell(expireAfterAccessSecond, TimeUnit.SECONDS)));
             movesInProgressMap.put(cluster, cacheMap);
         }
     }
@@ -70,6 +81,7 @@ public class MovesInProgressCache {
         return null;
     }
 
+    // For each cache Cell, performs any pending maintenance operations needed by the cache.
     public void cleanUp() {
         movesInProgressMap.values().forEach(maps -> maps.values().forEach(map -> map.get().cleanUp()));
     }
