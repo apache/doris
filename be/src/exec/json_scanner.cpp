@@ -500,7 +500,6 @@ void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
  */
 Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
                                        MemPool* tuple_pool, bool* eof) {
-    // If you use a string as the key to find the json object, strlen will be called every time, so the key is constructed in advance
     do {
         bool valid = false;
         if (_next_line >= _total_lines) { // parse json and generic document
