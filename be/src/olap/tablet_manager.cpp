@@ -147,7 +147,7 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash s
         res = _add_tablet_to_map_unlocked(tablet_id, schema_hash, tablet, update_meta, keep_files,
                                           true /*drop_old*/);
     } else {
-        res = OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
+        res = OLAP_ERR_ENGINE_INSERT_OLD_TABLET;
     }
     LOG(WARNING) << "add duplicated tablet. force=" << force << ", res=" << res
                  << ", tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
