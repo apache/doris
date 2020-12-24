@@ -65,6 +65,8 @@ inline bool HashTable::emplace_key(TupleRow* row, TupleRow** dest_addr) {
         *dest_addr = data;
         alloc_node->_hash = hash;
         if (node == nullptr) {
+            // real bucket_id will modify after resize buckets
+            bucket_idx = hash & (_num_buckets - 1);
             add_to_bucket(&_buckets[bucket_idx], alloc_node);
         } else {
             node->_next = alloc_node;
