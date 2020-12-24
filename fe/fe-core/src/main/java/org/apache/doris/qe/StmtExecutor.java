@@ -171,6 +171,7 @@ public class StmtExecutor implements ProfileWriter {
             summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(context.getStartTime()));
             summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
             summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
+            summaryProfile.setTotalTimeMs(totalTimeMs);
             summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
             summaryProfile.addInfoString(ProfileManager.QUERY_STATE, context.getState().toString());
             summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);

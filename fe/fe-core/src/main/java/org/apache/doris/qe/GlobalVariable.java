@@ -41,6 +41,7 @@ public final class GlobalVariable {
     public static final String QUERY_CACHE_SIZE = "query_cache_size";
     public static final String DEFAULT_ROWSET_TYPE = "default_rowset_type";
     public static final String PERFORMANCE_SCHEMA = "performance_schema";
+    public static final String REPORT_QUERY_ARRAY_SIZE = "report_query_array_size";
 
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version " +
@@ -79,6 +80,9 @@ public final class GlobalVariable {
     // add performance schema to support MYSQL JDBC 8.0.16 or later versions.
     @VariableMgr.VarAttr(name = PERFORMANCE_SCHEMA, flag = VariableMgr.READ_ONLY)
     public static String performanceSchema = "OFF";
+
+    @VariableMgr.VarAttr(name = REPORT_QUERY_ARRAY_SIZE, flag = VariableMgr.GLOBAL)
+    public volatile static int reportQueryArraySize = 100;
 
     // Don't allow create instance.
     private GlobalVariable() {

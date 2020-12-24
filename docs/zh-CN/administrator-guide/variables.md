@@ -68,6 +68,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 * `wait_timeout`
 * `sql_mode`
 * `is_report_success`
+* `report_query_time_threshold`
 * `query_timeout`
 * `exec_mem_limit`
 * `batch_size`
@@ -234,7 +235,13 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
     
     `fe_host:fe_http_port/query`
     
-    其中会显示最近100条，开启 `is_report_success` 的查询的 profile。
+    其中默认会显示最近100条（可以通过`reporty_query_array_size`进行设置），开启 `is_report_success` 的查询的 profile。
+
+* `report_query_time_threshold`
+    用于设置展示查询 profile 的耗时阈值，单位 ms，默认为 -1，展示所有查询 profile。
+
+* `report_query_array_size` 
+    用于设置展示查询 profile 的数量，默认为100。
     
 * `language`
 

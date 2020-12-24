@@ -27,6 +27,7 @@ import com.google.common.base.Strings;
 
 import io.netty.handler.codec.http.HttpMethod;
 
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -57,7 +58,7 @@ public class QueryAction extends WebBaseAction {
     // Note: we do not show 'Query ID' column in web page
     private void addFinishedQueryInfo(StringBuilder buffer) {
         buffer.append("<h2>Finished Queries</h2>");
-        buffer.append("<p>This table lists the latest 100 queries</p>");
+        buffer.append("<p>This table lists the latest " + GlobalVariable.reportQueryArraySize + " queries</p>");
         
         List<List<String>> finishedQueries = ProfileManager.getInstance().getAllQueries();
         List<String> columnHeaders = ProfileManager.PROFILE_HEADERS;

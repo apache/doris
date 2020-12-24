@@ -27,6 +27,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.commons.lang3.tuple.Triple;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -54,8 +56,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 public class ProfileManager {
     private static final Logger LOG = LogManager.getLogger(ProfileManager.class);
     private static volatile ProfileManager INSTANCE = null;
-    private static final int ARRAY_SIZE = 100;
-    // private static final int TOTAL_LEN = 1000 * ARRAY_SIZE ;
     public static final String QUERY_ID = "Query ID";
     public static final String START_TIME = "Start Time";
     public static final String END_TIME = "End Time";
@@ -77,6 +77,7 @@ public class ProfileManager {
         public String profileContent = "";
         public ProfileTreeBuilder builder = null;
         public String errMsg = "";
+        public long totalTimeMs;
     }
     
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
@@ -124,6 +125,7 @@ public class ProfileManager {
         }
 
         element.builder = builder;
+        element.totalTimeMs = summaryProfile.getTotalTimeMs();
         element.profileContent = profile.toString();
         return element;
     }
@@ -132,8 +134,15 @@ public class ProfileManager {
         if (profile == null) {
             return;
         }
-        
+
+        // filter profile that take more time than threshold
         ProfileElement element = createElement(profile);
+        if (ConnectContext.get() != null) {
+            long timeThreshold = ConnectContext.get().getSessionVariable().getReportQueryTimeThreshold();
+            if (element.totalTimeMs < timeThreshold) {
+                return;
+            }
+        }
         String queryId = element.infoStrings.get(ProfileManager.QUERY_ID);
         // check when push in, which can ensure every element in the list has QUERY_ID column,
         // so there is no need to check when remove element from list.
@@ -148,7 +157,7 @@ public class ProfileManager {
         writeLock.lock();
         try {
             if (!queryIdDeque.contains(queryId)) {
-                if (queryIdDeque.size() >= ARRAY_SIZE) {
+                if (queryIdDeque.size() >= GlobalVariable.reportQueryArraySize) {
                     queryIdToProfileMap.remove(queryIdDeque.getFirst());
                     queryIdDeque.removeFirst();
                 }

@@ -49,6 +49,7 @@ public class RuntimeProfile {
     public static String ROOT_COUNTER = "";
     private Counter counterTotalTime;
     private double localTimePercent;
+    private long totalTimeMs;
 
     private Map<String, String> infoStrings = Maps.newHashMap();
     private List<String> infoStringsDisplayOrder = Lists.newArrayList();
@@ -78,6 +79,14 @@ public class RuntimeProfile {
 
     public String getName() {
         return name;
+    }
+
+    public long getTotalTimeMs() {
+        return totalTimeMs;
+    }
+
+    public void setTotalTimeMs(long totalTimeMs) {
+        this.totalTimeMs = totalTimeMs;
     }
 
     public Counter getCounterTotalTime() {
