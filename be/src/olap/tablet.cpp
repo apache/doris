@@ -1426,4 +1426,12 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
     }
 }
 
+void Tablet::reset_compaction(CompactionType compaction_type) {
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+        _cumulative_compaction.reset();
+    } else {
+        _base_compaction.reset();
+    }
+}
+
 }  // namespace doris

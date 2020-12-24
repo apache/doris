@@ -275,22 +275,19 @@ public class HashJoinNode extends PlanNode {
     protected String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
         String distrModeStr =
           (distrMode != DistributionMode.NONE) ? (" (" + distrMode.toString() + ")") : "";
-        StringBuilder output = new StringBuilder().append(
-          detailPrefix + "join op: " + joinOp.toString() + distrModeStr + "\n").append(
-          detailPrefix + "hash predicates:\n");
-
-        output.append(detailPrefix + "colocate: " + isColocate + (isColocate? "" : ", reason: " + colocateReason) + "\n");
+        StringBuilder output = new StringBuilder()
+                .append(detailPrefix).append("join op: ").append(joinOp.toString()).append(distrModeStr).append("\n")
+                .append(detailPrefix).append("hash predicates:\n")
+                .append(detailPrefix).append("colocate: ").append(isColocate).append(isColocate ? "" : ", reason: " + colocateReason).append("\n");
 
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
-            output.append(detailPrefix).append("equal join conjunct: ").append(eqJoinPredicate.toSql() +  "\n");
+            output.append(detailPrefix).append("equal join conjunct: ").append(eqJoinPredicate.toSql()).append("\n");
         }
         if (!otherJoinConjuncts.isEmpty()) {
-            output.append(detailPrefix + "other join predicates: ").append(
-              getExplainString(otherJoinConjuncts) + "\n");
+            output.append(detailPrefix).append("other join predicates: ").append(getExplainString(otherJoinConjuncts)).append("\n");
         }
         if (!conjuncts.isEmpty()) {
-            output.append(detailPrefix + "other predicates: ").append(
-              getExplainString(conjuncts) + "\n");
+            output.append(detailPrefix).append("other predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
         return output.toString();
     }
