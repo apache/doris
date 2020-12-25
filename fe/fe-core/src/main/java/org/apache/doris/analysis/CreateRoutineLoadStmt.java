@@ -102,6 +102,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String JSONPATHS = "jsonpaths";
     public static final String JSONROOT = "json_root";
     public static final String NUM_AS_STRING = "num_as_string";
+    public static final String FUZZY_PARSE = "fuzzy_parse";
 
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
@@ -124,6 +125,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(JSONPATHS)
             .add(STRIP_OUTER_ARRAY)
             .add(NUM_AS_STRING)
+            .add(FUZZY_PARSE)
             .add(JSONROOT)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
@@ -168,6 +170,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private String jsonRoot   = ""; // MUST be a jsonpath string
     private boolean stripOuterArray = false;
     private boolean numAsString = false;
+    private boolean fuzzyParse = false;
 
     // kafka related properties
     private String kafkaBrokerList;
@@ -260,6 +263,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public boolean isNumAsString() {
         return numAsString;
+    }
+
+    public boolean isFuzzyParse() {
+        return fuzzyParse;
     }
 
     public String getJsonPaths() {
@@ -439,6 +446,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 jsonRoot = jobProperties.get(JSONROOT);
                 stripOuterArray = Boolean.valueOf(jobProperties.getOrDefault(STRIP_OUTER_ARRAY, "false"));
                 numAsString = Boolean.valueOf(jobProperties.getOrDefault(NUM_AS_STRING, "false"));
+                fuzzyParse = Boolean.valueOf(jobProperties.getOrDefault(FUZZY_PARSE, "false"));
             } else {
                 throw new UserException("Format type is invalid. format=`" + format + "`");
             }

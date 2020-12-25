@@ -52,6 +52,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             .add(CreateRoutineLoadStmt.JSONROOT)
             .add(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)
             .add(CreateRoutineLoadStmt.NUM_AS_STRING)
+            .add(CreateRoutineLoadStmt.FUZZY_PARSE)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .build();
@@ -187,6 +188,12 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             boolean numAsString = Boolean.valueOf(jobProperties.get(CreateRoutineLoadStmt.NUM_AS_STRING));
             analyzedJobProperties.put(jobProperties.get(CreateRoutineLoadStmt.NUM_AS_STRING),
                     String.valueOf(numAsString));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.FUZZY_PARSE)) {
+            boolean fuzzyParse = Boolean.valueOf(jobProperties.get(CreateRoutineLoadStmt.FUZZY_PARSE));
+            analyzedJobProperties.put(jobProperties.get(CreateRoutineLoadStmt.FUZZY_PARSE),
+                String.valueOf(fuzzyParse));
         }
     }
 

@@ -107,9 +107,15 @@ if [ ! -d ${CMAKE_BUILD_DIR} ]; then
 fi
 
 cd ${CMAKE_BUILD_DIR}
+GENERATOR="Unix Makefiles"
+BUILD_SYSTEM="make"
+if ninja --version 2>/dev/null; then
+    GENERATOR="Ninja"
+    BUILD_SYSTEM="ninja"
+fi
 
-${CMAKE_CMD} ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-make -j${PARALLEL}
+${CMAKE_CMD} -G "${GENERATOR}" ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+${BUILD_SYSTEM} -j${PARALLEL}
 
 if [ ${RUN} -ne 1 ]; then
     echo "Finished"

@@ -96,6 +96,8 @@ under the License.
         
         function_column.sequence_col: 只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence列进行REPLACE, 
             source_sequence可以是数据源中的列，也可以是表结构中的一列。
+        
+        fuzzy_parse: 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高json 导入效率，但是要求要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json 格式
 
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括一下字段
