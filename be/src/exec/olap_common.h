@@ -129,6 +129,19 @@ public:
             }
         } else if (_low_value < _high_value) {
             // 2. convert to min max filter condition
+            TCondition null_pred;
+            if (TYPE_MAX == _high_value && _high_op == FILTER_LESS_OR_EQUAL &&
+                     TYPE_MIN == _low_value && _low_op == FILTER_LARGER_OR_EQUAL && !contain_null()) {
+                null_pred.__set_column_name(_column_name);
+                null_pred.__set_condition_op("is");
+                null_pred.condition_values.emplace_back("not null");
+            }
+
+            if (null_pred.condition_values.size() != 0) {
+                filters.push_back(null_pred);
+                return;
+            }
+
             TCondition low;
             if (TYPE_MIN != _low_value || FILTER_LARGER_OR_EQUAL != _low_op) {
                 low.__set_column_name(_column_name);
@@ -157,11 +170,6 @@ public:
                 null_pred.__set_column_name(_column_name);
                 null_pred.__set_condition_op("is");
                 null_pred.condition_values.emplace_back("null");
-            } else if (TYPE_MAX == _high_value && _high_op == FILTER_LESS_OR_EQUAL &&
-                   TYPE_MIN == _low_value && _low_op == FILTER_LARGER_OR_EQUAL && !contain_null()) {
-                null_pred.__set_column_name(_column_name);
-                null_pred.__set_condition_op("is");
-                null_pred.condition_values.emplace_back("not null");
             }
 
             if (null_pred.condition_values.size() != 0) {
@@ -268,6 +276,13 @@ public:
     bool end_include() const { return _end_include; }
 
     void set_is_convertible(bool is_convertible) { _is_convertible = is_convertible; }
+
+    // now, only use in UT
+    static std::string to_print_key(const OlapTuple& scan_keys) {
+        std::stringstream sstream;
+        sstream << scan_keys;
+        return sstream.str();
+    }
 
 private:
     std::vector<OlapTuple> _begin_scan_keys;
@@ -424,6 +439,9 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
         return Status::InternalError("AddRange failed, Invalid type");
     }
 
+    // add range means range should not contain null
+    _contain_null = false;
+
     if (is_fixed_value_range()) {
         std::pair<iterator_type, iterator_type> bound_pair = _fixed_values.equal_range(value);
 
@@ -462,9 +480,6 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
         _low_value = TYPE_MAX;
     } else {
         if (_high_value > _low_value) {
-            // means add range success, range should not contain null
-            // in a scope range
-            _contain_null = false;
 
             switch (op) {
             case FILTER_LARGER: {
@@ -711,7 +726,6 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
     }
 
     //if a column doesn't have any predicate, we will try converting the range to fixed values
-
     auto scan_keys_size = _begin_scan_keys.empty() ? 1 : _begin_scan_keys.size();
     if (range.is_fixed_value_range()) {
         if (range.get_fixed_value_size() * scan_keys_size > max_scan_key_num) {
