@@ -44,14 +44,19 @@ import java.util.stream.Collectors;
  * PartitionRebalancer will decrease the skew of partitions. The skew of the partition is defined as the difference
  * between the maximum replica count of the partition over all bes and the minimum replica count over all bes.
  * Only consider about the replica count for each partition, never consider the replica size(disk usage).
- * To fewer moves, we use TwoDimensionalGreedyAlgo which two dims are cluster & partition.
+ *
+ * We use TwoDimensionalGreedyRebalanceAlgo to get partition moves(one PartitionMove is <partition id, from be, to be>).
  * It prefers a move that reduce the skew of the cluster when we want to rebalance a max skew partition.
+ *
+ * selectAlternativeTabletsForCluster() must set the tablet id, so we need to select tablet for each move in this phase
+ * (as TabletMove).
  */
 public class PartitionRebalancer extends Rebalancer {
     private static final Logger LOG = LogManager.getLogger(PartitionRebalancer.class);
 
     private final TwoDimensionalGreedyRebalanceAlgo algo = new TwoDimensionalGreedyRebalanceAlgo();
-    protected final MovesInProgressCache movesInProgressCache = new MovesInProgressCache();
+
+    private final MovesCacheMap movesCacheMap = new MovesCacheMap();
 
     private final AtomicLong counterBalanceMoveCreated = new AtomicLong(0);
     private final AtomicLong counterBalanceMoveSucceeded = new AtomicLong(0);
@@ -63,17 +68,17 @@ public class PartitionRebalancer extends Rebalancer {
     @Override
     protected List<TabletSchedCtx> selectAlternativeTabletsForCluster(
             String clusterName, ClusterLoadStatistic clusterStat, TStorageMedium medium) {
-        MovesInProgressCache.Cell movesInProgress = movesInProgressCache.getCache(clusterName, medium);
-        Preconditions.checkNotNull(movesInProgress, "clusterStat is got from statisticMap, movesInProgressMap should have the same entry");
+        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(clusterName, medium);
+        Preconditions.checkNotNull(movesInProgress, "clusterStat is got from statisticMap, movesCacheMap should have the same entry");
 
-        // iterating through cache.asMap().values() does not reset access time for the entries you retrieve.
-        List<ReplicaMove> movesInProgressList = movesInProgress.get().asMap().values()
+        // Iterating through Cache.asMap().values() does not reset access time for the entries you retrieve.
+        List<TabletMove> movesInProgressList = movesInProgress.get().asMap().values()
                 .stream().map(p -> p.first).collect(Collectors.toList());
         List<Long> toDeleteKeys = Lists.newArrayList();
 
         // The problematic movements will be found in buildClusterInfo(), so here is a simply move completion check
         // of moves which have valid ToDeleteReplica.
-        List<ReplicaMove> movesNeedCheck = movesInProgress.get().asMap().values()
+        List<TabletMove> movesNeedCheck = movesInProgress.get().asMap().values()
                 .stream().filter(p -> p.second != -1L).map(p -> p.first).collect(Collectors.toList());
         checkMovesCompleted(movesNeedCheck, toDeleteKeys);
 
@@ -93,7 +98,7 @@ public class PartitionRebalancer extends Rebalancer {
 
         // The balancing tasks of other cluster or medium might have failed. We use the upper limit value
         // `total num of in-progress moves` to avoid useless selections.
-        if (movesInProgressCache.size() > Config.max_balancing_tablets) {
+        if (movesCacheMap.size() > Config.max_balancing_tablets) {
             LOG.debug("Total in-progress moves > {}", Config.max_balancing_tablets);
             return Lists.newArrayList();
         }
@@ -102,11 +107,11 @@ public class PartitionRebalancer extends Rebalancer {
         LOG.debug("Cluster {}-{}: peek max skew {}, assume {} in-progress moves are succeeded {}", clusterName, medium,
                 skews.isEmpty() ? 0 : skews.last(), movesInProgressList.size(), movesInProgressList);
 
-        List<TwoDimensionalGreedyRebalanceAlgo.PartitionReplicaMove> moves = algo.getNextMoves(clusterBalanceInfo, Config.partition_rebalance_max_moves_num_per_selection);
+        List<TwoDimensionalGreedyRebalanceAlgo.PartitionMove> moves = algo.getNextMoves(clusterBalanceInfo, Config.partition_rebalance_max_moves_num_per_selection);
 
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
         List<Long> inProgressIds = movesInProgressList.stream().map(m -> m.tabletId).collect(Collectors.toList());
-        for (TwoDimensionalGreedyRebalanceAlgo.PartitionReplicaMove move : moves) {
+        for (TwoDimensionalGreedyRebalanceAlgo.PartitionMove move : moves) {
             // Find all tablets of the specified partition that would have a replica at the source be,
             // but would not have a replica at the destination be. That is to satisfy the restriction
             // of having no more than one replica of the same tablet per be.
@@ -143,14 +148,14 @@ public class PartitionRebalancer extends Rebalancer {
             tabletCtx.setOrigPriority(TabletSchedCtx.Priority.LOW);
             alternativeTablets.add(tabletCtx);
             // Pair<Move, ToDeleteReplicaId>, ToDeleteReplicaId should be -1L before scheduled successfully
-            movesInProgress.get().put(pickedTabletId, new Pair<>(new ReplicaMove(pickedTabletId, move.fromBe, move.toBe), -1L));
+            movesInProgress.get().put(pickedTabletId, new Pair<>(new TabletMove(pickedTabletId, move.fromBe, move.toBe), -1L));
             counterBalanceMoveCreated.incrementAndGet();
-            // synchronize with movesInProgress
+            // Synchronize with movesInProgress
             inProgressIds.add(pickedTabletId);
         }
 
         if (moves.isEmpty()) {
-            // Balanced cluster should not print too much log messages.
+            // Balanced cluster should not print too much log messages, so we log it with level debug.
             LOG.debug("Cluster {}-{}: cluster is balanced.", clusterName, medium);
         } else {
             LOG.info("Cluster {}-{}: get {} moves, actually select {} alternative tablets to move. Tablets detail: {}",
@@ -161,7 +166,7 @@ public class PartitionRebalancer extends Rebalancer {
     }
 
     private boolean buildClusterInfo(ClusterLoadStatistic clusterStat, TStorageMedium medium,
-                                     List<ReplicaMove> movesInProgress, ClusterBalanceInfo info, List<Long> toDeleteKeys) {
+                                     List<TabletMove> movesInProgress, ClusterBalanceInfo info, List<Long> toDeleteKeys) {
         Preconditions.checkState(info.beByTotalReplicaCount.isEmpty() && info.partitionInfoBySkew.isEmpty(), "");
 
         // If we wanna modify the PartitionBalanceInfo in info.beByTotalReplicaCount, deep-copy it
@@ -169,9 +174,9 @@ public class PartitionRebalancer extends Rebalancer {
         info.partitionInfoBySkew.putAll(clusterStat.getSkewMap(medium));
 
         // Skip the toDeleteKeys
-        List<ReplicaMove> filteredMoves = movesInProgress.stream().filter(m -> !toDeleteKeys.contains(m.tabletId)).collect(Collectors.toList());
+        List<TabletMove> filteredMoves = movesInProgress.stream().filter(m -> !toDeleteKeys.contains(m.tabletId)).collect(Collectors.toList());
 
-        for (ReplicaMove move : filteredMoves) {
+        for (TabletMove move : filteredMoves) {
             TabletMeta meta = invertedIndex.getTabletMeta(move.tabletId);
             if (meta == null) {
                 // Move's tablet is invalid, need delete it
@@ -179,8 +184,7 @@ public class PartitionRebalancer extends Rebalancer {
                 continue;
             }
 
-            TwoDimensionalGreedyRebalanceAlgo.PartitionReplicaMove partitionMove = new TwoDimensionalGreedyRebalanceAlgo.
-                    PartitionReplicaMove(meta.getPartitionId(), meta.getIndexId(), move.fromBe, move.toBe);
+            TwoDimensionalGreedyRebalanceAlgo.PartitionMove partitionMove = new TwoDimensionalGreedyRebalanceAlgo.PartitionMove(meta.getPartitionId(), meta.getIndexId(), move.fromBe, move.toBe);
             boolean st = TwoDimensionalGreedyRebalanceAlgo.applyMove(partitionMove, info.beByTotalReplicaCount, info.partitionInfoBySkew);
             if (!st) {
                 // Can't apply this move, mark it failed, continue to apply the next.
@@ -190,9 +194,9 @@ public class PartitionRebalancer extends Rebalancer {
         return true;
     }
 
-    private void checkMovesCompleted(List<ReplicaMove> moves, List<Long> toDeleteKeys) {
+    private void checkMovesCompleted(List<TabletMove> moves, List<Long> toDeleteKeys) {
         boolean move_is_complete;
-        for (ReplicaMove move : moves) {
+        for (TabletMove move : moves) {
             move_is_complete = checkMoveCompleted(move);
             // If the move was completed, remove it
             if (move_is_complete) {
@@ -205,7 +209,7 @@ public class PartitionRebalancer extends Rebalancer {
     }
 
     // Move completed: fromBe doesn't have a replica and toBe has a replica
-    private boolean checkMoveCompleted(ReplicaMove move) {
+    private boolean checkMoveCompleted(TabletMove move) {
         Long tabletId = move.tabletId;
         List<Long> bes = invertedIndex.getReplicasByTabletId(tabletId).stream().map(Replica::getBackendId).collect(Collectors.toList());
         return !bes.contains(move.fromBe) && bes.contains(move.toBe);
@@ -214,14 +218,14 @@ public class PartitionRebalancer extends Rebalancer {
     @Override
     protected void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, TabletScheduler.PathSlot> backendsWorkingSlots)
             throws SchedException {
-        MovesInProgressCache.Cell movesInProgress = movesInProgressCache.getCache(tabletCtx.getCluster(), tabletCtx.getStorageMedium());
+        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(tabletCtx.getCluster(), tabletCtx.getStorageMedium());
         Preconditions.checkNotNull(movesInProgress, "clusterStat is got from statisticMap, movesInProgressMap should have the same entry");
 
         try {
-            Pair<ReplicaMove, Long> pair = movesInProgress.get().getIfPresent(tabletCtx.getTabletId());
+            Pair<TabletMove, Long> pair = movesInProgress.get().getIfPresent(tabletCtx.getTabletId());
             Preconditions.checkNotNull(pair, "No cached move for tablet: " + tabletCtx.getTabletId());
 
-            ReplicaMove move = pair.first;
+            TabletMove move = pair.first;
             checkMoveValidation(move);
 
             // Check src replica's validation
@@ -267,7 +271,7 @@ public class PartitionRebalancer extends Rebalancer {
     // If some moves failed, the cluster & partition skew is different to the skew when we getNextMove.
     // So we can't do skew check.
     // Just do some basic checks, e.g. server available.
-    private void checkMoveValidation(ReplicaMove move) throws IllegalStateException {
+    private void checkMoveValidation(TabletMove move) throws IllegalStateException {
         boolean fromAvailable = infoService.checkBackendAvailable(move.fromBe);
         boolean toAvailable = infoService.checkBackendAvailable(move.toBe);
         Preconditions.checkState(fromAvailable && toAvailable, move + "'s bes are not all available: from " + fromAvailable + ", to " + toAvailable);
@@ -276,11 +280,11 @@ public class PartitionRebalancer extends Rebalancer {
 
     @Override
     public Long getToDeleteReplicaId(TabletSchedCtx tabletCtx) {
-        MovesInProgressCache.Cell movesInProgress = movesInProgressCache.getCache(tabletCtx.getCluster(), tabletCtx.getStorageMedium());
+        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(tabletCtx.getCluster(), tabletCtx.getStorageMedium());
 
         // We don't invalidate the cached move here, cuz the redundant repair progress is just started.
         // The move should be invalidated by TTL or Algo.CheckMoveCompleted()
-        Pair<ReplicaMove, Long> pair = movesInProgress.get().getIfPresent(tabletCtx.getTabletId());
+        Pair<TabletMove, Long> pair = movesInProgress.get().getIfPresent(tabletCtx.getTabletId());
         if (pair != null) {
             Preconditions.checkState(pair.second != -1L);
             return pair.second;
@@ -292,21 +296,21 @@ public class PartitionRebalancer extends Rebalancer {
     @Override
     public void updateLoadStatistic(Map<String, ClusterLoadStatistic> statisticMap) {
         super.updateLoadStatistic(statisticMap);
-        movesInProgressCache.updateMapping(statisticMap, Config.partition_rebalance_move_expire_after_access);
+        movesCacheMap.updateMapping(statisticMap, Config.partition_rebalance_move_expire_after_access);
         // Perform cache maintenance
-        movesInProgressCache.cleanUp();
+        movesCacheMap.maintain();
         LOG.debug("Move succeeded/total :{}/{}, current {}",
-                counterBalanceMoveSucceeded.get(), counterBalanceMoveCreated.get(), movesInProgressCache);
+                counterBalanceMoveSucceeded.get(), counterBalanceMoveCreated.get(), movesCacheMap);
     }
 
-    // Represents a concrete move of a replica from one be to another.
-    // Formed logically from a PartitionReplicaMove by specifying a tablet for the move.
-    public static class ReplicaMove {
+    // Represents a concrete move of a tablet from one be to another.
+    // Formed logically from a PartitionMove by specifying a tablet for the move.
+    public static class TabletMove {
         Long tabletId;
         Long fromBe;
         Long toBe;
 
-        ReplicaMove(Long id, Long from, Long to) {
+        TabletMove(Long id, Long from, Long to) {
             this.tabletId = id;
             this.fromBe = from;
             this.toBe = to;

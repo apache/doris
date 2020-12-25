@@ -21,9 +21,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import mockit.Delegate;
 import mockit.Expectations;
-import mockit.Invocation;
-import mockit.Mock;
-import mockit.MockUp;
 import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -42,6 +39,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -63,6 +61,7 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
@@ -179,28 +178,19 @@ public class RebalanceTest {
     public void testPartitionRebalancer() {
         Configurator.setLevel("org.apache.doris.clone.PartitionRebalancer", Level.DEBUG);
 
-        new MockUp<PartitionRebalancer>(PartitionRebalancer.class) {
-            @Mock
-            public Long getToDeleteReplicaId(Invocation invocation, TabletSchedCtx tabletCtx) {
-                LOG.info("get ToDeleteReplicaId for tablet {}", tabletCtx.getTabletId());
-                return invocation.proceed(tabletCtx);
-            }
-        };
-
-        Rebalancer rebalancer = new PartitionRebalancer(Catalog.getCurrentSystemInfo(), Catalog.getCurrentInvertedIndex());
-
         // Disable scheduler's rebalancer adding balance task, add balance tasks manually
         Config.disable_balance = true;
         // Create a new scheduler & checker for redundant tablets handling
         // Call runAfterCatalogReady manually instead of starting daemon thread
         TabletSchedulerStat stat = new TabletSchedulerStat();
-        // In this test, we don't use the rebalancer in scheduler, so reblancerType has no effect.
+        PartitionRebalancer rebalancer = new PartitionRebalancer(Catalog.getCurrentSystemInfo(), Catalog.getCurrentInvertedIndex());
         TabletScheduler tabletScheduler = new TabletScheduler(catalog, systemInfoService, invertedIndex, stat, "");
+        // The rebalancer inside the scheduler will use this rebalancer, for getToDeleteReplicaId
+        Deencapsulation.setField(tabletScheduler, "rebalancer", rebalancer);
+
         TabletChecker tabletChecker = new TabletChecker(catalog, systemInfoService, tabletScheduler, stat);
 
-
         rebalancer.updateLoadStatistic(statisticMap);
-
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
 
         // Run once for update slots info, scheduler won't select balance cuz balance is disabled
@@ -278,26 +268,30 @@ public class RebalanceTest {
         // Check moves completed
         rebalancer.selectAlternativeTablets();
         rebalancer.updateLoadStatistic(statisticMap);
-
+        AtomicLong succeeded = Deencapsulation.getField(rebalancer, "counterBalanceMoveSucceeded");
+        Assert.assertEquals(needCheckTablets.size(), succeeded.get());
     }
 
     @Test
     public void testMoveInProgressMap() {
         Configurator.setLevel("org.apache.doris.clone.MovesInProgressCache", Level.DEBUG);
-        MovesInProgressCache m = new MovesInProgressCache();
+        MovesCacheMap m = new MovesCacheMap();
         m.updateMapping(statisticMap, 3);
         m.getCache(SystemInfoService.DEFAULT_CLUSTER, TStorageMedium.HDD).get().put(1L, new Pair<>(null, -1L));
         m.getCache(SystemInfoService.DEFAULT_CLUSTER, TStorageMedium.SSD).get().put(2L, new Pair<>(null, -1L));
         m.getCache(SystemInfoService.DEFAULT_CLUSTER, TStorageMedium.SSD).get().put(3L, new Pair<>(null, -1L));
+        // Maintenance won't clean up the entries of cache
+        m.maintain();
         Assert.assertEquals(3, m.size());
-        // reset the expireAfterAccess, the whole cache map will be cleared.
+
+        // Reset the expireAfterAccess, the whole cache map will be cleared.
         m.updateMapping(statisticMap, 1);
         Assert.assertEquals(0, m.size());
 
         m.getCache(SystemInfoService.DEFAULT_CLUSTER, TStorageMedium.SSD).get().put(3L, new Pair<>(null, -1L));
         try {
             Thread.sleep(1000);
-            m.cleanUp();
+            m.maintain();
             Assert.assertEquals(0, m.size());
         } catch (InterruptedException e) {
             e.printStackTrace();

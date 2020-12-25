@@ -33,67 +33,70 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /*
- * MovesInProgressCache caches the in-progress moves for each cluster and each medium(every cache could be called Cell).
- * The expireAfterAccess config is changed when updating, all moves in all Cell will be cleared.
+ * MovesCacheMap stores MovesCache for every cluster and medium.
+ * MovesCache is a simple encapsulation of Guava Cache. Use it by calling MovesCache.get().
+ * MovesCache's expireAfterAccess can be reset when updating the cache mapping. If expireAfterAccess reset,
+ * all MovesCaches will be cleared and recreated.
  */
-public class MovesInProgressCache {
-    private static final Logger LOG = LogManager.getLogger(MovesInProgressCache.class);
+public class MovesCacheMap {
+    private static final Logger LOG = LogManager.getLogger(MovesCacheMap.class);
 
-    // cluster -> medium -> moves in progress
-    private final Map<String, Map<TStorageMedium, Cell>> movesInProgressMap = Maps.newHashMap();
+    // cluster -> medium -> MovesCache
+    private final Map<String, Map<TStorageMedium, MovesCache>> cacheMap = Maps.newHashMap();
     private long lastExpireConfig = -1L;
 
     // TabletId -> Pair<Move, ToDeleteReplicaId>, 'ToDeleteReplicaId == -1' means this move haven't been scheduled successfully.
-    public static class Cell {
-        Cache<Long, Pair<PartitionRebalancer.ReplicaMove, Long>> cache;
+    public static class MovesCache {
+        Cache<Long, Pair<PartitionRebalancer.TabletMove, Long>> cache;
 
-        Cell(long duration, TimeUnit unit) {
+        MovesCache(long duration, TimeUnit unit) {
             cache = CacheBuilder.newBuilder().expireAfterAccess(duration, unit).build();
         }
 
-        public Cache<Long, Pair<PartitionRebalancer.ReplicaMove, Long>> get() {
+        public Cache<Long, Pair<PartitionRebalancer.TabletMove, Long>> get() {
             return cache;
         }
     }
 
+    // Cyclical update the cache mapping, cuz the cluster may be deleted, we should delete the corresponding cache too.
     public void updateMapping(Map<String, ClusterLoadStatistic> statisticMap, long expireAfterAccessSecond) {
-        if (lastExpireConfig != expireAfterAccessSecond) {
+        if (expireAfterAccessSecond > 0 && lastExpireConfig != expireAfterAccessSecond) {
             LOG.debug("Reset expireAfterAccess, last {}s, now {}s. Moves will be cleared.", lastExpireConfig, expireAfterAccessSecond);
-            movesInProgressMap.clear();
+            cacheMap.clear();
             lastExpireConfig = expireAfterAccessSecond;
         }
 
-        movesInProgressMap.keySet().stream().filter(k -> !statisticMap.containsKey(k)).forEach(movesInProgressMap::remove);
+        cacheMap.keySet().stream().filter(k -> !statisticMap.containsKey(k)).forEach(cacheMap::remove);
 
-        List<String> toAdd = statisticMap.keySet().stream().filter(k -> !movesInProgressMap.containsKey(k)).collect(Collectors.toList());
+        List<String> toAdd = statisticMap.keySet().stream().filter(k -> !cacheMap.containsKey(k)).collect(Collectors.toList());
         for (String cluster : toAdd) {
-            Map<TStorageMedium, Cell> cacheMap = Maps.newHashMap();
-            Arrays.stream(TStorageMedium.values()).forEach(m -> cacheMap.put(m, new Cell(expireAfterAccessSecond, TimeUnit.SECONDS)));
-            movesInProgressMap.put(cluster, cacheMap);
+            Map<TStorageMedium, MovesCache> cacheMap = Maps.newHashMap();
+            Arrays.stream(TStorageMedium.values()).forEach(m -> cacheMap.put(m, new MovesCache(expireAfterAccessSecond, TimeUnit.SECONDS)));
+            this.cacheMap.put(cluster, cacheMap);
         }
     }
 
-    public Cell getCache(String clusterName, TStorageMedium medium) {
-        Map<TStorageMedium, Cell> clusterMoves = movesInProgressMap.get(clusterName);
+    public MovesCache getCache(String clusterName, TStorageMedium medium) {
+        Map<TStorageMedium, MovesCache> clusterMoves = cacheMap.get(clusterName);
         if (clusterMoves != null) {
             return clusterMoves.get(medium);
         }
         return null;
     }
 
-    // For each cache Cell, performs any pending maintenance operations needed by the cache.
-    public void cleanUp() {
-        movesInProgressMap.values().forEach(maps -> maps.values().forEach(map -> map.get().cleanUp()));
+    // For each MovesCache, performs any pending maintenance operations needed by the cache.
+    public void maintain() {
+        cacheMap.values().forEach(maps -> maps.values().forEach(map -> map.get().cleanUp()));
     }
 
     public long size() {
-        return movesInProgressMap.values().stream().mapToLong(maps -> maps.values().stream().mapToLong(map -> map.get().size()).sum()).sum();
+        return cacheMap.values().stream().mapToLong(maps -> maps.values().stream().mapToLong(map -> map.get().size()).sum()).sum();
     }
 
     @Override
     public String toString() {
         StringJoiner sj = new StringJoiner("\n", "MovesInProgress detail:\n", "");
-        movesInProgressMap.forEach((key, value) -> value.forEach((k, v) -> sj.add("(" + key + "-" + k + ": " + v.get().asMap() + ")")));
+        cacheMap.forEach((key, value) -> value.forEach((k, v) -> sj.add("(" + key + "-" + k + ": " + v.get().asMap() + ")")));
         return sj.toString();
     }
 }

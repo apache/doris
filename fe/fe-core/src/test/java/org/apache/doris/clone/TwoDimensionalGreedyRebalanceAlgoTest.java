@@ -22,7 +22,7 @@ import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
 import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
-import org.apache.doris.clone.TwoDimensionalGreedyRebalanceAlgo.PartitionReplicaMove;
+import org.apache.doris.clone.TwoDimensionalGreedyRebalanceAlgo.PartitionMove;
 import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
 import org.apache.doris.common.Pair;
 import org.apache.logging.log4j.Level;
@@ -73,7 +73,7 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
 
         // The expected replica movements: the reference output of the algorithm
         // to compare with.
-        List<PartitionReplicaMove> expectedMoves = Lists.newArrayList();
+        List<PartitionMove> expectedMoves = Lists.newArrayList();
 
         // TODO MovesOrderingComparison: Options controlling how the reference and the actual results are compared.
         // PartitionBalanceInfos in skew map are arbitrary ordering, so we can't get the fixed moves
@@ -123,7 +123,7 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
 
     private void verifyMoves(List<TestClusterConfig> configs) {
         for (TestClusterConfig config : configs) {
-            List<PartitionReplicaMove> moves = algo.getNextMoves(ClusterConfigToClusterBalanceInfo(config), 0);
+            List<PartitionMove> moves = algo.getNextMoves(ClusterConfigToClusterBalanceInfo(config), 0);
             Assert.assertEquals(moves, config.expectedMoves);
         }
     }
@@ -135,7 +135,7 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
 
     @Test
     public void testApplyMoveFailed() {
-        PartitionReplicaMove move = new PartitionReplicaMove(11L, 22L, 10001L, 10002L);
+        PartitionMove move = new PartitionMove(11L, 22L, 10001L, 10002L);
         // total count is valid
         TreeMultimap<Long, Long> beByTotalReplicaCount = TreeMultimap.create();
         beByTotalReplicaCount.put(10L, 10001L);
@@ -240,7 +240,7 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
                     beIds.add(10002L);
                     partitionReplicas.add(new PartitionPerBeReplicas(22L, 33L, Lists.newArrayList(2L, 0L)));
                     partitionReplicas.add(new PartitionPerBeReplicas(22L, 44L, Lists.newArrayList(1L, 2L)));
-                    expectedMoves.add(new PartitionReplicaMove(22L, 33L, 10001L, 10002L));
+                    expectedMoves.add(new PartitionMove(22L, 33L, 10001L, 10002L));
                 }}
         );
         verifyMoves(configs);
@@ -255,20 +255,20 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
                     beIds.add(10001L);
                     beIds.add(10002L);
                     partitionReplicas.add(new PartitionPerBeReplicas(22L, 33L, Lists.newArrayList(2L, 0L)));
-                    expectedMoves.add(new PartitionReplicaMove(22L, 33L, 10001L, 10002L));
+                    expectedMoves.add(new PartitionMove(22L, 33L, 10001L, 10002L));
                 }},
                 new TestClusterConfig() {{
                     beIds.add(10001L);
                     beIds.add(10002L);
                     partitionReplicas.add(new PartitionPerBeReplicas(22L, 33L, Lists.newArrayList(3L, 0L)));
-                    expectedMoves.add(new PartitionReplicaMove(22L, 33L, 10001L, 10002L));
+                    expectedMoves.add(new PartitionMove(22L, 33L, 10001L, 10002L));
                 }},
                 new TestClusterConfig() {{
                     beIds.add(10001L);
                     beIds.add(10002L);
                     partitionReplicas.add(new PartitionPerBeReplicas(22L, 33L, Lists.newArrayList(4L, 0L)));
-                    expectedMoves.add(new PartitionReplicaMove(22L, 33L, 10001L, 10002L));
-                    expectedMoves.add(new PartitionReplicaMove(22L, 33L, 10001L, 10002L));
+                    expectedMoves.add(new PartitionMove(22L, 33L, 10001L, 10002L));
+                    expectedMoves.add(new PartitionMove(22L, 33L, 10001L, 10002L));
                 }}
         );
         verifyMoves(configs);
@@ -286,9 +286,9 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
                     partitionReplicas.add(new PartitionPerBeReplicas(22L, 33L, Lists.newArrayList(100L, 400L, 100L)));
                     for (int i = 0; i < 200; i++) {
                         if (i % 2 == 1) {
-                            expectedMoves.add(new PartitionReplicaMove(22L, 33L, 10002L, 10003L));
+                            expectedMoves.add(new PartitionMove(22L, 33L, 10002L, 10003L));
                         } else {
-                            expectedMoves.add(new PartitionReplicaMove(22L, 33L, 10002L, 10001L));
+                            expectedMoves.add(new PartitionMove(22L, 33L, 10002L, 10001L));
                         }
                     }
 

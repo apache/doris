@@ -34,25 +34,30 @@ import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-// A two-dimensional greedy rebalancing algorithm. The two dim are cluster and partition.
-// From among moves that decrease the skew of a most skewed partition, it prefers ones that reduce the skew of the cluster.
-// A cluster is considered balanced when the skew of every partition is <= 1 and the skew of the cluster is <= 1.
-// The skew of the cluster is defined as the difference between the maximum total replica count over all bes and the
-// minimum total replica count over all bes.
-// This class is modified from kudu TwoDimensionalGreedyAlgo.
+/*
+ * A two-dimensional greedy rebalancing algorithm. The two dims are cluster and partition. It'll generate multiple `PartitionMove`,
+ * only decide which partition to move, fromBe, toBe. The next step is to select a tablet to move.
+ *
+ * From among moves that decrease the skew of a most skewed partition, it prefers ones that reduce the skew of the cluster.
+ * A cluster is considered balanced when the skew of every partition is <= 1 and the skew of the cluster is <= 1.
+ * The skew of the cluster is defined as the difference between the maximum total replica count over all bes and the
+ * minimum total replica count over all bes.
+ *
+ * This class is modified from kudu TwoDimensionalGreedyAlgo.
+ */
 public class TwoDimensionalGreedyRebalanceAlgo {
     private static final Logger LOG = LogManager.getLogger(TwoDimensionalGreedyRebalanceAlgo.class);
 
     private final EqualSkewOption equalSkewOption;
     private static final Random rand = new Random(System.currentTimeMillis());
 
-    public static class PartitionReplicaMove {
+    public static class PartitionMove {
         Long partitionId;
         Long indexId;
         Long fromBe;
         Long toBe;
 
-        PartitionReplicaMove(Long p, Long i, Long f, Long t) {
+        PartitionMove(Long p, Long i, Long f, Long t) {
             this.partitionId = p;
             this.indexId = i;
             this.fromBe = f;
@@ -63,7 +68,7 @@ public class TwoDimensionalGreedyRebalanceAlgo {
         public boolean equals(Object o) {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
-            PartitionReplicaMove that = (PartitionReplicaMove) o;
+            PartitionMove that = (PartitionMove) o;
             return Objects.equal(partitionId, that.partitionId) &&
                     Objects.equal(indexId, that.indexId) &&
                     Objects.equal(fromBe, that.fromBe) &&
@@ -112,8 +117,8 @@ public class TwoDimensionalGreedyRebalanceAlgo {
     }
 
     // maxMovesNum: Value of '0' is a shortcut for 'the possible maximum'.
-    // May modify the two maps
-    public List<PartitionReplicaMove> getNextMoves(ClusterBalanceInfo info, int maxMovesNum) {
+    // May modify the ClusterBalanceInfo
+    public List<PartitionMove> getNextMoves(ClusterBalanceInfo info, int maxMovesNum) {
         Preconditions.checkArgument(maxMovesNum >= 0);
         if (maxMovesNum == 0) {
             maxMovesNum = Integer.MAX_VALUE;
@@ -131,9 +136,9 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             return Lists.newArrayList();
         }
 
-        List<PartitionReplicaMove> moves = Lists.newArrayList();
+        List<PartitionMove> moves = Lists.newArrayList();
         for (int i = 0; i < maxMovesNum; ++i) {
-            PartitionReplicaMove move = getNextMove(info.beByTotalReplicaCount, info.partitionInfoBySkew);
+            PartitionMove move = getNextMove(info.beByTotalReplicaCount, info.partitionInfoBySkew);
             if (move == null || !(applyMove(move, info.beByTotalReplicaCount, info.partitionInfoBySkew))) {
                 // 1. No replicas to move.
                 // 2. Apply to info failed, it's useless to get next move from the same info.
@@ -145,9 +150,9 @@ public class TwoDimensionalGreedyRebalanceAlgo {
         return moves;
     }
 
-    private PartitionReplicaMove getNextMove(TreeMultimap<Long, Long> beByTotalReplicaCount,
-                                             TreeMultimap<Long, PartitionBalanceInfo> skewMap) {
-        PartitionReplicaMove move = null;
+    private PartitionMove getNextMove(TreeMultimap<Long, Long> beByTotalReplicaCount,
+                                      TreeMultimap<Long, PartitionBalanceInfo> skewMap) {
+        PartitionMove move = null;
         if (skewMap.isEmpty() || beByTotalReplicaCount.isEmpty()) {
             return null;
         }
@@ -214,7 +219,7 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             }
             // Move a replica of the selected partition from a most loaded server to a
             // least loaded server.
-            move = new PartitionReplicaMove(pbi.partitionId, pbi.indexId, maxLoadedBe, minLoadedBe);
+            move = new PartitionMove(pbi.partitionId, pbi.indexId, maxLoadedBe, minLoadedBe);
             break;
         }
         return move;
@@ -250,7 +255,7 @@ public class TwoDimensionalGreedyRebalanceAlgo {
 
     // Update the balance state in 'ClusterBalanceInfo'(the two maps) with the outcome of the move 'move'.
     // To support apply in-progress moves to current cluster balance info, if apply failed, the maps should not be modified.
-    public static boolean applyMove(PartitionReplicaMove move, TreeMultimap<Long, Long> beByTotalReplicaCount,
+    public static boolean applyMove(PartitionMove move, TreeMultimap<Long, Long> beByTotalReplicaCount,
                                     TreeMultimap<Long, PartitionBalanceInfo> skewMap) {
         // Update the total counts
         moveOneReplica(move.fromBe, move.toBe, beByTotalReplicaCount);
