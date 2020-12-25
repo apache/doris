@@ -75,3 +75,33 @@ FE 的监控项可以通过以下方式访问：
 通过 `(NEW_tcp_tcp_retrans_segs - OLD_tcp_retrans_segs) / (NEW_tcp_out_segs - OLD_tcp_out_segs)` 可以计算 TCP 重传率。
 
 通常用于排查网络问题。
+
+### `doris_fe_meminfo{name="memory_total"}`
+
+该监控项为 `/proc/meminfo` 中的 `MemTotal` 字段值。表示所有可用的内存大小，总的物理内存减去预留空间和内核大小。
+
+通常用于排查内存问题。
+
+### `doris_fe_meminfo{name="memory_free"}`
+
+该监控项为 `/proc/meminfo` 中的 `MemFree` 字段值。表示系统尚未使用的内存。。
+
+通常用于排查内存问题。
+
+### `doris_fe_meminfo{name="memory_available"}`
+
+该监控项为 `/proc/meminfo` 中的 `MemAvailable` 字段值。真正的系统可用内存，系统中有些内存虽然已被使用但是可以回收的，所以这部分可回收的内存加上MemFree才是系统可用的内存
+
+通常用于排查内存问题。
+
+### `doris_fe_meminfo{name="buffers"}`
+
+该监控项为 `/proc/meminfo` 中的 `Buffers` 字段值。表示用来给块设备做缓存的内存(文件系统的metadata、pages)。
+
+通常用于排查内存问题。
+
+### `doris_fe_meminfo{name="cached"}`
+
+该监控项为 `/proc/meminfo` 中的 `Cached` 字段值。表示分配给文件缓冲区的内存。
+
+通常用于排查内存问题。

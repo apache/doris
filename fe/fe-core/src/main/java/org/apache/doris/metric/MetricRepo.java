@@ -328,6 +328,61 @@ public final class MetricRepo {
         };
         tpcOutSegs.addLabel(new MetricLabel("name", "tcp_out_segs"));
         PALO_METRIC_REGISTER.addPaloMetrics(tpcOutSegs);
+
+        // Memory Total
+        GaugeMetric<Long> memTotal = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "meminfo", MetricUnit.BYTES, "Total usable memory") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.memTotal;
+            }
+        };
+        memTotal.addLabel(new MetricLabel("name", "memory_total"));
+        PALO_METRIC_REGISTER.addPaloMetrics(memTotal);
+
+        // Memory Free
+        GaugeMetric<Long> memFree = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "meminfo", MetricUnit.BYTES, "The amount of physical memory not used by the system") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.memFree;
+            }
+        };
+        memFree.addLabel(new MetricLabel("name", "memory_free"));
+        PALO_METRIC_REGISTER.addPaloMetrics(memFree);
+
+        // Memory Total
+        GaugeMetric<Long> memAvailable = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "meminfo", MetricUnit.BYTES, "An estimate of how much memory is available for starting new applications, without swapping") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.memAvailable;
+            }
+        };
+        memAvailable.addLabel(new MetricLabel("name", "memory_available"));
+        PALO_METRIC_REGISTER.addPaloMetrics(memAvailable);
+
+        // Buffers
+        GaugeMetric<Long> buffers = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "meminfo", MetricUnit.BYTES, "Memory in buffer cache, so relatively temporary storage for raw disk blocks") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.buffers;
+            }
+        };
+        buffers.addLabel(new MetricLabel("name", "buffers"));
+        PALO_METRIC_REGISTER.addPaloMetrics(buffers);
+
+        // Cached
+        GaugeMetric<Long> cached = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                "meminfo", MetricUnit.BYTES, "Memory in the pagecache (Diskcache and Shared Memory)") {
+            @Override
+            public Long getValue() {
+                return SYSTEM_METRICS.cached;
+            }
+        };
+        cached.addLabel(new MetricLabel("name", "cached"));
+        PALO_METRIC_REGISTER.addPaloMetrics(cached);
     }
 
     // to generate the metrics related to tablets of each backends
