@@ -151,7 +151,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 有时查询失败，在 BE 日志中会出现 `body_size is too large` 的错误信息。这可能发生在 SQL 模式为 multi distinct + 无 group by + 超过1T 数据量的情况下。这个错误表示 brpc 的包大小超过了配置值。此时可以通过调大该配置避免这个错误。
 
-由于这是一个 brpc 的配置，用户也可以在运行中直接修改该参数。通过访问 `http://be_host:brpc_port/flags` 修改。
 
 ### `brpc_socket_max_unwritten_bytes`
 
@@ -159,7 +158,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 有时查询失败，BE 日志中会出现 `The server is overcrowded` 的错误信息，表示连接上有过多的未发送数据。当查询需要发送较大的bitmap字段时，可能会遇到该问题，此时可能通过调大该配置避免该错误。
 
-由于这是一个 brpc 的配置，用户也可以在运行中直接修改该参数。通过访问 `http://be_host:brpc_port/flags` 修改。
 
 ### `brpc_num_threads`
 
