@@ -944,42 +944,20 @@ public class Load {
                                    Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
                                    Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
         Map<String, Expr> derivativeColumns = new HashMap<>();
-        Map<String, Expr> slotColumns = new HashMap<>();
         // find and rewrite the derivative columns
         // e.g. (v1,v2=v1+1,v3=v2+1) --> (v1, v2=v1+1, v3=v1+1+1)
         // 1. find the derivative columns
         for (ImportColumnDesc importColumnDesc : columnExprs) {
-            if (importColumnDesc.isColumn()) {
-                slotColumns.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
-            } else {
+            if (!importColumnDesc.isColumn()) {
                 if (importColumnDesc.getExpr() instanceof SlotRef) {
                     String columnName = ((SlotRef) importColumnDesc.getExpr()).getColumnName();
-                    if (!slotColumns.containsKey(columnName) && derivativeColumns.containsKey(columnName)) {
+                    if (derivativeColumns.containsKey(columnName)) {
                         importColumnDesc.setExpr(derivativeColumns.get(columnName));
                     }
                 } else {
-                    recursiveRewrite(importColumnDesc.getExpr(), derivativeColumns, slotColumns);
+                    recursiveRewrite(importColumnDesc.getExpr(), derivativeColumns);
                 }
                 derivativeColumns.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
-            }
-        }
-        // 2. rewrite the reference of derivative columns to the origin exprs
-        for (ImportColumnDesc importColumnDesc : columnExprs) {
-            // skip rewrite expr k1 like (k1, temp_k1, k1=1, k2=k1),
-            // because we we need to be compatible with some weird syntax like
-            // LOAD LABEL test.label ( DATA INFILE("hdfs://host:port/user/palo/k1=-1/k2=0/k3=100.12345/partition_type")
-            // INTO TABLE `t` (`k1`, `k2`, `tmp_k3`,`tmp_v1`) COLUMNS FROM PATH AS (k3)
-            // SET(k3=tmp_k3, v1=k3)) WITH BROKER "hdfs";
-            if (importColumnDesc.isColumn()) {
-                continue;
-            }
-            if (importColumnDesc.getExpr() instanceof SlotRef) {
-                String columnName = ((SlotRef) importColumnDesc.getExpr()).getColumnName();
-                if (!slotColumns.containsKey(columnName) && derivativeColumns.containsKey(columnName)) {
-                    importColumnDesc.setExpr(derivativeColumns.get(columnName));
-                }
-            } else {
-                recursiveRewrite(importColumnDesc.getExpr(), derivativeColumns, slotColumns);
             }
         }
 
@@ -1169,8 +1147,7 @@ public class Load {
         LOG.debug("after init column, exprMap: {}", exprsByName);
     }
 
-    private static void recursiveRewrite(Expr expr, Map<String, Expr> derivativeColumns,
-                                         Map<String, Expr> slotColumns) {
+    private static void recursiveRewrite(Expr expr, Map<String, Expr> derivativeColumns) {
         if (CollectionUtils.isEmpty(expr.getChildren())) {
             return;
         }
@@ -1178,11 +1155,11 @@ public class Load {
             Expr e = expr.getChild(i);
             if (e instanceof SlotRef) {
                 String columnName = ((SlotRef) e).getColumnName();
-                if (!slotColumns.containsKey(columnName) && derivativeColumns.containsKey(columnName)) {
+                if (derivativeColumns.containsKey(columnName)) {
                     expr.setChild(i, derivativeColumns.get(columnName));
                 }
             } else {
-                recursiveRewrite(e, derivativeColumns, slotColumns);
+                recursiveRewrite(e, derivativeColumns);
             }
         }
     }
