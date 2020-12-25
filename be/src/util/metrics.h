@@ -162,7 +162,7 @@ protected:
 
 class HistogramMetric : public Metric {
 public:
-    HistogramMetric() { clear(); }
+    HistogramMetric() {}
     virtual ~HistogramMetric() {}
 
     HistogramMetric(const HistogramMetric&) = delete;
