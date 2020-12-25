@@ -305,6 +305,15 @@ Status MiniLoadAction::_merge_header(HttpRequest* http_req,
     } else {
         (*params)[HTTP_STRIP_OUTER_ARRAY] = "false";
     }
+    if (!http_req->header(HTTP_FUZZY_PARSE).empty()) {
+        if (boost::iequals(http_req->header(HTTP_FUZZY_PARSE), "true")) {
+            (*params)[HTTP_FUZZY_PARSE] = "true";
+        } else {
+            (*params)[HTTP_FUZZY_PARSE] = "false";
+        }
+    } else {
+        (*params)[HTTP_FUZZY_PARSE] = "false";
+    }
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
         (*params)[HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL] =
                 http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL);
@@ -923,6 +932,7 @@ void MiniLoadAction::_new_handle(HttpRequest* req) {
     }
 
     std::string str = ctx->to_json_for_mini_load();
+    str += '\n';
     HttpChannel::send_reply(req, str);
 }
 

@@ -128,6 +128,8 @@ void StreamLoadAction::handle(HttpRequest* req) {
     }
 
     auto str = ctx->to_json();
+    // add new line at end
+    str = str + '\n';
     HttpChannel::send_reply(req, str);
 
     // update statstics
@@ -195,6 +197,8 @@ int StreamLoadAction::on_header(HttpRequest* req) {
             ctx->body_sink->cancel();
         }
         auto str = ctx->to_json();
+        // add new line at end
+        str = str + '\n';
         HttpChannel::send_reply(req, str);
         streaming_load_current_processing->increment(-1);
         return -1;
@@ -407,6 +411,15 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         }
     } else {
         request.__set_num_as_string(false);
+    }
+    if (!http_req->header(HTTP_FUZZY_PARSE).empty()) {
+        if (boost::iequals(http_req->header(HTTP_FUZZY_PARSE), "true")) {
+            request.__set_fuzzy_parse(true);
+        } else {
+            request.__set_fuzzy_parse(false);
+        }
+    } else {
+        request.__set_fuzzy_parse(false);
     }
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
         request.__set_sequence_col(

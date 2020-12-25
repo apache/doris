@@ -116,6 +116,7 @@ public class DataDescription {
     private boolean stripOuterArray = false;
     private String jsonPaths = "";
     private String jsonRoot = "";
+    private boolean fuzzyParse = false;
 
     private String sequenceCol;
 
@@ -475,6 +476,14 @@ public class DataDescription {
 
     public void setStripOuterArray(boolean stripOuterArray) {
         this.stripOuterArray = stripOuterArray;
+    }
+
+    public boolean isFuzzyParse() {
+        return fuzzyParse;
+    }
+
+    public void setFuzzyParse(boolean fuzzyParse) {
+        this.fuzzyParse = fuzzyParse;
     }
 
     public String getJsonPaths() {
