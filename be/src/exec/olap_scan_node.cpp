@@ -59,7 +59,6 @@ OlapScanNode::OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _status(Status::OK()),
           _resource_info(nullptr),
           _buffered_bytes(0),
-          _running_thread(0),
           _eval_conjuncts_fn(nullptr) {}
 
 OlapScanNode::~OlapScanNode() {}
@@ -1257,11 +1256,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
     _row_batch_added_cv.notify_all();
 
     std::unique_lock<std::mutex> l(_scan_batches_lock);
-    while (_running_thread != 0) {
-        l.unlock();
-        SleepFor(MonoDelta::FromMilliseconds(5));
-        l.lock();
-    }
+    _scan_thread_exit_cv.wait(l, [this] { return _running_thread == 0; });
     VLOG(1) << "Scanner threads have been exited. TransferThread exit.";
 }
 
@@ -1378,6 +1373,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     // Do not access class members after this code.
     std::unique_lock<std::mutex> l(_scan_batches_lock);
     _running_thread--;
+    _scan_thread_exit_cv.notify_one()
 }
 
 Status OlapScanNode::add_one_batch(RowBatchInterface* row_batch) {
