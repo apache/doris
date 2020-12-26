@@ -1373,7 +1373,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     // Do not access class members after this code.
     std::unique_lock<std::mutex> l(_scan_batches_lock);
     _running_thread--;
-    _scan_thread_exit_cv.notify_one()
+    _scan_thread_exit_cv.notify_one();
 }
 
 Status OlapScanNode::add_one_batch(RowBatchInterface* row_batch) {
