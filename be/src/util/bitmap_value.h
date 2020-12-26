@@ -1106,7 +1106,7 @@ public:
                         if (_sv == rhs._sv) {
                             _type = EMPTY;
                             _bitmap.clear();
-                        }else{
+                        } else {
                             add(rhs._sv);
                         }
                         break;
