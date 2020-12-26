@@ -1235,7 +1235,7 @@ public class Coordinator {
 
             FragmentScanRangeAssignment assignment = fragmentExecParamsMap.get(scanNode.getFragmentId()).scanRangeAssignment;
             if (isColocateJoin(scanNode.getFragment().getPlanRoot())) {
-                computeScanRangeAssignmentByColocate((OlapScanNode) scanNode, assignment);
+                computeScanRangeAssignmentByColocate((OlapScanNode) scanNode);
             } else if (bucketShuffleJoinController.isBucketShuffleJoin(scanNode.getFragmentId().asInt(), scanNode.getFragment().getPlanRoot())) {
                 bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode, idToBackend, addressToBackendID);
             } else {
@@ -1246,8 +1246,7 @@ public class Coordinator {
 
     // To ensure the same bucketSeq tablet to the same execHostPort
     private void computeScanRangeAssignmentByColocate(
-            final OlapScanNode scanNode,
-            FragmentScanRangeAssignment assignment) throws Exception {
+            final OlapScanNode scanNode) throws Exception {
         if (!fragmentIdToSeqToAddressMap.containsKey(scanNode.getFragmentId())) {
             fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashedMap());
         }
