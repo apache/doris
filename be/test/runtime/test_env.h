@@ -25,8 +25,9 @@
 
 namespace doris {
 
-// Helper testing class that creates an environment with a buffered-block-mgr similar
-// to the one Impala's runtime is using.
+/// Helper testing class that creates an environment with runtime memory management
+/// similar to the one used by the Doris runtime. Only one TestEnv can be active at a
+/// time, because it modifies the global ExecEnv singleton.
 class TestEnv {
 public:
     TestEnv();
@@ -35,6 +36,11 @@ public:
     // Reinitialize tmp_file_mgr with custom configuration. Only valid to call before
     // query states have been created.
     void init_tmp_file_mgr(const std::vector<std::string>& tmp_dirs, bool one_dir_per_device);
+
+    void init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit);
+
+    // If don't need to open, paths can be empty.
+    void init_storage_engine(bool need_open, const std::vector<std::string>& paths = {});
 
     // Create a RuntimeState for a query with a new block manager. The RuntimeState is
     // owned by the TestEnv.
@@ -51,28 +57,26 @@ public:
 
     // Calculate memory limit accounting for overflow and negative values.
     // If max_buffers is -1, no memory limit will apply.
-    int64_t calculate_mem_tracker(int max_buffers, int block_size);
+    static int64_t calculate_mem_tracker(int max_buffers, int block_size);
 
-    ExecEnv* exec_env() { return _exec_env.get(); }
+    ExecEnv* exec_env() { return _exec_env; }
     std::shared_ptr<MemTracker> block_mgr_parent_tracker() { return _block_mgr_parent_tracker; }
     MemTracker* io_mgr_tracker() { return _io_mgr_tracker.get(); }
     TmpFileMgr* tmp_file_mgr() { return _tmp_file_mgr.get(); }
 
 private:
-    // Recreate global metric groups.
-    void init_metrics();
-
     // Create a new RuntimeState sharing global environment.
     RuntimeState* create_runtime_state(int64_t query_id);
 
-    // Global state for test environment.
-    boost::scoped_ptr<ExecEnv> _exec_env;
+    ExecEnv* _exec_env;
     std::shared_ptr<MemTracker> _block_mgr_parent_tracker;
     std::shared_ptr<MemTracker> _io_mgr_tracker;
-    boost::scoped_ptr<TmpFileMgr> _tmp_file_mgr;
+    std::shared_ptr<TmpFileMgr> _tmp_file_mgr;
 
     // Per-query states with associated block managers.
-    std::vector<boost::shared_ptr<RuntimeState>> _query_states;
+    std::vector<std::shared_ptr<RuntimeState> > _query_states;
+
+    StorageEngine* _engine = nullptr;
 };
 
 } // end namespace doris
