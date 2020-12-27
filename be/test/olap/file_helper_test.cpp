@@ -27,6 +27,7 @@
 #include "gtest/gtest.h"
 #include "olap/olap_define.h"
 #include "util/logging.h"
+#include "test_util/test_util.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -93,7 +94,7 @@ TEST_F(FileHandlerTest, TestWrite) {
     char* large_bytes2[(1 << 10)];
     memset(large_bytes2, 0, sizeof(char) * ((1 << 12)));
     int i = 1;
-    while (i < 1 << 17) {
+    while (i < LOOP_LESS_OR_MORE(1 << 10, 1 << 17)) {
         file_handler.write(large_bytes2, ((1 << 12)));
         ++i;
     }

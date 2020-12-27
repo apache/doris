@@ -25,6 +25,7 @@
 #include "common/logging.h"
 #include "time.h"
 #include "util/stopwatch.hpp"
+#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -35,23 +36,24 @@ protected:
     ~CoreLocalTest() {}
 };
 
-void updater(CoreLocalValue<int64_t>* value, int64_t* used_ns) {
-    sleep(1);
+void updater(int64_t loop, CoreLocalValue<int64_t>* value, int64_t* used_ns) {
+    usleep(100);
     MonotonicStopWatch stopwatch;
     stopwatch.start();
-    for (int i = 0; i < 1000000L; ++i) {
+    for (int i = 0; i < loop; ++i) {
         __sync_fetch_and_add(value->access(), 1);
     }
     *used_ns = stopwatch.elapsed_time();
 }
 
 TEST_F(CoreLocalTest, CoreLocalValue) {
+    int64_t loop = LOOP_LESS_OR_MORE(1000, 1000000L);
     CoreLocalValue<int64_t> value;
     std::vector<int64_t> used_ns;
     used_ns.resize(8);
     std::vector<std::thread> workers;
     for (int i = 0; i < 8; ++i) {
-        workers.emplace_back(updater, &value, &used_ns[i]);
+        workers.emplace_back(updater, loop, &value, &used_ns[i]);
     }
     int64_t sum_ns = 0;
     for (int i = 0; i < 8; ++i) {
@@ -62,7 +64,7 @@ TEST_F(CoreLocalTest, CoreLocalValue) {
     for (int i = 0; i < value.size(); ++i) {
         sum += __sync_fetch_and_add(value.access_at_core(i), 0);
     }
-    ASSERT_EQ(8 * 1000000L, sum);
+    ASSERT_EQ(8 * loop, sum);
     LOG(INFO) << "time:" << sum_ns / sum << "ns/op";
 }
 

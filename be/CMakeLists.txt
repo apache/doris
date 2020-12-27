@@ -484,6 +484,7 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
 # Set libraries for test
 set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_START_GROUP}
+    Test_util
     gmock
     gtest
     ${WL_END_GROUP}
@@ -555,6 +556,7 @@ FUNCTION(ADD_BE_PLUGIN PLUGIN_NAME)
 ENDFUNCTION()
 
 if (${MAKE_TEST} STREQUAL "ON")
+    add_subdirectory(${TEST_DIR}/test_util)
     add_subdirectory(${TEST_DIR}/agent)
     add_subdirectory(${TEST_DIR}/common)
     add_subdirectory(${TEST_DIR}/env)

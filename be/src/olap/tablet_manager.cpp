@@ -1028,7 +1028,9 @@ OLAPStatus TabletManager::start_trash_sweep() {
 
     int32_t clean_num = 0;
     do {
+#ifndef BE_TEST
         sleep(1);
+#endif
         clean_num = 0;
         // should get write lock here, because it will remove tablet from shut_down_tablets
         // and get tablet will access shut_down_tablets

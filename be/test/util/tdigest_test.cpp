@@ -21,6 +21,8 @@
 
 #include <random>
 
+#include "test_util/test_util.h"
+
 namespace doris {
 
 class TDigestTest : public ::testing::Test {
@@ -87,7 +89,7 @@ TEST_F(TDigestTest, CrashAfterMerge) {
     TDigest digest(1000);
     std::uniform_real_distribution<> reals(0.0, 1.0);
     std::random_device gen;
-    for (int i = 0; i < 100000; i++) {
+    for (int i = 0; i < LOOP_LESS_OR_MORE(100, 100000); i++) {
         digest.add(reals(gen));
     }
     digest.compress();
@@ -227,13 +229,13 @@ TEST_F(TDigestTest, Montonicity) {
     TDigest digest(1000);
     std::uniform_real_distribution<> reals(0.0, 1.0);
     std::random_device gen;
-    for (int i = 0; i < 100000; i++) {
+    for (int i = 0; i < LOOP_LESS_OR_MORE(10, 100000); i++) {
         digest.add(reals(gen));
     }
 
     double lastQuantile = -1;
     double lastX = -1;
-    for (double z = 0; z <= 1; z += 1e-5) {
+    for (double z = 0; z <= 1; z += LOOP_LESS_OR_MORE(0.1, 1e-5)) {
         double x = digest.quantile(z);
         EXPECT_GE(x, lastX);
         lastX = x;
