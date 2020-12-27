@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "util/logging.h"
+#include "test_util/test_util.h"
 
 using namespace doris;
 using namespace std;
@@ -293,7 +294,7 @@ TEST_F(CacheTest, NewId) {
 }
 
 TEST_F(CacheTest, SimpleBenchmark) {
-    for (int i = 0; i < kCacheSize * 10000; i++) {
+    for (int i = 0; i < kCacheSize * LOOP_LESS_OR_MORE(10, 10000); i++) {
         Insert(1000 + i, 2000 + i, 1);
         ASSERT_EQ(2000 + i, Lookup(1000 + i));
     }
