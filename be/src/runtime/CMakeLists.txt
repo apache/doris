@@ -67,7 +67,6 @@ set(RUNTIME_FILES
     disk_io_mgr_reader_context.cc
     disk_io_mgr_scan_range.cc 
     buffered_block_mgr2.cc
-    test_env.cc
     mem_tracker.cpp
     spill_sorter.cc
     sorted_run_merger.cc
