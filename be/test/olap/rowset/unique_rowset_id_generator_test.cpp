@@ -24,6 +24,7 @@
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/threadpool.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 class UniqueRowsetIdGeneratorTest : public testing::Test {};
@@ -98,7 +99,7 @@ TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdTest) {
 
 TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdBenchmark) {
     const int kNumThreads = 8;
-    const int kIdPerThread = 1000000;
+    const int kIdPerThread = LOOP_LESS_OR_MORE(1000, 1000000);
 
     UniqueId backend_uid = UniqueId::gen_uid();
     UniqueRowsetIdGenerator id_generator(backend_uid);
@@ -113,7 +114,7 @@ TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdBenchmark) {
     {
         SCOPED_RAW_TIMER(&cost_ns);
         for (int i = 0; i < kNumThreads; i++) {
-            ASSERT_TRUE(pool->submit_func([&id_generator]() {
+            ASSERT_TRUE(pool->submit_func([&id_generator, kIdPerThread]() {
                                 for (int i = 0; i < kIdPerThread; ++i) {
                                     id_generator.next_id();
                                 }

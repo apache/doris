@@ -32,6 +32,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "util/file_utils.h"
+#include "test_util/test_util.h"
 
 using std::string;
 
@@ -368,7 +369,7 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
 }
 
 TEST_F(ColumnReaderWriterTest, test_array_type) {
-    size_t num_list = 24 * 1024;
+    size_t num_list = LOOP_LESS_OR_MORE(1024, 24 * 1024);
     size_t num_item = num_list * 3;
 
     uint8_t* array_is_null = new uint8_t[BitmapSize(num_list)];
@@ -513,7 +514,7 @@ void test_read_default_value(string value, void* result) {
 }
 
 TEST_F(ColumnReaderWriterTest, test_nullable) {
-    size_t num_uint8_rows = 1024 * 1024;
+    size_t num_uint8_rows = LOOP_LESS_OR_MORE(1024, 1024 * 1024);
     uint8_t* is_null = new uint8_t[num_uint8_rows];
     uint8_t* val = new uint8_t[num_uint8_rows];
     for (int i = 0; i < num_uint8_rows; ++i) {
@@ -571,7 +572,7 @@ TEST_F(ColumnReaderWriterTest, test_nullable) {
 }
 
 TEST_F(ColumnReaderWriterTest, test_types) {
-    size_t num_uint8_rows = 1024 * 1024;
+    size_t num_uint8_rows = LOOP_LESS_OR_MORE(1024, 1024 * 1024);
     uint8_t* is_null = new uint8_t[num_uint8_rows];
 
     bool* bool_vals = new bool[num_uint8_rows];

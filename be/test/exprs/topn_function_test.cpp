@@ -20,6 +20,7 @@
 #include "util/topn_counter.h"
 #include "testutil/function_utils.h"
 #include "zipf_distribution.h"
+#include "test_util/test_util.h"
 
 #include <gtest/gtest.h>
 #include <unordered_map>
@@ -28,7 +29,7 @@
 namespace doris {
 
 static const uint32_t TOPN_NUM = 100;
-static const uint32_t TOTAL_RECORDS = 1000000;
+static const uint32_t TOTAL_RECORDS = LOOP_LESS_OR_MORE(1000, 1000000);
 static const uint32_t PARALLEL = 10;
 
 std::string gen_random(const int len) {
@@ -149,7 +150,9 @@ void test_topn_accuracy(FunctionContext* ctx, int key_space, int space_expand_ra
 }
 
 TEST_F(TopNFunctionsTest, topn_accuracy) {
-    std::vector<int> key_space_vec ({1000, 10000, 100000, 500000});
+    std::vector<int> small_key_space({100});
+    std::vector<int> large_key_space({1000, 10000, 100000, 500000});
+    std::vector<int> key_space_vec(LOOP_LESS_OR_MORE(small_key_space, large_key_space));
     std::vector<int> space_expand_rate_vec({20, 50, 100});
     std::vector<double> zipf_distribution_exponent_vec({0.5, 0.6, 1.0});
     for (auto ket_space : key_space_vec) {

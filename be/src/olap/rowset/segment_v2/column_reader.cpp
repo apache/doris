@@ -248,7 +248,7 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
         int64_t idx = from;
         int64_t to = row_ranges->get_range_to(i);
         auto iter = _ordinal_index->seek_at_or_before(from);
-        while (idx < to) {
+        while (idx < to && iter.valid()) {
             page_ids.insert(iter.page_index());
             idx = iter.last_ordinal() + 1;
             iter.next();
@@ -444,7 +444,7 @@ Status FileColumnIterator::seek_to_first() {
 
 Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     // if current page contains this row, we don't need to seek
-    if (_page == nullptr || !_page->contains(ord)) {
+    if (_page == nullptr || !_page->contains(ord) || !_page_iter.valid()) {
         RETURN_IF_ERROR(_reader->seek_at_or_before(ord, &_page_iter));
         RETURN_IF_ERROR(_read_data_page(_page_iter));
     }
