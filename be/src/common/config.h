@@ -207,20 +207,20 @@ CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
 // insert sort threshold for sorter
 // CONF_Int32(insertion_threshold, "16");
 // the block_size every block allocate for sorter
-// CONF_mInt32(sorter_block_size, "8388608");
+// CONF_Int32(sorter_block_size, "8388608");
 // push_write_mbytes_per_sec
 CONF_mInt32(push_write_mbytes_per_sec, "10");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
 // if true, output IR after optimization passes
-// CONF_mBool(dump_ir, "false");
+// CONF_Bool(dump_ir, "false");
 // if set, saves the generated IR to the output file.
 //CONF_String(module_output, "");
 // memory_limitation_per_thread_for_schema_change unit GB
 CONF_mInt32(memory_limitation_per_thread_for_schema_change, "2");
 
-// CONF_mInt64(max_unpacked_row_block_size, "104857600");
+// CONF_Int64(max_unpacked_row_block_size, "104857600");
 
 CONF_mInt32(file_descriptor_cache_clean_interval, "3600");
 CONF_mInt32(disk_stat_monitor_interval, "5");
@@ -234,7 +234,7 @@ CONF_Bool(storage_strict_check_incompatible_old_format, "true");
 
 // BE process will exit if the percentage of error disk reach this value.
 CONF_mInt32(max_percentage_of_error_disk, "0");
-// CONF_mInt32(default_num_rows_per_data_block, "1024");
+// CONF_Int32(default_num_rows_per_data_block, "1024");
 CONF_mInt32(default_num_rows_per_column_file_block, "1024");
 // pending data policy
 CONF_mInt32(pending_data_expire_time_sec, "1800");
@@ -343,7 +343,7 @@ CONF_mInt32(compaction_tablet_compaction_score_factor, "1");
 // Port to start debug webserver on
 CONF_Int32(webserver_port, "8040");
 // Number of webserver workers
-CONF_mnt32(webserver_num_workers, "48");
+CONF_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
 CONF_mInt32(periodic_counter_update_period_ms, "500");
 
@@ -409,58 +409,58 @@ CONF_Bool(disable_mem_pools, "false");
 // "echo 262144 > /proc/sys/vm/max_map_count"
 // NOTE: When this is set to true, you must set chunk_reserved_bytes_limit
 // to a relative large number or the performance is very very bad.
-CONF_mBool(use_mmap_allocate_chunk, "false");
+CONF_Bool(use_mmap_allocate_chunk, "false");
 
 // Chunk Allocator's reserved bytes limit,
 // Default value is 2GB, increase this variable can improve performance, but will
 // acquire more free memory which can not be used by other modules
-CONF_mInt64(chunk_reserved_bytes_limit, "2147483648");
+CONF_Int64(chunk_reserved_bytes_limit, "2147483648");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
-CONF_mBool(enable_quadratic_probing, "false");
+CONF_Bool(enable_quadratic_probing, "false");
 
 // for pprof
 CONF_String(pprof_profile_dir, "${DORIS_HOME}/log");
 
 // for partition
-// CONF_mBool(enable_partitioned_hash_join, "false")
+// CONF_Bool(enable_partitioned_hash_join, "false")
 CONF_mBool(enable_partitioned_aggregation, "true");
 
 // to forward compatibility, will be removed later
 CONF_mBool(enable_token_check, "true");
 
 // to open/close system metrics
-CONF_mBool(enable_system_metrics, "true");
+CONF_Bool(enable_system_metrics, "true");
 
 CONF_mBool(enable_prefetch, "true");
 
 // Number of cores Doris will used, this will effect only when it's greater than 0.
 // Otherwise, Doris will use all cores returned from "/proc/cpuinfo".
-CONF_mInt32(num_cores, "0");
+CONF_Int32(num_cores, "0");
 
-// CONF_mBool(thread_creation_fault_injection, "false");
+// CONF_Bool(thread_creation_fault_injection, "false");
 
 // Set this to encrypt and perform an integrity
 // check on all data spilled to disk during a query
-// CONF_mBool(disk_spill_encryption, "false");
+// CONF_Bool(disk_spill_encryption, "false");
 
 // When BE start, If there is a broken disk, BE process will exit by default.
 // Otherwise, we will ignore the broken disk,
-CONF_mBool(ignore_broken_disk, "false");
+CONF_Bool(ignore_broken_disk, "false");
 
 // Writable scratch directories
 CONF_String(scratch_dirs, "/tmp");
 
 // If false and --scratch_dirs contains multiple directories on the same device,
 // then only the first writable directory is used
-// CONF_mBool(allow_multiple_scratch_dirs_per_device, "false");
+// CONF_Bool(allow_multiple_scratch_dirs_per_device, "false");
 
 // linux transparent huge page
-CONF_mBool(madvise_huge_pages, "false");
+CONF_Bool(madvise_huge_pages, "false");
 
 // whether use mmap to allocate memory
-CONF_mBool(mmap_buffers, "false");
+CONF_Bool(mmap_buffers, "false");
 
 // max memory can be allocated by buffer pool
 CONF_String(buffer_pool_limit, "80G");
@@ -504,18 +504,18 @@ CONF_mInt32(thrift_rpc_timeout_ms, "5000");
 CONF_mInt32(txn_commit_rpc_timeout_ms, "10000");
 
 // If set to true, metric calculator will run
-CONF_mBool(enable_metric_calculator, "true");
+CONF_Bool(enable_metric_calculator, "true");
 
 // max consumer num in one data consumer group, for routine load
 CONF_mInt32(max_consumer_num_per_group, "3");
 
 // the size of thread pool for routine load task.
 // this should be larger than FE config 'max_concurrent_task_num_per_be' (default 5)
-CONF_mInt32(routine_load_thread_pool_size, "10");
+CONF_Int32(routine_load_thread_pool_size, "10");
 
 // Is set to true, index loading failure will not causing BE exit,
 // and the tablet will be marked as bad, so that FE will try to repair it.
-// CONF_mBool(auto_recover_index_loading_failure, "false");
+// CONF_Bool(auto_recover_index_loading_failure, "false");
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
 // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
@@ -535,12 +535,12 @@ CONF_mInt32(es_http_timeout_ms, "5000");
 // There are variety of client cache in BE, but currently we use the
 // same cache size configuration.
 // TODO(cmy): use different config to set different client cache if necessary.
-CONF_mInt32(max_client_cache_size_per_host, "10");
+CONF_Int32(max_client_cache_size_per_host, "10");
 
 // Dir to save files downloaded by SmallFileMgr
 CONF_String(small_file_dir, "${DORIS_HOME}/lib/small_file/");
 // path gc
-CONF_mBool(path_gc_check, "true");
+CONF_Bool(path_gc_check, "true");
 CONF_mInt32(path_gc_check_interval_second, "86400");
 CONF_mInt32(path_gc_check_step, "1000");
 CONF_mInt32(path_gc_check_step_interval_ms, "10");
@@ -553,7 +553,7 @@ CONF_mInt32(storage_flood_stage_usage_percent, "95"); // 95%
 // The min bytes that should be left of a data dir
 CONF_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 // number of thread for flushing memtable per store
-CONF_mInt32(flush_thread_num_per_store, "2");
+CONF_Int32(flush_thread_num_per_store, "2");
 
 // config for tablet meta checkpoint
 CONF_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -564,9 +564,9 @@ CONF_mInt32(tablet_meta_checkpoint_min_interval_secs, "600");
 CONF_String(default_rowset_type, "BETA");
 
 // Maximum size of a single message body in all protocols
-CONF_mInt64(brpc_max_body_size, "209715200");
+CONF_Int64(brpc_max_body_size, "209715200");
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
-CONF_mInt64(brpc_socket_max_unwritten_bytes, "67108864");
+CONF_Int64(brpc_socket_max_unwritten_bytes, "67108864");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager
@@ -574,35 +574,35 @@ CONF_mInt64(max_runnings_transactions_per_txn_map, "100");
 
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
-CONF_mInt32(tablet_map_shard_size, "1");
+CONF_Int32(tablet_map_shard_size, "1");
 
 CONF_String(plugin_path, "${DORIS_HOME}/plugin");
 
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn
-CONF_mInt32(txn_map_shard_size, "128");
+CONF_Int32(txn_map_shard_size, "128");
 
 // txn_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to commit and publish txn
-CONF_mInt32(txn_shard_size, "1024");
+CONF_Int32(txn_shard_size, "1024");
 
 // Whether to continue to start be when load tablet from header failed.
-CONF_mBool(ignore_load_tablet_failure, "false");
+CONF_Bool(ignore_load_tablet_failure, "false");
 
 // Whether to continue to start be when load tablet from header failed.
 CONF_mBool(ignore_rowset_stale_unconsistent_delete, "false");
 
 // Soft memory limit as a fraction of hard memory limit.
-CONF_mDouble(soft_mem_limit_frac, "0.9");
+CONF_Double(soft_mem_limit_frac, "0.9");
 
 // Set max cache's size of query results, the unit is M byte
-CONF_mInt32(query_cache_max_size_mb, "256");
+CONF_Int32(query_cache_max_size_mb, "256");
 
 // Cache memory is pruned when reach query_cache_max_size_mb + query_cache_elasticity_size_mb
-CONF_mInt32(query_cache_elasticity_size_mb, "128");
+CONF_Int32(query_cache_elasticity_size_mb, "128");
 
 // Maximum number of cache partitions corresponding to a SQL
-CONF_mInt32(query_cache_max_partition_count, "1024");
+CONF_Int32(query_cache_max_partition_count, "1024");
 
 // Maximum number of version of a tablet. If the version num of a tablet exceed limit,
 // the load process will reject new incoming load job of this tablet.
