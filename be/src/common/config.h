@@ -34,7 +34,7 @@ CONF_Int32(be_port, "9060");
 CONF_Int32(brpc_port, "8060");
 
 // the number of bthreads for brpc, the default value is set to -1, which means the number of bthreads is #cpu-cores
-CONF_Int32(brpc_num_threads, "-1")
+CONF_Int32(brpc_num_threads, "-1");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
