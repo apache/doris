@@ -327,6 +327,9 @@ int NodeChannel::try_send_and_fetch_status() {
 
         _add_batch_closure->reset();
         _add_batch_closure->cntl.set_timeout_ms(_rpc_timeout_ms);
+        if (config::tablet_writer_ignore_eovercrowded) {
+            _add_batch_closure->cntl.ignore_eovercrowded();
+        }
 
         if (request.eos()) {
             for (auto pid : _parent->_partition_ids) {

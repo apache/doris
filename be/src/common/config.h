@@ -366,12 +366,16 @@ CONF_Int32(streaming_load_rpc_max_alive_time_sec, "1200");
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
 CONF_Int32(tablet_writer_open_rpc_timeout_sec, "60");
+// You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
+CONF_mBool(tablet_writer_ignore_eovercrowded, "false");
 // Deprecated, use query_timeout instead
 // the timeout of a rpc to process one batch in tablet writer.
 // you may need to increase this timeout if using larger 'streaming_load_max_mb',
 // or encounter 'tablet writer write failed' error when loading.
 // CONF_Int32(tablet_writer_rpc_timeout_sec, "600");
+
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
+// You may need to lower the speed when the sink receiver bes are too busy.
 CONF_mInt32(olap_table_sink_send_interval_ms, "1");
 
 // Fragment thread pool
