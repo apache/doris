@@ -1252,8 +1252,8 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
     {
         std::unique_lock<std::mutex> l(_row_batches_lock);
         _transfer_done = true;
+        _row_batch_added_cv.notify_all();
     }
-    _row_batch_added_cv.notify_all();
 
     std::unique_lock<std::mutex> l(_scan_batches_lock);
     _scan_thread_exit_cv.wait(l, [this] { return _running_thread == 0; });
