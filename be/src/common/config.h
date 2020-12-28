@@ -207,7 +207,7 @@ CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
 // insert sort threshold for sorter
 // CONF_Int32(insertion_threshold, "16");
 // the block_size every block allocate for sorter
-CONF_mInt32(sorter_block_size, "8388608");
+// CONF_mInt32(sorter_block_size, "8388608");
 // push_write_mbytes_per_sec
 CONF_mInt32(push_write_mbytes_per_sec, "10");
 
@@ -230,7 +230,7 @@ CONF_String(storage_root_path, "${DORIS_HOME}/storage");
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
 // and exit. When config is false, process will only log warning.
-CONF_mBool(storage_strict_check_incompatible_old_format, "true");
+CONF_Bool(storage_strict_check_incompatible_old_format, "true");
 
 // BE process will exit if the percentage of error disk reach this value.
 CONF_mInt32(max_percentage_of_error_disk, "0");
@@ -243,8 +243,8 @@ CONF_mInt32(inc_rowset_expired_sec, "1800");
 // inc_rowset snapshot rs sweep time interval
 CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "1800");
 // garbage sweep policy
-CONF_mInt32(max_garbage_sweep_interval, "3600");
-CONF_mInt32(min_garbage_sweep_interval, "180");
+CONF_Int32(max_garbage_sweep_interval, "3600");
+CONF_Int32(min_garbage_sweep_interval, "180");
 CONF_mInt32(snapshot_expire_time_sec, "172800");
 // 仅仅是建议值，当磁盘空间不足时，trash下的文件保存期可不遵守这个参数
 CONF_mInt32(trash_file_expire_time_sec, "259200");
@@ -254,8 +254,8 @@ CONF_mBool(row_nums_check, "true");
 CONF_mInt32(file_descriptor_cache_capacity, "32768");
 // minimum file descriptor number
 // modify them upon necessity
-CONF_mInt32(min_file_descriptor_number, "60000");
-CONF_mInt64(index_stream_cache_capacity, "10737418240");
+CONF_Int32(min_file_descriptor_number, "60000");
+CONF_Int64(index_stream_cache_capacity, "10737418240");
 // CONF_mInt64(max_packed_row_block_size, "20971520");
 
 // Cache for storage page size
@@ -269,8 +269,8 @@ CONF_mBool(disable_auto_compaction, "false");
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");
 
-// CONF_mInt64(base_compaction_start_hour, "20");
-// CONF_mInt64(base_compaction_end_hour, "7");
+// CONF_Int64(base_compaction_start_hour, "20");
+// CONF_Int64(base_compaction_end_hour, "7");
 CONF_mInt64(base_compaction_num_cumulative_deltas, "5");
 CONF_mDouble(base_cumulative_delta_ratio, "0.3");
 CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
@@ -301,7 +301,7 @@ CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
 CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
 CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
 CONF_mInt64(cumulative_compaction_budgeted_bytes, "104857600");
-// CONF_mInt32(cumulative_compaction_write_mbytes_per_sec, "100");
+// CONF_Int32(cumulative_compaction_write_mbytes_per_sec, "100");
 // cumulative compaction skips recently published deltas in order to prevent
 // compacting a version that might be queried (in case the query planning phase took some time).
 // the following config set the window size
@@ -341,17 +341,17 @@ CONF_mInt32(compaction_tablet_scan_frequency_factor, "0");
 CONF_mInt32(compaction_tablet_compaction_score_factor, "1");
 
 // Port to start debug webserver on
-CONF_mInt32(webserver_port, "8040");
+CONF_Int32(webserver_port, "8040");
 // Number of webserver workers
-CONF_mInt32(webserver_num_workers, "48");
+CONF_mnt32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
 CONF_mInt32(periodic_counter_update_period_ms, "500");
 
 // Used for mini Load. mini load data file will be removed after this time.
-CONF_mInt64(load_data_reserve_hours, "4");
+CONF_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
 CONF_mInt64(load_error_log_reserve_hours, "48");
-CONF_mInt32(number_tablet_writer_threads, "16");
+CONF_Int32(number_tablet_writer_threads, "16");
 
 // The maximum amount of data that can be processed by a stream load
 CONF_mInt64(streaming_load_max_mb, "10240");
@@ -370,38 +370,38 @@ CONF_mInt32(tablet_writer_open_rpc_timeout_sec, "60");
 // the timeout of a rpc to process one batch in tablet writer.
 // you may need to increase this timeout if using larger 'streaming_load_max_mb',
 // or encounter 'tablet writer write failed' error when loading.
-// CONF_mInt32(tablet_writer_rpc_timeout_sec, "600");
+// CONF_Int32(tablet_writer_rpc_timeout_sec, "600");
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 CONF_mInt32(olap_table_sink_send_interval_ms, "1");
 
 // Fragment thread pool
-CONF_mInt32(fragment_pool_thread_num_min, "64");
-CONF_mInt32(fragment_pool_thread_num_max, "512");
-CONF_mInt32(fragment_pool_queue_size, "2048");
+CONF_Int32(fragment_pool_thread_num_min, "64");
+CONF_Int32(fragment_pool_thread_num_max, "512");
+CONF_Int32(fragment_pool_queue_size, "2048");
 
 //for cast
-// CONF_mBool(cast, "true");
+// CONF_Bool(cast, "true");
 
 // Spill to disk when query
 // Writable scratch directories, split by ";"
 CONF_String(query_scratch_dirs, "${DORIS_HOME}");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
-CONF_mInt32(num_disks, "0");
+CONF_Int32(num_disks, "0");
 // The maximum number of the threads per disk is also the max queue depth per disk.
-CONF_mInt32(num_threads_per_disk, "0");
+CONF_Int32(num_threads_per_disk, "0");
 // The read size is the size of the reads sent to os.
 // There is a trade off of latency and throughout, trying to keep disks busy but
 // not introduce seeks.  The literature seems to agree that with 8 MB reads, random
 // io and sequential io perform similarly.
-CONF_mInt32(read_size, "8388608");    // 8 * 1024 * 1024, Read Size (in bytes)
-CONF_mInt32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in bytes)
+CONF_Int32(read_size, "8388608");    // 8 * 1024 * 1024, Read Size (in bytes)
+CONF_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in bytes)
 
 // For each io buffer size, the maximum number of buffers the IoMgr will hold onto
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
-CONF_mInt32(max_free_io_buffers, "128");
+CONF_Int32(max_free_io_buffers, "128");
 
-CONF_mBool(disable_mem_pools, "false");
+CONF_Bool(disable_mem_pools, "false");
 
 // Whether to allocate chunk using mmap. If you enable this, you'd better to
 // increase vm.max_map_count's value whose default value is 65530.
