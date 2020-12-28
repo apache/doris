@@ -26,15 +26,15 @@ namespace config {
 CONF_String(custom_config_dir, "${DORIS_HOME}/conf");
 
 // cluster id
-CONF_mInt32(cluster_id, "-1");
+CONF_Int32(cluster_id, "-1");
 // port on which BackendService is exported
-CONF_mInt32(be_port, "9060");
+CONF_Int32(be_port, "9060");
 
 // port for brpc
-CONF_mInt32(brpc_port, "8060");
+CONF_Int32(brpc_port, "8060");
 
 // the number of bthreads for brpc, the default value is set to -1, which means the number of bthreads is #cpu-cores
-CONF_mInt32(brpc_num_threads, "-1")
+CONF_Int32(brpc_num_threads, "-1")
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -46,9 +46,9 @@ CONF_String(priority_networks, "");
 //// tcmalloc gc parameter
 ////
 // min memory for TCmalloc, when used memory is smaller than this, do not returned to OS
-CONF_mInt64(tc_use_memory_min, "10737418240");
+CONF_Int64(tc_use_memory_min, "10737418240");
 // free memory rate.[0-100]
-CONF_mInt64(tc_free_memory_rate, "20");
+CONF_Int64(tc_free_memory_rate, "20");
 
 // Bound on the total amount of bytes allocated to thread caches.
 // This bound is not strict, so it is possible for the cache to go over this bound
@@ -58,7 +58,7 @@ CONF_mInt64(tc_free_memory_rate, "20");
 // use by TCMalloc.
 // reference: https://gperftools.github.io/gperftools/tcmalloc.html: TCMALLOC_MAX_TOTAL_THREAD_CACHE_BYTES
 //            https://github.com/gperftools/gperftools/issues/1111
-CONF_mInt64(tc_max_total_thread_cache_bytes, "1073741824");
+CONF_Int64(tc_max_total_thread_cache_bytes, "1073741824");
 
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
@@ -69,39 +69,39 @@ CONF_mInt64(tc_max_total_thread_cache_bytes, "1073741824");
 CONF_String(mem_limit, "80%");
 
 // the port heartbeat service used
-CONF_mInt32(heartbeat_service_port, "9050");
+CONF_Int32(heartbeat_service_port, "9050");
 // the count of heart beat service
-CONF_mInt32(heartbeat_service_thread_count, "1");
+CONF_Int32(heartbeat_service_thread_count, "1");
 // the count of thread to create table
-CONF_mInt32(create_tablet_worker_count, "3");
+CONF_Int32(create_tablet_worker_count, "3");
 // the count of thread to drop table
-CONF_mInt32(drop_tablet_worker_count, "3");
+CONF_Int32(drop_tablet_worker_count, "3");
 // the count of thread to batch load
-CONF_mInt32(push_worker_count_normal_priority, "3");
+CONF_Int32(push_worker_count_normal_priority, "3");
 // the count of thread to high priority batch load
-CONF_mInt32(push_worker_count_high_priority, "3");
+CONF_Int32(push_worker_count_high_priority, "3");
 // the count of thread to publish version
-CONF_mInt32(publish_version_worker_count, "8");
+CONF_Int32(publish_version_worker_count, "8");
 // the count of thread to clear transaction task
-CONF_mInt32(clear_transaction_task_worker_count, "1");
+CONF_Int32(clear_transaction_task_worker_count, "1");
 // the count of thread to delete
-CONF_mInt32(delete_worker_count, "3");
+CONF_Int32(delete_worker_count, "3");
 // the count of thread to alter table
-CONF_mInt32(alter_tablet_worker_count, "3");
+CONF_Int32(alter_tablet_worker_count, "3");
 // the count of thread to clone
-CONF_mInt32(clone_worker_count, "3");
+CONF_Int32(clone_worker_count, "3");
 // the count of thread to clone
-CONF_mInt32(storage_medium_migrate_count, "1");
+CONF_Int32(storage_medium_migrate_count, "1");
 // the count of thread to check consistency
-CONF_mInt32(check_consistency_worker_count, "1");
+CONF_Int32(check_consistency_worker_count, "1");
 // the count of thread to upload
-CONF_mInt32(upload_worker_count, "1");
+CONF_Int32(upload_worker_count, "1");
 // the count of thread to download
-CONF_mInt32(download_worker_count, "1");
+CONF_Int32(download_worker_count, "1");
 // the count of thread to make snapshot
-CONF_mInt32(make_snapshot_worker_count, "5");
+CONF_Int32(make_snapshot_worker_count, "5");
 // the count of thread to release snapshot
-CONF_mInt32(release_snapshot_worker_count, "5");
+CONF_Int32(release_snapshot_worker_count, "5");
 // the interval time(seconds) for agent report tasks signatrue to FE
 CONF_mInt32(report_task_interval_seconds, "10");
 // the interval time(seconds) for agent report disk state to FE
@@ -139,11 +139,11 @@ CONF_String(sys_log_level, "INFO");
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
 CONF_String(sys_log_roll_mode, "SIZE-MB-1024");
 // log roll num
-CONF_mInt32(sys_log_roll_num, "10");
+CONF_Int32(sys_log_roll_num, "10");
 // verbose log
 CONF_Strings(sys_log_verbose_modules, "");
 // verbose log level
-CONF_mInt32(sys_log_verbose_level, "10");
+CONF_Int32(sys_log_verbose_level, "10");
 // log buffer level
 CONF_String(log_buffer_level, "");
 
@@ -151,9 +151,9 @@ CONF_String(log_buffer_level, "");
 CONF_String(pull_load_task_dir, "${DORIS_HOME}/var/pull_load");
 
 // the maximum number of bytes to display on the debug webserver's log page
-CONF_mInt64(web_log_bytes, "1048576");
+// CONF_mInt64(web_log_bytes, "1048576");
 // number of threads available to serve backend execution requests
-CONF_mInt32(be_service_threads, "64");
+CONF_Int32(be_service_threads, "64");
 // key=value pair of default query options for Doris, separated by ','
 CONF_String(default_query_options, "");
 
@@ -166,25 +166,25 @@ CONF_String(doris_cgroups, "");
 // Controls the number of threads to run work per core.  It's common to pick 2x
 // or 3x the number of cores.  This keeps the cores busy without causing excessive
 // thrashing.
-CONF_mInt32(num_threads_per_core, "3");
+CONF_Int32(num_threads_per_core, "3");
 // if true, compresses tuple data in Serialize
-CONF_mBool(compress_rowbatches, "true");
+CONF_Bool(compress_rowbatches, "true");
 // serialize and deserialize each returned row batch
-CONF_mBool(serialize_batch, "false");
+CONF_Bool(serialize_batch, "false");
 // interval between profile reports; in seconds
 CONF_mInt32(status_report_interval, "5");
 // Local directory to copy UDF libraries from HDFS into
 CONF_String(local_library_dir, "${UDF_RUNTIME_DIR}");
 // number of olap scanner thread pool size
-CONF_mInt32(doris_scanner_thread_pool_thread_num, "48");
+CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
 // number of olap scanner thread pool queue size
-CONF_mInt32(doris_scanner_thread_pool_queue_size, "102400");
+CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // number of etl thread pool size
-CONF_mInt32(etl_thread_pool_size, "8");
+CONF_Int32(etl_thread_pool_size, "8");
 // number of etl thread pool size
-CONF_mInt32(etl_thread_pool_queue_size, "256");
+CONF_Int32(etl_thread_pool_queue_size, "256");
 // port on which to run Doris test backend
-CONF_mInt32(port, "20001");
+CONF_Int32(port, "20001");
 // default thrift client connect timeout(in seconds)
 CONF_mInt32(thrift_connect_timeout_seconds, "3");
 // default thrift client retry interval (in milliseconds)
