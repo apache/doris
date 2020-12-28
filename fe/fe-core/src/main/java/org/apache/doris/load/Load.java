@@ -943,24 +943,7 @@ public class Load {
                                    Map<String, Pair<String, List<String>>> columnToHadoopFunction,
                                    Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
                                    Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
-        Map<String, Expr> derivativeColumns = new HashMap<>();
-        // find and rewrite the derivative columns
-        // e.g. (v1,v2=v1+1,v3=v2+1) --> (v1, v2=v1+1, v3=v1+1+1)
-        // 1. find the derivative columns
-        for (ImportColumnDesc importColumnDesc : columnExprs) {
-            if (!importColumnDesc.isColumn()) {
-                if (importColumnDesc.getExpr() instanceof SlotRef) {
-                    String columnName = ((SlotRef) importColumnDesc.getExpr()).getColumnName();
-                    if (derivativeColumns.containsKey(columnName)) {
-                        importColumnDesc.setExpr(derivativeColumns.get(columnName));
-                    }
-                } else {
-                    recursiveRewrite(importColumnDesc.getExpr(), derivativeColumns);
-                }
-                derivativeColumns.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
-            }
-        }
-
+        rewriteColumns(columnExprs);
         initColumns(tbl, columnExprs, columnToHadoopFunction, exprsByName, analyzer,
                     srcTupleDesc, slotDescByName, params, true);
     }
@@ -1145,6 +1128,27 @@ public class Load {
             exprsByName.put(entry.getKey(), expr);
         }
         LOG.debug("after init column, exprMap: {}", exprsByName);
+    }
+
+    public static void rewriteColumns(List<ImportColumnDesc> columnExprs) {
+        Map<String, Expr> derivativeColumns = new HashMap<>();
+        // find and rewrite the derivative columns
+        // e.g. (v1,v2=v1+1,v3=v2+1) --> (v1, v2=v1+1, v3=v1+1+1)
+        // 1. find the derivative columns
+        for (ImportColumnDesc importColumnDesc : columnExprs) {
+            if (!importColumnDesc.isColumn()) {
+                if (importColumnDesc.getExpr() instanceof SlotRef) {
+                    String columnName = ((SlotRef) importColumnDesc.getExpr()).getColumnName();
+                    if (derivativeColumns.containsKey(columnName)) {
+                        importColumnDesc.setExpr(derivativeColumns.get(columnName));
+                    }
+                } else {
+                    recursiveRewrite(importColumnDesc.getExpr(), derivativeColumns);
+                }
+                derivativeColumns.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
+            }
+        }
+
     }
 
     private static void recursiveRewrite(Expr expr, Map<String, Expr> derivativeColumns) {
