@@ -117,31 +117,11 @@ void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_
     }
 }
 
-#if 0
 OLAPStatus MemTable::flush() {
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        Table::Iterator it(_skip_list);
-        for (it.SeekToFirst(); it.Valid(); it.Next()) {
-            char* row = (char*)it.key();
-            ContiguousRow dst_row(_schema, row);
-            agg_finalize_row(&dst_row, _table_mem_pool.get());
-            RETURN_NOT_OK(_rowset_writer->add_row(dst_row));
-        }
-        RETURN_NOT_OK(_rowset_writer->flush());
-    }
-    DorisMetrics::instance()->memtable_flush_total->increment(1);
-    DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
-    return OLAP_SUCCESS;
-}
-#endif
-
-OLAPStatus MemTable::flush() {
-    int64_t duration_ns = 0;
-    {
-        SCOPED_RAW_TIMER(&duration_ns);
-        OLAPStatus st = _rowset_writer->flush_single_memtable(this);
+        OLAPStatus st = _rowset_writer->flush_single_memtable(this, &_flush_size);
         if (st == OLAP_ERR_FUNC_NOT_IMPLEMENTED) {
             // For alpha rowset, we do not implement "flush_single_memtable".
             // Flush the memtable like the old way.

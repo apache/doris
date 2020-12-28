@@ -51,7 +51,8 @@ public:
 
     OLAPStatus flush() override;
 
-    OLAPStatus flush_single_memtable(MemTable* memtable) override;
+    // Return the file size flushed to disk in "flush_size"
+    OLAPStatus flush_single_memtable(MemTable* memtable, int64_t* flush_size) override;
 
     RowsetSharedPtr build() override;
 

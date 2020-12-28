@@ -27,7 +27,8 @@ namespace doris {
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
     os << "(flush time(ms)=" << stat.flush_time_ns / 1000 / 1000
        << ", flush count=" << stat.flush_count
-       << ", flush bytes: " << stat.flush_size_bytes << ")";
+       << ", flush bytes: " << stat.flush_size_bytes
+       << ", flush disk bytes: " << stat.flush_disk_size_bytes << ")";
     return os;
 }
 
@@ -68,10 +69,12 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable) {
 
     VLOG(1) << "flush memtable cost: " << timer.elapsed_time()
             << ", count: " << _stats.flush_count
-            << ", size: " << memtable->memory_usage();
+            << ", mem size: " << memtable->memory_usage()
+            << ", disk size: " << memtable->flush_size();
     _stats.flush_time_ns += timer.elapsed_time();
     _stats.flush_count++;
     _stats.flush_size_bytes += memtable->memory_usage();
+    _stats.flush_disk_size_bytes += memtable->flush_size();
 }
 
 void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {

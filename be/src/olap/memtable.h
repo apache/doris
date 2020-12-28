@@ -51,6 +51,8 @@ public:
     OLAPStatus flush();
     OLAPStatus close();
 
+    int64_t flush_size() const { return _flush_size; }
+
 private:
     class RowCursorComparator {
     public:
@@ -110,6 +112,9 @@ private:
     Table::Hint _hint;
 
     RowsetWriter* _rowset_writer;
+
+    // the data size flushed on disk of this memtable
+    int64_t _flush_size = 0;
 
 }; // class MemTable
 

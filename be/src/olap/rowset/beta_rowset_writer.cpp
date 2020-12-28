@@ -137,7 +137,8 @@ OLAPStatus BetaRowsetWriter::flush() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowsetWriter::flush_single_memtable(MemTable* memtable) {
+OLAPStatus BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
+    int64_t current_flush_size = _total_data_size + _total_index_size;
     // Create segment writer for each memtable, so that
     // all memtables can be flushed in parallel.
     std::unique_ptr<segment_v2::SegmentWriter> writer;
@@ -164,6 +165,8 @@ OLAPStatus BetaRowsetWriter::flush_single_memtable(MemTable* memtable) {
     if (writer != nullptr) {
         RETURN_NOT_OK(_flush_segment_writer(&writer));
     }
+
+    *flush_size = (_total_data_size + _total_index_size) - current_flush_size;
     return OLAP_SUCCESS;
 }
 

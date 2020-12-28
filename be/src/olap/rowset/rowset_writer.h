@@ -53,7 +53,7 @@ public:
     // note that `add_row` could also trigger flush when certain conditions are met
     virtual OLAPStatus flush() = 0;
 
-    virtual OLAPStatus flush_single_memtable(MemTable* memtable) {
+    virtual OLAPStatus flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
         return OLAP_ERR_FUNC_NOT_IMPLEMENTED;
     }
 
