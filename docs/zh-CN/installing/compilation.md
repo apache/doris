@@ -97,7 +97,9 @@ under the License.
 
     如果使用Ubuntu 16.04 及以上系统 可以执行以下命令来安装依赖
     
-    `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev`
+    `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python`
+    如果是CentOS 可以执行以下命令
+    `sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static`
 
     安装完成后，自行设置环境变量 `PATH`, `JAVA_HOME` 等。
     
