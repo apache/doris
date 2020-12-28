@@ -42,7 +42,9 @@ public class MasterOpExecutor {
     // the total time of thrift connectTime add readTime and writeTime
     private int thriftTimeoutMs;
 
-    public MasterOpExecutor(OriginStatement originStmt, ConnectContext ctx, RedirectStatus status) {
+    private boolean shouldNotRetry;
+
+    public MasterOpExecutor(OriginStatement originStmt, ConnectContext ctx, RedirectStatus status, boolean isQuery) {
         this.originStmt = originStmt;
         this.ctx = ctx;
         if (status.isNeedToWaitJournalSync()) {
@@ -51,6 +53,8 @@ public class MasterOpExecutor {
             this.waitTimeoutMs = 0;
         }
         this.thriftTimeoutMs = ctx.getSessionVariable().getQueryTimeoutS() * 1000;
+        // if isQuery=false, we shouldn't retry twice when catch exception because of Idempotency
+        this.shouldNotRetry = !isQuery;
     }
 
     public void execute() throws Exception {
@@ -103,7 +107,7 @@ public class MasterOpExecutor {
             if (!ok) {
                 throw e;
             }
-            if (e.getType() == TTransportException.TIMED_OUT) {
+            if (shouldNotRetry || e.getType() == TTransportException.TIMED_OUT) {
                 throw e;
             } else {
                 result = client.forward(params);
