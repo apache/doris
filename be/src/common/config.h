@@ -217,7 +217,7 @@ CONF_mInt32(trash_file_expire_time_sec, "259200");
 // check row nums for BE/CE and schema change. true is open, false is closed.
 CONF_mBool(row_nums_check, "true");
 //file descriptors cache, by default, cache 32768 descriptors
-CONF_mInt32(file_descriptor_cache_capacity, "32768");
+CONF_Int32(file_descriptor_cache_capacity, "32768");
 // minimum file descriptor number
 // modify them upon necessity
 CONF_Int32(min_file_descriptor_number, "60000");
@@ -378,7 +378,6 @@ CONF_Bool(enable_quadratic_probing, "false");
 CONF_String(pprof_profile_dir, "${DORIS_HOME}/log");
 
 // for partition
-// CONF_Bool(enable_partitioned_hash_join, "false")
 CONF_mBool(enable_partitioned_aggregation, "true");
 
 // to forward compatibility, will be removed later
