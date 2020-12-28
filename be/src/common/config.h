@@ -46,9 +46,9 @@ CONF_String(priority_networks, "");
 //// tcmalloc gc parameter
 ////
 // min memory for TCmalloc, when used memory is smaller than this, do not returned to OS
-CONF_Int64(tc_use_memory_min, "10737418240");
+CONF_mInt64(tc_use_memory_min, "10737418240");
 // free memory rate.[0-100]
-CONF_Int64(tc_free_memory_rate, "20");
+CONF_mInt64(tc_free_memory_rate, "20");
 
 // Bound on the total amount of bytes allocated to thread caches.
 // This bound is not strict, so it is possible for the cache to go over this bound
@@ -109,13 +109,13 @@ CONF_mInt32(report_disk_state_interval_seconds, "60");
 // the interval time(seconds) for agent report olap table to FE
 CONF_mInt32(report_tablet_interval_seconds, "60");
 // the interval time(seconds) for agent report plugin status to FE
-// CONF_mInt32(report_plugin_interval_seconds, "120");
+// CONF_Int32(report_plugin_interval_seconds, "120");
 // the timeout(seconds) for alter table
-// CONF_mInt32(alter_tablet_timeout_seconds, "86400");
+// CONF_Int32(alter_tablet_timeout_seconds, "86400");
 // the timeout(seconds) for make snapshot
-// CONF_mInt32(make_snapshot_timeout_seconds, "600");
+// CONF_Int32(make_snapshot_timeout_seconds, "600");
 // the timeout(seconds) for release snapshot
-// CONF_mInt32(release_snapshot_timeout_seconds, "600");
+// CONF_Int32(release_snapshot_timeout_seconds, "600");
 // the max download speed(KB/s)
 CONF_mInt32(max_download_speed_kbps, "50000");
 // download low speed limit(KB/s)
@@ -123,13 +123,13 @@ CONF_mInt32(download_low_speed_limit_kbps, "50");
 // download low speed time(seconds)
 CONF_mInt32(download_low_speed_time, "300");
 // curl verbose mode
-// CONF_mInt64(curl_verbose_mode, "1");
+// CONF_Int64(curl_verbose_mode, "1");
 // seconds to sleep for each time check table status
-// CONF_mInt32(check_status_sleep_time_seconds, "10");
+// CONF_Int32(check_status_sleep_time_seconds, "10");
 // sleep time for one second
-CONF_mInt32(sleep_one_second, "1");
+CONF_Int32(sleep_one_second, "1");
 // sleep time for five seconds
-CONF_mInt32(sleep_five_seconds, "5");
+CONF_Int32(sleep_five_seconds, "5");
 
 // log dir
 CONF_String(sys_log_dir, "${DORIS_HOME}/log");
@@ -151,14 +151,14 @@ CONF_String(log_buffer_level, "");
 CONF_String(pull_load_task_dir, "${DORIS_HOME}/var/pull_load");
 
 // the maximum number of bytes to display on the debug webserver's log page
-// CONF_mInt64(web_log_bytes, "1048576");
+// CONF_Int64(web_log_bytes, "1048576");
 // number of threads available to serve backend execution requests
 CONF_Int32(be_service_threads, "64");
 // key=value pair of default query options for Doris, separated by ','
 CONF_String(default_query_options, "");
 
 // If non-zero, Doris will output memory usage every log_mem_usage_interval'th fragment completion.
-// CONF_mInt32(log_mem_usage_interval, "0");
+// CONF_Int32(log_mem_usage_interval, "0");
 
 // cgroups allocated for doris
 CONF_String(doris_cgroups, "");
@@ -205,7 +205,7 @@ CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
 CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
 // insert sort threshold for sorter
-// CONF_mInt32(insertion_threshold, "16");
+// CONF_Int32(insertion_threshold, "16");
 // the block_size every block allocate for sorter
 CONF_mInt32(sorter_block_size, "8388608");
 // push_write_mbytes_per_sec
