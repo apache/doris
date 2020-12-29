@@ -17,8 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.FakeCatalog;
@@ -31,6 +29,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.meta.MetaContext;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -228,7 +229,7 @@ public class DatabaseTransactionMgrTest {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Config.label_keep_max_second = -1;
         long currentMillis = System.currentTimeMillis();
-        masterDbTransMgr.removeExpiredTxns(currentMillis);
+        masterDbTransMgr.removeExpiredTxns2(currentMillis);
         assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
         assertEquals(3, masterDbTransMgr.getTransactionNum());
         assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));
@@ -264,7 +265,7 @@ public class DatabaseTransactionMgrTest {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         long txnId = LabelToTxnId.get(CatalogTestUtil.testTxnLabel1);
         TransactionState transactionState = masterDbTransMgr.getTransactionState(txnId);
-        masterDbTransMgr.deleteTransaction(transactionState);
+        masterDbTransMgr.replayDeleteTransaction(transactionState);
         assertEquals(2, masterDbTransMgr.getRunningTxnNums());
         assertEquals(1, masterDbTransMgr.getRunningRoutineLoadTxnNums());
         assertEquals(0, masterDbTransMgr.getFinishedTxnNums());

@@ -127,6 +127,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int label_keep_max_second = 3 * 24 * 3600; // 3 days
+
+    // For some high frequency load job such as
+    // INSERT、STREAMING LOAD、ROUTINE_LOAD_TASK
+    // Remove the finished job or task if expired.
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_label_keep_max_second = 43200; // 12 hour
   
     /**
      * The max keep time of some kind of jobs.

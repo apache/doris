@@ -1191,4 +1191,18 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public int getLoadParallelism() {
         return (int) jobProperties.get(LoadStmt.LOAD_PARALLELISM);
     }
+
+    // Return true if this job is finished for a long time
+    public boolean isExpired(long currentTimeMs) {
+        if (!isCompleted()) {
+            return false;
+        }
+        long expireTime = Config.label_keep_max_second;
+        if (jobType == EtlJobType.INSERT) {
+            expireTime = Config.streaming_label_keep_max_second;
+        }
+
+        return (currentTimeMs - getFinishTimestamp()) / 1000 > expireTime;
+    }
+
 }

@@ -51,6 +51,7 @@ import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
+import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
@@ -85,10 +86,10 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
 
+import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Preconditions;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -427,6 +428,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_DELETE_TRANSACTION_STATE: {
                 data = new TransactionState();
                 ((TransactionState) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BATCH_REMOVE_TXNS: {
+                data = BatchRemoveTransactionsOperation.read(in);
                 isRead = true;
                 break;
             }

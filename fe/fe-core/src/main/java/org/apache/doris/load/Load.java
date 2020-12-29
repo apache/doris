@@ -2602,8 +2602,7 @@ public class Load {
             while (iter.hasNext()) {
                 Map.Entry<Long, LoadJob> entry = iter.next();
                 LoadJob job = entry.getValue();
-                if ((currentTimeMs - job.getCreateTimeMs()) / 1000 > Config.label_keep_max_second
-                        && (job.getState() == JobState.FINISHED || job.getState() == JobState.CANCELLED)) {
+                if (job.isExpired(currentTimeMs)) {
                     long dbId = job.getDbId();
                     String label = job.getLabel();
                     // Remove job from idToLoadJob

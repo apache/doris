@@ -595,6 +595,11 @@ public class EditLog {
                     LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
                     break;
                 }
+                case OperationType.OP_BATCH_REMOVE_TXNS: {
+                    final BatchRemoveTransactionsOperation operation = (BatchRemoveTransactionsOperation) journal.getData();
+                    Catalog.getCurrentGlobalTransactionMgr().replayBatchDeleteTransactions(operation);
+                    break;
+                }
                 case OperationType.OP_CREATE_REPOSITORY: {
                     Repository repository = (Repository) journal.getData();
                     catalog.getBackupHandler().getRepoMgr().addAndInitRepoIfNotExist(repository, true);
@@ -1362,5 +1367,9 @@ public class EditLog {
 
     public void logReplaceTable(ReplaceTableOperationLog log) {
         logEdit(OperationType.OP_REPLACE_TABLE, log);
+    }
+
+    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperation op) {
+        logEdit(OperationType.OP_BATCH_REMOVE_TXNS, op);
     }
 }
