@@ -195,11 +195,11 @@ public class PartitionRebalancer extends Rebalancer {
     }
 
     private void checkMovesCompleted(List<TabletMove> moves, List<Long> toDeleteKeys) {
-        boolean move_is_complete;
+        boolean moveIsComplete;
         for (TabletMove move : moves) {
-            move_is_complete = checkMoveCompleted(move);
+            moveIsComplete = checkMoveCompleted(move);
             // If the move was completed, remove it
-            if (move_is_complete) {
+            if (moveIsComplete) {
                 toDeleteKeys.add(move.tabletId);
                 LOG.debug("Move {} is completed. The cur dist: {}", move,
                         invertedIndex.getReplicasByTabletId(move.tabletId).stream().map(Replica::getBackendId).collect(Collectors.toList()));

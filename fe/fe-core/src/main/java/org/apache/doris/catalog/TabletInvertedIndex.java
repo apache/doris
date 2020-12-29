@@ -669,9 +669,9 @@ public class TabletInvertedIndex {
                     pbi.beByReplicaCount.put(replicaCount, beID);
                 }
                 // beByReplicaCount values are natural ordering
-                long min_count = pbi.beByReplicaCount.keySet().first();
-                long max_count = pbi.beByReplicaCount.keySet().last();
-                partitionInfoBySkew.put(max_count - min_count, pbi);
+                long minCount = pbi.beByReplicaCount.keySet().first();
+                long maxCount = pbi.beByReplicaCount.keySet().last();
+                partitionInfoBySkew.put(maxCount - minCount, pbi);
             }
             skewMaps.put(medium, partitionInfoBySkew);
         }

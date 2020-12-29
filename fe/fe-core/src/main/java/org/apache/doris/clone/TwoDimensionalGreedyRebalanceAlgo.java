@@ -178,7 +178,7 @@ public class TwoDimensionalGreedyRebalanceAlgo {
 
             Long minReplicaCount = pbi.beByReplicaCount.keySet().first();
             Long maxReplicaCount = pbi.beByReplicaCount.keySet().last();
-            LOG.info("balancing partition {}-{} with replica count skew {} (min_replica_count: {}, max_replica_count: {})",
+            LOG.debug("balancing partition {}-{} with replica count skew {} (min_replica_count: {}, max_replica_count: {})",
                     pbi.partitionId, pbi.indexId, maxPartitionSkew,
                     minReplicaCount, maxReplicaCount);
 
@@ -187,8 +187,8 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             // These are our ideal candidates for moving from and to, respectively.
             IntersectionResult maxLoaded = getIntersection(ExtremumType.MAX, pbi.beByReplicaCount, beByTotalReplicaCount);
             IntersectionResult minLoaded = getIntersection(ExtremumType.MIN, pbi.beByReplicaCount, beByTotalReplicaCount);
-            LOG.info("partition-wise: min_count: {}, max_count: {}", minLoaded.replicaCountPartition, maxLoaded.replicaCountPartition);
-            LOG.info("cluster-wise: min_count: {}, max_count: {}", minLoaded.replicaCountTotal, maxLoaded.replicaCountTotal);
+            LOG.debug("partition-wise: min_count: {}, max_count: {}", minLoaded.replicaCountPartition, maxLoaded.replicaCountPartition);
+            LOG.debug("cluster-wise: min_count: {}, max_count: {}", minLoaded.replicaCountTotal, maxLoaded.replicaCountTotal);
             LOG.debug("min_loaded_intersection: {}, max_loaded_intersection: {}", minLoaded.intersection.toString(), maxLoaded.intersection.toString());
 
             // Do not move replicas of a balanced table if the least (most) loaded
