@@ -898,10 +898,14 @@ public class StmtExecutor {
                 return;
             }
 
+            long visibleTimeoutMs = context.getSessionVariable().getInsertVisibleTimeoutMs();
+            if (visibleTimeoutMs < 0) {
+                visibleTimeoutMs = Config.default_insert_visible_timeout_ms;
+            }
             if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                     insertStmt.getDbObj(), insertStmt.getTransactionId(),
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
-                    10000)) {
+                    visibleTimeoutMs)) {
                 txnStatus = TransactionStatus.VISIBLE;
                 MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
             } else {

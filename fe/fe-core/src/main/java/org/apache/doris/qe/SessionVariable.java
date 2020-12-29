@@ -112,6 +112,12 @@ public class SessionVariable implements Serializable, Writable {
     // when true, the partition column must be set to NOT NULL.
     public static final String ALLOW_PARTITION_COLUMN_NULLABLE = "allow_partition_column_nullable";
 
+    // max ms to wait transaction publish finish when exec insert stmt.
+    public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
+
+    @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS)
+    private long insertVisibleTimeoutMs = -1;
+
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
@@ -544,6 +550,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isAllowPartitionColumnNullable() { return allowPartitionColumnNullable; }
 
+    public long getInsertVisibleTimeoutMs() {
+        return insertVisibleTimeoutMs;
+    }
+
+    public void setInsertVisibleTimeoutMs(long insertVisibleTimeoutMs) {
+        this.insertVisibleTimeoutMs = insertVisibleTimeoutMs;
+    }
 
     // Serialize to thrift object
     // used for rest api

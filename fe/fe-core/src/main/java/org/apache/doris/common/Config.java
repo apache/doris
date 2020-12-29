@@ -1311,4 +1311,9 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_fe_heartbeat_by_thrift = false;
+
+    /**
+     * default value for insert_visible_timeout_ms
+     */
+    public static long default_insert_visible_timeout_ms = 10000;
 }
