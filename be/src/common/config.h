@@ -378,7 +378,7 @@ CONF_Bool(enable_quadratic_probing, "false");
 CONF_String(pprof_profile_dir, "${DORIS_HOME}/log");
 
 // for partition
-CONF_mBool(enable_partitioned_aggregation, "true");
+CONF_Bool(enable_partitioned_aggregation, "true");
 
 // to forward compatibility, will be removed later
 CONF_mBool(enable_token_check, "true");
@@ -412,7 +412,7 @@ CONF_String(buffer_pool_clean_pages_limit, "20G");
 CONF_mInt64(memory_maintenance_sleep_time_s, "10");
 
 // Alignment
-CONF_mInt32(memory_max_alignment, "16");
+CONF_Int32(memory_max_alignment, "16");
 
 // write buffer size before flush
 CONF_mInt64(write_buffer_size, "104857600");
@@ -422,8 +422,8 @@ CONF_mInt64(write_buffer_size, "104857600");
 // NOTICE(cmy): set these default values very large because we don't want to
 // impact the load performance when user upgrading Doris.
 // user should set these configs properly if necessary.
-CONF_mInt64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
-CONF_mInt32(load_process_max_memory_limit_percent, "80");         // 80%
+CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
+CONF_Int32(load_process_max_memory_limit_percent, "80");         // 80%
 
 // update interval of tablet stat cache
 CONF_mInt32(tablet_stat_cache_update_interval_second, "300");
