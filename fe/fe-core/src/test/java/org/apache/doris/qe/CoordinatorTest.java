@@ -494,7 +494,7 @@ public class CoordinatorTest extends Coordinator {
 
         // init all backend
         Backend backend0 = new Backend(0, "0.0.0.0", 9060);
-        backend0.setAlive(false);
+        backend0.setAlive(true);
         backend0.setBePort(9050);
         Backend backend1 = new Backend(1, "0.0.0.1", 9060);
         backend1.setAlive(true);
@@ -516,9 +516,12 @@ public class CoordinatorTest extends Coordinator {
         locations.add(tScanRangeLocations);
 
         HashMap<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
-        Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq",tScanRangeLocations, planFragmentId, 1, assignedBytesPerHost);
-        Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq",tScanRangeLocations, planFragmentId, 2, assignedBytesPerHost);
-        Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq",tScanRangeLocations, planFragmentId, 3, assignedBytesPerHost);
+        Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq",tScanRangeLocations,
+                planFragmentId, 1, assignedBytesPerHost);
+        Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq",tScanRangeLocations,
+                planFragmentId, 2, assignedBytesPerHost);
+        Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq",tScanRangeLocations,
+                planFragmentId, 3, assignedBytesPerHost);
         List<String> hosts = new ArrayList<>();
         for (Map.Entry item:assignedBytesPerHost.entrySet()) {
             Assert.assertTrue((Long)item.getValue() == 1);
