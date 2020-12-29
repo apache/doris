@@ -361,8 +361,6 @@ public:
     int64_t get_load_mem_limit();
 
 private:
-    // Allow TestEnv to set block_mgr manually for testing.
-    friend class TestEnv;
 
     // Use a custom block manager for the query for testing purposes.
     void set_block_mgr2(const boost::shared_ptr<BufferedBlockMgr2>& block_mgr) {

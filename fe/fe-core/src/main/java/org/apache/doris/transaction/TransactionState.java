@@ -100,7 +100,8 @@ public class TransactionState implements Writable {
         DB_DROPPED,
         TIMEOUT,
         OFFSET_OUT_OF_RANGE,
-        PAUSE;
+        PAUSE,
+        NO_PARTITIONS;
 
         public static TxnStatusChangeReason fromString(String reasonString) {
             for (TxnStatusChangeReason txnStatusChangeReason : TxnStatusChangeReason.values()) {
@@ -116,6 +117,8 @@ public class TransactionState implements Writable {
             switch (this) {
                 case OFFSET_OUT_OF_RANGE:
                     return "Offset out of range";
+                case NO_PARTITIONS:
+                    return "all partitions have no load data";
                 default:
                     return this.name();
             }

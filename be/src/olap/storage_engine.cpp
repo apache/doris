@@ -140,6 +140,10 @@ StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     DEREGISTER_HOOK_METRIC(compaction_mem_current_consumption);
     _clear();
+
+    if(_compaction_thread_pool){
+        _compaction_thread_pool->shutdown();
+    }
 }
 
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
@@ -806,6 +810,7 @@ OLAPStatus StorageEngine::create_tablet(const TCreateTabletReq& request) {
         LOG(WARNING) << "there is no available disk that can be used to create tablet.";
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
+    TRACE("got data directory for create tablet");
     return _tablet_manager->create_tablet(request, stores);
 }
 

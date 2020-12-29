@@ -46,6 +46,7 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -76,7 +77,7 @@ public class DescribeStmt extends ShowStmt {
                     .build();
 
     // empty col num equals to DESC_OLAP_TABLE_ALL_META_DATA.size()
-    private static final List<String> EMPTY_ROW = Arrays.asList("", "", "", "", "", "", "", "");
+    private static final List<String> EMPTY_ROW = initEmptyRow();
 
     private TableName dbTableName;
     private ProcNodeInterface node;
@@ -274,4 +275,11 @@ public class DescribeStmt extends ShowStmt {
         return toSql();
     }
 
+    private static List<String> initEmptyRow() {
+        List<String> emptyRow = new ArrayList<>(DESC_OLAP_TABLE_ALL_META_DATA.getColumns().size());
+        for (int i = 0; i < DESC_OLAP_TABLE_ALL_META_DATA.getColumns().size(); i++) {
+            emptyRow.add("");
+        }
+        return emptyRow;
+    }
 }

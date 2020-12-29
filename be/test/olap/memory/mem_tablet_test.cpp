@@ -22,6 +22,7 @@
 #include "olap/memory/mem_tablet_scan.h"
 #include "olap/memory/write_txn.h"
 #include "olap/tablet_meta.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 namespace memory {
@@ -34,9 +35,9 @@ struct TData {
 };
 
 TEST(MemTablet, writescan) {
-    const int num_insert = 2000000;
-    const int insert_per_write = 500000;
-    const int num_update = 10000;
+    const int num_insert = LOOP_LESS_OR_MORE(2000, 2000000);
+    const int insert_per_write = LOOP_LESS_OR_MORE(500, 500000);
+    const int num_update = LOOP_LESS_OR_MORE(10, 10000);
     const int update_time = 3;
     scoped_refptr<Schema> sc;
     ASSERT_TRUE(Schema::create("id int,uv int,pv int,city tinyint null", &sc).ok());
