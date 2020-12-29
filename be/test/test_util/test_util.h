@@ -19,7 +19,7 @@
 
 namespace doris {
 
-#define LOOP_LESS_OR_MORE(less, more) (AllowSlowTests() ? less : more)
+#define LOOP_LESS_OR_MORE(less, more) (AllowSlowTests() ? more : less)
 
 // Get the value of an environment variable that has boolean semantics.
 bool GetBooleanEnvironmentVariable(const char* env_var_name);

@@ -47,7 +47,9 @@ struct ColumnTest {
         scoped_refptr<Column> newc;
         ASSERT_TRUE(writer->finalize(2).ok());
         ASSERT_TRUE(writer->get_new_column(&newc).ok());
-        if (!AllowSlowTests()) {
+        // The less `InsertCount` won't make COW performed，
+        // expect the new column object only when inserting more。
+        if (AllowSlowTests()) {
             EXPECT_TRUE(c.get() != newc.get());
         }
         std::unique_ptr<ColumnReader> readc;
@@ -76,7 +78,7 @@ struct ColumnTest {
         scoped_refptr<Column> newc;
         ASSERT_TRUE(writer->finalize(2).ok());
         ASSERT_TRUE(writer->get_new_column(&newc).ok());
-        if (!AllowSlowTests()) {
+        if (AllowSlowTests()) {
             EXPECT_TRUE(c.get() != newc.get());
         }
         std::unique_ptr<ColumnReader> readc;
