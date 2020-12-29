@@ -375,7 +375,7 @@ public class PartitionRange {
             hitRange = Cache.HitRange.Left;
         } else if (begin == 0 && end < partitionSingleList.size() - 1) {
             hitRange = Cache.HitRange.Right;
-        } else if (begin > 9 && end < partitionSingleList.size() - 1) {
+        } else if (begin > 0 && end < partitionSingleList.size() - 1) {
             hitRange = Cache.HitRange.Middle;
         } else {
             hitRange = Cache.HitRange.None;
