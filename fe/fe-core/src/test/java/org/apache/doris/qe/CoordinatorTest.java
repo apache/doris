@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.sun.org.apache.xpath.internal.operations.String;
 import mockit.Mocked;
 
 import org.apache.doris.analysis.Analyzer;
