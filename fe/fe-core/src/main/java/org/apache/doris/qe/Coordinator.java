@@ -831,8 +831,7 @@ public class Coordinator {
                     dest.setBrpcServer(dummyServer);
 
                     for (FInstanceExecParam instanceExecParams : destParams.instanceExecParams) {
-                        if (instanceExecParams.bucketSeqSet.contains(bucketSeq) ||
-                                instanceExecParams.bucketSeqSet.size() == 0) {
+                        if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
                             dest.fragment_instance_id = instanceExecParams.instanceId;
                             dest.server = toRpcHost(instanceExecParams.host);
                             dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
