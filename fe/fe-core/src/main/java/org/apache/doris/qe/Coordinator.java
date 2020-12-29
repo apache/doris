@@ -1279,14 +1279,14 @@ public class Coordinator {
     private void getExecHostPortForFragmentIDAndBucketSeq(TScanRangeLocations seqLocation, PlanFragmentId fragmentId, Integer bucketSeq,
                                                           HashMap<TNetworkAddress, Long> assignedBytesPerHost) throws Exception {
         Reference<Long> backendIdRef = new Reference<Long>();
-        distributeHost(seqLocation, assignedBytesPerHost, backendIdRef);
+        selectBackendsByRoundRobin(seqLocation, assignedBytesPerHost, backendIdRef);
         Backend backend = this.idToBackend.get(backendIdRef.getRef());
         TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
         this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
         this.fragmentIdToSeqToAddressMap.get(fragmentId).put(bucketSeq, execHostPort);
     }
 
-    public TScanRangeLocation distributeHost(TScanRangeLocations seqLocation,
+    public TScanRangeLocation selectBackendsByRoundRobin(TScanRangeLocations seqLocation,
                                           HashMap<TNetworkAddress, Long> assignedBytesPerHost,
                                           Reference<Long> backendIdRef) throws UserException {
         Long minAssignedBytes = Long.MAX_VALUE;
@@ -1315,10 +1315,9 @@ public class Coordinator {
             FragmentScanRangeAssignment assignment) throws Exception {
 
         HashMap<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
-        Long step = 1L;
         for (TScanRangeLocations scanRangeLocations : locations) {
             Reference<Long> backendIdRef = new Reference<Long>();
-            TScanRangeLocation minLocation = distributeHost(scanRangeLocations, assignedBytesPerHost, backendIdRef);
+            TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations, assignedBytesPerHost, backendIdRef);
             Backend backend = this.idToBackend.get(backendIdRef.getRef());
             TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
             this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
