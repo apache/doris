@@ -226,7 +226,7 @@ CONF_Int64(index_stream_cache_capacity, "10737418240");
 // Cache for storage page size
 CONF_String(storage_page_cache_limit, "20%");
 // whether to disable page cache feature in storage
-CONF_mBool(disable_storage_page_cache, "false");
+CONF_Bool(disable_storage_page_cache, "false");
 
 // be policy
 // whether disable automatic compaction task
