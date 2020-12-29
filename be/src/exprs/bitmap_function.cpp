@@ -477,7 +477,7 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs
     return serialize(ctx, &bitmap);
 }
 
-StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal&  lhs,
+StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs,
                                       const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
         return StringVal::null();

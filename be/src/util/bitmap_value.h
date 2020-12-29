@@ -1006,7 +1006,6 @@ public:
         }
     }
 
-
     // Compute the union between the current bitmap and the provided bitmap.
     // Possible type transitions are:
     // EMPTY  -> SINGLE
