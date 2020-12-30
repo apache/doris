@@ -17,6 +17,9 @@
 
 package org.apache.doris.persist;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+
 public class OperationType {
     public static final short OP_INVALID = -1;
     public static final short OP_SAVE_NEXTID = 0;
@@ -193,4 +196,24 @@ public class OperationType {
 
     // alter external table
     public static final short OP_ALTER_EXTERNAL_TABLE_SCHEMA = 280;
+
+    // get opcode name by op codeStri
+    public static String getOpName(short opCode) {
+        try {
+            Field[] fields = OperationType.class.getDeclaredFields();
+            for (Field field : fields) {
+                if (!Modifier.isStatic(field.getModifiers())) {
+                    continue;
+                }
+                short s = field.getShort(null);
+                if (s != opCode) {
+                    continue;
+                }
+                return field.getName();
+            }
+        } catch (Exception e) {
+            return "Not Found: " + e.getMessage();
+        }
+        return "Not Found";
+    }
 }
