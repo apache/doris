@@ -96,8 +96,12 @@ You can try to compile Doris directly in your own Linux environment.
     `GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+`
 
     If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
+
+   `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python`
     
-    `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev`
+    If you are using CentOS you can use the following command to install the dependencies
+   
+   `sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static`
 
     After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
 
