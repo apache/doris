@@ -107,6 +107,7 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -115,6 +116,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -941,6 +943,7 @@ public class Load {
                                    Map<String, Pair<String, List<String>>> columnToHadoopFunction,
                                    Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
                                    Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
+        rewriteColumns(columnExprs);
         initColumns(tbl, columnExprs, columnToHadoopFunction, exprsByName, analyzer,
                     srcTupleDesc, slotDescByName, params, true);
     }
@@ -958,22 +961,16 @@ public class Load {
             Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
             Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params,
             boolean needInitSlotAndAnalyzeExprs) throws UserException {
-        // check mapping column exist in schema
-        // !! all column mappings are in columnExprs !!
-        for (ImportColumnDesc importColumnDesc : columnExprs) {
-            if (importColumnDesc.isColumn()) {
-                continue;
-            }
-
-            String mappingColumnName = importColumnDesc.getColumnName();
-            if (tbl.getColumn(mappingColumnName) == null) {
-                throw new DdlException("Mapping column is not in table. column: " + mappingColumnName);
-            }
-        }
-
         // We make a copy of the columnExprs so that our subsequent changes
         // to the columnExprs will not affect the original columnExprs.
-        List<ImportColumnDesc> copiedColumnExprs = Lists.newArrayList(columnExprs);
+        // skip the mapping columns not exist in schema
+        List<ImportColumnDesc> copiedColumnExprs = new ArrayList<>();
+        for (ImportColumnDesc importColumnDesc : columnExprs) {
+            String mappingColumnName = importColumnDesc.getColumnName();
+            if (importColumnDesc.isColumn() || tbl.getColumn(mappingColumnName) != null) {
+                copiedColumnExprs.add(importColumnDesc);
+            }
+        }
         // check whether the OlapTable has sequenceCol
         boolean hasSequenceCol = false;
         if (tbl instanceof OlapTable && ((OlapTable)tbl).hasSequenceCol()) {
@@ -1131,6 +1128,44 @@ public class Load {
             exprsByName.put(entry.getKey(), expr);
         }
         LOG.debug("after init column, exprMap: {}", exprsByName);
+    }
+
+    public static void rewriteColumns(List<ImportColumnDesc> columnExprs) {
+        Map<String, Expr> derivativeColumns = new HashMap<>();
+        // find and rewrite the derivative columns
+        // e.g. (v1,v2=v1+1,v3=v2+1) --> (v1, v2=v1+1, v3=v1+1+1)
+        // 1. find the derivative columns
+        for (ImportColumnDesc importColumnDesc : columnExprs) {
+            if (!importColumnDesc.isColumn()) {
+                if (importColumnDesc.getExpr() instanceof SlotRef) {
+                    String columnName = ((SlotRef) importColumnDesc.getExpr()).getColumnName();
+                    if (derivativeColumns.containsKey(columnName)) {
+                        importColumnDesc.setExpr(derivativeColumns.get(columnName));
+                    }
+                } else {
+                    recursiveRewrite(importColumnDesc.getExpr(), derivativeColumns);
+                }
+                derivativeColumns.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
+            }
+        }
+
+    }
+
+    private static void recursiveRewrite(Expr expr, Map<String, Expr> derivativeColumns) {
+        if (CollectionUtils.isEmpty(expr.getChildren())) {
+            return;
+        }
+        for (int i = 0; i < expr.getChildren().size(); i++) {
+            Expr e = expr.getChild(i);
+            if (e instanceof SlotRef) {
+                String columnName = ((SlotRef) e).getColumnName();
+                if (derivativeColumns.containsKey(columnName)) {
+                    expr.setChild(i, derivativeColumns.get(columnName));
+                }
+            } else {
+                recursiveRewrite(e, derivativeColumns);
+            }
+        }
     }
 
     /**
