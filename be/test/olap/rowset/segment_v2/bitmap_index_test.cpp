@@ -31,6 +31,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "util/file_utils.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -176,12 +177,13 @@ TEST_F(BitmapIndexTest, test_invert_2) {
 }
 
 TEST_F(BitmapIndexTest, test_multi_pages) {
-    size_t num_uint8_rows = 1024 * 1024;
+    size_t times = LOOP_LESS_OR_MORE(1, 1024);
+    size_t num_uint8_rows = times * 1024;
     int64_t* val = new int64_t[num_uint8_rows];
     for (int i = 0; i < num_uint8_rows; ++i) {
         val[i] = random() + 10000;
     }
-    val[1024 * 510] = 2019;
+    val[times * 510] = 2019;
 
     std::string file_name = kTestDir + "/mul";
     ColumnIndexMetaPB meta;

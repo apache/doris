@@ -51,6 +51,10 @@ public class ImportColumnDesc {
         return expr;
     }
 
+    public void setExpr(Expr expr) {
+        this.expr = expr;
+    }
+
     public boolean isColumn() {
         return expr == null;
     }

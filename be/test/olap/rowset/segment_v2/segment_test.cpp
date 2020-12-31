@@ -41,6 +41,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "util/file_utils.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -626,7 +627,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     // 0, 1, 2, 3
     // 10, 11, 12, 13
     // 20, 21, 22, 23
-    for (int i = 0; i < 1048576; ++i) {
+    for (int i = 0; i < LOOP_LESS_OR_MORE(1024, 1048576); ++i) {
         for (int j = 0; j < 4; ++j) {
             auto cell = row.cell(j);
             cell.set_not_null();
