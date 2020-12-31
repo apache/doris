@@ -503,6 +503,7 @@ public class CoordinatorTest extends Coordinator {
         Backend backend2 = new Backend(2, "0.0.0.2", 9060);
         backend2.setAlive(true);
         backend2.setBePort(9050);
+
         ImmutableMap<Long, Backend> idToBackend =
                 new ImmutableMap.Builder<Long, Backend>().
                         put(0l, backend0).
