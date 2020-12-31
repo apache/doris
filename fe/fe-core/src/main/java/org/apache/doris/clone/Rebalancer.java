@@ -65,7 +65,7 @@ public abstract class Rebalancer {
         return alternativeTablets;
     }
 
-    // The return TabletSchedCtx should have the tablet id at least. {srcReplica, destBe} can be complete here or
+    // The returned TabletSchedCtx should have the tablet id at least. {srcReplica, destBe} can be complete here or
     // later(when createBalanceTask called).
     protected abstract List<TabletSchedCtx> selectAlternativeTabletsForCluster(
             String clusterName, ClusterLoadStatistic clusterStat, TStorageMedium medium);
@@ -86,7 +86,7 @@ public abstract class Rebalancer {
     protected abstract void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots)
             throws SchedException;
 
-    public Long getToDeleteReplicaId(Long tabletId) {
+    public Long getToDeleteReplicaId(TabletSchedCtx tabletCtx) {
         return -1L;
     }
 
