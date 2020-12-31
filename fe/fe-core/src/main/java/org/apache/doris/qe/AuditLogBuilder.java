@@ -122,9 +122,7 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
             if (af == null || !loadAnnotationSet.contains(af.value())) {
                 continue;
             }
-
             annotationToFieldValueMap.put(af.value(), String.valueOf(f.get(event)));
-
         }
         StringBuilder sb = new StringBuilder();
         for (String annotation : LOAD_ANNONATION_NAMES) {
