@@ -1251,12 +1251,12 @@ public class Coordinator {
             fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashedMap());
         }
         Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(scanNode.getFragmentId());
-
+        HashMap<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         for(Integer bucketSeq: scanNode.bucketSeq2locations.keySet()) {
             //fill scanRangeParamsList
             List<TScanRangeLocations> locations = scanNode.bucketSeq2locations.get(bucketSeq);
             if (!bucketSeqToAddress.containsKey(bucketSeq)) {
-                getExecHostPortForFragmentIDAndBucketSeq(locations.get(0), scanNode.getFragmentId(), bucketSeq);
+                getExecHostPortForFragmentIDAndBucketSeq(locations.get(0), scanNode.getFragmentId(), bucketSeq, assignedBytesPerHost);
             }
 
             for(TScanRangeLocations location: locations) {
@@ -1274,13 +1274,38 @@ public class Coordinator {
         }
     }
 
-    // randomly choose a backend from the TScanRangeLocations for a certain bucket sequence.
-    private void getExecHostPortForFragmentIDAndBucketSeq(TScanRangeLocations seqLocation, PlanFragmentId fragmentId, Integer bucketSeq) throws Exception {
-        int randomLocation = new Random().nextInt(seqLocation.locations.size());
+    //ensure bucket sequence distribued to every host evenly
+    private void getExecHostPortForFragmentIDAndBucketSeq(TScanRangeLocations seqLocation, PlanFragmentId fragmentId, Integer bucketSeq,
+                                                          HashMap<TNetworkAddress, Long> assignedBytesPerHost) throws Exception {
         Reference<Long> backendIdRef = new Reference<Long>();
-        TNetworkAddress execHostPort = SimpleScheduler.getHost(seqLocation.locations.get(randomLocation).backend_id, seqLocation.locations, this.idToBackend, backendIdRef);
+        selectBackendsByRoundRobin(seqLocation, assignedBytesPerHost, backendIdRef);
+        Backend backend = this.idToBackend.get(backendIdRef.getRef());
+        TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
         this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
         this.fragmentIdToSeqToAddressMap.get(fragmentId).put(bucketSeq, execHostPort);
+    }
+
+    public TScanRangeLocation selectBackendsByRoundRobin(TScanRangeLocations seqLocation,
+                                          HashMap<TNetworkAddress, Long> assignedBytesPerHost,
+                                          Reference<Long> backendIdRef) throws UserException {
+        Long minAssignedBytes = Long.MAX_VALUE;
+        TScanRangeLocation minLocation = null;
+        Long step = 1L;
+        for (final TScanRangeLocation location : seqLocation.getLocations()) {
+            Long assignedBytes = findOrInsert(assignedBytesPerHost, location.server, 0L);
+            if (assignedBytes < minAssignedBytes) {
+                minAssignedBytes = assignedBytes;
+                minLocation = location;
+            }
+        }
+        TScanRangeLocation location = SimpleScheduler.getLocation(minLocation, seqLocation.locations, this.idToBackend, backendIdRef);
+        if (assignedBytesPerHost.containsKey(location.server)) {
+            assignedBytesPerHost.put(location.server,
+                    assignedBytesPerHost.get(location.server) + step);
+        } else {
+            assignedBytesPerHost.put(location.server, step);
+        }
+        return location;
     }
 
     private void computeScanRangeAssignmentByScheduler(
@@ -1289,35 +1314,11 @@ public class Coordinator {
             FragmentScanRangeAssignment assignment) throws Exception {
 
         HashMap<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
-        Long step = 1L;
         for (TScanRangeLocations scanRangeLocations : locations) {
-            // assign this scan range to the host w/ the fewest assigned bytes
-            Long minAssignedBytes = Long.MAX_VALUE;
-            TScanRangeLocation minLocation = null;
-            for (final TScanRangeLocation location : scanRangeLocations.getLocations()) {
-                Long assignedBytes = findOrInsert(assignedBytesPerHost, location.server, 0L);
-                if (assignedBytes < minAssignedBytes) {
-                    minAssignedBytes = assignedBytes;
-                    minLocation = location;
-                }
-            }
-            assignedBytesPerHost.put(minLocation.server,
-                    assignedBytesPerHost.get(minLocation.server) + step);
-
             Reference<Long> backendIdRef = new Reference<Long>();
-            TNetworkAddress execHostPort = SimpleScheduler.getHost(minLocation.backend_id,
-                    scanRangeLocations.getLocations(), this.idToBackend, backendIdRef);
-            if (!execHostPort.hostname.equals(minLocation.server.hostname) ||
-                    execHostPort.port != minLocation.server.port) {
-                assignedBytesPerHost.put(minLocation.server,
-                        assignedBytesPerHost.get(minLocation.server) - step);
-                Long id = assignedBytesPerHost.get(execHostPort);
-                if (id == null) {
-                    assignedBytesPerHost.put(execHostPort, 0L);
-                } else {
-                    assignedBytesPerHost.put(execHostPort, id + step);
-                }
-            }
+            TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations, assignedBytesPerHost, backendIdRef);
+            Backend backend = this.idToBackend.get(backendIdRef.getRef());
+            TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
             this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
 
             Map<Integer, List<TScanRangeParams>> scanRanges = findOrInsert(assignment, execHostPort,
