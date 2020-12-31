@@ -100,7 +100,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected long finishTimestamp = -1;
 
     protected long transactionId;
-    protected volatile FailMsg failMsg;
+    protected FailMsg failMsg;
     protected Map<Long, LoadTask> idToTasks = Maps.newConcurrentMap();
     protected Set<Long> finishedTaskIds = Sets.newHashSet();
     protected EtlStatus loadingStatus = new EtlStatus();
