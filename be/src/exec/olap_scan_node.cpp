@@ -1264,6 +1264,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     // Do not use ScopedTimer. There is no guarantee that, the counter
     // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
     ThreadCpuStopWatch cpu_watch;
+    cpu_watch.start();
     Status status = Status::OK();
     bool eos = false;
     RuntimeState* state = scanner->runtime_state();
