@@ -17,6 +17,7 @@
 
 #include "common/daemon.h"
 
+#include <signal.h>
 #include <gflags/gflags.h>
 #include <gperftools/malloc_extension.h>
 
