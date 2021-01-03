@@ -156,6 +156,10 @@ protected:
     template <class T>
     Status normalize_noneq_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
+    template <typename T>
+    static bool normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
+            const std::string& is_null_str, ColumnValueRange<T>* range);
+
     void transfer_thread(RuntimeState* state);
     void scanner_thread(OlapScanner* scanner);
 
@@ -170,9 +174,6 @@ private:
     // according to the calling relationship
     void init_scan_profile();
 
-    void construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot,
-                                              const std::string& is_null_str);
-
     bool should_push_down_in_predicate(SlotDescriptor* slot, InPredicate* in_pred);
 
     std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred, int conj_idx, int child_idx);
@@ -182,7 +183,6 @@ private:
 
     friend class OlapScanner;
 
-    std::vector<TCondition> _is_null_vector;
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
     // doris scan node used to scan doris
