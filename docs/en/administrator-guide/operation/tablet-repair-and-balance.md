@@ -636,7 +636,7 @@ The following adjustable parameters are all configurable parameters in fe.conf.
 * disable\_balance
 
 	* Description: Control whether to turn off the balancing function. When replicas are in equilibrium, some functions, such as ALTER TABLE, will be banned. Equilibrium can last for a long time. Therefore, if the user wants to do the prohibited operation as soon as possible. This parameter can be set to true to turn off balanced scheduling.
-	* Default value:true
+	* Default value: false
 	* Importance:
 
 ### Unadjustable parameters
