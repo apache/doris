@@ -555,7 +555,6 @@ build_arrow() {
     -DGLOG_ROOT=$TP_INSTALL_DIR/ \
     -DLZ4_ROOT=$TP_INSTALL_DIR/ \
     -DZSTD_SOURCE=BUNDLED \
-    -DBROTLI_SOURCE=BUNDLED/ \
     -Ddouble-conversion_SOURCE=BUNDLED \
     -DThrift_ROOT=$TP_INSTALL_DIR/ ..
 
