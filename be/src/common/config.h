@@ -260,6 +260,9 @@ CONF_Int64(index_stream_cache_capacity, "10737418240");
 
 // Cache for storage page size
 CONF_String(storage_page_cache_limit, "20%");
+// Percentage for index page cache
+// all storage page cache will be divided into data_page_cache and index_page_cache
+CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
 

@@ -1160,7 +1160,7 @@ TEST_F(SegmentReaderWriterTest, TestBloomFilterIndexUniqueModel) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30);
+    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
