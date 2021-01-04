@@ -720,6 +720,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `storage_page_cache_limit`
 
+### `index_page_cache_percentage`
+* 类型：int32
+* 描述：索引页缓存占总页面缓存的百分比，取值为[0, 100]。
+* 默认值：10
+
 ### `storage_root_path`
 
 * 类型：string

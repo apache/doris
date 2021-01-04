@@ -720,6 +720,11 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `storage_page_cache_limit`
 
+### `index_page_cache_percentage`
+* Type: int32
+* Description: Index page cache as a percentage of total storage page cache, value range is [0, 100]
+* Default value: 10
+
 ### `storage_root_path`
 
 * Type: string

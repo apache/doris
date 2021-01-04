@@ -143,6 +143,7 @@ Status Segment::_load_index() {
         opts.codec = nullptr; // short key index page uses NO_COMPRESSION for now
         OlapReaderStatistics tmp_stats;
         opts.stats = &tmp_stats;
+        opts.type = INDEX_PAGE;
 
         Slice body;
         PageFooterPB footer;
