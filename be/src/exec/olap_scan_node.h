@@ -232,7 +232,8 @@ private:
 
     std::mutex _scan_batches_lock;
     std::condition_variable _scan_batch_added_cv;
-    int32_t _scanner_task_finish_count;
+    int64_t _running_thread = 0;
+    std::condition_variable _scan_thread_exit_cv;
 
     std::list<RowBatchInterface*> _scan_row_batches;
 
@@ -260,7 +261,6 @@ private:
     TResourceInfo* _resource_info;
 
     int64_t _buffered_bytes;
-    int64_t _running_thread;
     EvalConjunctsFn _eval_conjuncts_fn;
 
     bool _need_agg_finalize = true;
