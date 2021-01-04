@@ -64,15 +64,9 @@ option(WITH_MYSQL "Support access MySQL" ON)
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "4.8.2")
-        message(FATAL_ERROR "Need GCC version at least 4.8.2")
-    endif()
-
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER "7.3.0")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "7.3.0")
+        message(FATAL_ERROR "Need GCC version at least 7.3.0")
         message(STATUS "GCC version is greater than 7.3.0, disable -Werror. Be careful with compile warnings.")
-    else()
-        #   -Werror: compile warnings should be errors when using the toolchain compiler.
-        set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -Werror")
     endif()
 elseif (NOT APPLE)
     message(FATAL_ERROR "Compiler should be GNU")
