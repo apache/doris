@@ -73,7 +73,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * Constructs a non-executable single-node plan from an analyzed parse tree.
