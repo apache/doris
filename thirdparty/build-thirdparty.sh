@@ -569,7 +569,9 @@ build_arrow() {
     -DSnappy_ROOT=$TP_INSTALL_DIR/ \
     -DGLOG_ROOT=$TP_INSTALL_DIR/ \
     -DLZ4_ROOT=$TP_INSTALL_DIR/ \
-    -DThrift_ROOT=$TP_INSTALL_DIR/ ..
+    -DThrift_ROOT=$TP_INSTALL_DIR/ \
+    -DZSTD_SOURCE=BUNDLED \
+    -Ddouble-conversion_SOURCE=BUNDLED ..
 
     make -j$PARALLEL && make install
     #copy dep libs
