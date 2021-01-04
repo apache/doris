@@ -276,6 +276,8 @@ CONF_mDouble(base_cumulative_delta_ratio, "0.3");
 CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
 
+// Whether use candidate tablets mechanism to avoid traversing all tablets when produce compaction task.
+CONF_mBool(use_candidate_tablets_compaction, "false");
 // Heap size of candidate tablets for compaction
 CONF_mInt32(compaction_tablet_heap_size, "20");
 // A tablet will be push into compaction heap after scan count for the tablet

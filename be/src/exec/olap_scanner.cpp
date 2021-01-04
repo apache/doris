@@ -538,9 +538,8 @@ Status OlapScanner::close(RuntimeState* state) {
     _reader.reset();
     Expr::close(_conjunct_ctxs, state);
     _is_closed = true;
-    if (config::scan_count_push_tablet_into_compaction_heap != 0 &&
-        _tablet->query_scan_count->value() % config::scan_count_push_tablet_into_compaction_heap ==
-                0) {
+    if (config::use_candidate_tablets_compaction && config::scan_count_push_tablet_into_compaction_heap != 0 &&
+        _tablet->query_scan_count->value() % config::scan_count_push_tablet_into_compaction_heap == 0) {
         _tablet->data_dir()->push_tablet_into_compaction_heap(CompactionType::BASE_COMPACTION,
                                                               _tablet);
         _tablet->data_dir()->push_tablet_into_compaction_heap(CompactionType::CUMULATIVE_COMPACTION,
