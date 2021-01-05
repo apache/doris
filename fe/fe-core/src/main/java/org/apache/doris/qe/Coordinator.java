@@ -1565,13 +1565,15 @@ public class Coordinator {
             if (execHostPort == null) {
                 throw new UserException("there is no scanNode Backend");
             }
+            //the backend with buckendId is not alive, chose another new backend
             if (backendIdRef.getRef() != buckendId) {
+                //buckendIdToBucketCountMap does not contain the new backend, insert into it
                 if (!buckendIdToBucketCountMap.containsKey(backendIdRef.getRef())) {
                     buckendIdToBucketCountMap.put(backendIdRef.getRef(), 1);
-                } else {
+                } else { //buckendIdToBucketCountMap contains the new backend, update it 
                     buckendIdToBucketCountMap.put(backendIdRef.getRef(), buckendIdToBucketCountMap.get(backendIdRef.getRef()) + 1);
                 }
-            } else {
+            } else { //the backend with buckendId is alive, update buckendIdToBucketCountMap directly
                 buckendIdToBucketCountMap.put(buckendId, buckendIdToBucketCountMap.get(buckendId) + 1);
             }
             addressToBackendID.put(execHostPort, backendIdRef.getRef());
