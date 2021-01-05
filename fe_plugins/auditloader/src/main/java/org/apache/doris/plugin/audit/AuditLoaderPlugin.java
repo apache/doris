@@ -54,7 +54,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     private StringBuilder auditBuffer = new StringBuilder();
     private long lastLoadTime = 0;
 
-    private BlockingQueue<StringBuilder> batchQueue = new LinkedBlockingDeque<StringBuilder>(1);
+    private BlockingQueue<AuditEvent> auditEventQueue = new LinkedBlockingDeque<AuditEvent>(1);
     private DorisStreamLoader streamLoader;
     private Thread loadThread;
 
@@ -63,7 +63,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     private volatile boolean isInit = false;
 
     // the max stmt length to be loaded in audit table.
-    private static final int MAX_STMT_LENGTH = 2000;
+    private static final int MAX_STMT_LENGTH = 5000;
+    // the max auditEventQueue size to store audit_event
+    private static final int MAX_AUDIT_EVENT_SIZE = 4096;
 
     @Override
     public void init(PluginInfo info, PluginContext ctx) throws PluginException {
@@ -132,8 +134,17 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     }
 
     public void exec(AuditEvent event) {
-        assembleAudit(event);
-        loadIfNecessary();
+        try {
+            // In order to ensure that the system can run normally, here we directly
+            // discard the current audit_event. If this problem occurs frequently,
+            // improvement can be considered.
+            if (auditEventQueue.size() >= MAX_AUDIT_EVENT_SIZE) {
+                throw new PluginException("The previous batch is not processed, and the current batch is discarded.");
+            }
+            auditEventQueue.add(event);
+        } catch (Exception e) {
+            LOG.debug("encounter exception when putting current audit batch, discard current audit event", e);
+        }
     }
 
     private void assembleAudit(AuditEvent event) {
@@ -158,7 +169,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         auditBuffer.append(stmt).append("\n");
     }
 
-    private void loadIfNecessary() {
+    private void loadIfNecessary(DorisStreamLoader loader) {
         if (auditBuffer.length() < conf.maxBatchSize && System.currentTimeMillis() - lastLoadTime < conf.maxBatchIntervalSec * 1000) {
             return;
         }
@@ -166,15 +177,8 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         lastLoadTime = System.currentTimeMillis();
         // begin to load
         try {
-            if (!batchQueue.isEmpty()) {
-                // TODO(cmy): if queue is not empty, which means the last batch is not processed.
-                // In order to ensure that the system can run normally, here we directly
-                // discard the current batch. If this problem occurs frequently,
-                // improvement can be considered.
-                throw new PluginException("The previous batch is not processed, and the current batch is discarded.");
-            }
-
-            batchQueue.put(this.auditBuffer);
+            DorisStreamLoader.LoadResponse response = loader.loadBatch(auditBuffer);
+            LOG.debug("audit loader response: {}", response);
         } catch (Exception e) {
             LOG.debug("encounter exception when putting current audit batch, discard current batch", e);
         } finally {
@@ -243,16 +247,13 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         public void run() {
             while (!isClosed) {
                 try {
-                    StringBuilder batch = batchQueue.poll(5, TimeUnit.SECONDS);
-                    if (batch == null) {
-                        continue;
+                    AuditEvent event = auditEventQueue.poll(5, TimeUnit.SECONDS);
+                    if (event != null) {
+                        assembleAudit(event);
+                        loadIfNecessary(loader);
                     }
-
-                    DorisStreamLoader.LoadResponse response = loader.loadBatch(batch);
-                    LOG.debug("audit loader response: {}", response);
                 } catch (InterruptedException e) {
                     LOG.debug("encounter exception when loading current audit batch", e);
-                    continue;
                 }
             }
         }
