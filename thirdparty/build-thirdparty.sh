@@ -389,37 +389,6 @@ build_lzo2() {
     make -j$PARALLEL && make install
 }
 
-# brotli
-build_brotli() {
-    check_if_source_exist $BROTLI_SOURCE
-    cd $TP_SOURCE_DIR/$BROTLI_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    rm -rf CMakeCache.txt CMakeFiles/
-    ${CMAKE_CMD} .. -G "${GENERATOR}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR
-    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
-    if [ -f $TP_INSTALL_DIR/lib64/libbrotlidec.so ]; then
-        rm -rf $TP_INSTALL_DIR/lib64/llibbrotlidec.so*
-    fi
-    if [ -f $TP_INSTALL_DIR/lib64/libbrotlicommon.so ]; then
-        rm -rf $TP_INSTALL_DIR/lib64/libbrotlicommon.so*
-    fi
-    if [ -f $TP_INSTALL_DIR/lib64/libbrotlienc.so ]; then
-        rm -rf $TP_INSTALL_DIR/lib64/libbrotlienc.so*
-    fi
-}
-
-#jemalloc
-build_jemalloc() {
-    check_if_source_exist $JEMALLOC_SOURCE
-    cd $TP_SOURCE_DIR/$JEMALLOC_SOURCE
-
-    CPPFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
-    LDFLAGS="-L${TP_LIB_DIR}" \
-    CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR
-    make -j$PARALLEL && make install_lib_static
-}
-
 # curl
 build_curl() {
     check_if_source_exist $CURL_SOURCE
@@ -466,7 +435,7 @@ build_mysql() {
     fi
 
     ${CMAKE_CMD} -G "${GENERATOR}" ../ -DWITH_BOOST=`pwd`/$BOOST_FOR_MYSQL_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/mysql/ \
-    -DCMAKE_INCLUDE_PATH=$TP_INCLUDE_DIR -DWITHOUT_SERVER=1 \
+    -DCMAKE_INCLUDE_PATH=$TP_INCLUDE_DIR -DWITHOUT_SERVER=1 -DWITH_ZLIB=$TP_INSTALL_DIR \
     -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -fabi-version=2 -fno-omit-frame-pointer -fno-strict-aliasing -std=gnu++11" \
     -DDISABLE_SHARED=1 -DBUILD_SHARED_LIBS=0
     ${BUILD_SYSTEM} -j$PARALLEL mysqlclient
@@ -573,7 +542,6 @@ build_arrow() {
     export ARROW_JEMALLOC_URL=${TP_SOURCE_DIR}/${JEMALLOC_NAME}
     export ARROW_Thrift_URL=${TP_SOURCE_DIR}/${THRIFT_NAME}
     export LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
-    export export ZSTD_STATIC_LIB=${TP_SOURCE_DIR}/lib/libzstd.a
 
     ${CMAKE_CMD} -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_USE_GLOG=off \
     -DARROW_BUILD_SHARED=OFF -DARROW_BUILD_STATIC=ON -DARROW_WITH_ZSTD=ON \
@@ -587,12 +555,22 @@ build_arrow() {
     -DGLOG_ROOT=$TP_INSTALL_DIR/ \
     -DLZ4_ROOT=$TP_INSTALL_DIR/ \
     -DZSTD_SOURCE=BUNDLED \
-    -DJEMALLOC_HOME=$TP_INSTALL_DIR/ \
-    -DBROTLI_ROOT=$TP_INSTALL_DIR/ \
     -Ddouble-conversion_SOURCE=BUNDLED \
     -DThrift_ROOT=$TP_INSTALL_DIR/ ..
 
     ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+
+    #copy dep libs	
+    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a $TP_INSTALL_DIR/lib64/libjemalloc.a	
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a $TP_INSTALL_DIR/lib64/libbrotlienc.a	
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a $TP_INSTALL_DIR/lib64/libbrotlidec.a	
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a $TP_INSTALL_DIR/lib64/libbrotlicommon.a	
+    if [ -f ./zstd_ep-install/lib64/libzstd.a ]; then	
+        cp -rf ./zstd_ep-install/lib64/libzstd.a $TP_INSTALL_DIR/lib64/libzstd.a	
+    else	
+        cp -rf ./zstd_ep-install/lib/libzstd.a $TP_INSTALL_DIR/lib64/libzstd.a	
+    fi	
+    cp -rf ./double-conversion_ep/src/double-conversion_ep/lib/libdouble-conversion.a $TP_INSTALL_DIR/lib64/libdouble-conversion.a
 }
 
 # s2
@@ -734,8 +712,6 @@ build_zlib
 build_lz4
 build_bzip
 build_lzo2
-build_brotli
-build_jemalloc
 build_openssl
 build_boost # must before thrift
 build_protobuf
