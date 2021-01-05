@@ -110,6 +110,9 @@ void NodeChannel::open() {
     // This ref is for RPC's reference
     _open_closure->ref();
     _open_closure->cntl.set_timeout_ms(config::tablet_writer_open_rpc_timeout_sec * 1000);
+    if (config::tablet_writer_ignore_eovercrowded) {
+        _open_closure->cntl.ignore_eovercrowded();
+    }
     _stub->tablet_writer_open(&_open_closure->cntl, &request, &_open_closure->result,
                               _open_closure);
     request.release_id();
@@ -294,6 +297,9 @@ void NodeChannel::cancel() {
 
     closure->ref();
     closure->cntl.set_timeout_ms(_rpc_timeout_ms);
+    if (config::tablet_writer_ignore_eovercrowded) {
+        closure->cntl.ignore_eovercrowded();
+    }
     _stub->tablet_writer_cancel(&closure->cntl, &request, &closure->result, closure);
     request.release_id();
 }
@@ -677,13 +683,13 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
 }
 
 Status OlapTableSink::close(RuntimeState* state, Status close_status) {
-	if (_is_closed) {
-		/// The close method may be called twice.
-		/// In the open_internal() method of plan_fragment_executor, close is called once.
-		/// If an error occurs in this call, it will be called again in fragment_mgr.
-		/// So here we use a flag to prevent repeated close operations.
-		return _close_status;
-	}
+    if (_is_closed) {
+        /// The close method may be called twice.
+        /// In the open_internal() method of plan_fragment_executor, close is called once.
+        /// If an error occurs in this call, it will be called again in fragment_mgr.
+        /// So here we use a flag to prevent repeated close operations.
+        return _close_status;
+    }
     Status status = close_status;
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
@@ -761,8 +767,8 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
     Expr::close(_output_expr_ctxs, state);
     _output_batch.reset();
 
-	_close_status = status;
-	_is_closed = true;
+    _close_status = status;
+    _is_closed = true;
     return status;
 }
 
