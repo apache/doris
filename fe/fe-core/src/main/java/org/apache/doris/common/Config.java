@@ -68,7 +68,8 @@ public class Config extends ConfigBase {
     public static String sys_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
     @ConfField public static String sys_log_level = "INFO"; 
     @ConfField public static int sys_log_roll_num = 10;
-    @ConfField public static String[] sys_log_verbose_modules = {"org.apache.thrift", "org.apache.doris.thrift", "org.apache.doris.http", "org.apache.doris.service.FrontendServiceImpl"};
+    @ConfField
+    public static String[] sys_log_verbose_modules = {};
     @ConfField public static String sys_log_roll_interval = "DAY";
     @ConfField public static String sys_log_delete_age = "7d";
     @Deprecated
@@ -1009,6 +1010,18 @@ public class Config extends ConfigBase {
     // no more balance check
     @ConfField(mutable = true, masterOnly = true)
     public static int max_balancing_tablets = 100;
+
+    // Rebalancer type(ignore case): BeLoad, Partition. If type parse failed, use BeLoad as default.
+    @ConfField(masterOnly = true)
+    public static String tablet_rebalancer_type = "BeLoad";
+
+    // Valid only if use PartitionRebalancer. If this changed, cached moves will be cleared.
+    @ConfField(mutable = true, masterOnly = true)
+    public static long partition_rebalance_move_expire_after_access = 600; // 600s
+
+    // Valid only if use PartitionRebalancer
+    @ConfField(mutable = true, masterOnly = true)
+    public static int partition_rebalance_max_moves_num_per_selection = 10;
 
     // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
     // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost

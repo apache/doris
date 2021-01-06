@@ -170,7 +170,7 @@ private:
     bool is_blacklisted(DeviceId device_id);
 
     ExecEnv* _exec_env;
-    bool _initialized;
+    bool _initialized = false;
 
     // Protects the status of tmp dirs (i.e. whether they're blacklisted).
     SpinLock _dir_status_lock;

@@ -477,6 +477,27 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs
     return serialize(ctx, &bitmap);
 }
 
+StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs,
+                                      const StringVal& rhs) {
+    if (lhs.is_null || rhs.is_null) {
+        return StringVal::null();
+    }
+    BitmapValue bitmap;
+    if (lhs.len == 0) {
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
+    } else {
+        bitmap |= BitmapValue((char*)lhs.ptr);
+    }
+
+    if (rhs.len == 0) {
+        bitmap ^= *reinterpret_cast<BitmapValue*>(rhs.ptr);
+    } else {
+        bitmap ^= BitmapValue((char*)rhs.ptr);
+    }
+    return serialize(ctx, &bitmap);
+}
+
+
 StringVal BitmapFunctions::bitmap_to_string(FunctionContext* ctx, const StringVal& input) {
     if (input.is_null) {
         return StringVal::null();

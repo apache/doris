@@ -67,6 +67,10 @@ struct ColumnIteratorOptions {
     // reader statistics
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
+    // for page cache allocation
+    // page types are divided into DATA_PAGE & INDEX_PAGE
+    // INDEX_PAGE including index_page, dict_page and short_key_page
+    PageTypePB type;
 
     void sanity_check() const {
         CHECK_NOTNULL(rblock);

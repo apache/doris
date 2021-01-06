@@ -92,6 +92,38 @@ public class SimpleScheduler {
                         backends, locations.size()));
     }
 
+    public static TScanRangeLocation getLocation(TScanRangeLocation minLocation,
+                                          List<TScanRangeLocation> locations,
+                                          ImmutableMap<Long, Backend> backends,
+                                          Reference<Long> backendIdRef)
+            throws UserException {
+        if (CollectionUtils.isEmpty(locations) || backends == null || backends.isEmpty()) {
+            throw new UserException("scan range location or candidate backends is empty");
+        }
+        Backend backend = backends.get(minLocation.backend_id);
+        if (isAvailable(backend)) {
+            backendIdRef.setRef(minLocation.backend_id);
+            return minLocation;
+        } else {
+            for (TScanRangeLocation location : locations) {
+                if (location.backend_id == minLocation.backend_id) {
+                    continue;
+                }
+                // choose the first alive backend(in analysis stage, the locations are random)
+                Backend candidateBackend = backends.get(location.backend_id);
+                if (isAvailable(candidateBackend)) {
+                    backendIdRef.setRef(location.backend_id);
+                    return location;
+                }
+            }
+        }
+
+        // no backend returned
+        throw new UserException("there is no scanNode Backend. " +
+                getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
+                        backends, locations.size()));
+    }
+
     public static TNetworkAddress getHost(ImmutableMap<Long, Backend> backends,
                                           Reference<Long> backendIdRef)
             throws UserException {

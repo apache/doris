@@ -31,6 +31,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "util/debug_util.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -221,7 +222,7 @@ TEST_F(BinaryDictPageTest, TestEncodingRatio) {
     while (getline(infile, line)) {
         src_strings.emplace_back(line);
     }
-    for (int i = 0; i < 10000; ++i) {
+    for (int i = 0; i < LOOP_LESS_OR_MORE(100, 10000); ++i) {
         for (const auto& src_string : src_strings) {
             slices.push_back(src_string);
         }

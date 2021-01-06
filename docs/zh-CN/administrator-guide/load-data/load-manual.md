@@ -215,3 +215,9 @@ Doris 目前的导入方式分为两类，同步和异步。如果是外部程�
 + label\_keep\_max\_second
   
     设置导入任务记录保留时间。已经完成的（ FINISHED or CANCELLED ）导入任务记录会保留在 Doris 系统中一段时间，时间由此参数决定。参数默认值时间为3天。该参数通用与所有类型的导入任务。
+
+### 列映射
+  假设导入数据有为 `1，2，3`，表有 `c1,c2,c3` 三列，如果数据直接导入表中可以使用如下语句 `COLUMNS(c1,c2,c3)` 此语句等价于 `COLUMNS(tmp_c1,tmp_c2,tmp_c3,c1=tmp_c1,c2=tmp_c2,c3=tmp_c3)`
+如果想再导入数据时执行变换或者使用临时变量，则变换或者临时变量一定要按照使用的顺序指定， 例如 `COLUMNS(tmp_c1,tmp_c2,tmp_c3, c1 = tmp_c1 +1, c2= c1+1, c3 =c2+1)`, 这样的语句等价于 `COLUMNS(tmp_c1,tmp_c2,tmp_c3, c1 = tmp_c1 +1, c2= tmp_c1 +1+1, c3 =tmp_c1 +1+1+1)`
+在使用某个表达式时这个表达式一定要在前面定义，例如如下语句则不合法 `COLUMNS(tmp_c1,tmp_c2,tmp_c3, c1 = c1+1, c2 = temp + 1, temp = tmp_c1 +1, c3 =c2+1)`
+

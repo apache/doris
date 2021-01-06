@@ -54,6 +54,10 @@ struct PageReadOptions {
     // if true, use DURABLE CachePriority in page cache
     // currently used for in memory olap table
     bool kept_in_memory = false;
+    // for page cache allocation
+    // page types are divided into DATA_PAGE & INDEX_PAGE
+    // INDEX_PAGE including index_page, dict_page and short_key_page
+    PageTypePB type;
 
     void sanity_check() const {
         CHECK_NOTNULL(rblock);
