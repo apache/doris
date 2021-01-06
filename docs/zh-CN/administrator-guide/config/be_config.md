@@ -322,8 +322,6 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 * 描述：配置单个RowBlock之中包含多少行的数据。
 * 默认值：1024
 
-### `default_query_options`
-
 ### `default_rowset_type`
 * 类型：string
 * 描述：标识BE默认选择的存储格式，可配置的参数为："**ALPHA**", "**BETA**"。主要起以下两个作用
@@ -509,8 +507,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `load_process_max_memory_limit_percent`
 
-### `local_library_dir`
-
 ### `log_buffer_level`
 
 ### `madvise_huge_pages`
@@ -690,14 +686,7 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `scan_context_gc_interval_min`
 
-### `scratch_dirs`
-
 ### `serialize_batch`
-
-### `sleep_five_seconds`
-+ 类型：int32
-+ 描述：全局变量，用于BE线程休眠5秒，不应该被修改
-+ 默认值：5
 
 ### `sleep_one_second`
 + 类型：int32
@@ -707,8 +696,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 ### `small_file_dir`
 
 ### `snapshot_expire_time_sec`
-
-### `sorter_block_size`
 
 ### `status_report_interval`
 
@@ -860,8 +847,6 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 ### `use_mmap_allocate_chunk`
 
 ### `user_function_dir`
-
-### `web_log_bytes`
 
 ### `webserver_num_workers`
 
