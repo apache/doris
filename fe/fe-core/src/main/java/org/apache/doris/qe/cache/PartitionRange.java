@@ -371,15 +371,15 @@ public class PartitionRange {
         if (end < begin) {
             hitRange = Cache.HitRange.Full;
             return hitRange;
-        }
-
-        if (end == partitionSingleList.size() - 1) {
+        } else if (begin > 0 && end == partitionSingleList.size() - 1) {
             hitRange = Cache.HitRange.Left;
-        }
-        if (begin == 0) {
+        } else if (begin == 0 && end < partitionSingleList.size() - 1) {
             hitRange = Cache.HitRange.Right;
+        } else if (begin > 0 && end < partitionSingleList.size() - 1) {
+            hitRange = Cache.HitRange.Middle;
+        } else {
+            hitRange = Cache.HitRange.None;
         }
-
         rangeList.add(partitionSingleList.get(begin));
         rangeList.add(partitionSingleList.get(end));
         LOG.info("the new range for scan be is [{},{}], hit range", rangeList.get(0).getCacheKey().realValue(),

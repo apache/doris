@@ -88,6 +88,26 @@ TEST_F(PercentileApproxTest, testSerialize) {
     AggregateFunctions::percentile_approx_merge(context, serialized, &stringVal2);
     DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal2);
     ASSERT_DOUBLE_EQ(v.val, 99900.5);
+
+    // merge init percentile stringVal3 should not change the correct result
+    AggregateFunctions::percentile_approx_init(context, &stringVal);
+
+    for (int i = 1; i <= 100000; i++) {
+        DoubleVal val(i);
+        AggregateFunctions::percentile_approx_update(context, val, doubleQ, &stringVal);
+    }
+    serialized = AggregateFunctions::percentile_approx_serialize(context, stringVal);
+
+    StringVal stringVal3;
+    AggregateFunctions::percentile_approx_init(context, &stringVal2);
+    AggregateFunctions::percentile_approx_init(context, &stringVal3);
+    StringVal serialized2 = AggregateFunctions::percentile_approx_serialize(context, stringVal3);
+
+    AggregateFunctions::percentile_approx_merge(context, serialized, &stringVal2);
+    AggregateFunctions::percentile_approx_merge(context, serialized2, &stringVal2);
+    v = AggregateFunctions::percentile_approx_finalize(context, stringVal2);
+    ASSERT_DOUBLE_EQ(v.val, 99900.5);
+
     delete futil;
 }
 
