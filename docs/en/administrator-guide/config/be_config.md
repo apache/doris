@@ -325,8 +325,6 @@ In some deployment environments, the `conf/` directory may be overwritten due to
 * Description: Configure how many rows of data are contained in a single RowBlock.
 * Default value: 1024
 
-### `default_query_options`
-
 ### `default_rowset_type`
 
 * Type: string
@@ -508,8 +506,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `load_process_max_memory_limit_percent`
 
-### `local_library_dir`
-
 ### `log_buffer_level`
 
 ### `madvise_huge_pages`
@@ -689,15 +685,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `scan_context_gc_interval_min`
 
-### `scratch_dirs`
-
-### `serialize_batch`
-
-### `sleep_five_seconds`
-+ Type: int32
-+ Description: Global variables, used for BE thread sleep for 5 seconds, should not be modified
-+ Default value: 5
-
 ### `sleep_one_second`
 
 + Type: int32
@@ -707,8 +694,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `small_file_dir`
 
 ### `snapshot_expire_time_sec`
-
-### `sorter_block_size`
 
 ### `status_report_interval`
 
@@ -861,8 +846,6 @@ If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
 ### `use_mmap_allocate_chunk`
 
 ### `user_function_dir`
-
-### `web_log_bytes`
 
 ### `webserver_num_workers`
 
