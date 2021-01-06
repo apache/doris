@@ -32,6 +32,7 @@ import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
+import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDbStmt;
@@ -192,6 +193,8 @@ public class ShowExecutor {
             handleShowEngines();
         } else if (stmt instanceof ShowFunctionsStmt) {
             handleShowFunctions();
+        } else if (stmt instanceof ShowCreateFunctionStmt) {
+            handleShowCreateFunction();
         } else if (stmt instanceof ShowVariablesStmt) {
             handleShowVariables();
         } else if (stmt instanceof ShowColumnStmt) {
@@ -358,6 +361,23 @@ public class ShowExecutor {
             ShowResultSetMetaData.builder()
                 .addColumn(new Column("Function Name", ScalarType.createVarchar(256))).build();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
+    }
+
+    // Handle show create function
+    private void handleShowCreateFunction() throws AnalysisException {
+        ShowCreateFunctionStmt showCreateFunctionStmt = (ShowCreateFunctionStmt) stmt;
+        Database db = ctx.getCatalog().getDb(showCreateFunctionStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showCreateFunctionStmt.getDbName());
+        }
+
+        Function function = db.getFunction(showCreateFunctionStmt.getFunction());
+        List<List<String>> resultRowSet = Lists.newArrayList();
+        List<String> resultRow = Lists.newArrayList();
+        resultRow.add(function.signatureString());
+        resultRow.add(function.toSql(false));
+        resultRowSet.add(resultRow);
+        resultSet = new ShowResultSet(showCreateFunctionStmt.getMetaData(), resultRowSet);
     }
 
     private void handleShowProc() throws AnalysisException {
