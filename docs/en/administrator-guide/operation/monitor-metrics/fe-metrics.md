@@ -75,3 +75,51 @@ Value of the `Tcp: OutSegs` field in `/proc/net/snmp`. Represents the number of 
 Use `(NEW_tcp_retrans_segs - OLD_tcp_retrans_segs) / (NEW_tcp_out_segs - OLD_tcp_out_segs)` can calculate the retrans rate of TCP packets.
 
 Usually used to troubleshoot network problems.
+
+### `jvm_thread{type="count"}`
+
+Value of the `count` type in `jvm_thread`. Represents the current number of live threads including both daemon and non-daemon threads.
+
+Usually used to troubleshoot jvm threads problems for FE.
+
+### `jvm_thread{type="peak_count"}`
+
+Value of the `peak_count` type in `jvm_thread`. Represents the current number of live threads including both daemon and non-daemon threads.
+
+Usually used to troubleshoot jvm threads problems for FE.
+
+### `jvm_thread{type="new_count"}`
+
+Value of the `new_count` type in `jvm_thread`. Represents the current number of threads which state is NEW.
+
+Usually used to troubleshoot jvm threads problems for FE.
+
+### `jvm_thread{type="runnable_count"}`
+
+Value of the `runnable_count` type in `jvm_thread`. Represents the current number of threads which state is RUNNABLE.
+
+Usually used to troubleshoot jvm threads problems for FE.
+
+### `jvm_thread{type="blocked_count"}`
+
+Value of the `blocked_count` type in `jvm_thread`. Represents the current number of threads which state is BLOCKED.
+
+Usually used to troubleshoot jvm threads problems for FE.
+
+### `jvm_thread{type="waiting_count"}`
+
+Value of the `waiting_count` type in `jvm_thread`. Represents the current number of threads which state is WAITING.
+
+Usually used to troubleshoot jvm threads problems for FE.
+
+### `jvm_thread{type="timed_waiting_count"}`
+
+Value of the `timed_waiting_count` type in `jvm_thread`. Represents the current number of threads which state is TIMED_WAITING.
+
+Usually used to troubleshoot jvm threads problems for FE.
+
+### `jvm_thread{type="terminated_count"}`
+
+Value of the `terminated_count` type in `jvm_thread`. Represents the current number of threads which state is TERMINATED.
+
+Usually used to troubleshoot jvm threads problems for FE.
