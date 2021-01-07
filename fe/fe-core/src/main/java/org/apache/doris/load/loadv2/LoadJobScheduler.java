@@ -66,7 +66,7 @@ public class LoadJobScheduler extends MasterDaemon {
         while (true) {
             if (!needScheduleJobs.isEmpty()) {
                 if (needScheduleJobs.peek() instanceof BrokerLoadJob && Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().isTaskQueueFull()) {
-                    LOG.warn("Failed to task one broker load job from queue because of task queue in loading_load_task_scheduler is full");
+                    LOG.warn("Failed to take one broker load job from queue because of task queue in loading_load_task_scheduler is full");
                     return;
                 }
             } else {
