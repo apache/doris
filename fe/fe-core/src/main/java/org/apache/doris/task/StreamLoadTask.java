@@ -265,11 +265,6 @@ public class StreamLoadTask implements LoadTaskInfo {
         if (negative && mergeType != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("Negative is only used when merge type is APPEND.");
         }
-        if (mergeType == LoadTask.MergeType.MERGE) {
-            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
-        }  else if (mergeType == LoadTask.MergeType.DELETE) {
-            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
-        }
         if (request.isSetSequenceCol()) {
             sequenceCol = request.getSequenceCol();
             // add expr for sequence column

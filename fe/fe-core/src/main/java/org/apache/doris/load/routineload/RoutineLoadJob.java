@@ -367,11 +367,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 deleteCondition = routineLoadDesc.getDeleteCondition();
             }
             mergeType = routineLoadDesc.getMergeType();
-            if (mergeType == LoadTask.MergeType.MERGE) {
-                columnDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
-            } else if (mergeType == LoadTask.MergeType.DELETE) {
-                columnDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
-            }
             if (routineLoadDesc.hasSequenceCol()) {
                 sequenceCol = routineLoadDesc.getSequenceColName();
                 // add expr for sequence column
