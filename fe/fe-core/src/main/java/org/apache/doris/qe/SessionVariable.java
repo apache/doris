@@ -114,9 +114,11 @@ public class SessionVariable implements Serializable, Writable {
 
     // max ms to wait transaction publish finish when exec insert stmt.
     public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
+    public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
+    public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS)
-    private long insertVisibleTimeoutMs = -1;
+    private long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -551,11 +553,19 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isAllowPartitionColumnNullable() { return allowPartitionColumnNullable; }
 
     public long getInsertVisibleTimeoutMs() {
-        return insertVisibleTimeoutMs;
+        if (insertVisibleTimeoutMs < MIN_INSERT_VISIBLE_TIMEOUT_MS) {
+            return MIN_INSERT_VISIBLE_TIMEOUT_MS;
+        } else {
+            return insertVisibleTimeoutMs;
+        }
     }
 
     public void setInsertVisibleTimeoutMs(long insertVisibleTimeoutMs) {
-        this.insertVisibleTimeoutMs = insertVisibleTimeoutMs;
+        if (insertVisibleTimeoutMs < MIN_INSERT_VISIBLE_TIMEOUT_MS) {
+            this.insertVisibleTimeoutMs = MIN_INSERT_VISIBLE_TIMEOUT_MS;
+        } else {
+            this.insertVisibleTimeoutMs = insertVisibleTimeoutMs;
+        }
     }
 
     // Serialize to thrift object
