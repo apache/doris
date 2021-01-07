@@ -593,12 +593,19 @@ public class Config extends ConfigBase {
     public static int max_running_txn_num_per_db = 100;
 
     /**
-     * The load task executor pool size. This pool size limits the max running load tasks.
-     * Currently, it only limits the load task of broker load, pending and loading phases.
+     * The pending_load task executor pool size. This pool size limits the max running pending_load tasks.
+     * Currently, it only limits the pending_load task of broker load and spark load.
      * It should be less than 'max_running_txn_num_per_db'
      */
     @ConfField(mutable = false, masterOnly = true)
-    public static int async_load_task_pool_size = 10;
+    public static int async_pending_load_task_pool_size = 5;
+
+    /**
+     * The loading_load task executor pool size. This pool size limits the max running loading_load tasks.
+     * Currently, it only limits the loading_load task of broker load.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int async_loading_load_task_pool_size = 20;
 
     /**
      * Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
