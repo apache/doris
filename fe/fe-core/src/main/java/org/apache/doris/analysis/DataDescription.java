@@ -796,11 +796,6 @@ public class DataDescription {
         analyzeColumns();
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
-        // add columnExpr for sequence column
-        if (hasSequenceCol()) {
-            parsedColumnExprList.add(new ImportColumnDesc(Column.SEQUENCE_COL,
-                    new SlotRef(null, getSequenceCol())));
-        }
     }
 
     /*

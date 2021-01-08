@@ -368,8 +368,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             mergeType = routineLoadDesc.getMergeType();
             if (routineLoadDesc.hasSequenceCol()) {
                 sequenceCol = routineLoadDesc.getSequenceColName();
-                // add expr for sequence column
-                columnDescs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, sequenceCol)));
             }
         }
     }
@@ -594,6 +592,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return value;
     }
 
+    @Override
     public String getSequenceCol() {
         return sequenceCol;
     }
