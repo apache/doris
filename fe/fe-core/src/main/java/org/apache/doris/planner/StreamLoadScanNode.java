@@ -86,6 +86,9 @@ public class StreamLoadScanNode extends LoadScanNode {
 
         this.analyzer = analyzer;
         brokerScanRange = new TBrokerScanRange();
+        
+        deleteCondition = taskInfo.getDeleteCondition();
+        mergeType = taskInfo.getMergeType();
 
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.file_type = taskInfo.getFileType();
@@ -135,9 +138,6 @@ public class StreamLoadScanNode extends LoadScanNode {
 
         // analyze where statement
         initWhereExpr(taskInfo.getWhereExpr(), analyzer);
-
-        deleteCondition = taskInfo.getDeleteCondition();
-        mergeType = taskInfo.getMergeType();
 
         computeStats(analyzer);
         createDefaultSmap(analyzer);
