@@ -164,6 +164,12 @@ FE 的配置项有两种方式进行配置：
 
 ### `bdbje_lock_timeout_second`
 
+### `broadcast_mem_limit`
+
+默认执行 `broadcast join` 时，广播涉及的数据量超过该阈值，则切换成 `shuffle join` ，如果超过 `exec_mem_limit` 同样会切换成 `shuffle join` 。
+
+显示指定 join hint 时该变量无效。
+
 ### `broker_load_default_timeout_second`
 
 ### `brpc_idle_wait_max_time`

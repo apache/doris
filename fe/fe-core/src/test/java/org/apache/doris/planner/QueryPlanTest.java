@@ -1272,11 +1272,67 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("EnableTransaction: true"));
     }
 
+    @Test
+    public void testImplicitlyBroadcastJoin() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String queryStr = "explain select t1.k1, t2.k1 from (select k1 from jointest)t2, jointest t1 where t1.k1 = t2.k1";
+
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTable("jointest");
+        for (Partition partition : tbl.getPartitions()) {
+            partition.updateVisibleVersionAndVersionHash(2, 0);
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(10000);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersionInfo(2, 0, 200000, 10000);
+                    }
+                }
+            }
+        }
+
+        connectContext.getSessionVariable().setDisableColocateJoin(true);
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+
+        connectContext.getSessionVariable().setBroadcastMemLimit(100000);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (PARTITIONED)"));
+
+        connectContext.getSessionVariable().setBroadcastMemLimit(300000);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+
+        connectContext.getSessionVariable().setBroadcastMemLimit(0);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (PARTITIONED)"));
+
+        connectContext.getSessionVariable().setBroadcastMemLimit(-1);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+
+        // should clear the jointest table to make sure do not affect other test
+        for (Partition partition : tbl.getPartitions()) {
+            partition.updateVisibleVersionAndVersionHash(2, 0);
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                mIndex.setRowCount(0);
+                for (Tablet tablet : mIndex.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateVersionInfo(2, 0, 0, 0);
+                    }
+                }
+            }
+        }
+        connectContext.getSessionVariable().setBroadcastMemLimit(1073741824L);
+        connectContext.getSessionVariable().setDisableColocateJoin(false);
+    }
 
     @Test
     public void testPreferBroadcastJoin() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String queryStr = "explain select * from (select k1 from jointest group by k1)t2, jointest t1 where t1.k1 = t2.k1";
+        // force to use broadcast join
+        connectContext.getSessionVariable().setDisableColocateJoin(true);
 
         // default set PreferBroadcastJoin true
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
@@ -1289,6 +1345,9 @@ public class QueryPlanTest {
         connectContext.getSessionVariable().setPreferJoinMethod("broadcast");
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+
+        // clear session variable
+        connectContext.getSessionVariable().setDisableColocateJoin(false);
     }
 
     @Test

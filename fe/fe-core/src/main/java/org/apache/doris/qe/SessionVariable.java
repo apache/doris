@@ -40,6 +40,7 @@ public class SessionVariable implements Serializable, Writable {
     
     static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
+    public static final String BROADCAST_MEM_LIMIT = "broadcast_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String IS_REPORT_SUCCESS = "is_report_success";
     public static final String SQL_MODE = "sql_mode";
@@ -115,6 +116,9 @@ public class SessionVariable implements Serializable, Writable {
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
+
+    @VariableMgr.VarAttr(name = BROADCAST_MEM_LIMIT)
+    public long broadcastMemLimit = -1L;
 
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
@@ -284,6 +288,10 @@ public class SessionVariable implements Serializable, Writable {
         return maxExecMemByte;
     }
 
+    public long getBroadcastMemLimit() {
+        return broadcastMemLimit;
+    }
+
     public long getLoadMemLimit() {
         return loadMemLimit;
     }
@@ -408,6 +416,10 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void setBroadcastMemLimit(long broadcastMemLimit) {
+        this.broadcastMemLimit = broadcastMemLimit;
+    }
+
     public void setLoadMemLimit(long loadMemLimit) {
         this.loadMemLimit = loadMemLimit;
     }
@@ -428,8 +440,16 @@ public class SessionVariable implements Serializable, Writable {
         return disableColocateJoin;
     }
 
+    public void setDisableColocateJoin(boolean disableColocateJoin) {
+        this.disableColocateJoin = disableColocateJoin;
+    }
+
     public boolean isEnableBucketShuffleJoin() {
         return enableBucketShuffleJoin;
+    }
+
+    public void setEnableBucketShuffleJoin(boolean enableBucketShuffleJoin) {
+        this.enableBucketShuffleJoin = enableBucketShuffleJoin;
     }
 
     public boolean isEnableOdbcTransaction() {

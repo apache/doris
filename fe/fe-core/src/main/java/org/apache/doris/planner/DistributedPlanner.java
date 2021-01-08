@@ -353,29 +353,26 @@ public class DistributedPlanner {
             LOG.debug(rhsTree.getExplainString());
         }
 
-        boolean doBroadcast;
         // we do a broadcast join if
         // - we're explicitly told to do so
         // - or if it's cheaper and we weren't explicitly told to do a partitioned join
         // - and we're not doing a full or right outer join (those require the left-hand
         //   side to be partitioned for correctness)
         // - and the expected size of the hash tbl doesn't exceed perNodeMemLimit
-        // we set partition join as default when broadcast join cost equals partition join cost
-        if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN) {
-            if (node.getInnerRef().isBroadcastJoin()) {
-                // respect user join hint
-                doBroadcast = true;
-            } else if (!node.getInnerRef().isPartitionJoin()
-                    && isBroadcastCostSmaller(broadcastCost, partitionCost)
-                    && (perNodeMemLimit == 0
-                        || Math.round((double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)) {
-                doBroadcast = true;
-            } else {
-                doBroadcast = false;
-            }
-        } else {
-            doBroadcast = false;
-        }
+        // when broadcast join cost equals partition join cost, choose join type by prefer_join_type
+        boolean broadcastAllowedJoinType =
+                node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN;
+        boolean broadcastHint = node.getInnerRef().isBroadcastJoin(); // respect user join hint
+        boolean shuffleHint = node.getInnerRef().isPartitionJoin();
+        boolean broadcastCostSmaller = isBroadcastCostSmaller(broadcastCost, partitionCost);
+
+        long broadcastLimit = ConnectContext.get().getSessionVariable().getBroadcastMemLimit();
+        boolean inBroadcastMemLimit = broadcastLimit < 0L || rhsDataSize <= broadcastLimit;
+        boolean inNodeMemLimit = perNodeMemLimit == 0L ||
+                Math.round((double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit;
+
+        boolean doBroadcast = broadcastAllowedJoinType && (broadcastHint ||
+                (!shuffleHint && broadcastCostSmaller && inBroadcastMemLimit && inNodeMemLimit));
 
         List<String> reason = Lists.newArrayList();
         if (canColocateJoin(node, leftChildFragment, rightChildFragment, reason)) {
@@ -427,7 +424,7 @@ public class DistributedPlanner {
                 node.setIsPushDown(true);
             } else {
                 node.setIsPushDown(false);
-            }  
+            }
             return leftChildFragment;
         } else {
             node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
@@ -1076,7 +1073,7 @@ public class DistributedPlanner {
                     partitionExprs == null ? DataPartition.UNPARTITIONED : DataPartition.hashPartitioned(partitionExprs);
             // Convert the existing node to a preaggregation.
             AggregationNode preaggNode = (AggregationNode)node.getChild(0);
-            
+
             preaggNode.setIsPreagg(ctx_);
 
             // place a merge aggregation step for the 1st phase in a new fragment

@@ -166,6 +166,12 @@ But at the same time, it will cause the submission of failed or failed execution
 
 ### `bdbje_lock_timeout_second`
 
+### `broadcast_mem_limit`
+
+When executing `broadcast join` by default, switch to `shuffle join` if the amount of data exceeds this threshold, or exceeds `exec_mem_limit`.
+
+This variable is useless when the join hint is specified.
+
 ### `broker_load_default_timeout_second`
 
 ### `brpc_idle_wait_max_time`
