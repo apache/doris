@@ -691,15 +691,17 @@ COMPARISON_PREDICATE_CONDITION_VALUE(gt, GreaterPredicate)
 COMPARISON_PREDICATE_CONDITION_VALUE(ge, GreaterEqualPredicate)
 
 ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
-    // TODO: not equal and not in predicate is not pushed down
     int32_t index = _tablet->field_index(condition.column_name);
     if (index < 0) {
         return nullptr;
     }
+
     const TabletColumn& column = _tablet->tablet_schema().column(index);
     ColumnPredicate* predicate = nullptr;
-    if (condition.condition_op == "*=" && condition.condition_values.size() == 1) {
-        predicate = _new_eq_pred(column, index, condition.condition_values[0]);
+    if ((condition.condition_op == "*=" || condition.condition_op == "!*=" || condition.condition_op == "=" || condition.condition_op == "!=")
+                && condition.condition_values.size() == 1) {
+        predicate = condition.condition_op == "*=" || condition.condition_op == "=" ? _new_eq_pred(column, index, condition.condition_values[0]) :
+                _new_ne_pred(column, index, condition.condition_values[0]);
     } else if (condition.condition_op == "<<") {
         predicate = _new_lt_pred(column, index, condition.condition_values[0]);
     } else if (condition.condition_op == "<=") {
@@ -708,7 +710,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
         predicate = _new_gt_pred(column, index, condition.condition_values[0]);
     } else if (condition.condition_op == ">=") {
         predicate = _new_ge_pred(column, index, condition.condition_values[0]);
-    } else if (condition.condition_op == "*=" && condition.condition_values.size() > 1) {
+    } else if ((condition.condition_op == "*=" || condition.condition_op == "!*=") && condition.condition_values.size() > 1) {
         switch (column.type()) {
         case OLAP_FIELD_TYPE_TINYINT: {
             std::set<int8_t> values;
@@ -718,7 +720,11 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
                 ss >> value;
                 values.insert(value);
             }
-            predicate = new InListPredicate<int8_t>(index, std::move(values));
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<int8_t>(index, std::move(values));
+            } else {
+                predicate = new NotInListPredicate<int8_t>(index, std::move(values));
+            }
             break;
         }
         case OLAP_FIELD_TYPE_SMALLINT: {
@@ -729,7 +735,11 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
                 ss >> value;
                 values.insert(value);
             }
-            predicate = new InListPredicate<int16_t>(index, std::move(values));
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<int16_t>(index, std::move(values));
+            } else {
+                predicate = new NotInListPredicate<int16_t>(index, std::move(values));
+            }
             break;
         }
         case OLAP_FIELD_TYPE_INT: {
@@ -740,7 +750,11 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
                 ss >> value;
                 values.insert(value);
             }
-            predicate = new InListPredicate<int32_t>(index, std::move(values));
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<int32_t>(index, std::move(values));
+            } else {
+                predicate = new NotInListPredicate<int32_t>(index, std::move(values));
+            }
             break;
         }
         case OLAP_FIELD_TYPE_BIGINT: {
@@ -751,7 +765,11 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
                 ss >> value;
                 values.insert(value);
             }
-            predicate = new InListPredicate<int64_t>(index, std::move(values));
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<int64_t>(index, std::move(values));
+            } else {
+                predicate = new NotInListPredicate<int64_t>(index, std::move(values));
+            }
             break;
         }
         case OLAP_FIELD_TYPE_LARGEINT: {
@@ -762,7 +780,11 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
                 ss >> value;
                 values.insert(value);
             }
-            predicate = new InListPredicate<int128_t>(index, std::move(values));
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<int128_t>(index, std::move(values));
+            } else {
+                predicate = new NotInListPredicate<int128_t>(index, std::move(values));
+            }
             break;
         }
         case OLAP_FIELD_TYPE_DECIMAL: {
@@ -772,7 +794,11 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
                 value.from_string(cond_val);
                 values.insert(value);
             }
-            predicate = new InListPredicate<decimal12_t>(index, std::move(values));
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<decimal12_t>(index, std::move(values));
+            } else {
+                predicate = new NotInListPredicate<decimal12_t>(index, std::move(values));
+            }
             break;
         }
         case OLAP_FIELD_TYPE_CHAR: {
@@ -787,7 +813,11 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
                 value.ptr = buffer;
                 values.insert(value);
             }
-            predicate = new InListPredicate<StringValue>(index, std::move(values));
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<StringValue>(index, std::move(values));
+            } else {
+                predicate = new NotInListPredicate<StringValue>(index, std::move(values));
+            }
             break;
         }
         case OLAP_FIELD_TYPE_VARCHAR: {
@@ -801,7 +831,11 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
                 value.ptr = buffer;
                 values.insert(value);
             }
-            predicate = new InListPredicate<StringValue>(index, std::move(values));
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<StringValue>(index, std::move(values));
+            } else {
+                predicate = new NotInListPredicate<StringValue>(index, std::move(values));
+            }
             break;
         }
         case OLAP_FIELD_TYPE_DATE: {
@@ -810,7 +844,11 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
                 uint24_t value = timestamp_from_date(cond_val);
                 values.insert(value);
             }
-            predicate = new InListPredicate<uint24_t>(index, std::move(values));
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<uint24_t>(index, std::move(values));
+            } else {
+                predicate = new NotInListPredicate<uint24_t>(index, std::move(values));
+            }
             break;
         }
         case OLAP_FIELD_TYPE_DATETIME: {
@@ -819,17 +857,20 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
                 uint64_t value = timestamp_from_datetime(cond_val);
                 values.insert(value);
             }
-            predicate = new InListPredicate<uint64_t>(index, std::move(values));
+            if (condition.condition_op == "*=") {
+                predicate = new InListPredicate<uint64_t>(index, std::move(values));
+            } else {
+                predicate = new NotInListPredicate<uint64_t>(index, std::move(values));
+            }
             break;
         }
         // OLAP_FIELD_TYPE_BOOL is not valid in this case.
         default:
-            break;
+           break;
         }
     } else if (condition.condition_op == "is") {
         predicate = new NullPredicate(index, condition.condition_values[0] == "null");
     }
-
     return predicate;
 }
 

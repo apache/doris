@@ -536,14 +536,12 @@ Status OlapScanNode::normalize_conjuncts() {
 }
 
 Status OlapScanNode::build_olap_filters() {
-    _olap_filter.clear();
-
     for (auto& iter : _column_value_ranges) {
         ToOlapFilterVisitor visitor;
-        boost::variant<std::list<TCondition>> filters;
+        boost::variant<std::vector<TCondition>> filters;
         boost::apply_visitor(visitor, iter.second, filters);
 
-        std::list<TCondition> new_filters = boost::get<std::list<TCondition>>(filters);
+        std::vector<TCondition> new_filters = boost::get<std::vector<TCondition>>(filters);
         if (new_filters.empty()) {
             continue;
         }
@@ -735,13 +733,16 @@ Status OlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescrip
     // 1. Normalize InPredicate, add to ColumnValueRange
     RETURN_IF_ERROR(normalize_in_and_eq_predicate(slot, &range));
 
-    // 2. Normalize BinaryPredicate , add to ColumnValueRange
+    // 2. Normalize NotInPredicate, add to ColumnValueRange
+    RETURN_IF_ERROR(normalize_not_in_and_not_eq_predicate(slot, &range));
+
+    // 3. Normalize BinaryPredicate , add to ColumnValueRange
     RETURN_IF_ERROR(normalize_noneq_binary_predicate(slot, &range));
 
-    // 3. Check whether range is empty, set _eos
+    // 4. Check whether range is empty, set _eos
     if (range.is_empty_value_range()) _eos = true;
 
-    // 4. Add range to Column->ColumnValueRange map
+    // 5. Add range to Column->ColumnValueRange map
     _column_value_ranges[slot->col_name()] = range;
 
     return Status::OK();
@@ -759,11 +760,6 @@ static bool ignore_cast(SlotDescriptor* slot, Expr* expr) {
 
 
 bool OlapScanNode::should_push_down_in_predicate(doris::SlotDescriptor *slot, doris::InPredicate* pred) {
-    if (pred->is_not_in()) {
-        // can not push down NOT IN predicate to storage engine
-        return false;
-    }
-
     if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
         // not a slot ref(column)
         return false;
@@ -844,21 +840,17 @@ std::pair<bool, void*> OlapScanNode::should_push_down_eq_predicate(doris::SlotDe
     return result_pair;
 }
 
-template <typename T>
-Status OlapScanNode::insert_value_to_range(doris::ColumnValueRange<T>& temp_range, doris::PrimitiveType type, void *value) {
+template <typename T, typename ChangeFixedValueRangeFunc>
+Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, PrimitiveType type, void *value,
+                                              const ChangeFixedValueRangeFunc& func) {
     switch (type) {
-        case TYPE_TINYINT: {
-            int32_t v = *reinterpret_cast<int8_t*>(value);
-            temp_range.add_fixed_value(*reinterpret_cast<T*>(&v));
-            break;
-        }
         case TYPE_DATE: {
             DateTimeValue date_value =
                     *reinterpret_cast<DateTimeValue*>(value);
             // There is must return empty data in olap_scan_node,
             // Because data value loss accuracy
             if (!date_value.check_loss_accuracy_cast_to_date()) {
-                temp_range.add_fixed_value(*reinterpret_cast<T*>(&date_value));
+                func(temp_range, reinterpret_cast<T*>(&date_value));
             }
             break;
         }
@@ -868,16 +860,17 @@ Status OlapScanNode::insert_value_to_range(doris::ColumnValueRange<T>& temp_rang
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_DATETIME:
+        case TYPE_TINYINT:
         case TYPE_SMALLINT:
         case TYPE_INT:
         case TYPE_BIGINT:
         case TYPE_LARGEINT: {
-            temp_range.add_fixed_value(*reinterpret_cast<T*>(value));
+            func(temp_range, reinterpret_cast<T*>(value));
             break;
         }
         case TYPE_BOOLEAN: {
             bool v = *reinterpret_cast<bool*>(value);
-            temp_range.add_fixed_value(*reinterpret_cast<T*>(&v));
+            func(temp_range, reinterpret_cast<T*>(&v));
             break;
         }
         default: {
@@ -917,7 +910,8 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                     continue;
                 }
                 auto value = const_cast<void*>(iter->get_value());
-                RETURN_IF_ERROR(insert_value_to_range(temp_range, slot->type().type, value));
+                RETURN_IF_ERROR(change_fixed_value_range(temp_range, slot->type().type, value,
+                        ColumnValueRange<T>::add_fixed_value_range));
                 iter->next();
             }
 
@@ -926,8 +920,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
             }
             range->intersection(temp_range);
         } // end of handle in predicate
-
-            // 2. Normalize eq conjuncts like 'where col = value'
+        // 2. Normalize eq conjuncts like 'where col = value'
         else if (TExprNodeType::BINARY_PRED == _conjunct_ctxs[conj_idx]->root()->node_type() &&
                  FILTER_IN == to_olap_filter_type(_conjunct_ctxs[conj_idx]->root()->op(), false)) {
             Expr* pred = _conjunct_ctxs[conj_idx]->root();
@@ -945,7 +938,8 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
                 auto value = result_pair.second;
                 // where A = NULL should return empty result set
                 if (value != nullptr) {
-                    RETURN_IF_ERROR(insert_value_to_range(temp_range, slot->type().type, value));
+                    RETURN_IF_ERROR(change_fixed_value_range(temp_range, slot->type().type, value,
+                            ColumnValueRange<T>::add_fixed_value_range));
                 }
 
                 if (is_key_column(slot->col_name())) {
@@ -962,6 +956,95 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
     } else {
         std::copy(filter_conjuncts_index.cbegin(), filter_conjuncts_index.cend(),
                 std::inserter(_pushed_conjuncts_index, _pushed_conjuncts_index.begin()));
+    }
+    return Status::OK();
+}
+
+// Construct the ColumnValueRange for one specified column
+// It will only handle the NotInPredicate and not eq BinaryPredicate in _conjunct_ctxs.
+// It will try to push down conditions of that column as much as possible,
+// But if the number of conditions exceeds the limit, none of conditions will be pushed down.
+template <class T>
+Status OlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot,
+                                                   ColumnValueRange<T>* range) {
+    // If the conjunct of slot is fixed value, will change the fixed value set of column value range
+    // else add value to not in range and push down predicate directly
+    bool is_fixed_range = range->is_fixed_value_range();
+    auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(range->column_name(), range->type());
+
+    std::vector<uint32_t> filter_conjuncts_index;
+    for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
+        // 1. Normalize in conjuncts like 'where col not in (v1, v2, v3)'
+        if (TExprOpcode::FILTER_NOT_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
+            InPredicate* pred = dynamic_cast<InPredicate*>(_conjunct_ctxs[conj_idx]->root());
+            if (!should_push_down_in_predicate(slot, pred)) {
+                continue;
+            }
+
+            // begin to push InPredicate value into ColumnValueRange
+            auto iter = pred->hybrid_set()->begin();
+            while (iter->has_next()) {
+                // column not in (NULL) is always true
+                if (NULL == iter->get_value()) {
+                    continue;
+                }
+                auto value = const_cast<void*>(iter->get_value());
+                if (is_fixed_range) {
+                    RETURN_IF_ERROR(change_fixed_value_range(*range, slot->type().type, value,
+                            ColumnValueRange<T>::remove_fixed_value_range));
+                } else {
+                    RETURN_IF_ERROR(change_fixed_value_range(not_in_range, slot->type().type, value,
+                                                             ColumnValueRange<T>::add_fixed_value_range));
+                }
+                iter->next();
+            }
+
+            // only where a in ('a', 'b', NULL) contain NULL will
+            // clear temp_range to whole range, no need do intersection
+            if (is_key_column(slot->col_name())) {
+                filter_conjuncts_index.emplace_back(conj_idx);
+            }
+        } // end of handle not in predicate
+
+        // 2. Normalize eq conjuncts like 'where col != value'
+        if (TExprNodeType::BINARY_PRED == _conjunct_ctxs[conj_idx]->root()->node_type() &&
+            FILTER_NOT_IN == to_olap_filter_type(_conjunct_ctxs[conj_idx]->root()->op(), false)) {
+            Expr* pred = _conjunct_ctxs[conj_idx]->root();
+            DCHECK(pred->get_num_children() == 2);
+
+            for (int child_idx = 0; child_idx < 2; ++child_idx) {
+                // TODO: should use C++17 structured bindlings to refactor this code in the future:
+                // 'auto [should_push_down, value] = should_push_down_eq_predicate(slot, pred, conj_idx, child_idx);'
+                // make code tidier and readabler
+                auto result_pair = should_push_down_eq_predicate(slot, pred, conj_idx, child_idx);
+                if (!result_pair.first) {
+                    continue;
+                }
+                auto value = result_pair.second;
+
+                if (is_fixed_range) {
+                    RETURN_IF_ERROR(change_fixed_value_range(*range, slot->type().type, value,
+                                                                     ColumnValueRange<T>::remove_fixed_value_range));
+                } else {
+                    RETURN_IF_ERROR(change_fixed_value_range(not_in_range, slot->type().type, value,
+                                                                     ColumnValueRange<T>::add_fixed_value_range));
+                }
+
+                if (is_key_column(slot->col_name())) {
+                    filter_conjuncts_index.emplace_back(conj_idx);
+                }
+            } // end for each binary predicate child
+        } // end of handling eq binary predicate
+    }
+
+    // exceed limit, no conditions will be pushed down to storage engine.
+    if (is_fixed_range || not_in_range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
+        if (!is_fixed_range) {
+            // push down not in condition to storage engine
+            not_in_range.to_in_condition(_olap_filter, false);
+        }
+        std::copy(filter_conjuncts_index.cbegin(), filter_conjuncts_index.cend(),
+                  std::inserter(_pushed_conjuncts_index, _pushed_conjuncts_index.begin()));
     }
     return Status::OK();
 }
