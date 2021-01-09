@@ -20,6 +20,7 @@
 #include <boost/algorithm/string.hpp>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -47,7 +48,7 @@ using std::string;
 
 namespace doris {
 
-static StorageEngine* k_engine = nullptr;
+static std::shared_ptr<StorageEngine> k_engine = nullptr;
 
 class OlapSnapshotConverterTest : public testing::Test {
 public:
@@ -59,7 +60,8 @@ public:
         // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
         if (k_engine == nullptr) {
-            k_engine = new StorageEngine(options);
+            k_engine = std::make_shared<StorageEngine>(options);
+            StorageEngine::_s_instance = k_engine;
         }
 
         string test_engine_data_path = "./be/test/olap/test_data/converter_test_data/data";

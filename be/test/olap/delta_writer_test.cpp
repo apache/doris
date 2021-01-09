@@ -47,7 +47,7 @@ namespace doris {
 static const uint32_t MAX_RETRY_TIMES = 10;
 static const uint32_t MAX_PATH_LEN = 1024;
 
-StorageEngine* k_engine = nullptr;
+std::shared_ptr<StorageEngine> k_engine;
 std::shared_ptr<MemTracker> k_mem_tracker = nullptr;
 
 void set_up() {
@@ -65,7 +65,7 @@ void set_up() {
     ASSERT_TRUE(s.ok()) << s.to_string();
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-    exec_env->set_storage_engine(k_engine);
+    exec_env->set_storage_engine(k_engine.get());
     k_engine->start_bg_threads();
     k_mem_tracker.reset(new MemTracker(-1, "delta writer test"));
 }
@@ -73,8 +73,6 @@ void set_up() {
 void tear_down() {
     if (k_engine != nullptr) {
         k_engine->stop();
-        delete k_engine;
-        k_engine = nullptr;
     }
     system("rm -rf ./data_test");
     FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);

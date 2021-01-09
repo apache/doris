@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -42,7 +43,7 @@ using std::string;
 namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
-StorageEngine* k_engine = nullptr;
+std::shared_ptr<StorageEngine> k_engine;
 
 class BetaRowsetTest : public testing::Test {
 protected:
@@ -68,7 +69,7 @@ protected:
         ASSERT_TRUE(s.ok()) << s.to_string();
 
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(k_engine);
+        exec_env->set_storage_engine(k_engine.get());
 
         const std::string rowset_dir = "./data_test/data/beta_rowset_test";
         ASSERT_TRUE(FileUtils::create_dir(rowset_dir).ok());

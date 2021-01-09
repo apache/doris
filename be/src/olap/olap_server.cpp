@@ -39,23 +39,28 @@ namespace doris {
 // number of running SCHEMA-CHANGE threads
 volatile uint32_t g_schema_change_active_threads = 0;
 
+// background threads is detached thread, but they will depend on 'this' pointer.
+// so we should pass a shared_from_this ptr to make sure that the pointer is not destroyed
+// before the thread exits
 Status StorageEngine::start_bg_threads() {
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "unused_rowset_monitor_thread",
-            [this]() { this->_unused_rowset_monitor_thread_callback(); },
+            [this]() { this->shared_from_this()->_unused_rowset_monitor_thread_callback(); },
             &_unused_rowset_monitor_thread));
     LOG(INFO) << "unused rowset monitor thread started";
 
     // start thread for monitoring the snapshot and trash folder
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "garbage_sweeper_thread",
-            [this]() { this->_garbage_sweeper_thread_callback(); }, &_garbage_sweeper_thread));
+            [this]() { this->shared_from_this()->_garbage_sweeper_thread_callback(); },
+            &_garbage_sweeper_thread));
     LOG(INFO) << "garbage sweeper thread started";
 
     // start thread for monitoring the tablet with io error
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "disk_stat_monitor_thread",
-            [this]() { this->_disk_stat_monitor_thread_callback(); }, &_disk_stat_monitor_thread));
+            [this]() { this->shared_from_this()->_disk_stat_monitor_thread_callback(); },
+            &_disk_stat_monitor_thread));
     LOG(INFO) << "disk stat monitor thread started";
 
     // convert store map to vector
@@ -77,7 +82,7 @@ Status StorageEngine::start_bg_threads() {
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "compaction_tasks_producer_thread",
-            [this]() { this->_compaction_tasks_producer_callback(); },
+            [this]() { this->shared_from_this()->_compaction_tasks_producer_callback(); },
             &_compaction_tasks_producer_thread));
     LOG(INFO) << "compaction tasks producer thread started";
 
@@ -86,7 +91,9 @@ Status StorageEngine::start_bg_threads() {
         scoped_refptr<Thread> tablet_checkpoint_thread;
         RETURN_IF_ERROR(Thread::create(
                 "StorageEngine", "tablet_checkpoint_thread",
-                [this, data_dir]() { this->_tablet_checkpoint_callback(data_dir); },
+                [this, data_dir]() {
+                    this->shared_from_this()->_tablet_checkpoint_callback(data_dir);
+                },
                 &tablet_checkpoint_thread));
         _tablet_checkpoint_threads.emplace_back(tablet_checkpoint_thread);
     }
@@ -95,7 +102,8 @@ Status StorageEngine::start_bg_threads() {
     // fd cache clean thread
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "fd_cache_clean_thread",
-            [this]() { this->_fd_cache_clean_callback(); }, &_fd_cache_clean_thread));
+            [this]() { this->shared_from_this()->_fd_cache_clean_callback(); },
+            &_fd_cache_clean_thread));
     LOG(INFO) << "fd cache clean thread started";
 
     // path scan and gc thread
@@ -104,14 +112,18 @@ Status StorageEngine::start_bg_threads() {
             scoped_refptr<Thread> path_scan_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_scan_thread",
-                    [this, data_dir]() { this->_path_scan_thread_callback(data_dir); },
+                    [this, data_dir]() {
+                        this->shared_from_this()->_path_scan_thread_callback(data_dir);
+                    },
                     &path_scan_thread));
             _path_scan_threads.emplace_back(path_scan_thread);
 
             scoped_refptr<Thread> path_gc_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_gc_thread",
-                    [this, data_dir]() { this->_path_gc_thread_callback(data_dir); },
+                    [this, data_dir]() {
+                        this->shared_from_this()->_path_gc_thread_callback(data_dir);
+                    },
                     &path_gc_thread));
             _path_gc_threads.emplace_back(path_gc_thread);
         }
@@ -325,6 +337,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     int round = 0;
     CompactionType compaction_type;
     while (true) {
+        LOG(WARNING) << "start compactioning";
         if (!config::disable_auto_compaction) {
             if (round < config::cumulative_compaction_rounds_for_each_base_compaction_round) {
                 compaction_type = CompactionType::CUMULATIVE_COMPACTION;
@@ -403,6 +416,8 @@ std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
             continue;
         }
         if (!data_dir->reach_capacity_limit(0)) {
+            LOG(WARNING) << "manager:" << _tablet_manager.get() << ":"
+                         << _tablet_submitted_compaction[data_dir].size();
             TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(
                     compaction_type, data_dir, _tablet_submitted_compaction[data_dir]);
             if (tablet != nullptr) {

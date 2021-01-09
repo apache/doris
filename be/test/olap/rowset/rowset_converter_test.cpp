@@ -18,6 +18,7 @@
 #include "olap/rowset/rowset_converter.h"
 
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -51,7 +52,7 @@ using std::string;
 namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
-StorageEngine* k_engine = nullptr;
+std::shared_ptr<StorageEngine> k_engine = nullptr;
 
 void create_rowset_writer_context(TabletSchema* tablet_schema, RowsetTypePB dst_type,
                                   RowsetWriterContext* rowset_writer_context) {
@@ -174,7 +175,7 @@ public:
         }
 
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(k_engine);
+        exec_env->set_storage_engine(k_engine.get());
 
         std::string data_path = config::storage_root_path + "/data";
         ASSERT_TRUE(FileUtils::create_dir(data_path).ok());

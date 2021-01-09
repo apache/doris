@@ -71,7 +71,6 @@ TestEnv::~TestEnv() {
         // the engine instance is created by this test env
         StorageEngine::_s_instance = nullptr;
     }
-    SAFE_DELETE(_engine);
 }
 
 RuntimeState* TestEnv::create_runtime_state(int64_t query_id) {
@@ -142,10 +141,11 @@ void TestEnv::init_storage_engine(bool need_open, const std::vector<std::string>
     if (need_open) {
         st = StorageEngine::open(options, &_engine);
     } else {
-        _engine = new StorageEngine(options);
+        _engine = std::make_shared<StorageEngine>(options);
+        StorageEngine::_s_instance = _engine;
     }
     DCHECK(st.ok()) << st.get_error_msg();
-    _exec_env->set_storage_engine(_engine);
+    _exec_env->set_storage_engine(_engine.get());
 }
 
 } // end namespace doris

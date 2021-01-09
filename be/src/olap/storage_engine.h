@@ -25,6 +25,7 @@
 #include <ctime>
 #include <list>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <string>
@@ -67,14 +68,14 @@ class TaskWorkerPool;
 // Providing add/drop/get operations.
 // StorageEngine instance doesn't own the Table resources, just hold the pointer,
 // allocation/deallocation must be done outside.
-class StorageEngine {
+class StorageEngine : public std::enable_shared_from_this<StorageEngine> {
 public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
 
-    static Status open(const EngineOptions& options, StorageEngine** engine_ptr);
+    static Status open(const EngineOptions& options, std::shared_ptr<StorageEngine>* engine_ptr);
 
-    static StorageEngine* instance() { return _s_instance; }
+    static StorageEngine* instance() { return _s_instance.get(); }
 
     OLAPStatus create_tablet(const TCreateTabletReq& request);
 
@@ -270,6 +271,8 @@ private:
         bool is_used;
     };
 
+    std::shared_ptr<DorisMetrics> _metrics_reference;
+
     EngineOptions _options;
     std::mutex _store_lock;
     std::map<std::string, DataDir*> _store_map;
@@ -289,7 +292,7 @@ private:
     // FileBlockManager created.)
     std::shared_ptr<Cache> _file_cache;
 
-    static StorageEngine* _s_instance;
+    static std::shared_ptr<StorageEngine> _s_instance;
 
     Mutex _gc_mutex;
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func

@@ -76,7 +76,7 @@ private:
     // Per-query states with associated block managers.
     std::vector<std::shared_ptr<RuntimeState> > _query_states;
 
-    StorageEngine* _engine = nullptr;
+    std::shared_ptr<StorageEngine> _engine;
 };
 
 } // end namespace doris

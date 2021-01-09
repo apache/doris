@@ -86,7 +86,7 @@ namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_mem_current_consumption, MetricUnit::BYTES);
 
-StorageEngine* StorageEngine::_s_instance = nullptr;
+std::shared_ptr<StorageEngine> StorageEngine::_s_instance = nullptr;
 
 static Status _validate_options(const EngineOptions& options) {
     if (options.store_paths.empty()) {
@@ -96,12 +96,16 @@ static Status _validate_options(const EngineOptions& options) {
     return Status::OK();
 }
 
-Status StorageEngine::open(const EngineOptions& options, StorageEngine** engine_ptr) {
+Status StorageEngine::open(const EngineOptions& options,
+                           std::shared_ptr<StorageEngine>* engine_ptr) {
     RETURN_IF_ERROR(_validate_options(options));
     LOG(INFO) << "starting backend using uid:" << options.backend_uid.to_string();
     std::unique_ptr<StorageEngine> engine(new StorageEngine(options));
     RETURN_NOT_OK_STATUS_WITH_WARN(engine->_open(), "open engine failed");
-    *engine_ptr = engine.release();
+    *engine_ptr = std::move(engine);
+    if (_s_instance == nullptr) {
+        _s_instance = *engine_ptr;
+    }
     LOG(INFO) << "success to init storage engine.";
     return Status::OK();
 }
@@ -122,9 +126,10 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _memtable_flush_executor(nullptr),
           _default_rowset_type(ALPHA_ROWSET),
           _heartbeat_flags(nullptr) {
-    if (_s_instance == nullptr) {
-        _s_instance = this;
-    }
+    // acquire a reference from DorisMetrics to ensure the correct release sequence
+    // because 'StorageEngine' will access DorisMetrics::instance() in the Destructor
+    _metrics_reference = DorisMetrics::reference();
+
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         MutexLock lock(&_gc_mutex);
         return _unused_rowsets.size();
@@ -995,4 +1000,4 @@ void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
     base_compaction.reset(new BaseCompaction(best_tablet, tracker_label, _compaction_mem_tracker));
 }
 
-}  // namespace doris
+} // namespace doris

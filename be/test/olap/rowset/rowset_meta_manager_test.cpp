@@ -39,7 +39,7 @@ using std::string;
 
 namespace doris {
 
-static StorageEngine* k_engine = nullptr;
+static std::shared_ptr<StorageEngine> k_engine = nullptr;
 
 const std::string rowset_meta_path = "./be/test/olap/test_data/rowset_meta.json";
 
@@ -53,7 +53,8 @@ public:
         // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
         if (k_engine == nullptr) {
-            k_engine = new StorageEngine(options);
+            k_engine = std::make_shared<StorageEngine>(options);
+            StorageEngine::_s_instance = k_engine;
         }
 
         std::string meta_path = "./meta";

@@ -23,6 +23,7 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <iostream>
 
 #include "common/compiler_util.h"
 #include "gutil/macros.h"
@@ -85,9 +86,12 @@ public:
     size_t size() const { return _size; }
     CoreDataAllocator* allocator(int i) const { return _allocators[i]; }
 
-    static CoreLocalValueController<T>* instance() {
-        static CoreLocalValueController<T> _s_instance;
-        return &_s_instance;
+    static CoreLocalValueController<T>* instance() { return reference().get(); }
+
+    static const std::shared_ptr<CoreLocalValueController<T>>& reference() {
+        static std::shared_ptr<CoreLocalValueController<T>> instance(
+                new CoreLocalValueController<T>());
+        return instance;
     }
 
 private:

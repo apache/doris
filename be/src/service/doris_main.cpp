@@ -196,7 +196,7 @@ int main(int argc, char** argv) {
     doris::EngineOptions options;
     options.store_paths = paths;
     options.backend_uid = doris::UniqueId::gen_uid();
-    doris::StorageEngine* engine = nullptr;
+    std::shared_ptr<doris::StorageEngine> engine;
     auto st = doris::StorageEngine::open(options, &engine);
     if (!st.ok()) {
         LOG(FATAL) << "fail to open StorageEngine, res=" << st.get_error_msg();
@@ -206,7 +206,7 @@ int main(int argc, char** argv) {
     // init exec env
     auto exec_env = doris::ExecEnv::GetInstance();
     doris::ExecEnv::init(exec_env, paths);
-    exec_env->set_storage_engine(engine);
+    exec_env->set_storage_engine(engine.get());
     engine->set_heartbeat_flags(exec_env->heartbeat_flags());
 
     // start all backgroud threads of storage engine.
@@ -282,8 +282,6 @@ int main(int argc, char** argv) {
 
     delete be_server;
     be_server = nullptr;
-    delete engine;
-    engine = nullptr;
     delete heartbeat_thrift_server;
     heartbeat_thrift_server = nullptr;
     doris::ExecEnv::destroy(exec_env);

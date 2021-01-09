@@ -180,9 +180,11 @@ public:
     UIntGauge* query_cache_sql_total_count;
     UIntGauge* query_cache_partition_total_count;
 
-    static DorisMetrics* instance() {
-        static DorisMetrics instance;
-        return &instance;
+    static DorisMetrics* instance() { return reference().get(); }
+
+    static const std::shared_ptr<DorisMetrics>& reference() {
+        static std::shared_ptr<DorisMetrics> instance(new DorisMetrics());
+        return instance;
     }
 
     // not thread-safe, call before calling metrics
@@ -207,11 +209,17 @@ private:
     static const std::string _s_registry_name;
     static const std::string _s_hook_name;
 
+    // used for hold a reference count from CoreLocalValueController
+    // we should make sure that DorisMetrics is released after CoreLocalValueController
+    std::shared_ptr<CoreLocalValueController<int64_t>> _int64_counter_ref = CoreLocalValueController<int64_t>::reference();
+    std::shared_ptr<CoreLocalValueController<uint64_t>> _uint64_counter_ref = CoreLocalValueController<uint64_t>::reference();
+
     MetricRegistry _metric_registry;
 
     std::unique_ptr<SystemMetrics> _system_metrics;
 
     std::shared_ptr<MetricEntity> _server_metric_entity;
+
 };
 
 }; // namespace doris

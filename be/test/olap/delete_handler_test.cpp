@@ -44,7 +44,7 @@ using google::protobuf::RepeatedPtrField;
 namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static StorageEngine* k_engine = nullptr;
+static std::shared_ptr<StorageEngine> k_engine;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
