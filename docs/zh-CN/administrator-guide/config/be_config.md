@@ -795,6 +795,14 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `tablet_writer_open_rpc_timeout_sec`
 
+### `tablet_writer_ignore_eovercrowded`
+
+* 类型：bool
+* 描述：写入时可忽略brpc的'[E1011]The server is overcrowded'错误。
+* 默认值：false
+
+当遇到'[E1011]The server is overcrowded'的错误时，可以调整配置项`brpc_socket_max_unwritten_bytes`，但这个配置项不能动态调整。所以可通过设置此项为`true`来临时避免写失败。注意，此配置项只影响写流程，其他的rpc请求依旧会检查是否overcrowded。
+
 ### `tc_free_memory_rate`
 
 ### `tc_max_total_thread_cache_bytes`
