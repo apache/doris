@@ -288,7 +288,7 @@ AgentStatus EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir, con
                       << ", tablet=" << _clone_req.tablet_id
                       << ", schema_hash=" << _clone_req.schema_hash
                       << ", snapshot_path=" << *snapshot_path << ", signature=" << _signature;
-            status = OLAP_SUCCESS;
+            status = DORIS_SUCCESS;
         } else {
             LOG(WARNING) << "fail to make snapshot, ip=" << src.host << ", port=" << src.be_port
                          << ", tablet=" << _clone_req.tablet_id
@@ -320,14 +320,6 @@ AgentStatus EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir, con
             // when there is an error, keep this program executing to release snapshot
         }
 
-        if (status == DORIS_SUCCESS && snapshot_version == 1) {
-            auto olap_st = _convert_to_new_snapshot(local_path, _clone_req.tablet_id);
-            if (olap_st != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to convert to new snapshot, path=" << local_path
-                             << ", tablet_id=" << _clone_req.tablet_id << ", error=" << olap_st;
-                status = DORIS_ERROR;
-            }
-        }
         if (status == DORIS_SUCCESS) {
             // change all rowset ids because they maybe its id same with local rowset
             auto olap_st = SnapshotManager::instance()->convert_rowset_ids(
@@ -519,70 +511,6 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     return Status::OK();
 }
 
-OLAPStatus EngineCloneTask::_convert_to_new_snapshot(const string& clone_dir, int64_t tablet_id) {
-    OLAPStatus res = OLAP_SUCCESS;
-    // check clone dir existed
-    if (!FileUtils::check_exist(clone_dir)) {
-        res = OLAP_ERR_DIR_NOT_EXIST;
-        LOG(WARNING) << "clone dir not existed when clone. clone_dir=" << clone_dir.c_str();
-        return res;
-    }
-
-    // load src header
-    string cloned_meta_file = clone_dir + "/" + std::to_string(tablet_id) + ".hdr";
-    FileHeader<OLAPHeaderMessage> file_header;
-    FileHandler file_handler;
-    OLAPHeaderMessage olap_header_msg;
-    if (file_handler.open(cloned_meta_file.c_str(), O_RDONLY) != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to open ordinal file. file=" << cloned_meta_file;
-        return OLAP_ERR_IO_ERROR;
-    }
-
-    // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
-    if (file_header.unserialize(&file_handler) != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to unserialize tablet_meta. file='" << cloned_meta_file;
-        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
-    }
-
-    set<string> clone_files;
-
-    RETURN_WITH_WARN_IF_ERROR(
-            FileUtils::list_dirs_files(clone_dir, NULL, &clone_files, Env::Default()),
-            OLAP_ERR_DISK_FAILURE, "failed to dir walk when clone. clone_dir=" + clone_dir);
-
-    try {
-        olap_header_msg.CopyFrom(file_header.message());
-    } catch (...) {
-        LOG(WARNING) << "fail to copy protocol buffer object. file='" << cloned_meta_file;
-        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
-    }
-    OlapSnapshotConverter converter;
-    TabletMetaPB tablet_meta_pb;
-    std::vector<RowsetMetaPB> pending_rowsets;
-    res = converter.to_new_snapshot(olap_header_msg, clone_dir, clone_dir, &tablet_meta_pb,
-                                    &pending_rowsets, false);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to convert snapshot to new format. dir='" << clone_dir;
-        return res;
-    }
-    std::vector<string> files_to_delete;
-    for (auto file_name : clone_files) {
-        string full_file_path = clone_dir + "/" + file_name;
-        files_to_delete.push_back(full_file_path);
-    }
-    // remove all files
-    RETURN_WITH_WARN_IF_ERROR(FileUtils::remove_paths(files_to_delete), OLAP_ERR_IO_ERROR,
-                              "remove paths failed.")
-
-    res = TabletMeta::save(cloned_meta_file, tablet_meta_pb);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to save converted tablet meta to dir='" << clone_dir;
-        return res;
-    }
-
-    return OLAP_SUCCESS;
-}
-
 /// This method will only be called if tablet already exist in this BE when doing clone.
 /// This method will do the following things:
 /// 1. Linke all files from CLONE dir to tablet dir if file does not exist in tablet dir
@@ -718,15 +646,15 @@ OLAPStatus EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
     // check missing versions exist in clone src
     std::vector<RowsetMetaSharedPtr> rowsets_to_clone;
     for (Version version : missed_versions) {
-        RowsetMetaSharedPtr inc_rs_meta =
+        RowsetMetaSharedPtr rs_meta =
                 cloned_tablet_meta.acquire_rs_meta_by_version(version);
-        if (inc_rs_meta == nullptr) {
+        if (rs_meta == nullptr) {
             LOG(WARNING) << "missed version is not found in cloned tablet meta."
                          << ", missed_version=" << version.first << "-" << version.second;
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
 
-        rowsets_to_clone.push_back(inc_rs_meta);
+        rowsets_to_clone.push_back(rs_meta);
     }
 
     /// clone_data to tablet
@@ -750,15 +678,18 @@ OLAPStatus EngineCloneTask::_finish_full_clone(Tablet* tablet, TabletMeta* clone
     // Compare the version of local tablet and cloned tablet.
     // For example:
     // clone version is 8
+    //
     //      local tablet: [0-1] [2-5] [6-6] [7-7]
     //      clone tablet: [0-1] [2-4] [5-6] [7-8]
+    //
     // after compare, the version mark with "x" will be deleted
     //
     //      local tablet: [0-1]  [2-5]x [6-6]x [7-7]x
     //      clone tablet: [0-1]x [2-4]  [5-6]  [7-8]
 
-    // All versions deleted from clone tablet will be saved in rs_metas_found_in_src.
+    // All versions deleted from local tablet will be saved in versions_to_delete
     // And these versions file will be deleted finally.
+    std::vector<Version> versions_to_delete;
     std::vector<RowsetMetaSharedPtr> rs_metas_found_in_src;
     for (auto& rs_meta : tablet->tablet_meta()->all_rs_metas()) {
         Version local_version(rs_meta->start_version(), rs_meta->end_version());
@@ -798,9 +729,6 @@ OLAPStatus EngineCloneTask::_finish_full_clone(Tablet* tablet, TabletMeta* clone
                 LOG(INFO) << "version exist in local tablet, no need to clone. delete it from clone tablet"
                           << ". tablet=" << tablet->full_name() << ", version='" << local_version;
             } else {
-                // Delta labeled in local_version is not existed in clone header,
-                // some overlapping delta will be cloned to replace it.
-                // And also, the specified delta should deleted from local header.
                 versions_to_delete.push_back(local_version);
                 LOG(INFO) << "version not exist in local tablet. it will be replaced by other version. "
                           << "delete it from local tablet. "

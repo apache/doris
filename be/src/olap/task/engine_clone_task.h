@@ -54,8 +54,6 @@ private:
                             string* src_file_path, vector<string>* error_msgs,
                             const vector<Version>* missing_versions, bool* allow_incremental_clone);
 
-    OLAPStatus _convert_to_new_snapshot(const string& clone_dir, int64_t tablet_id);
-
     void _set_tablet_info(AgentStatus status, bool is_new_tablet);
 
     // Download tablet files from

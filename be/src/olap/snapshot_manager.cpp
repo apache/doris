@@ -143,7 +143,10 @@ OLAPStatus SnapshotManager::convert_rowset_ids(const string& clone_dir, int64_t 
     TabletMetaPB new_tablet_meta_pb;
     new_tablet_meta_pb = cloned_tablet_meta_pb;
     new_tablet_meta_pb.clear_rs_metas();
+    // inc_rs_meta is deprecated since 0.13.
+    // keep this just for safety
     new_tablet_meta_pb.clear_inc_rs_metas();
+    new_tablet_meta_pb.clear_stale_rs_metas();
     // should modify tablet id and schema hash because in restore process the tablet id is not
     // equal to tablet id in meta
     new_tablet_meta_pb.set_tablet_id(tablet_id);
@@ -151,7 +154,7 @@ OLAPStatus SnapshotManager::convert_rowset_ids(const string& clone_dir, int64_t 
     TabletSchema tablet_schema;
     tablet_schema.init_from_pb(new_tablet_meta_pb.schema());
 
-    std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> _rs_version_map;
+    std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> rs_version_map;
     for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
         RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
@@ -160,21 +163,19 @@ OLAPStatus SnapshotManager::convert_rowset_ids(const string& clone_dir, int64_t 
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
         Version rowset_version = {visible_rowset.start_version(), visible_rowset.end_version()};
-        _rs_version_map[rowset_version] = rowset_meta;
+        rs_version_map[rowset_version] = rowset_meta;
     }
 
-    for (auto& inc_rowset : cloned_tablet_meta_pb.inc_rs_metas()) {
-        Version rowset_version = {inc_rowset.start_version(), inc_rowset.end_version()};
-        auto exist_rs = _rs_version_map.find(rowset_version);
-        if (exist_rs != _rs_version_map.end()) {
-            RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_inc_rs_metas();
-            *rowset_meta = *(exist_rs->second);
+    for (auto& stale_rowset : cloned_tablet_meta_pb.stale_rs_metas()) {
+        Version rowset_version = {stale_rowset.start_version(), stale_rowset.end_version()};
+        auto exist_rs = rs_version_map.find(rowset_version);
+        if (exist_rs != rs_version_map.end()) {
             continue;
         }
-        RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_inc_rs_metas();
+        RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_stale_rs_metas();
         RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
         RETURN_NOT_OK(
-                _rename_rowset_id(inc_rowset, clone_dir, tablet_schema, rowset_id, rowset_meta));
+                _rename_rowset_id(stale_rowset, clone_dir, tablet_schema, rowset_id, rowset_meta));
         rowset_meta->set_tablet_id(tablet_id);
         rowset_meta->set_tablet_schema_hash(schema_hash);
     }
@@ -440,7 +441,6 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
         // The inc_rs_metas is deprecated since Doris version 0.13.
         // Clear it for safety reason.
         // Whether it is incremental or full snapshot, rowset information is stored in rs_meta.
-        new_tablet_meta->revise_inc_rs_metas(vector<RowsetMetaSharedPtr>());
         new_tablet_meta->revise_rs_metas(std::move(rs_metas));
 
         if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION1) {
