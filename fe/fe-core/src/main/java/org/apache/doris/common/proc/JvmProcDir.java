@@ -94,6 +94,12 @@ public class JvmProcDir implements ProcNodeInterface {
         Threads threads = jvmStats.getThreads();
         result.addRow(genRow("threads count", threads.getCount()));
         result.addRow(genRow("threads peak count", threads.getPeakCount()));
+        result.addRow(genRow("threads new count", threads.getThreadsNewCount()));
+        result.addRow(genRow("threads runnable count", threads.getThreadsRunnableCount()));
+        result.addRow(genRow("threads blocked count", threads.getThreadsBlockedCount()));
+        result.addRow(genRow("threads waiting count", threads.getThreadsWaitingCount()));
+        result.addRow(genRow("threads timed_waiting count", threads.getThreadsTimedWaitingCount()));
+        result.addRow(genRow("threads terminated count", threads.getThreadsTerminatedCount()));
 
         return result;
     }
