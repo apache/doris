@@ -570,6 +570,15 @@ void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
     }
 }
 
+RowsetMetaSharedPtr TabletMeta::acquire_rs_meta_by_version(const Version& version) const {
+    for (auto it : _rs_metas) {
+        if (it->version() == version) {
+            return it;
+        }
+    }
+    return nullptr;
+}
+
 RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& version) const {
     for (auto it : _stale_rs_metas) {
         if (it->version() == version) {

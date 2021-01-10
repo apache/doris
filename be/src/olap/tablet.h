@@ -100,7 +100,7 @@ public:
 
     // _rs_version_map and _inc_rs_version_map should be protected by _meta_lock
     // The caller must call hold _meta_lock when call this two function.
-    const RowsetSharedPtr get_rowset_by_version(const Version& version) const;
+    const RowsetSharedPtr get_rowset_by_version(const Version& version, bool find_is_stale = false) const;
     const RowsetSharedPtr get_inc_rowset_by_version(const Version& version) const;
     const RowsetSharedPtr get_stale_rowset_by_version(const Version& version) const;
 

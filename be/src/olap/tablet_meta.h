@@ -176,6 +176,7 @@ public:
     inline const std::vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
     inline const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
     OLAPStatus add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta);
+    RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_inc_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_inc_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);

@@ -77,8 +77,7 @@ private:
                                           const std::vector<RowsetSharedPtr>& consistent_rowsets);
 
     OLAPStatus _create_snapshot_files(const TabletSharedPtr& ref_tablet,
-                                      const TSnapshotRequest& request, std::string* snapshot_path,
-                                      int32_t snapshot_version);
+                                      const TSnapshotRequest& request, std::string* snapshot_path);
 
     OLAPStatus _prepare_snapshot_dir(const TabletSharedPtr& ref_tablet,
                                      std::string* snapshot_id_path);
@@ -89,7 +88,7 @@ private:
 
     OLAPStatus _convert_beta_rowsets_to_alpha(const TabletMetaSharedPtr& new_tablet_meta,
                                               const vector<RowsetMetaSharedPtr>& rowset_metas,
-                                              const std::string& dst_path, bool is_incremental);
+                                              const std::string& dst_path);
 
 private:
     static SnapshotManager* _s_instance;

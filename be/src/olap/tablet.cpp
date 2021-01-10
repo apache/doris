@@ -154,9 +154,9 @@ void Tablet::save_meta() {
 
 OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                                       const std::vector<Version>& versions_to_delete) {
-    LOG(INFO) << "begin to clone data to tablet. tablet=" << full_name()
+    LOG(INFO) << "begin to revise tablet. tablet=" << full_name()
               << ", rowsets_to_clone=" << rowsets_to_clone.size()
-              << ", versions_to_delete_size=" << versions_to_delete.size();
+              << ", versions_to_delete=" << versions_to_delete.size();
     OLAPStatus res = OLAP_SUCCESS;
     do {
         // load new local tablet_meta to operate on
@@ -173,6 +173,7 @@ OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& ro
                       << full_name() << ", version=" << version << "]";
         }
 
+        // add new cloned rowset
         for (auto& rs_meta : rowsets_to_clone) {
             new_tablet_meta->add_rs_meta(rs_meta);
         }
@@ -212,9 +213,8 @@ OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& ro
     // reconstruct from tablet meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
 
-    LOG(INFO) << "finish to clone data to tablet. res=" << res << ", "
-              << "table=" << full_name() << ", "
-              << "rowsets_to_clone=" << rowsets_to_clone.size();
+    LOG(INFO) << "finish to revise tablet. res=" << res << ", "
+              << "table=" << full_name();
     return res;
 }
 
@@ -293,10 +293,12 @@ void Tablet::modify_rowsets(const std::vector<RowsetSharedPtr>& to_add,
 
 // snapshot manager may call this api to check if version exists, so that
 // the version maybe not exist
-const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) const {
+const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version, bool find_in_stale) const {
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
-        VLOG_NOTICE << "no rowset for version:" << version << ", tablet: " << full_name();
+        if (find_in_stale) {
+            return get_stale_rowset_by_version(version);
+        }
         return nullptr;
     }
     return iter->second;
@@ -311,6 +313,7 @@ const RowsetSharedPtr Tablet::get_stale_rowset_by_version(const Version& version
     return iter->second;
 }
 
+// Deprecated
 // This function only be called by SnapshotManager to perform incremental clone.
 // It will be called under protected of _meta_lock(SnapshotManager will fetch it manually),
 // so it is no need to lock here.
@@ -804,10 +807,9 @@ void Tablet::calc_missed_versions(int64_t spec_version, std::vector<Version>* mi
     calc_missed_versions_unlocked(spec_version, missed_versions);
 }
 
-// TODO(lingbin): there may be a bug here, should check it.
 // for example:
 //     [0-4][5-5][8-8][9-9]
-// if spec_version = 6, we still return {6, 7} other than {7}
+// if spec_version = 6, we still return {7} other than {6, 7}
 void Tablet::calc_missed_versions_unlocked(int64_t spec_version,
                                            std::vector<Version>* missed_versions) const {
     DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
@@ -826,7 +828,7 @@ void Tablet::calc_missed_versions_unlocked(int64_t spec_version,
     int64_t last_version = -1;
     for (const Version& version : existing_versions) {
         if (version.first > last_version + 1) {
-            for (int64_t i = last_version + 1; i < version.first; ++i) {
+            for (int64_t i = last_version + 1; i < version.first && i <= spec_version; ++i) {
                 missed_versions->emplace_back(Version(i, i));
             }
         }
