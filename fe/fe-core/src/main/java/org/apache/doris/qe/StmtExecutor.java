@@ -897,11 +897,10 @@ public class StmtExecutor {
                 context.getState().setOk();
                 return;
             }
-
             if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                     insertStmt.getDbObj(), insertStmt.getTransactionId(),
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
-                    10000)) {
+                    context.getSessionVariable().getInsertVisibleTimeoutMs())) {
                 txnStatus = TransactionStatus.VISIBLE;
                 MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
             } else {
