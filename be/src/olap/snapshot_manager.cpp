@@ -378,7 +378,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
                 }
             }
 
-            if (res != OLAP_SUCCESS) {
+            if (res != OLAP_SUCCESS || !request.__isset.missing_version) {
                 /// not all missing versions are found, fall back to full snapshot.
                 res = OLAP_SUCCESS; // reset res
                 consistent_rowsets.clear(); // reset vector
