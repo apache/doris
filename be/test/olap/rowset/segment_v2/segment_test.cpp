@@ -41,6 +41,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "util/file_utils.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -307,7 +308,7 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
 
             OlapReaderStatistics stats;
             StorageReadOptions read_opts;
-            read_opts.column_predicates = &predicates;
+            read_opts.column_predicates = predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -331,7 +332,7 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
 
             OlapReaderStatistics stats;
             StorageReadOptions read_opts;
-            read_opts.column_predicates = &predicates;
+            read_opts.column_predicates = predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -383,7 +384,7 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
 
             OlapReaderStatistics stats;
             StorageReadOptions read_opts;
-            read_opts.column_predicates = &predicates;
+            read_opts.column_predicates = predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -543,7 +544,8 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             while (left > 0) {
                 int rows_read = left > 1024 ? 1024 : left;
                 block.clear();
-                ASSERT_TRUE(iter->next_batch(&block).ok());
+                auto s = iter->next_batch(&block);
+                ASSERT_TRUE(s.ok()) << s.to_string();
                 ASSERT_EQ(rows_read, block.num_rows());
                 ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
                 left -= rows_read;
@@ -603,6 +605,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
 
     // segment write
     std::string dname = "./ut_dir/segment_write_size";
+    FileUtils::remove_all(dname);
     FileUtils::create_dir(dname);
 
     SegmentWriterOptions opts;
@@ -612,10 +615,10 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     std::unique_ptr<fs::WritableBlock> wblock;
     fs::CreateBlockOptions wblock_opts({fname});
     Status st = fs::fs_util::block_manager()->create_block(wblock_opts, &wblock);
-    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(st.ok()) << st.to_string();
     SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
     st = writer.init(10);
-    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(st.ok()) << st.to_string();
 
     RowCursor row;
     auto olap_st = row.init(*tablet_schema);
@@ -624,7 +627,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     // 0, 1, 2, 3
     // 10, 11, 12, 13
     // 20, 21, 22, 23
-    for (int i = 0; i < 1048576; ++i) {
+    for (int i = 0; i < LOOP_LESS_OR_MORE(1024, 1048576); ++i) {
         for (int j = 0; j < 4; ++j) {
             auto cell = row.cell(j);
             cell.set_not_null();
@@ -1026,7 +1029,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
 
             StorageReadOptions read_opts;
             OlapReaderStatistics stats;
-            read_opts.column_predicates = &column_predicates;
+            read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -1048,7 +1051,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
 
             StorageReadOptions read_opts;
             OlapReaderStatistics stats;
-            read_opts.column_predicates = &column_predicates;
+            read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -1070,7 +1073,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
 
             StorageReadOptions read_opts;
             OlapReaderStatistics stats;
-            read_opts.column_predicates = &column_predicates;
+            read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -1094,7 +1097,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
 
             StorageReadOptions read_opts;
             OlapReaderStatistics stats;
-            read_opts.column_predicates = &column_predicates;
+            read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -1117,7 +1120,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
 
             StorageReadOptions read_opts;
             OlapReaderStatistics stats;
-            read_opts.column_predicates = &column_predicates;
+            read_opts.column_predicates = column_predicates;
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
@@ -1157,7 +1160,7 @@ TEST_F(SegmentReaderWriterTest, TestBloomFilterIndexUniqueModel) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30);
+    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

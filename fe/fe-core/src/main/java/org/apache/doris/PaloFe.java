@@ -103,7 +103,6 @@ public class PaloFe {
             LOG.info("Palo FE starting...");
 
             FrontendOptions.init();
-            ExecuteEnv.setup();
 
             // init catalog and wait it be ready
             Catalog.getCurrentCatalog().initialize(args);

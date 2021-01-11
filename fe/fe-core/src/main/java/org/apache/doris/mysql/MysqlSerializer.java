@@ -214,7 +214,7 @@ public class MysqlSerializer {
         // Character set: two byte integer
         writeInt2(33);
         // Column length: four byte integer
-        writeInt4(255);
+        writeInt4(getMysqlTypeLength(type));
         // Column type: one byte integer
         writeInt1(type.toMysqlType().getCode());
         // Flags: two byte integer
@@ -223,5 +223,50 @@ public class MysqlSerializer {
         writeInt1(0);
         // filler: two byte integer
         writeInt2(0);
+    }
+
+    /**
+     * Specify the display width of the returned data according to the MySQL type
+     * todo:The driver determines the number of bytes per character according to different character sets index
+     * @param type
+     * @return
+     */
+    private int getMysqlTypeLength(PrimitiveType type) {
+        switch (type) {
+            // MySQL use Tinyint(1) to represent boolean
+            case BOOLEAN:
+                return 1;
+            case TINYINT:
+                return 4;
+            case SMALLINT:
+                return 6;
+            case INT:
+                return 11;
+            case BIGINT:
+                return 20;
+            case FLOAT:
+                return 12;
+            case DOUBLE:
+                return 22;
+            case TIME:
+                return 10;
+            case DATE:
+                return 10;
+            case DATETIME: {
+                if (type.isTimeType()) {
+                    return 10;
+                }  else {
+                    return 19;
+                }
+            }
+            // todo:It needs to be obtained according to the field length set during the actual creation,
+            // todo:which is not supported for the time being.default is 255
+//            case DECIMAL:
+//            case DECIMALV2:
+//            case CHAR:
+//            case VARCHAR:
+            default:
+                return 255;
+        }
     }
 }

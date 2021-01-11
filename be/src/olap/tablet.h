@@ -45,6 +45,8 @@ class DataDir;
 class Tablet;
 class TabletMeta;
 class CumulativeCompactionPolicy;
+class CumulativeCompaction;
+class BaseCompaction;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
@@ -242,6 +244,13 @@ public:
 
     double calculate_scan_frequency();
 
+    int64_t prepare_compaction_and_calculate_permits(CompactionType compaction_type, TabletSharedPtr tablet);
+    void execute_compaction(CompactionType compaction_type);
+    void reset_compaction(CompactionType compaction_type);
+
+    void set_clone_occurred(bool clone_occurred) { _is_clone_occurred = clone_occurred; }
+    bool get_clone_occurred() { return _is_clone_occurred; }
+
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -320,6 +329,11 @@ private:
     int64_t _last_record_scan_count;
     // the timestamp of the last record.
     time_t _last_record_scan_count_timestamp;
+
+    std::shared_ptr<CumulativeCompaction> _cumulative_compaction;
+    std::shared_ptr<BaseCompaction> _base_compaction;
+    // whether clone task occurred during the tablet is in thread pool queue to wait for compaction
+    std::atomic<bool> _is_clone_occurred;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 

@@ -55,7 +55,7 @@ if [[ -z ${DORIS_GCC_HOME} ]]; then
 fi
 
 gcc_ver=`${DORIS_GCC_HOME}/bin/gcc -dumpfullversion -dumpversion`
-required_ver="5.3.1"
+required_ver="7.3.0"
 if [[ ! "$(printf '%s\n' "$required_ver" "$gcc_ver" | sort -V | head -n1)" = "$required_ver" ]]; then 
     echo "Error: GCC version (${gcc_ver}) must be greater than or equal to ${required_ver}"
     exit 1
@@ -73,8 +73,9 @@ fi
 
 # check java version
 export JAVA=${JAVA_HOME}/bin/java
-JAVA_VER=$(${JAVA} -version 2>&1 | sed 's/.* version "\(.*\)\.\(.*\)\..*"/\1\2/; 1q' | cut -f1 -d " ")
-if [[ $JAVA_VER -lt 18 ]]; then
+JAVAP=${JAVA_HOME}/bin/javap
+JAVA_VER=$(${JAVAP} -verbose java.lang.String | grep "major version" | cut -d " " -f5)
+if [[ $JAVA_VER -lt 52 ]]; then
     echo "Error: require JAVA with JDK version at least 1.8"
     exit 1
 fi
@@ -99,3 +100,12 @@ if ! ${CMAKE_CMD} --version; then
     exit 1
 fi
 export CMAKE_CMD
+
+GENERATOR="Unix Makefiles"
+BUILD_SYSTEM="make"
+if ninja --version 2>/dev/null; then
+    GENERATOR="Ninja"
+    BUILD_SYSTEM="ninja"
+fi
+export GENERATOR
+export BUILD_SYSTEM

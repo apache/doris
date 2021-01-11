@@ -57,8 +57,10 @@ public class StreamLoadTask implements LoadTaskInfo {
     private TFileType fileType;
     private TFileFormatType formatType;
     private boolean stripOuterArray;
+    private boolean numAsString;
     private String jsonPaths;
     private String jsonRoot;
+    private boolean fuzzyParse;
 
     // optional
     private List<ImportColumnDesc> columnExprDescs = Lists.newArrayList();
@@ -83,6 +85,8 @@ public class StreamLoadTask implements LoadTaskInfo {
         this.jsonPaths = "";
         this.jsonRoot = "";
         this.stripOuterArray = false;
+        this.numAsString = false;
+        this.fuzzyParse = false;
     }
 
     public TUniqueId getId() {
@@ -141,8 +145,26 @@ public class StreamLoadTask implements LoadTaskInfo {
         return stripOuterArray;
     }
 
+    @Override
+    public boolean isNumAsString() {
+        return numAsString;
+    }
+
+    @Override
+    public boolean isFuzzyParse() {
+        return fuzzyParse;
+    }
+
+    public void setFuzzyParse(boolean fuzzyParse) {
+        this.fuzzyParse = fuzzyParse;
+    }
+
     public void setStripOuterArray(boolean stripOuterArray) {
         this.stripOuterArray = stripOuterArray;
+    }
+
+    public void setNumAsString(boolean numAsString) {
+        this.numAsString = numAsString;
     }
 
     public String getJsonPaths() {
@@ -227,6 +249,8 @@ public class StreamLoadTask implements LoadTaskInfo {
                 jsonRoot = request.getJsonRoot();
             }
             stripOuterArray = request.isStripOuterArray();
+            numAsString = request.isNumAsString();
+            fuzzyParse = request.isFuzzyParse();
         }
         if (request.isSetMergeType()) {
             try {
@@ -239,7 +263,7 @@ public class StreamLoadTask implements LoadTaskInfo {
             deleteCondition = parseWhereExpr(request.getDeleteCondition());
         }
         if (negative && mergeType != LoadTask.MergeType.APPEND) {
-            throw new AnalysisException("Negative is only used when merge type is append.");
+            throw new AnalysisException("Negative is only used when merge type is APPEND.");
         }
         if (mergeType == LoadTask.MergeType.MERGE) {
             columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));

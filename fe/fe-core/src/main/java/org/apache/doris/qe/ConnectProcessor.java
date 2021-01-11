@@ -47,6 +47,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 
@@ -59,6 +60,7 @@ import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousCloseException;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Process one mysql connection, receive one packet, process, send one packet.
@@ -113,6 +115,7 @@ public class ConnectProcessor {
             .setState(ctx.getState().toString()).setQueryTime(elapseMs)
             .setScanBytes(statistics == null ? 0 : statistics.scan_bytes)
             .setScanRows(statistics == null ? 0 : statistics.scan_rows)
+            .setCpuTimeMs(statistics == null ? 0 : statistics.cpu_ms)
             .setReturnRows(ctx.getReturnRows())
             .setStmtId(ctx.getStmtId())
             .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
@@ -412,6 +415,10 @@ public class ConnectProcessor {
             ctx.setCurrentUserIdentity(currentUserIdentity);
         }
 
+        if (request.isSetInsertVisibleTimeoutMs()) {
+            ctx.getSessionVariable().setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
+        }
+
         if (request.isSetQueryOptions()) {
             TQueryOptions queryOptions = request.getQueryOptions();
             if (queryOptions.isSetMemLimit()) {
@@ -461,7 +468,14 @@ public class ConnectProcessor {
             // 0 for compatibility.
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
             executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
-            executor.execute();
+            TUniqueId queryId; // This query id will be set in ctx
+            if (request.isSetQueryId()) {
+                queryId = request.getQueryId();
+            } else {
+                UUID uuid = UUID.randomUUID();
+                queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            }
+            executor.execute(queryId);
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
@@ -475,8 +489,12 @@ public class ConnectProcessor {
         // no matter the master execute success or fail, the master must transfer the result to follower
         // and tell the follower the current journalID.
         TMasterOpResult result = new TMasterOpResult();
-        if (ctx.queryId() != null) {
-            result.setQueryId(ctx.queryId);
+        if (ctx.queryId() != null &&
+                // If none master FE not set query id or query id was reset in StmtExecutor when a query exec more than once,
+                // return it to none master FE.
+                (!request.isSetQueryId() || !request.getQueryId().equals(ctx.queryId()))
+        ) {
+            result.setQueryId(ctx.queryId());
         }
         result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
         result.setPacket(getResultPacket());

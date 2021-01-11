@@ -18,6 +18,7 @@
 package org.apache.doris.http.rest;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 // Base restful result
 public class RestBaseResult {
@@ -40,7 +41,7 @@ public class RestBaseResult {
     }
 
     public String toJson() {
-        Gson gson = new Gson();
+        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(this);
     }
 }

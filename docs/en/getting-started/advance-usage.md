@@ -86,7 +86,7 @@ For more help, see `HELP ALTER TABLE'.
 
 ## 2 Rollup
 
-Rollup can be understood as a physical index structure of Table. ** Physicalization ** is because its data is physically stored independently, and ** indexing ** means that Rollup can adjust column order to increase the hit rate of prefix index, or reduce key column to increase data aggregation.
+Rollup can be understood as a materialized index structure of Table. ** materialized ** because data is store as a concrete ("materialized") table independently, and ** indexing ** means that Rollup can adjust column order to increase the hit rate of prefix index, or reduce key column to increase data aggregation.
 
 Examples are given below.
 
@@ -209,7 +209,9 @@ Modify the timeout to 1 minute:
 
 By default, the system implements Join by conditionally filtering small tables, broadcasting them to the nodes where the large tables are located, forming a memory Hash table, and then streaming out the data of the large tables Hash Join. However, if the amount of data filtered by small tables can not be put into memory, Join will not be able to complete at this time. The usual error should be caused by memory overrun first.
 
-If you encounter the above situation, it is recommended to use Shuffle Join, also known as Partitioned Join. That is, small and large tables are Hash according to Join's key, and then distributed Join. This memory consumption is allocated to all computing nodes in the cluster.
+If you encounter the above situation, it is recommended to use Shuffle Join explicitly, also known as Partitioned Join. That is, small and large tables are Hash according to Join's key, and then distributed Join. This memory consumption is allocated to all computing nodes in the cluster.
+
+Doris will try to use Broadcast Join first. If small tables are too large to broadcasting, Doris will switch to Shuffle Join automatically. Note that if you use Broadcast Join explicitly in this case, Doris will still switch to Shuffle Join automatically.
 
 Use Broadcast Join (default):
 

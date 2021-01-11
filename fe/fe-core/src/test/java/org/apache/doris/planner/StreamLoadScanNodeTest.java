@@ -674,17 +674,6 @@ public class StreamLoadScanNodeTest {
         scanNode.toThrift(planNode);
     }
 
-    @Test(expected = DdlException.class)
-    public void testLoadInitColumnsMappingColumnNotExist() throws UserException {
-        List<Column> columns = Lists.newArrayList();
-        columns.add(new Column("c1", Type.INT, true, null, false, null, ""));
-        columns.add(new Column("c2", ScalarType.createVarchar(10), true, null, false, null, ""));
-        Table table = new Table(1L, "table0", TableType.OLAP, columns);
-        List<ImportColumnDesc> columnExprs = Lists.newArrayList();
-        columnExprs.add(new ImportColumnDesc("c3", new FunctionCallExpr("func", Lists.newArrayList())));
-        Load.initColumns(table, columnExprs, null, null, null, null, null, null);
-    }
-
     @Test
     public void testSequenceColumnWithSetColumns() throws UserException {
         Analyzer analyzer = new Analyzer(catalog, connectContext);

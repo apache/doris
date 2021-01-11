@@ -28,7 +28,7 @@ BaseCompaction::BaseCompaction(TabletSharedPtr tablet, const std::string& label,
 
 BaseCompaction::~BaseCompaction() {}
 
-OLAPStatus BaseCompaction::compact() {
+OLAPStatus BaseCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
@@ -44,9 +44,28 @@ OLAPStatus BaseCompaction::compact() {
     RETURN_NOT_OK(pick_rowsets_to_compact());
     TRACE("rowsets picked");
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
+    _tablet->set_clone_occurred(false);
+
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus BaseCompaction::execute_compact_impl() {
+    MutexLock lock(_tablet->get_base_lock(), TRY_LOCK);
+    if (!lock.own_lock()) {
+        LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
+        return OLAP_ERR_BE_TRY_BE_LOCK_ERROR;
+    }
+    TRACE("got base compaction lock");
+
+    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
+    // for compaction may change. In this case, current compaction task should not be executed.
+    if (_tablet->get_clone_occurred()) {
+        _tablet->set_clone_occurred(false);
+        return OLAP_ERR_BE_CLONE_OCCURRED;
+    }
 
     // 2. do base compaction, merge rowsets
-    int64_t permits = _tablet->calc_compaction_score(CompactionType::BASE_COMPACTION);
+    int64_t permits = get_compaction_permits();
     RETURN_NOT_OK(do_compaction(permits));
     TRACE("compaction finished");
 

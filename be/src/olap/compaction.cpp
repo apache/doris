@@ -37,6 +37,20 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label,
 
 Compaction::~Compaction() {}
 
+OLAPStatus Compaction::compact() {
+    RETURN_NOT_OK(prepare_compact());
+    RETURN_NOT_OK(execute_compact());
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus Compaction::execute_compact() {
+    OLAPStatus st = execute_compact_impl();
+    if (st != OLAP_SUCCESS) {
+        gc_output_rowset();
+    }
+    return st;
+}
+
 OLAPStatus Compaction::do_compaction(int64_t permits) {
     TRACE("start to do compaction");
     _tablet->data_dir()->disks_compaction_score_increment(permits);
@@ -66,8 +80,8 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
 
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name()
-              << ", output version is=" << _output_version.first << "-" << _output_version.second
-              << ", score: " << permits;
+              << ", output_version=" << _output_version.first << "-" << _output_version.second
+              << ", permits: " << permits;
 
     RETURN_NOT_OK(construct_output_rowset_writer());
     RETURN_NOT_OK(construct_input_rowset_readers());
@@ -165,17 +179,10 @@ void Compaction::modify_rowsets() {
     _tablet->save_meta();
 }
 
-OLAPStatus Compaction::gc_unused_rowsets() {
-    StorageEngine* storage_engine = StorageEngine::instance();
-    if (_state != CompactionState::SUCCESS) {
-        storage_engine->add_unused_rowset(_output_rowset);
-        return OLAP_SUCCESS;
+void Compaction::gc_output_rowset() {
+    if (_state != CompactionState::SUCCESS && _output_rowset != nullptr) {
+        StorageEngine::instance()->add_unused_rowset(_output_rowset);
     }
-    for (auto& rowset : _input_rowsets) {
-        storage_engine->add_unused_rowset(rowset);
-    }
-    _input_rowsets.clear();
-    return OLAP_SUCCESS;
 }
 
 // Find the longest consecutive version path in "rowset", from begining.
@@ -268,4 +275,12 @@ int64_t Compaction::_get_input_num_rows_from_seg_grps() {
     return num_rows;
 }
 
-} // namespace doris
+int64_t Compaction::get_compaction_permits() {
+    int64_t permits = 0;
+    for (auto rowset : _input_rowsets) {
+        permits += rowset->rowset_meta()->get_compaction_score();
+    }
+    return permits;
+}
+
+}  // namespace doris

@@ -26,6 +26,7 @@
 #include "exec/olap_common.h"
 #include "exec/olap_scanner.h"
 #include "exec/scan_node.h"
+#include "exprs/in_predicate.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch_interface.hpp"
 #include "runtime/vectorized_row_batch.h"
@@ -133,7 +134,14 @@ protected:
         VLOG(1) << s.str() << "\n]";
     }
 
+    // In order to ensure the accuracy of the query result
+    // only key column conjuncts will be remove as idle conjunct
+    bool is_key_column(const std::string& key_name);
+    void remove_pushed_conjuncts(RuntimeState *state);
+
     Status start_scan(RuntimeState* state);
+
+    void eval_const_conjuncts();
     Status normalize_conjuncts();
     Status build_olap_filters();
     Status build_scan_key();
@@ -147,6 +155,10 @@ protected:
 
     template <class T>
     Status normalize_noneq_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
+
+    template <typename T>
+    static bool normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
+            const std::string& is_null_str, ColumnValueRange<T>* range);
 
     void transfer_thread(RuntimeState* state);
     void scanner_thread(OlapScanner* scanner);
@@ -162,12 +174,15 @@ private:
     // according to the calling relationship
     void init_scan_profile();
 
-    void construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot,
-                                              const std::string& is_null_str);
+    bool should_push_down_in_predicate(SlotDescriptor* slot, InPredicate* in_pred);
+
+    std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred, int conj_idx, int child_idx);
+
+    template <typename T>
+    static Status insert_value_to_range(ColumnValueRange<T>& range, PrimitiveType type, void* value);
 
     friend class OlapScanner;
 
-    std::vector<TCondition> _is_null_vector;
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
     // doris scan node used to scan doris
@@ -178,6 +193,9 @@ private:
     int _tuple_idx;
     // string slots
     std::vector<SlotDescriptor*> _string_slots;
+    // conjunct's index which already be push down storage engine
+    // should be remove in olap_scan_node, no need check this conjunct again
+    std::set<uint32_t> _pushed_conjuncts_index;
 
     bool _eos;
 
@@ -214,7 +232,8 @@ private:
 
     std::mutex _scan_batches_lock;
     std::condition_variable _scan_batch_added_cv;
-    int32_t _scanner_task_finish_count;
+    int64_t _running_thread = 0;
+    std::condition_variable _scan_thread_exit_cv;
 
     std::list<RowBatchInterface*> _scan_row_batches;
 
@@ -234,6 +253,7 @@ private:
     Status _status;
     RuntimeState* _runtime_state;
     RuntimeProfile::Counter* _scan_timer;
+    RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
     RuntimeProfile::Counter* _tablet_counter;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
@@ -241,7 +261,6 @@ private:
     TResourceInfo* _resource_info;
 
     int64_t _buffered_bytes;
-    int64_t _running_thread;
     EvalConjunctsFn _eval_conjuncts_fn;
 
     bool _need_agg_finalize = true;

@@ -74,32 +74,9 @@ struct ReaderParams {
     RuntimeProfile* profile = nullptr;
     RuntimeState* runtime_state = nullptr;
 
-    void check_validation() const {
-        if (UNLIKELY(version.first == -1)) {
-            LOG(FATAL) << "version is not set. tablet=" << tablet->full_name();
-        }
-    }
+    void check_validation() const;
 
-    std::string to_string() {
-        std::stringstream ss;
-        ss << "tablet=" << tablet->full_name() << " reader_type=" << reader_type
-           << " aggregation=" << aggregation << " version=" << version << " range=" << range
-           << " end_range=" << end_range;
-
-        for (auto& key : start_key) {
-            ss << " keys=" << key;
-        }
-
-        for (auto& key : end_key) {
-            ss << " end_keys=" << key;
-        }
-
-        for (auto& condition : conditions) {
-            ss << " conditions=" << apache::thrift::ThriftDebugString(condition);
-        }
-
-        return ss.str();
-    }
+    std::string to_string() const;
 };
 
 class Reader {
@@ -123,37 +100,18 @@ public:
 
     uint64_t merged_rows() const { return _merged_rows; }
 
-    uint64_t filtered_rows() const { return _stats.rows_del_filtered; }
+    uint64_t filtered_rows() const {
+        return _stats.rows_del_filtered + _stats.rows_conditions_filtered;
+    }
 
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }
 
 private:
     struct KeysParam {
-        ~KeysParam() {
-            for (auto start_key : start_keys) {
-                SAFE_DELETE(start_key);
-            }
+        ~KeysParam();
 
-            for (auto end_key : end_keys) {
-                SAFE_DELETE(end_key);
-            }
-        }
-
-        std::string to_string() const {
-            std::stringstream ss;
-            ss << "range=" << range << " end_range=" << end_range;
-
-            for (auto start_key : start_keys) {
-                ss << " keys=" << start_key->to_string();
-            }
-
-            for (auto end_key : end_keys) {
-                ss << " end_keys=" << end_key->to_string();
-            }
-
-            return ss.str();
-        }
+        std::string to_string() const;
 
         std::string range;
         std::string end_range;
@@ -187,8 +145,10 @@ private:
 
     void _init_load_bf_columns(const ReaderParams& read_params);
 
-    OLAPStatus _dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                 bool* eof);
+    OLAPStatus _direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+                                bool* eof);
+    OLAPStatus _direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
+                                        ObjectPool* agg_pool, bool* eof);
     OLAPStatus _agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                  bool* eof);
     OLAPStatus _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
@@ -211,6 +171,7 @@ private:
     std::vector<bool> _is_upper_keys_included;
     Conditions _conditions;
     std::vector<ColumnPredicate*> _col_predicates;
+    std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 
     OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool,
@@ -225,7 +186,7 @@ private:
     bool _has_sequence_col = false;
     int32_t _sequence_col_idx = -1;
     const RowCursor* _next_key = nullptr;
-    CollectIterator* _collect_iter = nullptr;
+    std::unique_ptr<CollectIterator> _collect_iter;
     std::vector<uint32_t> _key_cids;
     std::vector<uint32_t> _value_cids;
 

@@ -158,15 +158,11 @@ Sometimes the query fails and an error message of `body_size is too large` will 
 
 This error indicates that the packet size of brpc exceeds the configured value. At this time, you can avoid this error by increasing the configuration.
 
-Since this is a brpc configuration, users can also modify this parameter directly during operation. Modify by visiting `http://be_host:brpc_port/flags`.
-
 ### `brpc_socket_max_unwritten_bytes`
 
 This configuration is mainly used to modify the parameter `socket_max_unwritten_bytes` of brpc.
 
 Sometimes the query fails and an error message of `The server is overcrowded` will appear in the BE log. This means there are too many messages to buffer at the sender side, which may happen when the SQL needs to send large bitmap value. You can avoid this error by increasing the configuration.
-
-Since this is a brpc configuration, users can also modify this parameter directly during operation. Modify by visiting `http://be_host:brpc_port/flags`.
 
 ### `brpc_num_threads`
 
@@ -183,11 +179,18 @@ User can set this configuration to a larger value to get better QPS performance.
 ### `buffer_pool_clean_pages_limit`
 
 ### `buffer_pool_limit`
+
 * Type: string
 * Description: The largest allocatable memory of the buffer pool
 * Default value: 80G
 
 The maximum amount of memory available in the BE buffer pool. The buffer pool is a new memory management structure of BE, which manages the memory by the buffer page and enables spill data to disk. The memory for all concurrent queries will be allocated from the buffer pool. The current buffer pool only works on **AggregationNode** and **ExchangeNode**.
+
+### `check_auto_compaction_interval_seconds`
+
+* Type: int32
+* Description: Check the configuration of auto compaction in seconds when auto compaction disabled.
+* Default value: 5
 
 ### `check_consistency_worker_count`
 
@@ -226,6 +229,12 @@ Tablet score can be calculated like this:
 
 tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
 
+### `compaction_task_num_per_disk`
+
+* Type: int32
+* Description: The number of compaction tasks which execute in parallel for a disk.
+* Default value: 2
+
 ### `compress_rowbatches`
 
 * Type: bool
@@ -233,6 +242,12 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 * Default value: true
 
 ### `create_tablet_worker_count`
+
+### `cumulative_compaction_rounds_for_each_base_compaction_round`
+
+* Type: int32
+* Description: How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
+* Default value: 9
 
 ### `disable_auto_compaction`
 
@@ -309,8 +324,6 @@ In some deployment environments, the `conf/` directory may be overwritten due to
 * Type: int32
 * Description: Configure how many rows of data are contained in a single RowBlock.
 * Default value: 1024
-
-### `default_query_options`
 
 ### `default_rowset_type`
 
@@ -493,8 +506,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `load_process_max_memory_limit_percent`
 
-### `local_library_dir`
-
 ### `log_buffer_level`
 
 ### `madvise_huge_pages`
@@ -503,7 +514,11 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `max_client_cache_size_per_host`
 
-### `max_compaction_concurrency`
+### `max_compaction_threads`
+
+* Type: int32
+* Description: The maximum of thread number in compaction thread pool.
+* Default value: 10
 
 ### `max_consumer_num_per_group`
 
@@ -567,6 +582,12 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 * Description: During the cumulative compaction process, when the selected tablet fails to be merged successfully, it will wait for a period of time before it may be selected again. The waiting period is the value of this configuration.
 * Default value: 600
 * Unit: seconds
+
+### `min_compaction_threads`
+
+* Type: int32
+* Description: The minimum of thread number in compaction thread pool.
+* Default value: 10
 
 ### `min_cumulative_compaction_num_singleton_deltas`
 
@@ -664,15 +685,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `scan_context_gc_interval_min`
 
-### `scratch_dirs`
-
-### `serialize_batch`
-
-### `sleep_five_seconds`
-+ Type: int32
-+ Description: Global variables, used for BE thread sleep for 5 seconds, should not be modified
-+ Default value: 5
-
 ### `sleep_one_second`
 
 + Type: int32
@@ -683,8 +695,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `snapshot_expire_time_sec`
 
-### `sorter_block_size`
-
 ### `status_report_interval`
 
 ### `storage_flood_stage_left_capacity_bytes`
@@ -694,6 +704,11 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `storage_medium_migrate_count`
 
 ### `storage_page_cache_limit`
+
+### `index_page_cache_percentage`
+* Type: int32
+* Description: Index page cache as a percentage of total storage page cache, value range is [0, 100]
+* Default value: 10
 
 ### `storage_root_path`
 
@@ -779,6 +794,14 @@ When writing is too frequent and the disk time is insufficient, you can configur
 
 ### `tablet_writer_open_rpc_timeout_sec`
 
+### `tablet_writer_ignore_eovercrowded`
+
+* Type: bool
+* Description: Used to ignore brpc error '[E1011]The server is overcrowded' when writing data. 
+* Default value: false
+
+When meet '[E1011]The server is overcrowded' error, you can tune the configuration `brpc_socket_max_unwritten_bytes`, but it can't be modified at runtime. Set it to `true` to avoid writing failed temporarily. Notice that, it only effects `write`, other rpc requests will still check if overcrowded.
+
 ### `tc_free_memory_rate`
 
 ### `tc_max_total_thread_cache_bytes`
@@ -831,8 +854,6 @@ If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
 ### `use_mmap_allocate_chunk`
 
 ### `user_function_dir`
-
-### `web_log_bytes`
 
 ### `webserver_num_workers`
 

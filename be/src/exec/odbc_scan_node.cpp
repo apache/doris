@@ -65,7 +65,7 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
     _odbc_param.query_string = std::move(_query_string);
     _odbc_param.tuple_desc = _tuple_desc;
 
-    _odbc_scanner.reset(new (std::nothrow) ODBCScanner(_odbc_param));
+    _odbc_scanner.reset(new (std::nothrow) ODBCConnector(_odbc_param));
 
     if (_odbc_scanner.get() == nullptr) {
         return Status::InternalError("new a odbc scanner failed.");

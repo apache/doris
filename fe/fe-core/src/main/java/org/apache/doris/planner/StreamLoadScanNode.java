@@ -93,6 +93,8 @@ public class StreamLoadScanNode extends LoadScanNode {
                 rangeDesc.setJsonRoot(taskInfo.getJsonRoot());
             }
             rangeDesc.setStripOuterArray(taskInfo.isStripOuterArray());
+            rangeDesc.setNumAsString(taskInfo.isNumAsString());
+            rangeDesc.setFuzzyParse(taskInfo.isFuzzyParse());
         }
         rangeDesc.splittable = false;
         switch (taskInfo.getFileType()) {
@@ -140,7 +142,7 @@ public class StreamLoadScanNode extends LoadScanNode {
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws UserException, UserException {
+    public void finalize(Analyzer analyzer) throws UserException {
         finalizeParams(slotDescByName, exprsByName, brokerScanRange.params, srcTupleDesc,
                 taskInfo.isStrictMode(), taskInfo.getNegative(), analyzer);
     }

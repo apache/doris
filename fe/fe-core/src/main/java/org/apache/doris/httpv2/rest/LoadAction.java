@@ -111,6 +111,7 @@ public class LoadAction extends RestBaseController {
         // check auth
         checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.LOAD);
 
+        TNetworkAddress redirectAddr;
         if (!isStreamLoad && !Strings.isNullOrEmpty(request.getParameter(SUB_LABEL_NAME_PARAM))) {
             // only multi mini load need to redirect to Master, because only Master has the info of table to
             // the Backend which the file exists.
@@ -118,30 +119,24 @@ public class LoadAction extends RestBaseController {
             if (redirectView != null) {
                 return redirectView;
             }
-        }
-
-        // Choose a backend sequentially.
-        List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(1, true, false, clusterName);
-        if (backendIds == null) {
-            return ResponseEntityBuilder.okWithCommonError("No backend alive.");
-        }
-
-        Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
-        if (backend == null) {
-            return ResponseEntityBuilder.okWithCommonError("No backend alive.");
-        }
-
-        TNetworkAddress redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
-
-        if (!isStreamLoad) {
-            String subLabel = request.getParameter(SUB_LABEL_NAME_PARAM);
-            if (!Strings.isNullOrEmpty(subLabel)) {
-                try {
-                    redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label, tableName, redirectAddr);
-                } catch (DdlException e) {
-                    return ResponseEntityBuilder.okWithCommonError(e.getMessage());
-                }
+            try {
+                redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label);
+            } catch (DdlException e) {
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
             }
+        } else {
+            // Choose a backend sequentially.
+            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(1, true, false, clusterName);
+            if (backendIds == null) {
+                return ResponseEntityBuilder.okWithCommonError("No backend alive.");
+            }
+
+            Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            if (backend == null) {
+                return ResponseEntityBuilder.okWithCommonError("No backend alive.");
+            }
+
+            redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
         }
 
         LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",

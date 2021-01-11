@@ -100,6 +100,7 @@ public class ConnectProcessorTest {
 
         statistics.scan_bytes = 0L;
         statistics.scan_rows = 0L;
+        statistics.cpu_ms = 0L;
 
         MetricRepo.init();
     }

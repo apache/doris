@@ -151,7 +151,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 有时查询失败，在 BE 日志中会出现 `body_size is too large` 的错误信息。这可能发生在 SQL 模式为 multi distinct + 无 group by + 超过1T 数据量的情况下。这个错误表示 brpc 的包大小超过了配置值。此时可以通过调大该配置避免这个错误。
 
-由于这是一个 brpc 的配置，用户也可以在运行中直接修改该参数。通过访问 `http://be_host:brpc_port/flags` 修改。
 
 ### `brpc_socket_max_unwritten_bytes`
 
@@ -159,7 +158,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 有时查询失败，BE 日志中会出现 `The server is overcrowded` 的错误信息，表示连接上有过多的未发送数据。当查询需要发送较大的bitmap字段时，可能会遇到该问题，此时可能通过调大该配置避免该错误。
 
-由于这是一个 brpc 的配置，用户也可以在运行中直接修改该参数。通过访问 `http://be_host:brpc_port/flags` 修改。
 
 ### `brpc_num_threads`
 
@@ -168,6 +166,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 用户可以将该配置的值调大来获取更好的QPS性能。更多的信息可以参考`https://github.com/apache/incubator-brpc/blob/master/docs/cn/benchmark.md`。
 
 ### `brpc_port`
+
 * 类型：int32
 * 描述：BE 上的 brpc 的端口，用于 BE 之间通讯
 * 默认值：8060
@@ -175,11 +174,18 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 ### `buffer_pool_clean_pages_limit`
 
 ### `buffer_pool_limit`
+
 * 类型：string
 * 描述：buffer pool之中最大的可分配内存
 * 默认值：80G
 
 BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构，通过buffer page来进行内存管理，并能够实现数据的落盘。并发的所有查询的内存申请都会通过buffer pool来申请。当前buffer pool仅作用在**AggregationNode**与**ExchangeNode**。
+
+### `check_auto_compaction_interval_seconds`
+
+* 类型：int32
+* 描述：当自动执行compaction的功能关闭时，检查自动compaction开关是否被开启的时间间隔。
+* 默认值：5
 
 ### `check_consistency_worker_count`
 
@@ -220,6 +226,11 @@ tablet score可以通过以下公式计算：
 
 tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
 
+### `compaction_task_num_per_disk`
+
+* 类型：int32
+* 描述：每个磁盘可以并发执行的compaction任务数量。
+* 默认值：2
 
 ### `compress_rowbatches`
 * 类型：bool
@@ -229,6 +240,12 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 * 默认值：true
 
 ### `create_tablet_worker_count`
+
+### `cumulative_compaction_rounds_for_each_base_compaction_round`
+
+* 类型：int32
+* 描述：Compaction任务的生产者每次连续生产多少轮cumulative compaction任务后生产一轮base compaction。
+* 默认值：9
 
 ### `disable_auto_compaction`
 
@@ -304,8 +321,6 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 * 类型：int32
 * 描述：配置单个RowBlock之中包含多少行的数据。
 * 默认值：1024
-
-### `default_query_options`
 
 ### `default_rowset_type`
 * 类型：string
@@ -492,8 +507,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `load_process_max_memory_limit_percent`
 
-### `local_library_dir`
-
 ### `log_buffer_level`
 
 ### `madvise_huge_pages`
@@ -502,7 +515,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `max_client_cache_size_per_host`
 
-### `max_compaction_concurrency`
+### `max_compaction_threads`
+
+* 类型：int32
+* 描述：Compaction线程池中线程数量的最大值。
+* 默认值：10
 
 ### `max_consumer_num_per_group`
 
@@ -566,6 +583,12 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述：在 cumulative compaction 过程中，当选中的 tablet 没能成功的进行版本合并，则会等待一段时间后才会再次有可能被选中。等待的这段时间就是这个配置的值。
 * 默认值：600
 * 单位：秒
+
+### `min_compaction_threads`
+
+* 类型：int32
+* 描述：Compaction线程池中线程数量的最小值。
+* 默认值：10
 
 ### `min_cumulative_compaction_num_singleton_deltas`
 
@@ -663,14 +686,7 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `scan_context_gc_interval_min`
 
-### `scratch_dirs`
-
 ### `serialize_batch`
-
-### `sleep_five_seconds`
-+ 类型：int32
-+ 描述：全局变量，用于BE线程休眠5秒，不应该被修改
-+ 默认值：5
 
 ### `sleep_one_second`
 + 类型：int32
@@ -681,8 +697,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `snapshot_expire_time_sec`
 
-### `sorter_block_size`
-
 ### `status_report_interval`
 
 ### `storage_flood_stage_left_capacity_bytes`
@@ -692,6 +706,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 ### `storage_medium_migrate_count`
 
 ### `storage_page_cache_limit`
+
+### `index_page_cache_percentage`
+* 类型：int32
+* 描述：索引页缓存占总页面缓存的百分比，取值为[0, 100]。
+* 默认值：10
 
 ### `storage_root_path`
 
@@ -776,6 +795,14 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `tablet_writer_open_rpc_timeout_sec`
 
+### `tablet_writer_ignore_eovercrowded`
+
+* 类型：bool
+* 描述：写入时可忽略brpc的'[E1011]The server is overcrowded'错误。
+* 默认值：false
+
+当遇到'[E1011]The server is overcrowded'的错误时，可以调整配置项`brpc_socket_max_unwritten_bytes`，但这个配置项不能动态调整。所以可通过设置此项为`true`来临时避免写失败。注意，此配置项只影响写流程，其他的rpc请求依旧会检查是否overcrowded。
+
 ### `tc_free_memory_rate`
 
 ### `tc_max_total_thread_cache_bytes`
@@ -828,8 +855,6 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 ### `use_mmap_allocate_chunk`
 
 ### `user_function_dir`
-
-### `web_log_bytes`
 
 ### `webserver_num_workers`
 

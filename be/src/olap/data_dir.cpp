@@ -687,7 +687,8 @@ OLAPStatus DataDir::load() {
                                     const std::string& value) -> bool {
         OLAPStatus status = _tablet_manager->load_tablet_from_meta(this, tablet_id, schema_hash,
                                                                    value, false, false);
-        if (status != OLAP_SUCCESS && status != OLAP_ERR_TABLE_ALREADY_DELETED_ERROR) {
+        if (status != OLAP_SUCCESS && status != OLAP_ERR_TABLE_ALREADY_DELETED_ERROR
+            && status != OLAP_ERR_ENGINE_INSERT_OLD_TABLET) {
             // load_tablet_from_meta() may return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR
             // which means the tablet status is DELETED
             // This may happen when the tablet was just deleted before the BE restarted,
@@ -695,6 +696,13 @@ OLAPStatus DataDir::load() {
             // will read the tablet in the DELETE state from rocksdb. These tablets have been
             // added to the garbage collection queue and will be automatically deleted afterwards.
             // Therefore, we believe that this situation is not a failure.
+
+            // Besides, load_tablet_from_meta() may return OLAP_ERR_ENGINE_INSERT_OLD_TABLET
+            // when BE is restarting and the older tablet have been added to the 
+            // garbage collection queue but not deleted yet.
+            // In this case, since the data_dirs are parallel loaded, a later loaded tablet 
+            // may be older than previously loaded one, which should not be acknowledged as a
+            // failure.
             LOG(WARNING) << "load tablet from header failed. status:" << status
                          << ", tablet=" << tablet_id << "." << schema_hash;
             failed_tablet_ids.insert(tablet_id);
@@ -990,6 +998,11 @@ Status DataDir::update_capacity() {
 
 void DataDir::update_user_data_size(int64_t size) {
     disks_data_used_capacity->set_value(size);
+}
+
+size_t DataDir::tablet_size() const {
+    std::lock_guard<std::mutex> l(_mutex);
+    return _tablet_set.size();
 }
 
 bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {

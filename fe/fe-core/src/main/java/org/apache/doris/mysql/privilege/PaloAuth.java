@@ -45,13 +45,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -68,6 +68,8 @@ public class PaloAuth implements Writable {
     // each Palo system has only one root user.
     public static final String ROOT_USER = "root";
     public static final String ADMIN_USER = "admin";
+    // unknown user does not have any privilege, this is just to be compatible with old version.
+    public static final String UNKNOWN_USER = "unknown";
 
     private UserPrivTable userPrivTable = new UserPrivTable();
     private DbPrivTable dbPrivTable = new DbPrivTable();

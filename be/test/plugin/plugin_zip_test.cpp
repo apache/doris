@@ -142,9 +142,9 @@ TEST_F(PluginZipTest, http_normal) {
 }
 
 TEST_F(PluginZipTest, already_install) {
-    // This test case will finish very soon, sleep 1 second to ensure that EvHttpServer worker has started
+    // This test case will finish very soon, sleep 100 us to ensure that EvHttpServer worker has started
     // before this unit test case finished, or there may cause an ASAN error.
-    sleep(1);
+    usleep(100);
     FileUtils::remove_all(_path + "/plugin_test/target");
 
     PluginZip zip("http://127.0.0.1:29191/test.zip");

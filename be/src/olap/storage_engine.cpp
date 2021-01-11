@@ -140,6 +140,10 @@ StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     DEREGISTER_HOOK_METRIC(compaction_mem_current_consumption);
     _clear();
+
+    if(_compaction_thread_pool){
+        _compaction_thread_pool->shutdown();
+    }
 }
 
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
@@ -434,7 +438,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     for (int i = 0; i < stores.size(); i++) {
         int j = i + 1;
         if (j < stores.size()) {
-            if (stores[i]->tablet_set().size() > stores[j]->tablet_set().size()) {
+            if (stores[i]->tablet_size() > stores[j]->tablet_size()) {
                 std::swap(stores[i], stores[j]);
             }
             std::random_shuffle(stores.begin() + j, stores.end());
@@ -519,8 +523,6 @@ void StorageEngine::stop() {
         }                               \
     }
 
-    THREADS_JOIN(_base_compaction_threads);
-    THREADS_JOIN(_cumulative_compaction_threads);
     THREADS_JOIN(_path_gc_threads);
     THREADS_JOIN(_path_scan_threads);
     THREADS_JOIN(_tablet_checkpoint_threads);
@@ -579,65 +581,6 @@ void StorageEngine::_start_clean_fd_cache() {
     VLOG(10) << "start clean file descritpor cache";
     _file_cache->prune();
     VLOG(10) << "end clean file descritpor cache";
-}
-
-void StorageEngine::_perform_cumulative_compaction(TabletSharedPtr best_tablet) {
-    scoped_refptr<Trace> trace(new Trace);
-    MonotonicStopWatch watch;
-    watch.start();
-    SCOPED_CLEANUP({
-        if (watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
-            LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
-        }
-    });
-    ADOPT_TRACE(trace.get());
-    TRACE("start to perform cumulative compaction");
-
-    DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
-
-    std::string tracker_label = "cumulative compaction " + std::to_string(syscall(__NR_gettid));
-    CumulativeCompaction cumulative_compaction(best_tablet, tracker_label, _compaction_mem_tracker);
-
-    OLAPStatus res = cumulative_compaction.compact();
-    if (res != OLAP_SUCCESS) {
-        if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
-            best_tablet->set_last_cumu_compaction_failure_time(UnixMillis());
-            DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
-            LOG(WARNING) << "failed to do cumulative compaction. res=" << res
-                         << ", table=" << best_tablet->full_name();
-        }
-        return;
-    }
-    best_tablet->set_last_cumu_compaction_failure_time(0);
-}
-
-void StorageEngine::_perform_base_compaction(TabletSharedPtr best_tablet) {
-    scoped_refptr<Trace> trace(new Trace);
-    MonotonicStopWatch watch;
-    watch.start();
-    SCOPED_CLEANUP({
-        if (watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
-            LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
-        }
-    });
-    ADOPT_TRACE(trace.get());
-    TRACE("start to perform base compaction");
-
-    DorisMetrics::instance()->base_compaction_request_total->increment(1);
-
-    std::string tracker_label = "base compaction " + std::to_string(syscall(__NR_gettid));
-    BaseCompaction base_compaction(best_tablet, tracker_label, _compaction_mem_tracker);
-    OLAPStatus res = base_compaction.compact();
-    if (res != OLAP_SUCCESS) {
-        best_tablet->set_last_base_compaction_failure_time(UnixMillis());
-        if (res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
-            DorisMetrics::instance()->base_compaction_request_failed->increment(1);
-            LOG(WARNING) << "failed to init base compaction. res=" << res
-                         << ", table=" << best_tablet->full_name();
-        }
-        return;
-    }
-    best_tablet->set_last_base_compaction_failure_time(0);
 }
 
 OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
@@ -867,6 +810,7 @@ OLAPStatus StorageEngine::create_tablet(const TCreateTabletReq& request) {
         LOG(WARNING) << "there is no available disk that can be used to create tablet.";
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
+    TRACE("got data directory for create tablet");
     return _tablet_manager->create_tablet(request, stores);
 }
 
@@ -1038,4 +982,17 @@ bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id)
     return search != _unused_rowsets.end();
 }
 
-} // namespace doris
+void StorageEngine::create_cumulative_compaction(
+        TabletSharedPtr best_tablet, std::shared_ptr<CumulativeCompaction>& cumulative_compaction) {
+    std::string tracker_label = "cumulative compaction " + std::to_string(syscall(__NR_gettid));
+    cumulative_compaction.reset(
+            new CumulativeCompaction(best_tablet, tracker_label, _compaction_mem_tracker));
+}
+
+void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
+                                           std::shared_ptr<BaseCompaction>& base_compaction) {
+    std::string tracker_label = "base compaction " + std::to_string(syscall(__NR_gettid));
+    base_compaction.reset(new BaseCompaction(best_tablet, tracker_label, _compaction_mem_tracker));
+}
+
+}  // namespace doris

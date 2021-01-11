@@ -48,12 +48,15 @@ public class UserIdentity implements Writable {
 
     public static final UserIdentity ROOT;
     public static final UserIdentity ADMIN;
+    public static final UserIdentity UNKNOWN;
 
     static {
         ROOT = new UserIdentity(PaloAuth.ROOT_USER, "%");
         ROOT.setIsAnalyzed();
         ADMIN = new UserIdentity(PaloAuth.ADMIN_USER, "%");
         ADMIN.setIsAnalyzed();
+        UNKNOWN = new UserIdentity(PaloAuth.UNKNOWN_USER, "%");
+        UNKNOWN.setIsAnalyzed();
     }
 
     private UserIdentity() {

@@ -76,7 +76,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
-    
+
+    public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_PARTITION_CACHE = "enable_partition_cache";
 
@@ -107,6 +108,17 @@ public class SessionVariable implements Serializable, Writable {
     // see comment of `doris_max_scan_key_num` and `max_pushdown_conditions_per_column` in BE config
     public static final String MAX_SCAN_KEY_NUM = "max_scan_key_num";
     public static final String MAX_PUSHDOWN_CONDITIONS_PER_COLUMN = "max_pushdown_conditions_per_column";
+
+    // when true, the partition column must be set to NOT NULL.
+    public static final String ALLOW_PARTITION_COLUMN_NULLABLE = "allow_partition_column_nullable";
+
+    // max ms to wait transaction publish finish when exec insert stmt.
+    public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
+    public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
+    public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
+
+    @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS)
+    private long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -232,6 +244,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT)
     private boolean enableInsertStrict = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
+    private boolean enableOdbcTransaction = false;
+
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE)
     private boolean enableSqlCache = false;
 
@@ -269,6 +284,9 @@ public class SessionVariable implements Serializable, Writable {
     private int maxPushdownConditionsPerColumn = -1;
     @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
     private boolean showHiddenColumns = false;
+
+    @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE)
+    private boolean allowPartitionColumnNullable = true;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -422,6 +440,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableBucketShuffleJoin;
     }
 
+    public boolean isEnableOdbcTransaction() {
+        return enableOdbcTransaction;
+    }
+
     public String getPreferJoinMethod() {return preferJoinMethod; }
 
     public void setPreferJoinMethod(String preferJoinMethod) {this.preferJoinMethod = preferJoinMethod; }
@@ -528,6 +550,23 @@ public class SessionVariable implements Serializable, Writable {
         this.showHiddenColumns = showHiddenColumns;
     }
 
+    public boolean isAllowPartitionColumnNullable() { return allowPartitionColumnNullable; }
+
+    public long getInsertVisibleTimeoutMs() {
+        if (insertVisibleTimeoutMs < MIN_INSERT_VISIBLE_TIMEOUT_MS) {
+            return MIN_INSERT_VISIBLE_TIMEOUT_MS;
+        } else {
+            return insertVisibleTimeoutMs;
+        }
+    }
+
+    public void setInsertVisibleTimeoutMs(long insertVisibleTimeoutMs) {
+        if (insertVisibleTimeoutMs < MIN_INSERT_VISIBLE_TIMEOUT_MS) {
+            this.insertVisibleTimeoutMs = MIN_INSERT_VISIBLE_TIMEOUT_MS;
+        } else {
+            this.insertVisibleTimeoutMs = insertVisibleTimeoutMs;
+        }
+    }
 
     // Serialize to thrift object
     // used for rest api

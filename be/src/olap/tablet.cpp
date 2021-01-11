@@ -28,6 +28,8 @@
 #include <map>
 #include <set>
 
+#include "olap/base_compaction.h"
+#include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/reader.h"
@@ -38,7 +40,9 @@
 #include "olap/tablet_meta_manager.h"
 #include "util/path_util.h"
 #include "util/pretty_printer.h"
+#include "util/scoped_cleanup.h"
 #include "util/time.h"
+#include "util/trace.h"
 
 namespace doris {
 
@@ -67,7 +71,8 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
           _cumulative_point(K_INVALID_CUMULATIVE_POINT),
           _cumulative_compaction_type(cumulative_compaction_type),
           _last_record_scan_count(0),
-          _last_record_scan_count_timestamp(time(nullptr)) {
+          _last_record_scan_count_timestamp(time(nullptr)),
+          _is_clone_occurred(false) {
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
@@ -566,10 +571,8 @@ void Tablet::delete_expired_stale_rowset() {
 
 OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
                                                std::vector<Version>* version_path) const {
-    // OLAPStatus status = _rs_graph.capture_consistent_versions(spec_version, version_path);
     OLAPStatus status =
             _timestamped_version_tracker.capture_consistent_versions(spec_version, version_path);
-
     if (status != OLAP_SUCCESS) {
         std::vector<Version> missed_versions;
         calc_missed_versions_unlocked(spec_version.second, &missed_versions);
@@ -1320,4 +1323,115 @@ double Tablet::calculate_scan_frequency() {
     return scan_frequency;
 }
 
-} // namespace doris
+int64_t Tablet::prepare_compaction_and_calculate_permits(CompactionType compaction_type,
+                                                         TabletSharedPtr tablet) {
+    std::vector<RowsetSharedPtr> compaction_rowsets;
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+        scoped_refptr<Trace> trace(new Trace);
+        MonotonicStopWatch watch;
+        watch.start();
+        SCOPED_CLEANUP({
+            if (watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
+                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+            }
+        });
+        ADOPT_TRACE(trace.get());
+
+        TRACE("create cumulative compaction");
+        StorageEngine::instance()->create_cumulative_compaction(tablet, _cumulative_compaction);
+        DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
+        OLAPStatus res = _cumulative_compaction->prepare_compact();
+        if (res != OLAP_SUCCESS) {
+            return 0;
+        }
+        compaction_rowsets = _cumulative_compaction->get_input_rowsets();
+    } else {
+        DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
+        scoped_refptr<Trace> trace(new Trace);
+        MonotonicStopWatch watch;
+        watch.start();
+        SCOPED_CLEANUP({
+            if (watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
+                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+            }
+        });
+        ADOPT_TRACE(trace.get());
+
+        TRACE("create base compaction");
+        StorageEngine::instance()->create_base_compaction(tablet, _base_compaction);
+        DorisMetrics::instance()->base_compaction_request_total->increment(1);
+        OLAPStatus res = _base_compaction->prepare_compact();
+        if (res != OLAP_SUCCESS) {
+            set_last_base_compaction_failure_time(UnixMillis());
+            DorisMetrics::instance()->base_compaction_request_failed->increment(1);
+            if (res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
+                LOG(WARNING) << "failed to pick rowsets for base compaction. res=" << res
+                             << ", tablet=" << full_name();
+            }
+            return 0;
+        }
+        compaction_rowsets = _base_compaction->get_input_rowsets();
+    }
+    int64_t permits = 0;
+    for (auto rowset : compaction_rowsets) {
+        permits += rowset->rowset_meta()->get_compaction_score();
+    }
+    return permits;
+}
+
+void Tablet::execute_compaction(CompactionType compaction_type) {
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+        scoped_refptr<Trace> trace(new Trace);
+        MonotonicStopWatch watch;
+        watch.start();
+        SCOPED_CLEANUP({
+            if (watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
+                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+            }
+        });
+        ADOPT_TRACE(trace.get());
+
+        TRACE("execute cumulative compaction");
+        OLAPStatus res = _cumulative_compaction->execute_compact();
+        if (res != OLAP_SUCCESS) {
+            set_last_cumu_compaction_failure_time(UnixMillis());
+            DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
+            LOG(WARNING) << "failed to do cumulative compaction. res=" << res
+                         << ", tablet=" << full_name();
+            return;
+        }
+        set_last_cumu_compaction_failure_time(0);
+    } else {
+        DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
+        scoped_refptr<Trace> trace(new Trace);
+        MonotonicStopWatch watch;
+        watch.start();
+        SCOPED_CLEANUP({
+            if (watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
+                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+            }
+        });
+        ADOPT_TRACE(trace.get());
+
+        TRACE("create base compaction");
+        OLAPStatus res = _base_compaction->execute_compact();
+        if (res != OLAP_SUCCESS) {
+            set_last_base_compaction_failure_time(UnixMillis());
+            DorisMetrics::instance()->base_compaction_request_failed->increment(1);
+            LOG(WARNING) << "failed to do base compaction. res=" << res
+                         << ", tablet=" << full_name();
+            return;
+        }
+        set_last_base_compaction_failure_time(0);
+    }
+}
+
+void Tablet::reset_compaction(CompactionType compaction_type) {
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+        _cumulative_compaction.reset();
+    } else {
+        _base_compaction.reset();
+    }
+}
+
+}  // namespace doris

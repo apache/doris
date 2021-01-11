@@ -36,6 +36,11 @@ std::string cast_to_string(__int128 value) {
 }
 
 template <>
+std::string cast_to_string(int8_t value) {
+    return std::to_string(static_cast<int>(value));
+}
+
+template <>
 void ColumnValueRange<StringValue>::convert_to_fixed_value() {
     return;
 }

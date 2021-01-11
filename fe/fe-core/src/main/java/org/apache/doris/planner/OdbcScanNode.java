@@ -50,18 +50,6 @@ import java.util.List;
 public class OdbcScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(OdbcScanNode.class);
 
-    private static String mysqlProperName(String name) {
-        return "`" + name + "`";
-    }
-
-    private static String databaseProperName(TOdbcTableType tableType, String name) {
-        switch (tableType) {
-            case MYSQL:
-                return mysqlProperName(name);
-        }
-        return name;
-    }
-
     // Now some database have different function call like doris, now doris do not
     // push down the function call except MYSQL
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
@@ -88,7 +76,7 @@ public class OdbcScanNode extends ScanNode {
         super(id, desc, "SCAN ODBC");
         connectString = tbl.getConnectString();
         odbcType = tbl.getOdbcTableType();
-        tblName = databaseProperName(odbcType, tbl.getOdbcTableName());
+        tblName = OdbcTable.databaseProperName(odbcType, tbl.getOdbcTableName());
     }
 
     @Override
@@ -156,7 +144,7 @@ public class OdbcScanNode extends ScanNode {
                 continue;
             }
             Column col = slot.getColumn();
-            columns.add(databaseProperName(odbcType, col.getName()));
+            columns.add(OdbcTable.databaseProperName(odbcType, col.getName()));
         }
         // this happens when count(*)
         if (0 == columns.size()) {
@@ -176,7 +164,7 @@ public class OdbcScanNode extends ScanNode {
         for (SlotRef slotRef : slotRefs) {
             SlotRef tmpRef = (SlotRef) slotRef.clone();
             tmpRef.setTblName(null);
-            tmpRef.setLabel(databaseProperName(odbcType, tmpRef.getColumnName()));
+            tmpRef.setLabel(OdbcTable.databaseProperName(odbcType, tmpRef.getColumnName()));
             sMap.put(slotRef, tmpRef);
         }
         ArrayList<Expr> odbcConjuncts = Expr.cloneList(conjuncts, sMap);
