@@ -20,7 +20,6 @@ package org.apache.doris.system;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -30,6 +29,11 @@ import org.apache.doris.common.Status;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageMedium;
+
+import org.apache.commons.validator.routines.InetAddressValidator;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -39,11 +43,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-
-import org.apache.commons.validator.routines.InetAddressValidator;
-import org.apache.doris.thrift.TStorageMedium;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -900,18 +899,8 @@ public class SystemInfoService {
                 LOG.warn("failed to update backend report version, db {} does not exist", dbId);
                 return;
             }
-            Table table = db.getTable(tableId);
-            if (table == null) {
-                LOG.warn("failed to update backend report version, table {} in db {} does not exist", tableId, dbId);
-                return;
-            }
-            table.readLock();
-            try {
-                atomicLong.set(newReportVersion);
-                LOG.debug("update backend {} report version: {}, db: {}, table: {}", backendId, newReportVersion, dbId, tableId);
-            } finally {
-                table.readUnlock();
-            }
+            atomicLong.set(newReportVersion);
+            LOG.debug("update backend {} report version: {}, db: {}, table: {}", backendId, newReportVersion, dbId, tableId);
         }
     }
 

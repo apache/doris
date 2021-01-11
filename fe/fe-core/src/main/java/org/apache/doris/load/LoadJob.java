@@ -39,13 +39,13 @@ import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TResourceInfo;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -246,6 +246,8 @@ public class LoadJob implements Writable {
     }
 
     public long getTableId() {
+        // table id may be 0 for some load job, eg, hadoop load job.
+        // use it carefully.
         return tableId;
     }
 
