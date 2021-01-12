@@ -147,7 +147,7 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash s
         res = _add_tablet_to_map_unlocked(tablet_id, schema_hash, tablet, update_meta, keep_files,
                                           true /*drop_old*/);
     } else {
-        res = OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
+        res = OLAP_ERR_ENGINE_INSERT_OLD_TABLET;
     }
     LOG(WARNING) << "add duplicated tablet. force=" << force << ", res=" << res
                  << ", tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
@@ -1028,7 +1028,9 @@ OLAPStatus TabletManager::start_trash_sweep() {
 
     int32_t clean_num = 0;
     do {
+#ifndef BE_TEST
         sleep(1);
+#endif
         clean_num = 0;
         // should get write lock here, because it will remove tablet from shut_down_tablets
         // and get tablet will access shut_down_tablets

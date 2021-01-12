@@ -505,7 +505,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 类型：long
 说明：用于控制一个 clone 任务的最小超时时间。单位秒。
-默认值：120
+默认值：180
 动态修改：是
 
 见 `max_clone_task_timeout_sec` 说明。

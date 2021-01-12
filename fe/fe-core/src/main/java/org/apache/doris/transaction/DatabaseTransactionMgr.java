@@ -951,6 +951,8 @@ public class DatabaseTransactionMgr {
         if (txnOperated && transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
             clearBackendTransactions(transactionState);
         }
+
+        LOG.info("abort transaction: {} successfully", transactionState);
     }
 
     private boolean unprotectAbortTransaction(long transactionId, String reason)

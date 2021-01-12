@@ -46,7 +46,7 @@ void worker() {
             std::unique_lock<std::mutex> lock(g_io_mu);
             std::cout << "worker " << i << std::endl;
         }
-        sleep(1);
+        usleep(100);
         g_cond.dec();
     }
 }

@@ -443,6 +443,7 @@ struct TMasterOpRequest {
     15: optional i32 stmtIdx  // the idx of the sql in multi statements
     16: optional PaloInternalService.TQueryOptions query_options
     17: optional Types.TUniqueId query_id // when this is a query, we translate this query id to master
+    18: optional i64 insert_visible_timeout_ms
 }
 
 struct TColumnDefinition {
@@ -575,6 +576,7 @@ struct TStreamLoadPutRequest {
     28: optional string delete_condition
     29: optional string sequence_col
     30: optional bool num_as_string
+    31: optional bool fuzzy_parse
 }
 
 struct TStreamLoadPutResult {

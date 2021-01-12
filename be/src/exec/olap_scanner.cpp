@@ -59,8 +59,7 @@ OlapScanner::~OlapScanner() {}
 
 Status OlapScanner::prepare(const TPaloScanRange& scan_range,
                             const std::vector<OlapScanRange*>& key_ranges,
-                            const std::vector<TCondition>& filters,
-                            const std::vector<TCondition>& is_nulls) {
+                            const std::vector<TCondition>& filters) {
     // Get olap table
     TTabletId tablet_id = scan_range.tablet_id;
     SchemaHash schema_hash = strtoul(scan_range.schema_hash.c_str(), nullptr, 10);
@@ -105,7 +104,7 @@ Status OlapScanner::prepare(const TPaloScanRange& scan_range,
 
     {
         // Initialize _params
-        RETURN_IF_ERROR(_init_params(key_ranges, filters, is_nulls));
+        RETURN_IF_ERROR(_init_params(key_ranges, filters));
     }
 
     return Status::OK();
@@ -131,8 +130,7 @@ Status OlapScanner::open() {
 
 // it will be called under tablet read lock because capture rs readers need
 Status OlapScanner::_init_params(const std::vector<OlapScanRange*>& key_ranges,
-                                 const std::vector<TCondition>& filters,
-                                 const std::vector<TCondition>& is_nulls) {
+                                 const std::vector<TCondition>& filters) {
     RETURN_IF_ERROR(_init_return_columns());
 
     _params.tablet = _tablet;
@@ -144,9 +142,7 @@ Status OlapScanner::_init_params(const std::vector<OlapScanRange*>& key_ranges,
     for (auto& filter : filters) {
         _params.conditions.push_back(filter);
     }
-    for (auto& is_null_str : is_nulls) {
-        _params.conditions.push_back(is_null_str);
-    }
+
     // Range
     for (auto key_range : key_ranges) {
         if (key_range->begin_scan_range.size() == 1 &&
@@ -257,7 +253,6 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     {
         SCOPED_TIMER(_parent->_scan_timer);
-        SCOPED_CPU_TIMER(_parent->_scan_cpu_timer);
         while (true) {
             // Batch is full, break
             if (batch->is_full()) {

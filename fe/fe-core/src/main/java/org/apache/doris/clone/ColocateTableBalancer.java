@@ -150,6 +150,10 @@ public class ColocateTableBalancer extends MasterDaemon {
             if (statistic == null) {
                 continue;
             }
+            List<List<Long>> backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
+            if (backendsPerBucketSeq.isEmpty()) {
+                continue;
+            }
 
             Set<Long> unavailableBeIdsInGroup = getUnavailableBeIdsInGroup(infoService, colocateIndex, groupId);
             List<Long> availableBeIds = getAvailableBeIds(db.getClusterName(), infoService);
@@ -183,6 +187,10 @@ public class ColocateTableBalancer extends MasterDaemon {
             }
 
             List<Set<Long>> backendBucketsSeq = colocateIndex.getBackendsPerBucketSeqSet(groupId);
+            if (backendBucketsSeq.isEmpty()) {
+                continue;
+            }
+
             boolean isGroupStable = true;
             db.readLock();
             try {

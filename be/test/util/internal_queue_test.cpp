@@ -25,6 +25,7 @@
 
 #include "common/configbase.h"
 #include "util/logging.h"
+#include "test_util/test_util.h"
 
 using std::vector;
 using boost::thread;
@@ -222,7 +223,7 @@ TEST(InternalQueue, TestClear) {
 TEST(InternalQueue, TestSingleProducerSingleConsumer) {
     std::vector<IntNode> nodes;
     AtomicInt<int32_t> counter;
-    nodes.resize(1000000);
+    nodes.resize(LOOP_LESS_OR_MORE(100, 1000000));
     std::vector<int> results;
 
     InternalQueue<IntNode> queue;
@@ -246,7 +247,7 @@ TEST(InternalQueue, TestSingleProducerSingleConsumer) {
 
 TEST(InternalQueue, TestMultiProducerMultiConsumer) {
     std::vector<IntNode> nodes;
-    nodes.resize(1000000);
+    nodes.resize(LOOP_LESS_OR_MORE(100, 1000000));
 
     bool failed = false;
     for (int num_producers = 1; num_producers < 5; num_producers += 3) {

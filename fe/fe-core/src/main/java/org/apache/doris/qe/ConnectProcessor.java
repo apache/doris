@@ -415,6 +415,10 @@ public class ConnectProcessor {
             ctx.setCurrentUserIdentity(currentUserIdentity);
         }
 
+        if (request.isSetInsertVisibleTimeoutMs()) {
+            ctx.getSessionVariable().setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
+        }
+
         if (request.isSetQueryOptions()) {
             TQueryOptions queryOptions = request.getQueryOptions();
             if (queryOptions.isSetMemLimit()) {
