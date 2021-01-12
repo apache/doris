@@ -23,14 +23,11 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
-import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -367,15 +364,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 deleteCondition = routineLoadDesc.getDeleteCondition();
             }
             mergeType = routineLoadDesc.getMergeType();
-            if (mergeType == LoadTask.MergeType.MERGE) {
-                columnDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
-            } else if (mergeType == LoadTask.MergeType.DELETE) {
-                columnDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
-            }
             if (routineLoadDesc.hasSequenceCol()) {
                 sequenceCol = routineLoadDesc.getSequenceColName();
-                // add expr for sequence column
-                columnDescs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, sequenceCol)));
             }
         }
     }
@@ -600,6 +590,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return value;
     }
 
+    @Override
     public String getSequenceCol() {
         return sequenceCol;
     }
