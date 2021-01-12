@@ -796,16 +796,6 @@ public class DataDescription {
         analyzeColumns();
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
-        if (mergeType == LoadTask.MergeType.MERGE) {
-            parsedColumnExprList.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
-        } else if (mergeType == LoadTask.MergeType.DELETE) {
-            parsedColumnExprList.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
-        }
-        // add columnExpr for sequence column
-        if (hasSequenceCol()) {
-            parsedColumnExprList.add(new ImportColumnDesc(Column.SEQUENCE_COL,
-                    new SlotRef(null, getSequenceCol())));
-        }
     }
 
     /*
