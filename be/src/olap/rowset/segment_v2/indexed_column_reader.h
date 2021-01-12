@@ -51,7 +51,7 @@ public:
 
     // read a page specified by `pp' from `file' into `handle'
     Status read_page(fs::ReadableBlock* rblock, const PagePointer& pp, PageHandle* handle,
-                     Slice* body, PageFooterPB* footer) const;
+                     Slice* body, PageFooterPB* footer, PageTypePB type) const;
 
     int64_t num_values() const { return _num_values; }
     const EncodingInfo* encoding_info() const { return _encoding_info; }

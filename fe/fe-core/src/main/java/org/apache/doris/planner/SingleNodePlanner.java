@@ -73,7 +73,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * Constructs a non-executable single-node plan from an analyzed parse tree.
@@ -86,7 +85,7 @@ public class SingleNodePlanner {
 
     private final PlannerContext ctx_;
     private final ArrayList<ScanNode> scanNodes = Lists.newArrayList();
-    private Map<UUID, List<ScanNode>> selectStmtToScanNodes = Maps.newHashMap();
+    private Map<Analyzer, List<ScanNode>> selectStmtToScanNodes = Maps.newHashMap();
 
     public SingleNodePlanner(PlannerContext ctx) {
         ctx_ = ctx;
@@ -778,7 +777,7 @@ public class SingleNodePlanner {
                             ((InlineViewRef) tableRef).getAnalyzer());
                 }
             }
-            List<ScanNode> scanNodeList = selectStmtToScanNodes.get(selectStmt.getId());
+            List<ScanNode> scanNodeList = selectStmtToScanNodes.get(selectStmt.getAnalyzer());
             if (scanNodeList == null) {
                 return selectFailed;
             }
@@ -1455,7 +1454,7 @@ public class SingleNodePlanner {
         analyzer.materializeSlots(scanNode.getConjuncts());
 
         scanNodes.add(scanNode);
-        List<ScanNode> scanNodeList = selectStmtToScanNodes.computeIfAbsent(selectStmt.getId(), k -> Lists.newArrayList());
+        List<ScanNode> scanNodeList = selectStmtToScanNodes.computeIfAbsent(selectStmt.getAnalyzer(), k -> Lists.newArrayList());
         scanNodeList.add(scanNode);
         return scanNode;
     }

@@ -157,11 +157,11 @@ public class ColocateTableIndex implements Writable {
                     // generate a new one
                     groupId = new GroupId(dbId, Catalog.getCurrentCatalog().getNextId());
                 }
-                groupName2Id.put(fullGroupName, groupId);
                 HashDistributionInfo distributionInfo = (HashDistributionInfo) tbl.getDefaultDistributionInfo();
                 ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
                         distributionInfo.getDistributionColumns(), distributionInfo.getBucketNum(),
-                        tbl.getPartitionInfo().idToReplicationNum.values().stream().findFirst().get());
+                        tbl.getDefaultReplicationNum());
+                groupName2Id.put(fullGroupName, groupId);
                 group2Schema.put(groupId, groupSchema);
             }
             group2Tables.put(groupId, tbl.getId());
@@ -321,8 +321,12 @@ public class ColocateTableIndex implements Writable {
         try {
             Set<Long> allBackends = new HashSet<>();
             List<List<Long>> backendsPerBucketSeq = group2BackendsPerBucketSeq.get(groupId);
-            for (List<Long> bes : backendsPerBucketSeq) {
-                allBackends.addAll(bes);
+            // if create colocate table with empty partition or create colocate table
+            // with dynamic_partition will cause backendsPerBucketSeq == null
+            if (backendsPerBucketSeq != null) {
+                for (List<Long> bes : backendsPerBucketSeq) {
+                    allBackends.addAll(bes);
+                }
             }
             return allBackends;
         } finally {
@@ -446,7 +450,6 @@ public class ColocateTableIndex implements Writable {
         writeLock();
         try {
             if (!group2BackendsPerBucketSeq.containsKey(info.getGroupId())) {
-                Preconditions.checkState(!info.getBackendsPerBucketSeq().isEmpty());
                 group2BackendsPerBucketSeq.put(info.getGroupId(), info.getBackendsPerBucketSeq());
             }
 

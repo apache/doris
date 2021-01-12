@@ -30,6 +30,7 @@
 #include "util/mutex.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/random.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -395,7 +396,7 @@ static void concurrent_reader(void* arg) {
 static void run_concurrent(int run) {
     const int seed = random_seed + (run * 100);
     Random rnd(seed);
-    const int N = 1000;
+    const int N = LOOP_LESS_OR_MORE(10, 1000);
     const int kSize = 1000;
     PriorityThreadPool thread_pool(10, 100);
     for (int i = 0; i < N; i++) {
@@ -413,20 +414,10 @@ static void run_concurrent(int run) {
     }
 }
 
-TEST_F(SkipTest, Concurrent1) {
-    run_concurrent(1);
-}
-TEST_F(SkipTest, Concurrent2) {
-    run_concurrent(2);
-}
-TEST_F(SkipTest, Concurrent3) {
-    run_concurrent(3);
-}
-TEST_F(SkipTest, Concurrent4) {
-    run_concurrent(4);
-}
-TEST_F(SkipTest, Concurrent5) {
-    run_concurrent(5);
+TEST_F(SkipTest, Concurrent) {
+    for (int i = 1; i < LOOP_LESS_OR_MORE(2, 6); ++i) {
+        run_concurrent(i);
+    }
 }
 
 } // namespace doris

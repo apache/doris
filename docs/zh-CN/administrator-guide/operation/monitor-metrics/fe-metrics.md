@@ -75,3 +75,51 @@ FE 的监控项可以通过以下方式访问：
 通过 `(NEW_tcp_tcp_retrans_segs - OLD_tcp_retrans_segs) / (NEW_tcp_out_segs - OLD_tcp_out_segs)` 可以计算 TCP 重传率。
 
 通常用于排查网络问题。
+
+### `jvm_thread{type="count"}`
+
+该监控项表示FE节点当前JVM总的线程数量，包含daemon线程和非daemon线程。
+
+通常用于排查FE节点的JVM线程运行问题。
+
+### `jvm_thread{type="peak_count"}`
+
+该监控项表示FE节点从JVM启动以来的最大峰值线程数量。
+
+通常用于排查FE节点的JVM线程运行问题。
+
+### `jvm_thread{type="new_count"}`
+
+该监控项表示FE节点JVM中处于NEW状态的线程数量。
+
+通常用于排查FE节点的JVM线程运行问题。
+
+### `jvm_thread{type="runnable_count"}`
+
+该监控项表示FE节点JVM中处于RUNNABLE状态的线程数量。
+
+通常用于排查FE节点的JVM线程运行问题。
+
+### `jvm_thread{type="blocked_count"}`
+
+该监控项表示FE节点JVM中处于BLOCKED状态的线程数量。
+
+通常用于排查FE节点的JVM线程运行问题。
+
+### `jvm_thread{type="waiting_count"}`
+
+该监控项表示FE节点JVM中处于WAITING状态的线程数量。
+
+通常用于排查FE节点的JVM线程运行问题。
+
+### `jvm_thread{type="timed_waiting_count"}`
+
+该监控项表示FE节点JVM中处于TIMED_WAITING状态的线程数量。
+
+通常用于排查FE节点的JVM线程运行问题。
+
+### `jvm_thread{type="terminated_count"}`
+
+该监控项表示FE节点JVM中处于TERMINATED状态的线程数量。
+
+通常用于排查FE节点的JVM线程运行问题。

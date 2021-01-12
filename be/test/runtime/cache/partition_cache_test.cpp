@@ -25,6 +25,7 @@
 #include "runtime/cache/result_cache.h"
 #include "util/cpu_info.h"
 #include "util/logging.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -275,7 +276,7 @@ TEST_F(PartitionCacheTest, fetch_data_overdue) {
 
 TEST_F(PartitionCacheTest, prune_data) {
     init(1, 1);
-    init_batch_data(129, 1, 1024);                        // 16*1024*128=2M
+    init_batch_data(LOOP_LESS_OR_MORE(10, 129), 1, 1024); // 16*1024*128=2M
     ASSERT_LE(_cache->get_cache_size(), 1 * 1024 * 1024); //cache_size <= 1M
     clear();
 }

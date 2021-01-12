@@ -385,7 +385,8 @@ public class StmtExecutor {
     }
 
     private void forwardToMaster() throws Exception {
-        masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus);
+        boolean isQuery = parsedStmt instanceof QueryStmt;
+        masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery);
         LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         masterOpExecutor.execute();
     }
@@ -896,11 +897,10 @@ public class StmtExecutor {
                 context.getState().setOk();
                 return;
             }
-
             if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                     insertStmt.getDbObj(), insertStmt.getTransactionId(),
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
-                    10000)) {
+                    context.getSessionVariable().getInsertVisibleTimeoutMs())) {
                 txnStatus = TransactionStatus.VISIBLE;
                 MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
             } else {
