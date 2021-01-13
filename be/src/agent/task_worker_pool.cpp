@@ -1348,9 +1348,10 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
         TStatus task_status;
 
         string snapshot_path;
+        bool allow_incremental_clone = false; // not used
         std::vector<string> snapshot_files;
         OLAPStatus make_snapshot_status =
-                SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path);
+                SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path, &allow_incremental_clone);
         if (make_snapshot_status != OLAP_SUCCESS) {
             status_code = make_snapshot_status == OLAP_ERR_VERSION_ALREADY_MERGED
                                   ? TStatusCode::OLAP_ERR_VERSION_ALREADY_MERGED

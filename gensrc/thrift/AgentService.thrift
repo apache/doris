@@ -204,6 +204,7 @@ struct TSnapshotRequest {
     6: optional list<Types.TVersion> missing_version
     7: optional bool list_files
     // if all nodes has been upgraded, it can be removed.
+    // Deprecated since version 0.13
     8: optional bool allow_incremental_clone
     9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
 }

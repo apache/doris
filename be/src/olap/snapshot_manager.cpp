@@ -66,7 +66,11 @@ SnapshotManager* SnapshotManager::instance() {
     return _s_instance;
 }
 
-OLAPStatus SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* snapshot_path) {
+OLAPStatus SnapshotManager::make_snapshot(
+        const TSnapshotRequest& request,
+        string* snapshot_path,
+        bool* allow_incremental_clone) {
+
     OLAPStatus res = OLAP_SUCCESS;
     if (snapshot_path == nullptr) {
         LOG(WARNING) << "output parameter cannot be NULL";
@@ -81,7 +85,7 @@ OLAPStatus SnapshotManager::make_snapshot(const TSnapshotRequest& request, strin
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    res = _create_snapshot_files(ref_tablet, request, snapshot_path);
+    res = _create_snapshot_files(ref_tablet, request, snapshot_path, allow_incremental_clone);
 
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to make snapshot. res=" << res << " tablet=" << request.tablet_id
@@ -301,12 +305,12 @@ OLAPStatus SnapshotManager::_link_index_and_data_files(
 
 OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet,
                                                    const TSnapshotRequest& request,
-                                                   string* snapshot_path) {
+                                                   string* snapshot_path,
+                                                   bool* allow_incremental_clone) {
     int32_t snapshot_version = request.preferred_snapshot_version;
     LOG(INFO) << "receive a make snapshot request"
               << ", request detail is " << apache::thrift::ThriftDebugString(request)
-              << ", snapshot_path is " << *snapshot_path << ", snapshot_version is "
-              << snapshot_version;
+              << ", snapshot_version is " << snapshot_version;
     OLAPStatus res = OLAP_SUCCESS;
     if (snapshot_path == nullptr) {
         LOG(WARNING) << "output parameter cannot be NULL";
@@ -412,6 +416,9 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
                     LOG(WARNING) << "fail to select versions to span. res=" << res;
                     break;
                 }
+                *allow_incremental_clone = false;
+            } else {
+                *allow_incremental_clone = true;
             }
 
             // copy the tablet meta to new_tablet_meta inside header lock
