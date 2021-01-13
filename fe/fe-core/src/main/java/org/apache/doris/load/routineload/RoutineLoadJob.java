@@ -90,6 +90,7 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 /**
  * Routine load job is a function which stream load data from streaming medium to doris.
@@ -571,7 +572,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (columnDescs == null) {
             return new ArrayList<>();
         }
-        return columnDescs;
+        // use the copy of columnDescs avoid duplicated add delete condition
+        return columnDescs.stream().collect(Collectors.toList());
     }
 
     public String getJsonPaths() {
