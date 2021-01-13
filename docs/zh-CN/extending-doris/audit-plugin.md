@@ -82,7 +82,7 @@ properties(
     "dynamic_partition.prefix" = "p",
     "dynamic_partition.buckets" = "1",
     "dynamic_partition.enable" = "true",
-    "replication_num" = "1"
+    "replication_num" = "3"
 );
 ```
 
