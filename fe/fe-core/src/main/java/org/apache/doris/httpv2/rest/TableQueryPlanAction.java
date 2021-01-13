@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DorisHttpException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.util.HttpUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -117,22 +118,19 @@ public class TableQueryPlanAction extends RestBaseController {
             if (db == null) {
                 return ResponseEntityBuilder.okWithCommonError("Database [" + dbName + "] " + "does not exists");
             }
-            // may be should acquire writeLock
-            db.readLock();
+            Table table = null;
             try {
-                Table table = db.getTable(tblName);
-                if (table == null) {
-                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] " + "does not exists");
-                }
                 // just only support OlapTable, ignore others such as ESTable
-                if (table.getType() != Table.TableType.OLAP) {
-                    return ResponseEntityBuilder.okWithCommonError("only support OlapTable currently, "
-                            + "but Table [" + tblName + "] " + "is not a OlapTable");
-                }
+                table = db.getTableOrThrowException(tblName, Table.TableType.OLAP);
+            } catch (MetaNotFoundException e) {
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+            }
+            table.readLock();
+            try {
                 // parse/analysis/plan the sql and acquire tablet distributions
                 handleQuery(ConnectContext.get(), fullDbName, tblName, sql, resultMap);
             } finally {
-                db.readUnlock();
+                table.readUnlock();
             }
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic

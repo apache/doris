@@ -35,6 +35,7 @@ import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
@@ -346,7 +347,7 @@ public class DeleteHandlerTest {
         new Expectations(globalTransactionMgr) {
             {
                 try {
-                    globalTransactionMgr.commitTransaction(anyLong, anyLong, (List<TabletCommitInfo>) any, (TxnCommitAttachment) any);
+                    globalTransactionMgr.commitTransaction(anyLong, (List<Table>) any, anyLong, (List<TabletCommitInfo>) any, (TxnCommitAttachment) any);
                 } catch (UserException e) {
                 }
                 result = new UserException("commit fail");

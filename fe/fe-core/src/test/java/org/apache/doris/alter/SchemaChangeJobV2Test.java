@@ -65,6 +65,7 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Maps;
 
+import org.apache.hadoop.yarn.webapp.hamlet.HamletSpec;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -374,7 +375,6 @@ public class SchemaChangeJobV2Test {
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("errCode = 2, detailMessage = Table test_db.test_tbl2 is not a dynamic partition table. " +
                 "Use command `HELP ALTER TABLE` to see how to change a normal table to a dynamic partition table.");
-
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
     }
 

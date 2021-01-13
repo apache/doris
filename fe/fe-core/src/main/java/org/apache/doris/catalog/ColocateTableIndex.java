@@ -656,30 +656,31 @@ public class ColocateTableIndex implements Writable {
                 continue;
             }
             Collection<Long> tableIds = tmpGroup2Tables.get(groupId.grpId);
-            db.readLock();
-            try {
-                for (Long tblId : tableIds) {
-                    OlapTable tbl = (OlapTable) db.getTable(tblId);
-                    if (tbl == null) {
-                        continue;
-                    }
+
+            for (Long tblId : tableIds) {
+                OlapTable tbl = (OlapTable) db.getTable(tblId);
+                if (tbl == null) {
+                    continue;
+                }
+                tbl.readLock();
+                try {
                     if (tblId.equals(groupId.grpId)) {
                         // this is a parent table, use its name as group name
                         groupName2Id.put(groupId.dbId + "_" + tbl.getName(), groupId);
-                        
+
                         ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
-                                ((HashDistributionInfo)tbl.getDefaultDistributionInfo()).getDistributionColumns(), 
+                                ((HashDistributionInfo)tbl.getDefaultDistributionInfo()).getDistributionColumns(),
                                 tbl.getDefaultDistributionInfo().getBucketNum(),
                                 tbl.getPartitionInfo().idToReplicationNum.values().stream().findFirst().get());
                         group2Schema.put(groupId, groupSchema);
                         group2BackendsPerBucketSeq.put(groupId, tmpGroup2BackendsPerBucketSeq.get(groupId.grpId));
                     }
-
-                    group2Tables.put(groupId, tblId);
-                    table2Group.put(tblId, groupId);
+                } finally {
+                    tbl.readUnlock();
                 }
-            } finally {
-                db.readUnlock();
+
+                group2Tables.put(groupId, tblId);
+                table2Group.put(tblId, groupId);
             }
         }
     }

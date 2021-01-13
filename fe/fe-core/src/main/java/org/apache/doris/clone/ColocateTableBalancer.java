@@ -192,14 +192,13 @@ public class ColocateTableBalancer extends MasterDaemon {
             }
 
             boolean isGroupStable = true;
-            db.readLock();
-            try {
-                OUT: for (Long tableId : tableIds) {
-                    OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                    if (olapTable == null || !colocateIndex.isColocateTable(olapTable.getId())) {
-                        continue;
-                    }
-
+            OUT: for (Long tableId : tableIds) {
+                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                if (olapTable == null || !colocateIndex.isColocateTable(olapTable.getId())) {
+                    continue;
+                }
+                olapTable.readLock();
+                try {
                     for (Partition partition : olapTable.getPartitions()) {
                         short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
                         long visibleVersion = partition.getVisibleVersion();
@@ -241,16 +240,16 @@ public class ColocateTableBalancer extends MasterDaemon {
                             }
                         }
                     }
-                } // end for tables
-
-                // mark group as stable or unstable
-                if (isGroupStable) {
-                    colocateIndex.markGroupStable(groupId, true);
-                } else {
-                    colocateIndex.markGroupUnstable(groupId, true);
+                } finally {
+                    olapTable.readUnlock();
                 }
-            } finally {
-                db.readUnlock();
+            } // end for tables
+
+            // mark group as stable or unstable
+            if (isGroupStable) {
+                colocateIndex.markGroupStable(groupId, true);
+            } else {
+                colocateIndex.markGroupUnstable(groupId, true);
             }
         } // end for groups
     }
@@ -417,7 +416,7 @@ public class ColocateTableBalancer extends MasterDaemon {
     // change the backend id to backend host
     // return null if some of backends do not exist
     private List<List<String>> getHostsPerBucketSeq(List<List<Long>> backendsPerBucketSeq,
-            SystemInfoService infoService) {
+                                                    SystemInfoService infoService) {
         List<List<String>> hostsPerBucketSeq = Lists.newArrayList();
         for (List<Long> backendIds : backendsPerBucketSeq) {
             List<String> hosts = Lists.newArrayList();
@@ -435,7 +434,7 @@ public class ColocateTableBalancer extends MasterDaemon {
     }
 
     private List<Map.Entry<Long, Long>> getSortedBackendReplicaNumPairs(List<Long> allAvailBackendIds, Set<Long> unavailBackendIds,
-                ClusterLoadStatistic statistic, List<Long> flatBackendsPerBucketSeq) {
+                                                                        ClusterLoadStatistic statistic, List<Long> flatBackendsPerBucketSeq) {
         // backend id -> replica num, and sorted by replica num, descending.
         Map<Long, Long> backendToReplicaNum = flatBackendsPerBucketSeq.stream()
                 .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
