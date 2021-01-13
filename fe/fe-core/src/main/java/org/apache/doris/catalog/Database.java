@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -44,16 +45,16 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 import java.util.zip.Adler32;
 
 /**
@@ -77,7 +78,7 @@ public class Database extends MetaObject implements Writable {
     public static final long TRY_LOCK_TIMEOUT_MS = 100L;
 
     private long id;
-    private String fullQualifiedName;
+    private volatile String fullQualifiedName;
     private String clusterName;
     private ReentrantReadWriteLock rwLock;
 
@@ -110,8 +111,8 @@ public class Database extends MetaObject implements Writable {
             this.fullQualifiedName = "";
         }
         this.rwLock = new ReentrantReadWriteLock(true);
-        this.idToTable = new ConcurrentHashMap<>();
-        this.nameToTable = new HashMap<>();
+        this.idToTable = Maps.newConcurrentMap();
+        this.nameToTable = Maps.newConcurrentMap();
         this.dataQuotaBytes = Config.default_db_data_quota_bytes;
         this.replicaQuotaSize = FeConstants.default_db_replica_quota_size;
         this.dbState = DbState.NORMAL;
@@ -123,21 +124,16 @@ public class Database extends MetaObject implements Writable {
         this.rwLock.readLock().lock();
     }
 
-    public boolean tryReadLock(long timeout, TimeUnit unit) {
-        try {
-            return this.rwLock.readLock().tryLock(timeout, unit);
-        } catch (InterruptedException e) {
-            LOG.warn("failed to try read lock at db[" + id + "]", e);
-            return false;
-        }
-    }
-
     public void readUnlock() {
         this.rwLock.readLock().unlock();
     }
 
     public void writeLock() {
         this.rwLock.writeLock().lock();
+    }
+
+    public void writeUnlock() {
+        this.rwLock.writeLock().unlock();
     }
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
@@ -147,10 +143,6 @@ public class Database extends MetaObject implements Writable {
             LOG.warn("failed to try write lock at db[" + id + "]", e);
             return false;
         }
-    }
-
-    public void writeUnlock() {
-        this.rwLock.writeLock().unlock();
     }
 
     public boolean isWriteLockHeldByCurrentThread() {
@@ -214,7 +206,12 @@ public class Database extends MetaObject implements Writable {
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-                usedDataQuota = usedDataQuota + olapTable.getDataSize();
+                olapTable.readLock();
+                try {
+                    usedDataQuota = usedDataQuota + olapTable.getDataSize();
+                } finally {
+                    olapTable.readUnlock();
+                }
             }
             return usedDataQuota;
         } finally {
@@ -233,7 +230,12 @@ public class Database extends MetaObject implements Writable {
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-                usedReplicaQuota = usedReplicaQuota + olapTable.getReplicaCount();
+                olapTable.readLock();
+                try {
+                    usedReplicaQuota = usedReplicaQuota + olapTable.getReplicaCount();
+                } finally {
+                    olapTable.readUnlock();
+                }
             }
 
             long leftReplicaQuota = replicaQuotaSize - usedReplicaQuota;
@@ -305,20 +307,6 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
-    public void allterExternalTableSchemaWithLock(String tableName, List<Column> newSchema) throws DdlException{
-        writeLock();
-        try {
-            if (!nameToTable.containsKey(tableName)) {
-                throw new DdlException("Do not contain proper table " + tableName + " in refresh table");
-            } else {
-                Table table = nameToTable.get(tableName);
-                table.setNewFullSchema(newSchema);
-            }
-        } finally {
-            writeUnlock();
-        }
-    }
-
     public boolean createTable(Table table) {
         boolean result = true;
         String tableName = table.getName();
@@ -353,7 +341,14 @@ public class Database extends MetaObject implements Writable {
     }
 
     public List<Table> getTables() {
-        return new ArrayList<Table>(idToTable.values());
+        return new ArrayList<>(idToTable.values());
+    }
+
+    // tables must get read or write table in fixed order to avoid potential dead lock
+    public List<Table> getTablesOnIdOrder() {
+        return idToTable.values().stream()
+                .sorted(Comparator.comparing(Table::getId))
+                .collect(Collectors.toList());
     }
 
     public List<Table> getViews() {
@@ -366,20 +361,54 @@ public class Database extends MetaObject implements Writable {
         return views;
     }
 
+    public List<Table> getTablesOnIdOrderOrThrowException(List<Long> tableIdList) throws MetaNotFoundException {
+        List<Table> tableList = Lists.newArrayList();
+        for (Long tableId : tableIdList) {
+            Table table = idToTable.get(tableId);
+            if (table == null) {
+                throw new MetaNotFoundException("unknown table, tableId=" + tableId);
+            }
+            tableList.add(table);
+        }
+        if (tableList.size() > 1) {
+            return tableList.stream().sorted(Comparator.comparing(Table::getId)).collect(Collectors.toList());
+        }
+        return tableList;
+    }
+
     public Set<String> getTableNamesWithLock() {
         readLock();
         try {
-            return new HashSet<String>(this.nameToTable.keySet());
+            return new HashSet<>(this.nameToTable.keySet());
         } finally {
             readUnlock();
         }
     }
 
+    /**
+     * This is a thread-safe method when nameToTable is a concurrent hash map
+     * @param tableName
+     * @return
+     */
     public Table getTable(String tableName) {
-        if (nameToTable.containsKey(tableName)) {
-            return nameToTable.get(tableName);
+        return nameToTable.get(tableName);
+    }
+
+    /**
+     * This is a thread-safe method when nameToTable is a concurrent hash map
+     * @param tableName
+     * @param tableType
+     * @return
+     */
+    public Table getTableOrThrowException(String tableName, TableType tableType) throws MetaNotFoundException {
+        Table table = nameToTable.get(tableName);
+        if(table == null) {
+            throw new MetaNotFoundException("unknown table, table=" + tableName);
         }
-        return null;
+        if (table.getType() != tableType) {
+            throw new MetaNotFoundException("table type is not " + tableType + ", table=" + tableName + ", type=" + table.getClass());
+        }
+        return table;
     }
 
     /**
@@ -391,6 +420,24 @@ public class Database extends MetaObject implements Writable {
         return idToTable.get(tableId);
     }
 
+
+    /**
+     * This is a thread-safe method when idToTable is a concurrent hash map
+     * @param tableId
+     * @param tableType
+     * @return
+     */
+    public Table getTableOrThrowException(long tableId, TableType tableType) throws MetaNotFoundException {
+        Table table = idToTable.get(tableId);
+        if(table == null) {
+            throw new MetaNotFoundException("unknown table, tableId=" + tableId);
+        }
+        if (table.getType() != tableType) {
+            throw new MetaNotFoundException("table type is not " + tableType + ", tableId=" + tableId + ", type=" + table.getClass());
+        }
+        return table;
+    }
+
     public int getMaxReplicationNum() {
         int ret = 0;
         readLock();
@@ -400,11 +447,16 @@ public class Database extends MetaObject implements Writable {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
-                for (Partition partition : olapTable.getAllPartitions()) {
-                    short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
-                    if (ret < replicationNum) {
-                        ret = replicationNum;
+                table.readLock();
+                try {
+                    for (Partition partition : olapTable.getAllPartitions()) {
+                        short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                        if (ret < replicationNum) {
+                            ret = replicationNum;
+                        }
                     }
+                } finally {
+                    table.readUnlock();
                 }
             }
         } finally {
@@ -464,6 +516,7 @@ public class Database extends MetaObject implements Writable {
         out.writeLong(replicaQuotaSize);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -512,6 +565,7 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;

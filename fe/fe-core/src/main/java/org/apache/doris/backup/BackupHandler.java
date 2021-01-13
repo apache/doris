@@ -274,25 +274,25 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // This is just a pre-check to avoid most of invalid backup requests.
         // Also calculate the signature for incremental backup check.
         List<TableRef> tblRefs = stmt.getTableRefs();
-        BackupMeta curBackupMeta = null;
-        db.readLock();
-        try {
-            List<Table> backupTbls = Lists.newArrayList();
-            for (TableRef tblRef : tblRefs) {
-                String tblName = tblRef.getName().getTbl();
-                Table tbl = db.getTable(tblName);
-                if (tbl == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName);
-                }
-                if (tbl.getType() != TableType.OLAP) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
-                }
 
-                OlapTable olapTbl = (OlapTable) tbl;
+        List<Table> backupTbls = Lists.newArrayList();
+        for (TableRef tblRef : tblRefs) {
+            String tblName = tblRef.getName().getTbl();
+            Table tbl = db.getTable(tblName);
+            if (tbl == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName);
+            }
+            if (tbl.getType() != TableType.OLAP) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
+            }
+
+            OlapTable olapTbl = (OlapTable) tbl;
+            tbl.readLock();
+            try {
                 if (olapTbl.existTempPartitions()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Do not support backup table with temp partitions");
                 }
-                
+
                 PartitionNames partitionNames = tblRef.getPartitionNames();
                 if (partitionNames != null) {
                     if (partitionNames.isTemp()) {
@@ -303,7 +303,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                         Partition partition = olapTbl.getPartition(partName);
                         if (partition == null) {
                             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                                           "Unknown partition " + partName + " in table" + tblName);
+                                    "Unknown partition " + partName + " in table" + tblName);
                         }
                     }
                 }
@@ -313,14 +313,15 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 OlapTable copiedTbl = olapTbl.selectiveCopy(reservedPartitions, true, IndexExtState.VISIBLE);
                 if (copiedTbl == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                                   "Failed to copy table " + tblName + " with selected partitions");
+                            "Failed to copy table " + tblName + " with selected partitions");
                 }
                 backupTbls.add(copiedTbl);
+            } finally {
+                tbl.readUnlock();
             }
-            curBackupMeta = new BackupMeta(backupTbls);
-        } finally {
-            db.readUnlock();
         }
+
+        BackupMeta curBackupMeta = new BackupMeta(backupTbls);
 
         // Check if label already be used
         List<String> existSnapshotNames = Lists.newArrayList();

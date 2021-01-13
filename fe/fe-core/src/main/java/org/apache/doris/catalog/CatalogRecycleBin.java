@@ -551,7 +551,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         LOG.info("recover partition[{}]", partitionId);
     }
 
-    // The caller should keep db write lock
+    // The caller should keep table write lock
     public synchronized void replayRecoverPartition(OlapTable table, long partitionId) {
         Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
         while (iterator.hasNext()) {

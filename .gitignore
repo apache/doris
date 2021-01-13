@@ -10,6 +10,7 @@ docs/.temp
 docs/.vuepress/dist
 docs/node_modules
 docs/build
+docs/contents
 gensrc/build
 fe/fe-core/target
 thirdparty/src
