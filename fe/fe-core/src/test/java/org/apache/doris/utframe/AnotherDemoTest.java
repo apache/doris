@@ -161,15 +161,15 @@ public class AnotherDemoTest {
         // 4. get and test the created db and table
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:db1");
         Assert.assertNotNull(db);
-        db.readLock();
+        OlapTable tbl = (OlapTable) db.getTable("tbl1");
+        tbl.readLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable("tbl1");
             Assert.assertNotNull(tbl);
             System.out.println(tbl.getName());
             Assert.assertEquals("Doris", tbl.getEngine());
             Assert.assertEquals(1, tbl.getBaseSchema().size());
         } finally {
-            db.readUnlock();
+            tbl.readUnlock();
         }
         // 5. query
         // TODO: we can not process real query for now. So it has to be a explain query

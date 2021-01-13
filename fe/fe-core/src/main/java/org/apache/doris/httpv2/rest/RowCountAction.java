@@ -25,8 +25,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -71,18 +71,14 @@ public class RowCountAction extends RestBaseController {
         if (db == null) {
             return ResponseEntityBuilder.okWithCommonError("Database[" + fullDbName + "] does not exist");
         }
-        db.writeLock();
+        OlapTable olapTable = null;
         try {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                return ResponseEntityBuilder.okWithCommonError("Table[" + tableName + "] does not exist");
-            }
-
-            if (table.getType() != TableType.OLAP) {
-                return ResponseEntityBuilder.okWithCommonError("Table[" + tableName + "] is not OLAP table");
-            }
-
-            OlapTable olapTable = (OlapTable) table;
+            olapTable = (OlapTable) db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+        olapTable.readLock();
+        try {
             for (Partition partition : olapTable.getAllPartitions()) {
                 long version = partition.getVisibleVersion();
                 long versionHash = partition.getVisibleVersionHash();
@@ -103,7 +99,7 @@ public class RowCountAction extends RestBaseController {
                 } // end for indices
             } // end for partitions
         } finally {
-            db.writeUnlock();
+            olapTable.readUnlock();
         }
         return ResponseEntityBuilder.ok(indexRowCountMap);
     }

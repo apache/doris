@@ -24,6 +24,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -57,6 +58,8 @@ public class SystemInfoServiceTest {
     private TabletInvertedIndex invertedIndex;
     @Mocked
     private Database db;
+    @Mocked
+    private Table table;
 
     private Analyzer analyzer;
 
@@ -77,10 +80,10 @@ public class SystemInfoServiceTest {
                 editLog.logBackendStateChange((Backend) any);
                 minTimes = 0;
 
-                db.readLock();
+                table.readLock();
                 minTimes = 0;
 
-                db.readUnlock();
+                table.readUnlock();
                 minTimes = 0;
 
                 catalog.getNextId();
@@ -94,6 +97,10 @@ public class SystemInfoServiceTest {
                 catalog.getDb(anyLong);
                 minTimes = 0;
                 result = db;
+
+                db.getTable(anyLong);
+                minTimes = 0;
+                result = table;
 
                 catalog.getCluster(anyString);
                 minTimes = 0;
@@ -223,7 +230,7 @@ public class SystemInfoServiceTest {
 
         Assert.assertTrue(Catalog.getCurrentSystemInfo().getBackendReportVersion(backendId) == 0L);
 
-        Catalog.getCurrentSystemInfo().updateBackendReportVersion(backendId, 2L, 20000L);
+        Catalog.getCurrentSystemInfo().updateBackendReportVersion(backendId, 2L, 20000L, 30000L);
         Assert.assertTrue(Catalog.getCurrentSystemInfo().getBackendReportVersion(backendId) == 2L);
     }
 

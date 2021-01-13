@@ -571,6 +571,7 @@ public class AlterTest {
         Assert.assertNotNull(replace3.getIndexIdByName("r2"));
     }
 
+    @Test
     public void testExternalTableAlterOperations() throws Exception {
         // external table do not support partition operation
         String stmt = "alter table test.odbc_table add partition p3 values less than('2020-04-01'), add partition p4 values less than('2020-05-01')";

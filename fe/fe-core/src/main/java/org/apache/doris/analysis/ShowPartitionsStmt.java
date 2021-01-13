@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
@@ -114,14 +113,9 @@ public class ShowPartitionsStmt extends ShowStmt {
         if (db == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
-
-        db.readLock();
+        Table table = db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        table.readLock();
         try {
-            Table table = db.getTable(tableName);
-            if (!(table instanceof OlapTable)) {
-                throw new AnalysisException("Table[" + tableName + "] does not exists or is not OLAP table");
-            }
-
             // build proc path
             StringBuilder stringBuilder = new StringBuilder();
             stringBuilder.append("/dbs/");
@@ -133,11 +127,13 @@ public class ShowPartitionsStmt extends ShowStmt {
                 stringBuilder.append("/partitions");
             }
 
-            LOG.debug("process SHOW PROC '{}';", stringBuilder.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("process SHOW PROC '{}';", stringBuilder.toString());
+            }
 
             node = ProcService.getInstance().open(stringBuilder.toString());
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
     }
 

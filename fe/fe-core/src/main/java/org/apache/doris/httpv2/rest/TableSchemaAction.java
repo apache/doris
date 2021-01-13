@@ -20,12 +20,12 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DorisHttpException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -66,17 +66,14 @@ public class TableSchemaAction extends RestBaseController {
             if (db == null) {
                 return ResponseEntityBuilder.okWithCommonError("Database [" + dbName + "] " + "does not exists");
             }
-            db.readLock();
+            Table table = null;
             try {
-                Table table = db.getTable(tblName);
-                if (table == null) {
-                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] " + "does not exists");
-                }
-                // just only support OlapTable, ignore others such as ESTable
-                if (!(table instanceof OlapTable)) {
-                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] "
-                            + "is not a OlapTable, only support OlapTable currently");
-                }
+                table = db.getTableOrThrowException(tblName, Table.TableType.OLAP);
+            } catch (MetaNotFoundException e) {
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+            }
+            table.readLock();
+            try {
                 try {
                     List<Column> columns = table.getBaseSchema();
                     List<Map<String, String>> propList = new ArrayList(columns.size());
@@ -101,7 +98,7 @@ public class TableSchemaAction extends RestBaseController {
                     return ResponseEntityBuilder.okWithCommonError(e.getMessage());
                 }
             } finally {
-                db.readUnlock();
+                table.readUnlock();
             }
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic
