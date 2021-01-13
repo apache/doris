@@ -63,7 +63,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     private volatile boolean isInit = false;
 
     // the max stmt length to be loaded in audit table.
-    private static final int MAX_STMT_LENGTH = 5000;
+    private static final int MAX_STMT_LENGTH = 4096;
     // the max auditEventQueue size to store audit_event
     private static final int MAX_AUDIT_EVENT_SIZE = 4096;
 

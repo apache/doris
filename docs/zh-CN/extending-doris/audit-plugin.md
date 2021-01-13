@@ -70,8 +70,9 @@ create table doris_audit_tbl__
     stmt_id int comment "An incremental id of statement",
     is_query tinyint comment "Is this statemt a query. 1 or 0",
     frontend_ip varchar(32) comment "Frontend ip of executing this statement",
-    stmt varchar(2048) comment "The original statement, trimed if longer than 2048 bytes"
-)
+    stmt varchar(5000) comment "The original statement, trimed if longer than 5000 bytes"
+) engine=OLAP
+duplicate key(query_id, time, client_ip)
 partition by range(time) ()
 distributed by hash(query_id) buckets 1
 properties(
