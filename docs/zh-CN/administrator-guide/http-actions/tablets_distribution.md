@@ -29,7 +29,7 @@ under the License.
 获取BE节点上每一个partition下的tablet在不同磁盘上的分布情况
 
 ```
-curl -X GET http://be_host:webserver_port/tablets_distribution
+curl -X GET http://be_host:webserver_port/api/tablets_distribution?group_by=partition
 ```
 
 返回值就是BE节点上每一个partition下的tablet在各个磁盘上的数量分布，只包含tablet数量。
@@ -83,7 +83,7 @@ curl -X GET http://be_host:webserver_port/tablets_distribution
 ```
 
 ```
-curl -X GET http://be_host:webserver_port/tablets_distribution？partition_id=xxx
+curl -X GET http://be_host:webserver_port/api/tablets_distribution?group_by=partition&partition_id=xxx
 ```
 
 返回值就是BE节点上指定id的partition下的tablet在各个磁盘上的分布，包含tablet数量以及每一个tablet的id、schema hash和tablet size信息。

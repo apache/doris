@@ -91,7 +91,7 @@ Status HttpService::start() {
 
     // Register Tablets Distribution action
     TabletsDistributionAction* tablets_distribution_action = new TabletsDistributionAction();
-    _ev_http_server->register_handler(HttpMethod::GET, "/tablets_distribution", tablets_distribution_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/tablets_distribution", tablets_distribution_action);
 
     // register pprof actions
     PprofActions::setup(_env, _ev_http_server.get());

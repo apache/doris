@@ -29,7 +29,7 @@ under the License.
 Get the distribution of tablets under each partition between different disks on BE node
 
 ```
-curl -X GET http://be_host:webserver_port/tablets_distribution
+curl -X GET http://be_host:webserver_port/api/tablets_distribution?group_by=partition
 ```
 
 The return is the number distribution of tablets under each partition between different disks on BE node, which only include tablet number.
@@ -83,7 +83,7 @@ The return is the number distribution of tablets under each partition between di
 ```
 
 ```
-curl -X GET http://be_host:webserver_port/tablets_distribution？partition_id=xxx
+curl -X GET http://be_host:webserver_port/api/tablets_distribution?group_by=partition&partition_id=xxx
 ```
 
 The return is the number distribution of tablets under the particular partition between different disks on BE node, which include tablet number, tablet id, schema hash and tablet size.

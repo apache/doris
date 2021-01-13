@@ -41,23 +41,31 @@ TabletsDistributionAction::TabletsDistributionAction() {
 void TabletsDistributionAction::handle(HttpRequest *req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
 
-    std::string req_partition_id = req->param("partition_id");
-    uint64_t partition_id = 0;
-    if (req_partition_id != "") {
-        try {
-            partition_id = std::stoull(req_partition_id);
-        } catch (const std::exception& e) {
-            LOG(WARNING) << "invalid argument. partition_id:" << req_partition_id;
-            Status status = Status::InternalError(strings::Substitute("invalid argument: partition_id"));
-            std::string status_result = to_json(status);
-            HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
-            return;
+    std::string req_group_method = req->param("group_by");
+    if (req_group_method == "partition") {
+        std::string req_partition_id = req->param("partition_id");
+        uint64_t partition_id = 0;
+        if (req_partition_id != "") {
+            try {
+                partition_id = std::stoull(req_partition_id);
+            } catch (const std::exception& e) {
+                LOG(WARNING) << "invalid argument. partition_id:" << req_partition_id;
+                Status status = Status::InternalError(strings::Substitute("invalid argument: partition_id"));
+                std::string status_result = to_json(status);
+                HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
+                return;
+            }
         }
+        HttpChannel::send_reply(req, HttpStatus::OK, get_tablets_distribution_group_by_partition(partition_id).ToString());
+        return;
     }
-    HttpChannel::send_reply(req, HttpStatus::OK, get_tablets_distribution(partition_id).ToString());
+    LOG(WARNING) << "invalid argument. group_by:" << req_group_method;
+    Status status = Status::InternalError(strings::Substitute("invalid argument: group_by"));
+    std::string status_result = to_json(status);
+    HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
 }
 
-EasyJson TabletsDistributionAction::get_tablets_distribution(uint64_t partition_id) {
+EasyJson TabletsDistributionAction::get_tablets_distribution_group_by_partition(uint64_t partition_id) {
     std::map<int64_t, std::map<DataDir*, int64_t>> tablets_num_on_disk;
     std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>> tablets_info_on_disk;
     TabletManager* tablet_manager = StorageEngine::instance()->tablet_manager();
