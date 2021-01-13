@@ -135,14 +135,11 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
 
     public void exec(AuditEvent event) {
         try {
+            auditEventQueue.add(event);
+        } catch (Exception e) {
             // In order to ensure that the system can run normally, here we directly
             // discard the current audit_event. If this problem occurs frequently,
             // improvement can be considered.
-            if (auditEventQueue.size() >= MAX_AUDIT_EVENT_SIZE) {
-                throw new PluginException("The previous batch is not processed, and the current batch is discarded.");
-            }
-            auditEventQueue.add(event);
-        } catch (Exception e) {
             LOG.debug("encounter exception when putting current audit batch, discard current audit event", e);
         }
     }
