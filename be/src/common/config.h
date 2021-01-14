@@ -556,6 +556,9 @@ CONF_mInt32(max_tablet_version_num, "500");
 // the thrift_server_type_of_fe should be set THREADED to make be thrift client to fe constructed with TFramedTransport
 CONF_String(thrift_server_type_of_fe, "THREAD_POOL");
 
+// disable zone map index when page row is too few
+CONF_mInt32(zone_map_row_num_threshold, "100");
+
 } // namespace config
 
 } // namespace doris

@@ -189,6 +189,10 @@ bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
     if (cond == nullptr) {
         return true;
     }
+    
+    if (zone_map.has_pass_all() && zone_map.pass_all()) {
+        return true;
+    }
 
     return cond->eval({min_value_container, max_value_container});
 }
