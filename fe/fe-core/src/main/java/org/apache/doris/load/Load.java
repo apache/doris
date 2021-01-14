@@ -81,6 +81,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.AsyncDeleteJob.DeleteState;
 import org.apache.doris.load.FailMsg.CancelType;
@@ -108,6 +109,11 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -115,11 +121,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
-
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -400,7 +401,7 @@ public class Load {
         }
 
         // check if table is in restore process
-        db.readLock();
+        readLock();
         try {
             for (Long tblId : job.getIdToTableLoadInfo().keySet()) {
                 Table tbl = db.getTable(tblId);
@@ -411,7 +412,7 @@ public class Load {
                 }
             }
         } finally {
-            db.readUnlock();
+            readUnlock();
         }
 
         writeLock();
@@ -523,28 +524,30 @@ public class Load {
             // mini etl tasks
             Map<Long, MiniEtlTaskInfo> idToEtlTask = Maps.newHashMap();
             long etlTaskId = 0;
-            db.readLock();
-            try {
-                for (DataDescription dataDescription : dataDescriptions) {
-                    String tableName = dataDescription.getTableName();
-                    OlapTable table = (OlapTable) db.getTable(tableName);
-                    if (table == null) {
-                        throw new DdlException("Table[" + tableName + "] does not exist");
-                    }
 
+            for (DataDescription dataDescription : dataDescriptions) {
+                String tableName = dataDescription.getTableName();
+                OlapTable table = (OlapTable) db.getTable(tableName);
+                if (table == null) {
+                    throw new DdlException("Table[" + tableName + "] does not exist");
+                }
+
+                table.readLock();
+                try {
                     TNetworkAddress beAddress = dataDescription.getBeAddr();
                     Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(beAddress.getHostname(),
-                                                                                          beAddress.getPort());
+                            beAddress.getPort());
                     if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backend.getId())) {
                         throw new DdlException("Etl backend is null or not available");
                     }
 
                     MiniEtlTaskInfo taskInfo = new MiniEtlTaskInfo(etlTaskId++, backend.getId(), table.getId());
                     idToEtlTask.put(taskInfo.getId(), taskInfo);
+                } finally {
+                    table.readUnlock();
                 }
-            } finally {
-                db.readUnlock();
             }
+
             job.setMiniEtlTasks(idToEtlTask);
             job.setPriority(TPriority.HIGH);
 
@@ -631,17 +634,18 @@ public class Load {
         // source column names and partitions
         String tableName = dataDescription.getTableName();
         Map<String, Pair<String, List<String>>> columnToFunction = null;
-        db.readLock();
-        try {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                throw new DdlException("Table [" + tableName + "] does not exist");
-            }
-            tableId = table.getId();
-            if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Table [" + tableName + "] is not olap table");
-            }
 
+        Table table = db.getTable(tableName);
+        if (table == null) {
+            throw new DdlException("Table [" + tableName + "] does not exist");
+        }
+        tableId = table.getId();
+        if (table.getType() != TableType.OLAP) {
+            throw new DdlException("Table [" + tableName + "] is not olap table");
+        }
+
+        table.readLock();
+        try {
             if (((OlapTable) table).getPartitionInfo().isMultiColumnPartition() && jobType == EtlJobType.HADOOP) {
                 throw new DdlException("Load by hadoop cluster does not support table with multi partition columns."
                         + " Table: " + table.getName() + ". Try using broker load. See 'help broker load;'");
@@ -832,7 +836,7 @@ public class Load {
                 }
             }
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
 
         // column separator
@@ -1927,31 +1931,6 @@ public class Load {
         return dbToDeleteInfos;
     }
 
-    public Set<Long> getTxnIdsByDb(Long dbId) {
-        Set<Long> txnIds = Sets.newHashSet();
-        readLock();
-        try {
-            List<LoadJob> jobs = dbToLoadJobs.get(dbId);
-            if (jobs != null) {
-                for (LoadJob loadJob : jobs) {
-                    txnIds.add(loadJob.getTransactionId());
-                }
-            }
-        } finally {
-            readUnlock();
-        }
-        return txnIds;
-    }
-
-    public List<LoadJob> getDbLoadJobs(long dbId) {
-        readLock();
-        try {
-            return dbToLoadJobs.get(dbId);
-        } finally {
-            readUnlock();
-        }
-    }
-
     public List<LoadJob> getLoadJobs(JobState jobState) {
         List<LoadJob> jobs = new ArrayList<LoadJob>();
         Collection<LoadJob> stateJobs = null;
@@ -2234,25 +2213,25 @@ public class Load {
             return infos;
         }
 
-        db.readLock();
+
+        readLock();
         try {
-            readLock();
-            try {
-                Map<Long, TabletLoadInfo> tabletMap = loadJob.getIdToTabletLoadInfo();
-                for (long tabletId : tabletMap.keySet()) {
-                    TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                    if (tabletMeta == null) {
-                        // tablet may be dropped during loading
-                        continue;
-                    }
+            Map<Long, TabletLoadInfo> tabletMap = loadJob.getIdToTabletLoadInfo();
+            for (long tabletId : tabletMap.keySet()) {
+                TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+                if (tabletMeta == null) {
+                    // tablet may be dropped during loading
+                    continue;
+                }
 
-                    long tableId = tabletMeta.getTableId();
+                long tableId = tabletMeta.getTableId();
 
-                    OlapTable table = (OlapTable) db.getTable(tableId);
-                    if (table == null) {
-                        continue;
-                    }
-
+                OlapTable table = (OlapTable) db.getTable(tableId);
+                if (table == null) {
+                    continue;
+                }
+                table.readLock();
+                try {
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = table.getPartition(partitionId);
                     if (partition == null) {
@@ -2291,13 +2270,12 @@ public class Load {
 
                         infos.add(info);
                     }
-                } // end for tablet
-
-            } finally {
-                readUnlock();
+                } finally {
+                    table.readUnlock();
+                }
             }
         } finally {
-            db.readUnlock();
+            readUnlock();
         }
 
         // sort by version, backendId
@@ -2524,7 +2502,24 @@ public class Load {
     public void replayQuorumLoadJob(LoadJob job, Catalog catalog) throws DdlException {
         // TODO: need to call this.writeLock()?
         Database db = catalog.getDb(job.getDbId());
-        db.writeLock();
+
+        List<Long> tableIds = Lists.newArrayList();
+        long tblId = job.getTableId();
+        if (tblId > 0) {
+            tableIds.add(tblId);
+        } else {
+            tableIds.addAll(job.getIdToTableLoadInfo().keySet());
+        }
+
+        List<Table> tables = null;
+        try {
+            tables = db.getTablesOnIdOrderOrThrowException(tableIds);
+        } catch (MetaNotFoundException e) {
+            LOG.error("should not happen", e);
+            return;
+        }
+
+        MetaLockUtils.writeLockTables(tables);
         try {
             writeLock();
             try {
@@ -2533,7 +2528,7 @@ public class Load {
                 writeUnlock();
             }
         } finally {
-            db.writeUnlock();
+            MetaLockUtils.writeUnlockTables(tables);
         }
     }
 
@@ -2592,6 +2587,8 @@ public class Load {
     public void replayFinishLoadJob(LoadJob job, Catalog catalog) {
         // TODO: need to call this.writeLock()?
         Database db = catalog.getDb(job.getDbId());
+        // After finish, the idToTableLoadInfo in load job will be set to null.
+        // We lost table info. So we have to use db lock here.
         db.writeLock();
         try {
             writeLock();
@@ -2607,14 +2604,14 @@ public class Load {
 
     public void replayClearRollupInfo(ReplicaPersistInfo info, Catalog catalog) {
         Database db = catalog.getDb(info.getDbId());
-        db.writeLock();
+        OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
+        olapTable.writeLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
             Partition partition = olapTable.getPartition(info.getPartitionId());
             MaterializedIndex index = partition.getIndex(info.getIndexId());
             index.clearRollupIndexInfo();
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 
@@ -2890,7 +2887,7 @@ public class Load {
                     Set<JobState> destStates = STATE_CHANGE_MAP.get(srcState);
                     if (!destStates.contains(destState)) {
                         LOG.warn("state change error. src state: {}, dest state: {}",
-                                 srcState.name(), destState.name());
+                                srcState.name(), destState.name());
                         return false;
                     }
 
@@ -2934,7 +2931,7 @@ public class Load {
                                     TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(deleteInfo.getTableId());
                                     PartitionCommitInfo partitionCommitInfo = tableCommitInfo.getPartitionCommitInfo(deleteInfo.getPartitionId());
                                     deleteInfo.updatePartitionVersionInfo(partitionCommitInfo.getVersion(),
-                                                                          partitionCommitInfo.getVersionHash());
+                                            partitionCommitInfo.getVersionHash());
                                 }
                             }
                             MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
@@ -2946,8 +2943,8 @@ public class Load {
                             // clear push tasks
                             for (PushTask pushTask : job.getPushTasks()) {
                                 AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                                                              pushTask.getVersion(), pushTask.getVersionHash(),
-                                                              pushTask.getPushType(), pushTask.getTaskType());
+                                        pushTask.getVersion(), pushTask.getVersionHash(),
+                                        pushTask.getPushType(), pushTask.getTaskType());
                             }
                             // Clear the Map and Set in this job, reduce the memory cost for finished load job.
                             // for delete job, keep the map and set because some of them is used in show proc method
@@ -3282,19 +3279,14 @@ public class Load {
 
     public void replayFinishAsyncDeleteJob(AsyncDeleteJob deleteJob, Catalog catalog) {
         Database db = catalog.getDb(deleteJob.getDbId());
-        db.writeLock();
+        OlapTable table = (OlapTable) db.getTable(deleteJob.getTableId());
+        table.writeLock();
+        readLock();
         try {
-            writeLock();
-            try {
-                // Update database information
-                Map<Long, ReplicaPersistInfo> replicaInfos = deleteJob.getReplicaPersistInfos();
-                if (replicaInfos != null) {
-                    for (ReplicaPersistInfo info : replicaInfos.values()) {
-                        OlapTable table = (OlapTable) db.getTable(info.getTableId());
-                        if (table == null) {
-                            LOG.warn("the table[{}] is missing", info.getIndexId());
-                            continue;
-                        }
+            // Update database information
+            Map<Long, ReplicaPersistInfo> replicaInfos = deleteJob.getReplicaPersistInfos();
+            if (replicaInfos != null) {
+                for (ReplicaPersistInfo info : replicaInfos.values()) {
                         Partition partition = table.getPartition(info.getPartitionId());
                         if (partition == null) {
                             LOG.warn("the partition[{}] is missing", info.getIndexId());
@@ -3317,32 +3309,30 @@ public class Load {
                             continue;
                         }
                         replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
-                                                  info.getDataSize(), info.getRowCount());
-                    }
+                                info.getDataSize(), info.getRowCount());
                 }
-            } finally {
-                writeUnlock();
             }
         } finally {
-            db.writeUnlock();
+            readUnlock();
+            table.writeUnlock();
         }
-
         removeDeleteJobAndSetState(deleteJob);
         LOG.info("unprotected finish asyncDeleteJob: {}", deleteJob.getJobId());
     }
 
     public void replayDelete(DeleteInfo deleteInfo, Catalog catalog) {
         Database db = catalog.getDb(deleteInfo.getDbId());
-        db.writeLock();
+        OlapTable table = (OlapTable) db.getTable(deleteInfo.getTableId());
+        if (table == null) {
+            return;
+        }
+        table.writeLock();
+        writeLock();
         try {
-            writeLock();
-            try {
-                unprotectDelete(deleteInfo, db);
-            } finally {
-                writeUnlock();
-            }
+            unprotectDelete(deleteInfo, db);
         } finally {
-            db.writeUnlock();
+            writeUnlock();
+            table.writeUnlock();
         }
     }
 
@@ -3507,11 +3497,6 @@ public class Load {
         }
     }
 
-    public void checkHashRunningDeleteJob(long partitionId, String partitionName) throws DdlException {
-        checkHasRunningSyncDeleteJob(partitionId, partitionName);
-        checkHasRunningAsyncDeleteJob(partitionId, partitionName);
-    }
-
     public void delete(DeleteStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
@@ -3526,16 +3511,18 @@ public class Load {
         long partitionId = -1;
         LoadJob loadDeleteJob = null;
         boolean addRunningPartition = false;
-        db.readLock();
-        try {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                throw new DdlException("Table does not exist. name: " + tableName);
-            }
+        Table table = db.getTable(tableName);
 
-            if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Not olap type table. type: " + table.getType().name());
-            }
+        if (table == null) {
+            throw new DdlException("Table does not exist. name: " + tableName);
+        }
+
+        if (table.getType() != TableType.OLAP) {
+            throw new DdlException("Not olap type table. type: " + table.getType().name());
+        }
+
+        table.readLock();
+        try {
             OlapTable olapTable = (OlapTable) table;
 
             if (olapTable.getState() != OlapTableState.NORMAL) {
@@ -3604,7 +3591,7 @@ public class Load {
                     writeUnlock();
                 }
             }
-            db.readUnlock();
+            table.readUnlock();
         }
 
         try {
@@ -3612,7 +3599,7 @@ public class Load {
             long startDeleteTime = System.currentTimeMillis();
             long timeout = loadDeleteJob.getDeleteJobTimeout();
             while (true) {
-                db.writeLock();
+                table.writeLock();
                 try {
                     if (loadDeleteJob.getState() == JobState.FINISHED
                             || loadDeleteJob.getState() == JobState.CANCELLED) {
@@ -3629,7 +3616,7 @@ public class Load {
                         }
                     }
                 } finally {
-                    db.writeUnlock();
+                    table.writeUnlock();
                 }
                 Thread.sleep(1000);
             }

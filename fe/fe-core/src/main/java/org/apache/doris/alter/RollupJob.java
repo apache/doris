@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -348,15 +349,17 @@ public class RollupJob extends AlterJob {
         }
 
         batchClearAlterTask = new AgentBatchTask();
-        db.readLock();
-        try {
-            synchronized (this) {
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                if (olapTable == null) {
-                    cancelMsg = "table[" + tableId + "] does not exist";
-                    LOG.warn(cancelMsg);
-                    return -1;
-                }
+
+        synchronized (this) {
+            OlapTable olapTable = null;
+            try {
+                olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            } catch (MetaNotFoundException e) {
+                LOG.warn(e.getMessage());
+                return -1;
+            }
+            olapTable.readLock();
+            try {
                 boolean allAddSuccess = true;
                 LOG.info("sending clear rollup job tasks for table [{}]", tableId);
                 for (Partition partition : olapTable.getPartitions()) {
@@ -392,9 +395,10 @@ public class RollupJob extends AlterJob {
                     }
                     batchClearAlterTask = null;
                 }
+
+            } finally {
+                olapTable.readUnlock();
             }
-        } finally {
-            db.readUnlock();
         }
         LOG.info("successfully sending clear rollup job[{}]", tableId);
         return 0;
@@ -413,29 +417,30 @@ public class RollupJob extends AlterJob {
             return false;
         }
 
-        db.readLock();
-        try {
-            synchronized (this) {
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                if (olapTable == null) {
-                    cancelMsg = "table[" + tableId + "] does not exist";
-                    LOG.warn(cancelMsg);
-                    return false;
-                }
 
-                LOG.info("sending rollup job[{}] tasks.", tableId);
-                // in palo 3.2, the rollup keys type is not serialized, when a fe follower change to fe master
-                // the rollup keys type == null, so that send tasks will report error
-                if (rollupKeysType == null) {
-                    rollupKeysType = olapTable.getKeysType().toThrift();
-                }
+        synchronized (this) {
+            OlapTable olapTable = null;
+            try {
+                olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            } catch (MetaNotFoundException e) {
+                LOG.warn(e.getMessage());
+                return false;
+            }
+
+            LOG.info("sending rollup job[{}] tasks.", tableId);
+            // in palo 3.2, the rollup keys type is not serialized, when a fe follower change to fe master
+            // the rollup keys type == null, so that send tasks will report error
+            if (rollupKeysType == null) {
+                rollupKeysType = olapTable.getKeysType().toThrift();
+            }
+            olapTable.readLock();
+            try {
                 for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                     long partitionId = entry.getKey();
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
                         continue;
                     }
-
                     MaterializedIndex rollupIndex = entry.getValue();
 
                     Map<Long, Long> tabletIdMap = this.partitionIdToBaseRollupTabletIdMap.get(partitionId);
@@ -448,14 +453,14 @@ public class RollupJob extends AlterJob {
                             Preconditions.checkNotNull(tabletIdMap.get(rollupTabletId)); // baseTabletId
                             CreateRollupTask createRollupTask =
                                     new CreateRollupTask(resourceInfo, backendId, dbId, tableId,
-                                                         partitionId, rollupIndexId, baseIndexId,
-                                                         rollupTabletId, tabletIdMap.get(rollupTabletId),
-                                                         rollupReplicaId,
-                                                         rollupShortKeyColumnCount,
-                                                         rollupSchemaHash, baseSchemaHash,
-                                                         rollupStorageType, rollupSchema,
-                                                         olapTable.getCopiedBfColumns(), olapTable.getBfFpp(), 
-                                                         rollupKeysType);
+                                            partitionId, rollupIndexId, baseIndexId,
+                                            rollupTabletId, tabletIdMap.get(rollupTabletId),
+                                            rollupReplicaId,
+                                            rollupShortKeyColumnCount,
+                                            rollupSchemaHash, baseSchemaHash,
+                                            rollupStorageType, rollupSchema,
+                                            olapTable.getCopiedBfColumns(), olapTable.getBfFpp(),
+                                            rollupKeysType);
                             AgentTaskQueue.addTask(createRollupTask);
 
                             addReplicaId(partitionId, rollupReplicaId, backendId);
@@ -464,9 +469,10 @@ public class RollupJob extends AlterJob {
                 }
 
                 this.state = JobState.RUNNING;
+            } finally {
+                olapTable.readUnlock();
             }
-        } finally {
-            db.readUnlock();
+
         }
 
         Preconditions.checkState(this.state == JobState.RUNNING);
@@ -629,17 +635,18 @@ public class RollupJob extends AlterJob {
             return -1;
         }
 
-        db.writeLock();
+        OlapTable olapTable = null;
+        try {
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
+            return -1;
+        }
+
+        olapTable.writeLock();
         try {
             // if all previous transaction has finished, then check base and rollup replica num
             synchronized (this) {
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                if (olapTable == null) {
-                    cancelMsg = "Table[" + tableId + "] does not exist";
-                    LOG.warn(cancelMsg);
-                    return -1;
-                }
-
                 for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                     long partitionId = entry.getKey();
                     Partition partition = olapTable.getPartition(partitionId);
@@ -758,7 +765,7 @@ public class RollupJob extends AlterJob {
                 this.transactionId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
             }
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         Catalog.getCurrentCatalog().getEditLog().logFinishingRollup(this);
@@ -781,11 +788,12 @@ public class RollupJob extends AlterJob {
 
     @Override
     public void replayInitJob(Database db) {
-        db.writeLock();
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        olapTable.writeLock();
         try {
             // set state
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
+
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 Partition partition = olapTable.getPartition(entry.getKey());
                 partition.setState(PartitionState.ROLLUP);
@@ -810,16 +818,16 @@ public class RollupJob extends AlterJob {
             // reset status to PENDING for resending the tasks in polling thread
             this.state = JobState.PENDING;
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 
     @Override
     public void replayFinishing(Database db) {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        db.writeLock();
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        olapTable.writeLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
                 MaterializedIndex rollupIndex = entry.getValue();
@@ -887,7 +895,7 @@ public class RollupJob extends AlterJob {
             olapTable.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0, rollupSchemaHash,
                     rollupShortKeyColumnCount, rollupStorageType, KeysType.fromThrift(rollupKeysType));
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         LOG.info("replay finishing the rollup job: {}", tableId);
@@ -900,28 +908,20 @@ public class RollupJob extends AlterJob {
             replayFinishing(db);
         }
 
-        db.writeLock();
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        olapTable.writeLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                LOG.warn("table {} could not be found when replay rollup job", tableId);
-                return;
-            }
             olapTable.setState(OlapTableState.NORMAL);
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 
     @Override
     public void replayCancel(Database db) {
-        db.writeLock();
-        try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                return;
-            }
-
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        olapTable.writeLock();
+        try{
             if (!Catalog.isCheckpointThread()) {
                 // remove from inverted index
                 for (MaterializedIndex rollupIndex : partitionIdToRollupIndex.values()) {
@@ -937,7 +937,7 @@ public class RollupJob extends AlterJob {
             }
             olapTable.setState(OlapTableState.NORMAL);
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 
@@ -950,21 +950,20 @@ public class RollupJob extends AlterJob {
             return;
         }
 
-        db.writeLock();
+        OlapTable olapTable = null;
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                cancelMsg = String.format("table %d does not exist", tableId);
-                LOG.warn(cancelMsg);
-                return;
-            }
-            olapTable.setState(OlapTableState.NORMAL);
-        } finally {
-            db.writeUnlock();
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
+            return;
         }
 
-        List<Integer> list = new ArrayList<>();
-        Integer[] arr = list.toArray(new Integer[0]);
+        olapTable.writeLock();
+        try {
+            olapTable.setState(OlapTableState.NORMAL);
+        } finally {
+            olapTable.writeUnlock();
+        }
 
         this.finishedTime = System.currentTimeMillis();
         LOG.info("finished rollup job: {}", tableId);
@@ -1137,6 +1136,7 @@ public class RollupJob extends AlterJob {
         return rollupJob;
     }
 
+    @Override
     public boolean equals(Object obj) {
         return true;
     }

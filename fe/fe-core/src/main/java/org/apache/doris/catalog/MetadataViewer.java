@@ -55,14 +55,14 @@ public class MetadataViewer {
         if (db == null) {
             throw new DdlException("Database " + dbName + " does not exist");
         }
-        
-        db.readLock();
+
+        Table tbl = db.getTable(tblName);
+        if (tbl == null || tbl.getType() != TableType.OLAP) {
+            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
+        }
+
+        tbl.readLock();
         try {
-            Table tbl = db.getTable(tblName);
-            if (tbl == null || tbl.getType() != TableType.OLAP) {
-                throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
-            }
-            
             OlapTable olapTable = (OlapTable) tbl;
             
             if (partitions.isEmpty()) {
@@ -146,7 +146,7 @@ public class MetadataViewer {
                 }
             }
         } finally {
-            db.readUnlock();
+            tbl.readUnlock();
         }
 
         return result;
@@ -181,12 +181,13 @@ public class MetadataViewer {
             throw new DdlException("Database " + dbName + " does not exist");
         }
 
-        db.readLock();
+        Table tbl = db.getTable(tblName);
+        if (tbl == null || tbl.getType() != TableType.OLAP) {
+            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
+        }
+
+        tbl.readLock();
         try {
-            Table tbl = db.getTable(tblName);
-            if (tbl == null || tbl.getType() != TableType.OLAP) {
-                throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
-            }
 
             OlapTable olapTable = (OlapTable) tbl;
 
@@ -242,7 +243,7 @@ public class MetadataViewer {
             }
             
         } finally {
-            db.readUnlock();
+            tbl.readUnlock();
         }
 
         return result;
