@@ -120,7 +120,7 @@ After successfully building, it will install binary files in the directory `outp
 You should install the following softwares:
 
 ```
-GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
+GCC 7.3.0+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
 ```
 
 After you installed above all, you also must be set them to environment variable PATH and set JAVA_HOME.
@@ -164,4 +164,3 @@ If you find any bugs, please file a [GitHub issue](https://github.com/apache/inc
 * Deploy and Upgrade - <https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade>
 * User Manual - <https://github.com/apache/incubator-doris/wiki/Doris-Create%2C-Load-and-Delete>
 * FAQs - <https://github.com/apache/incubator-doris/wiki/Doris-FAQ>
-
