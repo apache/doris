@@ -127,8 +127,11 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     int64_t now = UnixMillis();
     if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
         _tablet->set_last_cumu_compaction_success_time(now);
+        _tablet->update_cumulative_compaction_score(_tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION));
+        _tablet->update_base_compaction_score(_tablet->calc_compaction_score(CompactionType::BASE_COMPACTION));
     } else {
         _tablet->set_last_base_compaction_success_time(now);
+        _tablet->update_base_compaction_score(_tablet->calc_compaction_score(CompactionType::BASE_COMPACTION));
     }
 
     LOG(INFO) << "succeed to do " << compaction_name() << ". tablet=" << _tablet->full_name()

@@ -321,6 +321,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
         data_dirs.push_back(tmp_store.second);
         _tablet_submitted_compaction[tmp_store.second] = tablet_submitted;
     }
+    _tablet_manager->init_tablet_score();
 
     int round = 0;
     CompactionType compaction_type;

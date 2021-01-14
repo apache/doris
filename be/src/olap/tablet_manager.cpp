@@ -677,6 +677,19 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
     result->__set_tablets_stats(_tablet_stat_cache);
 }
 
+void TabletManager::init_tablet_score() {
+    LOG(INFO) << "Init tablets score.";
+    for (const auto& tablets_shard : _tablets_shards) {
+        ReadLock rlock(tablets_shard.lock.get());
+        for (const auto& tablet_map : tablets_shard.tablet_map) {
+            for (const TabletSharedPtr& tablet_ptr : tablet_map.second.table_arr) {
+                tablet_ptr->update_cumulative_compaction_score(tablet_ptr->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION));
+                tablet_ptr->update_base_compaction_score(tablet_ptr->calc_compaction_score(CompactionType::BASE_COMPACTION));
+            }
+        }
+    }
+}
+
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
         std::vector<TTabletId>& tablet_submitted_compaction) {
@@ -746,7 +759,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 }
 
                 uint32_t current_compaction_score =
-                        tablet_ptr->calc_compaction_score(compaction_type);
+                        tablet_ptr->get_compaction_score(compaction_type);
 
                 double scan_frequency = 0.0;
                 if (config::compaction_tablet_scan_frequency_factor != 0) {
