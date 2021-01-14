@@ -117,7 +117,7 @@ After successfully building, it will install binary files in the directory `outp
 
 #### Prerequisites
 
-You must be install following softwares:
+You should install the following softwares:
 
 ```
 GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
