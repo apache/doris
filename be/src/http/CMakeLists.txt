@@ -38,6 +38,7 @@ add_library(Webserver STATIC
   action/mini_load.cpp
   action/health_action.cpp
   action/tablets_info_action.cpp
+  action/tablets_distribution_action.cpp
   action/checksum_action.cpp
   action/snapshot_action.cpp
   action/reload_tablet_action.cpp
