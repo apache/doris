@@ -11,6 +11,7 @@
 #include <ctime>
 
 #include "common/logging.h"
+#include "util/debug/sanitizer_scopes.h"
 #include "util/monotime.h"
 #include "util/mutex.h"
 
@@ -33,11 +34,13 @@ ConditionVariable::~ConditionVariable() {
 }
 
 void ConditionVariable::wait() const {
+    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     int rv = pthread_cond_wait(&_condition, _user_mutex);
     DCHECK_EQ(0, rv);
 }
 
 bool ConditionVariable::wait_until(const MonoTime& until) const {
+    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     // Have we already timed out?
     MonoTime now = MonoTime::Now();
     if (now > until) {
@@ -53,6 +56,7 @@ bool ConditionVariable::wait_until(const MonoTime& until) const {
 }
 
 bool ConditionVariable::wait_for(const MonoDelta& delta) const {
+    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     // Negative delta means we've already timed out.
     int64_t nsecs = delta.ToNanoseconds();
     if (nsecs < 0) {

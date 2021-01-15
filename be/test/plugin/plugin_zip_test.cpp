@@ -80,8 +80,6 @@ public:
         std::cout << "the path: " << _path << std::endl;
     }
 
-    ~PluginZipTest() { _server->stop(); };
-
 public:
     std::string _path;
     std::unique_ptr<EvHttpServer> _server;
