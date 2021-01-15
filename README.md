@@ -91,7 +91,7 @@ $ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/
 
 #### Step3: Download Doris source
 
-Now you should attached in docker environment.
+Now you should be attached in docker environment.
 
 You can download Doris source by release package or by git clone in image.
 
