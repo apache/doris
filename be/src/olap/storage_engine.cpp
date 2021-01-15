@@ -510,6 +510,7 @@ void StorageEngine::stop() {
         thread->join();     \
     }
 
+    THREAD_JOIN(_compaction_tasks_producer_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);

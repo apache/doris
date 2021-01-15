@@ -315,7 +315,8 @@ SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fno-wrapv -fsanitize
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -ggdb3 -fsanitize=thread -DTHREAD_SANITIZER")
+# Use -Wno-builtin-declaration-mismatch to mute warnings like "new declaration ‘__tsan_atomic16 __tsan_atomic16_fetch_nand(..."
+SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -ggdb3 -fsanitize=thread -DTHREAD_SANITIZER -Wno-builtin-declaration-mismatch")
 
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
@@ -467,6 +468,7 @@ elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-libubsan tcmalloc)
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "TSAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-libtsan)
+    add_definitions("-DTHREAD_SANITIZER")
 else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()

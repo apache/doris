@@ -52,7 +52,9 @@ namespace doris {
 #define CANCEL_SAFE_SCOPED_TIMER(c, is_cancelled) \
     ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c, is_cancelled)
 #define SCOPED_RAW_TIMER(c) \
-    ScopedRawTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_RAW_TIMER, __COUNTER__)(c)
+    ScopedRawTimer<MonotonicStopWatch, int64_t> MACRO_CONCAT(SCOPED_RAW_TIMER, __COUNTER__)(c)
+#define SCOPED_ATOMIC_TIMER(c) \
+    ScopedRawTimer<MonotonicStopWatch, std::atomic<int64_t>> MACRO_CONCAT(SCOPED_ATOMIC_TIMER, __COUNTER__)(c)
 #define COUNTER_UPDATE(c, v) (c)->update(v)
 #define COUNTER_SET(c, v) (c)->set(v)
 #define ADD_THREAD_COUNTERS(profile, prefix) (profile)->add_thread_counters(prefix)
@@ -64,6 +66,7 @@ namespace doris {
 #define ADD_TIMER(profile, name) NULL
 #define SCOPED_TIMER(c)
 #define SCOPED_RAW_TIMER(c)
+#define SCOPED_ATOMIC_TIMER(c)
 #define COUNTER_UPDATE(c, v)
 #define COUNTER_SET(c, v)
 #define ADD_THREADCOUNTERS(profile, prefix) NULL
@@ -670,10 +673,10 @@ private:
 // Utility class to update time elapsed when the object goes out of scope.
 // 'T' must implement the stopWatch "interface" (start,stop,elapsed_time) but
 // we use templates not to pay for virtual function overhead.
-template <class T>
+template <class T, class C>
 class ScopedRawTimer {
 public:
-    ScopedRawTimer(int64_t* counter) : _counter(counter) { _sw.start(); }
+    ScopedRawTimer(C* counter) : _counter(counter) { _sw.start(); }
     // Update counter when object is destroyed
     ~ScopedRawTimer() { *_counter += _sw.elapsed_time(); }
 
@@ -683,7 +686,7 @@ private:
     ScopedRawTimer& operator=(const ScopedRawTimer& timer);
 
     T _sw;
-    int64_t* _counter;
+    C* _counter;
 };
 
 } // namespace doris
