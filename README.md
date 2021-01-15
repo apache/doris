@@ -21,7 +21,7 @@ under the License.
 [![Join the chat at https://gitter.im/apache-doris/Lobby](https://badges.gitter.im/apache-doris/Lobby.svg)](https://gitter.im/apache-doris/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
-Its original name was Palo, developed in Baidu. After donating it to Apache Software Foundation, it was renamed Doris.
+Its original name was Palo, developed in Baidu. After donated to Apache Software Foundation, it was renamed Doris.
 
 ## 1. License
 
