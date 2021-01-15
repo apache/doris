@@ -533,7 +533,7 @@ public class Tablet extends MetaObject implements Writable {
      *      tablet replicas:    1,2,4,5
      *      
      * 2. Version incomplete:
-     *      backend matched, but some replica's version is incomplete
+     *      backend matched, but some replica(in backends set)'s version is incomplete
      *      
      * 3. Redundant:
      *      backends set:       1,2,3
@@ -547,14 +547,16 @@ public class Tablet extends MetaObject implements Writable {
 
         // 1. check if replicas' backends are mismatch
         Set<Long> replicaBackendIds = getBackendIds();
-        for (Long backendId : backendsSet) {
-            if (!replicaBackendIds.contains(backendId)) {
-                return TabletStatus.COLOCATE_MISMATCH;
-            }
+        if (!replicaBackendIds.containsAll(backendsSet)) {
+            return TabletStatus.COLOCATE_MISMATCH;
         }
 
         // 2. check version completeness
         for (Replica replica : replicas) {
+            if (!backendsSet.contains(replica.getBackendId())) {
+                // We don't care about replicas that are not in backendsSet
+                continue;
+            }
             if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion) {
                 // this replica is alive but version incomplete
                 return TabletStatus.VERSION_INCOMPLETE;
