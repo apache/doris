@@ -31,11 +31,9 @@ Its original name was Palo, developed in Baidu. After donating it to Apache Soft
 Doris mainly integrates the technology of Google Mesa and Apache Impala, and it is based on a column-oriented storage engine and can communicate by MySQL client.
 
 ## 3. User cases
-Doris not only provides high concurrent low latency point query performance, but also provides high throughput queries of ad-hoc analysis.
+Both high concurrent low latency point query and high throughput queries of ad-hoc analysis are implemented in Doris.
 
-Doris not only provides batch data loading, but also provides near real-time mini-batch data loading.
-
-Doris also provides high availability, reliability, fault tolerance, and scalability.
+Besides, Doris provides batch data loading and near real-time mini-batch data loading, with high availability, reliability, fault tolerance, and scalability.
 
 The simplicity (of developing, deploying and using) and meeting many data serving requirements in single system are the main features of Doris (refer to [Overview](https://github.com/apache/incubator-doris/wiki/Doris-Overview)).
 
