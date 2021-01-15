@@ -1217,6 +1217,7 @@ public class Coordinator {
     // Populates scan_range_assignment_.
     // <fragment, <server, nodeId>>
     private void computeScanRangeAssignment() throws Exception {
+        HashMap<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         // set scan ranges/locations for scan nodes
         for (ScanNode scanNode : scanNodes) {
             // the parameters of getScanRangeLocations may ignore, It dosn't take effect
@@ -1239,7 +1240,7 @@ public class Coordinator {
             } else if (bucketShuffleJoinController.isBucketShuffleJoin(scanNode.getFragmentId().asInt(), scanNode.getFragment().getPlanRoot())) {
                 bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode, idToBackend, addressToBackendID);
             } else {
-                computeScanRangeAssignmentByScheduler(scanNode, locations, assignment);
+                computeScanRangeAssignmentByScheduler(scanNode, locations, assignment, assignedBytesPerHost);
             }
         }
     }
@@ -1311,9 +1312,8 @@ public class Coordinator {
     private void computeScanRangeAssignmentByScheduler(
             final ScanNode scanNode,
             final List<TScanRangeLocations> locations,
-            FragmentScanRangeAssignment assignment) throws Exception {
-
-        HashMap<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
+            FragmentScanRangeAssignment assignment,
+            HashMap<TNetworkAddress, Long> assignedBytesPerHost) throws Exception {
         for (TScanRangeLocations scanRangeLocations : locations) {
             Reference<Long> backendIdRef = new Reference<Long>();
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations, assignedBytesPerHost, backendIdRef);
