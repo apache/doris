@@ -237,11 +237,10 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
 
     AddBatchCounter _add_batch_counter;
-    int64_t _serialize_batch_ns = 0;
-
-    int64_t _mem_exceeded_block_ns = 0;
-    int64_t _queue_push_lock_ns = 0;
-    int64_t _actual_consume_ns = 0;
+    std::atomic<int64_t> _serialize_batch_ns;
+    std::atomic<int64_t> _mem_exceeded_block_ns;
+    std::atomic<int64_t> _queue_push_lock_ns;
+    std::atomic<int64_t> _actual_consume_ns;
 };
 
 class IndexChannel {
@@ -328,12 +327,8 @@ private:
     // unique load id
     PUniqueId _load_id;
     int64_t _txn_id = -1;
-    int64_t _db_id = -1;
-    int64_t _table_id = -1;
     int _num_replicas = -1;
     bool _need_gen_rollup = false;
-    std::string _db_name;
-    std::string _table_name;
     int _tuple_desc_id = -1;
 
     // this is tuple descriptor of destination OLAP table
@@ -378,7 +373,6 @@ private:
     int64_t _convert_batch_ns = 0;
     int64_t _validate_data_ns = 0;
     int64_t _send_data_ns = 0;
-    int64_t _non_blocking_send_ns = 0;
     int64_t _serialize_batch_ns = 0;
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
