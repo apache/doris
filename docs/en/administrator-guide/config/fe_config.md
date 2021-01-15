@@ -511,7 +511,7 @@ This configuration is specifically used to limit timeout setting for stream load
 
 Type: long
 Description: Used to control the minimum timeout of a clone task. The unit is second.
-Default value: 120
+Default value: 180
 Dynamic modification: yes
 
 See the description of `max_clone_task_timeout_sec`.

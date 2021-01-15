@@ -93,6 +93,7 @@ public class MasterOpExecutor {
         params.setStmtId(ctx.getStmtId());
         params.setEnableStrictMode(ctx.getSessionVariable().getEnableInsertStrict());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        params.setInsertVisibleTimeoutMs(ctx.getSessionVariable().getInsertVisibleTimeoutMs());
 
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setMemLimit(ctx.getSessionVariable().getMaxExecMemByte());

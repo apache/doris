@@ -207,7 +207,7 @@ public class PartitionsProcDir implements ProcDirInterface {
 
         // get info
         List<List<Comparable>> partitionInfos = new ArrayList<List<Comparable>>();
-        db.readLock();
+        olapTable.readLock();
         try {
             List<Long> partitionIds;
             PartitionInfo tblPartitionInfo = olapTable.getPartitionInfo();
@@ -288,7 +288,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfos.add(partitionInfo);
             }
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
         return partitionInfos;
     }
@@ -313,7 +313,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid partition id format: " + partitionIdStr);
         }
 
-        db.readLock();
+        olapTable.readLock();
         try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
@@ -322,7 +322,7 @@ public class PartitionsProcDir implements ProcDirInterface {
 
             return new IndicesProcDir(db, olapTable, partition);
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
     }
 

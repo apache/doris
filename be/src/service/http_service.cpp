@@ -28,6 +28,7 @@
 #include "http/action/restore_tablet_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
+#include "http/action/tablets_distribution_action.h"
 #include "http/action/tablets_info_action.h"
 #include "http/action/update_config_action.h"
 #include "http/default_path_handlers.h"
@@ -87,6 +88,10 @@ Status HttpService::start() {
     // Register Tablets Info action
     TabletsInfoAction* tablets_info_action = new TabletsInfoAction();
     _ev_http_server->register_handler(HttpMethod::GET, "/tablets_json", tablets_info_action);
+
+    // Register Tablets Distribution action
+    TabletsDistributionAction* tablets_distribution_action = new TabletsDistributionAction();
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/tablets_distribution", tablets_distribution_action);
 
     // register pprof actions
     PprofActions::setup(_env, _ev_http_server.get());

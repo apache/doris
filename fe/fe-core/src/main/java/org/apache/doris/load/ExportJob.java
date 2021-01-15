@@ -191,10 +191,11 @@ public class ExportJob implements Writable {
 
         this.partitions = stmt.getPartitions();
 
-        db.readLock();
+        this.exportTable = db.getTable(stmt.getTblName().getTbl());
+
+        exportTable.readLock();
         try {
             this.dbId = db.getId();
-            this.exportTable = db.getTable(stmt.getTblName().getTbl());
             if (exportTable == null) {
                 throw new DdlException("Table " + stmt.getTblName().getTbl() + " does not exist");
             }
@@ -202,7 +203,7 @@ public class ExportJob implements Writable {
             this.tableName = stmt.getTblName();
             genExecFragment();
         } finally {
-            db.readUnlock();
+            exportTable.readUnlock();
         }
 
         this.sql = stmt.toSql();

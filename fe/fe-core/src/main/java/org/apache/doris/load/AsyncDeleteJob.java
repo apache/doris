@@ -50,7 +50,7 @@ public class AsyncDeleteJob implements Writable {
         FINISHED
     }
 
-    private DeleteState state;
+    private volatile DeleteState state;
 
     private long jobId;
     private long dbId;

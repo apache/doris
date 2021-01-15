@@ -130,6 +130,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.verify_checksum = _opts.verify_checksum;
     opts.use_page_cache = iter_opts.use_page_cache;
     opts.kept_in_memory = _opts.kept_in_memory;
+    opts.type = iter_opts.type;
 
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
@@ -569,6 +570,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     PageHandle handle;
     Slice page_body;
     PageFooterPB footer;
+    _opts.type = DATA_PAGE;
     RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer));
     // parse data page
     RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
@@ -587,6 +589,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                 // read dictionary page
                 Slice dict_data;
                 PageFooterPB dict_footer;
+                _opts.type = INDEX_PAGE;
                 RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(),
                                                    &_dict_page_handle, &dict_data, &dict_footer));
                 // ignore dict_footer.dict_page_footer().encoding() due to only

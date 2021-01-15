@@ -322,8 +322,6 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 * 描述：配置单个RowBlock之中包含多少行的数据。
 * 默认值：1024
 
-### `default_query_options`
-
 ### `default_rowset_type`
 * 类型：string
 * 描述：标识BE默认选择的存储格式，可配置的参数为："**ALPHA**", "**BETA**"。主要起以下两个作用
@@ -509,8 +507,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `load_process_max_memory_limit_percent`
 
-### `local_library_dir`
-
 ### `log_buffer_level`
 
 ### `madvise_huge_pages`
@@ -690,14 +686,7 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `scan_context_gc_interval_min`
 
-### `scratch_dirs`
-
 ### `serialize_batch`
-
-### `sleep_five_seconds`
-+ 类型：int32
-+ 描述：全局变量，用于BE线程休眠5秒，不应该被修改
-+ 默认值：5
 
 ### `sleep_one_second`
 + 类型：int32
@@ -708,8 +697,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `snapshot_expire_time_sec`
 
-### `sorter_block_size`
-
 ### `status_report_interval`
 
 ### `storage_flood_stage_left_capacity_bytes`
@@ -719,6 +706,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 ### `storage_medium_migrate_count`
 
 ### `storage_page_cache_limit`
+
+### `index_page_cache_percentage`
+* 类型：int32
+* 描述：索引页缓存占总页面缓存的百分比，取值为[0, 100]。
+* 默认值：10
 
 ### `storage_root_path`
 
@@ -803,6 +795,14 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `tablet_writer_open_rpc_timeout_sec`
 
+### `tablet_writer_ignore_eovercrowded`
+
+* 类型：bool
+* 描述：写入时可忽略brpc的'[E1011]The server is overcrowded'错误。
+* 默认值：false
+
+当遇到'[E1011]The server is overcrowded'的错误时，可以调整配置项`brpc_socket_max_unwritten_bytes`，但这个配置项不能动态调整。所以可通过设置此项为`true`来临时避免写失败。注意，此配置项只影响写流程，其他的rpc请求依旧会检查是否overcrowded。
+
 ### `tc_free_memory_rate`
 
 ### `tc_max_total_thread_cache_bytes`
@@ -855,8 +855,6 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 ### `use_mmap_allocate_chunk`
 
 ### `user_function_dir`
-
-### `web_log_bytes`
 
 ### `webserver_num_workers`
 

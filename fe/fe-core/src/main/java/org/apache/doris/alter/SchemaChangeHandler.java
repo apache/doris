@@ -58,10 +58,9 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -1487,12 +1486,16 @@ public class SchemaChangeHandler extends AlterHandler {
                 continue;
             }
 
-            db.writeLock();
+            OlapTable olapTable = (OlapTable) db.getTable(alterJob.getTableId());
+            if (olapTable != null) {
+                olapTable.writeLock();
+            }
             try {
-                OlapTable olapTable = (OlapTable) db.getTable(alterJob.getTableId());
                 alterJob.cancel(olapTable, "cancelled");
             } finally {
-                db.writeUnlock();
+                if (olapTable != null) {
+                    olapTable.writeUnlock();
+                }
             }
             jobDone(alterJob);
         }
@@ -1503,7 +1506,7 @@ public class SchemaChangeHandler extends AlterHandler {
             // has to remove here, because check is running every interval, it maybe finished but also in job list
             // some check will failed
             ((SchemaChangeJob) alterJob).deleteAllTableHistorySchema();
-            ((SchemaChangeJob) alterJob).finishJob();
+            alterJob.finishJob();
             jobDone(alterJob);
             Catalog.getCurrentCatalog().getEditLog().logFinishSchemaChange((SchemaChangeJob) alterJob);
         }
@@ -1564,17 +1567,18 @@ public class SchemaChangeHandler extends AlterHandler {
             unlock();
         }
 
-        db.readLock();
-        try {
-            for (AlterJob selectedJob : selectedJobs) {
-                OlapTable olapTable = (OlapTable) db.getTable(selectedJob.getTableId());
-                if (olapTable == null) {
-                    continue;
-                }
-                selectedJob.getJobInfo(schemaChangeJobInfos, olapTable);
+        for (AlterJob selectedJob : selectedJobs) {
+            OlapTable olapTable = (OlapTable) db.getTable(selectedJob.getTableId());
+            if (olapTable == null) {
+                continue;
             }
-        } finally {
-            db.readUnlock();
+            olapTable.readLock();
+            try {
+                selectedJob.getJobInfo(schemaChangeJobInfos, olapTable);
+            } finally {
+                olapTable.readUnlock();
+            }
+
         }
     }
 
@@ -1582,133 +1586,142 @@ public class SchemaChangeHandler extends AlterHandler {
     @Override
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws UserException {
+        olapTable.writeLock();
+        try {
+            // index id -> index schema
+            Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
+            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
+                indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
+            }
+            List<Index> newIndexes = olapTable.getCopiedIndexes();
+            Map<String, String> propertyMap = new HashMap<>();
+            for (AlterClause alterClause : alterClauses) {
+                Map<String, String> properties = alterClause.getProperties();
+                if (properties != null) {
+                    if (propertyMap.isEmpty()) {
+                        propertyMap.putAll(properties);
+                    } else {
+                        throw new DdlException("reduplicated PROPERTIES");
+                    }
 
-        // index id -> index schema
-        Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
-        for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
-            indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
-        }
-        List<Index> newIndexes = olapTable.getCopiedIndexes();
-        Map<String, String> propertyMap = new HashMap<>();
-        for (AlterClause alterClause : alterClauses) {
-            Map<String, String> properties = alterClause.getProperties();
-            if (properties != null) {
-                if (propertyMap.isEmpty()) {
-                    propertyMap.putAll(properties);
-                } else {
-                    throw new DdlException("reduplicated PROPERTIES");
-                }
-
-                // modification of colocate property is handle alone.
-                // And because there should be only one colocate property modification clause in stmt,
-                // so just return after finished handling.
-                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
-                    String colocateGroup = properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
-                    Catalog.getCurrentCatalog().modifyTableColocate(db, olapTable, colocateGroup, false, null);
-                    return;
-                } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE)) {
-                    Catalog.getCurrentCatalog().convertDistributionType(db, olapTable);
-                    return;
-                } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK)) {
+                    // modification of colocate property is handle alone.
+                    // And because there should be only one colocate property modification clause in stmt,
+                    // so just return after finished handling.
+                    if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
+                        String colocateGroup = properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
+                        Catalog.getCurrentCatalog().modifyTableColocate(db, olapTable, colocateGroup, false, null);
+                        return;
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE)) {
+                        Catalog.getCurrentCatalog().convertDistributionType(db, olapTable);
+                        return;
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK)) {
                     /*
                      * This is only for fixing bug when upgrading Doris from 0.9.x to 0.10.x.
                      */
-                    sendClearAlterTask(db, olapTable);
-                    return;
-                } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
-                    if (!olapTable.dynamicPartitionExists()) {
-                        try {
-                            DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo());
-                        } catch (DdlException e) {
-                            // This table is not a dynamic partition table and didn't supply all dynamic partition properties
-                            throw new DdlException("Table " + db.getFullName() + "." +
-                                    olapTable.getName() + " is not a dynamic partition table. Use command `HELP ALTER TABLE` " +
-                                    "to see how to change a normal table to a dynamic partition table.");
+                        sendClearAlterTask(db, olapTable);
+                        return;
+                    } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+                        if (!olapTable.dynamicPartitionExists()) {
+                            try {
+                                DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo());
+                            } catch (DdlException e) {
+                                // This table is not a dynamic partition table and didn't supply all dynamic partition properties
+                                throw new DdlException("Table " + db.getFullName() + "." +
+                                        olapTable.getName() + " is not a dynamic partition table. Use command `HELP ALTER TABLE` " +
+                                        "to see how to change a normal table to a dynamic partition table.");
+                            }
                         }
+                        Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
+                        return;
+                    } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+                        Preconditions.checkNotNull(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+                        Catalog.getCurrentCatalog().modifyTableDefaultReplicationNum(db, olapTable, properties);
+                        return;
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+                        Catalog.getCurrentCatalog().modifyTableReplicationNum(db, olapTable, properties);
+                        return;
                     }
-                    Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
-                    return;
-                } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-                    Preconditions.checkNotNull(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
-                    Catalog.getCurrentCatalog().modifyTableDefaultReplicationNum(db, olapTable, properties);
-                    return;
-                } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-                    Catalog.getCurrentCatalog().modifyTableReplicationNum(db, olapTable, properties);
-                    return;
                 }
-            }
 
-            // the following operations can not be done when there are temp partitions exist.
-            if (olapTable.existTempPartitions()) {
-                throw new DdlException("Can not alter table when there are temp partitions in table");
-            }
+                // the following operations can not be done when there are temp partitions exist.
+                if (olapTable.existTempPartitions()) {
+                    throw new DdlException("Can not alter table when there are temp partitions in table");
+                }
 
-            if (alterClause instanceof AddColumnClause) {
-                // add column
-                processAddColumn((AddColumnClause) alterClause, olapTable, indexSchemaMap);
-            } else if (alterClause instanceof AddColumnsClause) {
-                // add columns
-                processAddColumns((AddColumnsClause) alterClause, olapTable, indexSchemaMap);
-            } else if (alterClause instanceof DropColumnClause) {
-                // drop column and drop indexes on this column
-                processDropColumn((DropColumnClause) alterClause, olapTable, indexSchemaMap, newIndexes);
-            } else if (alterClause instanceof ModifyColumnClause) {
-                // modify column
-                processModifyColumn((ModifyColumnClause) alterClause, olapTable, indexSchemaMap);
-            } else if (alterClause instanceof ReorderColumnsClause) {
-                // reorder column
-                processReorderColumn((ReorderColumnsClause) alterClause, olapTable, indexSchemaMap);
-            } else if (alterClause instanceof ModifyTablePropertiesClause) {
-                // modify table properties
-                // do nothing, properties are already in propertyMap
-            } else if (alterClause instanceof CreateIndexClause) {
-                processAddIndex((CreateIndexClause) alterClause, olapTable, newIndexes);
-            } else if (alterClause instanceof DropIndexClause) {
-                processDropIndex((DropIndexClause) alterClause, olapTable, newIndexes);
-            } else {
-                Preconditions.checkState(false);
-            }
-        } // end for alter clauses
+                if (alterClause instanceof AddColumnClause) {
+                    // add column
+                    processAddColumn((AddColumnClause) alterClause, olapTable, indexSchemaMap);
+                } else if (alterClause instanceof AddColumnsClause) {
+                    // add columns
+                    processAddColumns((AddColumnsClause) alterClause, olapTable, indexSchemaMap);
+                } else if (alterClause instanceof DropColumnClause) {
+                    // drop column and drop indexes on this column
+                    processDropColumn((DropColumnClause) alterClause, olapTable, indexSchemaMap, newIndexes);
+                } else if (alterClause instanceof ModifyColumnClause) {
+                    // modify column
+                    processModifyColumn((ModifyColumnClause) alterClause, olapTable, indexSchemaMap);
+                } else if (alterClause instanceof ReorderColumnsClause) {
+                    // reorder column
+                    processReorderColumn((ReorderColumnsClause) alterClause, olapTable, indexSchemaMap);
+                } else if (alterClause instanceof ModifyTablePropertiesClause) {
+                    // modify table properties
+                    // do nothing, properties are already in propertyMap
+                } else if (alterClause instanceof CreateIndexClause) {
+                    processAddIndex((CreateIndexClause) alterClause, olapTable, newIndexes);
+                } else if (alterClause instanceof DropIndexClause) {
+                    processDropIndex((DropIndexClause) alterClause, olapTable, newIndexes);
+                } else {
+                    Preconditions.checkState(false);
+                }
+            } // end for alter clauses
 
-        createJob(db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
+            createJob(db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
+        } finally {
+            olapTable.writeUnlock();
+        }
     }
 
     @Override
     public void processExternalTable(List<AlterClause> alterClauses, Database db, Table externalTable)
             throws UserException {
-        // copy the external table schema columns
-        List<Column> newSchema = Lists.newArrayList();
-        newSchema.addAll(externalTable.getBaseSchema(true));
+        externalTable.writeLock();
+        try {
+            // copy the external table schema columns
+            List<Column> newSchema = Lists.newArrayList();
+            newSchema.addAll(externalTable.getBaseSchema(true));
 
-        for (AlterClause alterClause : alterClauses) {
-            if (alterClause instanceof AddColumnClause) {
-                // add column
-                processAddColumn((AddColumnClause) alterClause, externalTable, newSchema);
-            } else if (alterClause instanceof AddColumnsClause) {
-                // add columns
-                processAddColumns((AddColumnsClause) alterClause, externalTable, newSchema);
-            } else if (alterClause instanceof DropColumnClause) {
-                // drop column and drop indexes on this column
-                processDropColumn((DropColumnClause) alterClause, externalTable, newSchema);
-            } else if (alterClause instanceof ModifyColumnClause) {
-                // modify column
-                processModifyColumn((ModifyColumnClause) alterClause, externalTable, newSchema);
-            } else if (alterClause instanceof ReorderColumnsClause) {
-                // reorder column
-                processReorderColumn((ReorderColumnsClause) alterClause, externalTable, newSchema);
-            } else {
-                Preconditions.checkState(false);
-            }
-        } // end for alter clauses
-        // replace the old column list
-        externalTable.setNewFullSchema(newSchema);
-        // refresh external table column in edit log
-        Catalog.getCurrentCatalog().refreshExternalTableSchema(db, externalTable, newSchema);
+            for (AlterClause alterClause : alterClauses) {
+                if (alterClause instanceof AddColumnClause) {
+                    // add column
+                    processAddColumn((AddColumnClause) alterClause, externalTable, newSchema);
+                } else if (alterClause instanceof AddColumnsClause) {
+                    // add columns
+                    processAddColumns((AddColumnsClause) alterClause, externalTable, newSchema);
+                } else if (alterClause instanceof DropColumnClause) {
+                    // drop column and drop indexes on this column
+                    processDropColumn((DropColumnClause) alterClause, externalTable, newSchema);
+                } else if (alterClause instanceof ModifyColumnClause) {
+                    // modify column
+                    processModifyColumn((ModifyColumnClause) alterClause, externalTable, newSchema);
+                } else if (alterClause instanceof ReorderColumnsClause) {
+                    // reorder column
+                    processReorderColumn((ReorderColumnsClause) alterClause, externalTable, newSchema);
+                } else {
+                    Preconditions.checkState(false);
+                }
+            } // end for alter clauses
+            // replace the old column list
+            externalTable.setNewFullSchema(newSchema);
+            // refresh external table column in edit log
+            Catalog.getCurrentCatalog().refreshExternalTableSchema(db, externalTable, newSchema);
+        } finally {
+            externalTable.writeUnlock();
+        }
     }
 
     private void sendClearAlterTask(Database db, OlapTable olapTable) {
         AgentBatchTask batchTask = new AgentBatchTask();
-        db.readLock();
+        olapTable.readLock();
         try {
             for (Partition partition : olapTable.getPartitions()) {
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -1723,7 +1736,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         AgentTaskExecutor.submit(batchTask);
@@ -1733,15 +1746,14 @@ public class SchemaChangeHandler extends AlterHandler {
     /**
      * Update all partitions' in-memory property of table
      */
-    public void updateTableInMemoryMeta(Database db, String tableName, Map<String, String> properties) throws DdlException {
+    public void updateTableInMemoryMeta(Database db, String tableName, Map<String, String> properties) throws UserException {
         List<Partition> partitions = Lists.newArrayList();
-        OlapTable olapTable;
-        db.readLock();
+        OlapTable olapTable = (OlapTable)db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        olapTable.readLock();
         try {
-            olapTable = (OlapTable)db.getTable(tableName);
             partitions.addAll(olapTable.getPartitions());
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
@@ -1753,11 +1765,11 @@ public class SchemaChangeHandler extends AlterHandler {
             updatePartitionInMemoryMeta(db, olapTable.getName(), partition.getName(), isInMemory);
         }
 
-        db.writeLock();
+        olapTable.writeLock();
         try {
             Catalog.getCurrentCatalog().modifyTableInMemoryMeta(db, olapTable, properties);
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 
@@ -1767,22 +1779,8 @@ public class SchemaChangeHandler extends AlterHandler {
     public void updatePartitionsInMemoryMeta(Database db,
                                              String tableName,
                                              List<String> partitionNames,
-                                             Map<String, String> properties) throws DdlException {
-        OlapTable olapTable;
-        db.readLock();
-        try {
-            olapTable = (OlapTable)db.getTable(tableName);
-            for (String partitionName : partitionNames) {
-                Partition partition = olapTable.getPartition(partitionName);
-                if (partition == null) {
-                    throw new DdlException("Partition[" + partitionName + "] does not exist in " +
-                            "table[" + olapTable.getName() + "]");
-                }
-            }
-        } finally {
-            db.readUnlock();
-        }
-
+                                             Map<String, String> properties) throws DdlException, MetaNotFoundException {
+        OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableName, Table.TableType.OLAP);
         boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
         if (isInMemory == olapTable.isInMemory()) {
             return;
@@ -1806,12 +1804,12 @@ public class SchemaChangeHandler extends AlterHandler {
     public void updatePartitionInMemoryMeta(Database db,
                                             String tableName,
                                             String partitionName,
-                                            boolean isInMemory) throws DdlException {
+                                            boolean isInMemory) throws UserException {
         // be id -> <tablet id,schemaHash>
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
-        db.readLock();
+        OlapTable olapTable = (OlapTable)db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        olapTable.readLock();
         try {
-            OlapTable olapTable = (OlapTable)db.getTable(tableName);
             Partition partition = olapTable.getPartition(partitionName);
             if (partition == null) {
                 throw new DdlException(
@@ -1829,7 +1827,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         int totalTaskNum = beIdToTabletIdWithHash.keySet().size();
@@ -1896,16 +1894,15 @@ public class SchemaChangeHandler extends AlterHandler {
 
         AlterJob schemaChangeJob = null;
         AlterJobV2 schemaChangeJobV2 = null;
-        db.writeLock();
+
+        OlapTable olapTable = null;
         try {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-            }
-            if (!(table instanceof OlapTable)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tableName);
-            }
-            OlapTable olapTable = (OlapTable) table;
+            olapTable = (OlapTable) db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.writeLock();
+        try {
             if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE) {
                 throw new DdlException("Table[" + tableName + "] is not under SCHEMA_CHANGE.");
             }
@@ -1925,7 +1922,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 schemaChangeJob.cancel(olapTable, "user cancelled");
             }
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         // alter job v2's cancel must be called outside the database lock

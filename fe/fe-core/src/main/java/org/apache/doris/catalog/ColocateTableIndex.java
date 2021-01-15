@@ -157,11 +157,11 @@ public class ColocateTableIndex implements Writable {
                     // generate a new one
                     groupId = new GroupId(dbId, Catalog.getCurrentCatalog().getNextId());
                 }
-                groupName2Id.put(fullGroupName, groupId);
                 HashDistributionInfo distributionInfo = (HashDistributionInfo) tbl.getDefaultDistributionInfo();
                 ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
                         distributionInfo.getDistributionColumns(), distributionInfo.getBucketNum(),
-                        tbl.getPartitionInfo().idToReplicationNum.values().stream().findFirst().get());
+                        tbl.getDefaultReplicationNum());
+                groupName2Id.put(fullGroupName, groupId);
                 group2Schema.put(groupId, groupSchema);
             }
             group2Tables.put(groupId, tbl.getId());
@@ -321,8 +321,12 @@ public class ColocateTableIndex implements Writable {
         try {
             Set<Long> allBackends = new HashSet<>();
             List<List<Long>> backendsPerBucketSeq = group2BackendsPerBucketSeq.get(groupId);
-            for (List<Long> bes : backendsPerBucketSeq) {
-                allBackends.addAll(bes);
+            // if create colocate table with empty partition or create colocate table
+            // with dynamic_partition will cause backendsPerBucketSeq == null
+            if (backendsPerBucketSeq != null) {
+                for (List<Long> bes : backendsPerBucketSeq) {
+                    allBackends.addAll(bes);
+                }
             }
             return allBackends;
         } finally {
@@ -446,7 +450,6 @@ public class ColocateTableIndex implements Writable {
         writeLock();
         try {
             if (!group2BackendsPerBucketSeq.containsKey(info.getGroupId())) {
-                Preconditions.checkState(!info.getBackendsPerBucketSeq().isEmpty());
                 group2BackendsPerBucketSeq.put(info.getGroupId(), info.getBackendsPerBucketSeq());
             }
 
@@ -653,30 +656,31 @@ public class ColocateTableIndex implements Writable {
                 continue;
             }
             Collection<Long> tableIds = tmpGroup2Tables.get(groupId.grpId);
-            db.readLock();
-            try {
-                for (Long tblId : tableIds) {
-                    OlapTable tbl = (OlapTable) db.getTable(tblId);
-                    if (tbl == null) {
-                        continue;
-                    }
+
+            for (Long tblId : tableIds) {
+                OlapTable tbl = (OlapTable) db.getTable(tblId);
+                if (tbl == null) {
+                    continue;
+                }
+                tbl.readLock();
+                try {
                     if (tblId.equals(groupId.grpId)) {
                         // this is a parent table, use its name as group name
                         groupName2Id.put(groupId.dbId + "_" + tbl.getName(), groupId);
-                        
+
                         ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
-                                ((HashDistributionInfo)tbl.getDefaultDistributionInfo()).getDistributionColumns(), 
+                                ((HashDistributionInfo)tbl.getDefaultDistributionInfo()).getDistributionColumns(),
                                 tbl.getDefaultDistributionInfo().getBucketNum(),
                                 tbl.getPartitionInfo().idToReplicationNum.values().stream().findFirst().get());
                         group2Schema.put(groupId, groupSchema);
                         group2BackendsPerBucketSeq.put(groupId, tmpGroup2BackendsPerBucketSeq.get(groupId.grpId));
                     }
-
-                    group2Tables.put(groupId, tblId);
-                    table2Group.put(tblId, groupId);
+                } finally {
+                    tbl.readUnlock();
                 }
-            } finally {
-                db.readUnlock();
+
+                group2Tables.put(groupId, tblId);
+                table2Group.put(tblId, groupId);
             }
         }
     }

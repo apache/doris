@@ -325,8 +325,6 @@ In some deployment environments, the `conf/` directory may be overwritten due to
 * Description: Configure how many rows of data are contained in a single RowBlock.
 * Default value: 1024
 
-### `default_query_options`
-
 ### `default_rowset_type`
 
 * Type: string
@@ -508,8 +506,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `load_process_max_memory_limit_percent`
 
-### `local_library_dir`
-
 ### `log_buffer_level`
 
 ### `madvise_huge_pages`
@@ -689,15 +685,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `scan_context_gc_interval_min`
 
-### `scratch_dirs`
-
-### `serialize_batch`
-
-### `sleep_five_seconds`
-+ Type: int32
-+ Description: Global variables, used for BE thread sleep for 5 seconds, should not be modified
-+ Default value: 5
-
 ### `sleep_one_second`
 
 + Type: int32
@@ -708,8 +695,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `snapshot_expire_time_sec`
 
-### `sorter_block_size`
-
 ### `status_report_interval`
 
 ### `storage_flood_stage_left_capacity_bytes`
@@ -719,6 +704,11 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `storage_medium_migrate_count`
 
 ### `storage_page_cache_limit`
+
+### `index_page_cache_percentage`
+* Type: int32
+* Description: Index page cache as a percentage of total storage page cache, value range is [0, 100]
+* Default value: 10
 
 ### `storage_root_path`
 
@@ -804,6 +794,14 @@ When writing is too frequent and the disk time is insufficient, you can configur
 
 ### `tablet_writer_open_rpc_timeout_sec`
 
+### `tablet_writer_ignore_eovercrowded`
+
+* Type: bool
+* Description: Used to ignore brpc error '[E1011]The server is overcrowded' when writing data. 
+* Default value: false
+
+When meet '[E1011]The server is overcrowded' error, you can tune the configuration `brpc_socket_max_unwritten_bytes`, but it can't be modified at runtime. Set it to `true` to avoid writing failed temporarily. Notice that, it only effects `write`, other rpc requests will still check if overcrowded.
+
 ### `tc_free_memory_rate`
 
 ### `tc_max_total_thread_cache_bytes`
@@ -856,8 +854,6 @@ If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
 ### `use_mmap_allocate_chunk`
 
 ### `user_function_dir`
-
-### `web_log_bytes`
 
 ### `webserver_num_workers`
 

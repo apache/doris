@@ -236,10 +236,15 @@ public class DynamicPartitionUtil {
         return true;
     }
 
-    public static void registerOrRemoveDynamicPartitionTable(long dbId, OlapTable olapTable) {
+    public static void registerOrRemoveDynamicPartitionTable(long dbId, OlapTable olapTable, boolean isReplay) {
         if (olapTable.getTableProperty() != null
                 && olapTable.getTableProperty().getDynamicPartitionProperty() != null) {
             if (olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
+                if (!isReplay) {
+                    // execute create partition first time only in master of FE, So no need execute
+                    // when it's replay
+                    Catalog.getCurrentCatalog().getDynamicPartitionScheduler().executeDynamicPartitionFirstTime(dbId, olapTable.getId());
+                }
                 Catalog.getCurrentCatalog().getDynamicPartitionScheduler().registerDynamicPartitionTable(dbId, olapTable.getId());
             } else {
                 Catalog.getCurrentCatalog().getDynamicPartitionScheduler().removeDynamicPartitionTable(dbId, olapTable.getId());

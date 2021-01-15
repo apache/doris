@@ -33,6 +33,7 @@
 #include "common/config.h"
 #include "util/core_local.h"
 #include "util/spinlock.h"
+#include "util/histogram.h"
 
 namespace doris {
 
@@ -157,6 +158,35 @@ public:
 
 protected:
     CoreLocalValue<T> _value;
+};
+
+class HistogramMetric : public Metric {
+public:
+    HistogramMetric() {}
+    virtual ~HistogramMetric() {}
+
+    HistogramMetric(const HistogramMetric&) = delete;
+    HistogramMetric& operator=(const HistogramMetric&) = delete;
+
+    void clear();
+    bool is_empty() const;
+    void add(const uint64_t& value);
+    void merge(const HistogramMetric& other);
+
+    uint64_t min() const { return _stats.min(); }
+    uint64_t max() const { return _stats.max(); }
+    uint64_t num() const { return _stats.num(); }
+    uint64_t sum() const { return _stats.sum(); }
+    double median() const;
+    double percentile(double p) const;
+    double average() const;
+    double standard_deviation() const;
+    std::string to_string() const override;
+    rj::Value to_json_value() const override;
+
+protected:
+    mutable SpinLock _lock;
+    HistogramStat _stats;
 };
 
 template <typename T>

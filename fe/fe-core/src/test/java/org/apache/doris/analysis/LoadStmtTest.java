@@ -23,7 +23,9 @@ import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -35,7 +37,11 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -133,5 +139,32 @@ public class LoadStmtTest {
         stmt.analyze(analyzer);
 
         Assert.fail("No exception throws.");
+    }
+
+    @Test
+    public void testRewrite() throws Exception{
+        List<ImportColumnDesc> columns1 = getColumns("c1,c2,c3,tmp_c4=c1 + 1, tmp_c5 = tmp_c4+1");
+        Load.rewriteColumns(columns1);
+        String orig = "`c1` + 1 + 1";
+        Assert.assertEquals(orig, columns1.get(4).getExpr().toString());
+
+        List<ImportColumnDesc> columns2 = getColumns("c1,c2,c3,tmp_c5 = tmp_c4+1, tmp_c4=c1 + 1");
+        String orig2 = "`tmp_c4` + 1";
+        Load.rewriteColumns(columns2);
+        Assert.assertEquals(orig2, columns2.get(3).getExpr().toString());
+
+        List<ImportColumnDesc> columns3 = getColumns("c1,c2,c3");
+        String orig3 = "c3";
+        Load.rewriteColumns(columns3);
+        Assert.assertEquals(orig3, columns3.get(2).toString());
+
+    }
+
+    private List<ImportColumnDesc> getColumns(String columns) throws Exception {
+        String columnsSQL = "COLUMNS (" + columns + ")";
+        return ((ImportColumnsStmt) SqlParserUtils.getFirstStmt(
+            new SqlParser(
+                new SqlScanner(
+                    new StringReader(columnsSQL))))).getColumns();
     }
 }
