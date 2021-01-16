@@ -74,6 +74,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 * `parallel_fragment_exec_instance_num`
 * `parallel_exchange_instance_num`
 * `allow_partition_column_nullable`
+* `insert_visible_timeout_ms`
 
 只支持全局生效的变量包括：
 
@@ -364,3 +365,7 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
 * `allow_partition_column_nullable`
 
     建表时是否允许分区列为NULL。默认为true，表示允许为NULL。false 表示分区列必须被定义为NOT NULL
+
+* `insert_visible_timeout_ms`
+
+    在执行insert语句时，导入动作(查询和插入)完成后，还需要等待事务提交，使数据可见。此参数控制等待数据可见的超时时间，默认为10000，最小为1000。

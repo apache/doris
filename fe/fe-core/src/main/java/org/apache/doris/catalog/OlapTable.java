@@ -101,7 +101,7 @@ public class OlapTable extends Table {
         WAITING_STABLE
     }
 
-    private OlapTableState state;
+    private volatile OlapTableState state;
 
     // index id -> index meta
     private Map<Long, MaterializedIndexMeta> indexIdToMeta = Maps.newHashMap();

@@ -214,7 +214,11 @@ At the same time, in order to ensure the weight of the initial priority, we stip
 
 ## Duplicate Equilibrium
 
-Doris automatically balances replicas within the cluster. The main idea of balancing is to create a replica of some fragments on low-load nodes, and then delete the replicas of these fragments on high-load nodes. At the same time, because of the existence of different storage media, there may or may not exist one or two storage media on different BE nodes in the same cluster. We require that fragments of storage medium A be stored in storage medium A as far as possible after equalization. So we divide the BE nodes of the cluster according to the storage medium. Then load balancing scheduling is carried out for different BE node sets of storage media.
+Doris automatically balances replicas within the cluster. Currently supports two rebalance strategies, BeLoad and Partition. BeLoad rebalance will consider about the disk usage and replica count for each BE. Partition rebalance just aim at replica count for each partition, this helps to avoid hot spots. If you want high read/write performance, you may need this. Note that Partition rebalance do not consider about the disk usage, pay more attention to it when you are using Partition rebalance. The strategy selection config is not mutable at runtime. 
+
+### BeLoad
+
+The main idea of balancing is to create a replica of some fragments on low-load nodes, and then delete the replicas of these fragments on high-load nodes. At the same time, because of the existence of different storage media, there may or may not exist one or two storage media on different BE nodes in the same cluster. We require that fragments of storage medium A be stored in storage medium A as far as possible after equalization. So we divide the BE nodes of the cluster according to the storage medium. Then load balancing scheduling is carried out for different BE node sets of storage media.
 
 Similarly, replica balancing ensures that a copy of the same table will not be deployed on the BE of the same host.
 
@@ -228,7 +232,22 @@ Disk usage and number of copies have a weight factor, which is **capacityCoeffic
 
 The weight coefficient ensures that when disk utilization is too high, the backend load score will be higher to ensure that the BE load is reduced as soon as possible.
 
-Tablet Scheduler updates CLS every 1 minute.
+Tablet Scheduler updates CLS every 20 seconds.
+
+### Partition
+
+The main idea of `partition rebalancing` is to decrease the skew of partitions. The skew of the partition is defined as the difference between the maximum replica count of the partition over all bes and the minimum replica count over all bes. 
+
+So we only consider about the replica count, do not consider replica size(disk usage).
+To fewer moves, we use TwoDimensionalGreedyAlgo which two dims are cluster & partition. It prefers a move that reduce the skew of the cluster when we want to rebalance a max skew partition. 
+
+#### Skew Info
+
+The skew info is represented by `ClusterBalanceInfo`. `partitionInfoBySkew` is a multimap which key is the partition's skew, so we can get max skew partitions simply. `beByTotalReplicaCount` is a multimap which key is the total replica count of the backend.
+
+`ClusterBalanceInfo` is in CLS, updated every 20 seconds.
+
+When get more than one max skew partitions, we random select one partition to calculate the move.
 
 ### Equilibrium strategy
 
@@ -617,7 +636,7 @@ The following adjustable parameters are all configurable parameters in fe.conf.
 * disable\_balance
 
 	* Description: Control whether to turn off the balancing function. When replicas are in equilibrium, some functions, such as ALTER TABLE, will be banned. Equilibrium can last for a long time. Therefore, if the user wants to do the prohibited operation as soon as possible. This parameter can be set to true to turn off balanced scheduling.
-	* Default value:true
+	* Default value: false
 	* Importance:
 
 ### Unadjustable parameters

@@ -177,9 +177,10 @@ public:
     PercentileApproxState() : digest(new TDigest()) {}
     PercentileApproxState(double compression) : digest(new TDigest(compression)) {}
     ~PercentileApproxState() { delete digest; }
+    static constexpr double INIT_QUANTILE  = -1.0;
 
     TDigest* digest = nullptr;
-    double targetQuantile = -1.0;
+    double targetQuantile = INIT_QUANTILE;
 };
 
 void AggregateFunctions::percentile_approx_init(FunctionContext* ctx, StringVal* dst) {
@@ -255,7 +256,12 @@ void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const Str
 
     PercentileApproxState* dst_percentile = reinterpret_cast<PercentileApproxState*>(dst->ptr);
     dst_percentile->digest->merge(src_percentile->digest);
-    dst_percentile->targetQuantile = quantile;
+    // dst_percentile->targetQuantile only need set once from child result
+    // for example:
+    //    child result targetQuantile is (0.5, -1), we should set 0.5 once to make sure correct result
+    if (dst_percentile->targetQuantile == PercentileApproxState::INIT_QUANTILE) {
+        dst_percentile->targetQuantile = quantile;
+    }
 
     delete src_percentile;
 }

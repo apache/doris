@@ -17,6 +17,10 @@
 
 package org.apache.doris.clone;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.TreeMultimap;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.BackendLoadStatistic.LoadScore;
@@ -25,11 +29,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
-
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,9 +58,11 @@ public class ClusterLoadStatistic {
     // storage medium -> number of backend which has this kind of medium
     private Map<TStorageMedium, Integer> backendNumMap = Maps.newHashMap();
     private List<BackendLoadStatistic> beLoadStatistics = Lists.newArrayList();
+    private Map<TStorageMedium, TreeMultimap<Long, Long>> beByTotalReplicaCountMaps = Maps.newHashMap();
+    private Map<TStorageMedium, TreeMultimap<Long, TabletInvertedIndex.PartitionBalanceInfo>> skewMaps = Maps.newHashMap();
 
     public ClusterLoadStatistic(String clusterName, SystemInfoService infoService,
-            TabletInvertedIndex invertedIndex) {
+                                TabletInvertedIndex invertedIndex) {
         this.clusterName = clusterName;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
@@ -90,7 +91,7 @@ public class ClusterLoadStatistic {
 
             beLoadStatistics.add(beStatistic);
         }
-        
+
         for (TStorageMedium medium : TStorageMedium.values()) {
             avgUsedCapacityPercentMap.put(medium, totalUsedCapacityMap.getOrDefault(medium, 0L) / (double) totalCapacityMap.getOrDefault(medium, 1L));
             avgReplicaNumPercentMap.put(medium, totalReplicaNumMap.getOrDefault(medium, 0L) / (double) backendNumMap.getOrDefault(medium, 1));
@@ -107,6 +108,22 @@ public class ClusterLoadStatistic {
 
         // sort be stats by mix load score
         Collections.sort(beLoadStatistics, BackendLoadStatistic.MIX_COMPARATOR);
+
+        // <medium -> Multimap<totalReplicaCount -> beId>>
+        // Only count the available be
+        for (TStorageMedium medium : TStorageMedium.values()) {
+            TreeMultimap<Long, Long> beByTotalReplicaCount = TreeMultimap.create();
+            beLoadStatistics.stream().filter(BackendLoadStatistic::isAvailable).forEach(beStat ->
+                    beByTotalReplicaCount.put(beStat.getReplicaNum(medium), beStat.getBeId()));
+            beByTotalReplicaCountMaps.put(medium, beByTotalReplicaCount);
+        }
+
+        // Actually the partition is [partition_id, index_id], aka pid.
+        // Multimap<skew -> PartitionBalanceInfo>
+        //                  PartitionBalanceInfo: <pid -> <partitionReplicaCount, beId>>
+        // Only count available bes here, aligned with the beByTotalReplicaCountMaps.
+        skewMaps = invertedIndex.buildPartitionInfoBySkew(beLoadStatistics.stream().filter(BackendLoadStatistic::isAvailable).
+                map(BackendLoadStatistic::getBeId).collect(Collectors.toList()));
     }
 
     /*
@@ -167,10 +184,10 @@ public class ClusterLoadStatistic {
      *    as more balance.
      */
     public boolean isMoreBalanced(long srcBeId, long destBeId, long tabletId, long tabletSize,
-            TStorageMedium medium) {
+                                  TStorageMedium medium) {
         double currentSrcBeScore;
         double currentDestBeScore;
-        
+
         BackendLoadStatistic srcBeStat = null;
         Optional<BackendLoadStatistic> optSrcBeStat = beLoadStatistics.stream().filter(
                 t -> t.getBeId() == srcBeId).findFirst();
@@ -179,7 +196,7 @@ public class ClusterLoadStatistic {
         } else {
             return false;
         }
-        
+
         BackendLoadStatistic destBeStat = null;
         Optional<BackendLoadStatistic> optDestBeStat = beLoadStatistics.stream().filter(
                 t -> t.getBeId() == destBeId).findFirst();
@@ -208,8 +225,8 @@ public class ClusterLoadStatistic {
         double newDiff = Math.abs(newSrcBeScore.score - avgLoadScoreMap.get(medium)) + Math.abs(newDestBeScore.score - avgLoadScoreMap.get(medium));
 
         LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
-                + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
-                + " more balanced: {}",
+                        + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
+                        + " more balanced: {}",
                 tabletId, tabletSize, srcBeId, destBeId, medium, currentSrcBeScore, newSrcBeScore.score,
                 currentDestBeScore, newDestBeScore.score, avgLoadScoreMap.get(medium), currentDiff, newDiff,
                 (newDiff < currentDiff));
@@ -331,5 +348,13 @@ public class ClusterLoadStatistic {
             sb.append("    ").append(backendLoadStatistic.getBrief()).append("\n");
         }
         return sb.toString();
+    }
+
+    public TreeMultimap<Long, Long> getBeByTotalReplicaMap(TStorageMedium medium) {
+        return beByTotalReplicaCountMaps.get(medium);
+    }
+
+    public TreeMultimap<Long, TabletInvertedIndex.PartitionBalanceInfo> getSkewMap(TStorageMedium medium) {
+        return skewMaps.get(medium);
     }
 }

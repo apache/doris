@@ -81,17 +81,16 @@ public class GetDdlStmtAction extends RestBaseAction {
         List<String> addPartitionStmt = Lists.newArrayList();
         List<String> createRollupStmt = Lists.newArrayList();
 
-        db.readLock();
+        Table table = db.getTable(tableName);
+        if (table == null) {
+            throw new DdlException("Table[" + tableName + "] does not exist");
+        }
+
+        table.readLock();
         try {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                throw new DdlException("Table[" + tableName + "] does not exist");
-            }
-
             Catalog.getDdlStmt(table, createTableStmt, addPartitionStmt, createRollupStmt, true, false /* show password */);
-
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
 
         Map<String, List<String>> results = Maps.newHashMap();

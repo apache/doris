@@ -114,8 +114,9 @@ Status DataDir::init() {
 }
 
 void DataDir::stop_bg_worker() {
+    std::unique_lock<std::mutex> lck(_check_path_mutex);
     _stop_bg_worker = true;
-    _cv.notify_one();
+    _check_path_cv.notify_one();
 }
 
 Status DataDir::_init_cluster_id() {
@@ -807,13 +808,13 @@ void DataDir::remove_pending_ids(const std::string& id) {
 // gc unused tablet schemahash dir
 void DataDir::perform_path_gc_by_tablet() {
     std::unique_lock<std::mutex> lck(_check_path_mutex);
-    _cv.wait(lck, [this] { return _stop_bg_worker || !_all_tablet_schemahash_paths.empty(); });
+    _check_path_cv.wait(lck, [this] { return _stop_bg_worker || !_all_tablet_schemahash_paths.empty(); });
     if (_stop_bg_worker) {
         return;
     }
     LOG(INFO) << "start to path gc by tablet schemahash.";
     int counter = 0;
-    for (auto& path : _all_tablet_schemahash_paths) {
+    for (const auto& path : _all_tablet_schemahash_paths) {
         ++counter;
         if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
             SleepFor(MonoDelta::FromMilliseconds(config::path_gc_check_step_interval_ms));
@@ -857,13 +858,13 @@ void DataDir::perform_path_gc_by_rowsetid() {
     // init the set of valid path
     // validate the path in data dir
     std::unique_lock<std::mutex> lck(_check_path_mutex);
-    _cv.wait(lck, [this] { return _stop_bg_worker || !_all_check_paths.empty(); });
+    _check_path_cv.wait(lck, [this] { return _stop_bg_worker || !_all_check_paths.empty(); });
     if (_stop_bg_worker) {
         return;
     }
     LOG(INFO) << "start to path gc by rowsetid.";
     int counter = 0;
-    for (auto& path : _all_check_paths) {
+    for (const auto& path : _all_check_paths) {
         ++counter;
         if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
             SleepFor(MonoDelta::FromMilliseconds(config::path_gc_check_step_interval_ms));
@@ -899,65 +900,63 @@ void DataDir::perform_path_gc_by_rowsetid() {
 
 // path producer
 void DataDir::perform_path_scan() {
-    {
-        std::unique_lock<std::mutex> lck(_check_path_mutex);
-        if (!_all_check_paths.empty()) {
-            LOG(INFO) << "_all_check_paths is not empty when path scan.";
-            return;
-        }
-        LOG(INFO) << "start to scan data dir path:" << _path;
-        std::set<std::string> shards;
-        std::string data_path = _path + DATA_PREFIX;
+    std::unique_lock<std::mutex> lck(_check_path_mutex);
+    if (!_all_check_paths.empty()) {
+        LOG(INFO) << "_all_check_paths is not empty when path scan.";
+        return;
+    }
+    LOG(INFO) << "start to scan data dir path:" << _path;
+    std::set<std::string> shards;
+    std::string data_path = _path + DATA_PREFIX;
 
-        Status ret = FileUtils::list_dirs_files(data_path, &shards, nullptr, Env::Default());
+    Status ret = FileUtils::list_dirs_files(data_path, &shards, nullptr, Env::Default());
+    if (!ret.ok()) {
+        LOG(WARNING) << "fail to walk dir. path=[" + data_path << "] error[" << ret.to_string()
+                     << "]";
+        return;
+    }
+
+    for (const auto& shard : shards) {
+        std::string shard_path = data_path + "/" + shard;
+        std::set<std::string> tablet_ids;
+        ret = FileUtils::list_dirs_files(shard_path, &tablet_ids, nullptr, Env::Default());
         if (!ret.ok()) {
-            LOG(WARNING) << "fail to walk dir. path=[" + data_path << "] error[" << ret.to_string()
-                         << "]";
-            return;
+            LOG(WARNING) << "fail to walk dir. [path=" << shard_path << "] error["
+                         << ret.to_string() << "]";
+            continue;
         }
-
-        for (const auto& shard : shards) {
-            std::string shard_path = data_path + "/" + shard;
-            std::set<std::string> tablet_ids;
-            ret = FileUtils::list_dirs_files(shard_path, &tablet_ids, nullptr, Env::Default());
+        for (const auto& tablet_id : tablet_ids) {
+            std::string tablet_id_path = shard_path + "/" + tablet_id;
+            std::set<std::string> schema_hashes;
+            ret = FileUtils::list_dirs_files(tablet_id_path, &schema_hashes, nullptr,
+                                             Env::Default());
             if (!ret.ok()) {
-                LOG(WARNING) << "fail to walk dir. [path=" << shard_path << "] error["
-                             << ret.to_string() << "]";
+                LOG(WARNING) << "fail to walk dir. [path=" << tablet_id_path << "]"
+                             << " error[" << ret.to_string() << "]";
                 continue;
             }
-            for (const auto& tablet_id : tablet_ids) {
-                std::string tablet_id_path = shard_path + "/" + tablet_id;
-                std::set<std::string> schema_hashes;
-                ret = FileUtils::list_dirs_files(tablet_id_path, &schema_hashes, nullptr,
-                                                 Env::Default());
+            for (const auto& schema_hash : schema_hashes) {
+                std::string tablet_schema_hash_path = tablet_id_path + "/" + schema_hash;
+                _all_tablet_schemahash_paths.insert(tablet_schema_hash_path);
+
+                std::set<std::string> rowset_files;
+                ret = FileUtils::list_dirs_files(tablet_schema_hash_path, nullptr,
+                                                 &rowset_files, Env::Default());
                 if (!ret.ok()) {
-                    LOG(WARNING) << "fail to walk dir. [path=" << tablet_id_path << "]"
-                                 << " error[" << ret.to_string() << "]";
+                    LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path
+                                 << "] error[" << ret.to_string() << "]";
                     continue;
                 }
-                for (const auto& schema_hash : schema_hashes) {
-                    std::string tablet_schema_hash_path = tablet_id_path + "/" + schema_hash;
-                    _all_tablet_schemahash_paths.insert(tablet_schema_hash_path);
-                    std::set<std::string> rowset_files;
-
-                    ret = FileUtils::list_dirs_files(tablet_schema_hash_path, nullptr,
-                                                     &rowset_files, Env::Default());
-                    if (!ret.ok()) {
-                        LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path
-                                     << "] error[" << ret.to_string() << "]";
-                        continue;
-                    }
-                    for (const auto& rowset_file : rowset_files) {
-                        std::string rowset_file_path = tablet_schema_hash_path + "/" + rowset_file;
-                        _all_check_paths.insert(rowset_file_path);
-                    }
+                for (const auto& rowset_file : rowset_files) {
+                    std::string rowset_file_path = tablet_schema_hash_path + "/" + rowset_file;
+                    _all_check_paths.insert(rowset_file_path);
                 }
             }
         }
-        LOG(INFO) << "scan data dir path:" << _path
-                  << " finished. path size:" << _all_check_paths.size();
     }
-    _cv.notify_one();
+    LOG(INFO) << "scan data dir path: " << _path
+              << " finished. path size: " << _all_check_paths.size() + _all_tablet_schemahash_paths.size();
+    _check_path_cv.notify_one();
 }
 
 void DataDir::_process_garbage_path(const std::string& path) {

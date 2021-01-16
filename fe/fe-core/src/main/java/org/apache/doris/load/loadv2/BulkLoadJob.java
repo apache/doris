@@ -191,7 +191,7 @@ public abstract class BulkLoadJob extends LoadJob {
     }
 
     @Override
-    public Set<String> getTableNames() throws MetaNotFoundException{
+    public Set<String> getTableNames() throws MetaNotFoundException {
         Set<String> result = Sets.newHashSet();
         Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {

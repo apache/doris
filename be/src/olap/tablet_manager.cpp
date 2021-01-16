@@ -1028,7 +1028,9 @@ OLAPStatus TabletManager::start_trash_sweep() {
 
     int32_t clean_num = 0;
     do {
+#ifndef BE_TEST
         sleep(1);
+#endif
         clean_num = 0;
         // should get write lock here, because it will remove tablet from shut_down_tablets
         // and get tablet will access shut_down_tablets
@@ -1482,6 +1484,33 @@ TabletManager::tablet_map_t& TabletManager::_get_tablet_map(TTabletId tabletId) 
 
 TabletManager::tablets_shard& TabletManager::_get_tablets_shard(TTabletId tabletId) {
     return _tablets_shards[tabletId & _tablets_shards_mask];
+}
+
+void TabletManager::get_tablets_distribution_on_different_disks(
+                    std::map<int64_t, std::map<DataDir*, int64_t>> &tablets_num_on_disk,
+                    std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>> &tablets_info_on_disk) {
+    std::vector<DataDir*> data_dirs = StorageEngine::instance()->get_stores();
+    ReadLock rlock(&_partition_tablet_map_lock);
+    std::map<int64_t, std::set<TabletInfo>>::iterator partition_iter = _partition_tablet_map.begin();
+    for (; partition_iter != _partition_tablet_map.end(); partition_iter++) {
+        std::map<DataDir*, int64_t> tablets_num;
+        std::map<DataDir*, std::vector<TabletSize>> tablets_info;
+        for(int i = 0; i < data_dirs.size(); i++) {
+            tablets_num[data_dirs[i]] = 0;
+        }
+        int64_t partition_id = partition_iter->first;
+        std::set<TabletInfo>::iterator tablet_info_iter = (partition_iter->second).begin();
+        for(; tablet_info_iter != (partition_iter->second).end(); tablet_info_iter++) {
+            TabletSharedPtr tablet = get_tablet(tablet_info_iter->tablet_id, tablet_info_iter->schema_hash);
+            DataDir* data_dir = tablet->data_dir();
+            size_t tablet_footprint = tablet->tablet_footprint();
+            tablets_num[data_dir]++;
+            TabletSize tablet_size(tablet_info_iter->tablet_id, tablet_info_iter->schema_hash, tablet_footprint);
+            tablets_info[data_dir].push_back(tablet_size);
+        }
+        tablets_num_on_disk[partition_id] = tablets_num;
+        tablets_info_on_disk[partition_id] = tablets_info;
+    }
 }
 
 } // end namespace doris

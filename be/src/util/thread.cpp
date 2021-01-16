@@ -35,6 +35,7 @@
 #include "gutil/once.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
+#include "util/debug/sanitizer_scopes.h"
 #include "util/easy_json.h"
 #include "util/mutex.h"
 #include "util/os_util.h"
@@ -149,7 +150,7 @@ void ThreadMgr::add_thread(const pthread_t& pthread_id, const std::string& name,
     // relationship between thread functors, ignoring potential data races.
     // The annotations prevent this from happening.
     ANNOTATE_IGNORE_SYNC_BEGIN();
-    ANNOTATE_IGNORE_READS_AND_WRITES_BEGIN();
+    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     {
         MutexLock l(&_lock);
         _thread_categories[category][pthread_id] = ThreadDescriptor(category, name, tid);
@@ -157,12 +158,11 @@ void ThreadMgr::add_thread(const pthread_t& pthread_id, const std::string& name,
         _threads_started_metric++;
     }
     ANNOTATE_IGNORE_SYNC_END();
-    ANNOTATE_IGNORE_READS_AND_WRITES_END();
 }
 
 void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& category) {
     ANNOTATE_IGNORE_SYNC_BEGIN();
-    ANNOTATE_IGNORE_READS_AND_WRITES_BEGIN();
+    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     {
         MutexLock l(&_lock);
         auto category_it = _thread_categories.find(category);
@@ -171,7 +171,6 @@ void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& ca
         _threads_running_metric--;
     }
     ANNOTATE_IGNORE_SYNC_END();
-    ANNOTATE_IGNORE_READS_AND_WRITES_END();
 }
 
 void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,

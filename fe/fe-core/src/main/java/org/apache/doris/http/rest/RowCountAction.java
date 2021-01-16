@@ -78,17 +78,18 @@ public class RowCountAction extends RestBaseAction {
         if (db == null) {
             throw new DdlException("Database[" + dbName + "] does not exist");
         }
-        db.writeLock();
+
+        Table table = db.getTable(tableName);
+        if (table == null) {
+            throw new DdlException("Table[" + tableName + "] does not exist");
+        }
+
+        if (table.getType() != TableType.OLAP) {
+            throw new DdlException("Table[" + tableName + "] is not OLAP table");
+        }
+
+        table.writeLock();
         try {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                throw new DdlException("Table[" + tableName + "] does not exist");
-            }
-            
-            if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Table[" + tableName + "] is not OLAP table");
-            }
-            
             OlapTable olapTable = (OlapTable) table;
             for (Partition partition : olapTable.getAllPartitions()) {
                 long version = partition.getVisibleVersion();
@@ -110,7 +111,7 @@ public class RowCountAction extends RestBaseAction {
                 } // end for indices
             } // end for partitions            
         } finally {
-            db.writeUnlock();
+            table.writeUnlock();
         }
 
         // to json response
