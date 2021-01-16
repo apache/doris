@@ -51,10 +51,10 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Strings;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -409,25 +409,30 @@ public class ConnectProcessor {
         if (request.isSetUserIp()) {
             ctx.setRemoteIP(request.getUserIp());
         }
-        if (request.isSetTimeZone()) {
-            ctx.getSessionVariable().setTimeZone(request.getTimeZone());
-        }
         if (request.isSetStmtId()) {
             ctx.setForwardedStmtId(request.getStmtId());
         }
-        if (request.isSetSqlMode()) {
-            ctx.getSessionVariable().setSqlMode(request.sqlMode);
-        }
-        if (request.isSetEnableStrictMode()) {
-            ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
-        }
-        if (request.isSetCurrentUserIdent()) {
-            UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
-            ctx.setCurrentUserIdentity(currentUserIdentity);
-        }
 
-        if (request.isSetInsertVisibleTimeoutMs()) {
-            ctx.getSessionVariable().setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
+        if (request.isSetSessionVariables()) {
+            // TODO(cmy)
+        } else {
+            // for compatibility, all following variables are moved to SessionVariables.
+            if (request.isSetTimeZone()) {
+                ctx.getSessionVariable().setTimeZone(request.getTimeZone());
+            }
+            if (request.isSetSqlMode()) {
+                ctx.getSessionVariable().setSqlMode(request.sqlMode);
+            }
+            if (request.isSetEnableStrictMode()) {
+                ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
+            }
+            if (request.isSetCurrentUserIdent()) {
+                UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
+                ctx.setCurrentUserIdentity(currentUserIdentity);
+            }
+            if (request.isSetInsertVisibleTimeoutMs()) {
+                ctx.getSessionVariable().setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
+            }
         }
 
         if (request.isSetQueryOptions()) {

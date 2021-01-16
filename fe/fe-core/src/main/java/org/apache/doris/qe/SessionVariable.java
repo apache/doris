@@ -114,6 +114,10 @@ public class SessionVariable implements Serializable, Writable {
 
     // max ms to wait transaction publish finish when exec insert stmt.
     public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
+
+    public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
+
+
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
 
@@ -287,6 +291,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE)
     private boolean allowPartitionColumnNullable = true;
+
+    @VariableMgr.VarAttr(name = DELETE_WITHOUT_PARTITION)
+    private boolean deleteWithoutPartition = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -566,6 +573,10 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             this.insertVisibleTimeoutMs = insertVisibleTimeoutMs;
         }
+    }
+
+    public boolean isDeleteWithoutPartition() {
+        return deleteWithoutPartition;
     }
 
     // Serialize to thrift object

@@ -30,7 +30,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.transport.TTransportException;
 
+import com.google.common.collect.Maps;
+
 import java.nio.ByteBuffer;
+import java.util.Map;
 
 public class MasterOpExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterOpExecutor.class);
@@ -86,20 +89,28 @@ public class MasterOpExecutor {
         params.setStmtIdx(originStmt.idx);
         params.setUser(ctx.getQualifiedUser());
         params.setDb(ctx.getDatabase());
-        params.setSqlMode(ctx.getSessionVariable().getSqlMode());
         params.setResourceInfo(ctx.toResourceCtx());
         params.setUserIp(ctx.getRemoteIP());
-        params.setTimeZone(ctx.getSessionVariable().getTimeZone());
         params.setStmtId(ctx.getStmtId());
-        params.setEnableStrictMode(ctx.getSessionVariable().getEnableInsertStrict());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
-        params.setInsertVisibleTimeoutMs(ctx.getSessionVariable().getInsertVisibleTimeoutMs());
 
+        // query options
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setMemLimit(ctx.getSessionVariable().getMaxExecMemByte());
         queryOptions.setQueryTimeout(ctx.getSessionVariable().getQueryTimeoutS());
         queryOptions.setLoadMemLimit(ctx.getSessionVariable().getLoadMemLimit());
         params.setQueryOptions(queryOptions);
+
+        // session variables
+        Map<String, String> sessionVars = Maps.newHashMap();
+        sessionVars.put(SessionVariable.SQL_MODE, String.valueOf(ctx.getSessionVariable().getSqlMode()));
+        sessionVars.put(SessionVariable.TIME_ZONE, ctx.getSessionVariable().getTimeZone());
+        sessionVars.put(SessionVariable.ENABLE_INSERT_STRICT, String.valueOf(ctx.getSessionVariable().getEnableInsertStrict()));
+        sessionVars.put(SessionVariable.INSERT_VISIBLE_TIMEOUT_MS, String.valueOf(ctx.getSessionVariable().getInsertVisibleTimeoutMs()));
+        sessionVars.put(SessionVariable.DELETE_WITHOUT_PARTITION, String.valueOf(ctx.getSessionVariable().isDeleteWithoutPartition()));
+        sessionVars.put(SessionVariable.IS_REPORT_SUCCESS, String.valueOf(ctx.getSessionVariable().isReportSucc()));
+        params.setSessionVariables(sessionVars);
+
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
         }
