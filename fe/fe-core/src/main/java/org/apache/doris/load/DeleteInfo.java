@@ -88,7 +88,6 @@ public class DeleteInfo implements Writable {
         return noPartitionSpecified;
     }
 
-    // if params are null, which means the delete operation does not specify partitions.
     public void setPartitions(boolean noPartitionSpecified, List<Long> partitionIds, List<String> partitionNames) {
         this.noPartitionSpecified = noPartitionSpecified;
         Preconditions.checkState(partitionIds.size() == partitionNames.size());

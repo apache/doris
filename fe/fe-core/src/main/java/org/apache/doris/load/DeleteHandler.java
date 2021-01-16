@@ -94,6 +94,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class DeleteHandler implements Writable {
     private static final Logger LOG = LogManager.getLogger(DeleteHandler.class);
@@ -151,7 +152,7 @@ public class DeleteHandler implements Writable {
                     if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
                         if (!ConnectContext.get().getSessionVariable().isDeleteWithoutPartition()) {
                             throw new DdlException("This is a range partitioned table."
-                                    + " You should specify partition in delete stmt");
+                                    + " You should specify partition in delete stmt, or set delete_without_partition to true");
                         } else {
                             partitionNames.addAll(olapTable.getPartitionNames());
                         }
@@ -189,6 +190,7 @@ public class DeleteHandler implements Writable {
 
 
                 DeleteInfo deleteInfo = new DeleteInfo(db.getId(), olapTable.getId(), tableName, deleteConditions);
+                deleteInfo.setPartitions(noPartitionSpecified, partitions.stream().map(p -> p.getId()).collect(Collectors.toList()), partitionNames);
                 deleteJob = new DeleteJob(jobId, transactionId, label, partitionReplicaNum, deleteInfo);
                 idToDeleteJob.put(deleteJob.getTransactionId(), deleteJob);
 
