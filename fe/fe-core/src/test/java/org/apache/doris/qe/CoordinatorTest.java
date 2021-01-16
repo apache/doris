@@ -262,6 +262,46 @@ public class CoordinatorTest extends Coordinator {
     }
 
     @Test
+    public void testColocateJoinAssignment()  {
+        Coordinator coordinator = new Coordinator(context, analyzer, planner);
+
+        PlanFragmentId planFragmentId = new PlanFragmentId(1);
+        int scanNodeId = 1;
+        Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
+        fragmentIdToScanNodeIds.put(planFragmentId, new HashSet<>());
+        fragmentIdToScanNodeIds.get(planFragmentId).add(scanNodeId);
+        Deencapsulation.setField(coordinator, "fragmentIdToScanNodeIds", fragmentIdToScanNodeIds);
+
+        // 1. set fragmentToBucketSeqToAddress in coordinator
+        Map<Integer, TNetworkAddress> bucketSeqToAddress = new HashMap<>();
+        TNetworkAddress address = new TNetworkAddress();
+        for (int i = 0; i < 3; i++) {
+            bucketSeqToAddress.put(i, address);
+        }
+        Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentToBucketSeqToAddress = new HashMap<>();
+        fragmentToBucketSeqToAddress.put(planFragmentId, bucketSeqToAddress);
+        Deencapsulation.setField(coordinator, "fragmentIdToSeqToAddressMap", fragmentToBucketSeqToAddress);
+
+        // 2. set bucketSeqToScanRange in coordinator
+        BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
+        Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
+        ScanRangeMap.put(scanNodeId, new ArrayList<>());
+        for (int i = 0; i < 3; i++) {
+            bucketSeqToScanRange.put(i, ScanRangeMap);
+        }
+        Deencapsulation.setField(coordinator, "bucketSeqToScanRange", bucketSeqToScanRange);
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(-1));
+        OlapScanNode olapScanNode = new OlapScanNode(new PlanNodeId(scanNodeId), tupleDescriptor, "test");
+        PlanFragment fragment = new PlanFragment(planFragmentId, olapScanNode,
+                new DataPartition(TPartitionType.UNPARTITIONED));
+        FragmentExecParams params = new FragmentExecParams(fragment);
+        Deencapsulation.invoke(coordinator, "computeColocateJoinInstanceParam", planFragmentId, 1, params);
+        StringBuilder sb = new StringBuilder();
+        params.appendTo(sb);
+        Assert.assertTrue(sb.toString().contains("range=[id1,range=[]]"));
+    }
+
+    @Test
     public void testComputeScanRangeAssignmentByBucket()  {
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
@@ -375,11 +415,16 @@ public class CoordinatorTest extends Coordinator {
         fragmentIdBucketSeqToScanRangeMap.put(planFragmentId, bucketSeqToScanRange);
         Deencapsulation.setField(bucketShuffleJoinController, "fragmentIdBucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
 
-
         FragmentExecParams params = new FragmentExecParams(null);
         Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 1, params);
         Assert.assertEquals(1, params.instanceExecParams.size());
-
+        try {
+            StringBuilder sb = new StringBuilder();
+            params.appendTo(sb);
+            System.out.println(sb);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         params = new FragmentExecParams(null);
         Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 2, params);
         Assert.assertEquals(2, params.instanceExecParams.size());
@@ -391,6 +436,51 @@ public class CoordinatorTest extends Coordinator {
         params = new FragmentExecParams(null);
         Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 5, params);
         Assert.assertEquals(3, params.instanceExecParams.size());
+    }
+
+    @Test
+    public void testBucketShuffleAssignment()  {
+        PlanFragmentId planFragmentId = new PlanFragmentId(1);
+        int scanNodeId = 1;
+
+        // set fragment id to scan node ids map
+        Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
+        fragmentIdToScanNodeIds.put(planFragmentId, new HashSet<>());
+        fragmentIdToScanNodeIds.get(planFragmentId).add(scanNodeId);
+        Coordinator.BucketShuffleJoinController bucketShuffleJoinController
+                = new Coordinator.BucketShuffleJoinController(fragmentIdToScanNodeIds);
+
+        // 1. set fragmentToBucketSeqToAddress in bucketShuffleJoinController
+        Map<Integer, TNetworkAddress> bucketSeqToAddress = new HashMap<>();
+        TNetworkAddress address = new TNetworkAddress();
+        for (int i = 0; i < 3; i++) {
+            bucketSeqToAddress.put(i, address);
+        }
+        Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentToBucketSeqToAddress = new HashMap<>();
+        fragmentToBucketSeqToAddress.put(planFragmentId, bucketSeqToAddress);
+        Deencapsulation.setField(bucketShuffleJoinController, "fragmentIdToSeqToAddressMap", fragmentToBucketSeqToAddress);
+
+        // 2. set bucketSeqToScanRange in bucketShuffleJoinController
+        Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = new HashMap<>();
+        BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
+        Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
+        ScanRangeMap.put(scanNodeId, new ArrayList<>());
+        for (int i = 0; i < 3; i++) {
+            bucketSeqToScanRange.put(i, ScanRangeMap);
+        }
+        fragmentIdBucketSeqToScanRangeMap.put(planFragmentId, bucketSeqToScanRange);
+        Deencapsulation.setField(bucketShuffleJoinController, "fragmentIdBucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(-1));
+        OlapScanNode olapScanNode = new OlapScanNode(new PlanNodeId(scanNodeId), tupleDescriptor, "test");
+        PlanFragment fragment = new PlanFragment(planFragmentId, olapScanNode,
+                new DataPartition(TPartitionType.UNPARTITIONED));
+
+        FragmentExecParams params = new FragmentExecParams(fragment);
+        Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 1, params);
+        Assert.assertEquals(1, params.instanceExecParams.size());
+        StringBuilder sb = new StringBuilder();
+        params.appendTo(sb);
+        Assert.assertTrue(sb.toString().contains("range=[id1,range=[]]"));
     }
 
     @Test
