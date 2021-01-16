@@ -305,6 +305,12 @@ CONF_mInt64(tablet_scan_frequency_time_node_interval_second, "300");
 CONF_mInt32(compaction_tablet_scan_frequency_factor, "0");
 CONF_mInt32(compaction_tablet_compaction_score_factor, "1");
 
+// This config can be set to limit thread number in tablet migration thread pool.
+CONF_Int32(min_tablet_migration_threads, "1");
+CONF_Int32(max_tablet_migration_threads, "1");
+
+CONF_mInt32(finished_migration_tasks_size, "10000");
+
 // Port to start debug webserver on
 CONF_Int32(webserver_port, "8040");
 // Number of webserver workers
