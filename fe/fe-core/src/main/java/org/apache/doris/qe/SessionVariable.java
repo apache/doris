@@ -29,8 +29,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
-import com.google.common.collect.Maps;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -71,7 +69,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
     public static final String CODEGEN_LEVEL = "codegen_level";
     // mem limit can't smaller than bufferpool's default page size
-    public static final int MIN_EXEC_MEM_LIMIT = 2097152;   
+    public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String DISABLE_COLOCATE_JOIN = "disable_colocate_join";
@@ -93,7 +91,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
     public static final String SHOW_HIDDEN_COLUMNS = "show_hidden_columns";
     /*
-     * configure the mem limit of load process on BE. 
+     * configure the mem limit of load process on BE.
      * Previously users used exec_mem_limit to set memory limits.
      * To maintain compatibility, the default value of load_mem_limit is 0,
      * which means that the load memory limit is still using exec_mem_limit.
@@ -126,7 +124,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
-    private long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
+    public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -137,190 +135,167 @@ public class SessionVariable implements Serializable, Writable {
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
-    private int queryTimeoutS = 300;
+    public int queryTimeoutS = 300;
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = IS_REPORT_SUCCESS, needForward = true)
-    private boolean isReportSucc = false;
+    public boolean isReportSucc = false;
 
     // Set sqlMode to empty string
     @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
-    private long sqlMode = 0L;
+    public long sqlMode = 0L;
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
-    private String resourceGroup = "normal";
+    public String resourceGroup = "normal";
 
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = AUTO_COMMIT)
-    private boolean autoCommit = true;
+    public boolean autoCommit = true;
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = TX_ISOLATION)
-    private String txIsolation = "REPEATABLE-READ";
+    public String txIsolation = "REPEATABLE-READ";
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = CHARACTER_SET_CLIENT)
-    private String charsetClient = "utf8";
+    public String charsetClient = "utf8";
     @VariableMgr.VarAttr(name = CHARACTER_SET_CONNNECTION)
-    private String charsetConnection = "utf8";
+    public String charsetConnection = "utf8";
     @VariableMgr.VarAttr(name = CHARACTER_SET_RESULTS)
-    private String charsetResults = "utf8";
+    public String charsetResults = "utf8";
     @VariableMgr.VarAttr(name = CHARACTER_SET_SERVER)
-    private String charsetServer = "utf8";
+    public String charsetServer = "utf8";
     @VariableMgr.VarAttr(name = COLLATION_CONNECTION)
-    private String collationConnection = "utf8_general_ci";
+    public String collationConnection = "utf8_general_ci";
     @VariableMgr.VarAttr(name = COLLATION_DATABASE)
-    private String collationDatabase = "utf8_general_ci";
+    public String collationDatabase = "utf8_general_ci";
 
     @VariableMgr.VarAttr(name = COLLATION_SERVER)
-    private String collationServer = "utf8_general_ci";
+    public String collationServer = "utf8_general_ci";
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = SQL_AUTO_IS_NULL)
-    private boolean sqlAutoIsNull = false;
+    public boolean sqlAutoIsNull = false;
 
     @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT)
-    private long sqlSelectLimit = 9223372036854775807L;
+    public long sqlSelectLimit = 9223372036854775807L;
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = MAX_ALLOWED_PACKET)
-    private int maxAllowedPacket = 1048576;
+    public int maxAllowedPacket = 1048576;
 
     @VariableMgr.VarAttr(name = AUTO_INCREMENT_INCREMENT)
-    private int autoIncrementIncrement = 1;
+    public int autoIncrementIncrement = 1;
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = QUERY_CACHE_TYPE)
-    private int queryCacheType = 0;
+    public int queryCacheType = 0;
 
     // The number of seconds the server waits for activity on an interactive connection before closing it
     @VariableMgr.VarAttr(name = INTERACTIVE_TIMTOUT)
-    private int interactiveTimeout = 3600;
+    public int interactiveTimeout = 3600;
 
     // The number of seconds the server waits for activity on a noninteractive connection before closing it.
     @VariableMgr.VarAttr(name = WAIT_TIMEOUT)
-    private int waitTimeout = 28800;
+    public int waitTimeout = 28800;
 
     // The number of seconds to wait for a block to be written to a connection before aborting the write
     @VariableMgr.VarAttr(name = NET_WRITE_TIMEOUT)
-    private int netWriteTimeout = 60;
+    public int netWriteTimeout = 60;
 
     // The number of seconds to wait for a block to be written to a connection before aborting the write
     @VariableMgr.VarAttr(name = NET_READ_TIMEOUT)
-    private int netReadTimeout = 60;
+    public int netReadTimeout = 60;
 
     // The current time zone
     @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true)
-    private String timeZone = TimeUtils.getSystemTimeZone().getID();
+    public String timeZone = TimeUtils.getSystemTimeZone().getID();
 
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
-    private int exchangeInstanceParallel = -1;
+    public int exchangeInstanceParallel = -1;
 
     @VariableMgr.VarAttr(name = SQL_SAFE_UPDATES)
-    private int sqlSafeUpdates = 0;
+    public int sqlSafeUpdates = 0;
 
     // only
     @VariableMgr.VarAttr(name = NET_BUFFER_LENGTH, flag = VariableMgr.READ_ONLY)
-    private int netBufferLength = 16384;
+    public int netBufferLength = 16384;
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
-    private int codegenLevel = 0;
+    public int codegenLevel = 0;
 
     @VariableMgr.VarAttr(name = BATCH_SIZE)
-    private int batchSize = 1024;
+    public int batchSize = 1024;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS)
-    private boolean disableStreamPreaggregations = false;
+    public boolean disableStreamPreaggregations = false;
 
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_JOIN)
-    private boolean disableColocateJoin = false;
+    public boolean disableColocateJoin = false;
 
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN)
-    private boolean enableBucketShuffleJoin = false;
+    public boolean enableBucketShuffleJoin = false;
 
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
-    private String preferJoinMethod = "broadcast";
+    public String preferJoinMethod = "broadcast";
 
     /*
      * the parallel exec instance num for one Fragment in one BE
      * 1 means disable this feature
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)
-    private int parallelExecInstanceNum = 1;
+    public int parallelExecInstanceNum = 1;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
-    private boolean enableInsertStrict = false;
+    public boolean enableInsertStrict = false;
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
-    private boolean enableOdbcTransaction = false;
+    public boolean enableOdbcTransaction = false;
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE)
-    private boolean enableSqlCache = false;
+    public boolean enableSqlCache = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_CACHE)
-    private boolean enablePartitionCache = false;
+    public boolean enablePartitionCache = false;
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
-    private boolean forwardToMaster = false;
+    public boolean forwardToMaster = false;
 
     @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
-    private long loadMemLimit = 0L;
+    public long loadMemLimit = 0L;
 
     @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
-    private boolean useV2Rollup = false;
+    public boolean useV2Rollup = false;
 
     // TODO(ml): remove it after test
     @VariableMgr.VarAttr(name = TEST_MATERIALIZED_VIEW)
-    private boolean testMaterializedView = false;
+    public boolean testMaterializedView = false;
 
     @VariableMgr.VarAttr(name = REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL)
-    private boolean rewriteCountDistinct = true;
+    public boolean rewriteCountDistinct = true;
 
     // compatible with some mysql client connect, say DataGrip of JetBrains
     @VariableMgr.VarAttr(name = EVENT_SCHEDULER)
-    private String eventScheduler = "OFF";
+    public String eventScheduler = "OFF";
     @VariableMgr.VarAttr(name = STORAGE_ENGINE)
-    private String storageEngine = "olap";
+    public String storageEngine = "olap";
     @VariableMgr.VarAttr(name = DIV_PRECISION_INCREMENT)
-    private int divPrecisionIncrement = 4;
+    public int divPrecisionIncrement = 4;
 
     // -1 means unset, BE will use its config value
     @VariableMgr.VarAttr(name = MAX_SCAN_KEY_NUM)
-    private int maxScanKeyNum = -1;
+    public int maxScanKeyNum = -1;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
-    private int maxPushdownConditionsPerColumn = -1;
+    public int maxPushdownConditionsPerColumn = -1;
     @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
-    private boolean showHiddenColumns = false;
+    public boolean showHiddenColumns = false;
 
     @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE)
-    private boolean allowPartitionColumnNullable = true;
+    public boolean allowPartitionColumnNullable = true;
 
     @VariableMgr.VarAttr(name = DELETE_WITHOUT_PARTITION, needForward = true)
-    private boolean deleteWithoutPartition = false;
-
-    // Session variable name -> The position of the session variable in this class's fields.
-    // This variables in this map need to be forwarded along with forward statement
-    public static final Map<String, Integer> FORWARD_VAR_INDEX_MAP = Maps.newHashMap();
-
-    // Session variable name -> The position of the session variable in this class's fields.
-    // This variables in this map need to be set in query options
-    public static final Map<String, Integer> QUERY_OPTION_VAR_INDEX_MAP = Maps.newHashMap();
-
-    static {
-        Field[] fields = SessionVariable.class.getFields();
-        for (int i = 0; i < fields.length; ++i) {
-            VarAttr varAttr = fields[i].getAnnotation(VarAttr.class);
-            if (varAttr == null) {
-                continue;
-            }
-            if (varAttr.needForward()) {
-                FORWARD_VAR_INDEX_MAP.put(varAttr.name(), i);
-            } else if (varAttr.isQueryOption()) {
-                QUERY_OPTION_VAR_INDEX_MAP.put(varAttr.name(), i);
-            }
-        }
-    }
+    public boolean deleteWithoutPartition = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -787,13 +762,13 @@ public class SessionVariable implements Serializable, Writable {
     public Map<String, String> getForwardVariables() {
         HashMap<String, String> map = new HashMap<String, String>();
         try {
-            Field[] fields = SessionVariable.class.getFields();
+            Field[] fields = SessionVariable.class.getDeclaredFields();
             for (Field f : fields) {
                 VarAttr varAttr = f.getAnnotation(VarAttr.class);
                 if (varAttr == null || !varAttr.needForward()) {
                     continue;
                 }
-                map.put(varAttr.name(), String.valueOf(f.get(null)));
+                map.put(varAttr.name(), String.valueOf(f.get(this)));
             }
         } catch (IllegalAccessException e) {
             LOG.error("failed to get forward variables", e);
