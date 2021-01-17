@@ -76,6 +76,36 @@ Use `(NEW_tcp_retrans_segs - OLD_tcp_retrans_segs) / (NEW_tcp_out_segs - OLD_tcp
 
 Usually used to troubleshoot network problems.
 
+### `doris_fe_meminfo{name="memory_total"}`
+
+Value of the `MemTotal` field in `/proc/meminfo`. Represents the size of all available memory, total physical memory minus reserved space and kernel size.
+
+Usually used to troubleshoot memory problems.
+
+### `doris_fe_meminfo{name="memory_free"}`
+
+Value of the `MemFree` field in `/proc/meminfo`. Represents the size of unused memory in system.
+
+Usually used to troubleshoot memory problems.
+
+### `doris_fe_meminfo{name="memory_available"}`
+
+Value of the `MemAvailable` field in `/proc/meminfo`. Represents the real system usable memory size. Although some memory in the system has been used, but it can be reclaimed. So this part of reclaimable memory plus MemFree is the system usable memory.
+
+Usually used to troubleshoot memory problems.
+
+### `doris_fe_meminfo{name="buffers"}`
+
+Value of the `Buffers` field in `/proc/meminfo`. Represents the memory used to cache the block device (metadata, pages of the file system).
+
+Usually used to troubleshoot memory problems.
+
+### `doris_fe_meminfo{name="cached"}`
+
+Value of the `Cached` field in `/proc/meminfo`. Represents the memory allocated to the file cache.
+
+Usually used to troubleshoot memory problems.
+
 ### `jvm_thread{type="count"}`
 
 Value of the `count` type in `jvm_thread`. Represents the current number of live threads including both daemon and non-daemon threads.
