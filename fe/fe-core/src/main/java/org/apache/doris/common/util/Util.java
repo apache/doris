@@ -44,7 +44,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
 import java.util.function.Predicate;
 
 public class Util {
@@ -216,19 +215,11 @@ public class Util {
 
     // Get a string represent the schema signature, contains:
     // list of columns and bloom filter column info.
-    public static String getSchemaSignatureString(List<Column> columns, Set<String> bfColumns, double bfFpp) {
+    public static String getSchemaSignatureString(List<Column> columns) {
         StringBuilder sb = new StringBuilder();
         for (Column column : columns) {
             sb.append(column.getSignatureString(TYPE_STRING_MAP));
         }
-
-        if (bfColumns != null && !bfColumns.isEmpty()) {
-            for (String columnName : bfColumns) {
-                sb.append(columnName);
-            }
-            sb.append(bfFpp);
-        }
-
         return sb.toString();
     }
     

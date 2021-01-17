@@ -912,7 +912,7 @@ public class OlapTable extends Table {
             long indexId = indexNameToId.get(indexName);
             MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
             sb.append(indexName);
-            sb.append(Util.getSchemaSignatureString(indexMeta.getSchema(), null, 0.0));
+            sb.append(Util.getSchemaSignatureString(indexMeta.getSchema()));
             sb.append(indexMeta.getShortKeyColumnCount());
             sb.append(indexMeta.getStorageType());
         }
@@ -930,7 +930,7 @@ public class OlapTable extends Table {
         if (partitionInfo.getType() == PartitionType.RANGE) {
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             List<Column> partitionColumns = rangePartitionInfo.getPartitionColumns();
-            sb.append(Util.getSchemaSignatureString(partitionColumns, null, 0));
+            sb.append(Util.getSchemaSignatureString(partitionColumns));
         }
 
         // partition and distribution
@@ -943,7 +943,7 @@ public class OlapTable extends Table {
             sb.append(distributionInfo.getType());
             if (distributionInfo.getType() == DistributionInfoType.HASH) {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                sb.append(Util.getSchemaSignatureString(hashDistributionInfo.getDistributionColumns(), null, 0));
+                sb.append(Util.getSchemaSignatureString(hashDistributionInfo.getDistributionColumns()));
                 sb.append(hashDistributionInfo.getBucketNum());
             }
         }
