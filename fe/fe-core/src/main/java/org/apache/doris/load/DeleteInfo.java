@@ -22,9 +22,11 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
@@ -33,7 +35,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-public class DeleteInfo implements Writable {
+public class DeleteInfo implements Writable, GsonPostProcessable {
 
     @SerializedName(value = "dbId")
     private long dbId;
@@ -51,6 +53,15 @@ public class DeleteInfo implements Writable {
     private List<String> partitionNames;
     @SerializedName(value = "noPartitionSpecified")
     private boolean noPartitionSpecified = false;
+
+    // The following partition id and partition name are deprecated.
+    // Leave them here just for compatibility
+    @Deprecated
+    @SerializedName(value = "partitionId")
+    private long partitionId;
+    @Deprecated
+    @SerializedName(value = "partitionName")
+    private String partitionName;
 
     public DeleteInfo() {
         this.deleteConditions = Lists.newArrayList();
@@ -152,6 +163,16 @@ public class DeleteInfo implements Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_19) {
             boolean hasAsyncDeleteJob = in.readBoolean();
             Preconditions.checkState(!hasAsyncDeleteJob, "async delete job is deprecated");
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // This logic is just for forward compatibility
+        if (this.partitionId > 0) {
+            Preconditions.checkState(!Strings.isNullOrEmpty(this.partitionName));
+            this.partitionIds = Lists.newArrayList(this.partitionId);
+            this.partitionNames = Lists.newArrayList(this.partitionName);
         }
     }
 }

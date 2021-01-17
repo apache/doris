@@ -34,11 +34,13 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.util.HashMap;
+import java.util.Map;
 
 // System variable
 public class SessionVariable implements Serializable, Writable {
-    
     static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
+
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String IS_REPORT_SUCCESS = "is_report_success";
@@ -744,5 +746,26 @@ public class SessionVariable implements Serializable, Writable {
         } catch (Exception e) {
             throw new IOException("failed to read session variable: " + e.getMessage());
         }
+    }
+
+    // Get all variables which need to forward along with statement
+    public Map<String, String> getForwardVariables() {
+        HashMap<String, String> map = new HashMap<String, String>();
+        map.put(INSERT_VISIBLE_TIMEOUT_MS, String.valueOf(insertVisibleTimeoutMs));
+        map.put(IS_REPORT_SUCCESS, String.valueOf(isReportSucc));
+        map.put(SQL_MODE, String.valueOf(sqlMode));
+        map.put(TIME_ZONE, String.valueOf(timeZone));
+        map.put(ENABLE_INSERT_STRICT, String.valueOf(enableInsertStrict));
+        map.put(DELETE_WITHOUT_PARTITION, String.valueOf(deleteWithoutPartition));
+        return map;
+    }
+
+    // Get all variables which need to be set in TQueryOptions
+    public TQueryOptions getQueryOptionVariables() {
+        TQueryOptions queryOptions = new TQueryOptions();
+        queryOptions.setMemLimit(maxExecMemByte);
+        queryOptions.setLoadMemLimit(loadMemLimit);
+        queryOptions.setQueryTimeout(queryTimeoutS);
+        return queryOptions;
     }
 }
