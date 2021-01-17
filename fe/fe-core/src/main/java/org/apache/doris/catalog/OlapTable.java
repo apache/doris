@@ -948,7 +948,9 @@ public class OlapTable extends Table {
             }
         }
 
-        return DigestUtils.md5Hex(sb.toString());
+        String md5 = DigestUtils.md5Hex(sb.toString());
+        LOG.debug("get signature of table {}: {}", name, md5);
+        return md5;
     }
 
     // get intersect partition names with the given table "anotherTbl". not including temp partitions

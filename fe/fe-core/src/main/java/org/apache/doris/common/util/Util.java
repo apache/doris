@@ -222,7 +222,7 @@ public class Util {
             sb.append(column.getSignatureString(TYPE_STRING_MAP));
         }
 
-        if (!bfColumns.isEmpty()) {
+        if (bfColumns != null && !bfColumns.isEmpty()) {
             for (String columnName : bfColumns) {
                 sb.append(columnName);
             }
