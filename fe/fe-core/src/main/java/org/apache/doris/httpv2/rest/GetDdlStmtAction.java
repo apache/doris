@@ -72,16 +72,16 @@ public class GetDdlStmtAction extends RestBaseController {
         List<String> addPartitionStmt = Lists.newArrayList();
         List<String> createRollupStmt = Lists.newArrayList();
 
-        db.readLock();
-        try {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                return ResponseEntityBuilder.okWithCommonError("Table[" + tableName + "] does not exist");
-            }
+        Table table = db.getTable(tableName);
+        if (table == null) {
+            return ResponseEntityBuilder.okWithCommonError("Table[" + tableName + "] does not exist");
+        }
 
+        table.readLock();
+        try {
             Catalog.getDdlStmt(table, createTableStmt, addPartitionStmt, createRollupStmt, true, false /* show password */);
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
 
         Map<String, List<String>> results = Maps.newHashMap();

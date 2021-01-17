@@ -26,6 +26,7 @@
 #include "gutil/map-util.h"
 #include "gutil/strings/substitute.h"
 #include "gutil/sysinfo.h"
+#include "util/debug/sanitizer_scopes.h"
 #include "util/scoped_cleanup.h"
 #include "util/thread.h"
 
@@ -278,6 +279,7 @@ Status ThreadPool::init() {
 }
 
 void ThreadPool::shutdown() {
+    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     MutexLock unique_lock(&_lock);
     check_not_pool_thread_unlocked();
 
@@ -476,6 +478,7 @@ bool ThreadPool::wait_for(const MonoDelta& delta) {
 }
 
 void ThreadPool::dispatch_thread() {
+    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     MutexLock unique_lock(&_lock);
     InsertOrDie(&_threads, Thread::current_thread());
     DCHECK_GT(_num_threads_pending_start, 0);

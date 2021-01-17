@@ -545,7 +545,7 @@ public class DistributedPlanner {
         OlapScanNode leftScanNode = ((OlapScanNode) leftRoot);
 
         //1 the left table must be only one partition
-        if (leftScanNode.getSelectedPartitionIds().size() > 1) {
+        if (leftScanNode.getSelectedPartitionIds().size() != 1) {
             return false;
         }
 

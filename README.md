@@ -21,7 +21,7 @@ under the License.
 [![Join the chat at https://gitter.im/apache-doris/Lobby](https://badges.gitter.im/apache-doris/Lobby.svg)](https://gitter.im/apache-doris/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
-Its original name was Palo, developed in Baidu. After donating it to Apache Software Foundation, it was renamed Doris.
+Its original name was Palo, developed in Baidu. After donated to Apache Software Foundation, it was renamed Doris.
 
 ## 1. License
 
@@ -91,7 +91,7 @@ $ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/
 
 #### Step3: Download Doris source
 
-Now you should attached in docker environment.
+Now you should be attached in docker environment.
 
 You can download Doris source by release package or by git clone in image.
 
@@ -117,15 +117,15 @@ After successfully building, it will install binary files in the directory `outp
 
 #### Prerequisites
 
-You must be install following softwares:
+You should install the following softwares:
 
 ```
-GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
+GCC 7.3.0+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
 ```
 
 After you installed above all, you also must be set them to environment variable PATH and set JAVA_HOME.
 
-If your GCC version is lower than 5.3.1, you can run:
+If your GCC version is lower than 7.3.0, you can run:
 
 ```
 sudo yum install devtoolset-4-toolchain -y
@@ -164,4 +164,3 @@ If you find any bugs, please file a [GitHub issue](https://github.com/apache/inc
 * Deploy and Upgrade - <https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade>
 * User Manual - <https://github.com/apache/incubator-doris/wiki/Doris-Create%2C-Load-and-Delete>
 * FAQs - <https://github.com/apache/incubator-doris/wiki/Doris-FAQ>
-

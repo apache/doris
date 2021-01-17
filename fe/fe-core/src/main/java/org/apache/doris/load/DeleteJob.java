@@ -91,15 +91,15 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         }
 
         short replicaNum = -1;
-        db.readLock();
+        OlapTable table = (OlapTable) db.getTable(tableId);
+        if (table == null) {
+            throw new MetaNotFoundException("can not find table "+ tableId +" when commit delete");
+        }
+        table.readLock();
         try {
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            if (table == null) {
-                throw new MetaNotFoundException("can not find table "+ tableId +" when commit delete");
-            }
             replicaNum = table.getPartitionInfo().getReplicationNum(partitionId);
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
 
         short quorumNum = (short) (replicaNum / 2 + 1);

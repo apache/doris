@@ -330,7 +330,6 @@ public class MetaService {
 
             response.appendContent("dump finished. " + dumpFilePath);
             writeResponse(request, response);
-            return;
         }
     }
 }

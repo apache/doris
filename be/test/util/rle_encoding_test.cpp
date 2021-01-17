@@ -36,6 +36,7 @@
 #include "util/debug_util.h"
 #include "util/faststring.h"
 #include "util/rle_encoding.h"
+#include "test_util/test_util.h"
 
 using std::string;
 using std::vector;
@@ -186,7 +187,7 @@ TEST_F(BitRle, Flush) {
 // Test some random bool sequences.
 TEST_F(BitRle, RandomBools) {
     int iters = 0;
-    const int n_iters = 20;
+    const int n_iters = LOOP_LESS_OR_MORE(5, 20);
     while (iters < n_iters) {
         srand(iters++);
         if (iters % 10000 == 0) LOG(ERROR) << "Seed: " << iters;
@@ -209,12 +210,12 @@ TEST_F(BitRle, RandomBools) {
 // Test some random 64-bit sequences.
 TEST_F(BitRle, Random64Bit) {
     int iters = 0;
-    const int n_iters = 20;
+    const int n_iters = LOOP_LESS_OR_MORE(5, 20);
     while (iters < n_iters) {
         srand(iters++);
         if (iters % 10000 == 0) LOG(ERROR) << "Seed: " << iters;
         std::vector<uint64_t> values;
-        for (int i = 0; i < 1000; ++i) {
+        for (int i = 0; i < LOOP_LESS_OR_MORE(10, 1000); ++i) {
             int group_size = rand() % 20 + 1; // NOLINT(*)
             uint64_t cur_value =
                     (static_cast<uint64_t>(rand()) << 32) + static_cast<uint64_t>(rand());

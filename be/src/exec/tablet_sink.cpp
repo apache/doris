@@ -27,6 +27,7 @@
 #include "runtime/tuple_row.h"
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
+#include "util/debug/sanitizer_scopes.h"
 #include "util/monotime.h"
 #include "util/uid_util.h"
 
@@ -110,6 +111,9 @@ void NodeChannel::open() {
     // This ref is for RPC's reference
     _open_closure->ref();
     _open_closure->cntl.set_timeout_ms(config::tablet_writer_open_rpc_timeout_sec * 1000);
+    if (config::tablet_writer_ignore_eovercrowded) {
+        _open_closure->cntl.ignore_eovercrowded();
+    }
     _stub->tablet_writer_open(&_open_closure->cntl, &request, &_open_closure->result,
                               _open_closure);
     request.release_id();
@@ -197,14 +201,14 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
     while (!_cancelled && _parent->_mem_tracker->AnyLimitExceeded(MemLimit::HARD) &&
            _pending_batches_num > 0) {
-        SCOPED_RAW_TIMER(&_mem_exceeded_block_ns);
+        SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         SleepFor(MonoDelta::FromMilliseconds(10));
     }
 
     auto row_no = _cur_batch->add_row();
     if (row_no == RowBatch::INVALID_ROW_INDEX) {
         {
-            SCOPED_RAW_TIMER(&_queue_push_lock_ns);
+            SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
             std::lock_guard<std::mutex> l(_pending_batches_lock);
             //To simplify the add_row logic, postpone adding batch into req until the time of sending req
             _pending_batches.emplace(std::move(_cur_batch), _cur_add_batch_request);
@@ -232,6 +236,7 @@ Status NodeChannel::mark_close() {
 
     _cur_add_batch_request.set_eos(true);
     {
+        debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
         std::lock_guard<std::mutex> l(_pending_batches_lock);
         _pending_batches.emplace(std::move(_cur_batch), _cur_add_batch_request);
         _pending_batches_num++;
@@ -294,6 +299,9 @@ void NodeChannel::cancel() {
 
     closure->ref();
     closure->cntl.set_timeout_ms(_rpc_timeout_ms);
+    if (config::tablet_writer_ignore_eovercrowded) {
+        closure->cntl.ignore_eovercrowded();
+    }
     _stub->tablet_writer_cancel(&closure->cntl, &request, &closure->result, closure);
     request.release_id();
 }
@@ -305,10 +313,11 @@ int NodeChannel::try_send_and_fetch_status() {
     }
 
     if (!_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0) {
-        SCOPED_RAW_TIMER(&_actual_consume_ns);
+        SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
         AddBatchReq send_batch;
         {
-            std::lock_guard<std::mutex> lg(_pending_batches_lock);
+            debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
+            std::lock_guard<std::mutex> l(_pending_batches_lock);
             DCHECK(!_pending_batches.empty());
             send_batch = std::move(_pending_batches.front());
             _pending_batches.pop();
@@ -321,12 +330,15 @@ int NodeChannel::try_send_and_fetch_status() {
         // tablet_ids has already set when add row
         request.set_packet_seq(_next_packet_seq);
         if (row_batch->num_rows() > 0) {
-            SCOPED_RAW_TIMER(&_serialize_batch_ns);
+            SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
             row_batch->serialize(request.mutable_row_batch());
         }
 
         _add_batch_closure->reset();
         _add_batch_closure->cntl.set_timeout_ms(_rpc_timeout_ms);
+        if (config::tablet_writer_ignore_eovercrowded) {
+            _add_batch_closure->cntl.ignore_eovercrowded();
+        }
 
         if (request.eos()) {
             for (auto pid : _parent->_partition_ids) {
@@ -385,7 +397,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
         for (auto& node_id : location->node_ids) {
             NodeChannel* channel = nullptr;
             auto it = _node_channels.find(node_id);
-            if (it == std::end(_node_channels)) {
+            if (it == _node_channels.end()) {
                 channel = _parent->_pool->add(
                         new NodeChannel(_parent, _index_id, node_id, _schema_hash));
                 _node_channels.emplace(node_id, channel);
@@ -405,7 +417,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
 
 Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
     auto it = _channels_by_tablet.find(tablet_id);
-    DCHECK(it != std::end(_channels_by_tablet)) << "unknown tablet, tablet_id=" << tablet_id;
+    DCHECK(it != _channels_by_tablet.end()) << "unknown tablet, tablet_id=" << tablet_id;
     for (auto channel : it->second) {
         // if this node channel is already failed, this add_row will be skipped
         auto st = channel->add_row(tuple, tablet_id);
@@ -451,12 +463,8 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
     _load_id.set_hi(table_sink.load_id.hi);
     _load_id.set_lo(table_sink.load_id.lo);
     _txn_id = table_sink.txn_id;
-    _db_id = table_sink.db_id;
-    _table_id = table_sink.table_id;
     _num_replicas = table_sink.num_replicas;
     _need_gen_rollup = table_sink.need_gen_rollup;
-    _db_name = table_sink.db_name;
-    _table_name = table_sink.table_name;
     _tuple_desc_id = table_sink.tuple_id;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
@@ -563,13 +571,13 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _load_mem_limit = state->get_load_mem_limit();
 
     // open all channels
-    auto& partitions = _partition->get_partitions();
+    const auto& partitions = _partition->get_partitions();
     for (int i = 0; i < _schema->indexes().size(); ++i) {
         // collect all tablets belong to this rollup
         std::vector<TTabletWithPartition> tablets;
         auto index = _schema->indexes()[i];
-        for (auto part : partitions) {
-            for (auto tablet : part->indexes[i].tablets) {
+        for (const auto& part : partitions) {
+            for (const auto& tablet : part->indexes[i].tablets) {
                 TTabletWithPartition tablet_with_partition;
                 tablet_with_partition.partition_id = part->id;
                 tablet_with_partition.tablet_id = tablet;
@@ -674,13 +682,13 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
 }
 
 Status OlapTableSink::close(RuntimeState* state, Status close_status) {
-	if (_is_closed) {
-		/// The close method may be called twice.
-		/// In the open_internal() method of plan_fragment_executor, close is called once.
-		/// If an error occurs in this call, it will be called again in fragment_mgr.
-		/// So here we use a flag to prevent repeated close operations.
-		return _close_status;
-	}
+    if (_is_closed) {
+        /// The close method may be called twice.
+        /// In the open_internal() method of plan_fragment_executor, close is called once.
+        /// If an error occurs in this call, it will be called again in fragment_mgr.
+        /// So here we use a flag to prevent repeated close operations.
+        return _close_status;
+    }
     Status status = close_status;
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
@@ -701,11 +709,13 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                                                       &serialize_batch_ns, &mem_exceeded_block_ns,
                                                       &queue_push_lock_ns,
                                                       &actual_consume_ns](NodeChannel* ch) {
-                    status = ch->close_wait(state);
-                    if (!status.ok()) {
+                    auto s = ch->close_wait(state);
+                    if (!s.ok()) {
+                        // 'status' will store the last non-ok status of all channels
+                        status = s;
                         LOG(WARNING)
                                 << ch->name() << ": close channel failed, " << ch->print_load_info()
-                                << ". error_msg=" << status.get_error_msg();
+                                << ". error_msg=" << s.get_error_msg();
                     }
                     ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
                                     &mem_exceeded_block_ns, &queue_push_lock_ns,
@@ -724,7 +734,6 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         COUNTER_SET(_send_data_timer, _send_data_ns);
         COUNTER_SET(_convert_batch_timer, _convert_batch_ns);
         COUNTER_SET(_validate_data_timer, _validate_data_ns);
-        COUNTER_SET(_non_blocking_send_timer, _non_blocking_send_ns);
         COUNTER_SET(_serialize_batch_timer, serialize_batch_ns);
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
         int64_t num_rows_load_total = _number_input_rows + state->num_rows_load_filtered() +
@@ -758,8 +767,8 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
     Expr::close(_output_expr_ctxs, state);
     _output_batch.reset();
 
-	_close_status = status;
-	_is_closed = true;
+    _close_status = status;
+    _is_closed = true;
     return status;
 }
 
@@ -930,7 +939,7 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
 }
 
 void OlapTableSink::_send_batch_process() {
-    SCOPED_RAW_TIMER(&_non_blocking_send_ns);
+    SCOPED_TIMER(_non_blocking_send_timer);
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {

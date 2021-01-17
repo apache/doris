@@ -140,6 +140,10 @@ StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     DEREGISTER_HOOK_METRIC(compaction_mem_current_consumption);
     _clear();
+
+    if(_compaction_thread_pool){
+        _compaction_thread_pool->shutdown();
+    }
 }
 
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
@@ -434,7 +438,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     for (int i = 0; i < stores.size(); i++) {
         int j = i + 1;
         if (j < stores.size()) {
-            if (stores[i]->tablet_set().size() > stores[j]->tablet_set().size()) {
+            if (stores[i]->tablet_size() > stores[j]->tablet_size()) {
                 std::swap(stores[i], stores[j]);
             }
             std::random_shuffle(stores.begin() + j, stores.end());
@@ -506,6 +510,7 @@ void StorageEngine::stop() {
         thread->join();     \
     }
 
+    THREAD_JOIN(_compaction_tasks_producer_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
@@ -806,6 +811,7 @@ OLAPStatus StorageEngine::create_tablet(const TCreateTabletReq& request) {
         LOG(WARNING) << "there is no available disk that can be used to create tablet.";
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
+    TRACE("got data directory for create tablet");
     return _tablet_manager->create_tablet(request, stores);
 }
 

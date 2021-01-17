@@ -48,18 +48,21 @@ public class ShowDataAction extends RestBaseAction {
 
     public long getDataSizeOfDatabase(Database db) {
         long totalSize = 0;
-        db.readLock();
+        long tableSize = 0;
         // sort by table name
         List<Table> tables = db.getTables();
         for (Table table : tables) {
             if (table.getType() != TableType.OLAP) {
                 continue;
             }
-
-            long tableSize = ((OlapTable)table).getDataSize();
+            table.readLock();
+            try {
+                tableSize = ((OlapTable)table).getDataSize();
+            } finally {
+                table.readUnlock();
+            }
             totalSize += tableSize;
         } // end for tables
-        db.readUnlock();
         return totalSize;
     }
 

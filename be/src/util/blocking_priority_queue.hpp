@@ -140,11 +140,7 @@ public:
 
     // Shut down the queue. Wakes up all threads waiting on blocking_get or blocking_put.
     void shutdown() {
-        {
-            boost::lock_guard<boost::mutex> guard(_lock);
-            _shutdown = true;
-        }
-
+        _shutdown = true;
         _get_cv.notify_all();
         _put_cv.notify_all();
     }
@@ -167,7 +163,7 @@ public:
     }
 
 private:
-    bool _shutdown;
+    std::atomic<bool> _shutdown;
     const int _max_element;
     boost::condition_variable _get_cv;   // 'get' callers wait on this
     boost::condition_variable _put_cv;   // 'put' callers wait on this

@@ -37,6 +37,7 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.Version;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.MiniEtlTaskInfo;
@@ -64,6 +65,9 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendResult;
+import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
@@ -247,21 +251,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
         if (db != null) {
-            db.readLock();
-            try {
-                List<Table> tables = null;
-                if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
-                    tables = db.getTables();
-                } else {
-                    switch (params.getType()) {
-                        case "VIEW":
-                            tables = db.getViews();
-                            break;
-                        default:
-                            tables = db.getTables();
-                    }
+            List<Table> tables = null;
+            if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
+                tables = db.getTables();
+            } else {
+                switch (params.getType()) {
+                    case "VIEW":
+                        tables = db.getViews();
+                        break;
+                    default:
+                        tables = db.getTables();
                 }
-                for (Table table : tables) {
+            }
+            for (Table table : tables) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
+                        table.getName(), PrivPredicate.SHOW)) {
+                    continue;
+                }
+                table.readLock();
+                try {
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
                             table.getName(), PrivPredicate.SHOW)) {
                         continue;
@@ -277,12 +285,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     status.setComment(table.getComment());
                     status.setCreateTime(table.getCreateTime());
                     status.setLastCheckTime(table.getLastCheckTime());
-                    status.setDdlSql(table.getDdlSql());
-
                     tablesResult.add(status);
+                } finally {
+                    table.readUnlock();
                 }
-            } finally {
-                db.readUnlock();
             }
         }
         return result;
@@ -368,11 +374,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         Database db = Catalog.getCurrentCatalog().getDb(params.db);
         if (db != null) {
-            db.readLock();
-            try {
-                Table table = db.getTable(params.getTableName());
-                if (table != null) {
-                    for (Column column : table.getBaseSchema(params.isShowHiddenColumns())) {
+            Table table = db.getTable(params.getTableName());
+            if (table != null) {
+                table.readLock();
+                try {
+                    for (Column column : table.getBaseSchema()) {
                         final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
                         final Integer precision = column.getOriginType().getPrecision();
                         if (precision != null) {
@@ -394,9 +400,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                         columns.add(colDef);
                     }
+                } finally {
+                    table.readUnlock();
                 }
-            } finally {
-                db.readUnlock();
             }
         }
         return result;
@@ -753,17 +759,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + dbName);
         }
 
-        Table table = null;
-        db.readLock();
-        try {
-            table = db.getTable(request.tbl);
-            if (table == null || table.getType() != TableType.OLAP) {
-                throw new UserException("unknown table, table=" + request.tbl);
-            }
-        } finally {
-            db.readUnlock();
-        }
-
+        Table table = db.getTableOrThrowException(request.tbl, TableType.OLAP);
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
         MetricRepo.COUNTER_LOAD_ADD.increase(1L);
@@ -825,9 +821,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             throw new UserException("unknown database, database=" + dbName);
         }
+
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
+        Table table = db.getTableOrThrowException(request.getTbl(), TableType.OLAP);
         boolean ret = Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                        db, request.getTxnId(),
+                        db, Lists.newArrayList(table), request.getTxnId(),
                         TabletCommitInfo.fromThrift(request.getCommitInfos()),
                         timeoutMs, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
         if (ret) {
@@ -923,18 +921,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + dbName);
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
-        if (!db.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
-            throw new UserException("get database read lock timeout, database=" + fullDbName);
+        Table table = db.getTableOrThrowException(request.getTbl(), TableType.OLAP);
+        if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
+            throw new UserException("get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }
         try {
-            Table table = db.getTable(request.getTbl());
-            if (table == null) {
-                throw new UserException("unknown table, table=" + request.getTbl());
-            }
-            if (!(table instanceof OlapTable)) {
-                throw new UserException("load table type is not OlapTable, type=" + table.getClass());
-            }
-            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request, db);
+            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
             StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
             TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId());
             // add table indexes to transaction state
@@ -943,10 +935,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 throw new UserException("txn does not exist: " + request.getTxnId());
             }
             txnState.addTableIndexes((OlapTable) table);
-            
             return plan;
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
     }
 
@@ -957,6 +948,40 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return new TStatus(TStatusCode.OK);
         }
         return new TStatus(TStatusCode.CANCELLED);
+    }
+
+    @Override
+    public TFrontendPingFrontendResult ping(TFrontendPingFrontendRequest request) throws TException {
+        boolean isReady = Catalog.getCurrentCatalog().isReady();
+        TFrontendPingFrontendResult result = new TFrontendPingFrontendResult();
+        result.setStatus(TFrontendPingFrontendStatusCode.OK);
+        if (isReady) {
+            if (request.getClusterId() != Catalog.getCurrentCatalog().getClusterId()) {
+                result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
+                result.setMsg("invalid cluster id: " + Catalog.getCurrentCatalog().getClusterId());
+            }
+
+            if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
+                if (!request.getToken().equals(Catalog.getCurrentCatalog().getToken())) {
+                    result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
+                    result.setMsg("invalid token: " + Catalog.getCurrentCatalog().getToken());
+                }
+            }
+
+            if (result.status == TFrontendPingFrontendStatusCode.OK) {
+                // cluster id and token are valid, return replayed journal id
+                long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
+                result.setMsg("success");
+                result.setReplayedJournalId(replayedJournalId);
+                result.setQueryPort(Config.query_port);
+                result.setRpcPort(Config.rpc_port);
+                result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+            }
+        } else {
+            result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
+            result.setMsg("not ready");
+        }
+        return result;
     }
 
     private TNetworkAddress getClientAddr() {

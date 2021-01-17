@@ -55,7 +55,7 @@ public:
     ~OlapScanner();
 
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
-                   const std::vector<TCondition>& filters, const std::vector<TCondition>& is_nulls);
+                   const std::vector<TCondition>& filters);
 
     Status open();
 
@@ -80,8 +80,7 @@ public:
 
 private:
     Status _init_params(const std::vector<OlapScanRange*>& key_ranges,
-                        const std::vector<TCondition>& filters,
-                        const std::vector<TCondition>& is_nulls);
+                        const std::vector<TCondition>& filters);
     Status _init_return_columns();
     void _convert_row_to_tuple(Tuple* tuple);
 

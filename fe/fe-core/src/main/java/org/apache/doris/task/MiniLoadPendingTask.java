@@ -91,14 +91,14 @@ public class MiniLoadPendingTask extends LoadPendingTask {
             long backendId = taskInfo.getBackendId();
             long tableId = taskInfo.getTableId();
 
-            // All the following operation will process when destDb's read lock are hold.
-            db.readLock();
-            try {
-                destTable = (OlapTable) db.getTable(tableId);
-                if (destTable == null) {
-                    throw new LoadException("table does not exist. id: " + tableId);
-                }
+            // All the following operation will process when destTable's read lock are hold.
+            destTable = (OlapTable) db.getTable(tableId);
+            if (destTable == null) {
+                throw new LoadException("table does not exist. id: " + tableId);
+            }
 
+            destTable.readLock();
+            try {
                 registerToDesc();
                 tableSink = new DataSplitSink(destTable, destTupleDesc);
 
@@ -109,7 +109,7 @@ public class MiniLoadPendingTask extends LoadPendingTask {
                 }
                 requests.add(new Pair<Long, TMiniLoadEtlTaskRequest>(backendId, createRequest(taskId)));
             } finally {
-                db.readUnlock();
+                destTable.readUnlock();
             }
         }
     }

@@ -324,7 +324,8 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 
     int round = 0;
     CompactionType compaction_type;
-    while (true) {
+    int32_t interval = 1;
+    do {
         if (!config::disable_auto_compaction) {
             if (round < config::cumulative_compaction_rounds_for_each_base_compaction_round) {
                 compaction_type = CompactionType::CUMULATIVE_COMPACTION;
@@ -344,12 +345,15 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                                                        [=] { return _wakeup_producer_flag == 1; });
                 continue;
             }
+
+            /// Regardless of whether the tablet is submitted for compaction or not,
+            /// we need to call 'reset_compaction' to clean up the base_compaction or cumulative_compaction objects
+            /// in the tablet, because these two objects store the tablet's own shared_ptr.
+            /// If it is not cleaned up, the reference count of the tablet will always be greater than 1,
+            /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
                 int64_t permits = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet);
-                if (permits == 0) {
-                    continue;
-                }
-                if (_permit_limiter.request(permits)) {
+                if (permits > 0 && _permit_limiter.request(permits)) {
                     {
                         // Push to _tablet_submitted_compaction before submitting task
                         std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
@@ -371,16 +375,24 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                           _wakeup_producer_flag = 1;
                           _compaction_producer_sleep_cv.notify_one();
                       }
+                      // reset compaction
+                      tablet->reset_compaction(compaction_type); 
                     });
                     if (!st.ok()) {
                         _permit_limiter.release(permits);
+                        // reset compaction
+                        tablet->reset_compaction(compaction_type); 
                     }
+                } else {
+                    // reset compaction
+                    tablet->reset_compaction(compaction_type);
                 }
             }
+            interval = 1;
         } else {
-            sleep(config::check_auto_compaction_interval_seconds);
+            interval = config::check_auto_compaction_interval_seconds * 1000;
         }
-    }
+    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromMilliseconds(interval)));
 }
 
 std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(

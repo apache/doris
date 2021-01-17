@@ -89,6 +89,18 @@ struct TabletInfo {
     UniqueId tablet_uid;
 };
 
+struct TabletSize {
+    TabletSize(TTabletId in_tablet_id, TSchemaHash in_schema_hash, size_t in_tablet_size) :
+            tablet_id(in_tablet_id),
+            schema_hash(in_schema_hash),
+            tablet_size(in_tablet_size) {}
+
+
+    TTabletId tablet_id;
+    TSchemaHash schema_hash;
+    size_t tablet_size;
+};
+
 enum RangeCondition {
     GT = 0, // greater than
     GE = 1, // greater or equal

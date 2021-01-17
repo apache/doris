@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -452,6 +453,30 @@ public class FunctionCallExpr extends Expr {
                 if (!getChild(2).isConstant()) {
                     throw new AnalysisException("percentile_approx requires the third parameter must be a constant : "
                             + this.toSql());
+                }
+            }
+        }
+
+        if (fnName.getFunction().equalsIgnoreCase("topn")) {
+            if (children.size() != 2 && children.size() != 3) {
+                throw new AnalysisException("topn(expr, INT [, B]) requires two or three parameters");
+            }
+            if (!getChild(1).isConstant() || !getChild(1).getType().isIntegerType()) {
+                throw new AnalysisException("topn requires second parameter must be a constant Integer Type: "
+                        + this.toSql());
+            }
+            if (getChild(1).getType() != ScalarType.INT) {
+                Expr e = getChild(1).castTo(ScalarType.INT);
+                setChild(1, e);
+            }
+            if (children.size() == 3) {
+                if (!getChild(2).isConstant() || !getChild(2).getType().isIntegerType()) {
+                    throw new AnalysisException("topn requires the third parameter must be a constant Integer Type: "
+                            + this.toSql());
+                }
+                if (getChild(2).getType() != ScalarType.INT) {
+                    Expr e = getChild(2).castTo(ScalarType.INT);
+                    setChild(2, e);
                 }
             }
         }

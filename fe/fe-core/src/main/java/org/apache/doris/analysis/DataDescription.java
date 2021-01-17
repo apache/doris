@@ -116,6 +116,7 @@ public class DataDescription {
     private boolean stripOuterArray = false;
     private String jsonPaths = "";
     private String jsonRoot = "";
+    private boolean fuzzyParse = false;
 
     private String sequenceCol;
 
@@ -477,6 +478,14 @@ public class DataDescription {
         this.stripOuterArray = stripOuterArray;
     }
 
+    public boolean isFuzzyParse() {
+        return fuzzyParse;
+    }
+
+    public void setFuzzyParse(boolean fuzzyParse) {
+        this.fuzzyParse = fuzzyParse;
+    }
+
     public String getJsonPaths() {
         return jsonPaths;
     }
@@ -787,16 +796,6 @@ public class DataDescription {
         analyzeColumns();
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
-        if (mergeType == LoadTask.MergeType.MERGE) {
-            parsedColumnExprList.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
-        } else if (mergeType == LoadTask.MergeType.DELETE) {
-            parsedColumnExprList.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
-        }
-        // add columnExpr for sequence column
-        if (hasSequenceCol()) {
-            parsedColumnExprList.add(new ImportColumnDesc(Column.SEQUENCE_COL,
-                    new SlotRef(null, getSequenceCol())));
-        }
     }
 
     /*

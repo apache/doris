@@ -470,6 +470,7 @@ public class MultiLoadMgr {
             boolean stripOuterArray = false;
             String jsonPaths = "";
             String jsonRoot = "";
+            boolean fuzzyParse = false;
             if (properties != null) {
                 colString = properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
                 String columnSeparatorStr = properties.get(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR);
@@ -502,6 +503,8 @@ public class MultiLoadMgr {
                             properties.getOrDefault(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY, "false"));
                     jsonPaths = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_JSONPATHS, "");
                     jsonRoot = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_JSONROOT, "");
+                    fuzzyParse = Boolean.valueOf(
+                        properties.getOrDefault(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE, "false"));
                 }
             }
             DataDescription dataDescription = new DataDescription(tbl, partitionNames, files, null, columnSeparator,
@@ -518,6 +521,7 @@ public class MultiLoadMgr {
             dataDescription.setJsonPaths(jsonPaths);
             dataDescription.setJsonRoot(jsonRoot);
             dataDescription.setStripOuterArray(stripOuterArray);
+            dataDescription.setFuzzyParse(fuzzyParse);
             return dataDescription;
         }
 

@@ -427,6 +427,7 @@ public class BrokerScanNode extends LoadScanNode {
                         rangeDesc.setStripOuterArray(context.fileGroup.isStripOuterArray());
                         rangeDesc.setJsonpaths(context.fileGroup.getJsonPaths());
                         rangeDesc.setJsonRoot(context.fileGroup.getJsonRoot());
+                        rangeDesc.setFuzzyParse(context.fileGroup.isFuzzyParse());
                     }
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
                     curFileOffset += rangeBytes;
@@ -451,6 +452,7 @@ public class BrokerScanNode extends LoadScanNode {
                     rangeDesc.setStripOuterArray(context.fileGroup.isStripOuterArray());
                     rangeDesc.setJsonpaths(context.fileGroup.getJsonPaths());
                     rangeDesc.setJsonRoot(context.fileGroup.getJsonRoot());
+                    rangeDesc.setFuzzyParse(context.fileGroup.isFuzzyParse());
                 }
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
                 curFileOffset = 0;
