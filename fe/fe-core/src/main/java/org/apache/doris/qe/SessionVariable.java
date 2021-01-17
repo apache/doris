@@ -814,6 +814,8 @@ public class SessionVariable implements Serializable, Writable {
                     continue;
                 }
 
+                LOG.debug("set forward variable: {} = {}", varAttr.name(), val);
+
                 // set config field
                 switch (f.getType().getSimpleName()) {
                     case "short":
@@ -835,7 +837,7 @@ public class SessionVariable implements Serializable, Writable {
                         f.set(this, val);
                         break;
                     default:
-                        break;
+                        throw new IllegalArgumentException("Unknown field type: " + f.getType().getSimpleName());
                 }
             }
         } catch (IllegalAccessException e) {
@@ -849,7 +851,6 @@ public class SessionVariable implements Serializable, Writable {
         queryOptions.setMemLimit(maxExecMemByte);
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setLoadMemLimit(loadMemLimit);
-
         return queryOptions;
     }
 

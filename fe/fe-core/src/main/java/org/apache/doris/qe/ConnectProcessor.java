@@ -411,6 +411,10 @@ public class ConnectProcessor {
         if (request.isSetStmtId()) {
             ctx.setForwardedStmtId(request.getStmtId());
         }
+        if (request.isSetCurrentUserIdent()) {
+            UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
+            ctx.setCurrentUserIdentity(currentUserIdentity);
+        }
 
         if (request.isSetSessionVariables()) {
             ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());
