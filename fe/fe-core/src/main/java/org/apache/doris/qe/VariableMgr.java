@@ -510,6 +510,12 @@ public class VariableMgr {
         // TODO(zhaochun): min and max is not used.
         String minValue() default "0";
         String maxValue() default "0";
+
+        // Set to true if the variables need to be forwarded along with forward statement.
+        boolean needForward() default false;
+
+        // Set to true if the variables need to be set in TQueryOptions
+        boolean isQueryOption() default false;
     }
 
     private static class VarContext {

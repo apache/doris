@@ -48,7 +48,6 @@ import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
-import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.apache.logging.log4j.LogManager;
@@ -414,9 +413,10 @@ public class ConnectProcessor {
         }
 
         if (request.isSetSessionVariables()) {
-            // TODO(cmy)
+            ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());
         } else {
-            // for compatibility, all following variables are moved to SessionVariables.
+            // For compatibility, all following variables are moved to SessionVariables.
+            // Should move in future.
             if (request.isSetTimeZone()) {
                 ctx.getSessionVariable().setTimeZone(request.getTimeZone());
             }
@@ -436,25 +436,10 @@ public class ConnectProcessor {
         }
 
         if (request.isSetQueryOptions()) {
-            TQueryOptions queryOptions = request.getQueryOptions();
-            if (queryOptions.isSetMemLimit()) {
-                ctx.getSessionVariable().setMaxExecMemByte(queryOptions.getMemLimit());
-            }
-            if (queryOptions.isSetQueryTimeout()) {
-                ctx.getSessionVariable().setQueryTimeoutS(queryOptions.getQueryTimeout());
-            }
-            if (queryOptions.isSetLoadMemLimit()) {
-                ctx.getSessionVariable().setLoadMemLimit(queryOptions.getLoadMemLimit());
-            }
-            if (queryOptions.isSetMaxScanKeyNum()) {
-                ctx.getSessionVariable().setMaxScanKeyNum(queryOptions.getMaxScanKeyNum());
-            }
-            if (queryOptions.isSetMaxPushdownConditionsPerColumn()) {
-                ctx.getSessionVariable().setMaxPushdownConditionsPerColumn(
-                        queryOptions.getMaxPushdownConditionsPerColumn());
-            }
+            ctx.getSessionVariable().setForwardedSessionVariables(request.getQueryOptions());
         } else {
-            // for compatibility, all following variables are moved to TQueryOptions.
+            // For compatibility, all following variables are moved to TQueryOptions.
+            // Should move in future.
             if (request.isSetExecMemLimit()) {
                 ctx.getSessionVariable().setMaxExecMemByte(request.getExecMemLimit());
             }

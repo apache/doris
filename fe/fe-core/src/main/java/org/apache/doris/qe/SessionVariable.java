@@ -29,6 +29,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
+import com.google.common.collect.Maps;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -123,7 +125,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
 
-    @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS)
+    @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     private long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
     // max memory used on every backend.
@@ -138,11 +140,11 @@ public class SessionVariable implements Serializable, Writable {
     private int queryTimeoutS = 300;
 
     // if true, need report to coordinator when plan fragment execute successfully.
-    @VariableMgr.VarAttr(name = IS_REPORT_SUCCESS)
+    @VariableMgr.VarAttr(name = IS_REPORT_SUCCESS, needForward = true)
     private boolean isReportSucc = false;
 
     // Set sqlMode to empty string
-    @VariableMgr.VarAttr(name = SQL_MODE)
+    @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
     private long sqlMode = 0L;
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
@@ -208,7 +210,7 @@ public class SessionVariable implements Serializable, Writable {
     private int netReadTimeout = 60;
 
     // The current time zone
-    @VariableMgr.VarAttr(name = TIME_ZONE)
+    @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true)
     private String timeZone = TimeUtils.getSystemTimeZone().getID();
 
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
@@ -247,7 +249,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)
     private int parallelExecInstanceNum = 1;
 
-    @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT)
+    @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     private boolean enableInsertStrict = false;
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
@@ -294,8 +296,31 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE)
     private boolean allowPartitionColumnNullable = true;
 
-    @VariableMgr.VarAttr(name = DELETE_WITHOUT_PARTITION)
+    @VariableMgr.VarAttr(name = DELETE_WITHOUT_PARTITION, needForward = true)
     private boolean deleteWithoutPartition = false;
+
+    // Session variable name -> The position of the session variable in this class's fields.
+    // This variables in this map need to be forwarded along with forward statement
+    public static final Map<String, Integer> FORWARD_VAR_INDEX_MAP = Maps.newHashMap();
+
+    // Session variable name -> The position of the session variable in this class's fields.
+    // This variables in this map need to be set in query options
+    public static final Map<String, Integer> QUERY_OPTION_VAR_INDEX_MAP = Maps.newHashMap();
+
+    static {
+        Field[] fields = SessionVariable.class.getFields();
+        for (int i = 0; i < fields.length; ++i) {
+            VarAttr varAttr = fields[i].getAnnotation(VarAttr.class);
+            if (varAttr == null) {
+                continue;
+            }
+            if (varAttr.needForward()) {
+                FORWARD_VAR_INDEX_MAP.put(varAttr.name(), i);
+            } else if (varAttr.isQueryOption()) {
+                QUERY_OPTION_VAR_INDEX_MAP.put(varAttr.name(), i);
+            }
+        }
+    }
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -453,9 +478,13 @@ public class SessionVariable implements Serializable, Writable {
         return enableOdbcTransaction;
     }
 
-    public String getPreferJoinMethod() {return preferJoinMethod; }
+    public String getPreferJoinMethod() {
+        return preferJoinMethod;
+    }
 
-    public void setPreferJoinMethod(String preferJoinMethod) {this.preferJoinMethod = preferJoinMethod; }
+    public void setPreferJoinMethod(String preferJoinMethod) {
+        this.preferJoinMethod = preferJoinMethod;
+    }
 
     public int getParallelExecInstanceNum() {
         return parallelExecInstanceNum;
@@ -465,7 +494,9 @@ public class SessionVariable implements Serializable, Writable {
         return exchangeInstanceParallel;
     }
 
-    public boolean getEnableInsertStrict() { return enableInsertStrict; }
+    public boolean getEnableInsertStrict() {
+        return enableInsertStrict;
+    }
 
     public void setEnableInsertStrict(boolean enableInsertStrict) {
         this.enableInsertStrict = enableInsertStrict;
@@ -492,7 +523,9 @@ public class SessionVariable implements Serializable, Writable {
         return forwardToMaster;
     }
 
-    public boolean isUseV2Rollup() { return useV2Rollup; }
+    public boolean isUseV2Rollup() {
+        return useV2Rollup;
+    }
 
     // for unit test
     public void setUseV2Rollup(boolean useV2Rollup) {
@@ -559,7 +592,9 @@ public class SessionVariable implements Serializable, Writable {
         this.showHiddenColumns = showHiddenColumns;
     }
 
-    public boolean isAllowPartitionColumnNullable() { return allowPartitionColumnNullable; }
+    public boolean isAllowPartitionColumnNullable() {
+        return allowPartitionColumnNullable;
+    }
 
     public long getInsertVisibleTimeoutMs() {
         if (insertVisibleTimeoutMs < MIN_INSERT_VISIBLE_TIMEOUT_MS) {
@@ -751,21 +786,82 @@ public class SessionVariable implements Serializable, Writable {
     // Get all variables which need to forward along with statement
     public Map<String, String> getForwardVariables() {
         HashMap<String, String> map = new HashMap<String, String>();
-        map.put(INSERT_VISIBLE_TIMEOUT_MS, String.valueOf(insertVisibleTimeoutMs));
-        map.put(IS_REPORT_SUCCESS, String.valueOf(isReportSucc));
-        map.put(SQL_MODE, String.valueOf(sqlMode));
-        map.put(TIME_ZONE, String.valueOf(timeZone));
-        map.put(ENABLE_INSERT_STRICT, String.valueOf(enableInsertStrict));
-        map.put(DELETE_WITHOUT_PARTITION, String.valueOf(deleteWithoutPartition));
+        try {
+            Field[] fields = SessionVariable.class.getFields();
+            for (Field f : fields) {
+                VarAttr varAttr = f.getAnnotation(VarAttr.class);
+                if (varAttr == null || !varAttr.needForward()) {
+                    continue;
+                }
+                map.put(varAttr.name(), String.valueOf(f.get(null)));
+            }
+        } catch (IllegalAccessException e) {
+            LOG.error("failed to get forward variables", e);
+        }
         return map;
+    }
+
+    public void setForwardedSessionVariables(Map<String, String> variables) {
+        try {
+            Field[] fields = SessionVariable.class.getFields();
+            for (Field f : fields) {
+                VarAttr varAttr = f.getAnnotation(VarAttr.class);
+                if (varAttr == null || !varAttr.needForward()) {
+                    continue;
+                }
+                String val = variables.get(varAttr.name());
+                if (val == null) {
+                    continue;
+                }
+
+                // set config field
+                switch (f.getType().getSimpleName()) {
+                    case "short":
+                        f.setShort(this, Short.parseShort(val));
+                        break;
+                    case "int":
+                        f.setInt(this, Integer.parseInt(val));
+                        break;
+                    case "long":
+                        f.setLong(this, Long.parseLong(val));
+                        break;
+                    case "double":
+                        f.setDouble(this, Double.parseDouble(val));
+                        break;
+                    case "boolean":
+                        f.setBoolean(this, Boolean.parseBoolean(val));
+                        break;
+                    case "String":
+                        f.set(this, val);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        } catch (IllegalAccessException e) {
+            LOG.error("failed to set forward variables", e);
+        }
     }
 
     // Get all variables which need to be set in TQueryOptions
     public TQueryOptions getQueryOptionVariables() {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setMemLimit(maxExecMemByte);
-        queryOptions.setLoadMemLimit(loadMemLimit);
         queryOptions.setQueryTimeout(queryTimeoutS);
+        queryOptions.setLoadMemLimit(loadMemLimit);
+
         return queryOptions;
+    }
+
+    public void setForwardedSessionVariables(TQueryOptions queryOptions) {
+        if (queryOptions.isSetMemLimit()) {
+            setMaxExecMemByte(queryOptions.getMemLimit());
+        }
+        if (queryOptions.isSetQueryTimeout()) {
+            setQueryTimeoutS(queryOptions.getQueryTimeout());
+        }
+        if (queryOptions.isSetLoadMemLimit()) {
+            setLoadMemLimit(queryOptions.getLoadMemLimit());
+        }
     }
 }
