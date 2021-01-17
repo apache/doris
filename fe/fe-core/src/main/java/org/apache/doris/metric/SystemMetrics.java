@@ -45,9 +45,20 @@ public class SystemMetrics {
     protected long tcpInSegs = 0;
     // All send TCP packets with RST mark
     protected long tcpOutSegs = 0;
+    // Total usable memory
+    protected long memTotal = 0;
+    // The amount of physical memory not used by the system
+    protected long memFree = 0;
+    // An estimate of how much memory is available for starting new applications, without swapping
+    protected long memAvailable = 0;
+    // Memory in buffer cache, so relatively temporary storage for raw disk blocks
+    protected long buffers = 0;
+    // Memory in the pagecache (Diskcache and Shared Memory)
+    protected long cached = 0;
 
     public synchronized void update() {
         updateSnmpMetrics();
+        updateMemoryMetrics();
     }
 
     private void updateSnmpMetrics() {
@@ -81,7 +92,7 @@ public class SystemMetrics {
             if ((line = br.readLine()) == null) {
                 throw new Exception("failed to read metrics of TCP");
             }
-            
+
             // eg: Tcp: 1 200 120000 -1 38920626 10487279 105581903 300009 305 18079291213 15411998945 11808180 22905 4174570 0
             String[] parts = line.split(" ");
             if (parts.length != headerMap.size()) {
@@ -95,6 +106,42 @@ public class SystemMetrics {
 
         } catch (Exception e) {
             LOG.warn("failed to get /proc/net/snmp", e);
+        }
+    }
+
+    private void updateMemoryMetrics() {
+        String procFile = "/proc/meminfo";
+        String[] memoryMetrics = {"MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached"};
+        Map<String, Long> memInfoMap = Maps.newHashMap();
+
+        try (FileReader fileReader = new FileReader(procFile);
+             BufferedReader br = new BufferedReader(fileReader)) {
+            String[] parts;
+            String line = null;
+            while ((line = br.readLine()) != null) {
+                for (String memoryMetric : memoryMetrics) {
+                    if (!memInfoMap.containsKey(memoryMetric) && line.startsWith(memoryMetric)) {
+                        parts = line.split("\\s+");
+                        if (parts.length != 3) {
+                            throw new Exception("invalid memory metrics: " + line);
+                        } else {
+                            memInfoMap.put(memoryMetric, new Long(parts[1]) * 1024);
+                            break;
+                        }
+                    }
+                }
+                if (memInfoMap.size() == memoryMetrics.length) {
+                    break;
+                }
+            }
+            // if can not get metrics from /proc/meminfo, we will set -1 as default value
+            memTotal = memInfoMap.getOrDefault("MemTotal", -1L);
+            memFree = memInfoMap.getOrDefault("MemFree", -1L);
+            memAvailable = memInfoMap.getOrDefault("MemAvailable", -1L);
+            buffers = memInfoMap.getOrDefault("Buffers", -1L);
+            cached = memInfoMap.getOrDefault("Cached", -1L);
+        } catch (Exception e) {
+            LOG.warn("failed to get /proc/meminfo", e);
         }
     }
 
