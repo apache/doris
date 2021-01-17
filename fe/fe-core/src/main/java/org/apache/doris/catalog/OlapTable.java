@@ -949,7 +949,7 @@ public class OlapTable extends Table {
         }
 
         String md5 = DigestUtils.md5Hex(sb.toString());
-        LOG.debug("get signature of table {}: {}", name, md5);
+        LOG.debug("get signature of table {}: {}. signature string: {}", name, md5, sb.toString());
         return md5;
     }
 
