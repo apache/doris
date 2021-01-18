@@ -136,9 +136,7 @@ But at the same time, it will cause the submission of failed or failed execution
 
 ### `async_load_task_pool_size`
 
-This configuration is just for compatible with old version, this config has been replaced by async_pending_load_task_pool_size and
-
-async_loading_load_task_pool_size, it will be removed in next version.
+This configuration is just for compatible with old version, this config has been replaced by async_loading_load_task_pool_size, it will be removed in the future.
 
 ### `async_loading_load_task_pool_size`
 

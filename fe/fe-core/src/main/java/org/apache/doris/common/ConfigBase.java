@@ -154,6 +154,11 @@ public class ConfigBase {
             }
             
             setConfigField(f, confVal);
+
+            // to be compatible with old version
+            if (confKey.equalsIgnoreCase("async_load_task_pool_size")) {
+                Config.async_loading_load_task_pool_size = Config.async_load_task_pool_size;
+            }
         }       
     }
 

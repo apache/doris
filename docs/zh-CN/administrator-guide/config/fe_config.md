@@ -134,7 +134,7 @@ FE 的配置项有两种方式进行配置：
 
 ### `async_load_task_pool_size`
 
-此配置仅用于与旧版本兼容，该配置已由`async_pending_load_task_pool_size`和`async_loading_load_task_pool_size`，它将在下一版本中删除。
+此配置仅用于与旧版本兼容，该配置已经被`async_loading_load_task_pool_size`所取代，将来会被移除。
 
 ### `async_loading_load_task_pool_size`
 
