@@ -190,7 +190,7 @@ bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
         return true;
     }
     
-    if (zone_map.has_pass_all() && zone_map.pass_all()) {
+    if (zone_map.pass_all()) {
         return true;
     }
 
@@ -211,7 +211,7 @@ Status ColumnReader::_get_filtered_pages(
         if (_zone_map_match_condition(zone_maps[i], min_value.get(), max_value.get(),
                                       cond_column)) {
             bool should_read = true;
-            if (delete_condition != nullptr) {
+            if (delete_condition != nullptr && !zone_maps[i].pass_all()) {
                 int state = delete_condition->del_eval({min_value.get(), max_value.get()});
                 if (state == DEL_SATISFIED) {
                     should_read = false;

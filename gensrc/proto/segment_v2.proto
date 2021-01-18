@@ -132,7 +132,7 @@ message ZoneMapPB {
     // whether the zone has not-null value
     optional bool has_not_null = 4;
     // whether this zone is including all values;
-    optional bool pass_all = 5;
+    optional bool pass_all = 5 [default = false];
 }
 
 message ColumnMetaPB {
