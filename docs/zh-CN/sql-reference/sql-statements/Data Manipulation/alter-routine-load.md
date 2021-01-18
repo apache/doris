@@ -60,6 +60,8 @@ under the License.
     8. `strip_outer_array`
     9. `strict_mode`
     10. `timezone`
+    11. `num_as_string`
+    12. `fuzzy_parse`
 
 
 4. `data_source`
