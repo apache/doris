@@ -593,8 +593,8 @@ public class Config extends ConfigBase {
     public static int max_running_txn_num_per_db = 100;
 
     /**
-     * just for compatible with old version, this config has been replaced by async_pending_load_task_pool_size and
-     * async_loading_load_task_pool_size, it will be removed in next version
+     * This configuration is just for compatible with old version, this config has been replaced by async_pending_load_task_pool_size
+     * and async_loading_load_task_pool_size, it will be removed in next version
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int async_load_task_pool_size = 10;
