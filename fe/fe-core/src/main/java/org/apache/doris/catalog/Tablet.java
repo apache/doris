@@ -542,8 +542,7 @@ public class Tablet extends MetaObject implements Writable {
      * No need to check if backend is available. We consider all backends in 'backendsSet' are available,
      * If not, unavailable backends will be relocated by CalocateTableBalancer first.
      */
-    public TabletStatus getColocateHealthStatus(long visibleVersion, long visibleVersionHash,
-            int replicationNum, Set<Long> backendsSet) {
+    public TabletStatus getColocateHealthStatus(long visibleVersion, int replicationNum, Set<Long> backendsSet) {
 
         // 1. check if replicas' backends are mismatch
         Set<Long> replicaBackendIds = getBackendIds();
