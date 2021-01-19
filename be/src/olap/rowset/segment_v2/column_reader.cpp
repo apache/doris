@@ -141,7 +141,6 @@ Status ColumnReader::get_row_ranges_by_zone_map(
     RETURN_IF_ERROR(_ensure_index_loaded());
 
     std::vector<uint32_t> page_indexes;
-    LOG(INFO) << "_get_filtered_pages";
     RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_condition,
                                         delete_partial_filtered_pages, &page_indexes));
     RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
