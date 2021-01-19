@@ -55,6 +55,9 @@ import java.util.Set;
 
 public class CatalogRecycleBin extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(CatalogRecycleBin.class);
+    // erase meta at least after minEraseLatency milliseconds
+    // to avoid erase log ahead of drop log
+    private static final long minEraseLatency = 10 * 60 * 1000;  // 10 min
 
     private Map<Long, RecycleDatabaseInfo> idToDatabase;
     private Map<Long, RecycleTableInfo> idToTable;
@@ -130,10 +133,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     private synchronized boolean isExpire(long id, long currentTimeMs) {
-        if (currentTimeMs - idToRecycleTime.get(id) > Config.catalog_trash_expire_second * 1000L) {
-            return true;
-        }
-        return false;
+        long latency = currentTimeMs - idToRecycleTime.get(id);
+        return latency > minEraseLatency && latency > Config.catalog_trash_expire_second * 1000L;
     }
 
     private synchronized void eraseDatabase(long currentTimeMs) {
