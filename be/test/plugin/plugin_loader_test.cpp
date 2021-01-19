@@ -18,9 +18,9 @@
 #include "plugin/plugin_loader.h"
 
 #include <gtest/gtest.h>
-#include <libgen.h>
 
 #include "plugin/plugin.h"
+#include "test_util/test_util.h"
 #include "util/file_utils.h"
 
 namespace doris {
@@ -55,10 +55,8 @@ int close_plugin(void* ptr) {
 class PluginLoaderTest : public testing::Test {
 public:
     PluginLoaderTest() {
-        char buf[1024];
-        readlink("/proc/self/exe", buf, 1023);
-        char* dir_path = dirname(buf);
-        _path = std::string(dir_path);
+        _path = GetCurrentRunningDir();
+        EXPECT_FALSE(_path.empty());
     }
 
     ~PluginLoaderTest() {}

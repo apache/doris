@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <string>
+
 namespace doris {
 
 #define LOOP_LESS_OR_MORE(less, more) (AllowSlowTests() ? more : less)
@@ -26,5 +28,9 @@ bool GetBooleanEnvironmentVariable(const char* env_var_name);
 
 // Returns true if slow tests are runtime-enabled.
 bool AllowSlowTests();
+
+// Returns the path of the folder containing the currently running executable.
+// Empty string if get errors.
+std::string GetCurrentRunningDir();
 
 } // namespace doris
