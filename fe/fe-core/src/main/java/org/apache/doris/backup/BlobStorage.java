@@ -33,7 +33,7 @@ import java.util.Map;
 
 public abstract class BlobStorage implements Writable {
 
-    public static final String STORAGE_TYPE = "_S3_STORAGE_TYPE_";
+    public static final String STORAGE_TYPE = "_DORIS_STORAGE_TYPE_";
     private Map<String, String> properties = Maps.newHashMap();
     private String name;
     private StorageBackend.StorageType type;

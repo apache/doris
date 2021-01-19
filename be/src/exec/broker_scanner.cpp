@@ -25,6 +25,7 @@
 #include "exec/exec_node.h"
 #include "exec/local_file_reader.h"
 #include "exec/plain_text_line_reader.h"
+#include "exec/s3_reader.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 #include "exprs/expr.h"
@@ -152,6 +153,12 @@ Status BrokerScanner::open_file_reader() {
                                  range.path, start_offset);
         RETURN_IF_ERROR(broker_reader->open());
         _cur_file_reader = broker_reader;
+        break;
+    }
+    case TFileType::FILE_S3: {
+        S3Reader* s3_reader = new S3Reader(_params.properties, range.path, start_offset);
+        RETURN_IF_ERROR(s3_reader->open());
+        _cur_file_reader = s3_reader;
         break;
     }
     case TFileType::FILE_STREAM: {

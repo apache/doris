@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.NotImplementedException;
@@ -25,21 +24,27 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TStorageBackendType;
 
+import com.google.common.base.Strings;
+
 import org.apache.commons.lang3.StringUtils;
+import org.apache.log4j.Logger;
 
 import java.util.Map;
 
-public class StorageBackend implements ParseNode {
-    private String storageName;
+public class StorageBackend extends StorageDesc implements ParseNode {
+    private static Logger LOG = Logger.getLogger(StorageBackend.class);
+
     private String location;
     private StorageType storageType;
     private Map<String, String> properties;
 
     public StorageBackend(String storageName, String location, StorageType storageType, Map<String, String> properties) {
-        this.storageName = storageName;
+        this.name = storageName;
         this.location = location;
         this.storageType = storageType;
         this.properties = properties;
+        tryConvertToS3();
+        this.location = convertPathToS3(location);
     }
 
     public StorageType getStorageType() {
@@ -51,11 +56,11 @@ public class StorageBackend implements ParseNode {
     }
 
     public String getStorageName() {
-        return storageName;
+        return name;
     }
 
     public void setStorageName(String storageName) {
-        this.storageName = storageName;
+        this.name = storageName;
     }
 
     public String getLocation() {
@@ -76,17 +81,18 @@ public class StorageBackend implements ParseNode {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (this.storageType != StorageType.BROKER && StringUtils.isEmpty(storageName)) {
-            storageName = this.storageType.name();
+        if (this.storageType != StorageType.BROKER && StringUtils.isEmpty(name)) {
+            name = this.storageType.name();
         }
         if (this.storageType != StorageType.BROKER && this.storageType != StorageType.S3) {
             throw new NotImplementedException(this.storageType.toString() + " is not support now.");
         }
-        FeNameFormat.checkCommonName("repository", storageName);
+        FeNameFormat.checkCommonName("repository", name);
 
         if (Strings.isNullOrEmpty(location)) {
             throw new AnalysisException("You must specify a location on the repository");
         }
+        ExportStmt.checkPath(location, storageType);
     }
 
     @Override
@@ -94,10 +100,10 @@ public class StorageBackend implements ParseNode {
         StringBuilder sb = new StringBuilder();
         sb.append(storageType.name());
         if (storageType == StorageType.BROKER) {
-            sb.append(" `").append(storageName).append("`");
+            sb.append(" `").append(name).append("`");
         }
         sb.append(" ON LOCATION ").append(location).append(" PROPERTIES(")
-                .append(new PrintableMap<>(properties, " = ", true, false)).append(")");
+            .append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();
     }
 

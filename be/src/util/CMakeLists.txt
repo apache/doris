@@ -106,6 +106,7 @@ set(UTIL_FILES
   pprof_utils.cpp
   s3_uri.cpp
   s3_storage_backend.cpp
+  s3_util.cpp
   topn_counter.cpp
 )
 

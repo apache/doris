@@ -130,6 +130,17 @@ public class S3URI {
         return null;
     }
 
+    public String fullPath(String fileName) {
+        String base = location;
+        if (base.endsWith("*")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        if (!base.endsWith("/")) {
+            base = base + "/";
+        }
+        return base + fileName;
+    }
+
     @Override
     public String toString() {
         return location;

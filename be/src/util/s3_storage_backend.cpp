@@ -17,6 +17,7 @@
 
 #include "util/s3_storage_backend.h"
 
+#include <aws/s3/S3Client.h>
 #include <aws/s3/model/CopyObjectRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
@@ -30,49 +31,41 @@
 #include "common/logging.h"
 #include "gutil/strings/strip.h"
 #include "util/s3_uri.h"
+#include "util/s3_util.h"
 
 namespace doris {
 
-const std::string S3StorageBackend::_S3_AK = "AWS_ACCESS_KEY";
-const std::string S3StorageBackend::_S3_SK = "AWS_SECRET_KEY";
-const std::string S3StorageBackend::_S3_ENDPOINT = "AWS_ENDPOINT";
-const std::string S3StorageBackend::_S3_REGION = "AWS_REGION";
-
+#ifndef CHECK_S3_CLIENT
 #define CHECK_S3_CLIENT(client)                                    \
     if (!client) {                                                 \
         return Status::InternalError("init aws s3 client error."); \
     }
+#endif
 
+#ifndef CHECK_S3_PATH
 #define CHECK_S3_PATH(uri, path)                                      \
     S3URI uri(path);                                                  \
     if (!uri.parse()) {                                               \
         return Status::InvalidArgument("s3 uri is invalid: " + path); \
     }
+#endif
 
+#ifndef RETRUN_S3_STATUS
 #define RETRUN_S3_STATUS(response)                         \
     if (response.IsSuccess()) {                            \
         return Status::OK();                               \
     } else {                                               \
         return Status::InternalError(error_msg(response)); \
     }
+#endif
 
 S3StorageBackend::S3StorageBackend(const std::map<std::string, std::string>& prop)
-        : _properties(prop.begin(), prop.end()) {
-    if (_properties.find(_S3_AK) != _properties.end() &&
-        _properties.find(_S3_SK) != _properties.end() &&
-        _properties.find(_S3_ENDPOINT) != _properties.end() &&
-        _properties.find(_S3_REGION) != _properties.end()) {
-        _aws_cred.SetAWSAccessKeyId(_properties.find(_S3_AK)->second);
-        _aws_cred.SetAWSSecretKey(_properties.find(_S3_SK)->second);
-        DCHECK(!_aws_cred.IsExpiredOrEmpty());
-        _aws_config.endpointOverride = _properties.find(_S3_ENDPOINT)->second;
-        _aws_config.region = _properties.find(_S3_REGION)->second;
-        _client.reset(new Aws::S3::S3Client(_aws_cred, _aws_config));
-    } else {
-        _client.reset(nullptr);
-    }
+        : _properties(prop) {
+    _client = create_client(_properties);
     DCHECK(_client) << "init aws s3 client error.";
 }
+
+S3StorageBackend::~S3StorageBackend() {}
 
 Status S3StorageBackend::download(const std::string& remote, const std::string& local) {
     CHECK_S3_CLIENT(_client);

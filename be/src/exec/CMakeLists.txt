@@ -104,6 +104,8 @@ set(EXEC_FILES
     odbc_connector.cpp
     json_scanner.cpp
     assert_num_rows_node.cpp
+    s3_reader.cpp
+    s3_writer.cpp
 )
 
 if (WITH_MYSQL)

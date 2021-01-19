@@ -29,17 +29,17 @@ public:
     BrokerStorageBackend(ExecEnv* env, const TNetworkAddress& broker_addr,
                          const std::map<std::string, std::string>& broker_prop);
     ~BrokerStorageBackend() {}
-    Status download(const std::string& remote, const std::string& local);
-    Status upload(const std::string& local, const std::string& remote);
+    Status download(const std::string& remote, const std::string& local) override;
+    Status upload(const std::string& local, const std::string& remote) override;
     Status upload_with_checksum(const std::string& local, const std::string& remote,
-                                const std::string& checksum);
-    Status rename(const std::string& orig_name, const std::string& new_name);
-    Status list(const std::string& remote_path, std::map<std::string, FileStat>* files);
-    Status direct_upload(const std::string& remote, const std::string& content);
-    Status rm(const std::string& remote);
-    Status copy(const std::string& src, const std::string& dst);
-    Status mkdir(const std::string& path);
-    Status exist(const std::string& path);
+                                const std::string& checksum) override;
+    Status rename(const std::string& orig_name, const std::string& new_name) override;
+    Status list(const std::string& remote_path, std::map<std::string, FileStat>* files) override;
+    Status direct_upload(const std::string& remote, const std::string& content) override;
+    Status rm(const std::string& remote) override;
+    Status copy(const std::string& src, const std::string& dst) override;
+    Status mkdir(const std::string& path) override;
+    Status exist(const std::string& path) override;
 
 private:
     ExecEnv* _env;

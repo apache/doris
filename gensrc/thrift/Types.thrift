@@ -376,6 +376,8 @@ enum TFileType {
     FILE_LOCAL,
     FILE_BROKER,
     FILE_STREAM,    // file content is streaming in the buffer
+    FILE_S3,
+    FILE_HDFS,
 }
 
 struct TTabletCommitInfo {

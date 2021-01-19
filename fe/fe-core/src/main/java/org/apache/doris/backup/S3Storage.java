@@ -278,6 +278,10 @@ public class S3Storage extends BlobStorage {
 
     @Override
     public Status list(String remotePath, List<RemoteFile> result) {
+        return list(remotePath, result, true);
+    }
+
+    public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         S3URI uri = new S3URI(remotePath);
         try {
             ListObjectsResponse response =
@@ -292,7 +296,12 @@ public class S3Storage extends BlobStorage {
             Preconditions.checkNotNull(response);
             for (ListIterator iter = response.contents().listIterator(); iter.hasNext(); ) {
                 S3Object obj = (S3Object) iter.next();
-                String fileName = uri.filterFile(obj.key());
+                String fileName = obj.key();
+                fileName = uri.filterFile(fileName);
+
+                if (!fileNameOnly) {
+                    fileName = uri.fullPath(fileName);
+                }
                 if (fileName != null) {
                     result.add(new RemoteFile(fileName, true, obj.size()));
                 }
@@ -302,6 +311,9 @@ public class S3Storage extends BlobStorage {
                 if (dirName != null) {
                     if (dirName.endsWith("/")) {
                         dirName = dirName.substring(0, dirName.length() - 1);
+                    }
+                    if (!fileNameOnly) {
+                        dirName = uri.fullPath(dirName);
                     }
                     result.add(new RemoteFile(dirName, false, -1));
                 }

@@ -17,40 +17,36 @@
 
 #pragma once
 
-#include <aws/core/Aws.h>
-#include <aws/core/auth/AWSCredentials.h>
-#include <aws/s3/S3Client.h>
 #include <util/storage_backend.h>
-#include <util/string_util.h>
+
+namespace Aws {
+namespace S3 {
+class S3Client;
+} // namespace S3
+} // namespace Aws
 
 namespace doris {
 
 class S3StorageBackend : public StorageBackend {
 public:
     S3StorageBackend(const std::map<std::string, std::string>& prop);
-    ~S3StorageBackend() {}
-    Status download(const std::string& remote, const std::string& local);
-    Status upload(const std::string& local, const std::string& remote);
+    ~S3StorageBackend();
+    Status download(const std::string& remote, const std::string& local) override;
+    Status upload(const std::string& local, const std::string& remote) override;
     Status upload_with_checksum(const std::string& local, const std::string& remote,
-                                const std::string& checksum);
-    Status list(const std::string& remote_path, std::map<std::string, FileStat>* files);
-    Status rename(const std::string& orig_name, const std::string& new_name);
-    Status direct_upload(const std::string& remote, const std::string& content);
-    Status rm(const std::string& remote);
-    Status copy(const std::string& src, const std::string& dst);
-    Status mkdir(const std::string& path);
-    Status exist(const std::string& path);
+                                const std::string& checksum) override;
+    Status list(const std::string& remote_path, std::map<std::string, FileStat>* files) override;
+    Status rename(const std::string& orig_name, const std::string& new_name) override;
+    Status direct_upload(const std::string& remote, const std::string& content) override;
+    Status rm(const std::string& remote) override;
+    Status copy(const std::string& src, const std::string& dst) override;
+    Status mkdir(const std::string& path) override;
+    Status exist(const std::string& path) override;
 
 private:
     template <typename AwsOutcome>
     std::string error_msg(const AwsOutcome& outcome);
-    static const std::string _S3_AK;
-    static const std::string _S3_SK;
-    static const std::string _S3_ENDPOINT;
-    static const std::string _S3_REGION;
-    const StringCaseMap<std::string> _properties;
-    Aws::Auth::AWSCredentials _aws_cred;
-    Aws::Client::ClientConfiguration _aws_config;
+    const std::map<std::string, std::string>& _properties;
     std::unique_ptr<Aws::S3::S3Client> _client;
 };
 

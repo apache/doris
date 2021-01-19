@@ -36,6 +36,7 @@ public:
     virtual Status list(const std::string& remote_path, std::map<std::string, FileStat>* files) = 0;
     virtual Status rename(const std::string& orig_name, const std::string& new_name) = 0;
     virtual Status direct_upload(const std::string& remote, const std::string& content) = 0;
+    virtual Status copy(const std::string& src, const std::string& dst) = 0;
     virtual Status rm(const std::string& remote) = 0;
     virtual Status mkdir(const std::string& path) = 0;
     virtual Status exist(const std::string& path) = 0;
