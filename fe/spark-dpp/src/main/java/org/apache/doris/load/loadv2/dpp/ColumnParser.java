@@ -34,8 +34,8 @@ public abstract class ColumnParser implements Serializable {
     protected static final Logger LOG = LogManager.getLogger(ColumnParser.class);
 
     // thread safe formatter
-    public static final DateTimeFormatter DATE_FORMATTER = DateTimeFormat.forPattern("YYYY-MM-DD");
-    public static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormat.forPattern("YYYY-MM-DD HH:MM:SS");
+    public static final DateTimeFormatter DATE_FORMATTER = DateTimeFormat.forPattern("yyyy-MM-dd");
+    public static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss");
 
     public static ColumnParser create(EtlJobConfig.EtlColumn etlColumn) throws SparkDppException {
         String columnType = etlColumn.columnType;

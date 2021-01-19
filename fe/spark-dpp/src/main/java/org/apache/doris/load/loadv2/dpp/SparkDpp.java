@@ -890,7 +890,7 @@ public final class SparkDpp implements java.io.Serializable {
             // case 2: bitmap hash function; this func is not supported in spark load now, so ignore it here
             // case 3: origin value is a integer value; it should be checked use LongParser
             if (StringUtils.equalsIgnoreCase(column.columnType, "bitmap")) {
-                if (dictBitmapColumnSet.contains(column.columnName)) {
+                if (dictBitmapColumnSet.contains(column.columnName.toLowerCase())) {
                     continue;
                 } else {
                     columnNameNeedCheckArrayList.add(column);
