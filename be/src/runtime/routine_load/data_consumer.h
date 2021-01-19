@@ -115,7 +115,7 @@ public:
               _topic(ctx->kafka_info->topic) {}
 
     virtual ~KafkaDataConsumer() {
-        VLOG(3) << "deconstruct consumer";
+        VLOG_NOTICE << "deconstruct consumer";
         if (_k_consumer) {
             _k_consumer->close();
             delete _k_consumer;

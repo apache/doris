@@ -131,7 +131,7 @@ protected:
             h.pop();
         }
 
-        VLOG(1) << s.str() << "\n]";
+        VLOG_CRITICAL << s.str() << "\n]";
     }
 
     // In order to ensure the accuracy of the query result

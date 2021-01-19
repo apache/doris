@@ -83,7 +83,7 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
 
 OLAPStatus Tablet::_init_once_action() {
     OLAPStatus res = OLAP_SUCCESS;
-    VLOG(3) << "begin to load tablet. tablet=" << full_name()
+    VLOG_NOTICE << "begin to load tablet. tablet=" << full_name()
             << ", version_size=" << _tablet_meta->version_count();
 
     // init cumulative compaction policy by type
@@ -176,7 +176,7 @@ OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& ro
         for (auto& rs_meta : rowsets_to_clone) {
             new_tablet_meta->add_rs_meta(rs_meta);
         }
-        VLOG(3) << "load rowsets successfully when clone. tablet=" << full_name()
+        VLOG_NOTICE << "load rowsets successfully when clone. tablet=" << full_name()
                 << ", added rowset size=" << rowsets_to_clone.size();
         // save and reload tablet_meta
         res = new_tablet_meta->save_meta(_data_dir);
@@ -296,7 +296,7 @@ void Tablet::modify_rowsets(const std::vector<RowsetSharedPtr>& to_add,
 const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) const {
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
-        VLOG(3) << "no rowset for version:" << version << ", tablet: " << full_name();
+        VLOG_NOTICE << "no rowset for version:" << version << ", tablet: " << full_name();
         return nullptr;
     }
     return iter->second;
@@ -305,7 +305,7 @@ const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) cons
 const RowsetSharedPtr Tablet::get_stale_rowset_by_version(const Version& version) const {
     auto iter = _stale_rs_version_map.find(version);
     if (iter == _stale_rs_version_map.end()) {
-        VLOG(3) << "no rowset for version:" << version << ", tablet: " << full_name();
+        VLOG_NOTICE << "no rowset for version:" << version << ", tablet: " << full_name();
         return nullptr;
     }
     return iter->second;
@@ -317,7 +317,7 @@ const RowsetSharedPtr Tablet::get_stale_rowset_by_version(const Version& version
 const RowsetSharedPtr Tablet::get_inc_rowset_by_version(const Version& version) const {
     auto iter = _inc_rs_version_map.find(version);
     if (iter == _inc_rs_version_map.end()) {
-        VLOG(3) << "no rowset for version:" << version << ", tablet: " << full_name();
+        VLOG_NOTICE << "no rowset for version:" << version << ", tablet: " << full_name();
         return nullptr;
     }
     return iter->second;
@@ -383,7 +383,7 @@ void Tablet::_delete_inc_rowset_by_version(const Version& version,
         return;
     }
     _tablet_meta->delete_inc_rs_meta_by_version(version);
-    VLOG(3) << "delete incremental rowset. tablet=" << full_name() << ", version=" << version;
+    VLOG_NOTICE << "delete incremental rowset. tablet=" << full_name() << ", version=" << version;
 }
 
 void Tablet::_delete_stale_rowset_by_version(const Version& version) {
@@ -392,7 +392,7 @@ void Tablet::_delete_stale_rowset_by_version(const Version& version) {
         return;
     }
     _tablet_meta->delete_stale_rs_meta_by_version(version);
-    VLOG(3) << "delete stale rowset. tablet=" << full_name() << ", version=" << version;
+    VLOG_NOTICE << "delete stale rowset. tablet=" << full_name() << ", version=" << version;
 }
 
 void Tablet::delete_expired_inc_rowsets() {
@@ -404,7 +404,7 @@ void Tablet::delete_expired_inc_rowsets() {
         if (diff >= config::inc_rowset_expired_sec) {
             Version version(rs_meta->version());
             expired_versions.push_back(std::make_pair(version, rs_meta->version_hash()));
-            VLOG(3) << "find expire incremental rowset. tablet=" << full_name()
+            VLOG_NOTICE << "find expire incremental rowset. tablet=" << full_name()
                     << ", version=" << version << ", version_hash=" << rs_meta->version_hash()
                     << ", exist_sec=" << diff;
         }
@@ -416,7 +416,7 @@ void Tablet::delete_expired_inc_rowsets() {
 
     for (auto& pair : expired_versions) {
         _delete_inc_rowset_by_version(pair.first, pair.second);
-        VLOG(3) << "delete expire incremental data. tablet=" << full_name()
+        VLOG_NOTICE << "delete expire incremental data. tablet=" << full_name()
                 << ", version=" << pair.first;
     }
 
@@ -667,7 +667,7 @@ OLAPStatus Tablet::capture_rs_readers(const std::vector<Version>& version_path,
     for (auto version : version_path) {
         auto it = _rs_version_map.find(version);
         if (it == _rs_version_map.end()) {
-            VLOG(3) << "fail to find Rowset in rs_version for version. tablet=" << full_name()
+            VLOG_NOTICE << "fail to find Rowset in rs_version for version. tablet=" << full_name()
                     << ", version='" << version.first << "-" << version.second;
 
             it = _stale_rs_version_map.find(version);
@@ -938,7 +938,7 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
 
     // 如果找不到合适的rowset，就直接返回startkey，endkey
     if (rowset == nullptr) {
-        VLOG(3) << "there is no base file now, may be tablet is empty.";
+        VLOG_NOTICE << "there is no base file now, may be tablet is empty.";
         // it may be right if the tablet is empty, so we return success.
         ranges->emplace_back(start_key.to_tuple());
         ranges->emplace_back(end_key.to_tuple());

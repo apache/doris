@@ -99,7 +99,7 @@ Status EsHttpScanNode::build_conjuncts_list() {
             _predicates.push_back(predicate);
             _predicate_to_conjunct.push_back(i);
         } else {
-            VLOG(1) << status.get_error_msg();
+            VLOG_CRITICAL << status.get_error_msg();
             status = predicate->get_es_query_status();
             if (!status.ok()) {
                 LOG(WARNING) << status.get_error_msg();

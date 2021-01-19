@@ -448,7 +448,7 @@ void PartitionedHashTable::Close() {
     const int64_t LARGE_HT = 128 * 1024;
     const int64_t HEAVILY_USED = 1024 * 1024;
     // TODO: These statistics should go to the runtime profile as well.
-    if ((num_buckets_ > LARGE_HT) || (num_probes_ > HEAVILY_USED)) VLOG(2) << PrintStats();
+    if ((num_buckets_ > LARGE_HT) || (num_probes_ > HEAVILY_USED)) VLOG_CRITICAL << PrintStats();
     for (auto& data_page : data_pages_) allocator_->Free(move(data_page));
     data_pages_.clear();
     if (bucket_allocation_ != nullptr) allocator_->Free(move(bucket_allocation_));
@@ -474,7 +474,7 @@ Status PartitionedHashTable::ResizeBuckets(int64_t num_buckets,
     DCHECK_GT(num_buckets, num_filled_buckets_)
             << "Cannot shrink the hash table to smaller number of buckets than the number of "
             << "filled buckets.";
-    VLOG(2) << "Resizing hash table from " << num_buckets_ << " to " << num_buckets << " buckets.";
+    VLOG_CRITICAL << "Resizing hash table from " << num_buckets_ << " to " << num_buckets << " buckets.";
     if (max_num_buckets_ != -1 && num_buckets > max_num_buckets_) {
         *got_memory = false;
         return Status::OK();

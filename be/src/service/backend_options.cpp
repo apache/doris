@@ -54,7 +54,7 @@ bool BackendOptions::init() {
     std::vector<InetAddress>::iterator addr_it = hosts.begin();
     for (; addr_it != hosts.end(); ++addr_it) {
         if ((*addr_it).is_address_v4()) {
-            VLOG(2) << "check ip=" << addr_it->get_host_address_v4();
+            VLOG_CRITICAL << "check ip=" << addr_it->get_host_address_v4();
             if ((*addr_it).is_loopback_v4()) {
                 loopback = addr_it->get_host_address_v4();
             } else if (!_s_priority_cidrs.empty()) {

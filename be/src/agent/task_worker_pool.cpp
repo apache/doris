@@ -639,7 +639,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
         }
 
         if (status == DORIS_SUCCESS) {
-            VLOG(3) << "push ok. signature: " << agent_task_req.signature
+            VLOG_NOTICE << "push ok. signature: " << agent_task_req.signature
                     << ", push_type: " << push_req.push_type;
             error_msgs.push_back("push success");
 

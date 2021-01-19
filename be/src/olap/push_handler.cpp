@@ -105,7 +105,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
     // only when fe sends schema_change true, should consider to push related
     // tablet
     if (_request.is_schema_changing) {
-        VLOG(3) << "push req specify schema changing is true. "
+        VLOG_NOTICE << "push req specify schema changing is true. "
                 << "tablet=" << tablet->full_name()
                 << ", transaction_id=" << request.transaction_id;
         AlterTabletTaskSharedPtr alter_task = tablet->alter_task();
@@ -267,10 +267,10 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
     load_id.set_lo(0);
 
     do {
-        VLOG(3) << "start to convert delta file.";
+        VLOG_NOTICE << "start to convert delta file.";
 
         // 1. init RowsetBuilder of cur_tablet for current push
-        VLOG(3) << "init rowset builder. tablet=" << cur_tablet->full_name()
+        VLOG_NOTICE << "init rowset builder. tablet=" << cur_tablet->full_name()
                 << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
         RowsetWriterContext context;
         context.rowset_id = StorageEngine::instance()->next_rowset_id();
@@ -337,7 +337,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
 
             // 4. Read data from broker and write into SegmentGroup of cur_tablet
             // Convert from raw to delta
-            VLOG(3) << "start to convert etl file to delta.";
+            VLOG_NOTICE << "start to convert etl file to delta.";
             while (!reader->eof()) {
                 res = reader->next(&row);
                 if (OLAP_SUCCESS != res) {
@@ -377,7 +377,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
         _write_rows += (*cur_rowset)->num_rows();
 
         // 5. Convert data for schema change tables
-        VLOG(10) << "load to related tables of schema_change if possible.";
+        VLOG_TRACE << "load to related tables of schema_change if possible.";
         if (new_tablet != nullptr) {
             SchemaChangeHandler schema_change;
             res = schema_change.schema_version_convert(cur_tablet, new_tablet, cur_rowset,
@@ -390,7 +390,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
         }
     } while (0);
 
-    VLOG(10) << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->full_name()
+    VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->full_name()
              << ", processed_rows" << num_rows;
     return res;
 }
@@ -407,7 +407,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
     load_id.set_lo(0);
 
     do {
-        VLOG(3) << "start to convert delta file.";
+        VLOG_NOTICE << "start to convert delta file.";
 
         // 1. Init BinaryReader to read raw file if exist,
         //    in case of empty push and delete data, this will be skipped.
@@ -453,7 +453,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
         }
 
         // 2. init RowsetBuilder of cur_tablet for current push
-        VLOG(3) << "init RowsetBuilder.";
+        VLOG_NOTICE << "init RowsetBuilder.";
         RowsetWriterContext context;
         context.rowset_id = StorageEngine::instance()->next_rowset_id();
         context.tablet_uid = cur_tablet->tablet_uid();
@@ -483,7 +483,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
         }
 
         // 3. New RowsetBuilder to write data into rowset
-        VLOG(3) << "init rowset builder. tablet=" << cur_tablet->full_name()
+        VLOG_NOTICE << "init rowset builder. tablet=" << cur_tablet->full_name()
                 << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
 
         // 4. Init RowCursor
@@ -495,7 +495,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
         // 5. Read data from raw file and write into SegmentGroup of cur_tablet
         if (_request.__isset.http_file_path) {
             // Convert from raw to delta
-            VLOG(3) << "start to convert row file to delta.";
+            VLOG_NOTICE << "start to convert row file to delta.";
             while (!reader->eof()) {
                 res = reader->next(&row);
                 if (OLAP_SUCCESS != res) {
@@ -538,7 +538,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
         _write_rows += (*cur_rowset)->num_rows();
 
         // 7. Convert data for schema change tables
-        VLOG(10) << "load to related tables of schema_change if possible.";
+        VLOG_TRACE << "load to related tables of schema_change if possible.";
         if (new_tablet != nullptr) {
             SchemaChangeHandler schema_change;
             res = schema_change.schema_version_convert(cur_tablet, new_tablet, cur_rowset,
@@ -552,7 +552,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
     } while (0);
 
     SAFE_DELETE(reader);
-    VLOG(10) << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->full_name()
+    VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->full_name()
              << ", processed_rows" << num_rows;
     return res;
 }

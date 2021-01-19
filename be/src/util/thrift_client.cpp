@@ -35,7 +35,7 @@ Status ThriftClientImpl::open() {
         try {
             _transport->close();
         } catch (const apache::thrift::transport::TTransportException& e) {
-            VLOG(1) << "Error closing socket to: " << ipaddress() << ":" << port() << ", ignoring ("
+            VLOG_CRITICAL << "Error closing socket to: " << ipaddress() << ":" << port() << ", ignoring ("
                     << e.what() << ")";
         }
         // In certain cases in which the remote host is overloaded, this failure can
@@ -43,7 +43,7 @@ Status ThriftClientImpl::open() {
         // trace as there aren't many callers of this function.
         const std::string& err_msg = strings::Substitute("Couldn't open transport for $0:$1 ($2)",
                                                          ipaddress(), port(), e.what());
-        VLOG(1) << err_msg;
+        VLOG_CRITICAL << err_msg;
         return Status::ThriftRpcError(err_msg);
     }
     return Status::OK();

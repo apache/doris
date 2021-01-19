@@ -41,7 +41,7 @@ OdbcScanNode::OdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
 OdbcScanNode::~OdbcScanNode() {}
 
 Status OdbcScanNode::prepare(RuntimeState* state) {
-    VLOG(1) << "OdbcScanNode::Prepare";
+    VLOG_CRITICAL << "OdbcScanNode::Prepare";
 
     if (_is_init) {
         return Status::OK();
@@ -90,7 +90,7 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
 
 Status OdbcScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
-    VLOG(1) << "OdbcScanNode::Open";
+    VLOG_CRITICAL << "OdbcScanNode::Open";
 
     if (NULL == state) {
         return Status::InternalError("input pointer is NULL.");
@@ -123,7 +123,7 @@ Status OdbcScanNode::write_text_slot(char* value, int value_length, SlotDescript
 }
 
 Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    VLOG(1) << "OdbcScanNode::GetNext";
+    VLOG_CRITICAL << "OdbcScanNode::GetNext";
 
     if (NULL == state || NULL == row_batch || NULL == eos) {
         return Status::InternalError("input is NULL pointer");

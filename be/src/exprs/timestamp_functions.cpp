@@ -457,7 +457,7 @@ void TimestampFunctions::format_prepare(doris_udf::FunctionContext* context,
     if (scope != FunctionContext::FRAGMENT_LOCAL || context->get_num_args() < 2 ||
         context->get_arg_type(1)->type != doris_udf::FunctionContext::Type::TYPE_VARCHAR ||
         !context->is_arg_constant(1)) {
-        VLOG(10) << "format_prepare returned";
+        VLOG_TRACE << "format_prepare returned";
         return;
     }
 

@@ -64,7 +64,7 @@ OLAPStatus AlphaRowset::create_reader(const std::shared_ptr<MemTracker>& parent_
 }
 
 OLAPStatus AlphaRowset::remove() {
-    VLOG(3) << "begin to remove files in rowset " << unique_id() << ", version:" << start_version()
+    VLOG_NOTICE << "begin to remove files in rowset " << unique_id() << ", version:" << start_version()
             << "-" << end_version() << ", tabletid:" << _rowset_meta->tablet_id();
     for (auto segment_group : _segment_groups) {
         bool ret = segment_group->delete_all_files();
@@ -201,7 +201,7 @@ OLAPStatus AlphaRowset::split_range(const RowCursor& start_key, const RowCursor&
     }
 
     step_pos = start_pos;
-    VLOG(3) << "start_pos=" << start_pos.segment << ", " << start_pos.index_offset;
+    VLOG_NOTICE << "start_pos=" << start_pos.segment << ", " << start_pos.index_offset;
 
     //find last row_block is end_key is given, or using last_row_block
     if (largest_segment_group->find_short_key(end_key, &helper_cursor, false, &end_pos) !=
@@ -212,7 +212,7 @@ OLAPStatus AlphaRowset::split_range(const RowCursor& start_key, const RowCursor&
         }
     }
 
-    VLOG(3) << "end_pos=" << end_pos.segment << ", " << end_pos.index_offset;
+    VLOG_NOTICE << "end_pos=" << end_pos.segment << ", " << end_pos.index_offset;
 
     //get rows between first and last
     OLAPStatus res = OLAP_SUCCESS;
@@ -330,7 +330,7 @@ OLAPStatus AlphaRowset::init() {
             // table value column, so when first start the two number is not the same,
             // it causes start failed. When `expect_zone_maps_num > zone_maps_size` it may be the first start after upgrade
             if (expect_zone_maps_num > zone_maps_size) {
-                VLOG(1) << "tablet: " << _rowset_meta->tablet_id() << " expect zone map size is "
+                VLOG_CRITICAL << "tablet: " << _rowset_meta->tablet_id() << " expect zone map size is "
                         << expect_zone_maps_num << ", actual num is " << zone_maps_size
                         << ". If this is not the first start after upgrade, please pay attention!";
             }

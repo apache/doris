@@ -111,7 +111,7 @@ OLAPStatus Mutex::lock() {
 OLAPStatus Mutex::trylock() {
     int rv = pthread_mutex_trylock(&_lock);
     if (rv != 0) {
-        VLOG(3) << "failed to got the mutex lock. error=" << strerror(rv);
+        VLOG_NOTICE << "failed to got the mutex lock. error=" << strerror(rv);
         return OLAP_ERR_RWLOCK_ERROR;
     }
     return OLAP_SUCCESS;
@@ -159,7 +159,7 @@ OLAPStatus RWMutex::rdlock() {
 
 OLAPStatus RWMutex::tryrdlock() {
     if (0 != pthread_rwlock_tryrdlock(&_lock)) {
-        VLOG(3) << "failed to got the rwlock rdlock. err=" << strerror(errno);
+        VLOG_NOTICE << "failed to got the rwlock rdlock. err=" << strerror(errno);
         return OLAP_ERR_RWLOCK_ERROR;
     }
 
@@ -168,7 +168,7 @@ OLAPStatus RWMutex::tryrdlock() {
 
 OLAPStatus RWMutex::trywrlock() {
     if (0 != pthread_rwlock_trywrlock(&_lock)) {
-        VLOG(3) << "failed to got the rwlock rdlock. err=" << strerror(errno);
+        VLOG_NOTICE << "failed to got the rwlock rdlock. err=" << strerror(errno);
         return OLAP_ERR_RWLOCK_ERROR;
     }
 
