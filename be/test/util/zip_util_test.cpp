@@ -18,7 +18,6 @@
 #include "util/zip_util.h"
 
 #include <gtest/gtest.h>
-#include <libgen.h>
 
 #include <iostream>
 #include <string>
@@ -27,16 +26,14 @@
 #include "gutil/strings/util.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 
 using namespace strings;
 
 TEST(ZipUtilTest, basic) {
-    char buf[1024];
-    readlink("/proc/self/exe", buf, 1023);
-    char* dir_path = dirname(buf);
-    std::string path(dir_path);
+    std::string path = GetCurrentRunningDir();
 
     FileUtils::remove_all(path + "/test_data/target");
 
@@ -59,10 +56,7 @@ TEST(ZipUtilTest, basic) {
 }
 
 TEST(ZipUtilTest, dir) {
-    char buf[1024];
-    readlink("/proc/self/exe", buf, 1023);
-    char* dir_path = dirname(buf);
-    std::string path(dir_path);
+    std::string path = GetCurrentRunningDir();
 
     FileUtils::remove_all(path + "/test_data/target");
 
@@ -91,10 +85,7 @@ TEST(ZipUtilTest, dir) {
 }
 
 TEST(ZipUtilTest, targetAlready) {
-    char buf[1024];
-    readlink("/proc/self/exe", buf, 1023);
-    char* dir_path = dirname(buf);
-    std::string path(dir_path);
+    std::string path = GetCurrentRunningDir();
 
     ZipFile f(path + "/test_data/zip_normal.zip");
 
@@ -104,10 +95,7 @@ TEST(ZipUtilTest, targetAlready) {
 }
 
 TEST(ZipUtilTest, notzip) {
-    char buf[1024];
-    readlink("/proc/self/exe", buf, 1023);
-    char* dir_path = dirname(buf);
-    std::string path(dir_path);
+    std::string path = GetCurrentRunningDir();
 
     ZipFile f(path + "/test_data/zip_normal_data");
     Status st = f.extract("test", "test");
