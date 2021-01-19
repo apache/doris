@@ -180,7 +180,7 @@ public class MetaService {
             if (Catalog.getCurrentCatalog().isMaster()) {
                 response.appendContent("this node is master, reject image put");
                 writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
-                LOG.error("this node is master, but receive image put from host{}, reject it", machine);
+                LOG.error("this node is master, but receive image put from host {}, reject it", machine);
                 return;
             }
 
@@ -188,7 +188,8 @@ public class MetaService {
             // if accepted, newly added log will not be replayed when restart
             long maxJournalId = Catalog.getCurrentCatalog().getMaxJournalId();
             if (version > maxJournalId) {
-                response.appendContent("image version is bigger than local max journal id, reject image put");
+                response.appendContent("image version [" + version + "] is bigger than local max journal id ["
+                                               + maxJournalId + "], reject image put");
                 writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
                 LOG.error("receive image whose version [{}] is bigger than local max journal id [{}], reject it",
                           version, maxJournalId);
