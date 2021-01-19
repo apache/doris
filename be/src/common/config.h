@@ -557,7 +557,7 @@ CONF_mInt32(max_tablet_version_num, "500");
 CONF_String(thrift_server_type_of_fe, "THREAD_POOL");
 
 // disable zone map index when page row is too few
-CONF_mInt32(zone_map_row_num_threshold, "100");
+CONF_mInt32(zone_map_row_num_threshold, "20");
 
 } // namespace config
 

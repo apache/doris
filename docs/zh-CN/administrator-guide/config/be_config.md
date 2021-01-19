@@ -864,3 +864,10 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 * 默认值：8040
 
 ### `write_buffer_size`
+
+### `zone_map_row_num_threshold`
+
+* 类型： int32
+* 描述: 如果一个page中的行数小于这个值就不会创建zonemap，用来减少数据膨胀
+* 默认值: 20
+
