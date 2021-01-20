@@ -110,7 +110,10 @@ public class CoordinatorTest extends Coordinator {
         // 2. set bucketSeqToScanRange in coordinator
         BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
         Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
-        ScanRangeMap.put(scanNodeId, new ArrayList<>());
+        List<TScanRangeParams> scanRangeParamsList = new ArrayList<>();
+        scanRangeParamsList.add(new TScanRangeParams());
+
+        ScanRangeMap.put(scanNodeId, scanRangeParamsList);
         for (int i = 0; i < 3; i++) {
             bucketSeqToScanRange.put(i, ScanRangeMap);
         }
@@ -119,6 +122,13 @@ public class CoordinatorTest extends Coordinator {
         FragmentExecParams params = new FragmentExecParams(null);
         Deencapsulation.invoke(coordinator, "computeColocateJoinInstanceParam", planFragmentId, 1, params);
         Assert.assertEquals(1, params.instanceExecParams.size());
+
+        // check whether one instance have 3 tablet to scan
+        for (FInstanceExecParam instanceExecParam : params.instanceExecParams) {
+            for (List<TScanRangeParams> tempScanRangeParamsList :instanceExecParam.perNodeScanRanges.values()) {
+                Assert.assertEquals(3, tempScanRangeParamsList.size());
+            }
+        }
 
         params = new FragmentExecParams(null);
         Deencapsulation.invoke(coordinator, "computeColocateJoinInstanceParam", planFragmentId, 2, params);
