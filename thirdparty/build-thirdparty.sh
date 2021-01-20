@@ -710,6 +710,71 @@ build_tsan_header() {
     cp $TSAN_HEADER_FILE $TP_INSTALL_DIR/include/sanitizer/
 }
 
+# aws-c-common
+build_aws_c_common() {
+    check_if_source_exist $AWS_C_COMMON_SOURCE
+    cd $TP_SOURCE_DIR/$AWS_C_COMMON_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF
+    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+}
+
+# aws-c-event-stream
+build_aws_c_event_stream() {
+    check_if_source_exist $AWS_C_EVENT_STREAM_SOURCE
+    cd $TP_SOURCE_DIR/$AWS_C_EVENT_STREAM_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR  -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF \
+    -DBUILD_TESTING=OFF
+    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+}
+
+# aws-checksums
+build_aws_checksums() {
+    check_if_source_exist $AWS_CHECKSUMS_SOURCE
+    cd $TP_SOURCE_DIR/$AWS_CHECKSUMS_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF
+    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+}
+
+# aws-c-io
+build_aws_c_io() {
+    check_if_source_exist $AWS_C_IO_SOURCE
+    cd $TP_SOURCE_DIR/$AWS_C_IO_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF
+    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+}
+
+# aws-s2n
+build_aws_s2n() {
+    check_if_source_exist $AWS_S2N_SOURCE
+    cd $TP_SOURCE_DIR/$AWS_S2N_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF
+    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+}
+
+# aws-c-cal
+build_aws_c_cal() {
+    check_if_source_exist $AWS_C_CAL_SOURCE
+    cd $TP_SOURCE_DIR/$AWS_C_CAL_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    cmake -G "${GENERATOR}" .. -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF
+    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+}
+
+# aws_sdk
+build_aws_sdk() {
+    check_if_source_exist $AWS_SDK_SOURCE
+    cd $TP_SOURCE_DIR/$AWS_SDK_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    $CMAKE_CMD -G "${GENERATOR}" .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DBUILD_DEPS=OFF -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
+    -DCMAKE_MODULE_PATH=$TP_INSTALL_DIR/lib64/cmake -DBUILD_ONLY="s3"
+    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+}
 # See https://github.com/apache/incubator-doris/issues/2910
 # LLVM related codes have already be removed in master, so there is
 # no need to build llvm tool here.
@@ -747,7 +812,14 @@ build_bitshuffle
 build_croaringbitmap
 build_orc
 build_cctz
-build_js_and_css
 build_tsan_header
+# build_aws_c_common
+# build_aws_s2n
+# build_aws_c_cal
+# build_aws_c_io
+# build_aws_checksums
+# build_aws_c_event_stream
+# build_aws_sdk
+build_js_and_css
 
 echo "Finihsed to build all thirdparties"
