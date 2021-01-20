@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
@@ -30,17 +29,19 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
 
-import com.google.common.base.Strings;
-import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * This class represents the column-related metadata.
@@ -533,5 +534,32 @@ public class Column implements Writable {
             String json = Text.readString(in);
             return GsonUtils.GSON.fromJson(json, Column.class);
         }
+    }
+
+    // Gen a signature string of this column, contains:
+    // name, type, is key, nullable, aggr type, default
+    public String getSignatureString(Map<PrimitiveType, String> typeStringMap) {
+        PrimitiveType dataType = getDataType();
+        StringBuilder sb = new StringBuilder(name);
+        switch (dataType) {
+            case CHAR:
+                sb.append(String.format(typeStringMap.get(dataType), getStrLen()));
+                break;
+            case VARCHAR:
+                sb.append(String.format(typeStringMap.get(dataType), getStrLen()));
+                break;
+            case DECIMAL:
+            case DECIMALV2:
+                sb.append(String.format(typeStringMap.get(dataType), getPrecision(), getScale()));
+                break;
+            default:
+                sb.append(typeStringMap.get(dataType));
+                break;
+        }
+        sb.append(isKey);
+        sb.append(isAllowNull);
+        sb.append(aggregationType);
+        sb.append(defaultValue == null ? "" : defaultValue);
+        return sb.toString();
     }
 }
