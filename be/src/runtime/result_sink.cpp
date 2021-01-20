@@ -44,6 +44,8 @@ ResultSink::ResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& 
         CHECK(sink.__isset.file_options);
         _file_opts.reset(new ResultFileOptions(sink.file_options));
     }
+
+    _name = "ResultSink";
 }
 
 ResultSink::~ResultSink() {}

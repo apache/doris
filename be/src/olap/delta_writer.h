@@ -112,6 +112,7 @@ private:
 
     StorageEngine* _storage_engine;
     std::unique_ptr<FlushToken> _flush_token;
+    std::shared_ptr<MemTracker> _parent_mem_tracker;
     std::shared_ptr<MemTracker> _mem_tracker;
 
     SpinLock _lock;
