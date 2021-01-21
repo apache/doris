@@ -37,6 +37,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -45,13 +46,13 @@ import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -85,13 +86,12 @@ public abstract class BulkLoadJob extends LoadJob {
     // we persist these sessionVariables due to the session is not available when replaying the job.
     private Map<String, String> sessionVariables = Maps.newHashMap();
 
-    // only for log replay
-    public BulkLoadJob() {
-        super();
+    public BulkLoadJob(EtlJobType jobType) {
+        super(jobType);
     }
 
-    public BulkLoadJob(long dbId, String label, OriginStatement originStmt, UserIdentity userInfo) throws MetaNotFoundException {
-        super(dbId, label);
+    public BulkLoadJob(EtlJobType jobType, long dbId, String label, OriginStatement originStmt, UserIdentity userInfo) throws MetaNotFoundException {
+        super(jobType, dbId, label);
         this.originStmt = originStmt;
         this.authorizationInfo = gatherAuthInfo();
         this.userInfo = userInfo;

@@ -17,12 +17,10 @@
 
 package org.apache.doris.load.loadv2;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -32,9 +30,10 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMiniLoadBeginRequest;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
@@ -52,24 +51,19 @@ public class MiniLoadJob extends LoadJob {
 
     private long tableId;
 
-    // only for log replay
     public MiniLoadJob() {
-        super();
-        this.jobType = EtlJobType.MINI;
+        super(EtlJobType.MINI);
     }
 
     public MiniLoadJob(long dbId, long tableId, TMiniLoadBeginRequest request) throws MetaNotFoundException {
-        super(dbId, request.getLabel());
+        super(EtlJobType.MINI, dbId, request.getLabel());
         this.tableId = tableId;
-        this.jobType = EtlJobType.MINI;
         this.tableName = request.getTbl();
         if (request.isSetTimeoutSecond()) {
-            this.timeoutSecond = request.getTimeoutSecond();
-        } else {
-            this.timeoutSecond = Config.stream_load_default_timeout_second;
+            setTimeout(request.getTimeoutSecond());
         }
         if (request.isSetMaxFilterRatio()) {
-            this.maxFilterRatio = request.getMaxFilterRatio();
+            setMaxFilterRatio(request.getMaxFilterRatio());
         }
         this.createTimestamp = request.getCreateTimestamp();
         this.loadStartTimestamp = createTimestamp;
@@ -102,7 +96,7 @@ public class MiniLoadJob extends LoadJob {
                 .beginTransaction(dbId, Lists.newArrayList(tableId), label, requestId,
                                   new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                                   TransactionState.LoadJobSourceType.BACKEND_STREAMING, id,
-                                  timeoutSecond);
+                                  getTimeout());
     }
 
     @Override
