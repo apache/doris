@@ -155,7 +155,7 @@ Status BrokerScanner::open_file_reader() {
     case TFileType::FILE_STREAM: {
         _stream_load_pipe = _state->exec_env()->load_stream_mgr()->get(range.load_id);
         if (_stream_load_pipe == nullptr) {
-            VLOG(3) << "unknown stream load id: " << UniqueId(range.load_id);
+            VLOG_NOTICE << "unknown stream load id: " << UniqueId(range.load_id);
             return Status::InternalError("unknown stream load id");
         }
         _cur_file_reader = _stream_load_pipe.get();

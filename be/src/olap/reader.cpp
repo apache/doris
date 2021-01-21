@@ -281,7 +281,7 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
 }
 
 void Reader::close() {
-    VLOG(3) << "merged rows:" << _merged_rows;
+    VLOG_NOTICE << "merged rows:" << _merged_rows;
     _conditions.finalize();
     _delete_handler.finalize();
 
@@ -320,7 +320,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
         bool is_lower_key_included = false;
         if (_keys_param.range == "gt") {
             if (end_key != nullptr && compare_row_key(*start_key, *end_key) >= 0) {
-                VLOG(3) << "return EOF when range=" << _keys_param.range
+                VLOG_NOTICE << "return EOF when range=" << _keys_param.range
                         << ", start_key=" << start_key->to_string()
                         << ", end_key=" << end_key->to_string();
                 eof = true;
@@ -329,7 +329,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
             is_lower_key_included = false;
         } else if (_keys_param.range == "ge") {
             if (end_key != nullptr && compare_row_key(*start_key, *end_key) > 0) {
-                VLOG(3) << "return EOF when range=" << _keys_param.range
+                VLOG_NOTICE << "return EOF when range=" << _keys_param.range
                         << ", start_key=" << start_key->to_string()
                         << ", end_key=" << end_key->to_string();
                 eof = true;
@@ -477,7 +477,7 @@ OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
                 _value_cids.push_back(i);
             }
         }
-        VLOG(3) << "return column is empty, using full column as default.";
+        VLOG_NOTICE << "return column is empty, using full column as default.";
     } else if (read_params.reader_type == READER_CHECKSUM) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {

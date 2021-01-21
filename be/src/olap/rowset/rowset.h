@@ -190,7 +190,7 @@ public:
             LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
             return;
         }
-        VLOG(3) << "rowset is close. rowset state from:" << old_state << " to "
+        VLOG_NOTICE << "rowset is close. rowset state from:" << old_state << " to "
                 << _rowset_state_machine.rowset_state() << ", version:" << start_version() << "-"
                 << end_version() << ", tabletid:" << _rowset_meta->tablet_id();
     }
@@ -237,7 +237,7 @@ public:
                 }
             }
             if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
-                VLOG(3) << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
+                VLOG_NOTICE << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
                         << ", version:" << start_version() << "-" << end_version()
                         << ", tabletid:" << _rowset_meta->tablet_id();
             }

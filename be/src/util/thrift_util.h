@@ -153,7 +153,7 @@ Status deserialize_thrift_msg(const uint8_t* buf, uint32_t* len, bool compact,
     return Status::OK();
 }
 
-// Redirects all Thrift logging to VLOG(1)
+// Redirects all Thrift logging to VLOG_CRITICAL
 void init_thrift_logging();
 
 // Wait for a server that is running locally to start accepting

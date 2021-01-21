@@ -354,7 +354,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                         if (pushdown_return_rate >
                             config::doris_max_pushdown_conjuncts_return_rate) {
                             _use_pushdown_conjuncts = false;
-                            VLOG(2) << "Stop Using PushDown Conjuncts. "
+                            VLOG_CRITICAL << "Stop Using PushDown Conjuncts. "
                                     << "PushDownReturnRate: " << pushdown_return_rate << "%"
                                     << " MaxPushDownReturnRate: "
                                     << config::doris_max_pushdown_conjuncts_return_rate << "%";

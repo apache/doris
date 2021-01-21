@@ -69,7 +69,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
-        VLOG(3) << "set " << conf_key << ": " << conf_val;
+        VLOG_NOTICE << "set " << conf_key << ": " << conf_val;
         return Status::OK();
     };
 
@@ -122,7 +122,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
         return Status::InternalError("PAUSE: failed to create kafka consumer: " + errstr);
     }
 
-    VLOG(3) << "finished to init kafka consumer. " << ctx->brief();
+    VLOG_NOTICE << "finished to init kafka consumer. " << ctx->brief();
 
     _init = true;
     return Status::OK();

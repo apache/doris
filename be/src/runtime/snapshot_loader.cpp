@@ -112,7 +112,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
                 _get_existing_files_from_remote(client, dest_path, broker_prop, &remote_files));
 
         for (auto& tmp : remote_files) {
-            VLOG(2) << "get remote file: " << tmp.first << ", checksum: " << tmp.second.md5;
+            VLOG_CRITICAL << "get remote file: " << tmp.first << ", checksum: " << tmp.second.md5;
         }
 
         // 2.2 list local files
@@ -136,7 +136,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
                 LOG(WARNING) << ss.str();
                 return Status::InternalError(ss.str());
             }
-            VLOG(2) << "get file checksum: " << local_file << ": " << md5sum;
+            VLOG_CRITICAL << "get file checksum: " << local_file << ": " << md5sum;
             local_files_with_checksum.push_back(local_file + "." + md5sum);
 
             // check if this local file need upload
@@ -155,7 +155,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
             }
 
             if (!need_upload) {
-                VLOG(2) << "file exist in remote path, no need to upload: " << local_file;
+                VLOG_CRITICAL << "file exist in remote path, no need to upload: " << local_file;
                 continue;
             }
 
@@ -275,7 +275,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
         int64_t remote_tablet_id;
         RETURN_IF_ERROR(_get_tablet_id_from_remote_path(remote_path, &remote_tablet_id));
-        VLOG(2) << "get local tablet id: " << local_tablet_id << ", schema hash: " << schema_hash
+        VLOG_CRITICAL << "get local tablet id: " << local_tablet_id << ", schema hash: " << schema_hash
                 << ", remote tablet id: " << remote_tablet_id;
 
         // 1. get local files
@@ -327,7 +327,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
                                      << ". msg: " << st.get_error_msg() << ". download it";
                         need_download = true;
                     } else {
-                        VLOG(2) << "get local file checksum: " << remote_file << ": "
+                        VLOG_CRITICAL << "get local file checksum: " << remote_file << ": "
                                 << local_md5sum;
                         if (file_stat.md5 != local_md5sum) {
                             // file's checksum does not equal, download it.
@@ -366,7 +366,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
                 // 2. remove the existing local file if exist
                 if (boost::filesystem::remove(full_local_file)) {
-                    VLOG(2) << "remove the previously exist local file: " << full_local_file;
+                    VLOG_CRITICAL << "remove the previously exist local file: " << full_local_file;
                 }
                 // remove file which will be downloaded now.
                 // this file will be added to local_files if it be downloaded successfully.
@@ -381,7 +381,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
                 }
 
                 // 4. read remote and write to local
-                VLOG(2) << "read remote file: " << full_remote_file
+                VLOG_CRITICAL << "read remote file: " << full_remote_file
                         << " to local: " << full_local_file << ". file size: " << file_len;
                 constexpr size_t buf_sz = 1024 * 1024;
                 char read_buf[buf_sz];
@@ -417,7 +417,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
                 LOG(WARNING) << ss.str();
                 return Status::InternalError(ss.str());
             }
-            VLOG(2) << "get downloaded file checksum: " << full_local_file << ": "
+            VLOG_CRITICAL << "get downloaded file checksum: " << full_local_file << ": "
                     << downloaded_md5sum;
             if (downloaded_md5sum != file_stat.md5) {
                 std::stringstream ss;
@@ -444,7 +444,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
                              << st.get_error_msg() << ". ignore it";
                 continue;
             }
-            VLOG(2) << "new file name after replace tablet id: " << new_name;
+            VLOG_CRITICAL << "new file name after replace tablet id: " << new_name;
             const auto& find = remote_files.find(new_name);
             if (find != remote_files.end()) {
                 continue;
@@ -452,7 +452,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
             // delete
             std::string full_local_file = local_path + "/" + local_file;
-            VLOG(2) << "begin to delete local snapshot file: " << full_local_file
+            VLOG_CRITICAL << "begin to delete local snapshot file: " << full_local_file
                     << ", it does not exist in remote";
             if (remove(full_local_file.c_str()) != 0) {
                 LOG(WARNING) << "failed to delete unknown local file: " << full_local_file
@@ -546,9 +546,9 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
             // tablet id and schema hash from this path, which
             // means this path is a valid path.
             boost::filesystem::remove_all(tablet_dir);
-            VLOG(2) << "remove dir: " << tablet_dir;
+            VLOG_CRITICAL << "remove dir: " << tablet_dir;
             boost::filesystem::create_directory(tablet_dir);
-            VLOG(2) << "re-create dir: " << tablet_dir;
+            VLOG_CRITICAL << "re-create dir: " << tablet_dir;
         } catch (const boost::filesystem::filesystem_error& e) {
             std::stringstream ss;
             ss << "failed to move tablet path: " << tablet_path << ". err: " << e.what();
@@ -574,7 +574,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
                 return Status::InternalError("move tablet failed");
             }
             linked_files.push_back(full_dest_path);
-            VLOG(2) << "link file from " << full_src_path << " to " << full_dest_path;
+            VLOG_CRITICAL << "link file from " << full_src_path << " to " << full_dest_path;
         }
 
     } else {
@@ -631,7 +631,7 @@ Status SnapshotLoader::_get_tablet_id_and_schema_hash_from_file_path(const std::
     ss2 << tablet_str;
     ss2 >> *tablet_id;
 
-    VLOG(2) << "get tablet id " << *tablet_id << ", schema hash: " << *schema_hash
+    VLOG_CRITICAL << "get tablet id " << *tablet_id << ", schema hash: " << *schema_hash
             << " from path: " << src_path;
     return Status::OK();
 }
@@ -706,7 +706,7 @@ Status SnapshotLoader::_get_existing_files_from_remote(
             FileStat stat = {std::string(file_name, 0, pos), std::string(file_name, pos + 1),
                              file.size};
             files->emplace(std::string(file_name, 0, pos), stat);
-            VLOG(2) << "split remote file: " << std::string(file_name, 0, pos)
+            VLOG_CRITICAL << "split remote file: " << std::string(file_name, 0, pos)
                     << ", checksum: " << std::string(file_name, pos + 1);
         }
 
@@ -791,7 +791,7 @@ void SnapshotLoader::_assemble_file_name(const std::string& snapshot_path,
         << vesion_hash << "_" << seg_num << suffix;
     *tablet_file = ss2.str();
 
-    VLOG(2) << "assemble file name: " << *snapshot_file << ", " << *tablet_file;
+    VLOG_CRITICAL << "assemble file name: " << *snapshot_file << ", " << *tablet_file;
 }
 
 Status SnapshotLoader::_replace_tablet_id(const std::string& file_name, int64_t tablet_id,

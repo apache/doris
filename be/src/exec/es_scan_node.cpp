@@ -60,7 +60,7 @@ EsScanNode::EsScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descripto
 EsScanNode::~EsScanNode() {}
 
 Status EsScanNode::prepare(RuntimeState* state) {
-    VLOG(1) << "EsScanNode::Prepare";
+    VLOG_CRITICAL << "EsScanNode::Prepare";
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -76,7 +76,7 @@ Status EsScanNode::prepare(RuntimeState* state) {
 }
 
 Status EsScanNode::open(RuntimeState* state) {
-    VLOG(1) << "EsScanNode::Open";
+    VLOG_CRITICAL << "EsScanNode::Open";
 
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
@@ -99,7 +99,7 @@ Status EsScanNode::open(RuntimeState* state) {
     std::vector<vector<TExtPredicate>> predicates;
     std::vector<int> predicate_to_conjunct;
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
-        VLOG(1) << "conjunct: " << _conjunct_ctxs[i]->root()->debug_string();
+        VLOG_CRITICAL << "conjunct: " << _conjunct_ctxs[i]->root()->debug_string();
         std::vector<TExtPredicate> disjuncts;
         if (get_disjuncts(_conjunct_ctxs[i], _conjunct_ctxs[i]->root(), disjuncts)) {
             predicates.emplace_back(std::move(disjuncts));
@@ -196,7 +196,7 @@ Status EsScanNode::open(RuntimeState* state) {
 }
 
 Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    VLOG(1) << "EsScanNode::GetNext";
+    VLOG_CRITICAL << "EsScanNode::GetNext";
 
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
@@ -216,7 +216,7 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
     _offsets[_scan_range_idx] += result.rows.num_rows;
 
     // convert
-    VLOG(1) << "begin to convert: scan_range_idx=" << _scan_range_idx
+    VLOG_CRITICAL << "begin to convert: scan_range_idx=" << _scan_range_idx
             << ", num_rows=" << result.rows.num_rows;
     std::vector<TExtColumnData>& cols = result.rows.cols;
     // indexes of the next non-null value in the row batch, per column.
@@ -237,10 +237,10 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
         }
     }
 
-    VLOG(1) << "finish one batch: num_rows=" << row_batch->num_rows();
+    VLOG_CRITICAL << "finish one batch: num_rows=" << row_batch->num_rows();
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     if (result.__isset.eos && result.eos) {
-        VLOG(1) << "es finish one scan_range: scan_range_idx=" << _scan_range_idx;
+        VLOG_CRITICAL << "es finish one scan_range: scan_range_idx=" << _scan_range_idx;
         ++_scan_range_idx;
     }
     if (_scan_range_idx == _scan_ranges.size()) {
@@ -252,7 +252,7 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
 
 Status EsScanNode::close(RuntimeState* state) {
     if (is_closed()) return Status::OK();
-    VLOG(1) << "EsScanNode::Close";
+    VLOG_CRITICAL << "EsScanNode::Close";
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     Expr::close(_pushdown_conjunct_ctxs, state);
@@ -275,7 +275,7 @@ Status EsScanNode::close(RuntimeState* state) {
             }
 
             try {
-                VLOG(1) << "es close param=" << apache::thrift::ThriftDebugString(params);
+                VLOG_CRITICAL << "es close param=" << apache::thrift::ThriftDebugString(params);
                 client->close(result, params);
             } catch (apache::thrift::transport::TTransportException& e) {
                 LOG(WARNING) << "es close retrying, because: " << e.what();
@@ -289,7 +289,7 @@ Status EsScanNode::close(RuntimeState* state) {
             return Status::ThriftRpcError(ss.str());
         }
 
-        VLOG(1) << "es close result=" << apache::thrift::ThriftDebugString(result);
+        VLOG_CRITICAL << "es close result=" << apache::thrift::ThriftDebugString(result);
         Status status(result.status);
         if (!status.ok()) {
             LOG(WARNING) << "es close error: : scan_range_idx=" << i
@@ -329,7 +329,7 @@ Status EsScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ran
 
 Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result,
                            TExtOpenParams& params) {
-    VLOG(1) << "es open param=" << apache::thrift::ThriftDebugString(params);
+    VLOG_CRITICAL << "es open param=" << apache::thrift::ThriftDebugString(params);
 #ifndef BE_TEST
     try {
         ExtDataSourceServiceClientCache* client_cache = _env->extdatasource_client_cache();
@@ -349,7 +349,7 @@ Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result,
             RETURN_IF_ERROR(client.reopen());
             client->open(result, params);
         }
-        VLOG(1) << "es open result=" << apache::thrift::ThriftDebugString(result);
+        VLOG_CRITICAL << "es open result=" << apache::thrift::ThriftDebugString(result);
         return Status(result.status);
     } catch (apache::thrift::TException& e) {
         std::stringstream ss;
@@ -393,7 +393,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
                                std::vector<TExtPredicate>& disjuncts) {
     if (TExprNodeType::BINARY_PRED == conjunct->node_type()) {
         if (conjunct->children().size() != 2) {
-            VLOG(1) << "get disjuncts fail: number of children is not 2";
+            VLOG_CRITICAL << "get disjuncts fail: number of children is not 2";
             return false;
         }
         SlotRef* slotRef;
@@ -408,19 +408,19 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
             slotRef = (SlotRef*)(conjunct->get_child(1));
             op = conjunct->op();
         } else {
-            VLOG(1) << "get disjuncts fail: no SLOT_REF child";
+            VLOG_CRITICAL << "get disjuncts fail: no SLOT_REF child";
             return false;
         }
 
         SlotDescriptor* slot_desc = get_slot_desc(slotRef);
         if (slot_desc == nullptr) {
-            VLOG(1) << "get disjuncts fail: slot_desc is null";
+            VLOG_CRITICAL << "get disjuncts fail: slot_desc is null";
             return false;
         }
 
         TExtLiteral literal;
         if (!to_ext_literal(context, expr, &literal)) {
-            VLOG(1) << "get disjuncts fail: can't get literal, node_type=" << expr->node_type();
+            VLOG_CRITICAL << "get disjuncts fail: can't get literal, node_type=" << expr->node_type();
             return false;
         }
 
@@ -445,7 +445,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
 
         TExtLiteral literal;
         if (!to_ext_literal(context, conjunct->get_child(1), &literal)) {
-            VLOG(1) << "get disjuncts fail: can't get literal, node_type="
+            VLOG_CRITICAL << "get disjuncts fail: can't get literal, node_type="
                     << conjunct->get_child(1)->node_type();
             return false;
         }
@@ -496,7 +496,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
             TExtLiteral literal;
             if (!to_ext_literal(slot_desc->type().type, const_cast<void*>(iter->get_value()),
                                 &literal)) {
-                VLOG(1) << "get disjuncts fail: can't get literal, node_type="
+                VLOG_CRITICAL << "get disjuncts fail: can't get literal, node_type="
                         << slot_desc->type().type;
                 return false;
             }
@@ -511,7 +511,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         return true;
     } else if (TExprNodeType::COMPOUND_PRED == conjunct->node_type()) {
         if (TExprOpcode::COMPOUND_OR != conjunct->op()) {
-            VLOG(1) << "get disjuncts fail: op is not COMPOUND_OR";
+            VLOG_CRITICAL << "get disjuncts fail: op is not COMPOUND_OR";
             return false;
         }
         if (!get_disjuncts(context, conjunct->get_child(0), disjuncts)) {
@@ -522,7 +522,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         }
         return true;
     } else {
-        VLOG(1) << "get disjuncts fail: node type is " << conjunct->node_type()
+        VLOG_CRITICAL << "get disjuncts fail: node type is " << conjunct->node_type()
                 << ", should be BINARY_PRED or COMPOUND_PRED";
         return false;
     }
@@ -688,7 +688,7 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
         }
 
         try {
-            VLOG(1) << "es get_next param=" << apache::thrift::ThriftDebugString(params);
+            VLOG_CRITICAL << "es get_next param=" << apache::thrift::ThriftDebugString(params);
             client->getNext(result, params);
         } catch (apache::thrift::transport::TTransportException& e) {
             std::stringstream ss;
@@ -725,7 +725,7 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
 #endif
 
     // check result
-    VLOG(1) << "es get_next result=" << apache::thrift::ThriftDebugString(result);
+    VLOG_CRITICAL << "es get_next result=" << apache::thrift::ThriftDebugString(result);
     Status get_next_status(result.status);
     if (!get_next_status.ok()) {
         LOG(WARNING) << "es get_next error: scan_range_idx=" << _scan_range_idx

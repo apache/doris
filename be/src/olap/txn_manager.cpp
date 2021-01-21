@@ -161,7 +161,7 @@ OLAPStatus TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId tra
     txn_tablet_map[key][tablet_info] = load_info;
     _insert_txn_partition_map_unlocked(transaction_id, partition_id);
 
-    VLOG(3) << "add transaction to engine successfully."
+    VLOG_NOTICE << "add transaction to engine successfully."
             << "partition_id: " << key.first << ", transaction_id: " << key.second
             << ", tablet: " << tablet_info.to_string();
     return OLAP_SUCCESS;
@@ -387,7 +387,7 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
 #ifndef BE_TEST
                 StorageEngine::instance()->add_unused_rowset(load_info.rowset);
 #endif
-                VLOG(3) << "delete transaction from engine successfully."
+                VLOG_NOTICE << "delete transaction from engine successfully."
                         << " partition_id: " << key.first << ", transaction_id: " << key.second
                         << ", tablet: " << tablet_info.to_string() << ", rowset: "
                         << (load_info.rowset != nullptr ? load_info.rowset->rowset_id().to_string()
@@ -419,7 +419,7 @@ void TxnManager::get_tablet_related_txns(TTabletId tablet_id, SchemaHash schema_
             if (it.second.find(tablet_info) != it.second.end()) {
                 *partition_id = it.first.first;
                 transaction_ids->insert(it.first.second);
-                VLOG(3) << "find transaction on tablet."
+                VLOG_NOTICE << "find transaction on tablet."
                         << "partition_id: " << it.first.first
                         << ", transaction_id: " << it.first.second
                         << ", tablet: " << tablet_info.to_string();
@@ -474,7 +474,7 @@ void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
     txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
     auto it = txn_tablet_map.find(key);
     if (it == txn_tablet_map.end()) {
-        VLOG(3) << "could not find tablet for"
+        VLOG_NOTICE << "could not find tablet for"
                 << " partition_id=" << partition_id << ", transaction_id=" << transaction_id;
         return;
     }
@@ -524,7 +524,7 @@ void TxnManager::build_expire_txn_map(std::map<TabletInfo, std::vector<int64_t>>
                 if (diff >= config::pending_data_expire_time_sec) {
                     (*expire_txn_map)[t_map.first].push_back(txn_id);
                     if (VLOG_IS_ON(3)) {
-                        VLOG(3) << "find expired txn."
+                        VLOG_NOTICE << "find expired txn."
                                 << " tablet=" << t_map.first.to_string()
                                 << " transaction_id=" << txn_id << " exist_sec=" << diff;
                     }

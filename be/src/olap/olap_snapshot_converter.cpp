@@ -200,7 +200,7 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
     }
     tablet_meta_pb->set_tablet_state(TabletStatePB::PB_RUNNING);
     *(tablet_meta_pb->mutable_tablet_uid()) = TabletUid::gen_uid().to_proto();
-    VLOG(3) << "convert tablet meta tablet id = " << olap_header.tablet_id()
+    VLOG_NOTICE << "convert tablet meta tablet id = " << olap_header.tablet_id()
             << " schema hash = " << olap_header.schema_hash() << " successfully.";
     return OLAP_SUCCESS;
 }

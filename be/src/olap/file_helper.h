@@ -325,7 +325,7 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
     }
 
     if (_fixed_file_header.magic_number != OLAP_FIX_HEADER_MAGIC_NUMBER) {
-        VLOG(10) << "old fix header found, magic num=" << _fixed_file_header.magic_number;
+        VLOG_TRACE << "old fix header found, magic num=" << _fixed_file_header.magic_number;
         FixedFileHeader tmp_header;
 
         if (OLAP_SUCCESS != file_handler->pread(&tmp_header, sizeof(tmp_header), 0)) {
@@ -346,7 +346,7 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
         _fixed_file_header_size = sizeof(tmp_header);
     }
 
-    VLOG(3) << "fix head loaded. file_length=" << _fixed_file_header.file_length
+    VLOG_NOTICE << "fix head loaded. file_length=" << _fixed_file_header.file_length
             << ", checksum=" << _fixed_file_header.checksum
             << ", protobuf_length=" << _fixed_file_header.protobuf_length
             << ", magic_number=" << _fixed_file_header.magic_number

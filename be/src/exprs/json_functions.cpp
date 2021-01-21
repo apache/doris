@@ -114,7 +114,7 @@ rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed
     rapidjson::Value* root = document;
     rapidjson::Value* array_obj = nullptr;
     for (int i = 1; i < parsed_paths.size(); i++) {
-        VLOG(10) << "parsed_paths: " << parsed_paths[i].debug_string();
+        VLOG_TRACE << "parsed_paths: " << parsed_paths[i].debug_string();
 
         if (root == nullptr || root->IsNull()) {
             return nullptr;
@@ -238,7 +238,7 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
     parsed_paths = &tmp_parsed_paths;
 #endif
 
-    VLOG(10) << "first parsed path: " << (*parsed_paths)[0].debug_string();
+    VLOG_TRACE << "first parsed path: " << (*parsed_paths)[0].debug_string();
 
     if (!(*parsed_paths)[0].is_valid) {
         return document;
@@ -255,7 +255,7 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
     //rapidjson::Document document;
     document->Parse(json_string.c_str());
     if (UNLIKELY(document->HasParseError())) {
-        VLOG(1) << "Error at offset " << document->GetErrorOffset() << ": "
+        VLOG_CRITICAL << "Error at offset " << document->GetErrorOffset() << ": "
                 << GetParseError_En(document->GetParseError());
         document->SetNull();
         return document;
@@ -327,7 +327,7 @@ void JsonFunctions::json_path_prepare(doris_udf::FunctionContext* context,
     get_parsed_paths(path_exprs, parsed_paths);
 
     context->set_function_state(scope, parsed_paths);
-    VLOG(10) << "prepare json path. size: " << parsed_paths->size();
+    VLOG_TRACE << "prepare json path. size: " << parsed_paths->size();
 }
 
 void JsonFunctions::json_path_close(doris_udf::FunctionContext* context,
@@ -339,7 +339,7 @@ void JsonFunctions::json_path_close(doris_udf::FunctionContext* context,
             reinterpret_cast<std::vector<JsonPath>*>(context->get_function_state(scope));
     if (parsed_paths != nullptr) {
         delete parsed_paths;
-        VLOG(10) << "close json path";
+        VLOG_TRACE << "close json path";
     }
 }
 
