@@ -95,12 +95,12 @@ public:
     const std::vector<StorageByteBuffer*>& output_buffers() { return _output_buffers; }
 
     void print_position_debug_info() {
-        VLOG(10) << "compress: " << _spilled_bytes;
+        VLOG_TRACE << "compress: " << _spilled_bytes;
 
         if (_current != NULL) {
-            VLOG(10) << "uncompress=" << (_current->position() - sizeof(StreamHead));
+            VLOG_TRACE << "uncompress=" << (_current->position() - sizeof(StreamHead));
         } else {
-            VLOG(10) << "uncompress 0";
+            VLOG_TRACE << "uncompress 0";
         }
     }
 

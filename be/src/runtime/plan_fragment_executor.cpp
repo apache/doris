@@ -76,7 +76,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     LOG(INFO) << "Prepare(): query_id=" << print_id(_query_id)
               << " fragment_instance_id=" << print_id(params.fragment_instance_id)
               << " backend_num=" << request.backend_num;
-    // VLOG(2) << "request:\n" << apache::thrift::ThriftDebugString(request);
+    // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     const TQueryGlobals& query_globals =
             fragments_ctx == nullptr ? request.query_globals : fragments_ctx->query_globals;
@@ -177,8 +177,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     std::vector<ExecNode*> scan_nodes;
     std::vector<TScanRangeParams> no_scan_ranges;
     _plan->collect_scan_nodes(&scan_nodes);
-    VLOG(1) << "scan_nodes.size()=" << scan_nodes.size();
-    VLOG(1) << "params.per_node_scan_ranges.size()=" << params.per_node_scan_ranges.size();
+    VLOG_CRITICAL << "scan_nodes.size()=" << scan_nodes.size();
+    VLOG_CRITICAL << "params.per_node_scan_ranges.size()=" << params.per_node_scan_ranges.size();
 
     _plan->try_do_aggregate_serde_improve();
 
@@ -187,7 +187,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         const std::vector<TScanRangeParams>& scan_ranges =
                 find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
         scan_node->set_scan_ranges(scan_ranges);
-        VLOG(1) << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
+        VLOG_CRITICAL << "scan_node_Id=" << scan_node->id() << " size=" << scan_ranges.size();
     }
 
     _runtime_state->set_per_fragment_instance_idx(params.sender_id);
@@ -223,7 +223,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _row_batch.reset(new RowBatch(_plan->row_desc(), _runtime_state->batch_size(),
                                   _runtime_state->instance_mem_tracker().get()));
     // _row_batch->tuple_data_pool()->set_limits(*_runtime_state->mem_trackers());
-    VLOG(3) << "plan_root=\n" << _plan->debug_string();
+    VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
 
     _query_statistics.reset(new QueryStatistics());

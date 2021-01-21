@@ -96,7 +96,7 @@ OLAPStatus RunLengthByteReader::seek(PositionProvider* position) {
 
     res = _input->seek(position);
     if (OLAP_SUCCESS != res) {
-        VLOG(10) << "fail to ReadOnlyFileStream seek. res = " << res;
+        VLOG_TRACE << "fail to ReadOnlyFileStream seek. res = " << res;
         return res;
     }
 

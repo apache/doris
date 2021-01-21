@@ -210,7 +210,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
             matched = false;
         }
     } catch (regex_error& e) {
-        VLOG(3) << "fail to parse expr. [expr=" << condition_str << "; error=" << e.what() << "]";
+        VLOG_NOTICE << "fail to parse expr. [expr=" << condition_str << "; error=" << e.what() << "]";
         matched = false;
     }
 

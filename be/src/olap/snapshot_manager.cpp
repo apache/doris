@@ -332,7 +332,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
     string schema_full_path = get_schema_hash_full_path(ref_tablet, snapshot_id_path);
     string header_path = _get_header_full_path(ref_tablet, schema_full_path);
     if (FileUtils::check_exist(schema_full_path)) {
-        VLOG(10) << "remove the old schema_full_path.";
+        VLOG_TRACE << "remove the old schema_full_path.";
         FileUtils::remove_all(schema_full_path);
     }
 
@@ -413,7 +413,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
                 break;
             }
             rs_metas.push_back(rs->rowset_meta());
-            VLOG(3) << "add rowset meta to clone list. "
+            VLOG_NOTICE << "add rowset meta to clone list. "
                     << " start version " << rs->rowset_meta()->start_version() << " end version "
                     << rs->rowset_meta()->end_version() << " empty " << rs->rowset_meta()->empty();
         }
@@ -496,7 +496,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
                      << snapshot_id_path.c_str();
 
         if (FileUtils::check_exist(snapshot_id_path)) {
-            VLOG(3) << "remove snapshot path. [path=" << snapshot_id_path << "]";
+            VLOG_NOTICE << "remove snapshot path. [path=" << snapshot_id_path << "]";
             FileUtils::remove_all(snapshot_id_path);
         }
     } else {

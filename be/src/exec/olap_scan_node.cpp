@@ -172,7 +172,7 @@ Status OlapScanNode::prepare(RuntimeState* state) {
 }
 
 Status OlapScanNode::open(RuntimeState* state) {
-    VLOG(1) << "OlapScanNode::Open";
+    VLOG_CRITICAL << "OlapScanNode::Open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -331,7 +331,7 @@ Status OlapScanNode::close(RuntimeState* state) {
         scanner->close(state);
     }
 
-    VLOG(1) << "OlapScanNode::close()";
+    VLOG_CRITICAL << "OlapScanNode::close()";
     return ScanNode::close(state);
 }
 
@@ -362,11 +362,11 @@ Status OlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_r
 Status OlapScanNode::start_scan(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
 
-    VLOG(1) << "Eval Const Conjuncts";
+    VLOG_CRITICAL << "Eval Const Conjuncts";
     // 1. Eval const conjuncts to find whether eos = true
     eval_const_conjuncts();
 
-    VLOG(1) << "NormalizeConjuncts";
+    VLOG_CRITICAL << "NormalizeConjuncts";
     // 2. Convert conjuncts to ColumnValueRange in each column, some conjuncts will
     // set eos = true
     RETURN_IF_ERROR(normalize_conjuncts());
@@ -376,19 +376,19 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
         return Status::OK();
     }
 
-    VLOG(1) << "BuildOlapFilters";
+    VLOG_CRITICAL << "BuildOlapFilters";
     // 3. Using ColumnValueRange to Build StorageEngine filters
     RETURN_IF_ERROR(build_olap_filters());
 
-    VLOG(1) << "Filter idle conjuncts";
+    VLOG_CRITICAL << "Filter idle conjuncts";
     // 4. Filter idle conjunct which already trans to olap filters`
     remove_pushed_conjuncts(state);
 
-    VLOG(1) << "BuildScanKey";
+    VLOG_CRITICAL << "BuildScanKey";
     // 5. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
     RETURN_IF_ERROR(build_scan_key());
 
-    VLOG(1) << "StartScanThread";
+    VLOG_CRITICAL << "StartScanThread";
     // 6. Start multi thread to read several `Sub Sub ScanRange`
     RETURN_IF_ERROR(start_scan_thread(state));
 
@@ -526,7 +526,7 @@ Status OlapScanNode::normalize_conjuncts() {
         }
 
         default: {
-            VLOG(2) << "Unsupported Normalize Slot [ColName=" << slots[slot_idx]->col_name() << "]";
+            VLOG_CRITICAL << "Unsupported Normalize Slot [ColName=" << slots[slot_idx]->col_name() << "]";
             break;
         }
         }
@@ -575,7 +575,7 @@ Status OlapScanNode::build_scan_key() {
         RETURN_IF_ERROR(boost::apply_visitor(visitor, column_range_iter->second));
     }
 
-    VLOG(1) << _scan_keys.debug_string();
+    VLOG_CRITICAL << _scan_keys.debug_string();
 
     return Status::OK();
 }
@@ -723,7 +723,6 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
     std::stringstream ss;
     ss << "ScanThread complete (node=" << id() << "):";
     _progress = ProgressUpdater(ss.str(), _olap_scanners.size(), 1);
-    _progress.set_logging_level(1);
 
     _transfer_thread.add_thread(new boost::thread(&OlapScanNode::transfer_thread, this, state));
 
@@ -787,7 +786,7 @@ bool OlapScanNode::should_push_down_in_predicate(doris::SlotDescriptor *slot, do
         }
     }
 
-    VLOG(1) << slot->col_name() << " fixed_values add num: " << pred->hybrid_set()->size();
+    VLOG_CRITICAL << slot->col_name() << " fixed_values add num: " << pred->hybrid_set()->size();
 
     // if there are too many elements in InPredicate, exceed the limit,
     // we will not push any condition of this column to storage engine.
@@ -796,7 +795,7 @@ bool OlapScanNode::should_push_down_in_predicate(doris::SlotDescriptor *slot, do
     // ATTN: This is just an experience value. You may need to try
     // different thresholds to improve performance.
     if (pred->hybrid_set()->size() > _max_pushdown_conditions_per_column) {
-        VLOG(3) << "Predicate value num " << pred->hybrid_set()->size() << " exceed limit "
+        VLOG_NOTICE << "Predicate value num " << pred->hybrid_set()->size() << " exceed limit "
                 << _max_pushdown_conditions_per_column;
         return false;
     }
@@ -1101,7 +1100,7 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                     filter_conjuncts_index.emplace_back(conj_idx);
                 }
 
-                VLOG(1) << slot->col_name() << " op: "
+                VLOG_CRITICAL << slot->col_name() << " op: "
                         << static_cast<int>(to_olap_filter_type(pred->op(), child_idx))
                         << " value: " << *reinterpret_cast<T*>(value);
             }
@@ -1249,7 +1248,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
     }
 
     state->resource_pool()->release_thread_token(true);
-    VLOG(1) << "TransferThread finish.";
+    VLOG_CRITICAL << "TransferThread finish.";
     {
         std::unique_lock<std::mutex> l(_row_batches_lock);
         _transfer_done = true;
@@ -1258,7 +1257,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 
     std::unique_lock<std::mutex> l(_scan_batches_lock);
     _scan_thread_exit_cv.wait(l, [this] { return _running_thread == 0; });
-    VLOG(1) << "Scanner threads have been exited. TransferThread exit.";
+    VLOG_CRITICAL << "Scanner threads have been exited. TransferThread exit.";
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
@@ -1387,7 +1386,7 @@ Status OlapScanNode::add_one_batch(RowBatchInterface* row_batch) {
             _row_batch_consumed_cv.wait(l);
         }
 
-        VLOG(2) << "Push row_batch to materialized_row_batches";
+        VLOG_CRITICAL << "Push row_batch to materialized_row_batches";
         _materialized_row_batches.push_back(row_batch);
     }
     // remove one batch, notify main thread

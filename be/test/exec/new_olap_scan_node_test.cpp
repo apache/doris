@@ -264,7 +264,7 @@ public:
                 str << row[18] << " ";
                 str << row[20] << ")]";
                 data->push_back(str.str());
-                VLOG(3) << "Read Row: " << str.str();
+                VLOG_NOTICE << "Read Row: " << str.str();
             }
         }
     }
@@ -296,7 +296,7 @@ TEST_F(TestOlapScanNode, SimpleTest) {
         row_batch.reset();
         status = scan_node.get_next(&_runtime_stat, &row_batch, &eos);
         ASSERT_TRUE(status.ok());
-        VLOG(1) << "num_rows: " << row_batch.num_rows();
+        VLOG_CRITICAL << "num_rows: " << row_batch.num_rows();
         num_rows += row_batch.num_rows();
     }
 
@@ -329,7 +329,7 @@ TEST_F(TestOlapScanNode, MultiColumnSingleVersionTest) {
 
         for (int i = 0; i < row_batch.num_rows(); ++i) {
             TupleRow* row = row_batch.get_row(i);
-            VLOG(3) << "input row: " << print_row(row, scan_node._row_descriptor);
+            VLOG_NOTICE << "input row: " << print_row(row, scan_node._row_descriptor);
             ASSERT_LT(data_index, data.size());
             ASSERT_EQ(data[data_index], print_row(row, scan_node._row_descriptor));
             ++data_index;
@@ -367,7 +367,7 @@ TEST_F(TestOlapScanNode, MultiColumnMultiVersionTest) {
 
         for (int i = 0; i < row_batch.num_rows(); ++i) {
             TupleRow* row = row_batch.get_row(i);
-            VLOG(3) << "input row: " << print_row(row, scan_node._row_descriptor);
+            VLOG_NOTICE << "input row: " << print_row(row, scan_node._row_descriptor);
             ASSERT_LT(data_index, data.size());
             ASSERT_EQ(data[data_index], print_row(row, scan_node._row_descriptor));
             ++data_index;

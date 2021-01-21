@@ -158,7 +158,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
                     _last_success_channel->insert(load_id.to_string(), nullptr, 1, dummy_deleter);
             _last_success_channel->release(handle);
         }
-        VLOG(1) << "removed load channel " << load_id;
+        VLOG_CRITICAL << "removed load channel " << load_id;
     }
     return Status::OK();
 }
@@ -238,10 +238,10 @@ Status LoadChannelMgr::_start_load_channels_clean() {
     {
         std::vector<UniqueId> need_delete_channel_ids;
         std::lock_guard<std::mutex> l(_lock);
-        VLOG(1) << "there are " << _load_channels.size() << " running load channels";
+        VLOG_CRITICAL << "there are " << _load_channels.size() << " running load channels";
         int i = 0;
         for (auto& kv : _load_channels) {
-            VLOG(1) << "load channel[" << i++ << "]: " << *(kv.second);
+            VLOG_CRITICAL << "load channel[" << i++ << "]: " << *(kv.second);
             time_t last_updated_time = kv.second->last_updated_time();
             if (difftime(now, last_updated_time) >= kv.second->timeout()) {
                 need_delete_channel_ids.emplace_back(kv.first);

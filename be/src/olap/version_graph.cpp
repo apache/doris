@@ -38,7 +38,7 @@ void TimestampedVersionTracker::_construct_versioned_tracker(
 void TimestampedVersionTracker::construct_versioned_tracker(
         const std::vector<RowsetMetaSharedPtr>& rs_metas) {
     if (rs_metas.empty()) {
-        VLOG(3) << "there is no version in the header.";
+        VLOG_NOTICE << "there is no version in the header.";
         return;
     }
     _stale_version_path_map.clear();
@@ -50,7 +50,7 @@ void TimestampedVersionTracker::construct_versioned_tracker(
         const std::vector<RowsetMetaSharedPtr>& rs_metas,
         const std::vector<RowsetMetaSharedPtr>& stale_metas) {
     if (rs_metas.empty()) {
-        VLOG(3) << "there is no version in the header.";
+        VLOG_NOTICE << "there is no version in the header.";
         return;
     }
     _stale_version_path_map.clear();
@@ -294,7 +294,7 @@ void TimestampedVersionTracker::add_version(const Version& version) {
 void TimestampedVersionTracker::add_stale_path_version(
         const std::vector<RowsetMetaSharedPtr>& stale_rs_metas) {
     if (stale_rs_metas.empty()) {
-        VLOG(3) << "there is no version in the stale_rs_metas.";
+        VLOG_NOTICE << "there is no version in the stale_rs_metas.";
         return;
     }
 
@@ -341,7 +341,7 @@ void TimestampedVersionTracker::capture_expired_paths(
 
 PathVersionListSharedPtr TimestampedVersionTracker::fetch_path_version_by_id(int64_t path_id) {
     if (_stale_version_path_map.count(path_id) == 0) {
-        VLOG(3) << "path version " << path_id << " does not exist!";
+        VLOG_NOTICE << "path version " << path_id << " does not exist!";
         return nullptr;
     }
 
@@ -350,7 +350,7 @@ PathVersionListSharedPtr TimestampedVersionTracker::fetch_path_version_by_id(int
 
 PathVersionListSharedPtr TimestampedVersionTracker::fetch_and_delete_path_by_id(int64_t path_id) {
     if (_stale_version_path_map.count(path_id) == 0) {
-        VLOG(3) << "path version " << path_id << " does not exist!";
+        VLOG_NOTICE << "path version " << path_id << " does not exist!";
         return nullptr;
     }
 
@@ -412,7 +412,7 @@ std::vector<TimestampedVersionSharedPtr>& TimestampedVersionPathContainer::times
 void VersionGraph::construct_version_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas,
                                            int64_t* max_version) {
     if (rs_metas.empty()) {
-        VLOG(3) << "there is no version in the header.";
+        VLOG_NOTICE << "there is no version in the header.";
         return;
     }
 
@@ -521,7 +521,7 @@ OLAPStatus VersionGraph::delete_version_from_graph(const Version& version) {
 void VersionGraph::_add_vertex_to_graph(int64_t vertex_value) {
     // Vertex with vertex_value already exists.
     if (_vertex_index_map.find(vertex_value) != _vertex_index_map.end()) {
-        VLOG(3) << "vertex with vertex value already exists. value=" << vertex_value;
+        VLOG_NOTICE << "vertex with vertex value already exists. value=" << vertex_value;
         return;
     }
 
@@ -624,7 +624,7 @@ OLAPStatus VersionGraph::capture_consistent_versions(const Version& spec_version
 
             shortest_path_for_debug << (*version_path)[version_path->size() - 1] << ' ';
         }
-        VLOG(10) << "success to find path for spec_version. spec_version=" << spec_version
+        VLOG_TRACE << "success to find path for spec_version. spec_version=" << spec_version
                  << ", path=" << shortest_path_for_debug.str();
     }
 

@@ -494,7 +494,7 @@ void ThreadPool::dispatch_thread() {
     while (true) {
         // Note: Status::Aborted() is used to indicate normal shutdown.
         if (!_pool_status.ok()) {
-            VLOG(2) << "DispatchThread exiting: " << _pool_status.to_string();
+            VLOG_CRITICAL << "DispatchThread exiting: " << _pool_status.to_string();
             break;
         }
 
@@ -522,7 +522,7 @@ void ThreadPool::dispatch_thread() {
                     // protecting the state, signal, and release again before we get the mutex. So,
                     // we'll recheck the empty queue case regardless.
                     if (_queue.empty()) {
-                        VLOG(3) << "Releasing worker thread from pool " << _name << " after "
+                        VLOG_NOTICE << "Releasing worker thread from pool " << _name << " after "
                                 << _idle_timeout.ToMilliseconds() << "ms of idle time.";
                         break;
                     }

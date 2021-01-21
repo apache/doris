@@ -349,7 +349,7 @@ Status Thread::start_thread(const std::string& category, const std::string& name
     t->_joinable = true;
     cleanup.cancel();
 
-    VLOG(3) << "Started thread " << t->tid() << " - " << category << ":" << name;
+    VLOG_NOTICE << "Started thread " << t->tid() << " - " << category << ":" << name;
     return Status::OK();
 }
 
@@ -400,7 +400,7 @@ void Thread::finish_thread(void* arg) {
     // Signal any Joiner that we're done.
     t->_done.count_down();
 
-    VLOG(2) << "Ended thread " << t->_tid << " - " << t->category() << ":" << t->name();
+    VLOG_CRITICAL << "Ended thread " << t->_tid << " - " << t->category() << ":" << t->name();
     t->Release();
     // NOTE: the above 'Release' call could be the last reference to 'this',
     // so 'this' could be destructed at this point. Do not add any code

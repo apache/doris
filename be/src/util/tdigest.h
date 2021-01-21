@@ -279,15 +279,15 @@ public:
 
     // return the cdf on the processed values
     Value cdfProcessed(Value x) const {
-        VLOG(1) << "cdf value " << x;
-        VLOG(1) << "processed size " << _processed.size();
+        VLOG_CRITICAL << "cdf value " << x;
+        VLOG_CRITICAL << "processed size " << _processed.size();
         if (_processed.size() == 0) {
             // no data to examine
-            VLOG(1) << "no processed values";
+            VLOG_CRITICAL << "no processed values";
 
             return 0.0;
         } else if (_processed.size() == 1) {
-            VLOG(1) << "one processed value "
+            VLOG_CRITICAL << "one processed value "
                     << " _min " << _min << " _max " << _max;
             // exactly one centroid, should have _max==_min
             auto width = _max - _min;
@@ -305,20 +305,20 @@ public:
         } else {
             auto n = _processed.size();
             if (x <= _min) {
-                VLOG(1) << "below _min "
+                VLOG_CRITICAL << "below _min "
                         << " _min " << _min << " x " << x;
                 return 0;
             }
 
             if (x >= _max) {
-                VLOG(1) << "above _max "
+                VLOG_CRITICAL << "above _max "
                         << " _max " << _max << " x " << x;
                 return 1;
             }
 
             // check for the left tail
             if (x <= mean(0)) {
-                VLOG(1) << "left tail "
+                VLOG_CRITICAL << "left tail "
                         << " _min " << _min << " mean(0) " << mean(0) << " x " << x;
 
                 // note that this is different than mean(0) > _min ... this guarantees interpolation works
@@ -331,7 +331,7 @@ public:
 
             // and the right tail
             if (x >= mean(n - 1)) {
-                VLOG(1) << "right tail"
+                VLOG_CRITICAL << "right tail"
                         << " _max " << _max << " mean(n - 1) " << mean(n - 1) << " x " << x;
 
                 if (_max - mean(n - 1) > 0) {
@@ -351,7 +351,7 @@ public:
             auto z2 = (iter)->mean() - x;
             DCHECK_LE(0.0, z1);
             DCHECK_LE(0.0, z2);
-            VLOG(1) << "middle "
+            VLOG_CRITICAL << "middle "
                     << " z1 " << z1 << " z2 " << z2 << " x " << x;
 
             return weightedAverage(_cumulative[i - 1], z2, _cumulative[i], z1) / _processed_weight;
@@ -368,7 +368,7 @@ public:
     // the value will not represent the unprocessed values
     Value quantileProcessed(Value q) const {
         if (q < 0 || q > 1) {
-            VLOG(1) << "q should be in [0,1], got " << q;
+            VLOG_CRITICAL << "q should be in [0,1], got " << q;
             return NAN;
         }
 
@@ -399,7 +399,7 @@ public:
             auto i = std::distance(_cumulative.cbegin(), iter);
             auto z1 = index - *(iter - 1);
             auto z2 = *(iter)-index;
-            // VLOG(1) << "z2 " << z2 << " index " << index << " z1 " << z1;
+            // VLOG_CRITICAL << "z2 " << z2 << " index " << index << " z1 " << z1;
             return weightedAverage(mean(i - 1), z2, mean(i), z1);
         }
 
@@ -597,7 +597,7 @@ private:
         }
 
         std::vector<Centroid> sorted;
-        VLOG(1) << "total " << total;
+        VLOG_CRITICAL << "total " << total;
         sorted.reserve(total);
 
         while (!pq.empty()) {
@@ -667,9 +667,9 @@ private:
         }
         _unprocessed.clear();
         _min = std::min(_min, _processed[0].mean());
-        VLOG(1) << "new _min " << _min;
+        VLOG_CRITICAL << "new _min " << _min;
         _max = std::max(_max, (_processed.cend() - 1)->mean());
-        VLOG(1) << "new _max " << _max;
+        VLOG_CRITICAL << "new _max " << _max;
         updateCumulative();
     }
 
@@ -684,12 +684,12 @@ private:
             auto dq = w / total;
             auto k2 = integratedLocation(q + dq);
             if (k2 - k1 > 1 && w != 1) {
-                VLOG(1) << "Oversize centroid at " << std::distance(sorted.cbegin(), iter) << " k1 "
+                VLOG_CRITICAL << "Oversize centroid at " << std::distance(sorted.cbegin(), iter) << " k1 "
                         << k1 << " k2 " << k2 << " dk " << (k2 - k1) << " w " << w << " q " << q;
                 badWeight++;
             }
             if (k2 - k1 > 1.5 && w != 1) {
-                VLOG(1) << "Egregiously Oversize centroid at "
+                VLOG_CRITICAL << "Egregiously Oversize centroid at "
                         << std::distance(sorted.cbegin(), iter) << " k1 " << k1 << " k2 " << k2
                         << " dk " << (k2 - k1) << " w " << w << " q " << q;
                 badWeight++;
