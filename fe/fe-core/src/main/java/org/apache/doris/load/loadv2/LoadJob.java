@@ -319,7 +319,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return state == JobState.FINISHED || state == JobState.CANCELLED || state == JobState.UNKNOWN;
     }
 
-    protected void setJobProperties(Map<String, String> properties) throws DdlException {
+    public void setJobProperties(Map<String, String> properties) throws DdlException {
         initDefaultJobProperties();
 
         // set property from session variables
