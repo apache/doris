@@ -67,7 +67,7 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable) {
         return;
     }
 
-    VLOG(1) << "flush memtable cost: " << timer.elapsed_time()
+    VLOG_CRITICAL << "flush memtable cost: " << timer.elapsed_time()
             << ", count: " << _stats.flush_count
             << ", mem size: " << memtable->memory_usage()
             << ", disk size: " << memtable->flush_size();
