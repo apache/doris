@@ -156,7 +156,7 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     @Override
-    protected void setJobProperties(Map<String, String> properties) throws DdlException {
+    public void setJobProperties(Map<String, String> properties) throws DdlException {
         super.setJobProperties(properties);
 
         // set spark resource and broker desc
