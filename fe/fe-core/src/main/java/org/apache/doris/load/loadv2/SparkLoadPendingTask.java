@@ -190,8 +190,8 @@ public class SparkLoadPendingTask extends LoadTask {
         String outputFilePattern = EtlJobConfig.getOutputFilePattern(loadLabel, FilePatternVersion.V1);
         // strictMode timezone properties
         EtlJobProperty properties = new EtlJobProperty();
-        properties.strictMode = ((LoadJob) callback).strictMode;
-        properties.timezone = ((LoadJob) callback).timezone;
+        properties.strictMode = ((LoadJob) callback).isStrictMode();
+        properties.timezone = ((LoadJob) callback).getTimeZone();
         etlJobConfig = new EtlJobConfig(tables, outputFilePattern, loadLabel, properties);
     }
 
