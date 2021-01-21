@@ -82,7 +82,7 @@ void WebPageHandler::register_page(const std::string& path, const string& alias,
 }
 
 void WebPageHandler::handle(HttpRequest* req) {
-    VLOG(10) << req->debug_string();
+    VLOG_TRACE << req->debug_string();
     PathHandler* handler = nullptr;
     {
         boost::mutex::scoped_lock lock(_map_lock);

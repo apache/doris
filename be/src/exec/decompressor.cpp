@@ -111,7 +111,7 @@ Status GzipDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
         *input_bytes_read = input_len - _z_strm.avail_in;
         *decompressed_len = output_max_len - _z_strm.avail_out;
 
-        VLOG(10) << "gzip dec ret: " << ret << " input_bytes_read: " << *input_bytes_read
+        VLOG_TRACE << "gzip dec ret: " << ret << " input_bytes_read: " << *input_bytes_read
                  << " decompressed_len: " << *decompressed_len;
 
         if (ret == Z_BUF_ERROR) {

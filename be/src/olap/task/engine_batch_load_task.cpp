@@ -101,7 +101,7 @@ AgentStatus EngineBatchLoadTask::_init() {
     AgentStatus status = DORIS_SUCCESS;
 
     if (_is_init) {
-        VLOG(3) << "has been inited";
+        VLOG_NOTICE << "has been inited";
         return status;
     }
 
@@ -201,7 +201,7 @@ AgentStatus EngineBatchLoadTask::_process() {
             time_t now = time(NULL);
             if (_push_req.timeout > 0 && _push_req.timeout < now) {
                 // return status to break this callback
-                VLOG(3) << "check time out. time_out:" << _push_req.timeout << ", now:" << now;
+                VLOG_NOTICE << "check time out. time_out:" << _push_req.timeout << ", now:" << now;
                 is_timeout = true;
                 return Status::OK();
             }

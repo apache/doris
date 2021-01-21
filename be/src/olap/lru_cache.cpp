@@ -461,7 +461,7 @@ void ShardedLRUCache::prune() {
     for (int s = 0; s < kNumShards; s++) {
         num_prune += _shards[s].prune();
     }
-    VLOG(7) << "Successfully prune cache, clean " << num_prune << " entries.";
+    VLOG_DEBUG << "Successfully prune cache, clean " << num_prune << " entries.";
 }
 
 void ShardedLRUCache::update_cache_metrics() const {

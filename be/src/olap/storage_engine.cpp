@@ -579,9 +579,9 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 }
 
 void StorageEngine::_start_clean_fd_cache() {
-    VLOG(10) << "start clean file descritpor cache";
+    VLOG_TRACE << "start clean file descritpor cache";
     _file_cache->prune();
-    VLOG(10) << "end clean file descritpor cache";
+    VLOG_TRACE << "end clean file descritpor cache";
 }
 
 OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
@@ -733,7 +733,7 @@ OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local
             if (pos != string::npos) {
                 actual_expire = std::stoi(dir_name.substr(pos + 1));
             }
-            VLOG(10) << "get actual expire time " << actual_expire << " of dir: " << dir_name;
+            VLOG_TRACE << "get actual expire time " << actual_expire << " of dir: " << dir_name;
 
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
                 Status ret = FileUtils::remove_all(path_name);
@@ -770,11 +770,11 @@ void StorageEngine::start_delete_unused_rowset() {
         if (it->second.use_count() != 1) {
             ++it;
         } else if (it->second->need_delete_file()) {
-            VLOG(3) << "start to remove rowset:" << it->second->rowset_id()
+            VLOG_NOTICE << "start to remove rowset:" << it->second->rowset_id()
                     << ", version:" << it->second->version().first << "-"
                     << it->second->version().second;
             OLAPStatus status = it->second->remove();
-            VLOG(3) << "remove rowset:" << it->second->rowset_id()
+            VLOG_NOTICE << "remove rowset:" << it->second->rowset_id()
                     << " finished. status:" << status;
             it = _unused_rowsets.erase(it);
         }
@@ -786,7 +786,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
         return;
     }
 
-    VLOG(3) << "add unused rowset, rowset id:" << rowset->rowset_id()
+    VLOG_NOTICE << "add unused rowset, rowset id:" << rowset->rowset_id()
             << ", version:" << rowset->version().first << "-" << rowset->version().second
             << ", unique id:" << rowset->unique_id();
 

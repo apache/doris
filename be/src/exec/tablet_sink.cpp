@@ -260,7 +260,7 @@ Status NodeChannel::close_wait(RuntimeState* state) {
         SleepFor(MonoDelta::FromMilliseconds(1));
     }
     timer.stop();
-    VLOG(1) << name() << " close_wait cost: " << timer.elapsed_time() / 1000000 << " ms";
+    VLOG_CRITICAL << name() << " close_wait cost: " << timer.elapsed_time() / 1000000 << " ms";
 
     if (_add_batches_finished) {
         {

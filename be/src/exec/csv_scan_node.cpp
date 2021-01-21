@@ -112,7 +112,7 @@ Status CsvScanNode::init(const TPlanNode& tnode) {
 }
 
 Status CsvScanNode::prepare(RuntimeState* state) {
-    VLOG(1) << "CsvScanNode::Prepare";
+    VLOG_CRITICAL << "CsvScanNode::Prepare";
 
     if (_is_init) {
         return Status::OK();
@@ -206,7 +206,7 @@ Status CsvScanNode::prepare(RuntimeState* state) {
 
 Status CsvScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
-    VLOG(1) << "CsvScanNode::Open";
+    VLOG_CRITICAL << "CsvScanNode::Open";
 
     if (nullptr == state) {
         return Status::InternalError("input pointer is nullptr.");
@@ -227,7 +227,7 @@ Status CsvScanNode::open(RuntimeState* state) {
 }
 
 Status CsvScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    VLOG(1) << "CsvScanNode::GetNext";
+    VLOG_CRITICAL << "CsvScanNode::GetNext";
     if (nullptr == state || nullptr == row_batch || nullptr == eos) {
         return Status::InternalError("input is nullptr pointer");
     }
@@ -315,7 +315,7 @@ Status CsvScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    VLOG(1) << "CsvScanNode::Close";
+    VLOG_CRITICAL << "CsvScanNode::Close";
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
 
     SCOPED_TIMER(_runtime_profile->total_time_counter());

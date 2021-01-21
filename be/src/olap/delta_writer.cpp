@@ -199,7 +199,7 @@ OLAPStatus DeltaWriter::_flush_memtable_async() {
 OLAPStatus DeltaWriter::flush_memtable_and_wait() {
     if (mem_consumption() == _mem_table->memory_usage()) {
         // equal means there is no memtable in flush queue, just flush this memtable
-        VLOG(3) << "flush memtable to reduce mem consumption. memtable size: "
+        VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
                 << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
                 << ", load id: " << print_id(_req.load_id);
         RETURN_NOT_OK(_flush_memtable_async());

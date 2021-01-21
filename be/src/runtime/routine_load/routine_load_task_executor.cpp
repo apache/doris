@@ -162,7 +162,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         return Status::InternalError("unknown load source type");
     }
 
-    VLOG(1) << "receive a new routine load task: " << ctx->brief();
+    VLOG_CRITICAL << "receive a new routine load task: " << ctx->brief();
     // register the task
     ctx->ref();
     _task_map[ctx->id] = ctx;

@@ -223,7 +223,7 @@ TEST_F(BinaryOpTest, SimplePerformanceTest) {
         }
 
         uint64_t vec_time = stopwatch.elapsed_time();
-        VLOG(1) << PrettyPrinter::print(vec_time, TCounterType::TIME_NS);
+        VLOG_CRITICAL << PrettyPrinter::print(vec_time, TCounterType::TIME_NS);
 
         stopwatch.start();
 
@@ -234,9 +234,9 @@ TEST_F(BinaryOpTest, SimplePerformanceTest) {
         }
 
         uint64_t row_time = stopwatch.elapsed_time();
-        VLOG(1) << PrettyPrinter::print(row_time, TCounterType::TIME_NS);
+        VLOG_CRITICAL << PrettyPrinter::print(row_time, TCounterType::TIME_NS);
 
-        VLOG(1) << "capacity: " << capacity << " multiple: " << row_time / vec_time;
+        VLOG_CRITICAL << "capacity: " << capacity << " multiple: " << row_time / vec_time;
     }
 }
 
