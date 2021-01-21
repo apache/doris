@@ -1490,9 +1490,13 @@ void TabletManager::get_tablets_distribution_on_different_disks(
                     std::map<int64_t, std::map<DataDir*, int64_t>> &tablets_num_on_disk,
                     std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>> &tablets_info_on_disk) {
     std::vector<DataDir*> data_dirs = StorageEngine::instance()->get_stores();
-    ReadLock rlock(&_partition_tablet_map_lock);
-    std::map<int64_t, std::set<TabletInfo>>::iterator partition_iter = _partition_tablet_map.begin();
-    for (; partition_iter != _partition_tablet_map.end(); partition_iter++) {
+    std::map<int64_t, std::set<TabletInfo>> partition_tablet_map;
+    {
+        ReadLock rlock(&_partition_tablet_map_lock);
+        partition_tablet_map = _partition_tablet_map;
+    }
+    std::map<int64_t, std::set<TabletInfo>>::iterator partition_iter = partition_tablet_map.begin();
+    for (; partition_iter != partition_tablet_map.end(); partition_iter++) {
         std::map<DataDir*, int64_t> tablets_num;
         std::map<DataDir*, std::vector<TabletSize>> tablets_info;
         for(int i = 0; i < data_dirs.size(); i++) {
@@ -1502,6 +1506,9 @@ void TabletManager::get_tablets_distribution_on_different_disks(
         std::set<TabletInfo>::iterator tablet_info_iter = (partition_iter->second).begin();
         for(; tablet_info_iter != (partition_iter->second).end(); tablet_info_iter++) {
             TabletSharedPtr tablet = get_tablet(tablet_info_iter->tablet_id, tablet_info_iter->schema_hash);
+            if (tablet == nullptr) {
+                continue;
+            }
             DataDir* data_dir = tablet->data_dir();
             size_t tablet_footprint = tablet->tablet_footprint();
             tablets_num[data_dir]++;
