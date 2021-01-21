@@ -20,16 +20,18 @@ package org.apache.doris.persist;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
-import org.apache.doris.meta.MetaContext;
 import org.apache.doris.qe.OriginStatement;
-
-import com.google.common.collect.Maps;
 
 import org.junit.Assert;
 import org.junit.Test;
+
+import com.google.common.collect.Maps;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -37,6 +39,10 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class LoadJobV2PersistTest {
     private BrokerLoadJob createJob() throws Exception {
@@ -52,10 +58,26 @@ public class LoadJobV2PersistTest {
     }
 
     @Test
-    public void testBrokerLoadJob() throws Exception {
-        MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
-        metaContext.setThreadLocalInfo();
+    public void testBrokerLoadJob(@Mocked Catalog catalog,
+                                  @Injectable Database database,
+                                  @Injectable Table table) throws Exception {
+
+        new Expectations() {
+            {
+                catalog.getDb(anyLong);
+                minTimes = 0;
+                result = database;
+                database.getTable(anyLong);
+                minTimes = 0;
+                result = table;
+                table.getName();
+                minTimes = 0;
+                result = "tablename";
+                Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
+                result = FeMetaVersion.VERSION_CURRENT;
+            }
+        };
 
         // 1. Write objects to file
         File file = new File("./testBrokerLoadJob");
