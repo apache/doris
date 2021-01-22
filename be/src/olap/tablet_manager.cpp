@@ -1492,6 +1492,9 @@ void TabletManager::get_tablets_distribution_on_different_disks(
     std::vector<DataDir*> data_dirs = StorageEngine::instance()->get_stores();
     std::map<int64_t, std::set<TabletInfo>> partition_tablet_map;
     {
+        // When drop tablet, '_partition_tablet_map_lock' is locked in 'tablet_shard_lock'.
+        // To avoid locking 'tablet_shard_lock' in '_partition_tablet_map_lock', we lock and
+        // copy _partition_tablet_map here.
         ReadLock rlock(&_partition_tablet_map_lock);
         partition_tablet_map = _partition_tablet_map;
     }
@@ -1505,6 +1508,7 @@ void TabletManager::get_tablets_distribution_on_different_disks(
         int64_t partition_id = partition_iter->first;
         std::set<TabletInfo>::iterator tablet_info_iter = (partition_iter->second).begin();
         for(; tablet_info_iter != (partition_iter->second).end(); tablet_info_iter++) {
+            // get_tablet() will hold 'tablet_shard_lock'
             TabletSharedPtr tablet = get_tablet(tablet_info_iter->tablet_id, tablet_info_iter->schema_hash);
             if (tablet == nullptr) {
                 continue;
