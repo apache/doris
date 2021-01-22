@@ -131,7 +131,7 @@ If your GCC version is lower than 7.3.0, you can run:
 sudo yum install devtoolset-4-toolchain -y
 ```
 
-and then, set the path of GCC (e.g /opt/rh/devtoolset-4/root/usr/bin) to the environment variable PATH.
+and then, set the path of GCC (e.g `/opt/rh/devtoolset-4/root/usr/bin`) to the environment variable PATH.
 
 #### Compile and install
 
