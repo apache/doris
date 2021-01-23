@@ -2850,13 +2850,14 @@ public class Catalog {
         if (table != null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
         }
-        table.writeLock();
+
+        db.writeLock();
         try {
             if (!Catalog.getCurrentRecycleBin().recoverTable(db, tableName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
             }
         } finally {
-            table.writeUnlock();
+            db.writeUnlock();
         }
     }
 
