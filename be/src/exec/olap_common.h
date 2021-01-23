@@ -62,7 +62,10 @@ public:
     ColumnValueRange(std::string col_name, PrimitiveType type, const T& min, const T& max, bool contain_null);
 
     // should add fixed value before add range
-    Status add_fixed_value(T value);
+    Status add_fixed_value(const T& value);
+
+    // should remove fixed value after add fixed value
+    void remove_fixed_value(const T& value);
 
     Status add_range(SQLFilterOp op, T value);
 
@@ -109,24 +112,16 @@ public:
 
     PrimitiveType type() const { return _column_type; }
 
+    const std::string& column_name() const { return _column_name; }
+
     bool contain_null() const { return _contain_null; }
 
     size_t get_fixed_value_size() const { return _fixed_values.size(); }
 
-    void to_olap_filter(std::list<TCondition>& filters) {
+    void to_olap_filter(std::vector<TCondition>& filters) {
         if (is_fixed_value_range()) {
             // 1. convert to in filter condition
-            TCondition condition;
-            condition.__set_column_name(_column_name);
-            condition.__set_condition_op("*=");
-
-            for (const auto& value : _fixed_values) {
-                condition.condition_values.push_back(cast_to_string(value));
-            }
-
-            if (condition.condition_values.size() != 0) {
-                filters.push_back(condition);
-            }
+            to_in_condition(filters, true);
         } else if (_low_value < _high_value) {
             // 2. convert to min max filter condition
             TCondition null_pred;
@@ -178,6 +173,20 @@ public:
         }
     }
 
+    void to_in_condition(std::vector<TCondition>& filters, bool is_in = true) {
+        TCondition condition;
+        condition.__set_column_name(_column_name);
+        condition.__set_condition_op(is_in ? "*=" : "!*=");
+
+        for (const auto& value : _fixed_values) {
+            condition.condition_values.push_back(cast_to_string(value));
+        }
+
+        if (condition.condition_values.size() != 0) {
+            filters.push_back(condition);
+        }
+    }
+
     void set_whole_value_range() {
         _fixed_values.clear();
         _low_value = TYPE_MIN;
@@ -207,8 +216,20 @@ public:
         _contain_null = contain_null;
     };
 
+    static void add_fixed_value_range(ColumnValueRange<T>& range, T* value) {
+        range.add_fixed_value(*value);
+    }
+
+    static void remove_fixed_value_range(ColumnValueRange<T>& range, T* value) {
+        range.remove_fixed_value(*value);
+    }
+
     static ColumnValueRange<T> create_empty_column_value_range(PrimitiveType type) {
-        return ColumnValueRange<T>("", type, TYPE_MAX, TYPE_MIN, false);
+        return ColumnValueRange<T>::create_empty_column_value_range("", type);
+    }
+
+    static ColumnValueRange<T> create_empty_column_value_range(const std::string& col_name, PrimitiveType type) {
+        return ColumnValueRange<T>(col_name, type, TYPE_MAX, TYPE_MIN, false);
     }
 
 protected:
@@ -323,14 +344,23 @@ ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, 
           _contain_null(contain_null){}
 
 template <class T>
-Status ColumnValueRange<T>::add_fixed_value(T value) {
+Status ColumnValueRange<T>::add_fixed_value(const T& value) {
     if (INVALID_TYPE == _column_type) {
         return Status::InternalError("AddFixedValue failed, Invalid type");
     }
 
     _fixed_values.insert(value);
     _contain_null = false;
+
+    _high_value = TYPE_MIN;
+    _low_value = TYPE_MAX;
+
     return Status::OK();
+}
+
+template <class T>
+void ColumnValueRange<T>::remove_fixed_value(const T& value) {
+    _fixed_values.erase(value);
 }
 
 template <class T>
@@ -480,7 +510,6 @@ Status ColumnValueRange<T>::add_range(SQLFilterOp op, T value) {
         _low_value = TYPE_MAX;
     } else {
         if (_high_value > _low_value) {
-
             switch (op) {
             case FILTER_LARGER: {
                 if (value >= _low_value) {
@@ -593,7 +622,7 @@ void ColumnValueRange<T>::intersection(ColumnValueRange<T>& range) {
     }
 
     std::set<T> result_values;
-    // 3. fixed_value intersection, fixex value range do not contain null
+    // 3. fixed_value intersection, fixed value range do not contain null
     if (is_fixed_value_range() || range.is_fixed_value_range()) {
         if (is_fixed_value_range() && range.is_fixed_value_range()) {
             set_intersection(_fixed_values.begin(), _fixed_values.end(), range._fixed_values.begin(),
@@ -621,6 +650,8 @@ void ColumnValueRange<T>::intersection(ColumnValueRange<T>& range) {
         if (!result_values.empty()) {
             _fixed_values = std::move(result_values);
             _contain_null = false;
+            _high_value = TYPE_MIN;
+            _low_value = TYPE_MAX;
         } else {
             set_empty_value_range();
         }
