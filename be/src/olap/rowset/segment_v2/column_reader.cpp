@@ -155,6 +155,7 @@ bool ColumnReader::match_condition(CondColumn* cond) const {
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
     _parse_zone_map(_zone_map_index_meta->segment_zone_map(), min_value.get(), max_value.get());
+
     return _zone_map_match_condition(_zone_map_index_meta->segment_zone_map(), min_value.get(),
                                      max_value.get(), cond);
 }
