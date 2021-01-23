@@ -45,9 +45,9 @@ Currently only supports Docker environment and Linux OS, such as Ubuntu and Cent
 
 ### 4.1 Compile in Docker environment (Recommended)
 
-We offer a docker image as a Doris compilation environment. You can compile Doris from source in it and run the output binaries in other Linux environment.
+We offer a docker image as a Doris compilation environment. You can compile Doris from source in it and run the output binaries in other Linux environments.
 
-Firstly, you must be install and start docker service.
+Firstly, you need to install and start docker service.
 
 And then you could build Doris as following steps:
 
