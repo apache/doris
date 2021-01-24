@@ -687,7 +687,7 @@ OLAPStatus DataDir::load() {
                                     int64_t tablet_id, int32_t schema_hash,
                                     const std::string& value) -> bool {
         OLAPStatus status = _tablet_manager->load_tablet_from_meta(this, tablet_id, schema_hash,
-                                                                   value, false, false);
+                                                                   value, false, false, false, false);
         if (status != OLAP_SUCCESS && status != OLAP_ERR_TABLE_ALREADY_DELETED_ERROR
             && status != OLAP_ERR_ENGINE_INSERT_OLD_TABLET) {
             // load_tablet_from_meta() may return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR
