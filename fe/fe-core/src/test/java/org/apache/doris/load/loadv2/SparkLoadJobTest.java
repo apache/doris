@@ -252,7 +252,7 @@ public class SparkLoadJobTest {
         sparkConfigs.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
         SparkLoadJob job = new SparkLoadJob(dbId, label, null, new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
         job.state = JobState.ETL;
-        job.maxFilterRatio = 0.15;
+        job.setMaxFilterRatio(0.15);
         job.transactionId = transactionId;
         Deencapsulation.setField(job, "appId", appId);
         Deencapsulation.setField(job, "etlOutputPath", etlOutputPath);

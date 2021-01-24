@@ -474,10 +474,6 @@ public class Load {
                 }
             }
 
-            if (properties.containsKey(LoadStmt.LOAD_DELETE_FLAG_PROPERTY)) {
-                throw new DdlException("Do not support load_delete_flag");
-            }
-
             if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
                 try {
                     job.setExecMemLimit(Long.parseLong(properties.get(LoadStmt.EXEC_MEM_LIMIT)));

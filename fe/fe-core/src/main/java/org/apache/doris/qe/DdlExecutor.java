@@ -80,7 +80,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.load.Load;
 
 public class DdlExecutor {
     public static void execute(Catalog catalog, DdlStmt ddlStmt) throws Exception {
@@ -129,7 +128,7 @@ public class DdlExecutor {
                 throw new DdlException("Load job by hadoop cluster is disabled."
                         + " Try using broker load. See 'help broker load;'");
             }
-            if (loadStmt.getVersion().equals(Load.VERSION) || jobType == EtlJobType.HADOOP) {
+            if (jobType == EtlJobType.HADOOP) {
                 catalog.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
             } else {
                 catalog.getLoadManager().createLoadJobFromStmt(loadStmt);
