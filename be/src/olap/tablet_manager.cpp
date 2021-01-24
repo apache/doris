@@ -788,7 +788,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
 
 OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
                                                 TSchemaHash schema_hash, const string& meta_binary,
-                                                bool update_meta, bool force, bool restore) {
+                                                bool update_meta, bool force, bool restore, bool check_path) {
     WriteLock wlock(_get_tablets_shard_lock(tablet_id));
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     OLAPStatus status = tablet_meta->deserialize(meta_binary);
@@ -826,8 +826,15 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
     }
 
-    // check if the tablet path exists since the path maybe deleted by gc thread
-    if (!Env::Default()->path_exists(tablet->tablet_path()).ok()) {
+    // NOTE: method load_tablet_from_meta could be called by two cases as below
+    // case 1: BE start;
+    // case 2: Clone Task/Restore
+    // For case 1 doesn't need path check because BE is just starting and not ready,
+    // just check tablet meta status to judge whether tablet is delete is enough.
+    // For case 2, If a tablet has just been copied to local BE,
+    // it may be cleared by gc-thread(see perform_path_gc_by_tablet) because the tablet meta may not be loaded to memory.
+    // So clone task should check path and then failed and retry in this case.
+    if (check_path && !Env::Default()->path_exists(tablet->tablet_path()).ok()) {
         LOG(WARNING) << "tablet path not exists, create tablet failed, path="
                      << tablet->tablet_path();
         return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR;
@@ -896,7 +903,7 @@ OLAPStatus TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_
     string meta_binary;
     tablet_meta->serialize(&meta_binary);
     RETURN_NOT_OK_LOG(
-            load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force, restore),
+            load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force, restore, true),
             strings::Substitute("fail to load tablet. header_path=$0", header_path));
 
     return OLAP_SUCCESS;
