@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -33,10 +32,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
@@ -51,11 +50,11 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -79,17 +78,14 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     // for log replay and unit test
     public BrokerLoadJob() {
-        super();
-        this.jobType = EtlJobType.BROKER;
+        super(EtlJobType.BROKER);
     }
 
     public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc,
                          OriginStatement originStmt, UserIdentity userInfo)
             throws MetaNotFoundException {
-        super(dbId, label, originStmt, userInfo);
-        this.timeoutSecond = Config.broker_load_default_timeout_second;
+        super(EtlJobType.BROKER, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
-        this.jobType = EtlJobType.BROKER;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReportSucc()) {
             isReportSuccess = true;
         }
@@ -103,7 +99,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
                         new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                         TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
-                        timeoutSecond);
+                        getTimeout());
     }
 
     @Override
@@ -199,9 +195,9 @@ public class BrokerLoadJob extends BulkLoadJob {
                 OlapTable table = (OlapTable) db.getTable(tableId);
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
-                        brokerFileGroups, getDeadlineMs(), execMemLimit,
-                        strictMode, transactionId, this, timezone, timeoutSecond,
-                        isReportSuccess ? jobProfile : null);
+                        brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
+                        isStrictMode(), transactionId, this, getTimeZone(), getTimeout(),
+                        getLoadParallelism(), isReportSuccess ? jobProfile : null);
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
                 task.init(loadId, attachment.getFileStatusByTable(aggKey),

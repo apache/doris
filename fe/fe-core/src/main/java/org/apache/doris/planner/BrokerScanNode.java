@@ -50,13 +50,13 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.Charset;
 import java.util.Collections;
@@ -99,7 +99,8 @@ public class BrokerScanNode extends LoadScanNode {
     private Table targetTable;
     private BrokerDesc brokerDesc;
     private List<BrokerFileGroup> fileGroups;
-    private boolean strictMode = true;
+    private boolean strictMode = false;
+    private int loadParallelism = 1;
 
     private List<List<TBrokerFileStatus>> fileStatusesList;
     // file num
@@ -177,13 +178,15 @@ public class BrokerScanNode extends LoadScanNode {
                             Table targetTable,
                             BrokerDesc brokerDesc,
                             List<BrokerFileGroup> fileGroups,
-                            boolean strictMode) {
+                            boolean strictMode,
+                            int loadParallelism) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.targetTable = targetTable;
         this.brokerDesc = brokerDesc;
         this.fileGroups = fileGroups;
         this.strictMode = strictMode;
+        this.loadParallelism = loadParallelism;
     }
 
     // Called from init, construct source tuple information
@@ -340,7 +343,8 @@ public class BrokerScanNode extends LoadScanNode {
         numInstances = 1;
         if (!brokerDesc.isMultiLoadBroker()) {
             numInstances = (int) (totalBytes / Config.min_bytes_per_broker_scanner);
-            numInstances = Math.min(backends.size(), numInstances);
+            int totalLoadParallelism = loadParallelism * backends.size();
+            numInstances = Math.min(totalLoadParallelism, numInstances);
             numInstances = Math.min(numInstances, Config.max_broker_concurrency);
             numInstances = Math.max(1, numInstances);
         }
@@ -351,6 +355,7 @@ public class BrokerScanNode extends LoadScanNode {
             throw new UserException(
                     "Scan bytes per broker scanner exceed limit: " + Config.max_bytes_per_broker_scanner);
         }
+        LOG.info("number instance of broker scan node is: {}, bytes per instance: {}", numInstances, bytesPerInstance);
     }
 
     private void assignBackends() throws UserException {

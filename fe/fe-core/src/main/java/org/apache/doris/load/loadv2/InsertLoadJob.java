@@ -21,7 +21,6 @@ import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
@@ -46,13 +45,12 @@ public class InsertLoadJob extends LoadJob {
 
     // only for log replay
     public InsertLoadJob() {
-        super();
-        this.jobType = EtlJobType.INSERT;
+        super(EtlJobType.INSERT);
     }
 
     public InsertLoadJob(String label, long dbId, long tableId, long createTimestamp, String failMsg,
             String trackingUrl) throws MetaNotFoundException {
-        super(dbId, label);
+        super(EtlJobType.INSERT, dbId, label);
         this.tableId = tableId;
         this.createTimestamp = createTimestamp;
         this.loadStartTimestamp = createTimestamp;
@@ -65,8 +63,6 @@ public class InsertLoadJob extends LoadJob {
             this.failMsg = new FailMsg(CancelType.LOAD_RUN_FAIL, failMsg);
             this.progress = 0;
         }
-        this.jobType = EtlJobType.INSERT;
-        this.timeoutSecond = Config.insert_load_default_timeout_second;
         this.authorizationInfo = gatherAuthInfo();
         this.loadingStatus.setTrackingUrl(trackingUrl);
     }

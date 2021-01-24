@@ -29,15 +29,16 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.util.List;
 import java.util.Map;
@@ -75,12 +76,11 @@ import java.util.Map.Entry;
 public class LoadStmt extends DdlStmt {
     public static final String TIMEOUT_PROPERTY = "timeout";
     public static final String MAX_FILTER_RATIO_PROPERTY = "max_filter_ratio";
-    public static final String LOAD_DELETE_FLAG_PROPERTY = "load_delete_flag";
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String CLUSTER_PROPERTY = "cluster";
-    private static final String VERSION = "version";
     public static final String STRICT_MODE = "strict_mode";
     public static final String TIMEZONE = "timezone";
+    public static final String LOAD_PARALLELISM = "load_parallelism";
 
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
@@ -124,18 +124,43 @@ public class LoadStmt extends DdlStmt {
 
     private EtlJobType etlJobType = EtlJobType.UNKNOWN;
 
-    private String version = "v2";
-
-    // properties set
-    private final static ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
-            .add(TIMEOUT_PROPERTY)
-            .add(MAX_FILTER_RATIO_PROPERTY)
-            .add(LOAD_DELETE_FLAG_PROPERTY)
-            .add(EXEC_MEM_LIMIT)
-            .add(CLUSTER_PROPERTY)
-            .add(STRICT_MODE)
-            .add(VERSION)
-            .add(TIMEZONE)
+    public final static ImmutableMap<String, Function> PROPERTIES_MAP = new ImmutableMap.Builder<String, Function>()
+            .put(TIMEOUT_PROPERTY, new Function<String, Long>() {
+                @Override
+                public @Nullable Long apply(@Nullable String s) {
+                    return Long.valueOf(s);
+                }
+            })
+            .put(MAX_FILTER_RATIO_PROPERTY, new Function<String, Double>() {
+                @Override
+                public @Nullable Double apply(@Nullable String s) {
+                    return Double.valueOf(s);
+                }
+            })
+            .put(EXEC_MEM_LIMIT, new Function<String, Long>() {
+                @Override
+                public @Nullable Long apply(@Nullable String s) {
+                    return Long.valueOf(s);
+                }
+            })
+            .put(STRICT_MODE, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(TIMEZONE, new Function<String, String>() {
+                @Override
+                public @Nullable String apply(@Nullable String s) {
+                    return s;
+                }
+            })
+            .put(LOAD_PARALLELISM, new Function<String, Integer>() {
+                @Override
+                public @Nullable Integer apply(@Nullable String s) {
+                    return Integer.valueOf(s);
+                }
+            })
             .build();
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
@@ -198,7 +223,7 @@ public class LoadStmt extends DdlStmt {
         }
 
         for (Entry<String, String> entry : properties.entrySet()) {
-            if (!PROPERTIES_SET.contains(entry.getKey())) {
+            if (!PROPERTIES_MAP.containsKey(entry.getKey())) {
                 throw new DdlException(entry.getKey() + " is invalid property");
             }
         }
@@ -242,14 +267,6 @@ public class LoadStmt extends DdlStmt {
             }
         }
 
-        // version
-        final String versionProperty = properties.get(VERSION);
-        if (versionProperty != null) {
-            if (!versionProperty.equalsIgnoreCase(Load.VERSION)) {
-                throw new DdlException(VERSION + " must be " + Load.VERSION);
-            }
-        }
-
         // strict mode
         final String strictModeProperty = properties.get(STRICT_MODE);
         if (strictModeProperty != null) {
@@ -264,16 +281,6 @@ public class LoadStmt extends DdlStmt {
         if (timezone != null) {
             properties.put(TIMEZONE, TimeUtils.checkTimeZoneValidAndStandardize(
                     properties.getOrDefault(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE)));
-        }
-    }
-
-    private void analyzeVersion() throws AnalysisException {
-        if (properties == null) {
-            return;
-        }
-        final String versionProperty = properties.get(VERSION);
-        if (versionProperty != null) {
-            throw new AnalysisException("Do not support VERSION property");
         }
     }
 
@@ -349,7 +356,6 @@ public class LoadStmt extends DdlStmt {
             throw new AnalysisException(e.getMessage());
         }
 
-        analyzeVersion();
         user = ConnectContext.get().getQualifiedUser();
     }
 
@@ -361,14 +367,9 @@ public class LoadStmt extends DdlStmt {
         return false;
     }
 
-    public String getVersion() {
-        return version;
-    }
-
     public void setEtlJobType(EtlJobType etlJobType) {
         this.etlJobType = etlJobType;
     }
-
 
     @Override
     public String toSql() {

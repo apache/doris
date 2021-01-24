@@ -145,21 +145,18 @@ public class SparkLoadJob extends BulkLoadJob {
 
     // only for log replay
     public SparkLoadJob() {
-        super();
-        jobType = EtlJobType.SPARK;
+        super(EtlJobType.SPARK);
     }
 
     public SparkLoadJob(long dbId, String label, ResourceDesc resourceDesc,
                         OriginStatement originStmt, UserIdentity userInfo)
             throws MetaNotFoundException {
-        super(dbId, label, originStmt, userInfo);
+        super(EtlJobType.SPARK, dbId, label, originStmt, userInfo);
         this.resourceDesc = resourceDesc;
-        timeoutSecond = Config.spark_load_default_timeout_second;
-        jobType = EtlJobType.SPARK;
     }
 
     @Override
-    protected void setJobProperties(Map<String, String> properties) throws DdlException {
+    public void setJobProperties(Map<String, String> properties) throws DdlException {
         super.setJobProperties(properties);
 
         // set spark resource and broker desc
@@ -191,7 +188,7 @@ public class SparkLoadJob extends BulkLoadJob {
        transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
                                   new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                                  LoadJobSourceType.FRONTEND, id, timeoutSecond);
+                                  LoadJobSourceType.FRONTEND, id, getTimeout());
     }
 
     @Override
