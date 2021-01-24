@@ -52,11 +52,19 @@ struct ZoneMap {
     // has_not_null means whether zone has none-null value
     bool has_not_null = false;
 
+    bool pass_all = false;
+
     void to_proto(ZoneMapPB* dst, Field* field) {
-        dst->set_min(field->to_string(min_value));
-        dst->set_max(field->to_string(max_value));
+        if (pass_all) {
+            dst->set_min("");
+            dst->set_max("");
+        } else {
+            dst->set_min(field->to_string(min_value));
+            dst->set_max(field->to_string(max_value));
+        }
         dst->set_has_null(has_null);
         dst->set_has_not_null(has_not_null);
+        dst->set_pass_all(pass_all);
     }
 };
 
@@ -79,6 +87,9 @@ public:
 
     uint64_t size() { return _estimated_size; }
 
+    void reset_page_zone_map();
+    void reset_segment_zone_map();
+
 private:
     void _reset_zone_map(ZoneMap* zone_map) {
         // we should allocate max varchar length and set to max for min value
@@ -86,6 +97,7 @@ private:
         _field->set_to_min(zone_map->max_value);
         zone_map->has_null = false;
         zone_map->has_not_null = false;
+        zone_map->pass_all = false;
     }
 
     Field* _field;

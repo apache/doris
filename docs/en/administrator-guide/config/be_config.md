@@ -864,3 +864,9 @@ If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
 * Default: 8040
 
 ### `write_buffer_size`
+
+### `zone_map_row_num_threshold`
+
+* Type: int32
+* Description: If the number of rows in a page is less than this value, no zonemap will be created to reduce data expansion
+* Default: 20
