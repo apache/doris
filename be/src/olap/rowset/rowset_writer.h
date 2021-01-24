@@ -27,6 +27,7 @@
 namespace doris {
 
 class ContiguousRow;
+class MemTable;
 class RowCursor;
 
 class RowsetWriter {
@@ -51,6 +52,10 @@ public:
     // explicit flush all buffered rows into segment file.
     // note that `add_row` could also trigger flush when certain conditions are met
     virtual OLAPStatus flush() = 0;
+
+    virtual OLAPStatus flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
+        return OLAP_ERR_FUNC_NOT_IMPLEMENTED;
+    }
 
     // finish building and return pointer to the built rowset (guaranteed to be inited).
     // return nullptr when failed
