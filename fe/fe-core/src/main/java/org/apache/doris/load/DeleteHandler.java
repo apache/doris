@@ -156,9 +156,11 @@ public class DeleteHandler implements Writable {
                         } else {
                             partitionNames.addAll(olapTable.getPartitionNames());
                         }
-                    } else {
+                    } else if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                         // this is a unpartitioned table, use table name as partition name
                         partitionNames.add(olapTable.getName());
+                    } else {
+                        throw new DdlException("Unknown partition type: " + olapTable.getPartitionInfo().getType());
                     }
                 }
 
