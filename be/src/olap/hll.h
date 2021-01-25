@@ -21,9 +21,9 @@
 #include <math.h>
 #include <stdio.h>
 
-#include <string>
 #include <map>
 #include <set>
+#include <string>
 
 #include "gutil/macros.h"
 
