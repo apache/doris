@@ -485,7 +485,7 @@ select NULL, NULL, sum(k3) from t;
 
 In order to add GROUPING_ID to groupingExprs in GroupByClause, need to create virtual SlotRef, also, need tot create a tuple for this slot, named GROUPING\_\_ID Tuple.
 
-For the plannode RepeatNode, its input is all the tuple of its children, It's output tuple is the repeat data and GROUPING_ID.
+For the plannode RepeatNode, its input are all the tuples of its children and its output tuple are the repeat data and GROUPING_ID.
 
 
 #### 3.3.3 Expression and Function Substitution
