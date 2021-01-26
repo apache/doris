@@ -123,15 +123,15 @@ You should install the following softwares:
 GCC 7.3.0+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
 ```
 
-After you installed above all, you also must be set them to environment variable PATH and set JAVA_HOME.
+Then set them to environment variable PATH and set JAVA_HOME.
 
 If your GCC version is lower than 7.3.0, you can run:
 
 ```
-sudo yum install devtoolset-4-toolchain -y
+sudo yum install devtoolset-7-toolchain -y
 ```
 
-and then, set the path of GCC (e.g /opt/rh/devtoolset-4/root/usr/bin) to the environment variable PATH.
+and then, set the path of GCC (e.g `/opt/rh/devtoolset-7/root/usr/bin`) to the environment variable PATH.
 
 #### Compile and install
 
