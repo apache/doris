@@ -29,7 +29,6 @@
 #include <nmmintrin.h>
 #endif
 #include <zlib.h>
-#include <cmath>
 #include "util/cpu_info.h"
 #include "util/murmur_hash3.h"
 #include "gen_cpp/Types_types.h"
@@ -59,10 +58,6 @@ public:
         uint32_t words = bytes / sizeof(uint32_t);
         bytes = bytes % sizeof(uint32_t);
 
-        // When data is negative zero, rewrite it to 0.0, see Doris#5226
-        if (*(double*)data == 0.0 and std::signbit(*(double*)data) == true) {
-            *(double*)data = 0.0;
-        }
         const uint32_t* p = reinterpret_cast<const uint32_t*>(data);
 
         while (words--) {
@@ -224,13 +219,6 @@ public:
     // is taken on the hash, all values will collide to the same bucket.
     // For string values, Fnv is slightly faster than boost.
     static uint32_t fnv_hash(const void* data, int32_t bytes, uint32_t hash) {
-        // When data is negative zero, rewrite it to 0.0, which will be used in 
-        // DataStreamSender::send HashPartition, because the original value of 
-        // data is covered here, so -0.0 in the data after DataStreamSender 
-        // will be changed to 0.0, see Doris#5226
-        if (*(double*)data == 0.0 and std::signbit(*(double*)data) == true) {
-            *(double*)data = 0.0;
-        }
         const uint8_t* ptr = reinterpret_cast<const uint8_t*>(data);
 
         while (bytes--) {
