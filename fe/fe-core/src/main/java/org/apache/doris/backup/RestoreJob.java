@@ -150,6 +150,8 @@ public class RestoreJob extends AbstractJob {
     // NOTICE: because we do not persist it, this info may be lost if Frontend restart,
     // and if you don't want to losing it, backup your data again by using latest Doris version.
     private int metaVersion = -1;
+    // restore properties
+    private Map<String, String> properties = Maps.newHashMap();
 
     public RestoreJob() {
         super(JobType.RESTORE);
@@ -1693,6 +1695,13 @@ public class RestoreJob extends AbstractJob {
         for (Resource resource: restoredResources) {
             resource.write(out);
         }
+
+        // write properties
+        out.writeInt(properties.size());
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            Text.writeString(out, entry.getValue());
+        }
     }
 
     @Override
@@ -1752,12 +1761,20 @@ public class RestoreJob extends AbstractJob {
             }
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_94) {
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_95) {
             return;
         }
+
+        // restored resource
         size = in.readInt();
         for (int i = 0; i < size; i++) {
             restoredResources.add(Resource.read(in));
+        }
+
+        // read properties
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            properties.put(Text.readString(in), Text.readString(in));
         }
     }
 

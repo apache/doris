@@ -25,17 +25,15 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OdbcTable;
-import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.View;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.task.AgentBatchTask;
@@ -114,13 +112,15 @@ public class BackupJob extends AbstractJob {
     // save the local file path of meta info and job info file
     private String localMetaInfoFilePath = null;
     private String localJobInfoFilePath = null;
+    // backup properties
+    private Map<String, String> properties = Maps.newHashMap();
 
     public BackupJob() {
         super(JobType.BACKUP);
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
-            Catalog catalog, long repoId) {
+                     Catalog catalog, long repoId) {
         super(JobType.BACKUP, label, dbId, dbName, timeoutMs, catalog, repoId);
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
@@ -880,6 +880,13 @@ public class BackupJob extends AbstractJob {
             out.writeBoolean(true);
             Text.writeString(out, localJobInfoFilePath);
         }
+
+        // write properties
+        out.writeInt(properties.size());
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            Text.writeString(out, entry.getValue());
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -922,6 +929,15 @@ public class BackupJob extends AbstractJob {
 
         if (in.readBoolean()) {
             localJobInfoFilePath = Text.readString(in);
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_95) {
+            return;
+        }
+        // read properties
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            properties.put(Text.readString(in), Text.readString(in));
         }
     }
 
