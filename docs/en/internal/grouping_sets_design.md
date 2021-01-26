@@ -261,7 +261,7 @@ Presto supports composition, but not nesting.
 ## 2. Object
 
 Support `GROUPING SETS`， `ROLLUP` and `CUBE ` syntax，implements 1.1, 1.2, 1.3 1.4, 1.5, not support the combination
- and nesting of GROUPING SETS at current version.
+ and nesting of GROUPING SETS in current version.
 
 ### 2.1 GROUPING SETS Syntax
 
@@ -308,7 +308,7 @@ Expression，column name.
 
 ### 3.1 Overall Design Approaches
 
-For `GROUPING SET`  is equivalent to the `UNION` of  `GROUP BY` .  So we can expand input rows, and run an  GROUP BY on these rows。
+For `GROUPING SET`  is equivalent to the `UNION` of  `GROUP BY` . So we can expand input rows, and run an GROUP BY on these rows.
 
 For example：
 
@@ -316,7 +316,7 @@ For example：
 SELECT a, b FROM src GROUP BY a, b GROUPING SETS ((a, b), (a), (b), ());
 ```
 
-Data in  table src :
+Data in table src :
 
 ```
 1, 2
@@ -485,7 +485,7 @@ select NULL, NULL, sum(k3) from t;
 
 In order to add GROUPING_ID to groupingExprs in GroupByClause, need to create virtual SlotRef, also, need tot create a tuple for this slot, named GROUPING\_\_ID Tuple.
 
-For the plannode RepeatNode, it's input is all the  tuple of it's children, It's output tuple is the repeat data and GROUPING_ID.
+For the plannode RepeatNode, its input are all the tuples of its children and its output tuple are the repeat data and GROUPING_ID.
 
 
 #### 3.3.3 Expression and Function Substitution

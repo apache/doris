@@ -38,7 +38,7 @@ under the License.
 
 As shown above, Doris's overall architecture is divided into two layers. Multiple FEs form the first tier, providing lateral expansion and high availability of FE. Multiple BEs form the second layer, which is responsible for data storage and management. This paper mainly introduces the design and implementation of metadata in FE layer.
 
-1. FE 节点分为 follower 和 observer 两类。各个 FE 之间，通过 bdbje（[BerkeleyDB Java Edition](http://www.oracle.com/technetwork/database/database-technologies/berkeleydb/overview/index-093405.html)）进行 leader 选举，数据同步等工作。
+1. There are two different kinds of FE nodes: follower and observer. Leader election and data synchronization are taken among FE nodes by bdbje ([BerkeleyDB Java Edition](http://www.oracle.com/technetwork/database/database-technologies/berkeleydb/overview/index-093405.html)).
 
 2. The follower node is elected, and one of the followers becomes the leader node, which is responsible for the writing of metadata. When the leader node goes down, other follower nodes re-elect a leader to ensure high availability of services.
 
