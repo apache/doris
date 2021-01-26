@@ -24,7 +24,7 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/exec")
 # TODO: why is this test disabled?
 #ADD_BE_TEST(new_olap_scan_node_test)
 #ADD_BE_TEST(pre_aggregation_node_test)
-#ADD_BE_TEST(hash_table_test)
+ADD_BE_TEST(hash_table_test)
 # ADD_BE_TEST(partitioned_hash_table_test)
 #ADD_BE_TEST(olap_scanner_test)
 #ADD_BE_TEST(olap_meta_reader_test)
