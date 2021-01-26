@@ -102,7 +102,7 @@ public class LoadManager implements Writable{
         LoadJob loadJob = null;
         writeLock();
         try {
-            if (stmt.getBrokerDesc().isMultiLoadBroker()) {
+            if (stmt.getBrokerDesc() != null && stmt.getBrokerDesc().isMultiLoadBroker()) {
                 if (!Catalog.getCurrentCatalog().getLoadInstance()
                         .isUncommittedLabel(dbId, stmt.getLabel().getLabelName())) {
                     throw new DdlException("label: " + stmt.getLabel().getLabelName() + " not found!") ;
