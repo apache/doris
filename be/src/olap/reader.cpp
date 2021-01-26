@@ -31,6 +31,7 @@
 #include "olap/tablet.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/string_value.hpp"
 #include "util/date_func.h"
 #include "util/mem_util.hpp"
 
