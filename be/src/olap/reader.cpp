@@ -579,7 +579,6 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
 void Reader::_init_conditions_param(const ReaderParams& read_params) {
     _conditions.set_tablet_schema(&_tablet->tablet_schema());
     for (const auto& condition : read_params.conditions) {
-        DCHECK_EQ(OLAP_SUCCESS, _conditions.append_condition(condition));
         ColumnPredicate* predicate = _parse_to_predicate(condition);
         if (predicate != nullptr) {
             if (_tablet->tablet_schema()
@@ -588,6 +587,8 @@ void Reader::_init_conditions_param(const ReaderParams& read_params) {
                 _value_col_predicates.push_back(predicate);
             } else {
                 _col_predicates.push_back(predicate);
+                OLAPStatus status = _conditions.append_condition(condition);
+                DCHECK_EQ(OLAP_SUCCESS, status);
             }
         }
     }
