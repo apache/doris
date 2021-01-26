@@ -17,6 +17,8 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.analysis.BackupStmt;
+import org.apache.doris.analysis.BackupStmt.BackupContent;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Catalog;
@@ -91,11 +93,12 @@ public class BackupJob extends AbstractJob {
 
     // all objects which need backup
     private List<TableRef> tableRefs = Lists.newArrayList();
+//    private BackupContent content = BackupContent.ALL;
 
     private BackupJobState state;
 
     private long snapshotFinishedTime = -1;
-    private long snapshopUploadFinishedTime = -1;
+    private long snapshotUploadFinishedTime = -1;
 
     // save task id map to the backend it be executed
     private Map<Long, Long> unfinishedTaskIds = Maps.newConcurrentMap();
@@ -120,10 +123,11 @@ public class BackupJob extends AbstractJob {
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
-                     Catalog catalog, long repoId) {
+                     BackupContent content, Catalog catalog, long repoId) {
         super(JobType.BACKUP, label, dbId, dbName, timeoutMs, catalog, repoId);
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
+        properties.put(BackupStmt.PROP_CONTENT, content.name());
     }
 
     public BackupJobState getState() {
@@ -144,6 +148,13 @@ public class BackupJob extends AbstractJob {
 
     public String getLocalMetaInfoFilePath() {
         return localMetaInfoFilePath;
+    }
+
+    public BackupContent getContent() {
+        if (properties.containsKey(BackupStmt.PROP_CONTENT)) {
+            return BackupStmt.BackupContent.valueOf(properties.get(BackupStmt.PROP_CONTENT).toUpperCase());
+        }
+        return BackupContent.ALL;
     }
 
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
@@ -360,7 +371,10 @@ public class BackupJob extends AbstractJob {
             }
             switch (tbl.getType()){
                 case OLAP:
-                    prepareAndSendSnapshotTaskForOlapTable((OlapTable) tbl, tableRef, batchTask);
+                    checkOlapTable((OlapTable) tbl, tableRef);
+                    if (getContent() == BackupContent.ALL) {
+                        prepareSnapshotTaskForOlapTable((OlapTable) tbl, tableRef, batchTask);
+                    }
                     break;
                 case VIEW:
                     break;
@@ -400,18 +414,7 @@ public class BackupJob extends AbstractJob {
         LOG.info("finished to send snapshot tasks to backend. {}", this);
     }
 
-    private void prepareAndSendSnapshotTaskForOlapTable(OlapTable olapTable, TableRef backupTableRef, AgentBatchTask batchTask) {
-        String tblName = backupTableRef.getName().getTbl();
-        if (backupTableRef.getPartitionNames() != null) {
-            for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName);
-                if (partition == null) {
-                    status = new Status(ErrCode.NOT_FOUND, "partition " + partName
-                            + " does not exist  in table" + tblName);
-                    return;
-                }
-            }
-        }
+    private void checkOlapTable(OlapTable olapTable, TableRef backupTableRef) {
         olapTable.readLock();
         try {
             // check backup table again
@@ -420,7 +423,26 @@ public class BackupJob extends AbstractJob {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
                         status = new Status(ErrCode.NOT_FOUND, "partition " + partName
-                                + " does not exist  in table" + tblName);
+                                + " does not exist  in table" + backupTableRef.getName().getTbl());
+                        return;
+                    }
+                }
+            }
+        }  finally {
+            olapTable.readUnlock();
+        }
+    }
+
+    private void prepareSnapshotTaskForOlapTable(OlapTable olapTable, TableRef backupTableRef, AgentBatchTask batchTask) {
+        olapTable.readLock();
+        try {
+            // check backup table again
+            if (backupTableRef.getPartitionNames() != null) {
+                for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
+                    Partition partition = olapTable.getPartition(partName);
+                    if (partition == null) {
+                        status = new Status(ErrCode.NOT_FOUND, "partition " + partName
+                                + " does not exist  in table" + backupTableRef.getName().getTbl());
                         return;
                     }
                 }
@@ -520,7 +542,7 @@ public class BackupJob extends AbstractJob {
                         copiedResources.add(copiedResource);
                     }
                 }
-            }finally {
+            } finally {
                 table.readUnlock();
             }
         }
@@ -605,7 +627,7 @@ public class BackupJob extends AbstractJob {
 
     private void waitingAllUploadingFinished() {
         if (unfinishedTaskIds.isEmpty()) {
-            snapshopUploadFinishedTime = System.currentTimeMillis();
+            snapshotUploadFinishedTime = System.currentTimeMillis();
             state = BackupJobState.SAVE_META;
 
             // log
@@ -648,8 +670,7 @@ public class BackupJob extends AbstractJob {
             localMetaInfoFilePath = metaInfoFile.getAbsolutePath();
 
             // 3. save job info file
-            jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId, backupMeta,
-                                                snapshotInfos);
+            jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId, getContent(), backupMeta, snapshotInfos);
             LOG.debug("job info: {}. {}", jobInfo, this);
             File jobInfoFile = new File(jobDir, Repository.PREFIX_JOB_INFO + createTimeStr);
             if (!jobInfoFile.createNewFile()) {
@@ -809,7 +830,7 @@ public class BackupJob extends AbstractJob {
         info.add(getBackupObjs());
         info.add(TimeUtils.longToTimeString(createTime));
         info.add(TimeUtils.longToTimeString(snapshotFinishedTime));
-        info.add(TimeUtils.longToTimeString(snapshopUploadFinishedTime));
+        info.add(TimeUtils.longToTimeString(snapshotUploadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
         info.add(Joiner.on(", ").join(unfinishedTaskIds.entrySet()));
         info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
@@ -848,7 +869,7 @@ public class BackupJob extends AbstractJob {
 
         // times
         out.writeLong(snapshotFinishedTime);
-        out.writeLong(snapshopUploadFinishedTime);
+        out.writeLong(snapshotUploadFinishedTime);
 
         // snapshot info
         out.writeInt(snapshotInfos.size());
@@ -905,7 +926,7 @@ public class BackupJob extends AbstractJob {
 
         // times
         snapshotFinishedTime = in.readLong();
-        snapshopUploadFinishedTime = in.readLong();
+        snapshotUploadFinishedTime = in.readLong();
 
         // snapshot info
         size = in.readInt();

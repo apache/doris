@@ -17,6 +17,7 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.analysis.BackupStmt.BackupContent;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -75,6 +76,8 @@ public class BackupJobInfo implements Writable {
     public long dbId;
     @SerializedName("backup_time")
     public long backupTime;
+    @SerializedName("content")
+    public BackupContent content;
     // only include olap table
     @SerializedName("backup_objects")
     public Map<String, BackupOlapTableInfo> backupOlapTableObjects = Maps.newHashMap();
@@ -336,6 +339,9 @@ public class BackupJobInfo implements Writable {
         public String linkedOdbcTableName;
         @SerializedName("resource_name")
         public String resourceName;
+        public String host;
+        public String port;
+        public String driver;
     }
 
     public static class BackupOdbcResourceInfo {
@@ -390,7 +396,8 @@ public class BackupJobInfo implements Writable {
     }
 
     public static BackupJobInfo fromCatalog(long backupTime, String label, String dbName, long dbId,
-                                            BackupMeta backupMeta, Map<Long, SnapshotInfo> snapshotInfos) {
+                                            BackupContent content, BackupMeta backupMeta,
+                                            Map<Long, SnapshotInfo> snapshotInfos) {
 
         BackupJobInfo jobInfo = new BackupJobInfo();
         jobInfo.backupTime = backupTime;
@@ -398,6 +405,7 @@ public class BackupJobInfo implements Writable {
         jobInfo.dbName = dbName;
         jobInfo.dbId = dbId;
         jobInfo.metaVersion = FeConstants.meta_version;
+        jobInfo.content = content;
 
         Collection<Table> tbls = backupMeta.getTables().values();
         // tbls
@@ -421,9 +429,15 @@ public class BackupJobInfo implements Writable {
                         idxInfo.schemaHash = olapTbl.getSchemaHashByIndexId(index.getId());
                         partitionInfo.indexes.put(olapTbl.getIndexNameById(index.getId()), idxInfo);
                         // tablets
-                        for (Tablet tablet : index.getTablets()) {
-                            idxInfo.tablets.put(tablet.getId(),
-                                    Lists.newArrayList(snapshotInfos.get(tablet.getId()).getFiles()));
+                        if (content == BackupContent.METADATA_ONLY) {
+                            for (Tablet tablet: index.getTablets()) {
+                                idxInfo.tablets.put(tablet.getId(), Lists.newArrayList());
+                            }
+                        } else {
+                            for (Tablet tablet : index.getTablets()) {
+                                idxInfo.tablets.put(tablet.getId(),
+                                        Lists.newArrayList(snapshotInfos.get(tablet.getId()).getFiles()));
+                            }
                         }
                         idxInfo.tabletsOrder.addAll(index.getTabletIdsInOrder());
                     }

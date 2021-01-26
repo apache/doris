@@ -52,11 +52,6 @@ import org.apache.doris.thrift.TStatusCode;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -76,6 +71,10 @@ import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 public class BackupHandlerTest {
 
@@ -222,10 +221,11 @@ public class BackupHandlerTest {
                         }
                     }
                 }
-                
+
                 BackupJobInfo info = BackupJobInfo.fromCatalog(System.currentTimeMillis(),
-                                                               "ss2", CatalogMocker.TEST_DB_NAME, 
-                                                               CatalogMocker.TEST_DB_ID, backupMeta, snapshotInfos);
+                        "ss2", CatalogMocker.TEST_DB_NAME,
+                        CatalogMocker.TEST_DB_ID, BackupStmt.BackupContent.ALL,
+                        backupMeta, snapshotInfos);
                 infos.add(info);
                 return Status.OK;
             }
