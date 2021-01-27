@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Version;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
 import com.google.common.base.Strings;
@@ -54,6 +55,7 @@ public class BootstrapFinishAction {
     public static final String REPLAYED_JOURNAL_ID = "replayedJournalId";
     public static final String QUERY_PORT = "queryPort";
     public static final String RPC_PORT = "rpcPort";
+    public static final String VERSION = "version";
 
     @RequestMapping(path = "/api/bootstrap", method = RequestMethod.GET)
     public ResponseEntity execute(HttpServletRequest request, HttpServletResponse response) {
@@ -73,11 +75,9 @@ public class BootstrapFinishAction {
                     return ResponseEntityBuilder.badRequest("invalid cluster id format: " + clusterIdStr);
                 }
 
-
                 if (clusterId != Catalog.getCurrentCatalog().getClusterId()) {
                     return ResponseEntityBuilder.okWithCommonError("invalid cluster id: " + clusterId);
                 }
-
 
                 if (!token.equals(Catalog.getCurrentCatalog().getToken())) {
                     return ResponseEntityBuilder.okWithCommonError("invalid token: " + token);
@@ -88,6 +88,7 @@ public class BootstrapFinishAction {
                 result.setReplayedJournalId(replayedJournalId);
                 result.setQueryPort(Config.query_port);
                 result.setRpcPort(Config.rpc_port);
+                result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
             }
 
             return ResponseEntityBuilder.ok(result);
@@ -103,6 +104,7 @@ public class BootstrapFinishAction {
         private long replayedJournalId = 0;
         private int queryPort = 0;
         private int rpcPort = 0;
+        private String version = "";
 
         public BootstrapResult() {
 
@@ -131,5 +133,14 @@ public class BootstrapFinishAction {
         public int getRpcPort() {
             return rpcPort;
         }
+
+        public String getVersion() {
+            return version;
+        }
+
+        public void setVersion(String version) {
+            this.version = version;
+        }
+
     }
 }

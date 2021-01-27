@@ -389,7 +389,7 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
     if (!validate_utf8(line.data, line.size)) {
         std::stringstream error_msg;
         error_msg << "data is not encoded by UTF-8";
-        _state->append_error_msg_to_file(std::string(line.data, line.size), error_msg.str());
+        _state->append_error_msg_to_file("Unable to display", error_msg.str());
         _counter->num_rows_filtered++;
         return false;
     }
