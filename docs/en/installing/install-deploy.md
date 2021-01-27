@@ -98,7 +98,7 @@ Doris instances communicate directly over the network. The following table shows
 | BE | heartbeat\_service_port | 9050 | FE - > BE | the heart beat service port (thrift) on BE, used to receive heartbeat from FE|
 | BE | brpc\_port* | 8060 | FE < - > BE, BE < - > BE | BE for communication between BEs|
 | FE | http_port* | 8030 | FE < - > FE, HTTP server port on user | FE|
-| FE | rpc_port | 9020 | BE - > FE, FE < - > FE | thrift server port on FE|
+| FE | rpc_port | 9020 | BE - > FE, FE < - > FE | thrift server port on FE, the configuration of each fe needs to be consistent|
 | FE | query_port | 9030 | user | FE|
 | FE | edit\_log_port | 9010 | FE <--> FE | FE|
 | Broker | broker ipc_port | 8000 | FE - > Broker, BE - > Broker | Broker for receiving requests|
