@@ -121,22 +121,27 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
         return res;
     }
+
     // When only one rowset has data, and this rowset is nonoverlapping, we can read directly without aggregation
     bool has_delete_rowset = false;
+    bool has_overlapping = false;
     int nonoverlapping_count = 0;
     for (auto rs_reader : _rs_readers) {
         if (rs_reader->rowset()->rowset_meta()->delete_flag()) {
             has_delete_rowset = true;
             break;
         }
-        if (rs_reader->rowset()->rowset_meta()->num_rows() > 0 &&
-            !rs_reader->rowset()->rowset_meta()->is_segments_overlapping()) {
-            if (++nonoverlapping_count > 1) {
+        if (rs_reader->rowset()->rowset_meta()->num_rows() > 0) {
+            if (rs_reader->rowset()->rowset_meta()->is_segments_overlapping()) {
+                // when there are overlapping segments, can not do directly read
+                has_overlapping = true;
+                break;
+            } else if (++nonoverlapping_count > 1) {
                 break;
             }
         }
     }
-    if (nonoverlapping_count == 1 && !has_delete_rowset) {
+    if (!has_overlapping && nonoverlapping_count == 1 && !has_delete_rowset) {
         _next_row_func = _tablet->keys_type() == AGG_KEYS ? &Reader::_direct_agg_key_next_row
                                                           : &Reader::_direct_next_row;
     } else {
