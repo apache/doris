@@ -1774,7 +1774,9 @@ public class RestoreJob extends AbstractJob {
         // read properties
         size = in.readInt();
         for (int i = 0; i < size; i++) {
-            properties.put(Text.readString(in), Text.readString(in));
+            String key = Text.readString(in);
+            String value = Text.readString(in);
+            properties.put(key, value);
         }
     }
 
