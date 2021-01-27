@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -63,7 +64,7 @@ public class PropertyAnalyzerTest {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "k1");
 
-        Set<String> bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns);
+        Set<String> bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
         Assert.assertEquals(Sets.newHashSet("k1"), bfColumns);
     }
 
@@ -84,7 +85,8 @@ public class PropertyAnalyzerTest {
         // no bf columns
         properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "");
         try {
-            Assert.assertEquals(Sets.newHashSet(), PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns));
+            Assert.assertEquals(Sets.newHashSet(), PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns,
+                KeysType.AGG_KEYS));
         } catch (AnalysisException e) {
             Assert.fail();
         }
@@ -92,7 +94,7 @@ public class PropertyAnalyzerTest {
         // k4 not exist
         properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "k4");
         try {
-            PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns);
+            PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
         } catch (AnalysisException e) {
             Assert.assertTrue(e.getMessage().contains("column does not exist in table"));
         }
@@ -100,7 +102,7 @@ public class PropertyAnalyzerTest {
         // tinyint not supported
         properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "k2");
         try {
-            PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns);
+            PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
         } catch (AnalysisException e) {
             Assert.assertTrue(e.getMessage().contains("TINYINT is not supported"));
         }
@@ -108,7 +110,7 @@ public class PropertyAnalyzerTest {
         // bool not supported
         properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "k3");
         try {
-            PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns);
+            PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
         } catch (AnalysisException e) {
             Assert.assertTrue(e.getMessage().contains("BOOLEAN is not supported"));
         }
@@ -116,7 +118,7 @@ public class PropertyAnalyzerTest {
         // not replace value
         properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "v2");
         try {
-            PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns);
+            PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
         } catch (AnalysisException e) {
             Assert.assertTrue(e.getMessage().contains("Bloom filter index only used in"));
         }
@@ -124,7 +126,7 @@ public class PropertyAnalyzerTest {
         // reduplicated column
         properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "k1,K1");
         try {
-            PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns);
+            PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns, KeysType.AGG_KEYS);
         } catch (AnalysisException e) {
             Assert.assertTrue(e.getMessage().contains("Reduplicated bloom filter column"));
         }
