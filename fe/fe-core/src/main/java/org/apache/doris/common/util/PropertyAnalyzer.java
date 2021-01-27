@@ -323,7 +323,7 @@ public class PropertyAnalyzer {
                                 || type == PrimitiveType.DOUBLE || type == PrimitiveType.BOOLEAN) {
                             throw new AnalysisException(type + " is not supported in bloom filter index. "
                                     + "invalid column: " + bfColumn);
-                        } else if (keysType== KeysType.AGG_KEYS && !column.isKey()) {
+                        } else if (keysType!= KeysType.AGG_KEYS || column.isKey()) {
                             if (!bfColumnSet.add(bfColumn)) {
                                 throw new AnalysisException("Reduplicated bloom filter column: " + bfColumn);
                             }
