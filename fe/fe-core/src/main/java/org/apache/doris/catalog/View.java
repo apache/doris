@@ -31,6 +31,7 @@ import org.apache.doris.common.util.Util;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -38,10 +39,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
-import java.io.UnsupportedEncodingException;
 import java.lang.ref.SoftReference;
 import java.util.List;
-import java.util.zip.Adler32;
 
 /**
  * Table metadata representing a catalog view or a local view from a WITH clause.
@@ -212,35 +211,21 @@ public class View extends Table {
         return colLabels_ != null;
     }
 
-    // TODO(ml): change to md5 of string signature
-    public int getSignature(int signatureVersion) {
-        Adler32 adler32 = new Adler32();
-        adler32.update(signatureVersion);
-        final String charsetName = "UTF-8";
-
-        try {
-            // table name
-            adler32.update(name.getBytes(charsetName));
-            LOG.debug("signature. view name: {}", name);
-            // type
-            adler32.update(type.name().getBytes(charsetName));
-            LOG.debug("signature. view type: {}", type.name());
-            // schema
-            adler32.update(Util.schemaHash(0, fullSchema, null, 0));
-            LOG.debug("signature. view col hash: {}", Util.schemaHash(0, fullSchema, null, 0));
-            // inline view def
-            adler32.update(inlineViewDef.getBytes(charsetName));
-            LOG.debug("signature. view def: {}", inlineViewDef);
-            // sql mode
-            adler32.update(Long.toString(sqlMode).getBytes(charsetName));
-            LOG.debug("signature. sql mode: {}", sqlMode);
-        } catch (UnsupportedEncodingException e) {
-            LOG.error("encoding error", e);
-            return -1;
-        }
-
-        LOG.debug("signature: {}", Math.abs((int) adler32.getValue()));
-        return Math.abs((int) adler32.getValue());
+    // Get the md5 of signature string of this view.
+    // This method is used to determine whether the views have the same schema.
+    // Contains:
+    // view name, type, full schema, inline view def, sql mode
+    @Override
+    public String getSignature(int signatureVersion) {
+        StringBuilder sb = new StringBuilder(signatureVersion);
+        sb.append(name);
+        sb.append(type);
+        sb.append(Util.getSchemaSignatureString(fullSchema));
+        sb.append(inlineViewDef);
+        sb.append(sqlMode);
+        String md5 = DigestUtils.md5Hex(sb.toString());
+        LOG.debug("get signature of view {}: {}. signature string: {}", name, md5, sb.toString());
+        return md5;
     }
 
     @Override

@@ -649,8 +649,8 @@ public class RestoreJob extends AbstractJob {
                 if (localTbl != null) {
                     Preconditions.checkState(localTbl.getType() == TableType.VIEW);
                     View localView = (View) localTbl;
-                    if (localView.getSignature(BackupHandler.SIGNATURE_VERSION)
-                            != remoteView.getSignature(BackupHandler.SIGNATURE_VERSION)) {
+                    if (!localView.getSignature(BackupHandler.SIGNATURE_VERSION)
+                            .equals(remoteView.getSignature(BackupHandler.SIGNATURE_VERSION))) {
                         status = new Status(ErrCode.COMMON_ERROR, "View "
                                 + jobInfo.getAliasByOriginNameIfSet(backupViewName)
                                 + " already exist but with different schema");
@@ -670,8 +670,8 @@ public class RestoreJob extends AbstractJob {
                 if (localTbl != null) {
                     Preconditions.checkState(localTbl.getType() == TableType.ODBC);
                     OdbcTable localOdbcTable = (OdbcTable) localTbl;
-                    if (localOdbcTable.getSignature(BackupHandler.SIGNATURE_VERSION)
-                            != remoteOdbcTable.getSignature(BackupHandler.SIGNATURE_VERSION)) {
+                    if (!localOdbcTable.getSignature(BackupHandler.SIGNATURE_VERSION)
+                            .equals(remoteOdbcTable.getSignature(BackupHandler.SIGNATURE_VERSION))) {
                         status = new Status(ErrCode.COMMON_ERROR, "Odbc table "
                                 + jobInfo.getAliasByOriginNameIfSet(backupOdbcTableName)
                                 + " already exist but with different schema");
