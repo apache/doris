@@ -70,7 +70,6 @@ inline HashTable::Bucket* HashTable::next_bucket(int64_t* bucket_idx) {
     return NULL;
 }
 
-// TODO:
 inline void HashTable::insert_impl(TupleRow* row) {
     bool has_null = eval_build_row(row);
 
