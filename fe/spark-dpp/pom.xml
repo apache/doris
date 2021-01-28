@@ -42,7 +42,7 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache</groupId>
-            <artifactId>fe-common</artifactId>
+            <artifactId>doris-fe-common</artifactId>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/commons-codec/commons-codec -->
