@@ -265,10 +265,10 @@ private:
         transform(thrift_server_type.begin(), thrift_server_type.end(), thrift_server_type.begin(),
                   toupper);
         if (strcmp(typeid(T).name(), "N5doris21FrontendServiceClientE") == 0 &&
-            thrift_server_type == "THREADED") {
-            return ThriftServer::ServerType::THREADED;
+            thrift_server_type == "THREADED_SELECTOR") {
+            return ThriftServer::ServerType::NON_BLOCKING;
         } else {
-            return ThriftServer::ServerType::THREAD_POOL;
+            return ThriftServer::ServerType::THREADED;
         }
     }
 };
