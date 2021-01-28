@@ -312,7 +312,7 @@ public class BackupJobTest {
             restoreJobInfo = BackupJobInfo.fromFile(job.getLocalJobInfoFilePath());
             Assert.assertEquals(UnitTestUtil.DB_NAME, restoreJobInfo.dbName);
             Assert.assertEquals(job.getLabel(), restoreJobInfo.name);
-            Assert.assertEquals(1, restoreJobInfo.tables.size());
+            Assert.assertEquals(1, restoreJobInfo.backupOlapTableObjects.values().size());
         } catch (IOException e) {
             e.printStackTrace();
             Assert.fail();

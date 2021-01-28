@@ -20,10 +20,11 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
+import org.apache.commons.codec.digest.DigestUtils;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.zip.Adler32;
 
 public class MetaObject implements Writable {
     
@@ -36,10 +37,9 @@ public class MetaObject implements Writable {
     }
 
     // implement this in derived class
-    public int getSignature(int signatureVersion) {
-        Adler32 adler32 = new Adler32();
-        adler32.update(signatureVersion);
-        return Math.abs((int) adler32.getValue());
+    public String getSignature(int signatureVersion) {
+        String md5 = DigestUtils.md5Hex(Integer.toString(signatureVersion));
+        return md5;
     }
 
     public long getLastCheckTime() {
