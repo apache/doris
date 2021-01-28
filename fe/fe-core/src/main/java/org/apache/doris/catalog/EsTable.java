@@ -30,20 +30,19 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.zip.Adler32;
 
 public class EsTable extends Table {
     private static final Logger LOG = LogManager.getLogger(EsTable.class);
@@ -253,40 +252,26 @@ public class EsTable extends Table {
     }
 
     @Override
-    public int getSignature(int signatureVersion) {
-        Adler32 adler32 = new Adler32();
-        adler32.update(signatureVersion);
-        String charsetName = "UTF-8";
-
-        try {
-            // name
-            adler32.update(name.getBytes(charsetName));
-            // type
-            adler32.update(type.name().getBytes(charsetName));
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_68) {
-                for (Map.Entry<String, String> entry : tableContext.entrySet()) {
-                    adler32.update(entry.getValue().getBytes(charsetName));
-                }
-            } else {
-                // host
-                adler32.update(hosts.getBytes(charsetName));
-                // username
-                adler32.update(userName.getBytes(charsetName));
-                // passwd
-                adler32.update(passwd.getBytes(charsetName));
-                // index name
-                adler32.update(indexName.getBytes(charsetName));
-                // mappingType
-                adler32.update(mappingType.getBytes(charsetName));
-                // transport
-                adler32.update(transport.getBytes(charsetName));
+    public String getSignature(int signatureVersion) {
+        StringBuilder sb = new StringBuilder(signatureVersion);
+        sb.append(name);
+        sb.append(type.name());
+        if (tableContext.isEmpty()) {
+            sb.append(hosts);
+            sb.append(userName);
+            sb.append(passwd);
+            sb.append(indexName);
+            sb.append(mappingType);
+            sb.append(transport);
+        } else {
+            for (Map.Entry<String, String> entry : tableContext.entrySet()) {
+                sb.append(entry.getKey());
+                sb.append(entry.getValue());
             }
-        } catch (UnsupportedEncodingException e) {
-            LOG.error("encoding error", e);
-            return -1;
         }
-
-        return Math.abs((int) adler32.getValue());
+        String md5 = DigestUtils.md5Hex(sb.toString());
+        LOG.debug("get signature of es table {}: {}. signature string: {}", name, md5, sb.toString());
+        return md5;
     }
 
     @Override
