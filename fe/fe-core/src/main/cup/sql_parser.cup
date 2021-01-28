@@ -2261,6 +2261,11 @@ show_param ::=
     {:
         RESULT = new ShowCreateDbStmt(db);
     :}
+    /* Create Function */
+    | KW_CREATE KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
+    {:
+        RESULT = new ShowCreateFunctionStmt(dbName, functionName, args);
+    :}
     /* Cluster */
     | KW_CLUSTERS
     {:

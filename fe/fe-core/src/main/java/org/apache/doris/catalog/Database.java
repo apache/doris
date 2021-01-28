@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -710,6 +711,21 @@ public class Database extends MetaObject implements Writable {
             return null;
         }
         return Function.getFunction(fns, desc, mode);
+    }
+
+    public synchronized Function getFunction(FunctionSearchDesc function) throws AnalysisException {
+        String functionName = function.getName().getFunction();
+        List<Function> existFuncs = name2Function.get(functionName);
+        if (existFuncs == null) {
+            throw new AnalysisException("Unknown function, function=" + function.toString());
+        }
+
+        for (Function existFunc : existFuncs) {
+            if (function.isIdentical(existFunc)) {
+                return existFunc;
+            }
+        }
+        throw new AnalysisException("Unknown function, function=" + function.toString());
     }
 
     public synchronized List<Function> getFunctions() {
