@@ -342,7 +342,7 @@ public class HeartbeatMgr extends MasterDaemon {
 
         private HeartbeatResponse getHeartbeatResponseByThrift() {
             FrontendService.Client client = null;
-            TNetworkAddress addr = new TNetworkAddress(fe.getHost(), fe.getRpcPort());
+            TNetworkAddress addr = new TNetworkAddress(fe.getHost(), Config.rpc_port);
             boolean ok = false;
             try {
                 client = ClientPool.frontendHeartbeatPool.borrowObject(addr);
