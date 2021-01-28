@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import avro.shaded.com.google.common.collect.Lists;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -31,6 +32,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -180,9 +182,12 @@ public class ConnectProcessor {
 
         // execute this query.
         StatementBase parsedStmt = null;
+        List<Pair<StatementBase, PQueryStatistics>> auditInfoList = Lists.newArrayList();
+        boolean alreadyAddedToAuditInfoList = false;
         try {
             List<StatementBase> stmts = analyze(originStmt);
             for (int i = 0; i < stmts.size(); ++i) {
+                alreadyAddedToAuditInfoList = false;
                 ctx.getState().reset();
                 if (i > 0) {
                     ctx.resetReturnRows();
@@ -198,6 +203,8 @@ public class ConnectProcessor {
                     ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
                     finalizeCommand();
                 }
+                auditInfoList.add(new Pair<>(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
+                alreadyAddedToAuditInfoList = true;
             }
         } catch (IOException e) {
             // Client failed.
@@ -219,14 +226,18 @@ public class ConnectProcessor {
             }
         }
 
+        // that means execute some statement failed
+        if (!alreadyAddedToAuditInfoList && executor != null) {
+            auditInfoList.add(new Pair<>(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
+        }
+
         // audit after exec
-        // replace '\n' to '\\n' to make string in one line
-        // TODO(cmy): when user send multi-statement, the executor is the last statement's executor.
-        // We may need to find some way to resolve this.
-        if (executor != null) {
-            auditAfterExec(originStmt.replace("\n", " "), executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+        if (!auditInfoList.isEmpty()) {
+            for (Pair<StatementBase, PQueryStatistics> audit : auditInfoList) {
+                auditAfterExec(originStmt.replace("\n", " "), audit.first, audit.second);
+            }
         } else {
-            // executor can be null if we encounter analysis error.
+            // auditInfoList can be empty if we encounter analysis error.
             auditAfterExec(originStmt.replace("\n", " "), null, null);
         }
     }
