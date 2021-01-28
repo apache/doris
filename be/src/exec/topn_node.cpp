@@ -17,8 +17,6 @@
 
 #include "exec/topn_node.h"
 
-#include <gperftools/profiler.h>
-
 #include <sstream>
 
 #include "exprs/expr.h"
@@ -86,9 +84,8 @@ Status TopNNode::open(RuntimeState* state) {
     // TODO: For some reason initializing _priority_queue in Prepare() causes a 30% perf
     // regression. Why??
     if (_priority_queue.get() == NULL) {
-        _priority_queue.reset(
-                new std::priority_queue<Tuple*, std::vector<Tuple*>, TupleRowComparator>(
-                        *_tuple_row_less_than));
+        _priority_queue.reset(new SortingHeap<Tuple*, std::vector<Tuple*>, TupleRowComparator>(
+                *_tuple_row_less_than));
     }
 
     // Allocate memory for a temporary tuple.
@@ -180,17 +177,19 @@ Status TopNNode::close(RuntimeState* state) {
 
 // Insert if either not at the limit or it's a new TopN tuple_row
 void TopNNode::insert_tuple_row(TupleRow* input_row) {
-    Tuple* insert_tuple = NULL;
 
     if (_priority_queue->size() < _offset + _limit) {
+        Tuple* insert_tuple = nullptr;
         insert_tuple = reinterpret_cast<Tuple*>(
                 _tuple_pool->allocate(_materialized_tuple_desc->byte_size()));
         insert_tuple->materialize_exprs<false>(input_row, *_materialized_tuple_desc,
                                                _sort_exec_exprs.sort_tuple_slot_expr_ctxs(),
                                                _tuple_pool.get(), NULL, NULL);
+        _priority_queue->push(insert_tuple);
     } else {
+        Tuple* insert_tuple = nullptr;
         DCHECK(!_priority_queue->empty());
-        Tuple* top_tuple = _priority_queue->top();
+        Tuple* top_tuple = _priority_queue->current();
         _tmp_tuple->materialize_exprs<false>(input_row, *_materialized_tuple_desc,
                                              _sort_exec_exprs.sort_tuple_slot_expr_ctxs(), NULL,
                                              NULL, NULL);
@@ -200,26 +199,14 @@ void TopNNode::insert_tuple_row(TupleRow* input_row) {
             // to be fixed to use a freelist
             _tmp_tuple->deep_copy(top_tuple, *_materialized_tuple_desc, _tuple_pool.get());
             insert_tuple = top_tuple;
-            _priority_queue->pop();
+            _priority_queue->replaceTop(insert_tuple);
         }
-    }
-
-    if (insert_tuple != NULL) {
-        _priority_queue->push(insert_tuple);
     }
 }
 
 // Reverse the order of the tuples in the priority queue
 void TopNNode::prepare_for_output() {
-    _sorted_top_n.resize(_priority_queue->size());
-    int index = _sorted_top_n.size() - 1;
-
-    while (_priority_queue->size() > 0) {
-        Tuple* tuple = _priority_queue->top();
-        _priority_queue->pop();
-        _sorted_top_n[index] = tuple;
-        --index;
-    }
+    _sorted_top_n = _priority_queue->sorted_seq();
 
     _get_next_iter = _sorted_top_n.begin();
 }
