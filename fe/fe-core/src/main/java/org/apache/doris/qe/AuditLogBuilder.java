@@ -48,6 +48,7 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
     private final String[] LOAD_ANNONATION_NAMES = {"JobId", "Label", "LoadType", "Db", "TableList",
         "FilePathList", "BrokerUser", "Timestamp", "LoadStartTime", "LoadFinishTime", "ScanRows",
         "ScanBytes", "FileNumber"};
+
     private Set<String> loadAnnotationSet;
 
     public AuditLogBuilder() {
