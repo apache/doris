@@ -28,10 +28,9 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.AbstractJob.JobType;
 import org.apache.doris.backup.BackupJob.BackupJobState;
-import org.apache.doris.backup.BackupJobInfo.BackupTableInfo;
+import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
@@ -274,13 +273,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // This is just a pre-check to avoid most of invalid backup requests.
         // Also calculate the signature for incremental backup check.
         List<TableRef> tblRefs = stmt.getTableRefs();
-
-        List<Table> backupTbls = Lists.newArrayList();
         for (TableRef tblRef : tblRefs) {
             String tblName = tblRef.getName().getTbl();
             Table tbl = db.getTable(tblName);
             if (tbl == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName);
+            }
+            if (tbl.getType() == TableType.VIEW || tbl.getType() == TableType.ODBC) {
+                continue;
             }
             if (tbl.getType() != TableType.OLAP) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
@@ -307,21 +307,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
                         }
                     }
                 }
-
-                // copy a table with selected partitions for calculating the signature
-                List<String> reservedPartitions = partitionNames == null ? null : partitionNames.getPartitionNames();
-                OlapTable copiedTbl = olapTbl.selectiveCopy(reservedPartitions, true, IndexExtState.VISIBLE);
-                if (copiedTbl == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                            "Failed to copy table " + tblName + " with selected partitions");
-                }
-                backupTbls.add(copiedTbl);
             } finally {
                 tbl.readUnlock();
             }
         }
-
-        BackupMeta curBackupMeta = new BackupMeta(backupTbls);
 
         // Check if label already be used
         List<String> existSnapshotNames = Lists.newArrayList();
@@ -336,24 +325,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Currently does not support "
                         + "incremental backup");
-
-                // TODO:
-                // This is a incremental backup, the existing snapshot in repository will be treated
-                // as base snapshot.
-                // But first we need to check if the existing snapshot has same meta.
-                List<BackupMeta> backupMetas = Lists.newArrayList();
-                st = repository.getSnapshotMetaFile(stmt.getLabel(), backupMetas, -1);
-                if (!st.ok()) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                                   "Failed to get existing meta info for repository: "
-                                                           + st.getErrMsg());
-                }
-                Preconditions.checkState(backupMetas.size() == 1);
-
-                if (!curBackupMeta.compatibleWith(backupMetas.get(0))) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                                   "Can not make incremental backup. Meta does not compatible");
-                }
             }
         }
 
@@ -401,42 +372,66 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     private void checkAndFilterRestoreObjsExistInSnapshot(BackupJobInfo jobInfo, List<TableRef> tblRefs)
             throws DdlException {
-        Set<String> allTbls = Sets.newHashSet();
+        Set<String> olapTableNames = Sets.newHashSet();
+        Set<String> viewNames = Sets.newHashSet();
+        Set<String> odbcTableNames = Sets.newHashSet();
         for (TableRef tblRef : tblRefs) {
             String tblName = tblRef.getName().getTbl();
-            if (!jobInfo.containsTbl(tblName)) {
+            TableType tableType = jobInfo.getTypeByTblName(tblName);
+            if (tableType == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                               "Table " + tblName + " does not exist in snapshot " + jobInfo.name);
+                        "Table " + tblName + " does not exist in snapshot " + jobInfo.name);
             }
-            BackupTableInfo tblInfo = jobInfo.getTableInfo(tblName);
-            PartitionNames partitionNames = tblRef.getPartitionNames();
-            if (partitionNames != null) {
-                if (partitionNames.isTemp()) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                            "Do not support restoring temporary partitions");
-                }
-                // check the selected partitions
-                for (String partName : partitionNames.getPartitionNames()) {
-                    if (!tblInfo.containsPart(partName)) {
-                        ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                                       "Partition " + partName + " of table " + tblName
-                                                               + " does not exist in snapshot " + jobInfo.name);
-                    }
-                }
+            switch (tableType) {
+                case OLAP:
+                    checkAndFilterRestoreOlapTableExistInSnapshot(jobInfo.backupOlapTableObjects, tblRef);
+                    olapTableNames.add(tblName);
+                    break;
+                case VIEW:
+                    viewNames.add(tblName);
+                    break;
+                case ODBC:
+                    odbcTableNames.add(tblName);
+                    break;
+                default:
+                    break;
             }
-            
+
             // set alias
             if (tblRef.hasExplicitAlias()) {
                 jobInfo.setAlias(tblName, tblRef.getExplicitAlias());
             }
-
-            // only retain restore partitions
-            tblInfo.retainPartitions(partitionNames == null ? null : partitionNames.getPartitionNames());
-            allTbls.add(tblName);
         }
-        
+
         // only retain restore tables
-        jobInfo.retainTables(allTbls);
+        jobInfo.retainOlapTables(olapTableNames);
+        jobInfo.retainView(viewNames);
+        jobInfo.retainOdbcTables(odbcTableNames);
+    }
+
+
+
+    public void checkAndFilterRestoreOlapTableExistInSnapshot(Map<String, BackupOlapTableInfo> backupOlapTableInfoMap,
+                                                              TableRef tableRef) throws DdlException {
+        String tblName = tableRef.getName().getTbl();
+        BackupOlapTableInfo tblInfo = backupOlapTableInfoMap.get(tblName);
+        PartitionNames partitionNames = tableRef.getPartitionNames();
+        if (partitionNames != null) {
+            if (partitionNames.isTemp()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Do not support restoring temporary partitions");
+            }
+            // check the selected partitions
+            for (String partName : partitionNames.getPartitionNames()) {
+                if (!tblInfo.containsPart(partName)) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Partition " + partName + " of table " + tblName
+                                    + " does not exist in snapshot");
+                }
+            }
+        }
+        // only retain restore partitions
+        tblInfo.retainPartitions(partitionNames == null ? null : partitionNames.getPartitionNames());
     }
 
     public void cancel(CancelBackupStmt stmt) throws DdlException {
@@ -445,7 +440,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         if (db == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
-        
+
         AbstractJob job = dbIdToBackupOrRestoreJob.get(db.getId());
         if (job == null || (job instanceof BackupJob && stmt.isRestore())
                 || (job instanceof RestoreJob && !stmt.isRestore())) {

@@ -977,6 +977,7 @@ public class OlapTable extends Table {
         return false;
     }
 
+
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
@@ -1203,7 +1204,7 @@ public class OlapTable extends Table {
 
     public OlapTable selectiveCopy(Collection<String> reservedPartitions, boolean resetState, IndexExtState extState) {
         OlapTable copied = new OlapTable();
-        if (!DeepCopy.copy(this, copied, OlapTable.class)) {
+        if (!DeepCopy.copy(this, copied, OlapTable.class, FeConstants.meta_version)) {
             LOG.warn("failed to copy olap table: " + getName());
             return null;
         }

@@ -4296,7 +4296,7 @@ public class Catalog {
         }
     }
 
-    public void replayAlterExteranlTableSchema(String dbName, String tableName, List<Column> newSchema) throws DdlException {
+    public void replayAlterExternalTableSchema(String dbName, String tableName, List<Column> newSchema) throws DdlException {
         Database db = this.fullNameToDb.get(dbName);
         Table table = db.getTable(tableName);
         table.writeLock();
