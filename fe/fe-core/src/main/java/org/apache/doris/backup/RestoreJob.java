@@ -806,7 +806,7 @@ public class RestoreJob extends AbstractJob {
                     "Failed to create replicas for restore. unfinished marks: " + idStr);
             return;
         }
-        LOG.info("finished to prepare meta.");
+        LOG.info("finished to prepare meta. {}", this);
 
         if (jobInfo.content == null || jobInfo.content == BackupContent.ALL) {
             prepareAndSendSnapshotTaskForOlapTable(db);

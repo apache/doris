@@ -18,6 +18,7 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.analysis.AbstractBackupStmt;
+import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.BackupStmt.BackupType;
 import org.apache.doris.analysis.CancelBackupStmt;
@@ -25,6 +26,7 @@ import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RestoreStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.AbstractJob.JobType;
 import org.apache.doris.backup.BackupJob.BackupJobState;
@@ -269,10 +271,30 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     + " is read only");
         }
 
+        // Determine the tables to be backed up
+        Set<String> tableNames = Sets.newHashSet();
+        AbstractBackupTableRefClause abstractBackupTableRefClause = stmt.getAbstractBackupTableRefClause();
+        if (abstractBackupTableRefClause == null) {
+            tableNames = db.getTableNamesWithLock();
+        } else if (abstractBackupTableRefClause != null && abstractBackupTableRefClause.isExclude()) {
+            tableNames = db.getTableNamesWithLock();
+            for (TableRef tableRef : abstractBackupTableRefClause.getTableRefList()) {
+                tableNames.remove(tableRef.getName().getTbl());
+            }
+        }
+        List<TableRef> tblRefs = Lists.newArrayList();
+        if (tableNames.isEmpty()) {
+            tblRefs = abstractBackupTableRefClause.getTableRefList();
+        } else {
+            for (String tableName : tableNames) {
+                TableRef tableRef = new TableRef(new TableName(db.getFullName(), tableName), null);
+                tblRefs.add(tableRef);
+            }
+        }
+
         // Check if backup objects are valid
         // This is just a pre-check to avoid most of invalid backup requests.
         // Also calculate the signature for incremental backup check.
-        List<TableRef> tblRefs = stmt.getTableRefs();
         for (TableRef tblRef : tblRefs) {
             String tblName = tblRef.getName().getTbl();
             Table tbl = db.getTable(tblName);
@@ -356,7 +378,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Also remove all unrelated objs
         Preconditions.checkState(infos.size() == 1);
         BackupJobInfo jobInfo = infos.get(0);
-        checkAndFilterRestoreObjsExistInSnapshot(jobInfo, stmt.getTableRefs());
+        checkAndFilterRestoreObjsExistInSnapshot(jobInfo, stmt.getAbstractBackupTableRefClause());
 
         // Create a restore job
         RestoreJob restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
@@ -370,12 +392,37 @@ public class BackupHandler extends MasterDaemon implements Writable {
         LOG.info("finished to submit restore job: {}", restoreJob);
     }
 
-    private void checkAndFilterRestoreObjsExistInSnapshot(BackupJobInfo jobInfo, List<TableRef> tblRefs)
+    private void checkAndFilterRestoreObjsExistInSnapshot(BackupJobInfo jobInfo,
+                                                          AbstractBackupTableRefClause backupTableRefClause)
             throws DdlException {
+        // case1: all table in job info
+        if (backupTableRefClause == null) {
+            return;
+        }
+
+        // case2: exclude table ref
+        if (backupTableRefClause.isExclude()) {
+            for (TableRef tblRef : backupTableRefClause.getTableRefList()) {
+                String tblName = tblRef.getName().getTbl();
+                TableType tableType = jobInfo.getTypeByTblName(tblName);
+                if (tableType == null) {
+                    LOG.info("Ignore error : exclude table " + tblName + " does not exist in snapshot "
+                            + jobInfo.name);
+                    continue;
+                }
+                if (tblRef.hasExplicitAlias()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "The table alias in exclude clause does not make sense");
+                }
+                jobInfo.removeTable(tblRef, tableType);
+            }
+            return;
+        }
+        // case3: include table ref
         Set<String> olapTableNames = Sets.newHashSet();
         Set<String> viewNames = Sets.newHashSet();
         Set<String> odbcTableNames = Sets.newHashSet();
-        for (TableRef tblRef : tblRefs) {
+        for (TableRef tblRef : backupTableRefClause.getTableRefList()) {
             String tblName = tblRef.getName().getTbl();
             TableType tableType = jobInfo.getTypeByTblName(tblName);
             if (tableType == null) {
@@ -402,8 +449,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 jobInfo.setAlias(tblName, tblRef.getExplicitAlias());
             }
         }
-
-        // only retain restore tables
         jobInfo.retainOlapTables(olapTableNames);
         jobInfo.retainView(viewNames);
         jobInfo.retainOdbcTables(odbcTableNames);

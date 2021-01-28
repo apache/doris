@@ -23,10 +23,8 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 
-import java.util.List;
 import java.util.Map;
 
 public class BackupStmt extends AbstractBackupStmt {
@@ -44,8 +42,10 @@ public class BackupStmt extends AbstractBackupStmt {
     private BackupType type = BackupType.FULL;
     private BackupContent content = BackupContent.ALL;
 
-    public BackupStmt(LabelName labelName, String repoName, List<TableRef> tblRefs, Map<String, String> properties) {
-        super(labelName, repoName, tblRefs, properties);
+
+    public BackupStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause abstractBackupTableRefClause,
+                      Map<String, String> properties) {
+        super(labelName, repoName, abstractBackupTableRefClause, properties);
     }
 
     public long getTimeoutMs() {
@@ -63,9 +63,12 @@ public class BackupStmt extends AbstractBackupStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+    }
 
+    @Override
+    protected void customAnalyzeTableRefClause() throws AnalysisException {
         // tbl refs can not set alias in backup
-        for (TableRef tblRef : tblRefs) {
+        for (TableRef tblRef : abstractBackupTableRefClause.getTableRefList()) {
             if (tblRef.hasExplicitAlias()) {
                 throw new AnalysisException("Can not set alias for table in Backup Stmt: " + tblRef);
             }
@@ -115,12 +118,12 @@ public class BackupStmt extends AbstractBackupStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("BACKUP SNAPSHOT ").append(labelName.toSql());
-        sb.append("\n").append("TO ").append(repoName).append("\nON\n(");
-
-        sb.append(Joiner.on(",\n").join(tblRefs));
-
-        sb.append("\n)\nPROPERTIES\n(");
-        sb.append(new PrintableMap<String, String>(properties, " = ", true, true));
+        sb.append("\n").append("TO ").append(repoName).append("\n");
+        if (abstractBackupTableRefClause != null) {
+            sb.append(abstractBackupTableRefClause.toSql()).append("\n");
+        }
+        sb.append("PROPERTIES\n(");
+        sb.append(new PrintableMap<>(properties, " = ", true, true));
         sb.append("\n)");
         return sb.toString();
     }
