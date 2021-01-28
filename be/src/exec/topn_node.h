@@ -103,7 +103,7 @@ private:
     int64_t _num_rows_skipped;
 
     // The priority queue will never have more elements in it than the LIMIT.      
-    boost::scoped_ptr<SortingHeap<Tuple*, std::vector<Tuple*>, TupleRowComparator>> _priority_queue;
+    std::unique_ptr<SortingHeap<Tuple*, std::vector<Tuple*>, TupleRowComparator>> _priority_queue;
 
     // END: Members that must be Reset()
     /////////////////////////////////////////

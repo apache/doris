@@ -41,7 +41,7 @@ TopNNode::TopNNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _tuple_row_less_than(NULL),
           _tuple_pool(NULL),
           _num_rows_skipped(0),
-          _priority_queue(NULL) {}
+          _priority_queue() {}
 
 TopNNode::~TopNNode() {}
 
@@ -83,7 +83,7 @@ Status TopNNode::open(RuntimeState* state) {
     // Avoid creating them after every Reset()/Open().
     // TODO: For some reason initializing _priority_queue in Prepare() causes a 30% perf
     // regression. Why??
-    if (_priority_queue.get() == NULL) {
+    if (_priority_queue == nullptr) {
         _priority_queue.reset(new SortingHeap<Tuple*, std::vector<Tuple*>, TupleRowComparator>(
                 *_tuple_row_less_than));
     }
@@ -177,7 +177,6 @@ Status TopNNode::close(RuntimeState* state) {
 
 // Insert if either not at the limit or it's a new TopN tuple_row
 void TopNNode::insert_tuple_row(TupleRow* input_row) {
-
     if (_priority_queue->size() < _offset + _limit) {
         Tuple* insert_tuple = nullptr;
         insert_tuple = reinterpret_cast<Tuple*>(
@@ -199,7 +198,7 @@ void TopNNode::insert_tuple_row(TupleRow* input_row) {
             // to be fixed to use a freelist
             _tmp_tuple->deep_copy(top_tuple, *_materialized_tuple_desc, _tuple_pool.get());
             insert_tuple = top_tuple;
-            _priority_queue->replaceTop(insert_tuple);
+            _priority_queue->replace_top(insert_tuple);
         }
     }
 }

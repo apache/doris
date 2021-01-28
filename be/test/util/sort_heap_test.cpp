@@ -53,7 +53,7 @@ TEST_F(SortHeapTest, IntBasicTest) {
     for (size_t i = 0; i < test_case_1; ++i) {
         EXPECT_EQ(sh.current(), pq.top());
         pq.pop();
-        sh.removeTop();
+        sh.remove_top();
     }
 }
 
@@ -72,7 +72,7 @@ TEST_F(SortHeapTest, IntReplaceTest) {
         int res = _re();
         EXPECT_EQ(sh.current(), pq.top());
         if (res < sh.current()) {
-            sh.replaceTop(res);
+            sh.replace_top(res);
             pq.pop();
             pq.push(res);
         }
@@ -83,7 +83,7 @@ TEST_F(SortHeapTest, IntReplaceTest) {
     for (size_t i = 0; i < container_size; ++i) {
         EXPECT_EQ(sh.current(), pq.top());
         pq.pop();
-        sh.removeTop();
+        sh.remove_top();
     }
 }
 

@@ -30,7 +30,7 @@ class SortingHeap {
 public:
     SortingHeap(const _Compare& comp) : _comp(comp) {}
 
-    bool isValid() const { return !_queue.empty(); }
+    bool is_valid() const { return !_queue.empty(); }
 
     T& current() { return _queue.front(); }
 
@@ -38,14 +38,14 @@ public:
 
     bool empty() { return _queue.empty(); }
 
-    T& nextChild() { return _queue[nextChildIndex()]; }
+    T& next_child() { return _queue[_next_child_index()]; }
 
-    void replaceTop(T new_top) {
+    void replace_top(T new_top) {
         current() = new_top;
         updateTop();
     }
 
-    void removeTop() {
+    void remove_top() {
         std::pop_heap(_queue.begin(), _queue.end(), _comp);
         _queue.pop_back();
         next_idx = 0;
@@ -69,7 +69,7 @@ private:
     /// Cache comparison between first and second child if the order in queue has not been changed.
     size_t next_idx = 0;
 
-    size_t nextChildIndex() {
+    size_t _next_child_index() {
         if (next_idx == 0) {
             next_idx = 1;
             if (_queue.size() > 2 && _comp(_queue[1], _queue[2])) ++next_idx;
@@ -84,7 +84,7 @@ private:
 
         auto begin = _queue.begin();
 
-        size_t child_idx = nextChildIndex();
+        size_t child_idx = _next_child_index();
         auto child_it = begin + child_idx;
 
         /// Check if we are in order.
@@ -113,8 +113,7 @@ private:
                 ++child_idx;
             }
 
-            /// Check if we are in order.
-            //} while (!(*child_it < top));
+        /// Check if we are in order.
         } while (!(_comp(*child_it, top)));
         *curr_it = std::move(top);
     }
