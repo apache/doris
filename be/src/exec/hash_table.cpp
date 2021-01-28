@@ -244,7 +244,7 @@ void HashTable::grow_node_array() {
     int64_t alloc_size = _current_capacity * _node_byte_size;
     _current_nodes = reinterpret_cast<uint8_t*>(malloc(alloc_size));
     _current_used = 0;
-    // TODO: remote memset later
+    // TODO: remove memset later
     memset(_current_nodes, 0, alloc_size);
     // add _current_nodes to alloc pool
     _alloc_list.push_back(_current_nodes);
