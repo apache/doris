@@ -276,14 +276,17 @@ public class BackupHandler extends MasterDaemon implements Writable {
         AbstractBackupTableRefClause abstractBackupTableRefClause = stmt.getAbstractBackupTableRefClause();
         if (abstractBackupTableRefClause == null) {
             tableNames = db.getTableNamesWithLock();
-        } else if (abstractBackupTableRefClause != null && abstractBackupTableRefClause.isExclude()) {
+        } else if (abstractBackupTableRefClause.isExclude()) {
             tableNames = db.getTableNamesWithLock();
             for (TableRef tableRef : abstractBackupTableRefClause.getTableRefList()) {
-                tableNames.remove(tableRef.getName().getTbl());
+                if (!tableNames.remove(tableRef.getName().getTbl())) {
+                    LOG.info("exclude table " + tableRef.getName().getTbl()
+                            + " of backup stmt is not exists in db " + db.getFullName());
+                }
             }
         }
         List<TableRef> tblRefs = Lists.newArrayList();
-        if (tableNames.isEmpty()) {
+        if (abstractBackupTableRefClause != null && !abstractBackupTableRefClause.isExclude()) {
             tblRefs = abstractBackupTableRefClause.getTableRefList();
         } else {
             for (String tableName : tableNames) {
