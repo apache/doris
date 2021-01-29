@@ -46,11 +46,11 @@ features:
       icon: /images/home/program.png
     - title: Effective data model for aggregation
       icon: /images/home/aggr.png
-    - title: Rollup，novel pre-computation mechanism
+    - title: Rollup, novel pre-computation mechanism
       icon: /images/home/rollup.png
     - title: High performance, high availability, high reliability
       icon: /images/home/cpu.png
-    - title: easy for operation，Elastic data warehouse for big data
+    - title: easy for operation, Elastic data warehouse for big data
       icon: /images/home/dev.png
 cases:
   title: Apache Doris Users

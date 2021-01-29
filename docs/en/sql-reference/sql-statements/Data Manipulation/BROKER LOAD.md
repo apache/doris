@@ -170,7 +170,7 @@ under the License.
 
             namenode HA: 
             By configuring namenode HA, new namenode can be automatically identified when the namenode is switched
-            dfs.nameservices: hdfs service name，customize，eg: "dfs.nameservices" = "my_ha"
+            dfs.nameservices: hdfs service name, customize, eg: "dfs.nameservices" = "my_ha"
             dfs.ha.namenodes.xxx: Customize the name of a namenode, separated by commas. XXX is a custom name in dfs. name services, such as "dfs. ha. namenodes. my_ha" = "my_nn"
             dfs.namenode.rpc-address.xxx.nn: Specify RPC address information for namenode, where NN denotes the name of the namenode configured in dfs.ha.namenodes.xxxx, such as: "dfs.namenode.rpc-address.my_ha.my_nn"= "host:port"
             dfs.client.failover.proxy.provider: Specify the provider that client connects to namenode by default: org. apache. hadoop. hdfs. server. namenode. ha. Configured Failover ProxyProvider.

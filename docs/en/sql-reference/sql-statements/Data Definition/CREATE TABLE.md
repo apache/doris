@@ -100,8 +100,8 @@ Syntax:
     Syntax:
         `INDEX index_name (col_name[, col_name, ...]) [USING BITMAP] COMMENT 'xxxxxx'`
     Explain:
-        index_name：index name
-        col_name：column name
+        index_name: index name
+        col_name: column name
     Notice:
         Only support BITMAP index in current version, BITMAP can only apply to single column
 3. ENGINE type

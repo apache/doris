@@ -119,7 +119,7 @@ There are many statistical information collected at BE.  so we list the correspo
   - DataArrivalWaitTime: Total waiting time of sender to push data 
   - FirstBatchArrivalWaitTime: The time waiting for the first batch come from sender
   - DeserializeRowBatchTimer: Time consuming to receive data deserialization
-  - SendersBlockedTotalTimer(*): When the DataStreamRecv's queue buffer is full，wait time of sender
+  - SendersBlockedTotalTimer(*): When the DataStreamRecv's queue buffer is full, wait time of sender
   - ConvertRowBatchTime: Time taken to transfer received data to RowBatch
   - RowsReturned: Number of receiving rows
   - RowsReturnedRate: Rate of rows received
