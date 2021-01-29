@@ -39,7 +39,7 @@ WHERE
 column_name1 op value[ AND column_name2 op value ...];
 ```
 
-example 1: 
+example 1:
 
 ```
 DELETE FROM my_table PARTITION p1 WHERE k1 = 3;

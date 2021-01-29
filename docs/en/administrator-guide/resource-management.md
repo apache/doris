@@ -79,7 +79,7 @@ The following shows how the two resources are used.
 
 #### Parameter
 
-##### Spark Parameters: 
+##### Spark Parameters:
 
 `spark.master`: required, currently supported yarn, spark://host:port。
 
@@ -91,7 +91,7 @@ The following shows how the two resources are used.
 
 Other parameters are optional, refer to: http://spark.apache.org/docs/latest/configuration.html.
 
-##### If spark is used for ETL, also need to specify the following parameters: 
+##### If spark is used for ETL, also need to specify the following parameters:
 
 `working_dir`: Directory used by ETL. Spark is required when used as an ETL resource. For example: hdfs://host:port/tmp/doris.
 
@@ -130,7 +130,7 @@ PROPERTIES
 
 #### Parameter
 
-##### ODBC Parameters: 
+##### ODBC Parameters:
 
 `type`: Required, must be `odbc_catalog`. As the type identifier of resource.
 

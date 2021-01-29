@@ -207,7 +207,7 @@ Doris obtains data from ES following the following two principles:
 * **Best effort**: Automatically detect whether the column to be read has column storage enabled (doc_value: true).If all the fields obtained have column storage, Doris will obtain the values ​​of all fields from the column storage(doc_values)
 * **Automatic downgrade**: If the field to be obtained has one or more field that is not have doc_value, the values ​​of all fields will be parsed from the line store `_source`
 
-##### Advantage: 
+##### Advantage:
 
 By default, Doris On ES will get all the required columns from the row storage, which is `_source`, and the storage of `_source` is the origin json format document, Inferior to column storage in batch read performance, Especially obvious when only a few columns are needed, When only a few columns are obtained, the performance of docvalue is about ten times that of _source
 
@@ -237,7 +237,7 @@ PROPERTIES (
 );
 ```
 
-Parameter Description: 
+Parameter Description:
 
 Parameter | Description
 ---|---
@@ -258,13 +258,13 @@ You can directly import data without creating an index. At this time, ES will au
 ```
 When performing conditional filtering on k4, for example =, Doris On ES will convert the query to ES's TermQuery
 
-SQL filter: 
+SQL filter:
 
 ```
 k4 = "Doris On ES"
 ```
 
-The query DSL converted into ES is: 
+The query DSL converted into ES is:
 
 ```
 "term" : {
@@ -282,7 +282,7 @@ POST /_analyze
   "text": "Doris On ES"
 }
 ```
-The result of analyzed is: 
+The result of analyzed is:
 
 ```
 {

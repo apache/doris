@@ -327,7 +327,7 @@ curl -v --location-trusted -u root: -H "format: json" -H "num_as_string: true" -
 
 But using the param will cause unexpected side effects. Doris currently does not support composite types, such as Array, Map, etc. So when a non basic type is matched, Doris will convert the type to a string in JSON format.` num_as_string`will also convert compound type numbers into strings, for example:
     
-JSON Data: 
+JSON Data:
 
     { "id": 123, "city" : { "name" : "beijing", "city_id" : 1 }}
 
@@ -369,7 +369,7 @@ code    INT     NULL
         curl --location-trusted -u user:passwd -H "format: json" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
         ```
         
-        Results: 
+        Results:
         
         ```
         100     beijing     1
@@ -381,7 +381,7 @@ code    INT     NULL
         curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
         ```
         
-        Results: 
+        Results:
         
         ```
         100     beijing     1
@@ -399,7 +399,7 @@ code    INT     NULL
         curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.content.city\",\"$.content.code\"]" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
         ```
 
-        Results: 
+        Results:
         
         ```
         100     beijing     1
@@ -430,7 +430,7 @@ code    INT     NULL
         curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" -H "strip_outer_array: true" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
         ```
 
-        Results: 
+        Results:
         
         ```
         100     beijing                     1
@@ -449,7 +449,7 @@ code    INT     NULL
     curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" -H "strip_outer_array: true" -H "columns: id, city, tmpc, code=tmpc+1" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
     ```
 
-    Results: 
+    Results:
         
     ```
     100     beijing                     2

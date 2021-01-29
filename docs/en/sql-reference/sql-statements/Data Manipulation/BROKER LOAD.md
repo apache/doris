@@ -181,7 +181,7 @@ under the License.
         Syntax: 
         [PROPERTIES ("key"="value", ...)]
         
-        You can specify the following parameters: 
+        You can specify the following parameters:
         
         timout: Specifies the timeout time for the import operation. The default timeout is 4 hours per second.
 
