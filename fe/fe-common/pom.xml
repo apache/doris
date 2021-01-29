@@ -113,6 +113,8 @@ under the License.
     </dependencies>
 
     <build>
+        <finalName>doris-fe-common</finalName>
+
         <plugins>
             <!--thrift-->
             <plugin>
