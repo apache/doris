@@ -456,7 +456,7 @@ select * from es_table where esquery(k4, ' {
 
 ### Suggestions for using Date type fields
 
-The use of Datetype fields in ES is very flexible, but in Doris On ES, if the type of the Date type field is not set properly, it will cause the filter condition cannot  be pushed down.
+The use of Datetype fields in ES is very flexible, but in Doris On ES, if the type of the Date type field is not set properly, it will cause the filter condition cannot be pushed down.
 
 When creating an index, do maximum format compatibility with the setting of the Date type format:
 

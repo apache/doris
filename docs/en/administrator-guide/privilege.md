@@ -132,7 +132,7 @@ ADMIN\_PRIV and GRANT\_PRIV have the authority of **"grant authority"** at the s
 
 	* Users with ADMIN or GLOBAL GRANT privileges can set any user's password.
 	* Ordinary users can set their corresponding User Identity password. The corresponding User Identity can be viewed by `SELECT CURRENT_USER();`command.
-	* Users with GRANT privileges at non-GLOBAL level cannot  set the password of existing users, but can only specify the password when creating users.
+	* Users with GRANT privileges at non-GLOBAL level cannot set the password of existing users, but can only specify the password when creating users.
 
 
 ## Some explanations
