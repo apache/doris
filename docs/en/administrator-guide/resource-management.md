@@ -50,7 +50,7 @@ There are three main commands for resource management: `create resource`, `drop 
    In the command to create a resource, the user must provide the following information:
 
    * `resource_name` name of the resource
-   * `PROPERTIES` related parameters, as follows: 
+   * `PROPERTIES` related parameters, as follows:
      * `type`: resource type, required. Currently, only spark and odbc_catalog are supported.
      * For other parameters, see the resource introduction
 

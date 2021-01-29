@@ -140,7 +140,7 @@ Indicates whether a specified column expression in a `GROUP BY` list is aggregat
 
 Each `GROUPING_ID` argument must be an element of the `GROUP BY` list. `GROUPING_ID ()` returns an **integer** bitmap whose lowest N bits may be lit. A lit **bit** indicates the corresponding argument is not a grouping column for the given output row. The lowest-order **bit** corresponds to argument N, and the N-1th lowest-order **bit** corresponds to argument 1. If the column is a grouping column the bit is 0 else is 1.
 
-For example: 
+For example:
 
 ```
 mysql> select * from t;
@@ -310,7 +310,7 @@ Expression, column name.
 
 For `GROUPING SET`  is equivalent to the `UNION` of  `GROUP BY` . So we can expand input rows, and run an GROUP BY on these rows.
 
-For example: 
+For example:
 
 ```
 SELECT a, b FROM src GROUP BY a, b GROUPING SETS ((a, b), (a), (b), ());

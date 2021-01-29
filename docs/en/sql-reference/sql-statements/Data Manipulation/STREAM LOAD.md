@@ -243,7 +243,7 @@ Where url is the url given by ErrorURL.
                 {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
                 ]
             }
-       Matched imports are made by specifying jsonpath parameter, such as `category`, `author`, and `price`, for example: 
+       Matched imports are made by specifying jsonpath parameter, such as `category`, `author`, and `price`, for example:
          curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
 
 13. delete all data which key columns match the load data 

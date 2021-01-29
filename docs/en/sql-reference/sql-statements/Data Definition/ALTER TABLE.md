@@ -89,7 +89,7 @@ under the License.
             ADD ROLLUP [rollup_name (column_name1, column_name2, ...)
                                     [FROM from_index_name]
                                     [PROPERTIES ("key"="value", ...)],...]
-        example: 
+        example:
             ADD ROLLUP r1(col1,col2) from r0, r2(col3,col4) from r0
     1.3 note:
             1) If from_index_name is not specified, it is created by default from base index

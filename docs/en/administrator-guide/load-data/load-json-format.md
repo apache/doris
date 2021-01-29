@@ -304,11 +304,11 @@ If you want to load the above data as expected, the load statement is as follows
 curl -v --location-trusted -u root: -H "format: json" -H "strip_outer_array: true" -H "jsonpaths: [\"$.k1\", \"$.k2\"]"- H "columns: k1, tmp_k2, k2 = ifnull(tmp_k2,'x')" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
 ```
 
-## LargetInt与Decimal
+## LargetInt and Decimal
 
 Doris supports data types such as largeint and decimal with larger data range and higher data precision. However, due to the fact that the maximum range of the rapid JSON library used by Doris for the resolution of digital types is Int64 and double, there may be some problems when importing largeint or decimal by JSON format,  such as loss of precision, data conversion error, etc.
 
-For example: 
+For example:
 
 ```
 [
@@ -325,7 +325,7 @@ To solve this problem, Doris provides a param `num_as_string `. Doris converts t
 curl -v --location-trusted -u root: -H "format: json" -H "num_as_string: true" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
 ```
 
-But using the param will cause unexpected side effects. Doris currently does not support composite types, such as Array, Map, etc. So when a non basic type is matched, Doris will convert the type to a string in JSON format.` num_as_string`will also convert compound type numbers into strings, for example: 
+But using the param will cause unexpected side effects. Doris currently does not support composite types, such as Array, Map, etc. So when a non basic type is matched, Doris will convert the type to a string in JSON format.` num_as_string`will also convert compound type numbers into strings, for example:
     
 JSON Data: 
 

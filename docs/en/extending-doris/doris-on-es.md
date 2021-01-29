@@ -243,7 +243,7 @@ Parameter | Description
 ---|---
 **enable\_keyword\_sniff** | Whether to detect the string type (**text**) `fields` in ES to obtain additional not analyzed (**keyword**) field name(multi-fields mechanism)
 
-You can directly import data without creating an index. At this time, ES will automatically create a new index in ES, For a field of type string, a field of type `text` and field of type `keyword` will be created meantime, This is the multi-fields feature of ES, mapping is as follows: 
+You can directly import data without creating an index. At this time, ES will automatically create a new index in ES, For a field of type string, a field of type `text` and field of type `keyword` will be created meantime, This is the multi-fields feature of ES, mapping is as follows:
 
 ```
 "k4": {

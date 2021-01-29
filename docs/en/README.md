@@ -54,7 +54,7 @@ features:
       icon: /images/home/dev.png
 cases:
   title: Apache Doris Users
-  subTitle: 
+  subTitle:
   list:
     - logo: /images/home/logo-meituan.png
       alt: 美团

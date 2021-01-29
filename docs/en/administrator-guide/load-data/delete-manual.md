@@ -31,7 +31,7 @@ Unlike other import methods, delete is a synchronization process. Similar to ins
 
 ## Syntax
 
-The delete statement's syntax is as follows: 
+The delete statement's syntax is as follows:
 
 ```
 DELETE FROM table_name [PARTITION partition_name]
@@ -118,7 +118,7 @@ The delete command is an SQL command, and the returned results are synchronous. 
     ERROR 1064 (HY000): errCode = 2, detailMessage = {错误原因}
 	```
 	
-    example: 
+    example:
     
     A timeout deletion will return the timeout and unfinished replicas displayed as ` (tablet = replica)`
     
