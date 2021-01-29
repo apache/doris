@@ -73,7 +73,7 @@ under the License.
             [WHERE predicate] 
             [DELETE ON label=true]
 
-        Explain: 
+        Explain:
             file_path: 
 
             File path. Support wildcard. Must match to file, not directory. 
@@ -82,7 +82,7 @@ under the License.
 
             Data will only be loaded to specified partitions. Data out of partition's range will be filtered. If not specifed, all partitions will be loaded.
                     
-            NEGATIVE: 
+            NEGATIVE:
             
             If this parameter is specified, it is equivalent to importing a batch of "negative" data to offset the same batch of data loaded before.
             
@@ -99,7 +99,7 @@ under the License.
 
             Used to specify the type of imported file, such as parquet, orc, csv. Default values are determined by the file suffix name. 
  
-            column_list: 
+            column_list:
 
             Used to specify the correspondence between columns in the import file and columns in the table.
 

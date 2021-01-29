@@ -85,7 +85,7 @@ PARTICIPATION:
 If this parameter is specified, only the specified partition will be imported, and data outside the imported partition will be filtered out.
 If not specified, all partitions of the table are imported by default.
 
-NEGATIVE: 
+NEGATIVE:
 If this parameter is specified, it is equivalent to importing a batch of "negative" data. Used to offset the same batch of data imported before.
 This parameter applies only to the case where there are value columns and the aggregation type of value columns is SUM only.
 
@@ -99,7 +99,7 @@ File type:
 
 Used to specify the type of imported file, such as parquet, orc, csv. The default value is determined by the file suffix name.
 
-column_list: 
+column_list:
 
 Used to specify the correspondence between columns in the import file and columns in the table.
 When you need to skip a column in the import file, specify it as a column name that does not exist in the table.

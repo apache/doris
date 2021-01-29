@@ -323,7 +323,7 @@ Data in table src:
 3, 4
 ```
 
-Base on  GROUPING SETS , we can expend the input to: 
+Base on  GROUPING SETS , we can expend the input to:
 
 ```
 1, 2       (GROUPING_ID: a, b -> 00 -> 0)
@@ -341,7 +341,7 @@ And then use those row as input, then GROUP BY  a, b, GROUPING_ID
 
 ### 3.2 Example
 
-Table t: 
+Table t:
 
 ```
 mysql> select * from t;
@@ -360,7 +360,7 @@ mysql> select * from t;
 8 rows in set (0.01 sec)
 ```
 
-for the query: 
+for the query:
 
 ```
 SELECT k1, k2, GROUPING_ID(k1,k2), SUM(k3) FROM t GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ());
@@ -368,7 +368,7 @@ SELECT k1, k2, GROUPING_ID(k1,k2), SUM(k3) FROM t GROUP BY GROUPING SETS ((k1, k
 
 First, expand the input, every row expand into 4 rows ( the size of GROUPING SETS), and insert GROUPING_ID column
 
-e.g.  a, A, 1 expanded to: 
+e.g.  a, A, 1 expanded to:
 
 ```
 +------+------+------+-------------------------+
