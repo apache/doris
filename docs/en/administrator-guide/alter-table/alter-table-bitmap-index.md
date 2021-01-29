@@ -33,7 +33,7 @@ This document focuses on how to create an index job, as well as some considerati
 
 ## Basic Principles
 Creating and dropping index is essentially a schema change job. For details, please refer to
-[Schema Change](alter-table-schema-change.html)。
+[Schema Change](alter-table-schema-change.html).
 
 ## Syntax
 There are two forms of index creation and modification related syntax, one is integrated with alter table statement, and the other is using separate

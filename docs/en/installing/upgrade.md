@@ -61,4 +61,4 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 
 1. Confirm that the new version of the file is deployed. Restart FE and BE instances one by one.
 2. It is suggested that BE be restarted one by one and FE be restarted one by one. Because Doris usually guarantees backward compatibility between FE and BE, that is, the old version of FE can access the new version of BE. However, the old version of BE may not be supported to access the new version of FE.
-3. It is recommended to restart the next instance after confirming that the previous instance started successfully. Refer to the Installation Deployment Document for the identification of successful instance startup.
+3. It is recommended to restart the next instance after confirming the previous instance started successfully. Refer to the Installation Deployment Document for the identification of successful instance startup.

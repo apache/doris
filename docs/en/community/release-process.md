@@ -223,7 +223,7 @@ You can also upload the contents of the above public-key.txt through the followi
 http://keys.gnupg.net
 ```
 
-After successful upload, you can query the website and enter 0x33DBF2E0:
+After successfully upload, you can query the website and enter 0x33DBF2E0:
 
 http://keys.gnupg.net
 

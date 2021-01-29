@@ -25,7 +25,7 @@ under the License.
 -->
 
 # Sequence Column
-The Sequence Column currently only supports the Uniq model. The Uniq model is mainly for scenarios requiring a unique primary key, which can guarantee the uniqueness constraint of the primary key. However, due to the use of REPLACE aggregation, the replacement sequence is not guaranteed for data imported in the same batch, which can be described in detail [here](../../getting-started/data-model-rollup.md). If the order of substitution is not guaranteed, then the specific data that is finally imported into the table cannot be determined, and there is uncertainty。
+The Sequence Column currently only supports the Uniq model. The Uniq model is mainly for scenarios requiring a unique primary key, which can guarantee the uniqueness constraint of the primary key. However, due to the use of REPLACE aggregation, the replacement sequence is not guaranteed for data imported in the same batch, which can be described in detail [here](../../getting-started/data-model-rollup.md). If the order of substitution is not guaranteed, then the specific data that is finally imported into the table cannot be determined, and there is uncertainty.
 
 To solve this problem, Doris supported a sequence column by allowing the user to specify the sequence column when importing. Under the same key column, columns of the REPLACE aggregate type will be replaced according to the value of the sequence column, larger values can be replaced with smaller values, and vice versa. In this method, the order is determined by the user, and the user controls the replacement order.
 
@@ -127,7 +127,7 @@ The mapping method is the same as above, as shown below
 ## Enable sequence column support
 If `function_column.sequence_type` is set when creating a new table, then the sequence column will be supported.
 For a table that does not support sequence column, use the following statement if you would like to use this feature:
-`ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")` to enable。
+`ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")` to enable.
 If you want to determine if a table supports sequence column, you can set the session variable to display the hidden column `SET show_hidden_columns=true`, followed by `desc Tablename`, if the output contains the column `__DORIS_SEQUENCE_COL__`, it is supported, if not, it is not supported
 
 ## Usage example

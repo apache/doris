@@ -56,7 +56,7 @@ authorization information, and so on.
 
 ## Supported Storage System
 
-Different types of brokers support different different storage systems。
+Different types of brokers support different storage systems.
 
 1. Community HDFS
 
@@ -164,7 +164,7 @@ Authentication information is usually provided as a Key-Value in the Property Ma
 
     Simple authentication means that Hadoop configures `hadoop.security.authentication` to` simple`.
 
-    Use system users to access HDFS. Or add in the environment variable started by Broker：```HADOOP_USER_NAME```。
+    Use system users to access HDFS. Or add in the environment variable started by Broker：```HADOOP_USER_NAME```.
     
     ```
     (
@@ -180,7 +180,7 @@ Authentication information is usually provided as a Key-Value in the Property Ma
     The authentication method needs to provide the following information:：
     
     * `hadoop.security.authentication`: Specify the authentication method as kerberos.
-    * `kerberos_principal`： Specify the principal of kerberos.
+    * `kerberos_principal`: Specify the principal of kerberos.
     * `kerberos_keytab`: Specify the path to the keytab file for kerberos. The file must be an absolute path to a file on the server where the broker process is located. And can be accessed by the Broker process.
     * `kerberos_keytab_content`: Specify the content of the keytab file in kerberos after base64 encoding. You can choose one of these with `kerberos_keytab` configuration.
 
