@@ -70,8 +70,8 @@ There are three main commands for resource management: `create resource`, `drop 
 
 Currently, Doris can support
 
-* Spark resource : do ETL work
-* ODBC resource : query and import data from external tables
+* Spark resource: do ETL work
+* ODBC resource: query and import data from external tables
 
 The following shows how the two resources are used.
 

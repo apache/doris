@@ -316,7 +316,7 @@ For example:
 SELECT a, b FROM src GROUP BY a, b GROUPING SETS ((a, b), (a), (b), ());
 ```
 
-Data in table src :
+Data in table src:
 
 ```
 1, 2

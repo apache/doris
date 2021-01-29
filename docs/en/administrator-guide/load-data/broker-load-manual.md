@@ -498,15 +498,15 @@ Cluster situation: The number of BEs in the cluster is about 3, and the Broker n
 
 ## Common Questions
 
-* failed with : `Scan bytes per broker scanner exceed limit:xxx`
+* failed with: `Scan bytes per broker scanner exceed limit:xxx`
 
 	Refer to the Best Practices section of the document to modify the FE configuration items `max_bytes_per_broker_scanner` and `max_broker_concurrency'.`
 
-*  failed with : `failed to send batch` or `TabletWriter add batch with unknown id`
+*  failed with: `failed to send batch` or `TabletWriter add batch with unknown id`
 
 	Refer to **General System Configuration** in **BE Configuration** in the Import Manual (./load-manual.md), and modify `query_timeout` and `streaming_load_rpc_max_alive_time_sec` appropriately.
 	
-*  failed with : `LOAD_RUN_FAIL; msg: Invalid Column Name: xxx`
+*  failed with: `LOAD_RUN_FAIL; msg: Invalid Column Name: xxx`
     
      If it is PARQUET or ORC format data, you need to keep the column names in the file header consistent with the column names in the doris table, such as:
      `` `

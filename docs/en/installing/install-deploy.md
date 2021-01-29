@@ -122,7 +122,7 @@ This is a representation of [CIDR] (https://en.wikipedia.org/wiki/Classless_Inte
 
 BE is configured as `priority_networks = 10.1.3.0/24'.`.
 
-When you want to ADD BACKEND use : `ALTER SYSTEM ADD BACKEND "192.168.0.1:9050";`
+When you want to ADD BACKEND use: `ALTER SYSTEM ADD BACKEND "192.168.0.1:9050";`
 
 Then FE and BE will not be able to communicate properly.
 
@@ -424,6 +424,6 @@ Broker is a stateless process that can be started or stopped at will. Of course,
 
    The default value of max_file_descriptor_number is 131072.
 
-   For Example : ulimit -n 65536; this command set file descriptor to 65536.
+   For Example: ulimit -n 65536; this command set file descriptor to 65536.
 
    After starting BE process, you can use **cat /proc/$pid/limits** to see the actual limit of process.
