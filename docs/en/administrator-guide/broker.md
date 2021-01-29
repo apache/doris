@@ -177,7 +177,7 @@ Authentication information is usually provided as a Key-Value in the Property Ma
 
 2. Kerberos Authentication
 
-    The authentication method needs to provide the following information:: 
+    The authentication method needs to provide the following information::
     
     * `hadoop.security.authentication`: Specify the authentication method as kerberos.
     * `kerberos_principal`: Specify the principal of kerberos.
