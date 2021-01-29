@@ -164,8 +164,8 @@ under the License.
 
             kerberos authentication: 
             hadoop.security.authentication = kerberos
-            kerberos_principal:  kerberos's principal
-            kerberos_keytab:  path of kerberos's keytab file. This file should be able to access by Broker
+            kerberos_principal: kerberos's principal
+            kerberos_keytab: path of kerberos's keytab file. This file should be able to access by Broker
             kerberos_keytab_content: Specify the contents of the KeyTab file in Kerberos after base64 encoding. This option is optional from the kerberos_keytab configuration. 
 
             namenode HA: 

@@ -206,7 +206,7 @@ Where url is the url given by ErrorURL.
     ```Curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1), v2=bitmap_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 
 10. a simple load json
-       table schema:  
+       table schema:
            `category` varchar(512) NULL COMMENT "",
            `author` varchar(512) NULL COMMENT "",
            `title` varchar(512) NULL COMMENT "",

@@ -135,16 +135,16 @@ There are many statistical information collected at BE.  so we list the correspo
 #### `AGGREGATION_NODE`
   - PartitionsCreated: Number of partition split by aggregate
   - GetResultsTime: Time to get aggregate results from each partition
-  - HTResizeTime:  Time spent in resizing hashtable
-  - HTResize:  Number of times hashtable resizes
+  - HTResizeTime: Time spent in resizing hashtable
+  - HTResize: Number of times hashtable resizes
   - HashBuckets: Number of buckets in hashtable
-  - HashBucketsWithDuplicate:  Number of buckets with duplicatenode in hashtable
-  - HashCollisions:  Number of hash conflicts generated 
-  - HashDuplicateNodes:  Number of duplicate nodes with the same buckets in hashtable
-  - HashFailedProbe:  Number of failed probe operations
-  - HashFilledBuckets:  Number of buckets filled data
-  - HashProbe:  Number of hashtable probe
-  - HashTravelLength:  The number of steps moved when hashtable queries
+  - HashBucketsWithDuplicate: Number of buckets with duplicatenode in hashtable
+  - HashCollisions: Number of hash conflicts generated 
+  - HashDuplicateNodes: Number of duplicate nodes with the same buckets in hashtable
+  - HashFailedProbe: Number of failed probe operations
+  - HashFilledBuckets: Number of buckets filled data
+  - HashProbe: Number of hashtable probe
+  - HashTravelLength: The number of steps moved when hashtable queries
 
 #### `HASH_JOIN_NODE`
   - ExecOption: The way to construct a HashTable for the right child (synchronous or asynchronous), the right child in Join may be a table or a subquery, the same is true for the left child

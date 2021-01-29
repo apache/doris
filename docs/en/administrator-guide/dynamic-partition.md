@@ -289,8 +289,8 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 ```
     
 * LastUpdateTime: The last time of modifying dynamic partition properties 
-* LastSchedulerTime:   The last time of performing dynamic partition scheduling
-* State:    The state of the last execution of dynamic partition scheduling
+* LastSchedulerTime: The last time of performing dynamic partition scheduling
+* State: The state of the last execution of dynamic partition scheduling
 * LastCreatePartitionMsg: Error message of the last time to dynamically add partition scheduling
 * LastDropPartitionMsg: Error message of the last execution of dynamic deletion partition scheduling
 
