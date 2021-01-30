@@ -48,13 +48,12 @@ import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
-import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
-
-import com.google.common.base.Strings;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Strings;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -409,47 +408,42 @@ public class ConnectProcessor {
         if (request.isSetUserIp()) {
             ctx.setRemoteIP(request.getUserIp());
         }
-        if (request.isSetTimeZone()) {
-            ctx.getSessionVariable().setTimeZone(request.getTimeZone());
-        }
         if (request.isSetStmtId()) {
             ctx.setForwardedStmtId(request.getStmtId());
-        }
-        if (request.isSetSqlMode()) {
-            ctx.getSessionVariable().setSqlMode(request.sqlMode);
-        }
-        if (request.isSetEnableStrictMode()) {
-            ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
         }
         if (request.isSetCurrentUserIdent()) {
             UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
             ctx.setCurrentUserIdentity(currentUserIdentity);
         }
 
-        if (request.isSetInsertVisibleTimeoutMs()) {
-            ctx.getSessionVariable().setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
+        if (request.isSetSessionVariables()) {
+            ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());
+        } else {
+            // For compatibility, all following variables are moved to SessionVariables.
+            // Should move in future.
+            if (request.isSetTimeZone()) {
+                ctx.getSessionVariable().setTimeZone(request.getTimeZone());
+            }
+            if (request.isSetSqlMode()) {
+                ctx.getSessionVariable().setSqlMode(request.sqlMode);
+            }
+            if (request.isSetEnableStrictMode()) {
+                ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
+            }
+            if (request.isSetCurrentUserIdent()) {
+                UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
+                ctx.setCurrentUserIdentity(currentUserIdentity);
+            }
+            if (request.isSetInsertVisibleTimeoutMs()) {
+                ctx.getSessionVariable().setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
+            }
         }
 
         if (request.isSetQueryOptions()) {
-            TQueryOptions queryOptions = request.getQueryOptions();
-            if (queryOptions.isSetMemLimit()) {
-                ctx.getSessionVariable().setMaxExecMemByte(queryOptions.getMemLimit());
-            }
-            if (queryOptions.isSetQueryTimeout()) {
-                ctx.getSessionVariable().setQueryTimeoutS(queryOptions.getQueryTimeout());
-            }
-            if (queryOptions.isSetLoadMemLimit()) {
-                ctx.getSessionVariable().setLoadMemLimit(queryOptions.getLoadMemLimit());
-            }
-            if (queryOptions.isSetMaxScanKeyNum()) {
-                ctx.getSessionVariable().setMaxScanKeyNum(queryOptions.getMaxScanKeyNum());
-            }
-            if (queryOptions.isSetMaxPushdownConditionsPerColumn()) {
-                ctx.getSessionVariable().setMaxPushdownConditionsPerColumn(
-                        queryOptions.getMaxPushdownConditionsPerColumn());
-            }
+            ctx.getSessionVariable().setForwardedSessionVariables(request.getQueryOptions());
         } else {
-            // for compatibility, all following variables are moved to TQueryOptions.
+            // For compatibility, all following variables are moved to TQueryOptions.
+            // Should move in future.
             if (request.isSetExecMemLimit()) {
                 ctx.getSessionVariable().setMaxExecMemByte(request.getExecMemLimit());
             }

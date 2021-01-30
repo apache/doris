@@ -150,6 +150,12 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
 * `collation_server`
 
     用于兼容 MySQL 客户端。无实际作用。
+
+* `delete_without_partition`
+
+    设置为 true 时。当使用 delete 命令删除分区表数据时，可以不指定分区。delete 操作将会自动应用到所有分区。
+
+    但注意，自动应用到所有分区可能到导致 delete 命令耗时触发大量子任务导致耗时较长。如无必要，不建议开启。
     
 * `disable_colocate_join`
 

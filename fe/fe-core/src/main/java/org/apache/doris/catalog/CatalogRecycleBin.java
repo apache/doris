@@ -35,14 +35,14 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TStorageMedium;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -150,7 +150,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
                 // remove jobs
                 Catalog.getCurrentCatalog().getLoadInstance().removeDbLoadJob(db.getId());
-                Catalog.getCurrentCatalog().getLoadInstance().removeDbDeleteJob(db.getId());
                 Catalog.getCurrentCatalog().getSchemaChangeHandler().removeDbAlterJob(db.getId());
                 Catalog.getCurrentCatalog().getRollupHandler().removeDbAlterJob(db.getId());
 
@@ -188,7 +187,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         // remove jobs
         Catalog.getCurrentCatalog().getLoadInstance().removeDbLoadJob(dbId);
-        Catalog.getCurrentCatalog().getLoadInstance().removeDbDeleteJob(dbId);
         Catalog.getCurrentCatalog().getSchemaChangeHandler().removeDbAlterJob(dbId);
         Catalog.getCurrentCatalog().getRollupHandler().removeDbAlterJob(dbId);
 
