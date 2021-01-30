@@ -141,7 +141,6 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportChecker;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
@@ -1652,27 +1651,11 @@ public class Catalog {
         }
 
         // delete jobs
+        // Delete job has been moved to DeleteHandler. Here the jobSize is always 0, we need do nothing.
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_11) {
             jobSize = dis.readInt();
+            Preconditions.checkState(jobSize == 0, jobSize);
             newChecksum ^= jobSize;
-            for (int i = 0; i < jobSize; i++) {
-                long dbId = dis.readLong();
-                newChecksum ^= dbId;
-
-                int deleteCount = dis.readInt();
-                newChecksum ^= deleteCount;
-                for (int j = 0; j < deleteCount; j++) {
-                    DeleteInfo deleteInfo = new DeleteInfo();
-                    deleteInfo.readFields(dis);
-                    long currentTimeMs = System.currentTimeMillis();
-
-                    // Delete the history delete jobs that are older than
-                    // LABEL_KEEP_MAX_MS
-                    if ((currentTimeMs - deleteInfo.getCreateTimeMs()) / 1000 <= Config.label_keep_max_second) {
-                        load.unprotectAddDeleteInfo(deleteInfo);
-                    }
-                }
-            }
         }
 
         // load error hub info
@@ -1684,28 +1667,10 @@ public class Catalog {
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
             // 4. load delete jobs
+            // Delete job has been moved to DeleteHandler. Here the jobSize is always 0, we need do nothing.
             int deleteJobSize = dis.readInt();
+            Preconditions.checkState(deleteJobSize == 0, deleteJobSize);
             newChecksum ^= deleteJobSize;
-            for (int i = 0; i < deleteJobSize; i++) {
-                long dbId = dis.readLong();
-                newChecksum ^= dbId;
-
-                int deleteJobCount = dis.readInt();
-                newChecksum ^= deleteJobCount;
-                for (int j = 0; j < deleteJobCount; j++) {
-                    LoadJob job = new LoadJob();
-                    job.readFields(dis);
-                    long currentTimeMs = System.currentTimeMillis();
-
-                    // Delete the history load jobs that are older than
-                    // LABEL_KEEP_MAX_MS
-                    // This job must be FINISHED or CANCELLED
-                    if ((currentTimeMs - job.getCreateTimeMs()) / 1000 <= Config.label_keep_max_second
-                            || (job.getState() != JobState.FINISHED && job.getState() != JobState.CANCELLED)) {
-                        load.unprotectAddLoadJob(job, true /* replay */);
-                    }
-                }
-            }
         }
 
         LOG.info("finished replay loadJob from image");
@@ -2071,46 +2036,20 @@ public class Catalog {
         }
 
         // 2. save delete jobs
-        Map<Long, List<DeleteInfo>> dbToDeleteInfos = load.getDbToDeleteInfos();
-        jobSize = dbToDeleteInfos.size();
+        // delete jobs are moved to DeleteHandler. So here we just set job size as 0.
+        jobSize = 0;
         checksum ^= jobSize;
         dos.writeInt(jobSize);
-        for (Entry<Long, List<DeleteInfo>> entry : dbToDeleteInfos.entrySet()) {
-            long dbId = entry.getKey();
-            checksum ^= dbId;
-            dos.writeLong(dbId);
-
-            List<DeleteInfo> deleteInfos = entry.getValue();
-            int deletInfoCount = deleteInfos.size();
-            checksum ^= deletInfoCount;
-            dos.writeInt(deletInfoCount);
-            for (DeleteInfo deleteInfo : deleteInfos) {
-                deleteInfo.write(dos);
-            }
-        }
 
         // 3. load error hub info
         LoadErrorHub.Param param = load.getLoadErrorHubInfo();
         param.write(dos);
 
         // 4. save delete load job info
-        Map<Long, List<LoadJob>> dbToDeleteJobs = load.getDbToDeleteJobs();
-        int deleteJobSize = dbToDeleteJobs.size();
+        // delete jobs are moved to DeleteHandler. So here we just set job size as 0.
+        int deleteJobSize = 0;
         checksum ^= deleteJobSize;
         dos.writeInt(deleteJobSize);
-        for (Entry<Long, List<LoadJob>> entry : dbToDeleteJobs.entrySet()) {
-            long dbId = entry.getKey();
-            checksum ^= dbId;
-            dos.writeLong(dbId);
-
-            List<LoadJob> deleteJobs = entry.getValue();
-            int deleteJobCount = deleteJobs.size();
-            checksum ^= deleteJobCount;
-            dos.writeInt(deleteJobCount);
-            for (LoadJob job : deleteJobs) {
-                job.write(dos);
-            }
-        }
 
         return checksum;
     }
@@ -2258,7 +2197,6 @@ public class Catalog {
             @Override
             protected void runAfterCatalogReady() {
                 load.removeOldLoadJobs();
-                load.removeOldDeleteJobs();
                 loadManager.removeOldLoadJob();
                 exportMgr.removeOldExportJobs();
             }

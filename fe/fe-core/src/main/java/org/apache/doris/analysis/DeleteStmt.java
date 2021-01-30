@@ -27,6 +27,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+
 import java.util.LinkedList;
 import java.util.List;
 
@@ -51,17 +54,17 @@ public class DeleteStmt extends DdlStmt {
     public String getDbName() {
         return tbl.getDb();
     }
-    
-    public String getPartitionName() {
-        return partitionNames == null ? null : partitionNames.getPartitionNames().get(0);
+
+    public List<String> getPartitionNames() {
+        return partitionNames == null ? Lists.newArrayList() : partitionNames.getPartitionNames();
     }
-    
+
     public List<Predicate> getDeleteConditions() {
         return deleteConditions;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         
         if (tbl == null) {
@@ -72,9 +75,6 @@ public class DeleteStmt extends DdlStmt {
 
         if (partitionNames != null) {
             partitionNames.analyze(analyzer);
-            if (partitionNames.getPartitionNames().size() != 1) {
-                throw new AnalysisException("Do not support deleting multi partitions");
-            }
             if (partitionNames.isTemp()) {
                 throw new AnalysisException("Do not support deleting temp partitions");
             }
@@ -151,7 +151,9 @@ public class DeleteStmt extends DdlStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("DELETE FROM ").append(tbl.toSql());
         if (partitionNames != null) {
-            sb.append(" PARTITION ").append(partitionNames.getPartitionNames().get(0));
+            sb.append(" PARTITION (");
+            sb.append(Joiner.on(", ").join(partitionNames.getPartitionNames()));
+            sb.append(")");
         }
         sb.append(" WHERE ").append(wherePredicate.toSql());
         return sb.toString();

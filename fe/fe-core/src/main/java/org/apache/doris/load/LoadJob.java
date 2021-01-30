@@ -982,8 +982,7 @@ public class LoadJob implements Writable {
                 }
             }
             if (in.readBoolean()) {
-                this.deleteInfo = new DeleteInfo();
-                this.deleteInfo.readFields(in);
+                this.deleteInfo = DeleteInfo.read(in);
             }
         }
 

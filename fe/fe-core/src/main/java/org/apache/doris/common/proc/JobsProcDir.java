@@ -109,10 +109,11 @@ public class JobsProcDir implements ProcDirInterface {
                                          cancelledNum.toString(), totalNum.toString()));
 
         // delete
+        // TODO: find it from delete handler
         pendingNum = 0L;
-        runningNum = load.getDeleteJobNumByState(dbId, org.apache.doris.load.LoadJob.JobState.LOADING);
-        finishedNum = load.getDeleteJobNumByState(dbId, org.apache.doris.load.LoadJob.JobState.FINISHED);
-        cancelledNum = load.getDeleteJobNumByState(dbId, org.apache.doris.load.LoadJob.JobState.CANCELLED);
+        runningNum = 0L;
+        finishedNum = 0L;
+        cancelledNum = 0L;
         totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(DELETE, pendingNum.toString(), runningNum.toString(), finishedNum.toString(),
                                          cancelledNum.toString(), totalNum.toString()));
