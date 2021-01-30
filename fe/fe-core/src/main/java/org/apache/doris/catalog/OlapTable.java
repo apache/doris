@@ -371,8 +371,9 @@ public class OlapTable extends Table {
     }
 
     public List<MaterializedIndex> getVisibleIndex() {
-        Partition partition = idToPartition.values().stream().findFirst().get();
-        return partition.getMaterializedIndices(IndexExtState.VISIBLE);
+        Optional<Partition> partition = idToPartition.values().stream().findFirst();
+        return partition.isPresent() ? partition.get().getMaterializedIndices(IndexExtState.VISIBLE)
+                : Collections.emptyList();
     }
 
     public Column getVisibleColumn(String columnName) {
