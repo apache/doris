@@ -24,6 +24,7 @@ import org.apache.doris.external.elasticsearch.EsMajorVersion;
 import org.apache.doris.external.elasticsearch.EsMetaStateTracker;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
+import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -63,6 +64,8 @@ public class EsTable extends Table {
     public static final String DOC_VALUE_SCAN = "enable_docvalue_scan";
     public static final String KEYWORD_SNIFF = "enable_keyword_sniff";
     public static final String MAX_DOCVALUE_FIELDS = "max_docvalue_fields";
+    public static final String ES_NODES_DISCOVERY = "es_nodes_discovery";
+    public static final String USE_SSL_CLIENT = "use_ssl_client";
 
     private String hosts;
     private String[] seeds;
@@ -86,6 +89,10 @@ public class EsTable extends Table {
     // if the number of fields which value extracted from `doc_value` exceeding this max limitation
     // would downgrade to extract value from `stored_fields`
     private int maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
+
+    private boolean esNodesDiscovery = true;
+
+    private boolean useSslClient = false;
 
     // Solr doc_values vs stored_fields performance-smackdown indicate:
     // It is possible to notice that retrieving an high number of fields leads
@@ -138,6 +145,13 @@ public class EsTable extends Table {
         return enableKeywordSniff;
     }
 
+    public boolean isEsNodesDiscovery() {
+        return esNodesDiscovery;
+    }
+
+    public boolean isUseSslClient() {
+        return useSslClient;
+    }
 
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
@@ -185,36 +199,31 @@ public class EsTable extends Table {
 
         // enable doc value scan for Elasticsearch
         if (properties.containsKey(DOC_VALUE_SCAN)) {
-            try {
-                enableDocValueScan = Boolean.parseBoolean(properties.get(DOC_VALUE_SCAN).trim());
-            } catch (Exception e) {
-                throw new DdlException("fail to parse enable_docvalue_scan, enable_docvalue_scan= "
-                        + properties.get(VERSION).trim() + " ,`enable_docvalue_scan`"
-                        + " should be like 'true' or 'false'， value should be double quotation marks");
-            }
+            enableDocValueScan = EsUtil.getBooleanProperty(properties, DOC_VALUE_SCAN);
         }
 
         if (properties.containsKey(KEYWORD_SNIFF)) {
-            try {
-                enableKeywordSniff = Boolean.parseBoolean(properties.get(KEYWORD_SNIFF).trim());
-            } catch (Exception e) {
-                throw new DdlException("fail to parse enable_keyword_sniff, enable_keyword_sniff= "
-                        + properties.get(VERSION).trim() + " ,`enable_keyword_sniff`"
-                        + " should be like 'true' or 'false'， value should be double quotation marks");
-            }
-        } else {
-            enableKeywordSniff = true;
+            enableKeywordSniff = EsUtil.getBooleanProperty(properties, KEYWORD_SNIFF);
+        }
+
+        if (properties.containsKey(ES_NODES_DISCOVERY)) {
+            esNodesDiscovery = EsUtil.getBooleanProperty(properties, ES_NODES_DISCOVERY);
+        }
+
+        if (properties.containsKey(USE_SSL_CLIENT)) {
+            useSslClient = EsUtil.getBooleanProperty(properties, USE_SSL_CLIENT);
         }
 
         if (!Strings.isNullOrEmpty(properties.get(TYPE))
                 && !Strings.isNullOrEmpty(properties.get(TYPE).trim())) {
             mappingType = properties.get(TYPE).trim();
         }
+
         if (!Strings.isNullOrEmpty(properties.get(TRANSPORT))
                 && !Strings.isNullOrEmpty(properties.get(TRANSPORT).trim())) {
             transport = properties.get(TRANSPORT).trim();
             if (!(TRANSPORT_HTTP.equals(transport) || TRANSPORT_THRIFT.equals(transport))) {
-                throw new DdlException("transport of ES table must be http(recommend) or thrift(reserved inner usage),"
+                throw new DdlException("transport of ES table must be http/https(recommend) or thrift(reserved inner usage),"
                         + " but value is " + transport);
             }
         }
@@ -241,10 +250,13 @@ public class EsTable extends Table {
         tableContext.put("enableDocValueScan", String.valueOf(enableDocValueScan));
         tableContext.put("enableKeywordSniff", String.valueOf(enableKeywordSniff));
         tableContext.put("maxDocValueFields", String.valueOf(maxDocValueFields));
+        tableContext.put(ES_NODES_DISCOVERY, String.valueOf(esNodesDiscovery));
+        tableContext.put(USE_SSL_CLIENT, String.valueOf(useSslClient));
     }
 
     public TTableDescriptor toThrift() {
         TEsTable tEsTable = new TEsTable();
+        tEsTable.setUseSslClient(useSslClient);
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE,
                 fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setEsTable(tEsTable);
@@ -323,7 +335,16 @@ public class EsTable extends Table {
                     maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
                 }
             }
-
+            if (tableContext.containsKey(ES_NODES_DISCOVERY)) {
+                esNodesDiscovery = Boolean.parseBoolean(tableContext.get(ES_NODES_DISCOVERY));
+            } else {
+                esNodesDiscovery = true;
+            }
+            if (tableContext.containsKey(USE_SSL_CLIENT)) {
+                useSslClient = Boolean.parseBoolean(tableContext.get(USE_SSL_CLIENT));
+            } else {
+                useSslClient = false;
+            }
             PartitionType partType = PartitionType.valueOf(Text.readString(in));
             if (partType == PartitionType.UNPARTITIONED) {
                 partitionInfo = SinglePartitionInfo.read(in);
@@ -357,6 +378,8 @@ public class EsTable extends Table {
             tableContext.put("transport", transport);
             tableContext.put("enableDocValueScan", "false");
             tableContext.put(KEYWORD_SNIFF, "true");
+            tableContext.put(ES_NODES_DISCOVERY, "true");
+            tableContext.put(USE_SSL_CLIENT, "false");
         }
     }
 

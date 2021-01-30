@@ -227,6 +227,7 @@ struct TOdbcTable {
 }
 
 struct TEsTable {
+  1: required bool useSslClient
 }
 
 struct TSchemaTable {

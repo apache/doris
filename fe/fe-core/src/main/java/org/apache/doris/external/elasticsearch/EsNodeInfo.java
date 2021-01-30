@@ -19,6 +19,9 @@ package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.thrift.TNetworkAddress;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 import java.util.Map;
 
@@ -37,6 +40,8 @@ public class EsNodeInfo {
     private final boolean isIngest;
     private boolean hasThrift;
     private TNetworkAddress thriftAddress;
+
+    private static final Logger LOG = LogManager.getLogger(EsNodeInfo.class);
 
     public EsNodeInfo(String id, Map<String, Object> map) throws DorisEsException {
         this.id = id;
@@ -94,6 +99,31 @@ public class EsNodeInfo {
         } else {
             hasThrift = false;
         }
+    }
+
+    public EsNodeInfo(String id, String seed, boolean useSslClient) throws DorisEsException {
+        this.id = id;
+        if (seed.startsWith("http://")) {
+            seed = seed.substring(7);
+        }
+        if (seed.startsWith("https://")) {
+            seed = seed.substring(8);
+        }
+        String[] scratch = seed.split(":");
+        int port = 80;
+        String remoteHost = (useSslClient ? "https://" : "http://") + scratch[0];
+        if (scratch.length == 2) {
+            port = Integer.parseInt(scratch[1]);
+        }
+        LOG.info("--------------- remoteHost={}, port={} -------------", remoteHost, port);
+        this.name = remoteHost;
+        this.host = remoteHost;
+        this.ip = remoteHost;
+        this.isClient = true;
+        this.isData = true;
+        this.isIngest = true;
+        this.publishAddress = new TNetworkAddress(remoteHost, port);
+        this.hasHttp = true;
     }
 
     public boolean hasHttp() {

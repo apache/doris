@@ -27,11 +27,20 @@ import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.map.SerializationConfig;
 
 import java.io.IOException;
+import java.security.SecureRandom;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import okhttp3.Credentials;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -48,16 +57,14 @@ public class EsRestClient {
         mapper.configure(SerializationConfig.Feature.USE_ANNOTATIONS, false);
     }
 
-    private static OkHttpClient networkClient = new OkHttpClient.Builder()
-            .readTimeout(10, TimeUnit.SECONDS)
-            .build();
+    private static OkHttpClient networkClient;
 
     private Request.Builder builder;
     private String[] nodes;
     private String currentNode;
     private int currentNodeIndex = 0;
 
-    public EsRestClient(String[] nodes, String authUser, String authPassword) {
+    public EsRestClient(String[] nodes, String authUser, String authPassword, boolean useSslClient) {
         this.nodes = nodes;
         this.builder = new Request.Builder();
         if (!Strings.isEmpty(authUser) && !Strings.isEmpty(authPassword)) {
@@ -65,6 +72,18 @@ public class EsRestClient {
                     Credentials.basic(authUser, authPassword));
         }
         this.currentNode = nodes[currentNodeIndex];
+        if (useSslClient) {
+            LOG.info("use ssl client");
+            networkClient = new OkHttpClient.Builder()
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .sslSocketFactory(createSSLSocketFactory(), new TrustAllCerts())
+                    .hostnameVerifier(new TrustAllHostnameVerifier())
+                    .build();
+        } else {
+            networkClient = new OkHttpClient.Builder()
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .build();
+        }
     }
 
     private void selectNextNode() {
@@ -206,5 +225,36 @@ public class EsRestClient {
             throw new DorisEsException(ex.getMessage());
         }
         return (T) (key != null ? map.get(key) : map);
+    }
+
+    /**
+     * support https
+     **/
+    private static class TrustAllCerts implements X509TrustManager {
+        public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {}
+
+        public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {}
+
+        public X509Certificate[] getAcceptedIssuers() {return new X509Certificate[0];}
+    }
+
+    private static class TrustAllHostnameVerifier implements HostnameVerifier {
+        public boolean verify(String hostname, SSLSession session) {
+            return true;
+        }
+    }
+
+    private static SSLSocketFactory createSSLSocketFactory() {
+        SSLSocketFactory ssfFactory = null;
+
+        try {
+            SSLContext sc = SSLContext.getInstance("TLS");
+            sc.init(null, new TrustManager[]{new TrustAllCerts()}, new SecureRandom());
+
+            ssfFactory = sc.getSocketFactory();
+        } catch (Exception e) {
+        }
+
+        return ssfFactory;
     }
 }
