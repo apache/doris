@@ -30,7 +30,7 @@ under the License.
     该语句用于按条件删除指定 table（base index） partition 中的数据。
     该操作会同时删除和此 base index 相关的 rollup index 的数据。
     语法：
-        DELETE FROM table_name [PARTITION partition_name]
+        DELETE FROM table_name [PARTITION partition_name | PARTITIONS (p1, p2)]
         WHERE
         column_name1 op { value | value_list } [ AND column_name2 op { value | value_list } ...];
         
@@ -40,7 +40,7 @@ under the License.
         2) 当选定的 key 列不存在于某个 rollup 中时，无法进行 delete。
         3) 条件之间只能是“与”的关系。
            若希望达成“或”的关系，需要将条件分写在两个 DELETE 语句中。
-        4) 如果为RANGE分区表，则必须指定 PARTITION。如果是单分区表，可以不指定。
+        4) 如果为RANGE分区表，可以指定分区，如不指定，且会话变量 delete_without_partition 为 true，则会应用到所有分区。如果是单分区表，可以不指定。
            
     注意：
         该语句可能会降低执行后一段时间内的查询效率。
@@ -55,6 +55,10 @@ under the License.
         
     2. 删除 my_table partition p1 中 k1 列值大于等于 3 且 k2 列值为 "abc" 的数据行
         DELETE FROM my_table PARTITION p1
+        WHERE k1 >= 3 AND k2 = "abc";
+
+    3. 删除 my_table partition p1, p2 中 k1 列值大于等于 3 且 k2 列值为 "abc" 的数据行
+        DELETE FROM my_table PARTITIONS (p1, p2)
         WHERE k1 >= 3 AND k2 = "abc";
         
 ## keyword

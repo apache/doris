@@ -35,7 +35,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.DeleteJob;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob;
@@ -394,7 +393,7 @@ public class MasterImpl {
                     Replica replica = findRelatedReplica(olapTable, partition,
                             backendId, tabletId, tabletMeta.getIndexId());
                     if (replica != null) {
-                        deleteJob.addFinishedReplica(pushTabletId, replica);
+                        deleteJob.addFinishedReplica(partitionId, pushTabletId, replica);
                         pushTask.countDownLatch(backendId, pushTabletId);
                     }
                 }
@@ -602,22 +601,6 @@ public class MasterImpl {
                 if (pushTask.getVersion() != request.getRequestVersion()) {
                     throw new MetaNotFoundException("delete task is not match. [" + pushTask.getVersion() + "-"
                             + request.getRequestVersion() + "]");
-                }
-
-                if (pushTask.isSyncDelete()) {
-                    pushTask.countDownLatch(backendId, signature);
-                } else {
-                    long asyncDeleteJobId = pushTask.getAsyncDeleteJobId();
-                    Preconditions.checkState(asyncDeleteJobId != -1);
-                    AsyncDeleteJob job = Catalog.getCurrentCatalog().getLoadInstance().getAsyncDeleteJob(asyncDeleteJobId);
-                    if (job == null) {
-                        throw new MetaNotFoundException("cannot find async delete job, job[" + asyncDeleteJobId + "]");
-                    }
-
-                    Preconditions.checkState(!infos.isEmpty());
-                    for (ReplicaPersistInfo info : infos) {
-                        job.addReplicaPersistInfos(info);
-                    }
                 }
             }
 

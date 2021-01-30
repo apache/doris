@@ -45,7 +45,6 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.BDBJEJournal;
 import org.apache.doris.journal.bdbje.Timestamp;
-import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
@@ -393,22 +392,10 @@ public class EditLog {
                     ExportMgr exportMgr = catalog.getExportMgr();
                     exportMgr.replayUpdateJobState(op.getJobId(), op.getState());
                     break;
-                case OperationType.OP_FINISH_SYNC_DELETE: {
-                    DeleteInfo info = (DeleteInfo) journal.getData();
-                    Load load = catalog.getLoadInstance();
-                    load.replayDelete(info, catalog);
-                    break;
-                }
                 case OperationType.OP_FINISH_DELETE: {
                     DeleteInfo info = (DeleteInfo) journal.getData();
                     DeleteHandler deleteHandler = catalog.getDeleteHandler();
                     deleteHandler.replayDelete(info, catalog);
-                    break;
-                }
-                case OperationType.OP_FINISH_ASYNC_DELETE: {
-                    AsyncDeleteJob deleteJob = (AsyncDeleteJob) journal.getData();
-                    Load load = catalog.getLoadInstance();
-                    load.replayFinishAsyncDeleteJob(deleteJob, catalog);
                     break;
                 }
                 case OperationType.OP_ADD_REPLICA: {
@@ -1059,16 +1046,8 @@ public class EditLog {
         logEdit(OperationType.OP_REMOVE_FRONTEND, fe);
     }
 
-    public void logFinishSyncDelete(DeleteInfo info) {
-        logEdit(OperationType.OP_FINISH_SYNC_DELETE, info);
-    }
-
     public void logFinishDelete(DeleteInfo info) {
         logEdit(OperationType.OP_FINISH_DELETE, info);
-    }
-
-    public void logFinishAsyncDelete(AsyncDeleteJob job) {
-        logEdit(OperationType.OP_FINISH_ASYNC_DELETE, job);
     }
 
     public void logAddReplica(ReplicaPersistInfo info) {

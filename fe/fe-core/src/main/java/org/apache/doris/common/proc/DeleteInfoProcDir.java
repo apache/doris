@@ -19,22 +19,16 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.DeleteHandler;
+import org.apache.doris.load.Load;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.doris.load.Load;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class DeleteInfoProcDir implements ProcDirInterface {
+public class DeleteInfoProcDir implements ProcNodeInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("jobId").add("TableId").add("TableName").add("PartitionId")
-            .add("PartitionName").add("CreateTime").add("DeleteCondition").add("Version")
-            .add("VersionHash").add("State")
-            .build();
-
-    public static final ImmutableList<String> TITLE_NAMES_FOR_USER = new ImmutableList.Builder<String>()
             .add("TableName").add("PartitionName").add("CreateTime").add("DeleteCondition")
             .add("State")
             .build();
@@ -54,8 +48,7 @@ public class DeleteInfoProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<List<Comparable>> infos = deleteHandler.getDeleteInfosByDb(dbId, false);
-        infos.addAll(load.getDeleteInfosByDb(dbId, false));
+        List<List<Comparable>> infos = deleteHandler.getDeleteInfosByDb(dbId);
         for (List<Comparable> info : infos) {
             List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
             for (Comparable element : info) {
@@ -65,24 +58,4 @@ public class DeleteInfoProcDir implements ProcDirInterface {
         }
         return result;
     }
-
-    @Override
-    public boolean register(String name, ProcNodeInterface node) {
-        // TODO Auto-generated method stub
-        return false;
-    }
-
-    @Override
-    public ProcNodeInterface lookup(String jobIdStr) throws AnalysisException {
-        long jobId = -1L;
-        try {
-            jobId = Long.valueOf(jobIdStr);
-        } catch (NumberFormatException e) {
-            throw new AnalysisException("Invalid job id format: " + jobIdStr);
-        }
-
-        // return new DeleteJobProcNode(load, jobId);
-        return null;
-    }
-
 }
