@@ -239,6 +239,8 @@ private:
     void _compaction_tasks_producer_callback();
     vector<TabletSharedPtr> _compaction_tasks_generator(CompactionType compaction_type,
                                                         std::vector<DataDir*> data_dirs);
+    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet);
+    void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet);
 
 private:
     struct CompactionCandidate {
