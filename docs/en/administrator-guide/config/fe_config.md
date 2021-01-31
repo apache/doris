@@ -89,11 +89,11 @@ There are two ways to configure FE configuration items:
 
 ## Examples
 
-1. Modify `async_load_task_pool_size`
+1. Modify `async_pending_load_task_pool_size`
 
     Through `ADMIN SHOW FRONTEND CONFIG;` you can see that this configuration item cannot be dynamically configured (`IsMutable` is false). You need to add in `fe.conf`:
 
-    `async_load_task_pool_size = 20`
+    `async_pending_load_task_pool_size = 20`
 
     Then restart the FE process to take effect the configuration.
     
@@ -135,6 +135,22 @@ But at the same time, it will cause the submission of failed or failed execution
 ### `alter_table_timeout_second`
 
 ### `async_load_task_pool_size`
+
+This configuration is just for compatible with old version, this config has been replaced by async_loading_load_task_pool_size, it will be removed in the future.
+
+### `async_loading_load_task_pool_size`
+
+The loading_load task executor pool size. This pool size limits the max running loading_load tasks.
+
+Currently, it only limits the loading_load task of broker load.
+
+### `async_pending_load_task_pool_size`
+
+The pending_load task executor pool size. This pool size limits the max running pending_load tasks.
+
+Currently, it only limits the pending_load task of broker load and spark load.
+
+It should be less than 'max_running_txn_num_per_db'
 
 ### `audit_log_delete_age`
 
