@@ -274,8 +274,16 @@ public class OdbcTable extends Table {
                         "utf8");
                 break;
             case POSTGRESQL:
-            case MYSQL:
                 connectString = String.format("Driver=%s;Server=%s;Port=%s;DataBase=%s;Uid=%s;Pwd=%s;charset=%s",
+                        getOdbcDriver(),
+                        getHost(),
+                        getPort(),
+                        getOdbcDatabaseName(),
+                        getUserName(),
+                        getPasswd(),
+                        "utf8");
+            case MYSQL:
+                connectString = String.format("Driver=%s;Server=%s;Port=%s;DataBase=%s;Uid=%s;Pwd=%s;charset=%s;forward_cursor=1;no_cache=1",
                         getOdbcDriver(),
                         getHost(),
                         getPort(),
