@@ -17,6 +17,9 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.analysis.BackupStmt.BackupContent;
+import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -26,6 +29,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.FeConstants;
@@ -75,6 +79,8 @@ public class BackupJobInfo implements Writable {
     public long dbId;
     @SerializedName("backup_time")
     public long backupTime;
+    @SerializedName("content")
+    public BackupContent content;
     // only include olap table
     @SerializedName("backup_objects")
     public Map<String, BackupOlapTableInfo> backupOlapTableObjects = Maps.newHashMap();
@@ -146,6 +152,74 @@ public class BackupJobInfo implements Writable {
         return backupOlapTableObjects.get(tblName);
     }
 
+    public void removeTable(TableRef tableRef, TableType tableType) {
+        switch (tableType) {
+            case OLAP:
+                removeOlapTable(tableRef);
+                break;
+            case VIEW:
+                removeView(tableRef);
+                break;
+            case ODBC:
+                removeOdbcTable(tableRef);
+                break;
+            default:
+                break;
+        }
+    }
+
+    public void removeOlapTable(TableRef tableRef) {
+        String tblName = tableRef.getName().getTbl();
+        BackupOlapTableInfo tblInfo = backupOlapTableObjects.get(tblName);
+        if (tblInfo == null) {
+            LOG.info("Ignore error: exclude table " + tblName + " does not exist in snapshot " + name);
+            return;
+        }
+        PartitionNames partitionNames = tableRef.getPartitionNames();
+        if (partitionNames == null) {
+            backupOlapTableObjects.remove(tblInfo);
+            return;
+        }
+        // check the selected partitions
+        for (String partName : partitionNames.getPartitionNames()) {
+            if (tblInfo.containsPart(partName)) {
+                tblInfo.partitions.remove(partName);
+            } else {
+                LOG.info("Ignore error: exclude partition " + partName + " of table " + tblName
+                        + " does not exist in snapshot");
+            }
+        }
+    }
+
+    public void removeView(TableRef tableRef) {
+        Iterator<BackupViewInfo> iter = newBackupObjects.views.listIterator();
+        while (iter.hasNext()) {
+            if (iter.next().name.equals(tableRef.getName().getTbl())) {
+                iter.remove();
+                return;
+            }
+        }
+    }
+
+    public void removeOdbcTable(TableRef tableRef) {
+        Iterator<BackupOdbcTableInfo> iter = newBackupObjects.odbcTables.listIterator();
+        while (iter.hasNext()) {
+            BackupOdbcTableInfo backupOdbcTableInfo = iter.next();
+            if (backupOdbcTableInfo.dorisTableName.equals(tableRef.getName().getTbl())) {
+                if (backupOdbcTableInfo.resourceName != null) {
+                    Iterator<BackupOdbcResourceInfo> resourceIter = newBackupObjects.odbcResources.listIterator();
+                    while (resourceIter.hasNext()) {
+                        if (resourceIter.next().name.equals(backupOdbcTableInfo.resourceName)) {
+                            resourceIter.remove();
+                        }
+                    }
+                }
+                iter.remove();
+                return;
+            }
+        }
+    }
+
     public void retainOlapTables(Set<String> tblNames) {
         Iterator<Map.Entry<String, BackupOlapTableInfo>> iter = backupOlapTableObjects.entrySet().iterator();
         while (iter.hasNext()) {
@@ -204,6 +278,7 @@ public class BackupJobInfo implements Writable {
         public String database;
         @SerializedName("backup_time")
         public long backupTime;
+        public BackupContent content;
         @SerializedName("olap_table_list")
         public List<BriefBackupOlapTable> olapTableList = Lists.newArrayList();
         @SerializedName("view_list")
@@ -218,6 +293,7 @@ public class BackupJobInfo implements Writable {
             briefBackupJobInfo.name = backupJobInfo.name;
             briefBackupJobInfo.database = backupJobInfo.dbName;
             briefBackupJobInfo.backupTime = backupJobInfo.backupTime;
+            briefBackupJobInfo.content = backupJobInfo.content;
             for (Map.Entry<String, BackupOlapTableInfo> olapTableEntry :
                     backupJobInfo.backupOlapTableObjects.entrySet()) {
                 BriefBackupOlapTable briefBackupOlapTable = new BriefBackupOlapTable();
@@ -336,6 +412,12 @@ public class BackupJobInfo implements Writable {
         public String linkedOdbcTableName;
         @SerializedName("resource_name")
         public String resourceName;
+        public String host;
+        public String port;
+        public String user;
+        public String driver;
+        @SerializedName("odbc_type")
+        public String odbcType;
     }
 
     public static class BackupOdbcResourceInfo {
@@ -390,7 +472,8 @@ public class BackupJobInfo implements Writable {
     }
 
     public static BackupJobInfo fromCatalog(long backupTime, String label, String dbName, long dbId,
-                                            BackupMeta backupMeta, Map<Long, SnapshotInfo> snapshotInfos) {
+                                            BackupContent content, BackupMeta backupMeta,
+                                            Map<Long, SnapshotInfo> snapshotInfos) {
 
         BackupJobInfo jobInfo = new BackupJobInfo();
         jobInfo.backupTime = backupTime;
@@ -398,6 +481,7 @@ public class BackupJobInfo implements Writable {
         jobInfo.dbName = dbName;
         jobInfo.dbId = dbId;
         jobInfo.metaVersion = FeConstants.meta_version;
+        jobInfo.content = content;
 
         Collection<Table> tbls = backupMeta.getTables().values();
         // tbls
@@ -421,9 +505,15 @@ public class BackupJobInfo implements Writable {
                         idxInfo.schemaHash = olapTbl.getSchemaHashByIndexId(index.getId());
                         partitionInfo.indexes.put(olapTbl.getIndexNameById(index.getId()), idxInfo);
                         // tablets
-                        for (Tablet tablet : index.getTablets()) {
-                            idxInfo.tablets.put(tablet.getId(),
-                                    Lists.newArrayList(snapshotInfos.get(tablet.getId()).getFiles()));
+                        if (content == BackupContent.METADATA_ONLY) {
+                            for (Tablet tablet: index.getTablets()) {
+                                idxInfo.tablets.put(tablet.getId(), Lists.newArrayList());
+                            }
+                        } else {
+                            for (Tablet tablet : index.getTablets()) {
+                                idxInfo.tablets.put(tablet.getId(),
+                                        Lists.newArrayList(snapshotInfos.get(tablet.getId()).getFiles()));
+                            }
                         }
                         idxInfo.tabletsOrder.addAll(index.getTabletIdsInOrder());
                     }
@@ -441,7 +531,15 @@ public class BackupJobInfo implements Writable {
                 backupOdbcTableInfo.dorisTableName = odbcTable.getName();
                 backupOdbcTableInfo.linkedOdbcDatabaseName = odbcTable.getOdbcDatabaseName();
                 backupOdbcTableInfo.linkedOdbcTableName = odbcTable.getOdbcTableName();
-                backupOdbcTableInfo.resourceName = odbcTable.getOdbcCatalogResourceName();
+                if (odbcTable.getOdbcCatalogResourceName() != null) {
+                    backupOdbcTableInfo.resourceName = odbcTable.getOdbcCatalogResourceName();
+                } else {
+                    backupOdbcTableInfo.host = odbcTable.getHost();
+                    backupOdbcTableInfo.port = odbcTable.getPort();
+                    backupOdbcTableInfo.user = odbcTable.getUserName();
+                    backupOdbcTableInfo.driver = odbcTable.getOdbcDriver();
+                    backupOdbcTableInfo.odbcType = odbcTable.getOdbcTableTypeName();
+                }
                 jobInfo.newBackupObjects.odbcTables.add(backupOdbcTableInfo);
             }
         }
