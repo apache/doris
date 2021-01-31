@@ -17,6 +17,7 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.analysis.BackupStmt.BackupContent;
 import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
@@ -805,16 +806,26 @@ public class RestoreJob extends AbstractJob {
                     "Failed to create replicas for restore. unfinished marks: " + idStr);
             return;
         }
+        LOG.info("finished to prepare meta. {}", this);
 
-        LOG.info("finished to prepare meta. begin to make snapshot. {}", this);
+        if (jobInfo.content == null || jobInfo.content == BackupContent.ALL) {
+            prepareAndSendSnapshotTaskForOlapTable(db);
+        }
 
+        metaPreparedTime = System.currentTimeMillis();
+        state = RestoreJobState.SNAPSHOTING;
+        // No log here, PENDING state restore job will redo this method
+    }
+
+    private void prepareAndSendSnapshotTaskForOlapTable(Database db) {
+        LOG.info("begin to make snapshot. {} when restore content is ALL", this);
         // begin to make snapshots for all replicas
         // snapshot is for incremental download
         unfinishedSignatureToId.clear();
         taskProgress.clear();
         taskErrMsg.clear();
         Multimap<Long, Long> bePathsMap = HashMultimap.create();
-        batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask();
         db.readLock();
         try {
             for (IdChain idChain : fileMapping.getMapping().keySet()) {
@@ -842,7 +853,7 @@ public class RestoreJob extends AbstractJob {
         } finally {
             db.readUnlock();
         }
-        
+
         // check disk capacity
         org.apache.doris.common.Status st = Catalog.getCurrentSystemInfo().checkExceedDiskCapacityLimit(bePathsMap, true);
         if (!st.ok()) {
@@ -855,13 +866,7 @@ public class RestoreJob extends AbstractJob {
             AgentTaskQueue.addTask(task);
         }
         AgentTaskExecutor.submit(batchTask);
-
-        metaPreparedTime = System.currentTimeMillis();
-        state = RestoreJobState.SNAPSHOTING;
-
-        // No log here, PENDING state restore job will redo this method
-        LOG.info("finished to prepare meta and send snapshot tasks, num: {}. {}",
-                batchTask.getTaskNum(), this);
+        LOG.info("finished to send snapshot tasks, num: {}. {}", batchTask.getTaskNum(), this);
     }
 
     private void checkAndRestoreResources() {
