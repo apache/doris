@@ -2672,6 +2672,8 @@ public class Catalog {
                 unprotectDropDb(db, stmt.isForceDrop(), false);
                 if (!stmt.isForceDrop()) {
                     Catalog.getCurrentRecycleBin().recycleDatabase(db, tableNames);
+                } else {
+                    Catalog.getCurrentCatalog().eraseDatabase(db.getId(), false);
                 }
             } finally {
                 db.writeUnlock();
