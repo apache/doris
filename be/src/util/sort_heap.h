@@ -32,7 +32,7 @@ public:
 
     bool is_valid() const { return !_queue.empty(); }
 
-    T& current() { return _queue.front(); }
+    T top() { return _queue.front(); }
 
     size_t size() { return _queue.size(); }
 
@@ -41,20 +41,20 @@ public:
     T& next_child() { return _queue[_next_child_index()]; }
 
     void replace_top(T new_top) {
-        current() = new_top;
-        updateTop();
+        *_queue.begin() = new_top;
+        update_top();
     }
 
     void remove_top() {
         std::pop_heap(_queue.begin(), _queue.end(), _comp);
         _queue.pop_back();
-        next_idx = 0;
+        _next_idx = 0;
     }
 
     void push(T cursor) {
         _queue.emplace_back(cursor);
         std::push_heap(_queue.begin(), _queue.end(), _comp);
-        next_idx = 0;
+        _next_idx = 0;
     }
 
     _Sequence&& sorted_seq() {
@@ -67,18 +67,18 @@ private:
     _Compare _comp;
 
     /// Cache comparison between first and second child if the order in queue has not been changed.
-    size_t next_idx = 0;
+    size_t _next_idx = 0;
 
     size_t _next_child_index() {
-        if (next_idx == 0) {
-            next_idx = 1;
-            if (_queue.size() > 2 && _comp(_queue[1], _queue[2])) ++next_idx;
+        if (_next_idx == 0) {
+            _next_idx = 1;
+            if (_queue.size() > 2 && _comp(_queue[1], _queue[2])) ++_next_idx;
         }
 
-        return next_idx;
+        return _next_idx;
     }
 
-    void updateTop() {
+    void update_top() {
         size_t size = _queue.size();
         if (size < 2) return;
 
@@ -91,7 +91,7 @@ private:
         //if (*child_it < *begin) return;
         if (_comp(*child_it, *begin)) return;
 
-        next_idx = 0;
+        _next_idx = 0;
 
         auto curr_it = begin;
         auto top(std::move(*begin));

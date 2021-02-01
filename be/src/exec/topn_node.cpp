@@ -178,17 +178,15 @@ Status TopNNode::close(RuntimeState* state) {
 // Insert if either not at the limit or it's a new TopN tuple_row
 void TopNNode::insert_tuple_row(TupleRow* input_row) {
     if (_priority_queue->size() < _offset + _limit) {
-        Tuple* insert_tuple = nullptr;
-        insert_tuple = reinterpret_cast<Tuple*>(
+        auto insert_tuple = reinterpret_cast<Tuple*>(
                 _tuple_pool->allocate(_materialized_tuple_desc->byte_size()));
         insert_tuple->materialize_exprs<false>(input_row, *_materialized_tuple_desc,
                                                _sort_exec_exprs.sort_tuple_slot_expr_ctxs(),
                                                _tuple_pool.get(), NULL, NULL);
         _priority_queue->push(insert_tuple);
     } else {
-        Tuple* insert_tuple = nullptr;
         DCHECK(!_priority_queue->empty());
-        Tuple* top_tuple = _priority_queue->current();
+        Tuple* top_tuple = _priority_queue->top();
         _tmp_tuple->materialize_exprs<false>(input_row, *_materialized_tuple_desc,
                                              _sort_exec_exprs.sort_tuple_slot_expr_ctxs(), NULL,
                                              NULL, NULL);
@@ -197,7 +195,7 @@ void TopNNode::insert_tuple_row(TupleRow* input_row) {
             // TODO: DeepCopy will allocate new buffers for the string data.  This needs
             // to be fixed to use a freelist
             _tmp_tuple->deep_copy(top_tuple, *_materialized_tuple_desc, _tuple_pool.get());
-            insert_tuple = top_tuple;
+            auto insert_tuple = top_tuple;
             _priority_queue->replace_top(insert_tuple);
         }
     }
