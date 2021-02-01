@@ -58,29 +58,4 @@ public class S3URITest {
         Assert.assertEquals("path/to/file", uri1.getKey());
         Assert.assertEquals(p1, uri1.toString());
     }
-
-    @Test
-    public void testWildcard() {
-        String p1 = "s3://bucket/path/to/file";
-        String p2 = "s3://bucket/path/to/file*";
-        String p3 = "s3://bucket/path/to/file/*";
-        String p4 = "s3://bucket/path/to/file/";
-        S3URI uri1 = new S3URI(p1);
-        S3URI uri2 = new S3URI(p2);
-        S3URI uri3 = new S3URI(p3);
-        S3URI uri4 = new S3URI(p4);
-        Assert.assertEquals("path/to/file/", uri1.getSearchPath());
-        Assert.assertEquals("path/to/file/*", uri1.getWildcard());
-        Assert.assertEquals("file2", uri1.filterFile("path/to/file/file2"));
-        Assert.assertEquals("path/to/", uri2.getSearchPath());
-        Assert.assertEquals("path/to/file*", uri2.getWildcard());
-        Assert.assertEquals("file2", uri2.filterFile("path/to/file2"));
-        Assert.assertEquals("path/to/file/", uri3.getSearchPath());
-        Assert.assertEquals("path/to/file/*", uri3.getWildcard());
-        Assert.assertEquals("file2", uri3.filterFile("path/to/file/file2"));
-        Assert.assertEquals("path/to/file/", uri4.getSearchPath());
-        Assert.assertEquals("path/to/file/*", uri4.getWildcard());
-        Assert.assertEquals("file2", uri4.filterFile("path/to/file/file2"));
-
-    }
 }

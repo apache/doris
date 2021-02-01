@@ -21,14 +21,16 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 
-import com.google.common.base.Preconditions;
-
 import org.apache.commons.collections.map.CaseInsensitiveMap;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.http.HttpStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.FileVisitOption;
@@ -38,7 +40,6 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Map;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -52,19 +53,15 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
-import software.amazon.awssdk.services.s3.model.CommonPrefix;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
-import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
-import software.amazon.awssdk.services.s3.model.ListObjectsResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
-import software.amazon.awssdk.services.s3.model.S3Object;
 
 public class S3Storage extends BlobStorage {
     public static final String S3_AK = "AWS_ACCESS_KEY";
@@ -89,21 +86,24 @@ public class S3Storage extends BlobStorage {
         caseInsensitiveProperties.putAll(properties);
 
     }
+    private void checkS3() throws UserException {
+        if (!caseInsensitiveProperties.containsKey(S3_REGION)) {
+            throw new UserException("AWS_REGION not found.");
+        }
+        if (!caseInsensitiveProperties.containsKey(S3_ENDPOINT)) {
+            throw new UserException("AWS_ENDPOINT not found.");
+        }
+        if (!caseInsensitiveProperties.containsKey(S3_AK)) {
+            throw new UserException("AWS_ACCESS_KEY not found.");
+        }
+        if (!caseInsensitiveProperties.containsKey(S3_SK)) {
+            throw new UserException("AWS_SECRET_KEY not found.");
+        }
+    }
 
     private S3Client getClient() throws UserException {
         if (client == null) {
-            if (!caseInsensitiveProperties.containsKey(S3_REGION)) {
-                throw new UserException("AWS_REGION not found.");
-            }
-            if (!caseInsensitiveProperties.containsKey(S3_ENDPOINT)) {
-                throw new UserException("AWS_ENDPOINT not found.");
-            }
-            if (!caseInsensitiveProperties.containsKey(S3_AK)) {
-                throw new UserException("AWS_ACCESS_KEY not found.");
-            }
-            if (!caseInsensitiveProperties.containsKey(S3_SK)) {
-                throw new UserException("AWS_SECRET_KEY not found.");
-            }
+            checkS3();
             URI endpoint = URI.create(caseInsensitiveProperties.get(S3_ENDPOINT).toString());
             AwsBasicCredentials awsBasic = AwsBasicCredentials.create(
                 caseInsensitiveProperties.get(S3_AK).toString(),
@@ -281,53 +281,37 @@ public class S3Storage extends BlobStorage {
         return list(remotePath, result, true);
     }
 
+    // broker file pattern glob is too complex, so we use hadoop directly
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-        S3URI uri = new S3URI(remotePath);
         try {
-            ListObjectsResponse response =
-                getClient()
-                    .listObjects(
-                        ListObjectsRequest.builder()
-                            .bucket(uri.getBucket())
-                            .prefix(uri.getSearchPath())
-                            .delimiter("/")
-                            .maxKeys(Integer.MAX_VALUE)
-                            .build());
-            Preconditions.checkNotNull(response);
-            for (ListIterator iter = response.contents().listIterator(); iter.hasNext(); ) {
-                S3Object obj = (S3Object) iter.next();
-                String fileName = obj.key();
-                fileName = uri.filterFile(fileName);
-
-                if (!fileNameOnly) {
-                    fileName = uri.fullPath(fileName);
-                }
-                if (fileName != null) {
-                    result.add(new RemoteFile(fileName, true, obj.size()));
-                }
+            checkS3();
+            Configuration conf = new Configuration();
+            String s3AK = caseInsensitiveProperties.get(S3_AK).toString();
+            String s3Sk = caseInsensitiveProperties.get(S3_SK).toString();
+            String s3Endpoint = caseInsensitiveProperties.get(S3_ENDPOINT).toString();
+            conf.set("fs.s3a.access.key", s3AK);
+            conf.set("fs.s3a.secret.key", s3Sk);
+            conf.set("fs.s3a.endpoint", s3Endpoint);
+            conf.set("fs.s3a.impl.disable.cache", "true");
+            conf.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+            FileSystem s3AFileSystem = FileSystem.get(new URI(remotePath), conf);
+            org.apache.hadoop.fs.Path pathPattern = new org.apache.hadoop.fs.Path(remotePath);
+            FileStatus[] files = s3AFileSystem.globStatus(pathPattern);
+            if (files == null) {
+                return Status.OK;
             }
-            for (CommonPrefix dir : response.commonPrefixes()) {
-                String dirName = uri.filterFile(dir.prefix());
-                if (dirName != null) {
-                    if (dirName.endsWith("/")) {
-                        dirName = dirName.substring(0, dirName.length() - 1);
-                    }
-                    if (!fileNameOnly) {
-                        dirName = uri.fullPath(dirName);
-                    }
-                    result.add(new RemoteFile(dirName, false, -1));
-                }
+            for (FileStatus fileStatus : files) {
+                RemoteFile remoteFile = new RemoteFile(fileNameOnly?fileStatus.getPath().getName():fileStatus.getPath().toString(), !fileStatus.isDirectory(), fileStatus.isDirectory()? -1:fileStatus.getLen());
+                result.add(remoteFile);
             }
-            LOG.info("list " + remotePath + " success: " + response.toString());
-            return Status.OK;
-        } catch (S3Exception e) {
-            LOG.error("list " + remotePath + " failed:", e);
-            return new Status(
-                Status.ErrCode.COMMON_ERROR, "list" + remotePath + " failed: " + e.getMessage());
-        } catch (UserException ue) {
-            LOG.error("connect to s3 failed: ", ue);
-            return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
+        } catch (FileNotFoundException e) {
+            LOG.info("file not found: " + e.getMessage());
+            return new Status(Status.ErrCode.NOT_FOUND, "file not found: " + e.getMessage());
+        } catch (Exception e) {
+            LOG.error("errors while get file status ", e);
+            return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
+        return Status.OK;
     }
 
     @Override

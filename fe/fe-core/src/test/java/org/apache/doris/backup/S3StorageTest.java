@@ -36,8 +36,8 @@ public class S3StorageTest {
     @Before
     public void setUp() throws Exception {
         properties = new HashMap<>();
-        properties.put("AWS_ACCESS_KEY", "AK");
-        properties.put("AWS_SECRET_KEY", "SK");
+        properties.put("AWS_ACCESS_KEY", System.getenv().getOrDefault("AWS_AK", ""));
+        properties.put("AWS_SECRET_KEY", System.getenv().getOrDefault("AWS_SK", ""));
         properties.put("AWS_ENDPOINT", "http://s3.bj.bcebos.com");
         properties.put("AWS_REGION", "bj");
         storage = new S3Storage(properties);
@@ -126,8 +126,7 @@ public class S3StorageTest {
         Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".1"));
         Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".2"));
         Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".3"));
-        Assert.assertEquals(Status.OK, storage.list(bucket + basePath  + "_list/", result));
-        System.out.println(result);
+        Assert.assertEquals(Status.OK, storage.list(bucket + basePath  + "_list/*", result));
         Assert.assertEquals(3, result.size());
     }
 

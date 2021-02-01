@@ -67,8 +67,8 @@ public class BrokerStorageTest {
         pair.first = new TPaloBrokerService.Client(protocol);
         pair.second = new TNetworkAddress(brokerHost, 8111);
         properties = new HashMap<>();
-        properties.put("bos_accesskey", "AK");
-        properties.put("bos_secret_accesskey", "SK");
+        properties.put("bos_accesskey",  System.getenv().getOrDefault("AWS_AK", ""));
+        properties.put("bos_secret_accesskey",  System.getenv().getOrDefault("AWS_SK", ""));
         properties.put("bos_endpoint", "http://bj.bcebos.com");
         storage = new BrokerStorage("bos_broker", properties);
         testFile = bucket + basePath + "/Ode_to_the_West_Wind";
@@ -161,7 +161,6 @@ public class BrokerStorageTest {
         Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".2"));
         Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".3"));
         Assert.assertEquals(Status.OK, storage.list(bucket + basePath  + "_list/*", result));
-        System.out.println(result);
         Assert.assertEquals(3, result.size());
     }
 

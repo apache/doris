@@ -20,8 +20,9 @@ package org.apache.doris.common.util;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
-import org.apache.commons.io.FilenameUtils;
+import org.apache.parquet.glob.GlobExpander;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -38,15 +39,10 @@ public class S3URI {
     private static final String FRAGMENT_DELIM = "#";
     private static final Set<String> VALID_SCHEMES = ImmutableSet.of("http", "https", "s3", "s3a", "s3n", "bos");
 
+    private String scheme;
     private final String location;
     private final String bucket;
     private final String key;
-
-    // Since s3 does not support wildcards, we can only use wildcard filtering to list all possible files.
-    // searchPath is the parent path of all possible files
-    private final String searchPath;
-    // normalized wildcard
-    private final String wildcard;
 
     /**
      * Creates a new S3URI based on the bucket and key parsed from the location as defined in:
@@ -59,14 +55,12 @@ public class S3URI {
      */
     public S3URI(String location) {
         Preconditions.checkNotNull(location, "Location cannot be null.");
-
         this.location = location;
         String[] schemeSplit = location.split(SCHEME_DELIM);
         Preconditions.checkState(schemeSplit.length == 2, "Invalid S3 URI: %s", location);
 
-        String scheme = schemeSplit[0];
+        this.scheme = schemeSplit[0];
         Preconditions.checkState(VALID_SCHEMES.contains(scheme.toLowerCase()), "Invalid scheme: %s", scheme);
-
         String[] authoritySplit = schemeSplit[1].split(PATH_DELIM, 2);
         Preconditions.checkState(authoritySplit.length == 2, "Invalid S3 URI: %s", location);
         Preconditions.checkState(!authoritySplit[1].trim().isEmpty(), "Invalid S3 key: %s", location);
@@ -77,20 +71,18 @@ public class S3URI {
         path = path.split(QUERY_DELIM)[0];
         path = path.split(FRAGMENT_DELIM)[0];
         key = path;
-        if (key.endsWith("/*")) {
-            searchPath = key.substring(0, key.length() - 1);
-            wildcard = key;
-        } else if (key.endsWith("*")) {
-            int lastDelim = key.lastIndexOf(PATH_DELIM);
-            searchPath = key.substring(0, lastDelim > 0 ? lastDelim : 0) + PATH_DELIM;
-            wildcard = key;
-        } else if (key.endsWith("/")) {
-            searchPath = key;
-            wildcard = key + "*";
-        } else {
-            searchPath = key + PATH_DELIM;
-            wildcard = searchPath + "*";
-        }
+    }
+
+    public List<String> expand(String path) {
+        return GlobExpander.expand(path);
+    }
+
+    public String getScheme() {
+        return this.scheme;
+    }
+
+    public String getBucketScheme() {
+        return scheme + "://" + bucket;
     }
 
     /**
@@ -114,35 +106,9 @@ public class S3URI {
         return location;
     }
 
-
-    public String getSearchPath() {
-        return searchPath;
-    }
-
-    public String getWildcard() {
-        return wildcard;
-    }
-
-    public String filterFile(String fileName) {
-        if (FilenameUtils.wildcardMatch(fileName, wildcard)) {
-            return fileName.substring(searchPath.length());
-        }
-        return null;
-    }
-
-    public String fullPath(String fileName) {
-        String base = location;
-        if (base.endsWith("*")) {
-            base = base.substring(0, base.length() - 1);
-        }
-        if (!base.endsWith("/")) {
-            base = base + "/";
-        }
-        return base + fileName;
-    }
-
     @Override
     public String toString() {
         return location;
     }
 }
+
