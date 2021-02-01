@@ -46,6 +46,7 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
   protected val logger = Logger.getLogger(classOf[ScalaValueReader])
 
   protected val client = new BackendClient(new Routing(partition.getBeAddress), settings)
+  protected val clientLock = new Object
   protected var offset = 0
   protected var eos: AtomicBoolean = new AtomicBoolean(false)
   protected var rowBatch: RowBatch = _
@@ -123,7 +124,9 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
     params
   }
 
-  protected val openResult: TScanOpenResult = client.openScanner(openParams)
+  protected val openResult: TScanOpenResult = clientLock.synchronized {
+    client.openScanner(openParams)
+  }
   protected val contextId: String = openResult.getContext_id
   protected val schema: Schema =
     SchemaUtils.convertToSchema(openResult.getSelected_columns)
@@ -134,7 +137,9 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
       nextBatchParams.setContext_id(contextId)
       while (!eos.get) {
         nextBatchParams.setOffset(offset)
-        val nextResult = client.getNext(nextBatchParams)
+        val nextResult = clientLock.synchronized {
+          client.getNext(nextBatchParams)
+        }
         eos.set(nextResult.isEos)
         if (!eos.get) {
           val rowBatch = new RowBatch(nextResult, schema)
@@ -192,7 +197,9 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
         val nextBatchParams = new TScanNextBatchParams
         nextBatchParams.setContext_id(contextId)
         nextBatchParams.setOffset(offset)
-        val nextResult = client.getNext(nextBatchParams)
+        val nextResult = clientLock.synchronized {
+          client.getNext(nextBatchParams)
+        }
         eos.set(nextResult.isEos)
         if (!eos.get) {
           rowBatch = new RowBatch(nextResult, schema)
@@ -218,6 +225,8 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
   def close(): Unit = {
     val closeParams = new TScanCloseParams
     closeParams.context_id = contextId
-    client.closeScanner(closeParams)
+    clientLock.synchronized {
+      client.closeScanner(closeParams)
+    }
   }
 }
