@@ -937,7 +937,7 @@ OLAPStatus PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& 
     case TFileFormatType::FORMAT_PARQUET:
         scanner = new ParquetScanner(_runtime_state.get(), _runtime_profile, t_scan_range.params,
                                      t_scan_range.ranges, t_scan_range.broker_addresses,
-                                     _counter.get());
+                                     _pre_filter_ctxs, _counter.get());
         break;
     default:
         LOG(WARNING) << "Unsupported file format type: " << t_scan_range.ranges[0].format_type;

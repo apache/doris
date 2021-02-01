@@ -22,6 +22,7 @@
 
 #include "exec/broker_reader.h"
 #include "exec/decompressor.h"
+#include "exec/exec_node.h"
 #include "exec/local_file_reader.h"
 #include "exec/plain_text_line_reader.h"
 #include "exec/text_converter.h"
@@ -42,8 +43,9 @@ BrokerScanner::BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
                              const TBrokerScanRangeParams& params,
                              const std::vector<TBrokerRangeDesc>& ranges,
                              const std::vector<TNetworkAddress>& broker_addresses,
+							 const std::vector<ExprContext*>& pre_filter_ctxs,
                              ScannerCounter* counter)
-        : BaseScanner(state, profile, params, counter),
+        : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
           // _splittable(params.splittable),
@@ -381,6 +383,7 @@ bool BrokerScanner::convert_one_row(const Slice& line, Tuple* tuple, MemPool* tu
     if (!line_to_src_tuple(line)) {
         return false;
     }
+
     return fill_dest_tuple(tuple, tuple_pool);
 }
 

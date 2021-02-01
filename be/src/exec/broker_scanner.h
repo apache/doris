@@ -54,7 +54,9 @@ class BrokerScanner : public BaseScanner {
 public:
     BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
                   const TBrokerScanRangeParams& params, const std::vector<TBrokerRangeDesc>& ranges,
-                  const std::vector<TNetworkAddress>& broker_addresses, ScannerCounter* counter);
+                  const std::vector<TNetworkAddress>& broker_addresses,
+				  const std::vector<ExprContext*>& pre_filter_ctxs,
+                  ScannerCounter* counter);
     ~BrokerScanner();
 
     // Open this scanner, will initialize information need to
@@ -87,13 +89,10 @@ private:
     //  output is tuple
     bool convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool);
 
-    //Status init_expr_ctxes();
-
     Status line_to_src_tuple();
     bool line_to_src_tuple(const Slice& line);
 
 private:
-    ;
     const std::vector<TBrokerRangeDesc>& _ranges;
     const std::vector<TNetworkAddress>& _broker_addresses;
 

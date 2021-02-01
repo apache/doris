@@ -115,7 +115,7 @@ public class BrokerScanNode extends LoadScanNode {
     private static class ParamCreateContext {
         public BrokerFileGroup fileGroup;
         public TBrokerScanRangeParams params;
-        public TupleDescriptor tupleDescriptor;
+        public TupleDescriptor srcTupleDescriptor;
         public Map<String, Expr> exprMap;
         public Map<String, SlotDescriptor> slotDescByName;
         public String timezone;
@@ -123,9 +123,9 @@ public class BrokerScanNode extends LoadScanNode {
 
     private List<ParamCreateContext> paramCreateContexts;
 
-    public BrokerScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+    public BrokerScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
                           List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
-        super(id, desc, planNodeName);
+        super(id, destTupleDesc, planNodeName);
         this.fileStatusesList = fileStatusesList;
         this.filesAdded = filesAdded;
     }
@@ -203,7 +203,8 @@ public class BrokerScanNode extends LoadScanNode {
         deleteCondition = fileGroup.getDeleteCondition();
         mergeType = fileGroup.getMergeType();
         initColumns(context);
-        initWhereExpr(fileGroup.getWhereExpr(), analyzer);
+        initAndSetPrecedingFilter(fileGroup.getPrecedingFilterExpr(), context.srcTupleDescriptor, analyzer);
+        initAndSetWhereExpr(fileGroup.getWhereExpr(), this.desc, analyzer);
     }
 
     /**
@@ -217,7 +218,7 @@ public class BrokerScanNode extends LoadScanNode {
      * @throws UserException
      */
     private void initColumns(ParamCreateContext context) throws UserException {
-        context.tupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
+        context.srcTupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
         context.slotDescByName = Maps.newHashMap();
         context.exprMap = Maps.newHashMap();
 
@@ -240,7 +241,7 @@ public class BrokerScanNode extends LoadScanNode {
 
         Load.initColumns(targetTable, columnExprs,
                 context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
-                context.tupleDescriptor, context.slotDescByName, context.params);
+                context.srcTupleDescriptor, context.slotDescByName, context.params);
     }
 
     private TScanRangeLocations newLocations(TBrokerScanRangeParams params, BrokerDesc brokerDesc)
@@ -501,7 +502,7 @@ public class BrokerScanNode extends LoadScanNode {
             ParamCreateContext context = paramCreateContexts.get(i);
             try {
                 finalizeParams(context.slotDescByName, context.exprMap, context.params,
-                        context.tupleDescriptor, strictMode, context.fileGroup.isNegative(), analyzer);
+                        context.srcTupleDescriptor, strictMode, context.fileGroup.isNegative(), analyzer);
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
@@ -538,7 +539,7 @@ public class BrokerScanNode extends LoadScanNode {
         output.append(prefix).append("BROKER: ").append(brokerDesc.getName()).append("\n");
         return output.toString();
     }
-
 }
+
 
 
