@@ -37,7 +37,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(routine_load_task_count, MetricUnit::NOUNIT);
 
 RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
         : _exec_env(exec_env),
-          _thread_pool(config::routine_load_thread_pool_size, 1),
+          _thread_pool(config::routine_load_thread_pool_size,
+                       config::routine_load_thread_pool_size),
           _data_consumer_pool(10) {
     REGISTER_HOOK_METRIC(routine_load_task_count, [this]() {
         std::lock_guard<std::mutex> l(_lock);
@@ -105,11 +106,11 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         return Status::OK();
     }
 
-    // thread pool's queue size > 0 means there are tasks waiting to be executed, so no more tasks should be submitted.
-    if (_thread_pool.get_queue_size() > 0) {
+    if (_task_map.size() >= config::routine_load_thread_pool_size) {
         LOG(INFO) << "too many tasks in thread pool. reject task: " << UniqueId(task.id)
                   << ", job id: " << task.job_id
-                  << ", queue size: " << _thread_pool.get_queue_size();
+                  << ", queue size: " << _thread_pool.get_queue_size()
+                  << ", current tasks num: " << _task_map.size();
         return Status::TooManyTasks(UniqueId(task.id).to_string());
     }
 
