@@ -35,14 +35,14 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TStorageMedium;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -55,6 +55,9 @@ import java.util.Set;
 
 public class CatalogRecycleBin extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(CatalogRecycleBin.class);
+    // erase meta at least after minEraseLatency milliseconds
+    // to avoid erase log ahead of drop log
+    private static final long minEraseLatency = 10 * 60 * 1000;  // 10 min
 
     private Map<Long, RecycleDatabaseInfo> idToDatabase;
     private Map<Long, RecycleTableInfo> idToTable;
@@ -130,10 +133,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     private synchronized boolean isExpire(long id, long currentTimeMs) {
-        if (currentTimeMs - idToRecycleTime.get(id) > Config.catalog_trash_expire_second * 1000L) {
-            return true;
-        }
-        return false;
+        long latency = currentTimeMs - idToRecycleTime.get(id);
+        return latency > minEraseLatency && latency > Config.catalog_trash_expire_second * 1000L;
     }
 
     private synchronized void eraseDatabase(long currentTimeMs) {
@@ -149,7 +150,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
                 // remove jobs
                 Catalog.getCurrentCatalog().getLoadInstance().removeDbLoadJob(db.getId());
-                Catalog.getCurrentCatalog().getLoadInstance().removeDbDeleteJob(db.getId());
                 Catalog.getCurrentCatalog().getSchemaChangeHandler().removeDbAlterJob(db.getId());
                 Catalog.getCurrentCatalog().getRollupHandler().removeDbAlterJob(db.getId());
 
@@ -187,7 +187,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         // remove jobs
         Catalog.getCurrentCatalog().getLoadInstance().removeDbLoadJob(dbId);
-        Catalog.getCurrentCatalog().getLoadInstance().removeDbDeleteJob(dbId);
         Catalog.getCurrentCatalog().getSchemaChangeHandler().removeDbAlterJob(dbId);
         Catalog.getCurrentCatalog().getRollupHandler().removeDbAlterJob(dbId);
 
@@ -551,7 +550,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         LOG.info("recover partition[{}]", partitionId);
     }
 
-    // The caller should keep db write lock
+    // The caller should keep table write lock
     public synchronized void replayRecoverPartition(OlapTable table, long partitionId) {
         Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
         while (iterator.hasNext()) {

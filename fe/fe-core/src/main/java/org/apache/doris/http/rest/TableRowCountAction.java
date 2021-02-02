@@ -79,23 +79,25 @@ public class TableRowCountAction extends RestBaseAction {
             if (db == null) {
                 throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Database [" + dbName + "] " + "does not exists");
             }
-            db.writeLock();
+
+            Table table = db.getTable(tableName);
+            if (table == null) {
+                throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
+            }
+            // just only support OlapTable, ignore others such as ESTable
+            if (!(table instanceof OlapTable)) {
+                // Forbidden
+                throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "Table [" + tableName + "] "
+                        + "is not a OlapTable, only support OlapTable currently");
+            }
+
+            table.writeLock();
             try {
-                Table table = db.getTable(tableName);
-                if (table == null) {
-                    throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
-                }
-                // just only support OlapTable, ignore others such as ESTable
-                if (!(table instanceof OlapTable)) {
-                    // Forbidden
-                    throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "Table [" + tableName + "] "
-                            + "is not a OlapTable, only support OlapTable currently");
-                }
                 OlapTable olapTable = (OlapTable) table;
                 resultMap.put("status", 200);
                 resultMap.put("size", olapTable.proximateRowCount());
             } finally {
-                db.writeUnlock();
+                table.writeUnlock();
             }
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic

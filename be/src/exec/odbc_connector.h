@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_ODBC_SCANNER_H
-#define DORIS_BE_SRC_QUERY_EXEC_ODBC_SCANNER_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_ODBC_CONNECTOR_H
+#define DORIS_BE_SRC_QUERY_EXEC_ODBC_CONNECTOR_H
 
 #include <sql.h>
 
@@ -26,17 +26,23 @@
 #include <string>
 #include <vector>
 
+#include "exprs/expr_context.h"
+#include "runtime/row_batch.h"
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
 
-struct ODBCScannerParam {
+struct ODBCConnectorParam {
     std::string connect_string;
-    std::string query_string;
 
+    // only use in query
+    std::string query_string;
     const TupleDescriptor* tuple_desc;
+
+    // only use in write
+    std::vector<ExprContext*> output_expr_ctxs;
 };
 
 // Because the DataBinding have the mem alloc, so
@@ -52,32 +58,47 @@ struct DataBinding : public boost::noncopyable {
     ~DataBinding() { free(target_value_ptr); }
 };
 
-// ODBC Scanner for scan data from ODBC
-class ODBCScanner {
+// ODBC Connector for scan data from ODBC
+class ODBCConnector {
 public:
-    ODBCScanner(const ODBCScannerParam& param);
-    ~ODBCScanner();
+    ODBCConnector(const ODBCConnectorParam& param);
+    ~ODBCConnector();
 
     Status open();
-
     // query for ODBC table
     Status query();
-
     Status get_next_row(bool* eos);
 
-    const DataBinding& get_column_data(int i) const { return _columns_data.at(i); }
+    // write for ODBC table
+    Status init_to_write();
+    Status append(const std::string& table_name, RowBatch* batch);
 
+    // use in ODBC transaction
+    Status begin_trans();  // should be call after connect and before query or init_to_write
+    Status abort_trans();  // should be call after transaction abort
+    Status finish_trans(); // should be call after transaction commit
+
+    const DataBinding& get_column_data(int i) const { return _columns_data.at(i); }
 private:
+    Status insert_row(const string& table_name, TupleRow* row);
+
     static Status error_status(const std::string& prefix, const std::string& error_msg);
 
     static std::string handle_diagnostic_record(SQLHANDLE hHandle, SQLSMALLINT hType,
                                                 RETCODE RetCode);
 
     std::string _connect_string;
+    // only use in query
     std::string _sql_str;
     const TupleDescriptor* _tuple_desc;
 
+    // only use in write
+    const std::vector<ExprContext*> _output_expr_ctxs;
+
     bool _is_open;
+    bool _is_in_transaction;
+
+
     SQLSMALLINT _field_num;
     uint64_t _row_count;
 

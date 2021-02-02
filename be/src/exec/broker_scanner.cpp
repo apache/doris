@@ -155,7 +155,7 @@ Status BrokerScanner::open_file_reader() {
     case TFileType::FILE_STREAM: {
         _stream_load_pipe = _state->exec_env()->load_stream_mgr()->get(range.load_id);
         if (_stream_load_pipe == nullptr) {
-            VLOG(3) << "unknown stream load id: " << UniqueId(range.load_id);
+            VLOG_NOTICE << "unknown stream load id: " << UniqueId(range.load_id);
             return Status::InternalError("unknown stream load id");
         }
         _cur_file_reader = _stream_load_pipe.get();
@@ -389,7 +389,7 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
     if (!validate_utf8(line.data, line.size)) {
         std::stringstream error_msg;
         error_msg << "data is not encoded by UTF-8";
-        _state->append_error_msg_to_file(std::string(line.data, line.size), error_msg.str());
+        _state->append_error_msg_to_file("Unable to display", error_msg.str());
         _counter->num_rows_filtered++;
         return false;
     }

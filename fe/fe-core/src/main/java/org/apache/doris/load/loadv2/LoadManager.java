@@ -102,13 +102,21 @@ public class LoadManager implements Writable{
         LoadJob loadJob = null;
         writeLock();
         try {
-            checkLabelUsed(dbId, stmt.getLabel().getLabelName());
-            if (stmt.getBrokerDesc() == null && stmt.getResourceDesc() == null) {
-                throw new DdlException("LoadManager only support the broker and spark load.");
-            }
-            if (loadJobScheduler.isQueueFull()) {
-                throw new DdlException("There are more than " + Config.desired_max_waiting_jobs + " load jobs in waiting queue, "
-                                               + "please retry later.");
+            if (stmt.getBrokerDesc() != null && stmt.getBrokerDesc().isMultiLoadBroker()) {
+                if (!Catalog.getCurrentCatalog().getLoadInstance()
+                        .isUncommittedLabel(dbId, stmt.getLabel().getLabelName())) {
+                    throw new DdlException("label: " + stmt.getLabel().getLabelName() + " not found!") ;
+                }
+
+            } else {
+                checkLabelUsed(dbId, stmt.getLabel().getLabelName());
+                if (stmt.getBrokerDesc() == null && stmt.getResourceDesc() == null) {
+                    throw new DdlException("LoadManager only support the broker and spark load.");
+                }
+                if (loadJobScheduler.isQueueFull()) {
+                    throw new DdlException("There are more than " + Config.desired_max_waiting_jobs + " load jobs in waiting queue, "
+                            + "please retry later.");
+                }
             }
             loadJob = BulkLoadJob.fromLoadStmt(stmt);
             createLoadJob(loadJob);
@@ -618,14 +626,9 @@ public class LoadManager implements Writable{
      * @throws DdlException
      */
     private void checkTable(Database database, String tableName) throws DdlException {
-        database.readLock();
-        try {
-            if (database.getTable(tableName) == null) {
-                LOG.info("Table {} is not belongs to database {}", tableName, database.getFullName());
-                throw new DdlException("Table[" + tableName + "] does not exist");
-            }
-        } finally {
-            database.readUnlock();
+        if (database.getTable(tableName) == null) {
+            LOG.info("Table {} is not belongs to database {}", tableName, database.getFullName());
+            throw new DdlException("Table[" + tableName + "] does not exist");
         }
     }
 

@@ -234,6 +234,37 @@ public class ColocateTableBalancerTest {
     }
 
     @Test
+    public void testFixBalanceEndlessLoop2(@Mocked SystemInfoService infoService,
+                                           @Mocked ClusterLoadStatistic statistic) {
+        new Expectations() {
+            {
+                statistic.getBackendLoadStatistic(anyLong);
+                result = new Delegate<BackendLoadStatistic>() {
+                    BackendLoadStatistic delegate(Long beId) {
+                        return new FakeBackendLoadStatistic(beId, null, null, null);
+                    }
+                };
+                minTimes = 0;
+            }
+        };
+        GroupId groupId = new GroupId(10000, 10001);
+        List<Column> distributionCols = Lists.newArrayList();
+        ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId, distributionCols, 5, (short) 1);
+        Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();
+        group2Schema.put(groupId, groupSchema);
+
+        ColocateTableIndex colocateTableIndex = createColocateIndex(groupId, Lists.newArrayList(7L, 7L, 7L, 7L, 7L));
+        Deencapsulation.setField(colocateTableIndex, "group2Schema", group2Schema);
+
+        List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
+        Set<Long> unAvailBackendIds = Sets.newHashSet(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L);
+        List<Long> availBackendIds = Lists.newArrayList();
+        boolean changed = (Boolean) Deencapsulation.invoke(balancer, "relocateAndBalance", groupId, unAvailBackendIds, availBackendIds,
+                colocateTableIndex, infoService, statistic, balancedBackendsPerBucketSeq);
+        Assert.assertFalse(changed);
+    }
+
+    @Test
     public void testGetSortedBackendReplicaNumPairs(@Mocked ClusterLoadStatistic statistic) {
         new Expectations() {
             {

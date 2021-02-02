@@ -32,10 +32,10 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
-import com.google.common.base.Joiner;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Joiner;
 
 import java.util.List;
 import java.util.UUID;
@@ -69,7 +69,6 @@ public abstract class LoadPendingTask extends MasterTask {
         
         // get db
         long dbId = job.getDbId();
-        long tableId = job.getTableId();
         db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.ETL_SUBMIT_FAIL, "db does not exist. id: " + dbId);

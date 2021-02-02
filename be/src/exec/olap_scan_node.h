@@ -26,6 +26,7 @@
 #include "exec/olap_common.h"
 #include "exec/olap_scanner.h"
 #include "exec/scan_node.h"
+#include "exprs/in_predicate.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch_interface.hpp"
 #include "runtime/vectorized_row_batch.h"
@@ -130,7 +131,7 @@ protected:
             h.pop();
         }
 
-        VLOG(1) << s.str() << "\n]";
+        VLOG_CRITICAL << s.str() << "\n]";
     }
 
     // In order to ensure the accuracy of the query result
@@ -153,7 +154,14 @@ protected:
     Status normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
     template <class T>
+    Status normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
+
+    template <class T>
     Status normalize_noneq_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
+
+    template <typename T>
+    static bool normalize_is_null_predicate(Expr* expr, SlotDescriptor* slot,
+            const std::string& is_null_str, ColumnValueRange<T>* range);
 
     void transfer_thread(RuntimeState* state);
     void scanner_thread(OlapScanner* scanner);
@@ -169,12 +177,16 @@ private:
     // according to the calling relationship
     void init_scan_profile();
 
-    void construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot,
-                                              const std::string& is_null_str);
+    bool should_push_down_in_predicate(SlotDescriptor* slot, InPredicate* in_pred);
+
+    std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred, int conj_idx, int child_idx);
+
+    template <typename T, typename ChangeFixedValueRangeFunc>
+    static Status change_fixed_value_range(ColumnValueRange <T> &range, PrimitiveType type, void *value,
+                                               const ChangeFixedValueRangeFunc& func);
 
     friend class OlapScanner;
 
-    std::vector<TCondition> _is_null_vector;
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
     // doris scan node used to scan doris
@@ -224,7 +236,8 @@ private:
 
     std::mutex _scan_batches_lock;
     std::condition_variable _scan_batch_added_cv;
-    int32_t _scanner_task_finish_count;
+    int64_t _running_thread = 0;
+    std::condition_variable _scan_thread_exit_cv;
 
     std::list<RowBatchInterface*> _scan_row_batches;
 
@@ -244,6 +257,7 @@ private:
     Status _status;
     RuntimeState* _runtime_state;
     RuntimeProfile::Counter* _scan_timer;
+    RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
     RuntimeProfile::Counter* _tablet_counter;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
@@ -251,7 +265,6 @@ private:
     TResourceInfo* _resource_info;
 
     int64_t _buffered_bytes;
-    int64_t _running_thread;
     EvalConjunctsFn _eval_conjuncts_fn;
 
     bool _need_agg_finalize = true;

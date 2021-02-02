@@ -20,6 +20,7 @@ package org.apache.doris.system;
 import mockit.Expectations;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
@@ -27,12 +28,17 @@ import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.HeartbeatMgr.BrokerHeartbeatHandler;
 import org.apache.doris.system.HeartbeatMgr.FrontendHeartbeatHandler;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPingBrokerRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendResult;
+import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
+import org.apache.thrift.TException;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -67,7 +73,7 @@ public class HeartbeatMgrTest {
     }
 
     @Test
-    public void testFrontendHbHandler() {
+    public void testFrontendHbHandlerWithHttp() {
         new MockUp<Util>() {
             @Mock
             public String getResultForUrl(String urlStr, String encodedAuthInfo,
@@ -90,11 +96,11 @@ public class HeartbeatMgrTest {
                 }
             }
         };
-
+        Config.enable_fe_heartbeat_by_thrift = false;
+        System.out.println(" config " + Config.enable_fe_heartbeat_by_thrift);
         Frontend fe = new Frontend(FrontendNodeType.FOLLOWER, "test", "192.168.1.1", 9010);
         FrontendHeartbeatHandler handler = new FrontendHeartbeatHandler(fe, 12345, "abcd");
         HeartbeatResponse response = handler.call();
-
         Assert.assertTrue(response instanceof FrontendHbResponse);
         FrontendHbResponse hbResponse = (FrontendHbResponse) response;
         Assert.assertEquals(191224, hbResponse.getReplayedJournalId());
@@ -113,7 +119,78 @@ public class HeartbeatMgrTest {
         Assert.assertEquals(0, hbResponse.getQueryPort());
         Assert.assertEquals(0, hbResponse.getRpcPort());
         Assert.assertEquals(HbStatus.BAD, hbResponse.getStatus());
+    }
 
+    @Test
+    public void testFrontendHbHandlerWithThirft(@Mocked FrontendService.Client client) throws TException {
+        new MockUp<GenericPool<FrontendService.Client>>() {
+            @Mock
+            public FrontendService.Client borrowObject(TNetworkAddress address) throws Exception {
+                return client;
+            }
+
+            @Mock
+            public void returnObject(TNetworkAddress address, FrontendService.Client object) {
+                return;
+            }
+
+            @Mock
+            public void invalidateObject(TNetworkAddress address, FrontendService.Client object) {
+                return;
+            }
+        };
+
+        TFrontendPingFrontendRequest normalRequest = new TFrontendPingFrontendRequest(12345, "abcd");
+        TFrontendPingFrontendResult normalResult = new TFrontendPingFrontendResult();
+        normalResult.setStatus(TFrontendPingFrontendStatusCode.OK);
+        normalResult.setMsg("success");
+        normalResult.setReplayedJournalId(191224);
+        normalResult.setQueryPort(9131);
+        normalResult.setRpcPort(9121);
+        normalResult.setVersion("test");
+
+        TFrontendPingFrontendRequest badRequest = new TFrontendPingFrontendRequest(12345, "abcde");
+        TFrontendPingFrontendResult badResult = new TFrontendPingFrontendResult();
+        badResult.setStatus(TFrontendPingFrontendStatusCode.FAILED);
+        badResult.setMsg("not ready");
+
+        new Expectations() {
+            {
+                client.ping(normalRequest);
+                minTimes = 0;
+                result = normalResult;
+
+                client.ping(badRequest);
+                minTimes = 0;
+                result = badResult;
+            }
+        };
+
+        Config.enable_fe_heartbeat_by_thrift = true;
+
+        Frontend fe = new Frontend(FrontendNodeType.FOLLOWER, "test", "192.168.1.1", 9010);
+        FrontendHeartbeatHandler handler = new FrontendHeartbeatHandler(fe, 12345, "abcd");
+        HeartbeatResponse response = handler.call();
+
+        Assert.assertTrue(response instanceof FrontendHbResponse);
+        FrontendHbResponse hbResponse = (FrontendHbResponse) response;
+        Assert.assertEquals(191224, hbResponse.getReplayedJournalId());
+        Assert.assertEquals(9131, hbResponse.getQueryPort());
+        Assert.assertEquals(9121, hbResponse.getRpcPort());
+        Assert.assertEquals(HbStatus.OK, hbResponse.getStatus());
+        Assert.assertEquals("test", hbResponse.getVersion());
+
+        Frontend fe2 = new Frontend(FrontendNodeType.FOLLOWER, "test2", "192.168.1.2", 9010);
+        handler = new FrontendHeartbeatHandler(fe2, 12345, "abcde");
+        response = handler.call();
+
+        Assert.assertTrue(response instanceof FrontendHbResponse);
+        hbResponse = (FrontendHbResponse) response;
+        Assert.assertEquals(0, hbResponse.getReplayedJournalId());
+        Assert.assertEquals(0, hbResponse.getQueryPort());
+        Assert.assertEquals(0, hbResponse.getRpcPort());
+        Assert.assertEquals(HbStatus.BAD, hbResponse.getStatus());
+        Assert.assertEquals("not ready", hbResponse.getMsg());
     }
 
     @Test

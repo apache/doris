@@ -19,11 +19,16 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.Load;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TBrokerScanRange;
@@ -81,6 +86,9 @@ public class StreamLoadScanNode extends LoadScanNode {
 
         this.analyzer = analyzer;
         brokerScanRange = new TBrokerScanRange();
+        
+        deleteCondition = taskInfo.getDeleteCondition();
+        mergeType = taskInfo.getMergeType();
 
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.file_type = taskInfo.getFileType();
@@ -94,6 +102,7 @@ public class StreamLoadScanNode extends LoadScanNode {
             }
             rangeDesc.setStripOuterArray(taskInfo.isStripOuterArray());
             rangeDesc.setNumAsString(taskInfo.isNumAsString());
+            rangeDesc.setFuzzyParse(taskInfo.isFuzzyParse());
         }
         rangeDesc.splittable = false;
         switch (taskInfo.getFileType()) {
@@ -114,15 +123,21 @@ public class StreamLoadScanNode extends LoadScanNode {
         srcTupleDesc = analyzer.getDescTbl().createTupleDescriptor("StreamLoadScanNode");
 
         TBrokerScanRangeParams params = new TBrokerScanRangeParams();
+        List<ImportColumnDesc> columnExprDescs = taskInfo.getColumnExprDescs();
+        if (mergeType == LoadTask.MergeType.MERGE) {
+            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
+        }  else if (mergeType == LoadTask.MergeType.DELETE) {
+            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
+        }
+        if (taskInfo.hasSequenceCol()) {
+            columnExprDescs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, taskInfo.getSequenceCol())));
+        }
 
-        Load.initColumns(dstTable, taskInfo.getColumnExprDescs(), null /* no hadoop function */,
+        Load.initColumns(dstTable, columnExprDescs, null /* no hadoop function */,
                 exprsByName, analyzer, srcTupleDesc, slotDescByName, params);
 
         // analyze where statement
         initWhereExpr(taskInfo.getWhereExpr(), analyzer);
-
-        deleteCondition = taskInfo.getDeleteCondition();
-        mergeType = taskInfo.getMergeType();
 
         computeStats(analyzer);
         createDefaultSmap(analyzer);
@@ -141,7 +156,7 @@ public class StreamLoadScanNode extends LoadScanNode {
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws UserException, UserException {
+    public void finalize(Analyzer analyzer) throws UserException {
         finalizeParams(slotDescByName, exprsByName, brokerScanRange.params, srcTupleDesc,
                 taskInfo.isStrictMode(), taskInfo.getNegative(), analyzer);
     }

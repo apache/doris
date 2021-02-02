@@ -179,29 +179,31 @@ public class InsertStmt extends DdlStmt {
         return tblName.getDb();
     }
 
-    // TODO(zc): used to get all dbs for lock
-    public void getDbs(Analyzer analyzer, Map<String, Database> dbs, Set<String> parentViewNameSet) throws AnalysisException {
+    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
         // get dbs of statement
-        queryStmt.getDbs(analyzer, dbs, parentViewNameSet);
-        // get db of target table
+        queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
         tblName.analyze(analyzer);
         String dbName = tblName.getDb();
-
+        String tableName = tblName.getTbl();
         // check exist
         Database db = analyzer.getCatalog().getDb(dbName);
         if (db == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
+        Table table = db.getTable(tblName.getTbl());
+        if (table == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+        }
 
         // check access
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblName.getDb(), tblName.getTbl(),
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
                                                                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(), tblName.getTbl());
         }
 
-        dbs.put(dbName, db);
+        tableMap.put(table.getId(), table);
     }
 
     public QueryStmt getQueryStmt() {

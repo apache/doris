@@ -40,7 +40,7 @@ bool CIDR::reset(const std::string& cidr_str) {
     if (have_mask == -1) {
         cidr_format_str.assign(cidr_str + "/32");
     }
-    VLOG(2) << "cidr format str: " << cidr_format_str;
+    VLOG_CRITICAL << "cidr format str: " << cidr_format_str;
 
     std::vector<std::string> cidr_items = strings::Split(cidr_format_str, "/");
     if (cidr_items.size() != 2) {

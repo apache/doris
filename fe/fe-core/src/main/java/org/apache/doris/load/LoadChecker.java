@@ -25,12 +25,13 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.load.AsyncDeleteJob.DeleteState;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.task.AgentBatchTask;
@@ -53,11 +54,11 @@ import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -65,6 +66,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+
+import avro.shaded.com.google.common.collect.Lists;
 
 public class LoadChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(LoadChecker.class);
@@ -241,6 +244,25 @@ public class LoadChecker extends MasterDaemon {
             return;
         }
 
+        List<Long> tableIds = Lists.newArrayList();
+
+        long tableId = job.getTableId();
+        if (tableId > 0) {
+            tableIds.add(tableId);
+        } else {
+            // For hadoop load job, the tableId in job is 0(which is unused). So we need to get
+            // table ids somewhere else.
+            tableIds.addAll(job.getIdToTableLoadInfo().keySet());
+        }
+
+        List<Table> tables = null;
+        try {
+            tables = db.getTablesOnIdOrderOrThrowException(tableIds);
+        } catch (UserException e) {
+            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "table does not exist. dbId: " + dbId + ", err: " + e.getMessage());
+            return;
+        }
+
         if (job.getTransactionId() < 0) {
             LOG.warn("cancel load job {}  because it is an old type job, user should resubmit it", job);
             load.cancelLoadJob(job, CancelType.UNKNOWN, "cancelled because system is during upgrade, user should resubmit it");
@@ -305,12 +327,12 @@ public class LoadChecker extends MasterDaemon {
             // if all tablets are finished or stay in quorum finished for long time, try to commit it.
             if (System.currentTimeMillis() - job.getQuorumFinishTimeMs() > stragglerTimeout
                     || job.getFullTablets().containsAll(jobTotalTablets)) {
-                tryCommitJob(job, db);
+                tryCommitJob(job, tables);
             }
         }
     }
-    
-    private void tryCommitJob(LoadJob job, Database db) {
+
+    private void tryCommitJob(LoadJob job, List<Table> tables) {
         // check transaction state
         Load load = Catalog.getCurrentCatalog().getLoadInstance();
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
@@ -318,7 +340,9 @@ public class LoadChecker extends MasterDaemon {
         List<TabletCommitInfo> tabletCommitInfos = new ArrayList<TabletCommitInfo>();
         // when be finish load task, fe will update job's finish task info, use lock here to prevent
         // concurrent problems
-        db.writeLock();
+
+        // table in tables are ordered.
+        MetaLockUtils.writeLockTables(tables);
         try {
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
             for (Replica replica : job.getFinishedReplicas()) {
@@ -330,7 +354,7 @@ public class LoadChecker extends MasterDaemon {
                 }
                 tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
             }
-            globalTransactionMgr.commitTransaction(job.getDbId(), job.getTransactionId(), tabletCommitInfos);
+            globalTransactionMgr.commitTransaction(job.getDbId(), tables, job.getTransactionId(), tabletCommitInfos);
         } catch (TabletQuorumFailedException e) {
             // wait the upper application retry
         } catch (UserException e) {
@@ -338,7 +362,7 @@ public class LoadChecker extends MasterDaemon {
                     transactionState.getTransactionId(), job, e);
             load.cancelLoadJob(job, CancelType.UNKNOWN, transactionState.getReason());
         } finally {
-            db.writeUnlock();
+            MetaLockUtils.writeUnlockTables(tables);
         }
     }
 
@@ -351,13 +375,7 @@ public class LoadChecker extends MasterDaemon {
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
-            OlapTable table = null;
-            db.readLock();
-            try {
-                table = (OlapTable) db.getTable(tableId);
-            } finally {
-                db.readUnlock();
-            }
+            OlapTable table = (OlapTable) db.getTable(tableId);
             if (table == null) {
                 LOG.warn("table does not exist. id: {}", tableId);
                 // if table is dropped during load, the the job is failed
@@ -381,7 +399,7 @@ public class LoadChecker extends MasterDaemon {
                     continue;
                 }
 
-                db.readLock();
+                table.readLock();
                 try {
                     Partition partition = table.getPartition(partitionId);
                     if (partition == null) {
@@ -505,7 +523,7 @@ public class LoadChecker extends MasterDaemon {
                         } // end for tablets
                     } // end for indices
                 } finally {
-                    db.readUnlock();
+                    table.readUnlock();
                 }
             } // end for partitions
         } // end for tables
@@ -527,18 +545,6 @@ public class LoadChecker extends MasterDaemon {
                 LOG.warn("run quorum job error", e);
             }
         }
-
-        // handle async delete job
-        List<AsyncDeleteJob> quorumFinishedDeleteJobs =
-                Catalog.getCurrentCatalog().getLoadInstance().getQuorumFinishedDeleteJobs();
-        for (AsyncDeleteJob job : quorumFinishedDeleteJobs) {
-            try {
-                LOG.info("run quorum finished delete job. job: {}", job.getJobId());
-                runOneQuorumFinishedDeleteJob(job);
-            } catch (Exception e) {
-                LOG.warn("run quorum delete job error", e);
-            }
-        }
     }
     
     private void runOneQuorumFinishedJob(LoadJob job) {
@@ -553,29 +559,6 @@ public class LoadChecker extends MasterDaemon {
         // if the job is quorum finished, just set it to finished and clear related etl job
         if (load.updateLoadJobState(job, JobState.FINISHED)) {
             load.clearJob(job, JobState.QUORUM_FINISHED);
-            return;
-        }
-    }
-    
-    private void runOneQuorumFinishedDeleteJob(AsyncDeleteJob job) {
-        Load load = Catalog.getCurrentCatalog().getLoadInstance();
-        long dbId = job.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            load.removeDeleteJobAndSetState(job);
-            return;
-        }
-        db.readLock();
-        try {
-            // if the delete job is quorum finished, just set it to finished
-            job.clearTasks();
-            job.setState(DeleteState.FINISHED);
-            // log
-            Catalog.getCurrentCatalog().getEditLog().logFinishAsyncDelete(job);
-            load.removeDeleteJobAndSetState(job);
-            LOG.info("delete job {} finished", job.getJobId());
-        } finally {
-            db.readUnlock();
         }
     }
 

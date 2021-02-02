@@ -48,7 +48,7 @@ java_registry_epilogue = '\
 }\n'
 
 FE_PATH = "../../../fe/fe-core/target/generated-sources/build/org/apache/doris/builtins/"
-print FE_PATH
+print(FE_PATH)
 
 # This contains all the metadata to describe all the builtins.
 # Each meta data entry is itself a map to store all the meta data

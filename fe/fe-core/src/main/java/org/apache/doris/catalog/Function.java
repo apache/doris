@@ -659,22 +659,6 @@ public class Function implements Writable {
         return function;
     }
 
-    public String getSignature() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(name.getFunction()).append("(");
-        for (int i = 0; i < argTypes.length; ++i) {
-            if (i != 0) {
-                sb.append(',');
-            }
-            sb.append(argTypes[i].getPrimitiveType().toString());
-        }
-        if (hasVarArgs) {
-            sb.append(", ...");
-        }
-        sb.append(")");
-        return sb.toString();
-    }
-
     public String getProperties() {
         return "";
     }
@@ -683,7 +667,7 @@ public class Function implements Writable {
         List<Comparable> row = Lists.newArrayList();
         if (isVerbose) {
             // signature
-            row.add(getSignature());
+            row.add(signatureString());
             // return type
             row.add(getReturnType().getPrimitiveType().toString());
             // function type

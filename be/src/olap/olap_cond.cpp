@@ -230,7 +230,7 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
                operand_field->cmp(statistic.second) <= 0;
     }
     case OP_NE: {
-        return operand_field->cmp(statistic.first) < 0 || operand_field->cmp(statistic.second) > 0;
+        return true;
     }
     case OP_LT: {
         return operand_field->cmp(statistic.first) > 0;
@@ -249,8 +249,7 @@ bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const 
                max_value_field->cmp(statistic.first) >= 0;
     }
     case OP_NOT_IN: {
-        return min_value_field->cmp(statistic.second) > 0 ||
-               max_value_field->cmp(statistic.first) < 0;
+        return true;
     }
     case OP_IS: {
         if (operand_field->is_null()) {
@@ -387,18 +386,20 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
                 ret = DEL_SATISFIED;
             } else if (stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_PARTIAL_SATISFIED;
+            } else if (!stat.first->is_null() && !stat.second->is_null()){
+                ret = DEL_NOT_SATISFIED;
             } else {
                 CHECK(false) << "It will not happen when the stat's min is not null and max is null";
-                ret = DEL_SATISFIED;
             }
         } else {
             if (stat.first->is_null() && stat.second->is_null()) {
                 ret = DEL_NOT_SATISFIED;
             } else if (stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_PARTIAL_SATISFIED;
+            } else if (!stat.first->is_null() && !stat.second->is_null()){
+                ret = DEL_SATISFIED;
             } else {
                 CHECK(false) << "It will not happen when the stat's min is not null and max is null";
-                ret = DEL_SATISFIED;
             }
         }
         return ret;
@@ -621,7 +622,7 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
         }
     }
 
-    VLOG(3) << "Row meets the delete conditions. "
+    VLOG_NOTICE << "Row meets the delete conditions. "
             << "condition_count=" << _columns.size() << ", row=" << row.to_string();
     return true;
 }

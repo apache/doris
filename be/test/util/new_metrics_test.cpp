@@ -24,6 +24,7 @@
 #include "util/logging.h"
 #include "util/metrics.h"
 #include "util/stopwatch.hpp"
+#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -69,11 +70,11 @@ TEST_F(MetricsTest, Counter) {
 }
 
 template <typename T>
-void mt_updater(T* counter, std::atomic<uint64_t>* used_time) {
+void mt_updater(int32_t loop, T* counter, std::atomic<uint64_t>* used_time) {
     sleep(1);
     MonotonicStopWatch watch;
     watch.start();
-    for (int i = 0; i < 1000000L; ++i) {
+    for (int i = 0; i < loop; ++i) {
         counter->increment(1);
     }
     uint64_t elapsed = watch.elapsed_time();
@@ -81,7 +82,8 @@ void mt_updater(T* counter, std::atomic<uint64_t>* used_time) {
 }
 
 TEST_F(MetricsTest, CounterPerf) {
-    static const int kLoopCount = 100000000;
+    static const int kLoopCount = LOOP_LESS_OR_MORE(10, 100000000);
+    static const int kThreadLoopCount = LOOP_LESS_OR_MORE(1000, 1000000);
     // volatile int64_t
     {
         volatile int64_t sum = 0;
@@ -126,14 +128,14 @@ TEST_F(MetricsTest, CounterPerf) {
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
-            updaters.emplace_back(&mt_updater<IntCounter>, &mt_counter, &used_time);
+            updaters.emplace_back(&mt_updater<IntCounter>, kThreadLoopCount, &mt_counter, &used_time);
         }
         for (int i = 0; i < 8; ++i) {
             updaters[i].join();
         }
         LOG(INFO) << "IntCounter multi-thread elapsed: " << used_time.load()
-                  << "ns, ns/iter:" << used_time.load() / (8 * 1000000L);
-        ASSERT_EQ(8 * 1000000L, mt_counter.value());
+                  << "ns, ns/iter:" << used_time.load() / (8 * kThreadLoopCount);
+        ASSERT_EQ(8 * kThreadLoopCount, mt_counter.value());
     }
     // multi-thread for IntAtomicCounter
     {
@@ -141,14 +143,14 @@ TEST_F(MetricsTest, CounterPerf) {
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
-            updaters.emplace_back(&mt_updater<IntAtomicCounter>, &mt_counter, &used_time);
+            updaters.emplace_back(&mt_updater<IntAtomicCounter>, kThreadLoopCount, &mt_counter, &used_time);
         }
         for (int i = 0; i < 8; ++i) {
             updaters[i].join();
         }
         LOG(INFO) << "IntAtomicCounter multi-thread elapsed: " << used_time.load()
-                  << "ns, ns/iter:" << used_time.load() / (8 * 1000000L);
-        ASSERT_EQ(8 * 1000000L, mt_counter.value());
+                  << "ns, ns/iter:" << used_time.load() / (8 * kThreadLoopCount);
+        ASSERT_EQ(8 * kThreadLoopCount, mt_counter.value());
     }
 }
 

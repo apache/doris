@@ -30,7 +30,7 @@ Status DataConsumerPool::get_consumer(StreamLoadContext* ctx, std::shared_ptr<Da
     auto iter = std::begin(_pool);
     while (iter != std::end(_pool)) {
         if ((*iter)->match(ctx)) {
-            VLOG(3) << "get an available data consumer from pool: " << (*iter)->id();
+            VLOG_NOTICE << "get an available data consumer from pool: " << (*iter)->id();
             (*iter)->reset();
             *ret = *iter;
             iter = _pool.erase(iter);
@@ -55,7 +55,7 @@ Status DataConsumerPool::get_consumer(StreamLoadContext* ctx, std::shared_ptr<Da
     // init the consumer
     RETURN_IF_ERROR(consumer->init(ctx));
 
-    VLOG(3) << "create new data consumer: " << consumer->id();
+    VLOG_NOTICE << "create new data consumer: " << consumer->id();
     *ret = consumer;
     return Status::OK();
 }
@@ -88,14 +88,14 @@ void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
     std::unique_lock<std::mutex> l(_lock);
 
     if (_pool.size() == _max_pool_size) {
-        VLOG(3) << "data consumer pool is full: " << _pool.size() << "-" << _max_pool_size
+        VLOG_NOTICE << "data consumer pool is full: " << _pool.size() << "-" << _max_pool_size
                 << ", discard the returned consumer: " << consumer->id();
         return;
     }
 
     consumer->reset();
     _pool.push_back(consumer);
-    VLOG(3) << "return the data consumer: " << consumer->id()
+    VLOG_NOTICE << "return the data consumer: " << consumer->id()
             << ", current pool size: " << _pool.size();
     return;
 }

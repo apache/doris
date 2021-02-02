@@ -89,11 +89,11 @@ FE 的配置项有两种方式进行配置：
     
 ## 应用举例
 
-1. 修改 `async_load_task_pool_size`
+1. 修改 `async_pending_load_task_pool_size`
 
     通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项不能动态配置（`IsMutable` 为 false）。则需要在 `fe.conf` 中添加：
     
-    `async_load_task_pool_size=20`
+    `async_pending_load_task_pool_size=20`
     
     之后重启 FE 进程以生效该配置。
     
@@ -133,6 +133,22 @@ FE 的配置项有两种方式进行配置：
 ### `alter_table_timeout_second`
 
 ### `async_load_task_pool_size`
+
+此配置仅用于与旧版本兼容，该配置已经被`async_loading_load_task_pool_size`所取代，将来会被移除。
+
+### `async_loading_load_task_pool_size`
+
+`loading_load`任务执行程序池大小。 该池大小限制了正在运行的最大`loading_load`任务数。
+
+当前，它仅限制`broker load`的`loading_load`任务的数量。
+
+### `async_pending_load_task_pool_size`
+
+`pending_load`任务执行程序池大小。 该池大小限制了正在运行的最大`pending_load`任务数。
+
+当前，它仅限制`broker load`和`spark load`的`pending_load`任务的数量。
+
+它应该小于`max_running_txn_num_per_db`的值。
 
 ### `audit_log_delete_age`
 
@@ -505,7 +521,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 类型：long
 说明：用于控制一个 clone 任务的最小超时时间。单位秒。
-默认值：120
+默认值：180
 动态修改：是
 
 见 `max_clone_task_timeout_sec` 说明。

@@ -659,7 +659,7 @@ OLAPStatus EngineCloneTask::_finish_clone(Tablet* tablet, const string& clone_di
         // link files from clone dir, if file exists, skip it
         for (const string& clone_file : clone_files) {
             if (local_files.find(clone_file) != local_files.end()) {
-                VLOG(3) << "find same file when clone, skip it. "
+                VLOG_NOTICE << "find same file when clone, skip it. "
                         << "tablet=" << tablet->full_name() << ", clone_file=" << clone_file;
                 continue;
             }
@@ -723,7 +723,7 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(Tablet* tablet,
     std::vector<Version> versions_to_delete;
     std::vector<RowsetMetaSharedPtr> rowsets_to_clone;
 
-    VLOG(3) << "get missed versions again when finish incremental clone. "
+    VLOG_NOTICE << "get missed versions again when finish incremental clone. "
             << "tablet=" << tablet->full_name() << ", committed_version=" << committed_version
             << ", missed_versions_size=" << missed_versions.size();
 

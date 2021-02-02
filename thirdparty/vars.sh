@@ -283,10 +283,10 @@ CCTZ_SOURCE="cctz-2.3"
 CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
 
 # datatables, bootstrap 3 and jQuery 3
-DATATABLES_DOWNLOAD="https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.22"
+DATATABLES_DOWNLOAD="https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.23"
 DATATABLES_NAME="DataTables.zip"
-DATATABLES_SOURCE="DataTables-1.10.22"
-DATATABLES_MD5SUM="62558846fc6a6db1428e7816a2a351f7"
+DATATABLES_SOURCE="DataTables-1.10.23"
+DATATABLES_MD5SUM="f7f18a9f39d692ec33b5536bff617232"
 
 # bootstrap table js
 BOOTSTRAP_TABLE_JS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/bootstrap-table.min.js"
@@ -300,6 +300,102 @@ BOOTSTRAP_TABLE_CSS_NAME="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
-# all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL ODBC LEVELDB BRPC ROCKSDB LIBRDKAFKA FLATBUFFERS ARROW BROTLI DOUBLE_CONVERSION ZSTD S2 BITSHUFFLE CROARINGBITMAP ORC JEMALLOC CCTZ DATATABLES BOOTSTRAP_TABLE_JS BOOTSTRAP_TABLE_CSS"
+# aws-c-common
+AWS_C_COMMON_DOWNLOAD="https://github.com/awslabs/aws-c-common/archive/v0.4.63.tar.gz"
+AWS_C_COMMON_NAME="aws-c-common-0.4.63.tar.gz"
+AWS_C_COMMON_SOURCE="aws-c-common-0.4.63"
+AWS_C_COMMON_MD5SUM="8298e00a0fb64779b7cf660592d50ab6"
 
+# aws-c-event-stream
+AWS_C_EVENT_STREAM_DOWNLOAD="https://github.com/awslabs/aws-c-event-stream/archive/v0.2.6.tar.gz"
+AWS_C_EVENT_STREAM_NAME="aws-c-event-stream-0.2.6.tar.gz"
+AWS_C_EVENT_STREAM_SOURCE="aws-c-event-stream-0.2.6"
+AWS_C_EVENT_STREAM_MD5SUM="fceedde198ddbf38ffdaed08d1435f7f"
+
+# aws-checksums
+AWS_CHECKSUMS_DOWNLOAD="https://github.com/awslabs/aws-checksums/archive/v0.1.10.tar.gz"
+AWS_CHECKSUMS_NAME="aws-checksums-0.1.10.tar.gz"
+AWS_CHECKSUMS_SOURCE="aws-checksums-0.1.10"
+AWS_CHECKSUMS_MD5SUM="2383c66f6250fa0238edbd1d779b49d3"
+
+# aws-c-io
+AWS_C_IO_DOWNLOAD="https://github.com/awslabs/aws-c-io/archive/v0.7.0.tar.gz"
+AWS_C_IO_NAME="aws-c-io-0.7.0.tar.gz"
+AWS_C_IO_SOURCE="aws-c-io-0.7.0"
+AWS_C_IO_MD5SUM="b95a6f9d20500727231dd726c957276b"
+
+# aws-s2n
+AWS_S2N_DOWNLOAD="https://github.com/awslabs/s2n/archive/v0.10.0.tar.gz"
+AWS_S2N_NAME="s2n-0.10.0.tar.gz"
+AWS_S2N_SOURCE="s2n-0.10.0"
+AWS_S2N_MD5SUM="9b3b39803b7090c2bd937f9cc73bc03f"
+
+# aws-c-cal
+AWS_C_CAL_DOWNLOAD="https://github.com/awslabs/aws-c-cal/archive/v0.4.5.tar.gz"
+AWS_C_CAL_NAME="aws-c-cal-0.4.5.tar.gz"
+AWS_C_CAL_SOURCE="aws-c-cal-0.4.5"
+AWS_C_CAL_MD5SUM="317f3dbafae551a0fc7d70f31434e216"
+
+# aws sdk
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/1.8.108.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.8.108.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.8.108"
+AWS_SDK_MD5SUM="76d8855406e7da61f1f996c11c0b93d7"
+
+# tsan_header
+TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
+TSAN_HEADER_NAME="tsan_interface_atomic.h"
+TSAN_HEADER_FILE="tsan_interface_atomic.h"
+TSAN_HEADER_MD5SUM="d72679bea167d6a513d959f5abd149dc"
+
+# all thirdparties which need to be downloaded is set in array TP_ARCHIVES
+export TP_ARCHIVES="LIBEVENT
+OPENSSL
+THRIFT
+LLVM
+CLANG
+COMPILER_RT
+PROTOBUF
+GFLAGS
+GLOG
+GTEST
+RAPIDJSON
+SNAPPY
+GPERFTOOLS
+ZLIB
+LZ4
+BZIP
+LZO2
+CURL
+RE2
+BOOST
+MYSQL
+BOOST_FOR_MYSQL
+ODBC
+LEVELDB
+BRPC
+ROCKSDB
+LIBRDKAFKA
+FLATBUFFERS
+ARROW
+BROTLI
+DOUBLE_CONVERSION
+ZSTD
+S2
+BITSHUFFLE
+CROARINGBITMAP
+ORC
+JEMALLOC
+CCTZ
+DATATABLES
+BOOTSTRAP_TABLE_JS
+BOOTSTRAP_TABLE_CSS
+TSAN_HEADER
+AWS_C_COMMON
+AWS_C_EVENT_STREAM
+AWS_C_IO
+AWS_C_CAL
+AWS_C_IO
+AWS_CHECKSUMS
+AWS_S2N
+AWS_SDK"

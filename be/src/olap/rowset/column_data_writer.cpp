@@ -90,7 +90,7 @@ OLAPStatus ColumnDataWriter::init() {
         return res;
     }
 
-    VLOG(3) << "init ColumnData writer. segment_group_id=" << _segment_group->segment_group_id()
+    VLOG_NOTICE << "init ColumnData writer. segment_group_id=" << _segment_group->segment_group_id()
             << ", block_row_number=" << _segment_group->get_num_rows_per_row_block();
     RowBlockInfo block_info(0U, _segment_group->get_num_rows_per_row_block());
     block_info.null_supported = true;

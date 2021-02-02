@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Maps;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -28,17 +27,17 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.util.List;
 import java.util.Map;
-import java.util.zip.Adler32;
 
 public class MysqlTable extends Table {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
@@ -205,35 +204,19 @@ public class MysqlTable extends Table {
     }
 
     @Override
-    public int getSignature(int signatureVersion) {
-        Adler32 adler32 = new Adler32();
-        adler32.update(signatureVersion);
-        String charsetName = "UTF-8";
-
-        try {
-            // name
-            adler32.update(name.getBytes(charsetName));
-            // type
-            adler32.update(type.name().getBytes(charsetName));
-            // host
-            adler32.update(getHost().getBytes(charsetName));
-            // port
-            adler32.update(getPort().getBytes(charsetName));
-            // username
-            adler32.update(getUserName().getBytes(charsetName));
-            // passwd
-            adler32.update(getPasswd().getBytes(charsetName));
-            // mysql db
-            adler32.update(mysqlDatabaseName.getBytes(charsetName));
-            // mysql table
-            adler32.update(mysqlTableName.getBytes(charsetName));
-
-        } catch (UnsupportedEncodingException e) {
-            LOG.error("encoding error", e);
-            return -1;
-        }
-
-        return Math.abs((int) adler32.getValue());
+    public String getSignature(int signatureVersion) {
+        StringBuilder sb = new StringBuilder(signatureVersion);
+        sb.append(name);
+        sb.append(type.name());
+        sb.append(getHost());
+        sb.append(getPort());
+        sb.append(getUserName());
+        sb.append(getPasswd());
+        sb.append(mysqlDatabaseName);
+        sb.append(mysqlTableName);
+        String md5 = DigestUtils.md5Hex(sb.toString());
+        LOG.debug("get signature of mysql table {}: {}. signature string: {}", name, md5, sb.toString());
+        return md5;
     }
 
     @Override

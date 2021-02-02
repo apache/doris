@@ -23,7 +23,6 @@ import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.apache.logging.log4j.LogManager;
@@ -43,7 +42,9 @@ public class MasterOpExecutor {
     // the total time of thrift connectTime add readTime and writeTime
     private int thriftTimeoutMs;
 
-    public MasterOpExecutor(OriginStatement originStmt, ConnectContext ctx, RedirectStatus status) {
+    private boolean shouldNotRetry;
+
+    public MasterOpExecutor(OriginStatement originStmt, ConnectContext ctx, RedirectStatus status, boolean isQuery) {
         this.originStmt = originStmt;
         this.ctx = ctx;
         if (status.isNeedToWaitJournalSync()) {
@@ -52,6 +53,8 @@ public class MasterOpExecutor {
             this.waitTimeoutMs = 0;
         }
         this.thriftTimeoutMs = ctx.getSessionVariable().getQueryTimeoutS() * 1000;
+        // if isQuery=false, we shouldn't retry twice when catch exception because of Idempotency
+        this.shouldNotRetry = !isQuery;
     }
 
     public void execute() throws Exception {
@@ -82,19 +85,19 @@ public class MasterOpExecutor {
         params.setStmtIdx(originStmt.idx);
         params.setUser(ctx.getQualifiedUser());
         params.setDb(ctx.getDatabase());
-        params.setSqlMode(ctx.getSessionVariable().getSqlMode());
         params.setResourceInfo(ctx.toResourceCtx());
         params.setUserIp(ctx.getRemoteIP());
-        params.setTimeZone(ctx.getSessionVariable().getTimeZone());
         params.setStmtId(ctx.getStmtId());
-        params.setEnableStrictMode(ctx.getSessionVariable().getEnableInsertStrict());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
 
-        TQueryOptions queryOptions = new TQueryOptions();
-        queryOptions.setMemLimit(ctx.getSessionVariable().getMaxExecMemByte());
-        queryOptions.setQueryTimeout(ctx.getSessionVariable().getQueryTimeoutS());
-        queryOptions.setLoadMemLimit(ctx.getSessionVariable().getLoadMemLimit());
-        params.setQueryOptions(queryOptions);
+        // query options
+        params.setQueryOptions(ctx.getSessionVariable().getQueryOptionVariables());
+        // session variables
+        params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
+
+        if (null != ctx.queryId()) {
+            params.setQueryId(ctx.queryId());
+        }
 
         LOG.info("Forward statement {} to Master {}", ctx.getStmtId(), thriftAddress);
 
@@ -107,9 +110,10 @@ public class MasterOpExecutor {
             if (!ok) {
                 throw e;
             }
-            if (e.getType() == TTransportException.TIMED_OUT) {
+            if (shouldNotRetry || e.getType() == TTransportException.TIMED_OUT) {
                 throw e;
             } else {
+                LOG.warn("Forward statement "+ ctx.getStmtId() +" to Master " + thriftAddress + " twice", e);
                 result = client.forward(params);
                 isReturnToPool = true;
             }

@@ -51,7 +51,6 @@ public abstract class LoadScanNode extends ScanNode {
 
     protected Expr deleteCondition;
     protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
-    protected int numInstances;
 
     public LoadScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName);

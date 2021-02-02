@@ -37,6 +37,7 @@ set(UTIL_FILES
   disk_info.cpp
   errno.cpp
   hash_util.hpp
+  histogram.cpp
   json_util.cpp
   doris_metrics.cpp
   mem_info.cpp
@@ -102,6 +103,7 @@ set(UTIL_FILES
   brpc_stub_cache.cpp
   zlib.cpp
   pprof_utils.cpp
+  topn_counter.cpp
 )
 
 if (WITH_MYSQL)

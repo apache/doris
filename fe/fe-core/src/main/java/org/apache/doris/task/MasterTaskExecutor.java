@@ -52,6 +52,10 @@ public class MasterTaskExecutor {
         scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "_scheduler_thread_pool", needRegisterMetric);
     }
 
+    public boolean isTaskQueueFull() {
+        return executor.getQueue().remainingCapacity() == 0;
+    }
+
     public void start() {
         scheduledThreadPool.scheduleAtFixedRate(new TaskChecker(), 0L, 1000L, TimeUnit.MILLISECONDS);
     }

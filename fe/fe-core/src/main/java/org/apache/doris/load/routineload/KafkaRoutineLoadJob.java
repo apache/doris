@@ -42,16 +42,18 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -145,7 +147,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
-
     @Override
     public void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException {
         List<RoutineLoadTaskInfo> result = new ArrayList<>();
@@ -198,46 +199,45 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return currentTaskConcurrentNum;
     }
 
-    // case1: BE execute the task successfully and commit it to FE, but failed on FE(such as db renamed, not found),
-    //        after commit failed, BE try to rollback this txn, and loaded rows in its attachment is larger than 0.
-    //        In this case, FE should not update the progress.
-    //
-    // case2: partitionIdToOffset must be not empty when loaded rows > 0
-    //        be commit txn but fe throw error when committing txn,
-    //        fe rollback txn without partitionIdToOffset by itself
-    //        this task should not be commit
-    //        otherwise currentErrorNum and currentTotalNum is updated when progress is not updated
+    // Through the transaction status and attachment information, to determine whether the progress needs to be updated.
     @Override
     protected boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
-                                      TransactionStatus txnStatus) {
-        if (rlTaskTxnCommitAttachment.getLoadedRows() > 0 && txnStatus == TransactionStatus.ABORTED) {
-            // case 1
-            return false;
+                                      TransactionState txnState,
+                                      TransactionState.TxnStatusChangeReason txnStatusChangeReason) {
+        if (txnState.getTransactionStatus() == TransactionStatus.COMMITTED) {
+            // For committed txn, update the progress.
+            return true;
         }
 
-        if (rlTaskTxnCommitAttachment.getLoadedRows() > 0
-                && (!((KafkaProgress) rlTaskTxnCommitAttachment.getProgress()).hasPartition())) {
-            // case 2
-            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()))
-                    .add("job_id", id)
-                    .add("loaded_rows", rlTaskTxnCommitAttachment.getLoadedRows())
-                    .add("progress_partition_offset_size", 0)
-                    .add("msg", "commit attachment info is incorrect"));
-            return false;
+        if (txnStatusChangeReason != null && txnStatusChangeReason == TransactionState.TxnStatusChangeReason.NO_PARTITIONS) {
+            // Because the max_filter_ratio of routine load task is always 1.
+            // Therefore, under normal circumstances, routine load task will not return the error "too many filtered rows".
+            // If no data is imported, the error "all partitions have no load data" may only be returned.
+            // In this case, the status of the transaction is ABORTED,
+            // but we still need to update the offset to skip these error lines.
+            Preconditions.checkState(txnState.getTransactionStatus() == TransactionStatus.ABORTED, txnState.getTransactionStatus());
+            return true;
         }
-        return true;
+
+        // Running here, the status of the transaction should be ABORTED,
+        // and it is caused by other errors. In this case, we should not update the offset.
+        LOG.debug("no need to update the progress of kafka routine load. txn status: {}, " +
+                        "txnStatusChangeReason: {}, task: {}, job: {}",
+                txnState.getTransactionStatus(), txnStatusChangeReason,
+                DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()), id);
+        return false;
     }
 
     @Override
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         super.updateProgress(attachment);
-        this.progress.update(attachment.getProgress());
+        this.progress.update(attachment);
     }
 
     @Override
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
         super.replayUpdateProgress(attachment);
-        this.progress.update(attachment.getProgress());
+        this.progress.update(attachment);
     }
 
     @Override
@@ -346,15 +346,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, stmt.getDBName());
         }
 
-        long tableId = -1L;
-        db.readLock();
-        try {
-            unprotectedCheckMeta(db, stmt.getTableName(), stmt.getRoutineLoadDesc());
-            Table table = db.getTable(stmt.getTableName());
-            tableId = table.getId();
-        } finally {
-            db.readUnlock();
-        }
+        checkMeta(db, stmt.getTableName(), stmt.getRoutineLoadDesc());
+        Table table = db.getTable(stmt.getTableName());
+        long tableId = table.getId();
 
         // init kafka routine load job
         long id = Catalog.getCurrentCatalog().getNextId();

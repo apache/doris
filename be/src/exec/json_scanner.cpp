@@ -122,7 +122,7 @@ Status JsonScanner::open_next_reader() {
     case TFileType::FILE_STREAM: {
         _stream_load_pipe = _state->exec_env()->load_stream_mgr()->get(range.load_id);
         if (_stream_load_pipe == nullptr) {
-            VLOG(3) << "unknown stream load id: " << UniqueId(range.load_id);
+            VLOG_NOTICE << "unknown stream load id: " << UniqueId(range.load_id);
             return Status::InternalError("unknown stream load id");
         }
         file = _stream_load_pipe.get();
@@ -139,6 +139,7 @@ Status JsonScanner::open_next_reader() {
     std::string jsonpath = "";
     bool strip_outer_array = false;
     bool num_as_string = false;
+    bool fuzzy_parse = false;
 
     if (range.__isset.jsonpaths) {
         jsonpath = range.jsonpaths;
@@ -152,7 +153,11 @@ Status JsonScanner::open_next_reader() {
     if (range.__isset.num_as_string) {
         num_as_string = range.num_as_string;
     }
-    _cur_file_reader = new JsonReader(_state, _counter, _profile, file, strip_outer_array, num_as_string);
+    if (range.__isset.fuzzy_parse) {
+        fuzzy_parse = range.fuzzy_parse;
+    }
+    _cur_file_reader = new JsonReader(_state, _counter, _profile, file, strip_outer_array,
+                                      num_as_string, fuzzy_parse);
     RETURN_IF_ERROR(_cur_file_reader->init(jsonpath, json_root));
 
     return Status::OK();
@@ -183,25 +188,24 @@ rapidjson::Value::ConstValueIterator JsonDataInternal::get_next() {
 }
 
 ////// class JsonReader
-JsonReader::JsonReader(
-        RuntimeState* state, ScannerCounter* counter,
-        RuntimeProfile* profile,
-        FileReader* file_reader,
-        bool strip_outer_array,
-        bool num_as_string) :
-            _handle_json_callback(nullptr),
-            _next_line(0),
-            _total_lines(0),
-            _state(state),
-            _counter(counter),
-            _profile(profile),
-            _file_reader(file_reader),
-            _closed(false),
-            _strip_outer_array(strip_outer_array),
-            _num_as_string(num_as_string),
-            _json_doc(nullptr) {
+JsonReader::JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
+                       FileReader* file_reader, bool strip_outer_array, bool num_as_string,
+                       bool fuzzy_parse)
+        : _handle_json_callback(nullptr),
+          _next_line(0),
+          _total_lines(0),
+          _state(state),
+          _counter(counter),
+          _profile(profile),
+          _file_reader(file_reader),
+          _closed(false),
+          _strip_outer_array(strip_outer_array),
+          _num_as_string(num_as_string),
+          _fuzzy_parse(fuzzy_parse),
+          _json_doc(nullptr) {
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
-    _read_timer = ADD_TIMER(_profile, "FileReadTime");
+    _read_timer = ADD_TIMER(_profile, "ReadTime");
+    _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
 }
 
 JsonReader::~JsonReader() {
@@ -273,9 +277,11 @@ void JsonReader::_close() {
 // return Status::OK() if parse succeed or reach EOF.
 Status JsonReader::_parse_json_doc(bool* eof) {
     // read a whole message, must be delete json_str by `delete[]`
-    uint8_t* json_str = nullptr;
+    SCOPED_TIMER(_file_read_timer);
+    std::unique_ptr<uint8_t[]> json_str;
     size_t length = 0;
     RETURN_IF_ERROR(_file_reader->read_one_message(&json_str, &length));
+    _bytes_read_counter += length;
     if (length == 0) {
         *eof = true;
         return Status::OK();
@@ -283,12 +289,16 @@ Status JsonReader::_parse_json_doc(bool* eof) {
 
     bool has_parse_error = false;
     // parse jsondata to JsonDoc
+
     // As the issue: https://github.com/Tencent/rapidjson/issues/1458
     // Now, rapidjson only support uint64_t, So lagreint load cause bug. We use kParseNumbersAsStringsFlag.
     if (_num_as_string) {
-        has_parse_error = _origin_json_doc.Parse<rapidjson::kParseNumbersAsStringsFlag>((char*)json_str, length).HasParseError();
+        has_parse_error =
+                _origin_json_doc
+                        .Parse<rapidjson::kParseNumbersAsStringsFlag>((char*)json_str.get(), length)
+                        .HasParseError();
     } else {
-        has_parse_error = _origin_json_doc.Parse((char*)json_str, length).HasParseError();
+        has_parse_error = _origin_json_doc.Parse((char*)json_str.get(), length).HasParseError();
     }
 
     if (has_parse_error) {
@@ -296,12 +306,11 @@ Status JsonReader::_parse_json_doc(bool* eof) {
         str_error << "Parse json data for JsonDoc failed. code = "
                   << _origin_json_doc.GetParseError() << ", error-info:"
                   << rapidjson::GetParseError_En(_origin_json_doc.GetParseError());
-        _state->append_error_msg_to_file(std::string((char*)json_str, length), str_error.str());
+        _state->append_error_msg_to_file(std::string((char*)json_str.get(), length),
+                                         str_error.str());
         _counter->num_rows_filtered++;
-        delete[] json_str;
         return Status::DataQualityError(str_error.str());
     }
-    delete[] json_str;
 
     // set json root
     if (_parsed_json_root.size() != 0) {
@@ -438,8 +447,18 @@ void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
 
     int nullcount = 0;
     for (auto v : slot_descs) {
-        if (objectValue.HasMember(v->col_name().c_str())) {
-            rapidjson::Value& value = objectValue[v->col_name().c_str()];
+        rapidjson::Value::ConstMemberIterator it = objectValue.MemberEnd();
+        if (_fuzzy_parse) {
+            auto idx_it = _name_map.find(v->col_name());
+            if (idx_it != _name_map.end() && idx_it->second < objectValue.MemberCount()) {
+                it = objectValue.MemberBegin() + idx_it->second;
+            }
+        } else {
+            it = objectValue.FindMember(
+                    rapidjson::Value(v->col_name().c_str(), v->col_name().size()));
+        }
+        if (it != objectValue.MemberEnd()) {
+            const rapidjson::Value& value = it->value;
             _write_data_to_tuple(&value, v, tuple, tuple_pool, valid);
             if (!(*valid)) {
                 return;
@@ -492,6 +511,8 @@ Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescr
             if (*eof) {          // read all data, then return
                 return Status::OK();
             }
+            _name_map.clear();
+            rapidjson::Value* objectValue = nullptr;
             if (_json_doc->IsArray()) {
                 _total_lines = _json_doc->Size();
                 if (_total_lines == 0) {
@@ -503,11 +524,23 @@ Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescr
                     _counter->num_rows_filtered++;
                     continue;
                 }
+                objectValue = &(*_json_doc)[0];
             } else {
                 _total_lines = 1; // only one row
+                objectValue = _json_doc;
             }
-
             _next_line = 0;
+            if (_fuzzy_parse) {
+                for (auto v : slot_descs) {
+                    for (int i = 0; i < objectValue->MemberCount(); ++i) {
+                        auto it = objectValue->MemberBegin() + i;
+                        if (v->col_name() == it->name.GetString()) {
+                            _name_map[v->col_name()] = i;
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         if (_json_doc->IsArray()) {                                   // handle case 1

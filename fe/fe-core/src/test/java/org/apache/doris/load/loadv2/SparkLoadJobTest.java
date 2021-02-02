@@ -39,6 +39,7 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.SparkResource;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DataQualityException;
@@ -251,7 +252,7 @@ public class SparkLoadJobTest {
         sparkConfigs.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
         SparkLoadJob job = new SparkLoadJob(dbId, label, null, new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
         job.state = JobState.ETL;
-        job.maxFilterRatio = 0.15;
+        job.setMaxFilterRatio(0.15);
         job.transactionId = transactionId;
         Deencapsulation.setField(job, "appId", appId);
         Deencapsulation.setField(job, "etlOutputPath", etlOutputPath);
@@ -354,8 +355,10 @@ public class SparkLoadJobTest {
                 result = filePathToSize;
                 catalog.getDb(dbId);
                 result = db;
-                db.getTable(tableId);
-                result = table;
+                db.getTablesOnIdOrderOrThrowException((List<Long>) any);
+                result = Lists.newArrayList(table);
+                table.getId();
+                result = tableId;
                 table.getPartition(partitionId);
                 result = partition;
                 table.getPartitionInfo();
@@ -381,7 +384,7 @@ public class SparkLoadJobTest {
                 AgentTaskExecutor.submit((AgentBatchTask) any);
                 Catalog.getCurrentGlobalTransactionMgr();
                 result = transactionMgr;
-                transactionMgr.commitTransaction(dbId, transactionId, (List<TabletCommitInfo>) any,
+                transactionMgr.commitTransaction(dbId, (List<Table>) any, transactionId, (List<TabletCommitInfo>) any,
                                                  (LoadJobFinalOperation) any);
             }
         };

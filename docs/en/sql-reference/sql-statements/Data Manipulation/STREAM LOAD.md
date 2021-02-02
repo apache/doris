@@ -127,6 +127,8 @@ json_root is a valid JSONPATH string that specifies the root node of the JSON Do
 
 The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
 
+`fuzzy_parse`  Boolean type, true to indicate that parse json schema as the first line, this can make import more faster,but need all key keep the order of first line, default value is false. Only use for json format.
+
 RETURN VALUES
 
 After the load is completed, the related content of this load will be returned in Json format. Current field included

@@ -35,7 +35,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.DeleteJob;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob;
@@ -265,7 +264,7 @@ public class MasterImpl {
                 }
                 
                 // this should be called before 'countDownLatch()'
-                Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), request.getReportVersion(), task.getDbId());
+                Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), request.getReportVersion(), task.getDbId(), task.getTableId());
                 
                 createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
                 LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
@@ -334,14 +333,15 @@ public class MasterImpl {
             return;
         }
         LOG.debug("push report state: {}", pushState.name());
-        
-        db.writeLock();
-        try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                throw new MetaNotFoundException("cannot find table[" + tableId + "] when push finished");
-            }
 
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
+            LOG.warn("finish push replica error, cannot find table[" + tableId + "] when push finished");
+            return;
+        }
+        olapTable.writeLock();
+        try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
                 throw new MetaNotFoundException("cannot find partition[" + partitionId + "] when push finished");
@@ -357,7 +357,7 @@ public class MasterImpl {
             // should be done before addReplicaPersistInfos and countDownLatch
             long reportVersion = request.getReportVersion();
             Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion,
-                                                                       task.getDbId());
+                                                                       task.getDbId(), task.getTableId());
 
             List<Long> tabletIds = finishTabletInfos.stream().map(
                     tTabletInfo -> tTabletInfo.getTabletId()).collect(Collectors.toList());
@@ -393,7 +393,7 @@ public class MasterImpl {
                     Replica replica = findRelatedReplica(olapTable, partition,
                             backendId, tabletId, tabletMeta.getIndexId());
                     if (replica != null) {
-                        deleteJob.addFinishedReplica(pushTabletId, replica);
+                        deleteJob.addFinishedReplica(partitionId, pushTabletId, replica);
                         pushTask.countDownLatch(backendId, pushTabletId);
                     }
                 }
@@ -421,7 +421,7 @@ public class MasterImpl {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error", e);
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 
@@ -548,13 +548,15 @@ public class MasterImpl {
 
         LOG.debug("push report state: {}", pushState.name());
 
-        db.writeLock();
-        try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                throw new MetaNotFoundException("cannot find table[" + tableId + "] when push finished");
-            }
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
+            LOG.warn("finish push replica error, cannot find table[" + tableId + "] when push finished");
+            return;
+        }
 
+        olapTable.writeLock();
+        try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
                 throw new MetaNotFoundException("cannot find partition[" + partitionId + "] when push finished");
@@ -580,7 +582,7 @@ public class MasterImpl {
             // should be done before addReplicaPersistInfos and countDownLatch
             long reportVersion = request.getReportVersion();
             Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion,
-                                                                       task.getDbId());
+                                                                       task.getDbId(), task.getTableId());
 
             if (pushTask.getPushType() == TPushType.LOAD || pushTask.getPushType() == TPushType.LOAD_DELETE) {
                 // handle load job
@@ -600,22 +602,6 @@ public class MasterImpl {
                     throw new MetaNotFoundException("delete task is not match. [" + pushTask.getVersion() + "-"
                             + request.getRequestVersion() + "]");
                 }
-
-                if (pushTask.isSyncDelete()) {
-                    pushTask.countDownLatch(backendId, signature);
-                } else {
-                    long asyncDeleteJobId = pushTask.getAsyncDeleteJobId();
-                    Preconditions.checkState(asyncDeleteJobId != -1);
-                    AsyncDeleteJob job = Catalog.getCurrentCatalog().getLoadInstance().getAsyncDeleteJob(asyncDeleteJobId);
-                    if (job == null) {
-                        throw new MetaNotFoundException("cannot find async delete job, job[" + asyncDeleteJobId + "]");
-                    }
-
-                    Preconditions.checkState(!infos.isEmpty());
-                    for (ReplicaPersistInfo info : infos) {
-                        job.addReplicaPersistInfos(info);
-                    }
-                }
             }
 
             AgentTaskQueue.removePushTask(backendId, signature, finishVersion, finishVersionHash,
@@ -626,7 +612,7 @@ public class MasterImpl {
                                           pushTask.getPushType(), pushTask.getTaskType());
             LOG.warn("finish push replica error", e);
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
     
@@ -645,7 +631,7 @@ public class MasterImpl {
         if (request.isSetReportVersion()) {
             // report version is required. here we check if set, for compatibility.
             long reportVersion = request.getReportVersion();
-            Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion, task.getDbId());
+            Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
         }
 
         PublishVersionTask publishVersionTask = (PublishVersionTask) task;

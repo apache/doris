@@ -715,7 +715,7 @@ private:
 
     // True if the IoMgr should be torn down. Worker threads watch for this to
     // know to terminate. This variable is read/written to by different threads.
-    volatile bool _shut_down;
+    std::atomic<bool> _shut_down;
 
     // Total bytes read by the IoMgr.
     RuntimeProfile::Counter _total_bytes_read_counter;

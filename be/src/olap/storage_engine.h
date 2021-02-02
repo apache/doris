@@ -239,6 +239,8 @@ private:
     void _compaction_tasks_producer_callback();
     vector<TabletSharedPtr> _compaction_tasks_generator(CompactionType compaction_type,
                                                         std::vector<DataDir*> data_dirs);
+    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet);
+    void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet);
 
 private:
     struct CompactionCandidate {
@@ -303,10 +305,7 @@ private:
     scoped_refptr<Thread> _garbage_sweeper_thread;
     // thread to monitor disk stat
     scoped_refptr<Thread> _disk_stat_monitor_thread;
-    // threads to run base compaction
-    std::vector<scoped_refptr<Thread>> _base_compaction_threads;
-    // threads to check cumulative
-    std::vector<scoped_refptr<Thread>> _cumulative_compaction_threads;
+    // thread to produce both base and cumulative compaction tasks
     scoped_refptr<Thread> _compaction_tasks_producer_thread;
     scoped_refptr<Thread> _fd_cache_clean_thread;
     // threads to clean all file descriptor not actively in use

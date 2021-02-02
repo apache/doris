@@ -1255,6 +1255,25 @@ public class QueryPlanTest {
     }
 
     @Test
+    public void testOdbcSink() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        // insert into odbc_oracle table
+        String queryStr = "explain insert into odbc_oracle select * from odbc_mysql";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("TABLENAME IN DORIS: odbc_oracle"));
+        Assert.assertTrue(explainString.contains("TABLE TYPE: ORACLE"));
+        Assert.assertTrue(explainString.contains("TABLENAME OF EXTERNAL TABLE: tbl1"));
+
+        // enable transaction of ODBC Sink
+        Deencapsulation.setField(connectContext.getSessionVariable(), "enableOdbcTransaction", true);
+        queryStr = "explain insert into odbc_oracle select * from odbc_mysql";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("EnableTransaction: true"));
+    }
+
+
+    @Test
     public void testPreferBroadcastJoin() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String queryStr = "explain select * from (select k1 from jointest group by k1)t2, jointest t1 where t1.k1 = t2.k1";
@@ -1380,6 +1399,27 @@ public class QueryPlanTest {
         sql = "select day from tbl_int_date where date in (20201030)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 00:00:00')"));
+    }
+
+    @Test
+    public void testOutJoinSmapReplace() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        //valid date
+        String sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a right outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | 4"));
+
+        sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a left outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | `b`.`bid`"));
+
+        sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a full outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | `b`.`bid`"));
+
+        sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | 4"));
     }
 }
 

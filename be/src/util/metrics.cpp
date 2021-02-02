@@ -102,6 +102,65 @@ std::string labels_to_string(const Labels& entity_labels, const Labels& metric_l
     return ss.str();
 }
 
+void HistogramMetric::clear() {
+    std::lock_guard<SpinLock> l(_lock);
+    _stats.clear();
+}
+
+bool HistogramMetric::is_empty() const {
+    return _stats.is_empty();
+}
+
+void HistogramMetric::add(const uint64_t& value) {
+    _stats.add(value);
+}
+
+void HistogramMetric::merge(const HistogramMetric& other) {
+    std::lock_guard<SpinLock> l(_lock);
+    _stats.merge(other._stats);
+}
+
+double HistogramMetric::median() const {
+    return _stats.median();
+}
+
+double HistogramMetric::percentile(double p) const {
+    return _stats.percentile(p);
+}
+
+double HistogramMetric::average() const {
+    return _stats.average();
+}
+
+double HistogramMetric::standard_deviation() const {
+    return _stats.standard_deviation();
+}
+
+std::string HistogramMetric::to_string() const {
+    return _stats.to_string();
+}
+
+rj::Value HistogramMetric::to_json_value() const {
+    rj::Document document;
+    rj::Document::AllocatorType& allocator = document.GetAllocator();
+    rj::Value json_value(rj::kObjectType);
+
+    json_value.AddMember("total_count", rj::Value(_stats.num()), allocator);
+    json_value.AddMember("min", rj::Value(_stats.min()), allocator);
+    json_value.AddMember("average", rj::Value(_stats.average()), allocator);
+    json_value.AddMember("median", rj::Value(_stats.median()), allocator);
+    json_value.AddMember("percentile_75", rj::Value(_stats.percentile(75.0)), allocator);
+    json_value.AddMember("percentile_95", rj::Value(_stats.percentile(95)), allocator);
+    json_value.AddMember("percentile_99", rj::Value(_stats.percentile(99)), allocator);
+    json_value.AddMember("percentile_99_9", rj::Value(_stats.percentile(99.9)), allocator);
+    json_value.AddMember("percentile_99_99", rj::Value(_stats.percentile(99.99)), allocator);
+    json_value.AddMember("standard_deviation", rj::Value(_stats.standard_deviation()), allocator);
+    json_value.AddMember("max", rj::Value(_stats.max()), allocator);
+    json_value.AddMember("total_sum", rj::Value(_stats.sum()), allocator);
+
+    return json_value;
+}
+
 std::string MetricPrototype::simple_name() const {
     return group_name.empty() ? name : group_name;
 }
