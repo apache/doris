@@ -355,24 +355,24 @@ public class MaterializedViewSelectorTest {
     @Test
     public void testCompensateIndex(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
             @Injectable OlapTable table) {
-        Map<Long, List<Column>> candidateIndexIdToSchema = Maps.newHashMap();
-        Map<Long, List<Column>> allVisibleIndexes = Maps.newHashMap();
+        Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta = Maps.newHashMap();
+        Map<Long, MaterializedIndexMeta> allVisibleIndexes = Maps.newHashMap();
         List<Column> index1Columns = Lists.newArrayList();
         Column index1Column1 = new Column("c2", Type.INT, true, AggregateType.SUM, true, "", "");
         index1Columns.add(index1Column1);
-        allVisibleIndexes.put(new Long(1), index1Columns);
+        allVisibleIndexes.put(1L, new MaterializedIndexMeta(1L, index1Columns));
         List<Column> index2Columns = Lists.newArrayList();
         Column index2Column1 = new Column("c1", Type.INT, true, null, true, "", "");
         index2Columns.add(index2Column1);
         Column index2Column2 = new Column("c2", Type.INT, false, AggregateType.SUM, true, "", "");
         index2Columns.add(index2Column2);
-        allVisibleIndexes.put(new Long(2), index2Columns);
+        allVisibleIndexes.put(2L, new MaterializedIndexMeta(2L, index2Columns));
         List<Column> index3Columns = Lists.newArrayList();
         Column index3Column1 = new Column("c1", Type.INT, true, null, true, "", "");
         index3Columns.add(index3Column1);
         Column index3Column2 = new Column("c3", Type.INT, false, AggregateType.SUM, true, "", "");
         index3Columns.add(index3Column2);
-        allVisibleIndexes.put(new Long(3), index3Columns);
+        allVisibleIndexes.put(3L, new MaterializedIndexMeta(3L, index3Columns));
         List<Column> keyColumns = Lists.newArrayList();
         keyColumns.add(index2Column1);
         new Expectations() {
@@ -393,11 +393,11 @@ public class MaterializedViewSelectorTest {
         };
 
         MaterializedViewSelector selector = new MaterializedViewSelector(selectStmt, analyzer);
-        Deencapsulation.invoke(selector, "compensateCandidateIndex", candidateIndexIdToSchema,
+        Deencapsulation.invoke(selector, "compensateCandidateIndex", candidateIndexIdToMeta,
                                allVisibleIndexes, table);
-        Assert.assertEquals(2, candidateIndexIdToSchema.size());
-        Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(2)));
-        Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(3)));
+        Assert.assertEquals(2, candidateIndexIdToMeta.size());
+        Assert.assertTrue(candidateIndexIdToMeta.containsKey(2L));
+        Assert.assertTrue(candidateIndexIdToMeta.containsKey(3L));
     }
 
     @Test
