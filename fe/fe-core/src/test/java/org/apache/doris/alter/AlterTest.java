@@ -144,7 +144,6 @@ public class AlterTest {
                 "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
                 "PROPERTIES('replication_num' = '1');");
 
-        Config.enable_odbc_table = true;
         createTable("create external table test.odbc_table\n" +
                 "(  `k1` bigint(20) COMMENT \"\",\n" +
                 "  `k2` datetime COMMENT \"\",\n" +

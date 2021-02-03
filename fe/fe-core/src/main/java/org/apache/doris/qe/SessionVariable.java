@@ -235,7 +235,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean disableColocateJoin = false;
 
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN)
-    public boolean enableBucketShuffleJoin = false;
+    public boolean enableBucketShuffleJoin = true;
 
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
     public String preferJoinMethod = "broadcast";
