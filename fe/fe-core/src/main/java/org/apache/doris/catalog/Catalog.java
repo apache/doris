@@ -2991,12 +2991,8 @@ public class Catalog {
             createOlapTable(db, stmt);
             return;
         } else if (engineName.equals("odbc")) {
-            if (Config.enable_odbc_table) {
-                createOdbcTable(db, stmt);
-                return;
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
-            }
+            createOdbcTable(db, stmt);
+            return;
         } else if (engineName.equals("mysql")) {
             createMysqlTable(db, stmt);
             return;

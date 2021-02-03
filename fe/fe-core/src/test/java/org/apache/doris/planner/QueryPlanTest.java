@@ -360,7 +360,6 @@ public class QueryPlanTest {
                 "\"replication_num\" = \"1\"\n" +
                 ");");
 
-        Config.enable_odbc_table = true;
         createTable("create external table test.odbc_oracle\n" +
                 "(k1 int, k2 int)\n" +
                 "ENGINE=ODBC\n" +

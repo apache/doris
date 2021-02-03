@@ -736,12 +736,6 @@ Set to true so that Doris will automatically use blank replicas to fill tablets 
 
 Default is false.
 
-### `enable_odbc_table`
-
-If this parameter is set to true, Doris can support ODBC external table creation and query. For specific usage of ODBC table, please refer to the use document of ODBC table
-
-The function is still in the experimental stage, so the default value is false.
-
 
 ### `default_db_data_quota_bytes`
 
