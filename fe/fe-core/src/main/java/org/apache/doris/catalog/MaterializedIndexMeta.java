@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SqlParser;
@@ -61,11 +62,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
 
     private OriginStatement defineStmt;
 
-    /**
-     * Just for test
-     * @param indexId
-     * @param schema
-     */
+    @VisibleForTesting
     public MaterializedIndexMeta(long indexId, List<Column> schema) {
        this.indexId = indexId;
        this.schema = schema;
