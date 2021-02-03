@@ -25,10 +25,10 @@
 
 namespace doris {
 
-template <typename T, typename _Sequence, typename _Compare>
+template <typename T, typename Sequence, typename Compare>
 class SortingHeap {
 public:
-    SortingHeap(const _Compare& comp) : _comp(comp) {}
+    SortingHeap(const Compare& comp) : _comp(comp) {}
 
     bool is_valid() const { return !_queue.empty(); }
 
@@ -57,14 +57,14 @@ public:
         _next_idx = 0;
     }
 
-    _Sequence&& sorted_seq() {
+    Sequence&& sorted_seq() {
         std::sort_heap(_queue.begin(), _queue.end(), _comp);
         return std::move(_queue);
     }
 
 private:
-    _Sequence _queue;
-    _Compare _comp;
+    Sequence _queue;
+    Compare _comp;
 
     /// Cache comparison between first and second child if the order in queue has not been changed.
     size_t _next_idx = 0;
@@ -88,16 +88,15 @@ private:
         auto child_it = begin + child_idx;
 
         /// Check if we are in order.
-        //if (*child_it < *begin) return;
         if (_comp(*child_it, *begin)) return;
 
         _next_idx = 0;
 
         auto curr_it = begin;
-        auto top(std::move(*begin));
+        auto top = *begin;
         do {
             /// We are not in heap-order, swap the parent with it's largest child.
-            *curr_it = std::move(*child_it);
+            *curr_it = *child_it;
             curr_it = child_it;
 
             // recompute the child based off of the updated parent
@@ -115,7 +114,7 @@ private:
 
         /// Check if we are in order.
         } while (!(_comp(*child_it, top)));
-        *curr_it = std::move(top);
+        *curr_it = top;
     }
 };
 } // namespace doris
