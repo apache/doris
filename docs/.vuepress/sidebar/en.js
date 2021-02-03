@@ -337,6 +337,8 @@ module.exports = [
               "bitmap_has_any",
               "bitmap_hash",
               "bitmap_or",
+              "bitmap_xor",
+              "bitmap_not",
               "bitmap_to_string",
               "to_bitmap",
               "bitmap_intersect",
