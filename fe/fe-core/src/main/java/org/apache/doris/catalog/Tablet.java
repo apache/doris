@@ -553,7 +553,8 @@ public class Tablet extends MetaObject implements Writable {
         // 2. check version completeness
         for (Replica replica : replicas) {
             if (!backendsSet.contains(replica.getBackendId())) {
-                // We don't care about replicas that are not in backendsSet
+                // We don't care about replicas that are not in backendsSet.
+                // eg:  replicaBackendIds=(1,2,3,4); backendsSet=(1,2,3), then replica 4 should be skipped here and then goto ```COLOCATE_REDUNDANT``` in step 3
                 continue;
             }
             if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion) {
