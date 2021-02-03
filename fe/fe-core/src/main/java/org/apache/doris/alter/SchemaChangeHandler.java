@@ -1032,7 +1032,8 @@ public class SchemaChangeHandler extends AlterHandler {
         Set<String> bfColumns = null;
         double bfFpp = 0;
         try {
-            bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(propertyMap, indexSchemaMap.get(olapTable.getBaseIndexId()));
+            bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(propertyMap,
+                indexSchemaMap.get(olapTable.getBaseIndexId()), olapTable.getKeysType());
             bfFpp = PropertyAnalyzer.analyzeBloomFilterFpp(propertyMap);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
