@@ -513,13 +513,6 @@ under the License.
                 <version>0.2.3</version>
             </dependency>
 
-            <!-- https://mvnrepository.com/artifact/log4j/log4j -->
-            <dependency>
-                <groupId>log4j</groupId>
-                <artifactId>log4j</artifactId>
-                <version>1.2.17</version>
-            </dependency>
-
             <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
             <dependency>
                 <groupId>org.slf4j</groupId>
@@ -581,6 +574,16 @@ under the License.
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-core_2.12</artifactId>
                 <version>2.4.5</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>log4j</groupId>
+                        <artifactId>log4j</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>slf4j-log4j12</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-launcher_2.12 -->

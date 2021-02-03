@@ -28,8 +28,6 @@ import org.apache.doris.load.routineload.LoadDataSourceType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -43,10 +41,12 @@ import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class CreateRoutineLoadStmtTest {
 
-    private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmtTest.class);
+    private static final Logger LOG = LoggerFactory.getLogger(CreateRoutineLoadStmtTest.class);
     @Mocked
     Database database;
 

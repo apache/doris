@@ -27,8 +27,6 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
 
 import org.apache.commons.collections.map.MultiValueMap;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 import org.apache.spark.SparkConf;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.SparkSession;
@@ -37,6 +35,8 @@ import org.apache.spark.sql.functions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -50,7 +50,7 @@ import java.util.Set;
  * 4. dpp (data partition, data sort and data aggregation)
  */
 public class SparkEtlJob {
-    private static final Logger LOG = LogManager.getLogger(SparkEtlJob.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SparkEtlJob.class);
 
     private static final String BITMAP_DICT_FUNC = "bitmap_dict";
     private static final String TO_BITMAP_FUNC = "to_bitmap";
