@@ -595,7 +595,7 @@ public class Load {
      * This is only used for hadoop load
      */
     public static void checkAndCreateSource(Database db, DataDescription dataDescription,
-            Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) throws DdlException {
+                                            Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) throws DdlException {
         Source source = new Source(dataDescription.getFilePaths());
         long tableId = -1;
         Set<Long> sourcePartitionIds = Sets.newHashSet();
@@ -779,7 +779,7 @@ public class Load {
                     Pair<String, List<String>> function = entry.getValue();
                     try {
                         DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
-                                                                mappingColumn, dataDescription.isHadoopLoad());
+                                mappingColumn, dataDescription.isHadoopLoad());
                     } catch (AnalysisException e) {
                         throw new DdlException(e.getMessage());
                     }
@@ -883,7 +883,7 @@ public class Load {
                      * (A, B, C) SET (__doris_shadow_B = B)
                      */
                     ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(),
-                                                                             new SlotRef(null, originCol));
+                            new SlotRef(null, originCol));
                     shadowColumnDescs.add(importColumnDesc);
                 }
             } else {
@@ -918,7 +918,7 @@ public class Load {
                                    Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
         rewriteColumns(columnExprs);
         initColumns(tbl, columnExprs, columnToHadoopFunction, exprsByName, analyzer,
-                    srcTupleDesc, slotDescByName, params, true);
+                srcTupleDesc, slotDescByName, params, true);
     }
 
     /*
@@ -946,7 +946,7 @@ public class Load {
         }
         // check whether the OlapTable has sequenceCol
         boolean hasSequenceCol = false;
-        if (tbl instanceof OlapTable && ((OlapTable)tbl).hasSequenceCol()) {
+        if (tbl instanceof OlapTable && ((OlapTable) tbl).hasSequenceCol()) {
             hasSequenceCol = true;
         }
 
@@ -1771,12 +1771,7 @@ public class Load {
             clearJob(job, srcState);
         }
 
-        if (job.getBrokerDesc() != null) {
-            if (srcState == JobState.ETL) {
-                // Cancel job id
-                Catalog.getCurrentCatalog().getPullLoadJobMgr().cancelJob(job.getId());
-            }
-        }
+        Preconditions.checkState(job.getBrokerDesc() == null);
         LOG.info("cancel load job success. job: {}", job);
         return true;
     }
@@ -1925,14 +1920,14 @@ public class Load {
                 if (tableNames.isEmpty()) {
                     // forward compatibility
                     if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-                                                                           PrivPredicate.LOAD)) {
+                            PrivPredicate.LOAD)) {
                         continue;
                     }
                 } else {
                     boolean auth = true;
                     for (String tblName : tableNames) {
                         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                                                                                tblName, PrivPredicate.LOAD)) {
+                                tblName, PrivPredicate.LOAD)) {
                             auth = false;
                             break;
                         }
@@ -2004,8 +1999,8 @@ public class Load {
 
                 // task info
                 jobInfo.add("cluster:" + loadJob.getHadoopCluster()
-                                    + "; timeout(s):" + loadJob.getTimeoutSecond()
-                                    + "; max_filter_ratio:" + loadJob.getMaxFilterRatio());
+                        + "; timeout(s):" + loadJob.getTimeoutSecond()
+                        + "; max_filter_ratio:" + loadJob.getMaxFilterRatio());
 
                 // error msg
                 if (loadJob.getState() == JobState.CANCELLED) {
@@ -2330,7 +2325,7 @@ public class Load {
                         continue;
                     }
                     replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
-                                              info.getDataSize(), info.getRowCount());
+                            info.getDataSize(), info.getRowCount());
                 }
             }
 
@@ -2349,7 +2344,7 @@ public class Load {
                             continue;
                         }
                         updatePartitionVersion(partition, partitionLoadInfo.getVersion(),
-                                               partitionLoadInfo.getVersionHash(), jobId);
+                                partitionLoadInfo.getVersionHash(), jobId);
 
                         // update table row count
                         for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
@@ -2446,7 +2441,7 @@ public class Load {
                         continue;
                     }
                     replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
-                                              info.getDataSize(), info.getRowCount());
+                            info.getDataSize(), info.getRowCount());
                 }
             }
         } else {
@@ -2652,7 +2647,7 @@ public class Load {
                 // hdfs://host:port/outputPath/dbId/loadLabel/
                 DppConfig dppConfig = job.getHadoopDppConfig();
                 String outputPath = DppScheduler.getEtlOutputPath(dppConfig.getFsDefaultName(),
-                                                                  dppConfig.getOutputPath(), job.getDbId(), job.getLabel(), "");
+                        dppConfig.getOutputPath(), job.getDbId(), job.getLabel(), "");
                 try {
                     dppScheduler.deleteEtlOutputPath(outputPath);
                 } catch (Exception e) {
@@ -2696,7 +2691,7 @@ public class Load {
     }
 
     public boolean updateLoadJobState(LoadJob job, JobState destState, CancelType cancelType, String msg,
-            List<String> failedMsg) {
+                                      List<String> failedMsg) {
         boolean result = true;
         JobState srcState = null;
 
@@ -2855,7 +2850,7 @@ public class Load {
                 }
 
                 updatePartitionVersion(partition, partitionLoadInfo.getVersion(),
-                                       partitionLoadInfo.getVersionHash(), jobId);
+                        partitionLoadInfo.getVersionHash(), jobId);
 
                 for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     long tableRowCount = 0L;
@@ -2889,7 +2884,7 @@ public class Load {
         long partitionId = partition.getId();
         partition.updateVisibleVersionAndVersionHash(version, versionHash);
         LOG.info("update partition version success. version: {}, version hash: {}, job id: {}, partition id: {}",
-                 version, versionHash, jobId, partitionId);
+                version, versionHash, jobId, partitionId);
     }
 
     private boolean processCancelled(LoadJob job, CancelType cancelType, String msg, List<String> failedMsg) {
@@ -2961,8 +2956,8 @@ public class Load {
         if (srcState == JobState.LOADING || srcState == JobState.QUORUM_FINISHED) {
             for (PushTask pushTask : job.getPushTasks()) {
                 AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                                              pushTask.getVersion(), pushTask.getVersionHash(),
-                                              pushTask.getPushType(), pushTask.getTaskType());
+                        pushTask.getVersion(), pushTask.getVersionHash(),
+                        pushTask.getPushType(), pushTask.getTaskType());
             }
         }
 

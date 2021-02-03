@@ -206,7 +206,6 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
-import org.apache.doris.task.PullLoadJobMgr;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -367,7 +366,6 @@ public class Catalog {
 
     private MetaReplayState metaReplayState;
 
-    private PullLoadJobMgr pullLoadJobMgr;
     private BrokerMgr brokerMgr;
     private ResourceMgr resourceMgr;
 
@@ -520,7 +518,6 @@ public class Catalog {
 
         this.isDefaultClusterCreated = false;
 
-        this.pullLoadJobMgr = new PullLoadJobMgr(!isCheckpointCatalog);
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
 
@@ -587,10 +584,6 @@ public class Catalog {
     // but in some cases, we should get the serving catalog explicitly.
     public static Catalog getServingCatalog() {
         return SingletonHolder.INSTANCE;
-    }
-
-    public PullLoadJobMgr getPullLoadJobMgr() {
-        return pullLoadJobMgr;
     }
 
     public BrokerMgr getBrokerMgr() {
