@@ -1011,11 +1011,11 @@ public:
             case EMPTY:
                 break;
             case SINGLE:
-                //there is no need to convert the type if two variables are equal
+                //there is need to convert the type if two variables are equal
                 if (_sv == value) {
                     _type = EMPTY;
-                    break;
                 }
+                break;
             case BITMAP:
                 _bitmap.remove(value);
                 _convert_to_smaller_type();
