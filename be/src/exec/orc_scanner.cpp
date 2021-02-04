@@ -230,7 +230,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                     case orc::FLOAT:
                     case orc::DOUBLE: {
                         double value = ((orc::DoubleVectorBatch*)cvb)->data[_current_line_of_group];
-                        wbytes = sprintf((char*)tmp_buf, "%f", value);
+                        wbytes = sprintf((char*)tmp_buf, "%.9f", value);
                         str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
                         memcpy(str_slot->ptr, tmp_buf, wbytes);
                         str_slot->len = wbytes;
