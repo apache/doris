@@ -215,11 +215,6 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
 import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.codehaus.jackson.map.ObjectMapper;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -233,6 +228,11 @@ import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
+
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -727,8 +727,7 @@ public class Catalog {
         // 1. check and create dirs and files
         File meta = new File(metaDir);
         if (!meta.exists()) {
-            LOG.error("{} does not exist, will exit", meta.getAbsolutePath());
-            System.exit(-1);
+            throw new Exception(meta.getAbsolutePath() + " does not exist, will exit");
         }
 
         if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
@@ -742,8 +741,7 @@ public class Catalog {
                 imageDir.mkdirs();
             }
         } else {
-            LOG.error("Invalid edit log type: {}", Config.edit_log_type);
-            System.exit(-1);
+            throw new Exception("Invalid edit log type: " + Config.edit_log_type);
         }
 
         // init plugin manager
@@ -803,9 +801,8 @@ public class Catalog {
             // check file integrity, if has.
             if ((roleFile.exists() && !versionFile.exists())
                     || (!roleFile.exists() && versionFile.exists())) {
-                LOG.error("role file and version file must both exist or both not exist. "
+                throw new IOException("role file and version file must both exist or both not exist. "
                         + "please specific one helper node to recover. will exit.");
-                System.exit(-1);
             }
 
             // ATTN:
@@ -912,8 +909,7 @@ public class Catalog {
             if (!versionFile.exists()) {
                 // If the version file doesn't exist, download it from helper node
                 if (!getVersionFileFromHelper(rightHelperNode)) {
-                    LOG.error("fail to download version file from " + rightHelperNode.first + " will exit.");
-                    System.exit(-1);
+                    throw new IOException("fail to download version file from " + rightHelperNode.first + " will exit.");
                 }
 
                 // NOTE: cluster_id will be init when Storage object is constructed,
@@ -952,13 +948,11 @@ public class Catalog {
                         Preconditions.checkNotNull(token);
                         Preconditions.checkNotNull(remoteToken);
                         if (!token.equals(remoteToken)) {
-                            LOG.error("token is not equal with helper node {}. will exit.", rightHelperNode.first);
-                            System.exit(-1);
+                            throw new IOException("token is not equal with helper node " + rightHelperNode.first + ". will exit.");
                         }
                     }
                 } catch (Exception e) {
-                    LOG.warn("fail to check cluster_id and token with helper node.", e);
-                    System.exit(-1);
+                    throw new IOException("fail to check cluster_id and token with helper node.", e);
                 }
             }
 
@@ -966,8 +960,7 @@ public class Catalog {
         }
 
         if (Config.cluster_id != -1 && clusterId != Config.cluster_id) {
-            LOG.error("cluster id is not equal with config item cluster_id. will exit.");
-            System.exit(-1);
+            throw new IOException("cluster id is not equal with config item cluster_id. will exit.");
         }
 
         if (role.equals(FrontendNodeType.FOLLOWER)) {
@@ -1052,13 +1045,12 @@ public class Catalog {
         LOG.debug("get self node: {}", selfNode);
     }
 
-    private void getHelperNodes(String[] args) throws AnalysisException {
+    private void getHelperNodes(String[] args) throws Exception {
         String helpers = null;
         for (int i = 0; i < args.length; i++) {
             if (args[i].equalsIgnoreCase("-helper")) {
                 if (i + 1 >= args.length) {
-                    System.out.println("-helper need parameter host:port,host:port");
-                    System.exit(-1);
+                    throw new AnalysisException("-helper need parameter host:port,host:port");
                 }
                 helpers = args[i + 1];
                 break;
@@ -1073,8 +1065,7 @@ public class Catalog {
             } else if (Config.enable_deploy_manager.equalsIgnoreCase("local")) {
                 deployManager = new LocalFileDeployManager(this, 5000 /* 5s interval */);
             } else {
-                System.err.println("Unknow deploy manager: " + Config.enable_deploy_manager);
-                System.exit(-1);
+                throw new AnalysisException("Unknow deploy manager: " + Config.enable_deploy_manager);
             }
 
             getHelperNodeFromDeployManager();
@@ -1110,7 +1101,7 @@ public class Catalog {
     }
 
     @SuppressWarnings("unchecked")
-    private void getHelperNodeFromDeployManager() {
+    private void getHelperNodeFromDeployManager() throws Exception {
         Preconditions.checkNotNull(deployManager);
 
         // 1. check if this is the first time to start up
@@ -1118,9 +1109,8 @@ public class Catalog {
         File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
         if ((roleFile.exists() && !versionFile.exists())
                 || (!roleFile.exists() && versionFile.exists())) {
-            LOG.error("role file and version file must both exist or both not exist. "
+            throw new Exception("role file and version file must both exist or both not exist. "
                     + "please specific one helper node to recover. will exit.");
-            System.exit(-1);
         }
 
         if (roleFile.exists()) {
@@ -1135,8 +1125,7 @@ public class Catalog {
         // Get helper node from deploy manager.
         helperNodes = deployManager.getHelperNodes();
         if (helperNodes == null || helperNodes.isEmpty()) {
-            LOG.error("failed to get helper node from deploy manager. exit");
-            System.exit(-1);
+            throw new Exception("failed to get helper node from deploy manager. exit");
         }
     }
 
