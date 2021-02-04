@@ -145,12 +145,21 @@ private:
 
     void _init_load_bf_columns(const ReaderParams& read_params);
 
+    // Direcly read row from rowset and pass to upper caller. No need to do aggregation.
+    // This is usually used for DUPLICATE KEY tables
     OLAPStatus _direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                 bool* eof);
+    // Just same as _direct_next_row, but this is only for AGGREGATE KEY tables.
+    // And this is an optimization for AGGR tables.
+    // When there is only one rowset and is not overlapping, we can read it directly without aggregation.
     OLAPStatus _direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
                                         ObjectPool* agg_pool, bool* eof);
+    // For normal AGGREGATE KEY tables, read data by a merge heap.
     OLAPStatus _agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                  bool* eof);
+    // For UNIQUE KEY tables, read data by a merge heap.
+    // The difference from _agg_key_next_row is that it will read the data from high version to low version,
+    // to minimize the comparison time in merge heap.
     OLAPStatus _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                     bool* eof);
 
