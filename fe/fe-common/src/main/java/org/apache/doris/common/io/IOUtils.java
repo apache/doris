@@ -18,7 +18,7 @@
 package org.apache.doris.common.io;
 
 import com.google.common.base.Strings;
-import org.apache.logging.log4j.Logger;
+import org.slf4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
