@@ -361,7 +361,7 @@ public class QueryPlanTest {
                 ");");
 
         createTable("create external table test.odbc_oracle\n" +
-                "(k1 int, k2 int)\n" +
+                "(k1 float, k2 int)\n" +
                 "ENGINE=ODBC\n" +
                 "PROPERTIES (\n" +
                 "\"host\" = \"127.0.0.1\",\n" +
