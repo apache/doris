@@ -213,7 +213,7 @@ public class ColocateTableBalancer extends MasterDaemon {
                                 Set<Long> bucketsSeq = backendBucketsSeq.get(idx);
                                 Preconditions.checkState(bucketsSeq.size() == replicationNum, bucketsSeq.size() + " vs. " + replicationNum);
                                 Tablet tablet = index.getTablet(tabletId);
-                                TabletStatus st = tablet.getColocateHealthStatus(visibleVersion, visibleVersionHash, replicationNum, bucketsSeq);
+                                TabletStatus st = tablet.getColocateHealthStatus(visibleVersion, replicationNum, bucketsSeq);
                                 if (st != TabletStatus.HEALTHY) {
                                     isGroupStable = false;
                                     LOG.debug("get unhealthy tablet {} in colocate table. status: {}", tablet.getId(), st);
