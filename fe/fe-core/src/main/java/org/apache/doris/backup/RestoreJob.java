@@ -222,7 +222,7 @@ public class RestoreJob extends AbstractJob {
         for (Long tabletId : request.getDownloadedTabletIds()) {
             SnapshotInfo info = snapshotInfos.get(tabletId, task.getBackendId());
             if (info == null) {
-                LOG.error("failed to find snapshot infos of tablet {} in be {}, {}",
+                LOG.warn("failed to find snapshot infos of tablet {} in be {}, {}",
                           tabletId, task.getBackendId(), this);
                 return false;
             }
@@ -231,7 +231,7 @@ public class RestoreJob extends AbstractJob {
         taskProgress.remove(task.getSignature());
         Long beId = unfinishedSignatureToId.remove(task.getSignature());
         if (beId == null || beId != task.getBackendId()) {
-            LOG.error("invalid download task: {}. {}", task, this);
+            LOG.warn("invalid download task: {}. {}", task, this);
             return false;
         }
 
@@ -247,7 +247,7 @@ public class RestoreJob extends AbstractJob {
         taskProgress.remove(task.getSignature());
         Long tabletId = unfinishedSignatureToId.remove(task.getSignature());
         if (tabletId == null || tabletId != task.getTabletId()) {
-            LOG.error("invalid dir move task: {}. {}", task, this);
+            LOG.warn("invalid dir move task: {}. {}", task, this);
             return false;
         }
 
