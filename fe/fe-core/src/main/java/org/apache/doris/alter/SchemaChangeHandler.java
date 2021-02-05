@@ -753,6 +753,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Can not assign aggregation method on key column: " +  newColName);
             } else if (null == newColumn.getAggregationType()) {
                 newColumn.setIsKey(true);
+            } else if (newColumn.getAggregationType() == AggregateType.SUM
+                       && newColumn.getDefaultValue() != null && !newColumn.getDefaultValue().equals("0")) {
+                throw new DdlException("The default value of '" + newColName + "' with SUM aggregation function must be zero");
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
             if (newColumn.getAggregationType() != null) {
