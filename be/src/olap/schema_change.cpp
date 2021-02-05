@@ -449,18 +449,13 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
         if (is_data_left_vec[row_index] == 1) {
             if (_delete_handler != nullptr && _delete_handler->is_filter_data(data_version, read_helper)) {
                 is_data_left_vec[row_index] = 0;
+                (*filtered_rows)++;
             }
         }
     }
 
     // a.2 计算留下的row num
-    uint32_t new_row_num = 0;
-    for (uint32_t i = 0; i < row_num; ++i) {
-        if (is_data_left_vec[i] != 0) {
-            ++new_row_num;
-        }
-    }
-    *filtered_rows = row_num - new_row_num;
+    uint32_t new_row_num = row_num - *filtered_rows;
 
     const bool need_filter_data = (new_row_num != row_num);
     const bool filter_all = (new_row_num == 0);
