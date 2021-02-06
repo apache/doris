@@ -87,15 +87,15 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -169,13 +169,20 @@ public class SparkLoadJob extends BulkLoadJob {
      */
     private void setResourceInfo() throws DdlException {
         // spark resource
-        String resourceName = resourceDesc.getName();
-        Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(resourceName);
-        if (oriResource == null) {
-            throw new DdlException("Resource does not exist. name: " + resourceName);
+        if (resourceDesc == null) {
+            // resourceDesc is null means this is a replay thread.
+            // And resourceDesc is not persisted, so it should be null.
+            // And sparkResource should not be null because it is persisted.
+            Preconditions.checkNotNull(sparkResource);
+        } else {
+            String resourceName = resourceDesc.getName();
+            Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(resourceName);
+            if (oriResource == null) {
+                throw new DdlException("Resource does not exist. name: " + resourceName);
+            }
+            sparkResource = ((SparkResource) oriResource).getCopiedResource();
+            sparkResource.update(resourceDesc);
         }
-        sparkResource = ((SparkResource) oriResource).getCopiedResource();
-        sparkResource.update(resourceDesc);
 
         // broker desc
         Map<String, String> brokerProperties = sparkResource.getBrokerPropertiesWithoutPrefix();
