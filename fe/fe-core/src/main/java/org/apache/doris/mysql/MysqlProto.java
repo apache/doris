@@ -138,8 +138,12 @@ public class MysqlProto {
         serializer.reset();
         MysqlHandshakePacket handshakePacket = new MysqlHandshakePacket(context.getConnectionId());
         handshakePacket.writeTo(serializer);
-        channel.sendAndFlush(serializer.toByteBuffer());
-
+        try {
+            channel.sendAndFlush(serializer.toByteBuffer());
+        } catch (IOException e) {
+            LOG.warn("Send and flush channel exception, ignore. Exception: " + e.toString());
+            return false;
+        }
         // Server receive authenticate packet from client.
         ByteBuffer handshakeResponse = channel.fetchOnePacket();
         if (handshakeResponse == null) {
