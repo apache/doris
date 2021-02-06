@@ -168,23 +168,23 @@ public class SparkLoadJob extends BulkLoadJob {
      * @throws DdlException
      */
     private void setResourceInfo() throws DdlException {
-        // spark resource
         if (resourceDesc == null) {
             // resourceDesc is null means this is a replay thread.
             // And resourceDesc is not persisted, so it should be null.
-            // And sparkResource should not be null because it is persisted.
-            Preconditions.checkNotNull(sparkResource);
-        } else {
-            String resourceName = resourceDesc.getName();
-            Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(resourceName);
-            if (oriResource == null) {
-                throw new DdlException("Resource does not exist. name: " + resourceName);
-            }
-            sparkResource = ((SparkResource) oriResource).getCopiedResource();
-            sparkResource.update(resourceDesc);
+            // sparkResource and brokerDesc are both persisted, so no need to handle them
+            // in replay process.
+            return;
         }
 
-        // broker desc
+        // set sparkResource and brokerDesc
+        String resourceName = resourceDesc.getName();
+        Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(resourceName);
+        if (oriResource == null) {
+            throw new DdlException("Resource does not exist. name: " + resourceName);
+        }
+        sparkResource = ((SparkResource) oriResource).getCopiedResource();
+        sparkResource.update(resourceDesc);
+
         Map<String, String> brokerProperties = sparkResource.getBrokerPropertiesWithoutPrefix();
         brokerDesc = new BrokerDesc(sparkResource.getBroker(), brokerProperties);
     }
