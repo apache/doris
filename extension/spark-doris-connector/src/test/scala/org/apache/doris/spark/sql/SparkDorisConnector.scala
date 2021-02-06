@@ -12,12 +12,9 @@ object SparkDorisConnector {
         sc.setLogLevel("DEBUG")
         import org.apache.doris.spark._
         val dorisSparkRDD = sc.dorisRDD(
-//            tableIdentifier = Some("ods.ods_pos_pro_shop_delta"),
-            tableIdentifier = Some("ods.ods_t_pro_dish_list_detail_test_demo"),
-//            query = Some("select * from ods.ods_t_pro_dish_list_detail_test_demo limit 1"),
+            tableIdentifier = Some("db.table1"),
             cfg = Some(Map(
-//                "doris.fenodes" -> "10.220.146.10:8030",
-                "doris.fenodes" -> "10.220.147.155:8030",
+                "doris.fenodes" -> "feip:8030",
                 "doris.request.auth.user" -> "root",
                 "doris.request.auth.password" -> ""
             ))
