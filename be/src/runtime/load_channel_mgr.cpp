@@ -117,8 +117,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 static void dummy_deleter(const CacheKey& key, void* value) {}
 
 Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
-                                 google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                                 int64_t* wait_lock_time_ns) {
+                                 google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
     UniqueId load_id(request.id());
     // 1. get load channel
     std::shared_ptr<LoadChannel> channel;
