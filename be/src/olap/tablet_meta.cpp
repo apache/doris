@@ -373,11 +373,6 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         }
         _rs_metas.push_back(std::move(rs_meta));
     }
-    for (auto& it : tablet_meta_pb.inc_rs_metas()) {
-        RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
-        rs_meta->init_from_pb(it);
-        _inc_rs_metas.push_back(std::move(rs_meta));
-    }
 
     for (auto& it : tablet_meta_pb.stale_rs_metas()) {
         RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
@@ -431,9 +426,6 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
 
     for (auto& rs : _rs_metas) {
         rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
-    }
-    for (auto rs : _inc_rs_metas) {
-        rs->to_rowset_pb(tablet_meta_pb->add_inc_rs_metas());
     }
     for (auto rs : _stale_rs_metas) {
         rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
@@ -538,27 +530,6 @@ void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
     _rs_metas = std::move(rs_metas);
 }
 
-void TabletMeta::revise_inc_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
-    WriteLock wrlock(&_meta_lock);
-    // delete alter task
-    _alter_task.reset();
-
-    _inc_rs_metas = std::move(rs_metas);
-}
-
-OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
-    // check RowsetMeta is valid
-    for (auto rs : _inc_rs_metas) {
-        if (rs->version() == rs_meta->version()) {
-            LOG(WARNING) << "rowset already exist. rowset_id=" << rs->rowset_id();
-            return OLAP_ERR_ROWSET_ALREADY_EXIST;
-        }
-    }
-
-    _inc_rs_metas.push_back(rs_meta);
-    return OLAP_SUCCESS;
-}
-
 void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
     auto it = _stale_rs_metas.begin();
     while (it != _stale_rs_metas.end()) {
@@ -570,8 +541,8 @@ void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
     }
 }
 
-RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& version) const {
-    for (auto it : _stale_rs_metas) {
+RowsetMetaSharedPtr TabletMeta::acquire_rs_meta_by_version(const Version& version) const {
+    for (auto it : _rs_metas) {
         if (it->version() == version) {
             return it;
         }
@@ -579,20 +550,8 @@ RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& 
     return nullptr;
 }
 
-void TabletMeta::delete_inc_rs_meta_by_version(const Version& version) {
-    auto it = _inc_rs_metas.begin();
-    while (it != _inc_rs_metas.end()) {
-        if ((*it)->version() == version) {
-            _inc_rs_metas.erase(it);
-            break;
-        } else {
-            it++;
-        }
-    }
-}
-
-RowsetMetaSharedPtr TabletMeta::acquire_inc_rs_meta_by_version(const Version& version) const {
-    for (auto it : _inc_rs_metas) {
+RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& version) const {
+    for (auto it : _stale_rs_metas) {
         if (it->version() == version) {
             return it;
         }
@@ -729,10 +688,6 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._rs_metas.size() != b._rs_metas.size()) return false;
     for (int i = 0; i < a._rs_metas.size(); ++i) {
         if (a._rs_metas[i] != b._rs_metas[i]) return false;
-    }
-    if (a._inc_rs_metas.size() != b._inc_rs_metas.size()) return false;
-    for (int i = 0; i < a._inc_rs_metas.size(); ++i) {
-        if (a._inc_rs_metas[i] != b._inc_rs_metas[i]) return false;
     }
     if (a._alter_task != b._alter_task) return false;
     if (a._in_restore_mode != b._in_restore_mode) return false;
