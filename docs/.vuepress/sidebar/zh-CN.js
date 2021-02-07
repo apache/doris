@@ -57,7 +57,6 @@ module.exports = [
           "routine-load-manual",
           "sequence-column-manual",
           "spark-load-manual",
-          "spark-load-manual",
           "stream-load-manual",
         ],
         sidebarDepth: 2,
