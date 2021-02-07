@@ -220,7 +220,7 @@ under the License.
 
     [table]
     1. 修改表的默认副本数量, 新建分区副本数量默认使用此值
-        ATLER TABLE example_db.my_table 
+        ALTER TABLE example_db.my_table 
         SET ("default.replication_num" = "2");
         
     2. 修改单分区表的实际副本数量(只限单分区表)
