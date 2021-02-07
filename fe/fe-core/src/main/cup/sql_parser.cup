@@ -237,7 +237,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_DELETE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_ENABLE, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXCEPT, KW_EXCLUDE,
     KW_EXISTS, KW_EXPORT, KW_EXTERNAL, KW_EXTRACT,
-    KW_FALSE, KW_FEATURE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FILE, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORCE, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION, KW_FUNCTIONS,
+    KW_FALSE, KW_FEATURE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FILE, KW_FILTER, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORCE, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION, KW_FUNCTIONS,
     KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP, KW_GROUPING,
     KW_HASH, KW_HAVING, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HOUR, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE, KW_INSTALL,
@@ -289,7 +289,8 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, enter_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
-    import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt;
+    import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
+    import_preceding_filter_stmt;
 
 nonterminal ImportColumnDesc import_column_desc;
 nonterminal List<ImportColumnDesc> import_column_descs;
@@ -345,6 +346,7 @@ nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name;
 nonterminal FunctionName function_name;
+nonterminal Expr pre_filter_clause;
 nonterminal Expr where_clause;
 nonterminal Expr delete_on_clause;
 nonterminal Expr where_clause_without_null;
@@ -545,6 +547,10 @@ stmts ::=
     {:
         RESULT = Lists.newArrayList(stmt);
     :}
+    | import_preceding_filter_stmt:stmt
+    {:
+        RESULT = Lists.newArrayList(stmt);
+    :}
     ;
 
 import_columns_stmt ::=
@@ -580,7 +586,7 @@ import_column_desc ::=
 import_where_stmt ::=
     KW_WHERE expr:expr
     {:
-        RESULT = new ImportWhereStmt(expr);
+        RESULT = new ImportWhereStmt(expr, false);
     :}
     ;
 
@@ -595,6 +601,13 @@ import_sequence_stmt ::=
     KW_ORDER KW_BY ident:s
     {:
         RESULT = new ImportSequenceStmt(s);
+    :}
+    ;
+
+import_preceding_filter_stmt ::=
+    KW_PRECEDING KW_FILTER expr:expr
+    {:
+        RESULT = new ImportWhereStmt(expr, true);
     :}
     ;
 
@@ -1378,12 +1391,13 @@ data_desc ::=
     opt_col_list:colList
     opt_columns_from_path:columnsFromPath
     opt_col_mapping_list:colMappingList
+    pre_filter_clause:preFilterExpr
     where_clause:whereExpr
     delete_on_clause:deleteExpr
     sequence_col_clause:sequenceColName
     {:
         RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat,
-        columnsFromPath, isNeg, colMappingList, whereExpr, mergeType, deleteExpr, sequenceColName);
+        columnsFromPath, isNeg, colMappingList, preFilterExpr, whereExpr, mergeType, deleteExpr, sequenceColName);
     :}
     | opt_merge_type:mergeType KW_DATA KW_FROM KW_TABLE ident:srcTableName
     opt_negative:isNeg
@@ -1570,6 +1584,10 @@ load_property ::=
     | import_columns_stmt:columnsInfo
     {:
         RESULT = columnsInfo;
+    :}
+    | import_preceding_filter_stmt:preFilter
+    {:
+        RESULT = preFilter;
     :}
     | import_where_stmt:wherePredicate
     {:
@@ -3744,6 +3762,7 @@ where_clause ::=
   | KW_WHERE expr:e
   {: RESULT = e; :}
   ;
+
 delete_on_clause ::=
    /* empty */
   {: RESULT = null; :}
@@ -3752,11 +3771,18 @@ delete_on_clause ::=
   ;
 
 sequence_col_clause ::=
-/* empty */
-{: RESULT = null; :}
-| KW_ORDER KW_BY ident:s
-{: RESULT = s; :}
-;
+  /* empty */
+  {: RESULT = null; :}
+  | KW_ORDER KW_BY ident:s
+  {: RESULT = s; :}
+  ;
+
+pre_filter_clause ::=
+  /* empty */
+  {: RESULT = null; :}
+  | KW_PRECEDING KW_FILTER expr:e
+  {: RESULT = e; :}
+  ;
 
 where_clause_without_null ::=
   KW_WHERE expr:e
@@ -4683,6 +4709,8 @@ keyword ::=
     | KW_BUCKETS:id
     {: RESULT = id; :}
     | KW_FILE:id
+    {: RESULT = id; :}
+    | KW_FILTER:id
     {: RESULT = id; :}
     | KW_FIRST:id
     {: RESULT = id; :}

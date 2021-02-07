@@ -508,7 +508,7 @@ public class MultiLoadMgr {
                 }
             }
             DataDescription dataDescription = new DataDescription(tbl, partitionNames, files, null, columnSeparator,
-                    fileFormat, null, isNegative, null, whereExpr, mergeType, deleteCondition,
+                    fileFormat, null, isNegative, null, null, whereExpr, mergeType, deleteCondition,
                     sequenceColName);
             dataDescription.setColumnDef(colString);
             backend = Catalog.getCurrentSystemInfo().getBackend(backendId);

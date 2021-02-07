@@ -48,6 +48,8 @@ public interface LoadTaskInfo {
     public String getPath();
     public List<ImportColumnDesc> getColumnExprDescs();
     public boolean isStrictMode();
+
+    public Expr getPrecedingFilter();
     public Expr getWhereExpr();
     public ColumnSeparator getColumnSeparator();
 }

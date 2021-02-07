@@ -95,17 +95,17 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.transaction.TransactionNotFoundException;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
+
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -929,14 +929,19 @@ public class Load {
      * 4. validate hadoop functions
      * 5. init slot descs and expr map for load plan
      */
-    public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
-            Map<String, Pair<String, List<String>>> columnToHadoopFunction,
-            Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
-            Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params,
-            boolean needInitSlotAndAnalyzeExprs) throws UserException {
+    private static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
+                                    Map<String, Pair<String, List<String>>> columnToHadoopFunction,
+                                    Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
+                                    Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params,
+                                    boolean needInitSlotAndAnalyzeExprs) throws UserException {
         // We make a copy of the columnExprs so that our subsequent changes
         // to the columnExprs will not affect the original columnExprs.
         // skip the mapping columns not exist in schema
+        // eg: the origin column list is:
+        //          (k1, k2, tmpk3 = k1 + k2, k3 = tmpk3)
+        //     after calling rewriteColumns(), it will become
+        //          (k1, k2, tmpk3 = k1 + k2, k3 = k1 + k2)
+        //     so "tmpk3 = k1 + k2" is not needed anymore, we can skip it.
         List<ImportColumnDesc> copiedColumnExprs = new ArrayList<>();
         for (ImportColumnDesc importColumnDesc : columnExprs) {
             String mappingColumnName = importColumnDesc.getColumnName();
