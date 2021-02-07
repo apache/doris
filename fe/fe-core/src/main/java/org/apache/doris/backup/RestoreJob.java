@@ -1566,12 +1566,6 @@ public class RestoreJob extends AbstractJob {
                         restoreTbl.getName(), entry.second.getName());
                 restoreTbl.writeLock();
                 try {
-                    for (MaterializedIndex idx : entry.second.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                        for (Tablet tablet : idx.getTablets()) {
-                            Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
-                        }
-                    }
-
                     restoreTbl.dropPartition(dbId, entry.second.getName(), true /* is restore */);
                 } finally {
                     restoreTbl.writeUnlock();
