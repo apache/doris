@@ -205,6 +205,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -2661,9 +2662,11 @@ public class Catalog {
 
                 // save table names for recycling
                 Set<String> tableNames = db.getTableNamesWithLock();
-                unprotectDropDb(db, stmt.isForceDrop());
+                unprotectDropDb(db, stmt.isForceDrop(), false);
                 if (!stmt.isForceDrop()) {
                     Catalog.getCurrentRecycleBin().recycleDatabase(db, tableNames);
+                } else {
+                    Catalog.getCurrentCatalog().eraseDatabase(db.getId(), false);
                 }
             } finally {
                 db.writeUnlock();
@@ -2683,11 +2686,11 @@ public class Catalog {
         LOG.info("finish drop database[{}], is force : {}", dbName, stmt.isForceDrop());
     }
 
-    public void unprotectDropDb(Database db, boolean isForeDrop) {
+    public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay) {
         for (Table table : db.getTables()) {
             table.writeLock();
             try {
-                unprotectDropTable(db, table, isForeDrop);
+                unprotectDropTable(db, table, isForeDrop, isReplay);
             } finally {
                 table.writeUnlock();
             }
@@ -2717,9 +2720,11 @@ public class Catalog {
             db.writeLock();
             try {
                 Set<String> tableNames = db.getTableNamesWithLock();
-                unprotectDropDb(db, isForceDrop);
+                unprotectDropDb(db, isForceDrop, true);
                 if (!isForceDrop) {
                     Catalog.getCurrentRecycleBin().recycleDatabase(db, tableNames);
+                } else {
+                    Catalog.getCurrentCatalog().eraseDatabase(db.getId(), false);
                 }
             } finally {
                 db.writeUnlock();
@@ -4364,7 +4369,7 @@ public class Catalog {
             DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, stmt.isForceDrop());
             table.writeLock();
             try {
-                unprotectDropTable(db, table, stmt.isForceDrop());
+                unprotectDropTable(db, table, stmt.isForceDrop(), false);
             } finally {
                 table.writeUnlock();
             }
@@ -4375,7 +4380,7 @@ public class Catalog {
         LOG.info("finished dropping table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
     }
 
-    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop) {
+    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay) {
         if (table.getType() == TableType.ELASTICSEARCH) {
             esRepository.deRegisterTable(table.getId());
         } else if (table.getType() == TableType.OLAP) {
@@ -4387,6 +4392,10 @@ public class Catalog {
         db.dropTable(table.getName());
         if (!isForceDrop) {
             Catalog.getCurrentRecycleBin().recycleTable(db.getId(), table);
+        } else {
+            if (table.getType() == TableType.OLAP) {
+                Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, isReplay);
+            }
         }
 
         LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
@@ -4399,7 +4408,7 @@ public class Catalog {
         db.writeLock();
         table.writeLock();
         try {
-            unprotectDropTable(db, table, isForceDrop);
+            unprotectDropTable(db, table, isForceDrop, true);
         } finally {
             table.writeUnlock();
             db.writeUnlock();
@@ -6798,6 +6807,68 @@ public class Catalog {
             }
         } finally {
             table.writeUnlock();
+        }
+    }
+
+    public void eraseDatabase(long dbId, boolean needEditLog) {
+        // remove jobs
+        Catalog.getCurrentCatalog().getLoadInstance().removeDbLoadJob(dbId);
+        Catalog.getCurrentCatalog().getSchemaChangeHandler().removeDbAlterJob(dbId);
+        Catalog.getCurrentCatalog().getRollupHandler().removeDbAlterJob(dbId);
+
+        // remove database transaction manager
+        Catalog.getCurrentCatalog().getGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
+
+        if (needEditLog) {
+            Catalog.getCurrentCatalog().getEditLog().logEraseDb(dbId);
+        }
+    }
+
+    public void onEraseOlapTable(OlapTable olapTable, boolean isReplay) {
+        // inverted index
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        Collection<Partition> allPartitions = olapTable.getAllPartitions();
+        for (Partition partition : allPartitions) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                for (Tablet tablet : index.getTablets()) {
+                    invertedIndex.deleteTablet(tablet.getId());
+                }
+            }
+        }
+
+        if (!isReplay) {
+            // drop all replicas
+            AgentBatchTask batchTask = new AgentBatchTask();
+            for (Partition partition : olapTable.getAllPartitions()) {
+                List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+                for (MaterializedIndex materializedIndex : allIndices) {
+                    long indexId = materializedIndex.getId();
+                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                    for (Tablet tablet : materializedIndex.getTablets()) {
+                        long tabletId = tablet.getId();
+                        List<Replica> replicas = tablet.getReplicas();
+                        for (Replica replica : replicas) {
+                            long backendId = replica.getBackendId();
+                            DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId, schemaHash);
+                            batchTask.addTask(dropTask);
+                        } // end for replicas
+                    } // end for tablets
+                } // end for indices
+            } // end for partitions
+            AgentTaskExecutor.submit(batchTask);
+        }
+
+        // colocation
+        Catalog.getCurrentColocateIndex().removeTable(olapTable.getId());
+    }
+
+    public void onErasePartition(Partition partition) {
+        // remove tablet in inverted index
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (Tablet tablet : index.getTablets()) {
+                invertedIndex.deleteTablet(tablet.getId());
+            }
         }
     }
 }
