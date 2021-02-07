@@ -666,6 +666,11 @@ Status JsonReader::_handle_flat_array_complex_json(Tuple* tuple,
             }
             _total_lines = _json_doc->Size();
             _next_line = 0;
+
+            if (_total_lines == 0) {
+                // meet an empty json array.
+                continue;
+            }
         }
         rapidjson::Value& objectValue = (*_json_doc)[_next_line++];
         if (!_write_values_by_jsonpath(objectValue, tuple_pool, tuple, slot_descs)) {
