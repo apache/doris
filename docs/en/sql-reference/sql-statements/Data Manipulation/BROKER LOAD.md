@@ -68,6 +68,7 @@ under the License.
             [COLUMNS TERMINATED BY "column_separator"]
             [FORMAT AS "file_type"]
             [(column_list)]
+            [PRECEDING FILTER predicate]
             [SET (k1 = func(k2))]
             [WHERE predicate] 
             [DELETE ON label=true]
@@ -106,6 +107,10 @@ under the License.
 
             syntax: 
             (col_name1, col_name2, ...)
+
+            PRECEDING FILTER predicate:
+
+            Used to filter original data. The original data is the data without column mapping and transformation. The user can filter the data before conversion, select the desired data, and then perform the conversion.
             
             SET:
             
@@ -454,6 +459,20 @@ under the License.
         "timeout" = "3600",
         "max_filter_ratio" = "0.1"
         );
+
+    14. Filter the original data first, and perform column mapping, conversion and filtering operations
+
+        LOAD LABEL example_db.label_filter
+        (
+         DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+         INTO TABLE `tbl1`
+         COLUMNS TERMINATED BY ","
+         (k1,k2,v1,v2)
+         PRECEDING FILTER k1 > 2
+         SET (k1 = k1 +1)
+         WHERE k1 > 3
+        ) 
+        with BROKER "hdfs" ("username"="user", "password"="pass");
      
 ## keyword
 

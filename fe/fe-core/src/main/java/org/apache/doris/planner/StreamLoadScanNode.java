@@ -39,11 +39,11 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.nio.charset.Charset;
 import java.util.List;
@@ -137,7 +137,8 @@ public class StreamLoadScanNode extends LoadScanNode {
                 exprsByName, analyzer, srcTupleDesc, slotDescByName, params);
 
         // analyze where statement
-        initWhereExpr(taskInfo.getWhereExpr(), analyzer);
+        initAndSetPrecedingFilter(taskInfo.getPrecedingFilter(), this.srcTupleDesc, analyzer);
+        initAndSetWhereExpr(taskInfo.getWhereExpr(), this.desc, analyzer);
 
         computeStats(analyzer);
         createDefaultSmap(analyzer);

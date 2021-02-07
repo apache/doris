@@ -185,6 +185,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("false", new Integer(SqlParserSymbols.KW_FALSE));
         keywordMap.put("feature", new Integer(SqlParserSymbols.KW_FEATURE));
         keywordMap.put("file", new Integer(SqlParserSymbols.KW_FILE));
+        keywordMap.put("filter", new Integer(SqlParserSymbols.KW_FILTER));
         keywordMap.put("first", new Integer(SqlParserSymbols.KW_FIRST));
         keywordMap.put("float", new Integer(SqlParserSymbols.KW_FLOAT));
         keywordMap.put("follower", new Integer(SqlParserSymbols.KW_FOLLOWER));
