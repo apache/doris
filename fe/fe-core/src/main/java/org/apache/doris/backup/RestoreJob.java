@@ -222,7 +222,7 @@ public class RestoreJob extends AbstractJob {
         for (Long tabletId : request.getDownloadedTabletIds()) {
             SnapshotInfo info = snapshotInfos.get(tabletId, task.getBackendId());
             if (info == null) {
-                LOG.error("failed to find snapshot infos of tablet {} in be {}, {}",
+                LOG.warn("failed to find snapshot infos of tablet {} in be {}, {}",
                           tabletId, task.getBackendId(), this);
                 return false;
             }
