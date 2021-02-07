@@ -62,6 +62,7 @@ public:
     static StringVal bitmap_or(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
     static StringVal bitmap_xor(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
     static StringVal bitmap_and(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
+    static StringVal bitmap_not(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
     static StringVal bitmap_to_string(FunctionContext* ctx, const StringVal& input);
     // Convert a comma separated string to a Bitmap
     // Example:
