@@ -683,6 +683,8 @@ public class OlapTable extends Table {
                                           rangePartitionInfo.getDataProperty(partition.getId()),
                                           rangePartitionInfo.getReplicationNum(partition.getId()),
                                           rangePartitionInfo.getIsInMemory(partition.getId()));
+            } else {
+                Catalog.getCurrentCatalog().onErasePartition(partition);
             }
 
             // drop partition info
