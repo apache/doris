@@ -19,6 +19,7 @@
 
 #include "util/doris_metrics.h"
 #include "util/spinlock.h"
+#include "util/stack_util.h"
 #include "util/uid_util.h"
 
 namespace doris {

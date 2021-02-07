@@ -51,8 +51,7 @@ public:
     Status open(const PTabletWriterOpenRequest& request);
 
     Status add_batch(const PTabletWriterAddBatchRequest& request,
-                     google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                     int64_t* wait_lock_time_ns);
+                     google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
