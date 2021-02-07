@@ -77,23 +77,26 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
 
 Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
     DCHECK(params.tablet_ids_size() == params.row_batch().num_rows());
-    std::lock_guard<std::mutex> l(_lock);
-    if (_state != kOpened) {
-        return _state == kFinished
-                       ? _close_status
-                       : Status::InternalError(strings::Substitute("TabletsChannel $0 state: $1",
-                                                                   _key.to_string(), _state));
-    }
-    auto next_seq = _next_seqs[params.sender_id()];
-    // check packet
-    if (params.packet_seq() < next_seq) {
-        LOG(INFO) << "packet has already recept before, expect_seq=" << next_seq
-                  << ", recept_seq=" << params.packet_seq();
-        return Status::OK();
-    } else if (params.packet_seq() > next_seq) {
-        LOG(WARNING) << "lost data packet, expect_seq=" << next_seq
-                     << ", recept_seq=" << params.packet_seq();
-        return Status::InternalError("lost data packet");
+    int64_t cur_seq;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        if (_state != kOpened) {
+            return _state == kFinished
+                ? _close_status
+                : Status::InternalError(strings::Substitute("TabletsChannel $0 state: $1",
+                            _key.to_string(), _state));
+        }
+        cur_seq = _next_seqs[params.sender_id()];
+        // check packet
+        if (params.packet_seq() < cur_seq) {
+            LOG(INFO) << "packet has already recept before, expect_seq=" << cur_seq
+                << ", recept_seq=" << params.packet_seq();
+            return Status::OK();
+        } else if (params.packet_seq() > cur_seq) {
+            LOG(WARNING) << "lost data packet, expect_seq=" << cur_seq
+                << ", recept_seq=" << params.packet_seq();
+            return Status::InternalError("lost data packet");
+        }
     }
 
     RowBatch row_batch(*_row_desc, params.row_batch(), _mem_tracker.get());
@@ -115,7 +118,11 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
             return Status::InternalError(err_msg);
         }
     }
-    _next_seqs[params.sender_id()]++;
+
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        _next_seqs[params.sender_id()] = cur_seq + 1;
+    }
     return Status::OK();
 }
 
@@ -183,29 +190,20 @@ Status TabletsChannel::reduce_mem_usage() {
         // therefore it's possible for reduce_mem_usage() to be called right after close()
         return _close_status;
     }
-    // find tablet writer with largest mem consumption
-    int64_t max_consume = 0L;
-    DeltaWriter* writer = nullptr;
+
+    // Flush all memtables
     for (auto& it : _tablet_writers) {
-        if (it.second->mem_consumption() > max_consume) {
-            max_consume = it.second->mem_consumption();
-            writer = it.second;
+        it.second->flush_memtable_and_wait(false);
+    }
+
+    for (auto& it : _tablet_writers) {
+        OLAPStatus st = it.second->wait_flush();
+        if (st != OLAP_SUCCESS) {
+            // flush failed, return error
+            std::stringstream ss;
+            ss << "failed to reduce mem consumption by flushing memtable. err: " << st;
+            return Status::InternalError(ss.str());
         }
-    }
-
-    if (writer == nullptr || max_consume == 0) {
-        // barely not happend, just return OK
-        return Status::OK();
-    }
-
-    VLOG_NOTICE << "pick the delte writer to flush, with mem consumption: " << max_consume
-            << ", channel key: " << _key;
-    OLAPStatus st = writer->flush_memtable_and_wait();
-    if (st != OLAP_SUCCESS) {
-        // flush failed, return error
-        std::stringstream ss;
-        ss << "failed to reduce mem consumption by flushing memtable. err: " << st;
-        return Status::InternalError(ss.str());
     }
     return Status::OK();
 }
