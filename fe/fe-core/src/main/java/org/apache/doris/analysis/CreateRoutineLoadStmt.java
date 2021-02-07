@@ -347,6 +347,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public void checkLoadProperties() throws UserException {
         ColumnSeparator columnSeparator = null;
         ImportColumnsStmt importColumnsStmt = null;
+        ImportWhereStmt precedingImportWhereStmt = null;
         ImportWhereStmt importWhereStmt = null;
         ImportSequenceStmt importSequenceStmt = null;
         PartitionNames partitionNames = null;
@@ -368,10 +369,18 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     importColumnsStmt = (ImportColumnsStmt) parseNode;
                 } else if (parseNode instanceof ImportWhereStmt) {
                     // check where expr
-                    if (importWhereStmt != null) {
-                        throw new AnalysisException("repeat setting of where predicate");
+                    ImportWhereStmt node = (ImportWhereStmt) parseNode;
+                    if (node.isPreceding()) {
+                        if (precedingImportWhereStmt != null) {
+                            throw new AnalysisException("repeat setting of preceding where predicate");
+                        }
+                        precedingImportWhereStmt = node;
+                    } else {
+                        if (importWhereStmt != null) {
+                            throw new AnalysisException("repeat setting of where predicate");
+                        }
+                        importWhereStmt = node;
                     }
-                    importWhereStmt = (ImportWhereStmt) parseNode;
                 } else if (parseNode instanceof PartitionNames) {
                     // check partition names
                     if (partitionNames != null) {
@@ -394,7 +403,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 }
             }
         }
-        routineLoadDesc = new RoutineLoadDesc(columnSeparator, importColumnsStmt, importWhereStmt,
+        routineLoadDesc = new RoutineLoadDesc(columnSeparator, importColumnsStmt, precedingImportWhereStmt, importWhereStmt,
                         partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
                         importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }

@@ -539,8 +539,8 @@ public class RestoreJob extends AbstractJob {
                             return;
                         }
                         LOG.debug("get intersect part names: {}, job: {}", intersectPartNames, this);
-                        if (localOlapTbl.getSignature(BackupHandler.SIGNATURE_VERSION, intersectPartNames)
-                                != remoteOlapTbl.getSignature(BackupHandler.SIGNATURE_VERSION, intersectPartNames)) {
+                        if (!localOlapTbl.getSignature(BackupHandler.SIGNATURE_VERSION, intersectPartNames)
+                                .equals(remoteOlapTbl.getSignature(BackupHandler.SIGNATURE_VERSION, intersectPartNames))) {
                             status = new Status(ErrCode.COMMON_ERROR, "Table " + jobInfo.getAliasByOriginNameIfSet(tableName)
                                     + " already exist but with different schema");
                             return;
