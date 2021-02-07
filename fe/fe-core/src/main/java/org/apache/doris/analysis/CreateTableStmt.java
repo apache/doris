@@ -169,6 +169,8 @@ public class CreateTableStmt extends DdlStmt {
 
     public void addColumnDef(ColumnDef columnDef) { columnDefs.add(columnDef); }
 
+    public void setIfNotExists(boolean ifNotExists) { this.ifNotExists = ifNotExists; }
+
     public boolean isSetIfNotExists() {
         return ifNotExists;
     }
