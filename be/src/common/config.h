@@ -243,7 +243,7 @@ CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
 
 // config the cumulative compaction policy
-// Valid configs: num_base, size_based
+// Valid configs: num_based, size_based
 // num_based policy, the original version of cumulative compaction, cumulative version compaction once.
 // size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring
 // lower write amplification, trading off read amplification and space amplification.
