@@ -23,10 +23,8 @@
 
 namespace doris {
 
-NullPredicate::NullPredicate(uint32_t column_id, bool is_null)
-        : ColumnPredicate(column_id), _is_null(is_null) {}
-
-NullPredicate::~NullPredicate() {}
+NullPredicate::NullPredicate(uint32_t column_id, bool is_null, bool opposite)
+        : ColumnPredicate(column_id), _is_null(opposite != is_null) {}
 
 void NullPredicate::evaluate(VectorizedRowBatch* batch) const {
     uint16_t n = batch->size();
@@ -77,6 +75,30 @@ void NullPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) 
         new_size += (block->cell(idx).is_null() == _is_null);
     }
     *size = new_size;
+}
+
+void NullPredicate::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const {
+    if (!block->is_nullable() && _is_null) {
+        memset(flags, true, size);
+    } else {
+        for (uint16_t i = 0; i < size; ++i) {
+            if (flags[i]) continue;
+            uint16_t idx = sel[i];
+            flags[i] |= (block->cell(idx).is_null() == _is_null);
+        }
+    }
+}
+
+void NullPredicate::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const {
+    if (!block->is_nullable() && _is_null) {
+        return;
+    } else {
+        for (uint16_t i = 0; i < size; ++i) {
+            if (!flags[i]) continue;
+            uint16_t idx = sel[i];
+            flags[i] &= (block->cell(idx).is_null() == _is_null);
+        }
+    }
 }
 
 Status NullPredicate::evaluate(const Schema& schema,
