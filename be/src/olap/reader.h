@@ -120,6 +120,7 @@ private:
     };
 
     friend class CollectIterator;
+    friend class DeleteHandler;
 
     OLAPStatus _init_params(const ReaderParams& read_params);
 
@@ -129,14 +130,14 @@ private:
 
     void _init_conditions_param(const ReaderParams& read_params);
 
-    ColumnPredicate* _new_eq_pred(const TabletColumn& column, int index, const std::string& cond);
-    ColumnPredicate* _new_ne_pred(const TabletColumn& column, int index, const std::string& cond);
-    ColumnPredicate* _new_lt_pred(const TabletColumn& column, int index, const std::string& cond);
-    ColumnPredicate* _new_le_pred(const TabletColumn& column, int index, const std::string& cond);
-    ColumnPredicate* _new_gt_pred(const TabletColumn& column, int index, const std::string& cond);
-    ColumnPredicate* _new_ge_pred(const TabletColumn& column, int index, const std::string& cond);
+    ColumnPredicate* _new_eq_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
+    ColumnPredicate* _new_ne_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
+    ColumnPredicate* _new_lt_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
+    ColumnPredicate* _new_le_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
+    ColumnPredicate* _new_gt_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
+    ColumnPredicate* _new_ge_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
 
-    ColumnPredicate* _parse_to_predicate(const TCondition& condition);
+    ColumnPredicate* _parse_to_predicate(const TCondition& condition, bool opposite = false) const;
 
     OLAPStatus _init_delete_condition(const ReaderParams& read_params);
 

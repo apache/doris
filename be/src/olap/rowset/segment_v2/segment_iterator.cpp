@@ -433,6 +433,8 @@ void SegmentIterator::_init_lazy_materialization() {
         for (auto predicate : _col_predicates) {
             predicate_columns.insert(predicate->column_id());
         }
+        _opts.delete_condition_predicates.get()->get_all_column_ids(predicate_columns);
+
         // when all return columns have predicates, disable lazy materialization to avoid its overhead
         if (_schema.column_ids().size() > predicate_columns.size()) {
             _lazy_materialization_read = true;
@@ -521,18 +523,27 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     // phase 2: run vectorization evaluation on remaining predicates to prune rows.
     // block's selection vector will be set to indicate which rows have passed predicates.
     // TODO(hkp): optimize column predicate to check column block once for one column
-    if (!_col_predicates.empty()) {
+    if (!_col_predicates.empty() || _opts.delete_condition_predicates.get() != nullptr) {
         // init selection position index
         uint16_t selected_size = block->selected_size();
         uint16_t original_size = selected_size;
+
         SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
         for (auto column_predicate : _col_predicates) {
-            auto column_block = block->column_block(column_predicate->column_id());
+            auto column_id = column_predicate->column_id();
+            auto column_block = block->column_block(column_id);
             column_predicate->evaluate(&column_block, block->selection_vector(), &selected_size);
         }
+        _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
+
+        // set original_size again to check delete condition predicates
+        // filter how many data
+        original_size = selected_size;
+        _opts.delete_condition_predicates->evaluate(block, &selected_size);
+        _opts.stats->rows_vec_del_cond_filtered += original_size - selected_size;
+
         block->set_selected_size(selected_size);
         block->set_num_rows(selected_size);
-        _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
     }
 
     // phase 3: read non-predicate columns of rows that have passed predicates
