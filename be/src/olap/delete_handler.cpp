@@ -16,6 +16,7 @@
 // under the License.
 
 #include "olap/delete_handler.h"
+#include "olap/reader.h"
 
 #include <errno.h>
 #include <json2pb/pb_to_json.h>
@@ -95,7 +96,7 @@ std::string DeleteConditionHandler::construct_sub_predicates(const TCondition& c
     } else if (op == ">") {
         op += ">";
     }
-    string condition_str;
+    string condition_str = "";
     if ("IS" == op) {
         condition_str = condition.column_name + " " + op + " " + condition.condition_values[0];
     } else {
@@ -164,6 +165,7 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(const TabletSchema& sch
     // Delete condition should only applied on key columns or duplicate key table, and
     // the condition column type should not be float or double.
     const TabletColumn& column = schema.column(field_index);
+
     if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS) ||
         column.type() == OLAP_FIELD_TYPE_DOUBLE || column.type() == OLAP_FIELD_TYPE_FLOAT) {
         LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type "
@@ -225,7 +227,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
 }
 
 OLAPStatus DeleteHandler::init(const TabletSchema& schema,
-                               const DelPredicateArray& delete_conditions, int64_t version) {
+        const DelPredicateArray& delete_conditions, int64_t version, const Reader* reader) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
 
@@ -238,6 +240,7 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
         DeleteConditions temp;
         temp.filter_version = delete_condition.version();
         temp.del_cond = new (std::nothrow) Conditions();
+
         if (temp.del_cond == nullptr) {
             LOG(FATAL) << "fail to malloc Conditions. size=" << sizeof(Conditions);
             return OLAP_ERR_MALLOC_ERROR;
@@ -255,6 +258,13 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
             if (OLAP_SUCCESS != res) {
                 OLAP_LOG_WARNING("fail to append condition.[res=%d]", res);
                 return res;
+            }
+
+            if (reader != nullptr) {
+                auto predicate = reader->_parse_to_predicate(condition, true);
+                if (predicate != nullptr) {
+                    temp.column_predicate_vec.push_back(predicate);
+                }
             }
         }
 
@@ -274,9 +284,14 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
                 OLAP_LOG_WARNING("fail to append condition.[res=%d]", res);
                 return res;
             }
+
+            if (reader != nullptr) {
+                temp.column_predicate_vec.push_back(reader->_parse_to_predicate(condition, true));
+            }
+
         }
 
-        _del_conds.push_back(temp);
+        _del_conds.emplace_back(std::move(temp));
     }
 
     _is_inited = true;
@@ -301,6 +316,7 @@ std::vector<int64_t> DeleteHandler::get_conds_version() {
     for (const auto& cond : _del_conds) {
         conds_version.push_back(cond.filter_version);
     }
+
     return conds_version;
 }
 
@@ -312,16 +328,41 @@ void DeleteHandler::finalize() {
     for (auto& cond : _del_conds) {
         cond.del_cond->finalize();
         delete cond.del_cond;
+
+        for (auto pred : cond.column_predicate_vec) {
+            delete pred;
+        }
     }
+
     _del_conds.clear();
     _is_inited = false;
 }
 
-void DeleteHandler::get_delete_conditions_after_version(
-        int64_t version, std::vector<const Conditions*>* delete_conditions) const {
+void DeleteHandler::get_delete_conditions_after_version(int64_t version,
+                                                        std::vector<const Conditions *>* delete_conditions,
+                                                        AndBlockColumnPredicate* and_block_column_predicate_ptr) const {
     for (auto& del_cond : _del_conds) {
         if (del_cond.filter_version > version) {
             delete_conditions->emplace_back(del_cond.del_cond);
+
+            // now, only query support delete column predicate operator
+            if (!del_cond.column_predicate_vec.empty()) {
+                if (del_cond.column_predicate_vec.size() == 1) {
+                    auto single_column_block_predicate = new SingleColumnBlockPredicate(
+                            del_cond.column_predicate_vec[0]);
+                    and_block_column_predicate_ptr->add_column_predicate(single_column_block_predicate);
+                } else {
+                    auto or_column_predicate = new OrBlockColumnPredicate();
+
+                    // build or_column_predicate
+                    std::for_each(del_cond.column_predicate_vec.cbegin(), del_cond.column_predicate_vec.cend(), \
+                    [&or_column_predicate](const ColumnPredicate *predicate) {
+                                      or_column_predicate->add_column_predicate(new SingleColumnBlockPredicate(predicate));
+                                  }
+                    );
+                    and_block_column_predicate_ptr->add_column_predicate(or_column_predicate);
+                }
+            }
         }
     }
 }

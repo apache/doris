@@ -25,8 +25,8 @@ namespace doris {
 
 #define IN_LIST_PRED_CONSTRUCTOR(CLASS)                             \
     template <class type>                                           \
-    CLASS<type>::CLASS(uint32_t column_id, std::set<type>&& values) \
-            : ColumnPredicate(column_id), _values(std::move(values)) {}
+    CLASS<type>::CLASS(uint32_t column_id, std::set<type>&& values,  bool opposite) \
+            : ColumnPredicate(column_id, opposite), _values(std::move(values)) {}
 
 IN_LIST_PRED_CONSTRUCTOR(InListPredicate)
 IN_LIST_PRED_CONSTRUCTOR(NotInListPredicate)
@@ -95,8 +95,9 @@ IN_LIST_PRED_EVALUATE(NotInListPredicate, ==)
                 sel[new_size] = idx;                                                      \
                 const type* cell_value =                                                  \
                         reinterpret_cast<const type*>(block->cell(idx).cell_ptr());       \
-                new_size += (!block->cell(idx).is_null() && _values.find(*cell_value)     \
+                auto result = (!block->cell(idx).is_null() && _values.find(*cell_value)   \
                                                                     OP _values.end());    \
+                new_size += _opposite ? !result : result;                              \
             }                                                                             \
         } else {                                                                          \
             for (uint16_t i = 0; i < *size; ++i) {                                        \
@@ -104,7 +105,8 @@ IN_LIST_PRED_EVALUATE(NotInListPredicate, ==)
                 sel[new_size] = idx;                                                      \
                 const type* cell_value =                                                  \
                         reinterpret_cast<const type*>(block->cell(idx).cell_ptr());       \
-                new_size += (_values.find(*cell_value) OP _values.end());                 \
+                auto result = (_values.find(*cell_value) OP _values.end());               \
+                new_size += _opposite ? !result : result;                                 \
             }                                                                             \
         }                                                                                 \
         *size = new_size;                                                                 \
@@ -112,6 +114,62 @@ IN_LIST_PRED_EVALUATE(NotInListPredicate, ==)
 
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
+
+#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(CLASS, OP)                                     \
+    template <class type>                                                                 \
+    void CLASS<type>::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const { \
+        if (block->is_nullable()) {                                                       \
+            for (uint16_t i = 0; i < size; ++i) {                                        \
+                if (flags[i]) continue;                                                   \
+                uint16_t idx = sel[i];                                                    \
+                const type* cell_value =                                                  \
+                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());       \
+                auto result = (!block->cell(idx).is_null() && _values.find(*cell_value)   \
+                                                                    OP _values.end());    \
+                flags[i] |= _opposite ? !result : result;                                 \
+            }                                                                             \
+        } else {                                                                          \
+            for (uint16_t i = 0; i < size; ++i) {                                         \
+                if (flags[i]) continue;                                                   \
+                uint16_t idx = sel[i];                                                    \
+                const type* cell_value =                                                  \
+                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());       \
+                auto result = (_values.find(*cell_value) OP _values.end());               \
+                flags[i] |= _opposite ? !result : result;                                 \
+            }                                                                             \
+        }                                                                                 \
+    }
+
+IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(InListPredicate, !=)
+IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(NotInListPredicate, ==)
+
+#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(CLASS, OP)                                     \
+    template <class type>                                                                 \
+    void CLASS<type>::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const { \
+        if (block->is_nullable()) {                                                       \
+            for (uint16_t i = 0; i < size; ++i) {                                        \
+                if (!flags[i]) continue;                                                   \
+                uint16_t idx = sel[i];                                                    \
+                const type* cell_value =                                                  \
+                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());       \
+                auto result = (!block->cell(idx).is_null() && _values.find(*cell_value)   \
+                                                                    OP _values.end());    \
+                flags[i] &= _opposite ? !result : result;                                 \
+            }                                                                             \
+        } else {                                                                          \
+            for (uint16_t i = 0; i < size; ++i) {                                        \
+                if (!flags[i]) continue;                                                   \
+                uint16_t idx = sel[i];                                                    \
+                const type* cell_value =                                                  \
+                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());       \
+                auto result = (_values.find(*cell_value) OP _values.end());               \
+                flags[i] &= _opposite ? !result : result;                                 \
+            }                                                                             \
+        }                                                                                 \
+    }
+
+IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(InListPredicate, !=)
+IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(NotInListPredicate, ==)
 
 #define IN_LIST_PRED_BITMAP_EVALUATE(CLASS, OP)                                      \
     template <class type>                                                            \
@@ -150,18 +208,18 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
 IN_LIST_PRED_BITMAP_EVALUATE(InListPredicate, &=)
 IN_LIST_PRED_BITMAP_EVALUATE(NotInListPredicate, -=)
 
-#define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                         \
-    template CLASS<int8_t>::CLASS(uint32_t column_id, std::set<int8_t>&& values);           \
-    template CLASS<int16_t>::CLASS(uint32_t column_id, std::set<int16_t>&& values);         \
-    template CLASS<int32_t>::CLASS(uint32_t column_id, std::set<int32_t>&& values);         \
-    template CLASS<int64_t>::CLASS(uint32_t column_id, std::set<int64_t>&& values);         \
-    template CLASS<int128_t>::CLASS(uint32_t column_id, std::set<int128_t>&& values);       \
-    template CLASS<float>::CLASS(uint32_t column_id, std::set<float>&& values);             \
-    template CLASS<double>::CLASS(uint32_t column_id, std::set<double>&& values);           \
-    template CLASS<decimal12_t>::CLASS(uint32_t column_id, std::set<decimal12_t>&& values); \
-    template CLASS<StringValue>::CLASS(uint32_t column_id, std::set<StringValue>&& values); \
-    template CLASS<uint24_t>::CLASS(uint32_t column_id, std::set<uint24_t>&& values);       \
-    template CLASS<uint64_t>::CLASS(uint32_t column_id, std::set<uint64_t>&& values);
+#define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                                        \
+    template CLASS<int8_t>::CLASS(uint32_t column_id, std::set<int8_t>&& values, bool opposite);           \
+    template CLASS<int16_t>::CLASS(uint32_t column_id, std::set<int16_t>&& values, bool opposite);         \
+    template CLASS<int32_t>::CLASS(uint32_t column_id, std::set<int32_t>&& values, bool opposite);         \
+    template CLASS<int64_t>::CLASS(uint32_t column_id, std::set<int64_t>&& values, bool opposite);         \
+    template CLASS<int128_t>::CLASS(uint32_t column_id, std::set<int128_t>&& values, bool opposite);       \
+    template CLASS<float>::CLASS(uint32_t column_id, std::set<float>&& values, bool opposite);             \
+    template CLASS<double>::CLASS(uint32_t column_id, std::set<double>&& values, bool opposite);           \
+    template CLASS<decimal12_t>::CLASS(uint32_t column_id, std::set<decimal12_t>&& values, bool opposite); \
+    template CLASS<StringValue>::CLASS(uint32_t column_id, std::set<StringValue>&& values, bool opposite); \
+    template CLASS<uint24_t>::CLASS(uint32_t column_id, std::set<uint24_t>&& values, bool opposite);       \
+    template CLASS<uint64_t>::CLASS(uint32_t column_id, std::set<uint64_t>&& values, bool opposite);
 
 IN_LIST_PRED_CONSTRUCTOR_DECLARATION(InListPredicate)
 IN_LIST_PRED_CONSTRUCTOR_DECLARATION(NotInListPredicate)

@@ -57,7 +57,7 @@ public:
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
 
-    SchemaMapping get_schema_mapping() const { return _schema_mapping; }
+    const SchemaMapping& get_schema_mapping() const { return _schema_mapping; }
 
     OLAPStatus change_row_block(const RowBlock* ref_block, int32_t data_version,
                                 RowBlock* mutable_block, uint64_t* filtered_rows) const;
