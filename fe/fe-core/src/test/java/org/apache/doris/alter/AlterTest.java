@@ -30,7 +30,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
@@ -38,12 +37,12 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Lists;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
 
 import java.io.File;
 import java.util.List;
@@ -390,6 +389,11 @@ public class AlterTest {
             }
             System.out.println(alterJobV2.getType() + " alter job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+            Database db = Catalog.getCurrentCatalog().getDb(alterJobV2.getDbId());
+            OlapTable tbl = (OlapTable) db.getTable(alterJobV2.getTableId());
+            while (tbl.getState() != OlapTable.OlapTableState.NORMAL) {
+                Thread.sleep(1000);
+            }
         }
     }
 
