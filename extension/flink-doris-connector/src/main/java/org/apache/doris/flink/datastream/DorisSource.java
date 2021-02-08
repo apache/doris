@@ -55,7 +55,6 @@ public class DorisSource<T> extends RichSourceFunction<T> implements ResultTypeQ
         this.settings = initSetting(flinkConf,conf);
         this.deserializer = deserializer;
         this.dorisPartitions =  RestService.findPartitions(settings,logger);
-        logger.info("===dorisPartitions:{}",dorisPartitions.toString());
     }
 
     private FlinkSettings initSetting(Configuration flinkConf,Map<String, String> conf){
@@ -72,7 +71,6 @@ public class DorisSource<T> extends RichSourceFunction<T> implements ResultTypeQ
 
     @Override
     public void run(SourceContext sourceContext) throws Exception{
-        logger.info("====={}",Thread.currentThread().getName());
         for(PartitionDefinition partitions : dorisPartitions){
             scalaValueReader = new ScalaValueReader(partitions, settings);
             while (scalaValueReader.hasNext()){
