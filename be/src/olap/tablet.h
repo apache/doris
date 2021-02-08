@@ -166,8 +166,8 @@ public:
     bool can_do_compaction();
     const uint32_t calc_compaction_score(CompactionType compaction_type) const;
     const uint32_t get_compaction_score(CompactionType compaction_type);
-    void update_base_compaction_score(uint32_t compaction_score) { _base_compaction_score.set_value(compaction_score); }
-    void update_cumulative_compaction_score(uint32_t compaction_score) { _cumulative_compaction_score.set_value(compaction_score); }
+    void update_base_compaction_score();
+    void update_cumulative_compaction_score();
     static void compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
                                                   VersionHash* version_hash);
 

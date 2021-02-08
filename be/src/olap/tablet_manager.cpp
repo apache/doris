@@ -69,7 +69,8 @@ static bool _cmp_tablet_by_create_time(const TabletSharedPtr& a, const TabletSha
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
     : _tablets_shards_size(tablet_map_lock_shard_size),
       _tablets_shards_mask(tablet_map_lock_shard_size - 1),
-      _last_update_stat_ms(0) {
+      _last_update_stat_ms(0),
+      _last_update_compaction_score_ms(0) {
     CHECK_GT(_tablets_shards_size, 0);
     CHECK_EQ(_tablets_shards_size & _tablets_shards_mask, 0);
     _tablets_shards.resize(_tablets_shards_size);
@@ -677,23 +678,27 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
     result->__set_tablets_stats(_tablet_stat_cache);
 }
 
-void TabletManager::init_tablet_score() {
-    LOG(INFO) << "Init tablets score.";
+void TabletManager::update_all_tablets_compaction_score() {
+    LOG(INFO) << "update all tablets score.";
     for (const auto& tablets_shard : _tablets_shards) {
         ReadLock rlock(tablets_shard.lock.get());
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             for (const TabletSharedPtr& tablet_ptr : tablet_map.second.table_arr) {
-                tablet_ptr->update_cumulative_compaction_score(tablet_ptr->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION));
-                tablet_ptr->update_base_compaction_score(tablet_ptr->calc_compaction_score(CompactionType::BASE_COMPACTION));
+                tablet_ptr->update_cumulative_compaction_score();
+                tablet_ptr->update_base_compaction_score();
             }
         }
     }
+    _last_update_compaction_score_ms = UnixMillis();
 }
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
         std::vector<TTabletId>& tablet_submitted_compaction) {
     int64_t now_ms = UnixMillis();
+    if (now_ms - _last_update_compaction_score_ms > config::update_all_compaction_score_interval_sec * 1000) {
+        update_all_tablets_compaction_score();
+    }
     const string& compaction_type_str =
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
     double highest_score = 0.0;

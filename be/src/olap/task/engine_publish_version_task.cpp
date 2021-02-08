@@ -110,7 +110,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 continue;
             }
             partition_related_tablet_infos.erase(tablet_info);
-            tablet->update_cumulative_compaction_score(tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION));
+            tablet->update_cumulative_compaction_score();
             LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
                       << ", transaction_id=" << transaction_id << ", version=" << version.first
                       << ", res=" << publish_status;

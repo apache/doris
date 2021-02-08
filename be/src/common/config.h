@@ -276,6 +276,9 @@ CONF_mInt32(cumulative_compaction_skip_window_seconds, "30");
 // compaction until this interval passes.
 CONF_mInt64(min_compaction_failure_interval_sec, "600"); // 10 min
 
+// interval of updating all tablets' compaction score
+CONF_mInt64(update_all_compaction_score_interval_sec, "14400"); // 0.5 day
+
 // This config can be set to limit thread number in compaction thread pool.
 CONF_mInt32(min_compaction_threads, "10");
 CONF_mInt32(max_compaction_threads, "10");
