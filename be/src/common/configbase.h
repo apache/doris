@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_SRC_COMMON_CONFIGBASE_H
 #define DORIS_BE_SRC_COMMON_CONFIGBASE_H
 
-#include <stdint.h>
+#include <cstdint>
 
 #include <map>
 #include <mutex>
@@ -63,34 +63,39 @@ public:
 
 };
 
-/// RegisterCheckFunction class is used to store check function of registed config fields in Register::_s_field_map
-/// and we can find check function which can use to check whether it can ben updated before assgined from  _s_field_check_func.
-class RegisterCheckFunction {
+// RegisterConfValidator class is used to store validator function of registered config fields in
+// Register::_s_field_map.
+// If any validator return false when BE bootstart, the bootstart will be terminated.
+// If validator return false when use http API to update some config, the config will not
+// be modified and the API will return failure.
+class RegisterConfValidator {
 public:
-    // class static property map from string to check function
-    static std::map<std::string, std::function<Status(void*)>>* _s_field_check_func;
+    // Validator for each config name.
+    static std::map<std::string, std::function<bool()>>* _s_field_validator;
 
 public:
-    RegisterCheckFunction(const char* fname, std::function<Status(void*)> check_function, void* check_exists) {
-        if (_s_field_check_func == nullptr) {
-            _s_field_check_func = new std::map<std::string, std::function<Status(void*)>>();
+    RegisterConfValidator(const char* fname, const std::function<bool()>& validator) {
+        if (_s_field_validator == nullptr) {
+            _s_field_validator = new std::map<std::string, std::function<bool()>>();
         }
-        // register check_function to _s_field_check_func
-        _s_field_check_func->insert(std::make_pair(std::string(fname), check_function));
+        // register validator to _s_field_validator
+        _s_field_validator->insert(std::make_pair(std::string(fname), validator));
     }
 };
 
-#define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT, VALMUTABLE)                    \
-    FIELD_TYPE FIELD_NAME;                                                                 \
-    static Register reg_##FIELD_NAME(#FIELD_TYPE, #FIELD_NAME, &FIELD_NAME, FIELD_DEFAULT, \
+#define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT, VALMUTABLE)                      \
+    FIELD_TYPE FIELD_NAME;                                                                   \
+    static Register reg_##FIELD_NAME(#FIELD_TYPE, #FIELD_NAME, &(FIELD_NAME), FIELD_DEFAULT, \
                                      VALMUTABLE);
 
 #define DECLARE_FIELD(FIELD_TYPE, FIELD_NAME) extern FIELD_TYPE FIELD_NAME;
 
-#define DEFINE_CHECK_FUNCTION(FIELD_NAME, CHECK_FUNC) \
-    static RegisterCheckFunction reg_function_##FIELD_NAME(#FIELD_NAME, CHECK_FUNC, &config::FIELD_NAME);
+#define DEFINE_VALIDATOR(FIELD_NAME, VALIDATOR)                                            \
+    static auto validator_##FIELD_NAME = VALIDATOR;                                        \
+    static RegisterConfValidator reg_validator_##FIELD_NAME(#FIELD_NAME,                   \
+            []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
 
-#define DECLARE_CHECK_FUNCTION(FIELD_NAME) ;
+#define DECLARE_VALIDATOR(FIELD_NAME) ;
 
 #ifdef __IN_CONFIGBASE_CPP__
 #define CONF_Bool(name, defaultstr) DEFINE_FIELD(bool, name, defaultstr, false)
@@ -111,7 +116,7 @@ public:
 #define CONF_mInt32(name, defaultstr) DEFINE_FIELD(int32_t, name, defaultstr, true)
 #define CONF_mInt64(name, defaultstr) DEFINE_FIELD(int64_t, name, defaultstr, true)
 #define CONF_mDouble(name, defaultstr) DEFINE_FIELD(double, name, defaultstr, true)
-#define CONF_Update_Check(name, check_func) DEFINE_CHECK_FUNCTION(name, check_func)
+#define CONF_Validator(name, validator) DEFINE_VALIDATOR(name, validator)
 
 #else
 #define CONF_Bool(name, defaultstr) DECLARE_FIELD(bool, name)
@@ -131,19 +136,19 @@ public:
 #define CONF_mInt32(name, defaultstr) DECLARE_FIELD(int32_t, name)
 #define CONF_mInt64(name, defaultstr) DECLARE_FIELD(int64_t, name)
 #define CONF_mDouble(name, defaultstr) DECLARE_FIELD(double, name)
-#define CONF_Update_Check(name, check_func) DECLARE_CHECK_FUNCTION(name)
+#define CONF_Validator(name, validator) DECLARE_VALIDATOR(name)
 #endif
 
 // configuration properties load from config file.
 class Properties {
 public:
     // load conf from file, if must_exist is true and file does not exist, return false
-    bool load(const char* filename, bool must_exist = true);
-    template <typename T>
+    bool load(const char* conf_file, bool must_exist = true);
 
     // Find the config value by key from `file_conf_map`.
     // If found, set `retval` to the config value,
     // or set `retval` to `defstr`
+    template <typename T>
     bool get_or_default(const char* key, const char* defstr, T& retval) const;
 
     void set(const std::string& key, const std::string& val);
@@ -161,10 +166,10 @@ extern std::map<std::string, std::string>* full_conf_map;
 extern std::mutex custom_conf_lock;
 
 // Init the config from `conf_file`.
-// If fillconfmap is true, the updated config will also update the `full_conf_map`.
+// If fill_conf_map is true, the updated config will also update the `full_conf_map`.
 // If must_exist is true and `conf_file` does not exist, this function will return false.
 // If set_to_default is true, the config value will be set to default value if not found in `conf_file`.
-bool init(const char* conf_file, bool fillconfmap = false, bool must_exist = true,
+bool init(const char* conf_file, bool fill_conf_map = false, bool must_exist = true,
           bool set_to_default = true);
 
 Status set_config(const std::string& field, const std::string& value, bool need_persist = false);
