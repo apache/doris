@@ -30,6 +30,7 @@
 #include "common/resource_tls.h"
 #include "exprs/binary_predicate.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/exec_env.h"
 #include "runtime/row_batch.h"

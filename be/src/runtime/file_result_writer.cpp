@@ -21,6 +21,7 @@
 #include "exec/local_file_writer.h"
 #include "exec/parquet_writer.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/primitive_type.h"
 #include "runtime/row_batch.h"

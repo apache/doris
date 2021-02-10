@@ -19,6 +19,7 @@
 
 #include "common/logging.h"
 #include "exec/exec_node.h"
+#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"

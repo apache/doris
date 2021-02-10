@@ -21,6 +21,7 @@
 #include <sstream>
 
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "runtime/mysql_table_writer.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
