@@ -94,11 +94,14 @@ private:
     bool _signal_fired;
 
     // The time, in milliseconds, to wait for a server to come up
-    static const int TIMEOUT_MS = 2500;
+    const static int TIMEOUT_MS;
 
     // Called in a separate thread; wraps TNonBlockingServer::serve in an exception handler
     void supervise();
 };
+
+// https://stackoverflow.com/questions/5391973/undefined-reference-to-static-const-int
+const int ThriftServer::ThriftServerEventProcessor::TIMEOUT_MS = 2500;
 
 Status ThriftServer::ThriftServerEventProcessor::start_and_wait_for_server() {
     // Locking here protects against missed notifications if Supervise executes quickly

@@ -19,6 +19,7 @@
 
 #include <boost/algorithm/string/classification.hpp> // boost::is_any_of
 #include <boost/algorithm/string/predicate.hpp>      // boost::algorithm::ends_with
+#include <atomic>
 #include <regex>
 #include <vector>
 

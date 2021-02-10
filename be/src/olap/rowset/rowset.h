@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <vector>

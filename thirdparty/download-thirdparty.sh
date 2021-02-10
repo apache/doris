@@ -251,6 +251,7 @@ echo "Finished patching $RE2_SOURCE"
 cd $TP_SOURCE_DIR/$MYSQL_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
     patch -p0 < $TP_PATCH_DIR/mysql-5.7.18.patch
+    patch -Rp0 < $TP_PATCH_DIR/mysql-5.7.18-boost.patch
     touch $PATCHED_MARK
 fi
 cd -

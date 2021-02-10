@@ -170,22 +170,16 @@ RE2_SOURCE=re2-2017-05-01
 RE2_MD5SUM="4aa65a0b22edacb7ddcd7e4aec038dcf"
 
 # boost
-BOOST_DOWNLOAD="https://dl.bintray.com/boostorg/release/1.64.0/source/boost_1_64_0.tar.gz"
-BOOST_NAME=boost_1_64_0.tar.gz
-BOOST_SOURCE=boost_1_64_0
-BOOST_MD5SUM="319c6ffbbeccc366f14bb68767a6db79"
+BOOST_DOWNLOAD="https://dl.bintray.com/boostorg/release/1.73.0/source/boost_1_73_0.tar.gz"
+BOOST_NAME=boost_1_73_0.tar.gz
+BOOST_SOURCE=boost_1_73_0
+BOOST_MD5SUM="4036cd27ef7548b8d29c30ea10956196"
 
 # mysql
 MYSQL_DOWNLOAD="https://github.com/mysql/mysql-server/archive/mysql-5.7.18.tar.gz"
 MYSQL_NAME=mysql-5.7.18.tar.gz
 MYSQL_SOURCE=mysql-server-mysql-5.7.18
 MYSQL_MD5SUM="58598b10dce180e4d1fbdd7cf5fa68d6"
-
-# boost for mysql
-BOOST_FOR_MYSQL_DOWNLOAD="http://sourceforge.net/projects/boost/files/boost/1.59.0/boost_1_59_0.tar.gz"
-BOOST_FOR_MYSQL_NAME=boost_1_59_0.tar.gz
-BOOST_FOR_MYSQL_SOURCE=boost_1_59_0
-BOOST_FOR_MYSQL_MD5SUM="51528a0e3b33d9e10aaa311d9eb451e3"
 
 # unix odbc
 ODBC_DOWNLOAD="http://www.unixodbc.org/unixODBC-2.3.7.tar.gz"
@@ -200,10 +194,10 @@ LEVELDB_SOURCE=leveldb-1.20
 LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/0.9.5.tar.gz"
-BRPC_NAME=incubator-brpc-0.9.5.tar.gz
-BRPC_SOURCE=incubator-brpc-0.9.5
-BRPC_MD5SUM="c9f46e4c97a9cd5f836ba2c6c56978dd"
+BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/0.9.7.tar.gz"
+BRPC_NAME=incubator-brpc-0.9.7.tar.gz
+BRPC_SOURCE=incubator-brpc-0.9.7
+BRPC_MD5SUM="a5b79339d139d1c55d39689c0a69bcef"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -370,7 +364,6 @@ CURL
 RE2
 BOOST
 MYSQL
-BOOST_FOR_MYSQL
 ODBC
 LEVELDB
 BRPC
