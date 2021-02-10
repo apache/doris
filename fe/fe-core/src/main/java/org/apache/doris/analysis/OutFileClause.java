@@ -39,6 +39,7 @@ import java.util.stream.Collectors;
 public class OutFileClause {
     private static final Logger LOG = LogManager.getLogger(OutFileClause.class);
 
+    public static final String LOCAL_FILE_PREFIX = "file:///";
     private static final String BROKER_PROP_PREFIX = "broker.";
     private static final String PROP_BROKER_NAME = "broker.name";
     private static final String PROP_COLUMN_SEPARATOR = "column_separator";

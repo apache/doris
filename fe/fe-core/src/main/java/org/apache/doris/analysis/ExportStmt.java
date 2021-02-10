@@ -46,6 +46,8 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Map;
 
+import static org.apache.doris.analysis.OutFileClause.LOCAL_FILE_PREFIX;
+
 // EXPORT statement, export data to dirs by broker.
 //
 // syntax:
@@ -63,17 +65,19 @@ public class ExportStmt extends StatementBase {
 
     private TableName tblName;
     private List<String> partitions;
-    private final String path;
-    private final BrokerDesc brokerDesc;
+    private Expr whereExpr;
+    private String path;
+    private BrokerDesc brokerDesc;
     private Map<String, String> properties = Maps.newHashMap();
     private String columnSeparator;
     private String lineDelimiter;
 
     private TableRef tableRef;
 
-    public ExportStmt(TableRef tableRef, String path,
+    public ExportStmt(TableRef tableRef, Expr whereExpr, String path,
                       Map<String, String> properties, BrokerDesc brokerDesc) {
         this.tableRef = tableRef;
+        this.whereExpr = whereExpr;
         this.path = path.trim();
         if (properties != null) {
             this.properties = properties;
@@ -89,6 +93,10 @@ public class ExportStmt extends StatementBase {
 
     public List<String> getPartitions() {
         return partitions;
+    }
+
+    public Expr getWhereExpr() {
+        return whereExpr;
     }
 
     public String getPath() {
@@ -144,7 +152,7 @@ public class ExportStmt extends StatementBase {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "EXPORT",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                tblName.getTbl());
+                    tblName.getTbl());
         }
 
         // check table && partitions whether exist
@@ -152,11 +160,13 @@ public class ExportStmt extends StatementBase {
 
         // check broker whether exist
         if (brokerDesc == null) {
-            throw new AnalysisException("broker is not provided");
+            brokerDesc = new BrokerDesc("local", StorageBackend.StorageType.LOCAL, null);
         }
 
+        // where expr will be checked in export job
+
         // check path is valid
-        checkPath(path, brokerDesc.getStorageType());
+        path = checkPath(path, brokerDesc.getStorageType());
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             if (!analyzer.getCatalog().getBrokerMgr().containsBroker(brokerDesc.getName())) {
                 throw new AnalysisException("broker " + brokerDesc.getName() + " does not exist");
@@ -217,7 +227,7 @@ public class ExportStmt extends StatementBase {
         }
     }
 
-    public static void checkPath(String path, StorageBackend.StorageType type) throws AnalysisException {
+    public static String checkPath(String path, StorageBackend.StorageType type) throws AnalysisException {
         if (Strings.isNullOrEmpty(path)) {
             throw new AnalysisException("No dest path specified.");
         }
@@ -240,18 +250,22 @@ public class ExportStmt extends StatementBase {
                 }
             } else if (type == StorageBackend.StorageType.LOCAL) {
                 if (schema != null && !schema.equalsIgnoreCase("file")) {
-                    throw new AnalysisException("Invalid export path. please use valid 'file://' path.");
+                    throw new AnalysisException("Invalid export path. please use valid '"
+                            + LOCAL_FILE_PREFIX + "' path.");
                 }
+                path = path.substring(LOCAL_FILE_PREFIX.length() - 1);
             }
         } catch (URISyntaxException e) {
             throw new AnalysisException("Invalid path format. " + e.getMessage());
         }
+        return path;
     }
 
     private void checkProperties(Map<String, String> properties) throws UserException {
-        this.columnSeparator = PropertyAnalyzer.analyzeColumnSeparator(
-                properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR);
-        this.lineDelimiter = PropertyAnalyzer.analyzeLineDelimiter(properties, ExportStmt.DEFAULT_LINE_DELIMITER);
+        this.columnSeparator = Separator.convertSeparator(PropertyAnalyzer.analyzeColumnSeparator(
+                properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR));
+        this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
+                properties, ExportStmt.DEFAULT_LINE_DELIMITER));
         // exec_mem_limit
         if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
             try {

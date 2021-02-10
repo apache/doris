@@ -31,7 +31,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,6 +44,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+
+import com.google.gson.Gson;
 
 public class ExportMgr {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
@@ -184,6 +185,9 @@ public class ExportMgr {
                 }
                 infoMap.put("db", job.getTableName().getDb());
                 infoMap.put("tbl", job.getTableName().getTbl());
+                if (job.getWhereExpr() != null) {
+                    infoMap.put("where expr", job.getWhereExpr().toMySql());
+                }
                 infoMap.put("partitions", partitions);
                 infoMap.put("broker", job.getBrokerDesc().getName());
                 infoMap.put("column separator", job.getColumnSeparator());
@@ -193,7 +197,7 @@ public class ExportMgr {
                 infoMap.put("tablet num", job.getTabletLocations() == null ? -1 : job.getTabletLocations().size());
                 jobInfo.add(new Gson().toJson(infoMap));
                 // path
-                jobInfo.add(job.getExportPath());
+                jobInfo.add(job.getShowExportPath());
 
                 jobInfo.add(TimeUtils.longToTimeString(job.getCreateTimeMs()));
                 jobInfo.add(TimeUtils.longToTimeString(job.getStartTimeMs()));

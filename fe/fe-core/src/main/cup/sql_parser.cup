@@ -1297,11 +1297,12 @@ help_stmt ::=
 // Export statement
 export_stmt ::=
     KW_EXPORT KW_TABLE base_table_ref:tblRef
+    where_clause:whereExpr
     KW_TO STRING_LITERAL:path
     opt_properties:properties
     opt_broker:broker
     {:
-        RESULT = new ExportStmt(tblRef, path, properties, broker);
+        RESULT = new ExportStmt(tblRef, whereExpr, path, properties, broker);
     :}
     ;
 
