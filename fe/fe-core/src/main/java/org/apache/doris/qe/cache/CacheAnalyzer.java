@@ -40,6 +40,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
@@ -267,8 +268,7 @@ public class CacheAnalyzer {
         return CacheMode.Partition;
     }
 
-    public CacheBeProxy.FetchCacheResult getCacheData() {
-        CacheProxy.FetchCacheResult cacheResult = null;
+    public InternalService.PFetchCacheResult getCacheData() {
         cacheMode = innerCheckCacheMode(0);
         if (cacheMode == CacheMode.NoNeed) {
             return null;
@@ -277,13 +277,18 @@ public class CacheAnalyzer {
             return null;
         }
         Status status = new Status();
-        cacheResult = cache.getCacheData(status);
-
+        InternalService.PFetchCacheResult cacheResult = cache.getCacheData(status);
+        int rowCount = 0;
+        int dataSize = 0;
+        for (InternalService.PCacheValue value : cacheResult.getValuesList()) {
+            rowCount += value.getRowsCount();
+            dataSize += value.getDataSize();
+        }
         if (status.ok() && cacheResult != null) {
             LOG.debug("hit cache, mode {}, queryid {}, all count {}, value count {}, row count {}, data size {}",
                     cacheMode, DebugUtil.printId(queryId),
-                    cacheResult.all_count, cacheResult.value_count,
-                    cacheResult.row_count, cacheResult.data_size);
+                    cacheResult.getAllCount(), cacheResult.getValuesCount(),
+                    rowCount, dataSize);
         } else {
             LOG.debug("miss cache, mode {}, queryid {}, code {}, msg {}", cacheMode,
                     DebugUtil.printId(queryId), status.getErrorCode(), status.getErrorMsg());

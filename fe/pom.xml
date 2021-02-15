@@ -48,7 +48,8 @@ under the License.
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
-        <jprotobuf.version>2.2.11</jprotobuf.version>
+        <grpc.version>1.18.0</grpc.version>
+        <protobuf.version>3.5.1</protobuf.version>
         <skip.plugin>false</skip.plugin>
     </properties>
 
@@ -273,38 +274,10 @@ under the License.
                 <version>2.10.1</version>
             </dependency>
 
-            <!-- https://mvnrepository.com/artifact/com.baidu/jprotobuf -->
-            <dependency>
-                <groupId>com.baidu</groupId>
-                <artifactId>jprotobuf</artifactId>
-                <version>${jprotobuf.version}</version>
-                <classifier>jar-with-dependencies</classifier>
-            </dependency>
-
-            <!-- https://mvnrepository.com/artifact/com.baidu/jprotobuf-rpc-common -->
-            <dependency>
-                <groupId>com.baidu</groupId>
-                <artifactId>jprotobuf-rpc-common</artifactId>
-                <version>1.8</version>
-            </dependency>
-
             <dependency>
                 <groupId>commons-io</groupId>
                 <artifactId>commons-io</artifactId>
                 <version>2.6</version>
-            </dependency>
-
-            <!-- https://mvnrepository.com/artifact/com.baidu/jprotobuf-rpc-core -->
-            <dependency>
-                <groupId>com.baidu</groupId>
-                <artifactId>jprotobuf-rpc-core</artifactId>
-                <version>3.5.21</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>com.baidu</groupId>
-                        <artifactId>jprotobuf</artifactId>
-                    </exclusion>
-                </exclusions>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.json/json -->
@@ -386,11 +359,32 @@ under the License.
                 <version>2.1</version>
             </dependency>
 
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-netty</artifactId>
+                <version>${grpc.version}</version>
+                <scope>provided</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-protobuf</artifactId>
+                <version>${grpc.version}</version>
+                <scope>provided</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-stub</artifactId>
+                <version>${grpc.version}</version>
+                <scope>provided</scope>
+            </dependency>
+
             <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
             <dependency>
                 <groupId>com.google.protobuf</groupId>
                 <artifactId>protobuf-java</artifactId>
-                <version>3.5.1</version>
+                <version>${protobuf.version}</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/com.squareup/protoparser -->

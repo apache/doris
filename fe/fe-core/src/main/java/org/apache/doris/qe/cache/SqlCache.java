@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.logging.log4j.LogManager;
@@ -37,13 +38,18 @@ public class SqlCache extends Cache {
         this.latestTable = latestTable;
     }
 
-    public CacheProxy.FetchCacheResult getCacheData(Status status) {
-        CacheProxy.FetchCacheRequest request = new CacheProxy.FetchCacheRequest(selectStmt.toSql());
-        request.addParam(latestTable.latestPartitionId, latestTable.latestVersion,
-                latestTable.latestTime);
-        CacheProxy.FetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
+    public InternalService.PFetchCacheResult getCacheData(Status status) {
+        InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
+                .setSqlKey(CacheProxy.getMd5(selectStmt.toSql()))
+                .addParams(InternalService.PCacheParam.newBuilder()
+                        .setPartitionKey(latestTable.latestPartitionId)
+                        .setLastVersion(latestTable.latestVersion)
+                        .setLastVersionTime(latestTable.latestTime))
+                .build();
+
+        InternalService.PFetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
         if (status.ok() && cacheResult != null) {
-            cacheResult.all_count = 1;
+            cacheResult = cacheResult.toBuilder().setAllCount(1).build();
             MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
             hitRange = HitRange.Full;
         }
@@ -66,15 +72,21 @@ public class SqlCache extends Cache {
             return;
         }
 
-        CacheBeProxy.UpdateCacheRequest updateRequest = rowBatchBuilder.buildSqlUpdateRequest(selectStmt.toSql(),
+        InternalService.PUpdateCacheRequest updateRequest = rowBatchBuilder.buildSqlUpdateRequest(selectStmt.toSql(),
                 latestTable.latestPartitionId, latestTable.latestVersion, latestTable.latestTime);
-        if (updateRequest.value_count > 0) {
+        if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();
             Status status = new Status();
             proxy.updateCache(updateRequest, CacheProxy.UPDATE_TIMEOUT, status);
+            int rowCount = 0;
+            int dataSize = 0;
+            for (InternalService.PCacheValue value : updateRequest.getValuesList()) {
+                rowCount += value.getRowsCount();
+                dataSize += value.getDataSize();
+            }
             LOG.info("update cache model {}, queryid {}, sqlkey {}, value count {}, row count {}, data size {}",
-                    CacheAnalyzer.CacheMode.Sql, DebugUtil.printId(queryId), DebugUtil.printId(updateRequest.sql_key),
-                    updateRequest.value_count, updateRequest.row_count, updateRequest.data_size);
+                    CacheAnalyzer.CacheMode.Sql, DebugUtil.printId(queryId), DebugUtil.printId(updateRequest.getSqlKey()),
+                    updateRequest.getValuesCount(), rowCount, dataSize);
         }
     }
 }

@@ -112,6 +112,7 @@ message PTabletWriterCancelResult {
 };
 
 message PExecPlanFragmentRequest {
+    optional bytes request = 1;
 };
 
 message PExecPlanFragmentResult {
@@ -145,6 +146,7 @@ message PFetchDataResult {
     optional int64 packet_seq = 2;
     optional bool eos = 3;
     optional PQueryStatistics query_statistics = 4;
+    optional bytes row_batch = 5;
 };
 
 //Add message definition to fetch and update cache
@@ -190,6 +192,7 @@ message PFetchCacheRequest {
 message PFetchCacheResult {
     required PCacheStatus status = 1;
     repeated PCacheValue values = 2;
+    optional int64 all_count = 3 [default = 0];
 };
 
 enum PClearType {

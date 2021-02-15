@@ -29,6 +29,7 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -38,6 +39,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class PartitionCache extends Cache {
     private static final Logger LOG = LogManager.getLogger(PartitionCache.class);
@@ -73,33 +75,33 @@ public class PartitionCache extends Cache {
         this.newRangeList = Lists.newArrayList();
     }
 
-    public CacheProxy.FetchCacheResult getCacheData(Status status) {
-        CacheProxy.FetchCacheRequest request;
+    public InternalService.PFetchCacheResult getCacheData(Status status) {
+
         rewriteSelectStmt(null);
-        request = new CacheBeProxy.FetchCacheRequest(nokeyStmt.toSql());
         range = new PartitionRange(this.partitionPredicate, this.olapTable,
                 this.partitionInfo);
         if (!range.analytics()) {
             status.setStatus("analytics range error");
             return null;
         }
-
-        for (PartitionRange.PartitionSingle single : range.getPartitionSingleList()) {
-            request.addParam(single.getCacheKey().realValue(),
-                    single.getPartition().getVisibleVersion(),
-                    single.getPartition().getVisibleVersionTime()
-            );
-        }
-
-        CacheProxy.FetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
+        InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
+                .setSqlKey(CacheProxy.getMd5(nokeyStmt.toSql()))
+                .addAllParams(range.getPartitionSingleList().stream().map(
+                        p -> InternalService.PCacheParam.newBuilder()
+                                .setPartitionKey(p.getCacheKey().realValue())
+                                .setLastVersion(p.getPartition().getVisibleVersion())
+                                .setLastVersionTime(p.getPartition().getVisibleVersionTime())
+                                .build()).collect(Collectors.toList())
+                ).build();
+        InternalService.PFetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
         if (status.ok() && cacheResult != null) {
-            cacheResult.all_count = range.getPartitionSingleList().size();
-            for (CacheBeProxy.CacheValue value : cacheResult.getValueList()) {
-                range.setCacheFlag(value.param.partition_key);
+            for (InternalService.PCacheValue value : cacheResult.getValuesList()) {
+                range.setCacheFlag(value.getParam().getPartitionKey());
             }
+            cacheResult = cacheResult.toBuilder().setAllCount(range.getPartitionSingleList().size()).build();
             MetricRepo.COUNTER_CACHE_HIT_PARTITION.increase(1L);
             MetricRepo.COUNTER_CACHE_PARTITION_ALL.increase((long) range.getPartitionSingleList().size());
-            MetricRepo.COUNTER_CACHE_PARTITION_HIT.increase((long) cacheResult.getValueList().size());
+            MetricRepo.COUNTER_CACHE_PARTITION_HIT.increase((long) cacheResult.getValuesList().size());
         }
 
         range.setTooNewByID(latestTable.latestPartitionId);
@@ -125,15 +127,21 @@ public class PartitionCache extends Cache {
             return;
         }
 
-        CacheBeProxy.UpdateCacheRequest updateRequest = rowBatchBuilder.buildPartitionUpdateRequest(nokeyStmt.toSql());
-        if (updateRequest.value_count > 0) {
+        InternalService.PUpdateCacheRequest updateRequest = rowBatchBuilder.buildPartitionUpdateRequest(nokeyStmt.toSql());
+        if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();
             Status status = new Status();
             proxy.updateCache(updateRequest, CacheProxy.UPDATE_TIMEOUT, status);
+            int rowCount = 0;
+            int dataSize = 0;
+            for (InternalService.PCacheValue value : updateRequest.getValuesList()) {
+                rowCount += value.getRowsCount();
+                dataSize += value.getDataSize();
+            }
             LOG.info("update cache model {}, queryid {}, sqlkey {}, value count {}, row count {}, data size {}",
                     CacheAnalyzer.CacheMode.Partition, DebugUtil.printId(queryId),
-                    DebugUtil.printId(updateRequest.sql_key),
-                    updateRequest.value_count, updateRequest.row_count, updateRequest.data_size);
+                    DebugUtil.printId(updateRequest.getSqlKey()),
+                    updateRequest.getValuesCount(), rowCount, dataSize);
         }
     }
 
