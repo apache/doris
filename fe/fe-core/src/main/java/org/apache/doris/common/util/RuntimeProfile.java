@@ -369,9 +369,8 @@ public class RuntimeProfile {
             @Override
             public int compare(Pair<RuntimeProfile, Boolean> profile1, Pair<RuntimeProfile, Boolean> profile2)
             {
-                long distance = profile2.first.getCounterTotalTime().getValue() 
-                        - profile1.first.getCounterTotalTime().getValue();
-                return (int) distance;
+                return Long.valueOf(profile2.first.getCounterTotalTime().getValue())
+                    .compareTo(profile1.first.getCounterTotalTime().getValue());
             }
         });
     }
