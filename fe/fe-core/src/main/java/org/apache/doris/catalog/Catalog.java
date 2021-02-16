@@ -5410,7 +5410,8 @@ public class Catalog {
         try {
             TableProperty tableProperty = olapTable.getTableProperty();
             if (tableProperty == null) {
-                olapTable.setTableProperty(new TableProperty(properties).buildProperty(opCode));
+                tableProperty = new TableProperty(properties).buildProperty(opCode);
+                olapTable.setTableProperty(tableProperty);
             } else {
                 tableProperty.modifyTableProperties(properties);
                 tableProperty.buildProperty(opCode);
