@@ -24,6 +24,7 @@
 #include "exec/broker_writer.h"
 #include "exec/local_file_writer.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mysql_table_sink.h"
 #include "runtime/row_batch.h"
