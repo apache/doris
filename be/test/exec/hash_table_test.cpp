@@ -29,6 +29,7 @@
 
 #include "common/compiler_util.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "exprs/slot_ref.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"

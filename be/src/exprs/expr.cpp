@@ -32,6 +32,7 @@
 #include "exprs/cast_expr.h"
 #include "exprs/compound_predicate.h"
 #include "exprs/conditional_functions.h"
+#include "exprs/expr_context.h"
 #include "exprs/in_predicate.h"
 #include "exprs/info_func.h"
 #include "exprs/is_null_predicate.h"
