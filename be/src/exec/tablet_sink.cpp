@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "olap/hll.h"
 #include "runtime/exec_env.h"
 #include "runtime/row_batch.h"
