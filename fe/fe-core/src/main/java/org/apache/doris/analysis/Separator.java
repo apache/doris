@@ -91,8 +91,53 @@ public class Separator implements ParseNode {
             }
             return writer.toString();
         } else {
-            return originStr;
+            return unescape(originStr);
         }
+    }
+
+    // unescape some invisible string literal to char, such as "/t" to char '/t'
+    private static String unescape(String orig) {
+        StringBuffer sb = new StringBuffer();
+        boolean hadSlash = false;
+        for (int i = 0; i < orig.length(); i++) {
+            char ch = orig.charAt(i);
+            if (hadSlash) {
+                hadSlash = false;
+                switch (ch) {
+                    case '\\':
+                        sb.append('\\');
+                        break;
+                    case '\'':
+                        sb.append('\'');
+                        break;
+                    case '\"':
+                        sb.append('"');
+                        break;
+                    case 'r':
+                        sb.append('\r');
+                        break;
+                    case 't':
+                        sb.append('\t');
+                        break;
+                    case 'n':
+                        sb.append('\n');
+                        break;
+                    default :
+                        sb.append('\\').append(ch);
+                        break;
+                }
+                continue;
+            } else if (ch == '\\') {
+                if (i == orig.length() - 1) {
+                    sb.append(ch);
+                } else {
+                    hadSlash = true;
+                }
+                continue;
+            }
+            sb.append(ch);
+        }
+        return sb.toString();
     }
 
     public String toSql() {
