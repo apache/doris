@@ -130,6 +130,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.verify_checksum = _opts.verify_checksum;
     opts.use_page_cache = iter_opts.use_page_cache;
     opts.kept_in_memory = _opts.kept_in_memory;
+    opts.type = iter_opts.type;
 
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
@@ -154,6 +155,7 @@ bool ColumnReader::match_condition(CondColumn* cond) const {
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
     _parse_zone_map(_zone_map_index_meta->segment_zone_map(), min_value.get(), max_value.get());
+
     return _zone_map_match_condition(_zone_map_index_meta->segment_zone_map(), min_value.get(),
                                      max_value.get(), cond);
 }
@@ -185,7 +187,7 @@ bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
         return false; // no data in this zone
     }
 
-    if (cond == nullptr) {
+    if (cond == nullptr || zone_map.pass_all()) {
         return true;
     }
 
@@ -202,20 +204,24 @@ Status ColumnReader::_get_filtered_pages(
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
     for (int32_t i = 0; i < page_size; ++i) {
-        _parse_zone_map(zone_maps[i], min_value.get(), max_value.get());
-        if (_zone_map_match_condition(zone_maps[i], min_value.get(), max_value.get(),
-                                      cond_column)) {
-            bool should_read = true;
-            if (delete_condition != nullptr) {
-                int state = delete_condition->del_eval({min_value.get(), max_value.get()});
-                if (state == DEL_SATISFIED) {
-                    should_read = false;
-                } else if (state == DEL_PARTIAL_SATISFIED) {
-                    delete_partial_filtered_pages->insert(i);
+        if (zone_maps[i].pass_all()) {
+            page_indexes->push_back(i);
+        } else {
+            _parse_zone_map(zone_maps[i], min_value.get(), max_value.get());
+            if (_zone_map_match_condition(zone_maps[i], min_value.get(), max_value.get(),
+                                          cond_column)) {
+                bool should_read = true;
+                if (delete_condition != nullptr) {
+                    int state = delete_condition->del_eval({min_value.get(), max_value.get()});
+                    if (state == DEL_SATISFIED) {
+                        should_read = false;
+                    } else if (state == DEL_PARTIAL_SATISFIED) {
+                        delete_partial_filtered_pages->insert(i);
+                    }
                 }
-            }
-            if (should_read) {
-                page_indexes->push_back(i);
+                if (should_read) {
+                    page_indexes->push_back(i);
+                }
             }
         }
     }
@@ -248,7 +254,7 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
         int64_t idx = from;
         int64_t to = row_ranges->get_range_to(i);
         auto iter = _ordinal_index->seek_at_or_before(from);
-        while (idx < to) {
+        while (idx < to && iter.valid()) {
             page_ids.insert(iter.page_index());
             idx = iter.last_ordinal() + 1;
             iter.next();
@@ -444,7 +450,7 @@ Status FileColumnIterator::seek_to_first() {
 
 Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     // if current page contains this row, we don't need to seek
-    if (_page == nullptr || !_page->contains(ord)) {
+    if (_page == nullptr || !_page->contains(ord) || !_page_iter.valid()) {
         RETURN_IF_ERROR(_reader->seek_at_or_before(ord, &_page_iter));
         RETURN_IF_ERROR(_read_data_page(_page_iter));
     }
@@ -569,6 +575,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     PageHandle handle;
     Slice page_body;
     PageFooterPB footer;
+    _opts.type = DATA_PAGE;
     RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer));
     // parse data page
     RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
@@ -587,6 +594,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                 // read dictionary page
                 Slice dict_data;
                 PageFooterPB dict_footer;
+                _opts.type = INDEX_PAGE;
                 RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(),
                                                    &_dict_page_handle, &dict_data, &dict_footer));
                 // ignore dict_footer.dict_page_footer().encoding() due to only

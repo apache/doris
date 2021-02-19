@@ -158,15 +158,11 @@ Sometimes the query fails and an error message of `body_size is too large` will 
 
 This error indicates that the packet size of brpc exceeds the configured value. At this time, you can avoid this error by increasing the configuration.
 
-Since this is a brpc configuration, users can also modify this parameter directly during operation. Modify by visiting `http://be_host:brpc_port/flags`.
-
 ### `brpc_socket_max_unwritten_bytes`
 
 This configuration is mainly used to modify the parameter `socket_max_unwritten_bytes` of brpc.
 
 Sometimes the query fails and an error message of `The server is overcrowded` will appear in the BE log. This means there are too many messages to buffer at the sender side, which may happen when the SQL needs to send large bitmap value. You can avoid this error by increasing the configuration.
-
-Since this is a brpc configuration, users can also modify this parameter directly during operation. Modify by visiting `http://be_host:brpc_port/flags`.
 
 ### `brpc_num_threads`
 
@@ -328,8 +324,6 @@ In some deployment environments, the `conf/` directory may be overwritten due to
 * Type: int32
 * Description: Configure how many rows of data are contained in a single RowBlock.
 * Default value: 1024
-
-### `default_query_options`
 
 ### `default_rowset_type`
 
@@ -512,8 +506,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `load_process_max_memory_limit_percent`
 
-### `local_library_dir`
-
 ### `log_buffer_level`
 
 ### `madvise_huge_pages`
@@ -693,15 +685,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `scan_context_gc_interval_min`
 
-### `scratch_dirs`
-
-### `serialize_batch`
-
-### `sleep_five_seconds`
-+ Type: int32
-+ Description: Global variables, used for BE thread sleep for 5 seconds, should not be modified
-+ Default value: 5
-
 ### `sleep_one_second`
 
 + Type: int32
@@ -712,8 +695,6 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 
 ### `snapshot_expire_time_sec`
 
-### `sorter_block_size`
-
 ### `status_report_interval`
 
 ### `storage_flood_stage_left_capacity_bytes`
@@ -723,6 +704,11 @@ Indicates how many tablets in this data directory failed to load. At the same ti
 ### `storage_medium_migrate_count`
 
 ### `storage_page_cache_limit`
+
+### `index_page_cache_percentage`
+* Type: int32
+* Description: Index page cache as a percentage of total storage page cache, value range is [0, 100]
+* Default value: 10
 
 ### `storage_root_path`
 
@@ -808,6 +794,14 @@ When writing is too frequent and the disk time is insufficient, you can configur
 
 ### `tablet_writer_open_rpc_timeout_sec`
 
+### `tablet_writer_ignore_eovercrowded`
+
+* Type: bool
+* Description: Used to ignore brpc error '[E1011]The server is overcrowded' when writing data. 
+* Default value: false
+
+When meet '[E1011]The server is overcrowded' error, you can tune the configuration `brpc_socket_max_unwritten_bytes`, but it can't be modified at runtime. Set it to `true` to avoid writing failed temporarily. Notice that, it only effects `write`, other rpc requests will still check if overcrowded.
+
 ### `tc_free_memory_rate`
 
 ### `tc_max_total_thread_cache_bytes`
@@ -861,8 +855,6 @@ If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
 
 ### `user_function_dir`
 
-### `web_log_bytes`
-
 ### `webserver_num_workers`
 
 ### `webserver_port`
@@ -872,3 +864,9 @@ If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
 * Default: 8040
 
 ### `write_buffer_size`
+
+### `zone_map_row_num_threshold`
+
+* Type: int32
+* Description: If the number of rows in a page is less than this value, no zonemap will be created to reduce data expansion
+* Default: 20

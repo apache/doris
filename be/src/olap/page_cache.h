@@ -23,6 +23,7 @@
 
 #include "gutil/macros.h" // for DISALLOW_COPY_AND_ASSIGN
 #include "olap/lru_cache.h"
+#include "gen_cpp/segment_v2.pb.h" // for cache allocation
 
 namespace doris {
 
@@ -53,13 +54,13 @@ public:
     };
 
     // Create global instance of this class
-    static void create_global_cache(size_t capacity);
+    static void create_global_cache(size_t capacity, int32_t index_cache_percentage);
 
     // Return global instance.
     // Client should call create_global_cache before.
     static StoragePageCache* instance() { return _s_instance; }
 
-    StoragePageCache(size_t capacity);
+    StoragePageCache(size_t capacity, int32_t index_cache_percentage);
 
     // Lookup the given page in the cache.
     //
@@ -67,8 +68,10 @@ public:
     // PageCacheHandle will release cache entry to cache when it
     // destructs.
     //
+    // Cache type selection is determined by page_type argument
+    //
     // Return true if entry is found, otherwise return false.
-    bool lookup(const CacheKey& key, PageCacheHandle* handle);
+    bool lookup(const CacheKey& key, PageCacheHandle* handle, segment_v2::PageTypePB page_type);
 
     // Insert a page with key into this cache.
     // Given handle will be set to valid reference.
@@ -76,13 +79,33 @@ public:
     // concurrently, this function can assure that only one page is cached.
     // The in_memory page will have higher priority.
     void insert(const CacheKey& key, const Slice& data, PageCacheHandle* handle,
-                bool in_memory = false);
+                segment_v2::PageTypePB page_type, bool in_memory = false);
+
+    // Page cache available check.
+    // When percentage is set to 0 or 100, the index or data cache will not be allocated.
+    bool is_cache_available(segment_v2::PageTypePB page_type) {
+        return _get_page_cache(page_type) != nullptr;
+    }
 
 private:
     StoragePageCache();
     static StoragePageCache* _s_instance;
 
-    std::unique_ptr<Cache> _cache = nullptr;
+    int32_t _index_cache_percentage = 0;
+    std::unique_ptr<Cache> _data_page_cache = nullptr;
+    std::unique_ptr<Cache> _index_page_cache = nullptr;
+
+    Cache* _get_page_cache(segment_v2::PageTypePB page_type) {
+        switch (page_type)
+        {
+        case segment_v2::DATA_PAGE:
+            return _data_page_cache.get();
+        case segment_v2::INDEX_PAGE:
+            return _index_page_cache.get();
+        default:
+            return nullptr;
+        }
+    }
 };
 
 // A handle for StoragePageCache entry. This class make it easy to handle

@@ -330,7 +330,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
                              const DescriptorTbl& descs, ExecNode** node) {
     std::stringstream error_msg;
 
-    VLOG(2) << "tnode:\n" << apache::thrift::ThriftDebugString(tnode);
+    VLOG_CRITICAL << "tnode:\n" << apache::thrift::ThriftDebugString(tnode);
     switch (tnode.node_type) {
     case TPlanNodeType::CSV_SCAN_NODE:
         *node = pool->add(new CsvScanNode(pool, tnode, descs));

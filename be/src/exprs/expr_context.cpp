@@ -244,13 +244,6 @@ void ExprContext::get_value(TupleRow* row, bool as_ascii, TColumnValue* col_val)
 #endif
 }
 
-void* ExprContext::get_value(TupleRow* row) {
-    if (_root->is_slotref()) {
-        return SlotRef::get_value(_root, row);
-    }
-    return get_value(_root, row);
-}
-
 bool ExprContext::is_nullable() {
     if (_root->is_slotref()) {
         return SlotRef::is_nullable(_root);

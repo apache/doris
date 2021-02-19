@@ -21,7 +21,7 @@ under the License.
 [![Join the chat at https://gitter.im/apache-doris/Lobby](https://badges.gitter.im/apache-doris/Lobby.svg)](https://gitter.im/apache-doris/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
-Its original name was Palo, developed in Baidu. After donating it to Apache Software Foundation, it was renamed Doris.
+Its original name was Palo, developed in Baidu. After donated to Apache Software Foundation, it was renamed Doris.
 
 ## 1. License
 
@@ -45,9 +45,9 @@ Currently only supports Docker environment and Linux OS, such as Ubuntu and Cent
 
 ### 4.1 Compile in Docker environment (Recommended)
 
-We offer a docker image as a Doris compilation environment. You can compile Doris from source in it and run the output binaries in other Linux environment.
+We offer a docker image as a Doris compilation environment. You can compile Doris from source in it and run the output binaries in other Linux environments.
 
-Firstly, you must be install and start docker service.
+Firstly, you need to install and start docker service.
 
 And then you could build Doris as following steps:
 
@@ -91,7 +91,7 @@ $ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/
 
 #### Step3: Download Doris source
 
-Now you should attached in docker environment.
+Now you should be attached in docker environment.
 
 You can download Doris source by release package or by git clone in image.
 
@@ -117,21 +117,21 @@ After successfully building, it will install binary files in the directory `outp
 
 #### Prerequisites
 
-You must be install following softwares:
+You should install the following softwares:
 
 ```
-GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
+GCC 7.3.0+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
 ```
 
-After you installed above all, you also must be set them to environment variable PATH and set JAVA_HOME.
+Then set them to environment variable PATH and set JAVA_HOME.
 
-If your GCC version is lower than 5.3.1, you can run:
+If your GCC version is lower than 7.3.0, you can run:
 
 ```
-sudo yum install devtoolset-4-toolchain -y
+sudo yum install devtoolset-7-toolchain -y
 ```
 
-and then, set the path of GCC (e.g /opt/rh/devtoolset-4/root/usr/bin) to the environment variable PATH.
+and then, set the path of GCC (e.g `/opt/rh/devtoolset-7/root/usr/bin`) to the environment variable PATH.
 
 #### Compile and install
 
@@ -164,4 +164,3 @@ If you find any bugs, please file a [GitHub issue](https://github.com/apache/inc
 * Deploy and Upgrade - <https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade>
 * User Manual - <https://github.com/apache/incubator-doris/wiki/Doris-Create%2C-Load-and-Delete>
 * FAQs - <https://github.com/apache/incubator-doris/wiki/Doris-FAQ>
-

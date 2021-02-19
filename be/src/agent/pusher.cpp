@@ -134,7 +134,7 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
             time_t now = time(NULL);
             if (_push_req.timeout > 0 && _push_req.timeout < now) {
                 // return status to break this callback
-                VLOG(3) << "check time out. time_out:" << _push_req.timeout << ", now:" << now;
+                VLOG_NOTICE << "check time out. time_out:" << _push_req.timeout << ", now:" << now;
                 is_timeout = true;
                 return Status::OK();
             }

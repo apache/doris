@@ -21,26 +21,38 @@ namespace doris {
 
 StoragePageCache* StoragePageCache::_s_instance = nullptr;
 
-void StoragePageCache::create_global_cache(size_t capacity) {
+void StoragePageCache::create_global_cache(size_t capacity, int32_t index_cache_percentage) {
     DCHECK(_s_instance == nullptr);
-    static StoragePageCache instance(capacity);
+    static StoragePageCache instance(capacity, index_cache_percentage);
     _s_instance = &instance;
 }
 
-StoragePageCache::StoragePageCache(size_t capacity)
-        : _cache(new_lru_cache("StoragePageCache", capacity)) {}
+StoragePageCache::StoragePageCache(size_t capacity, int32_t index_cache_percentage)
+        : _index_cache_percentage(index_cache_percentage) {
+    if (index_cache_percentage == 0) {
+        _data_page_cache = std::unique_ptr<Cache>(new_lru_cache("DataPageCache", capacity));
+    } else if (index_cache_percentage == 100) {
+        _index_page_cache = std::unique_ptr<Cache>(new_lru_cache("IndexPageCache", capacity));
+    } else if (index_cache_percentage > 0 && index_cache_percentage < 100) {
+        _data_page_cache = std::unique_ptr<Cache>(new_lru_cache("DataPageCache", capacity * (100 - index_cache_percentage) / 100));
+        _index_page_cache = std::unique_ptr<Cache>(new_lru_cache("IndexPageCache", capacity * index_cache_percentage / 100));
+    } else {
+        CHECK(false) << "invalid index page cache percentage";
+    }
+}
 
-bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle) {
-    auto lru_handle = _cache->lookup(key.encode());
+bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle, segment_v2::PageTypePB page_type) {
+    auto cache = _get_page_cache(page_type);
+    auto lru_handle = cache->lookup(key.encode());
     if (lru_handle == nullptr) {
         return false;
     }
-    *handle = PageCacheHandle(_cache.get(), lru_handle);
+    *handle = PageCacheHandle(cache, lru_handle);
     return true;
 }
 
 void StoragePageCache::insert(const CacheKey& key, const Slice& data, PageCacheHandle* handle,
-                              bool in_memory) {
+                              segment_v2::PageTypePB page_type, bool in_memory) {
     auto deleter = [](const doris::CacheKey& key, void* value) { delete[](uint8_t*) value; };
 
     CachePriority priority = CachePriority::NORMAL;
@@ -48,8 +60,9 @@ void StoragePageCache::insert(const CacheKey& key, const Slice& data, PageCacheH
         priority = CachePriority::DURABLE;
     }
 
-    auto lru_handle = _cache->insert(key.encode(), data.data, data.size, deleter, priority);
-    *handle = PageCacheHandle(_cache.get(), lru_handle);
+    auto cache = _get_page_cache(page_type);
+    auto lru_handle = cache->insert(key.encode(), data.data, data.size, deleter, priority);
+    *handle = PageCacheHandle(cache, lru_handle);
 }
 
 } // namespace doris

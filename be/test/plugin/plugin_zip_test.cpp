@@ -18,7 +18,6 @@
 #include "plugin/plugin_zip.h"
 
 #include <gtest/gtest.h>
-#include <libgen.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -30,6 +29,7 @@
 #include "http/http_channel.h"
 #include "http/http_handler.h"
 #include "http/http_request.h"
+#include "test_util/test_util.h"
 #include "util/file_utils.h"
 #include "util/slice.h"
 
@@ -37,16 +37,15 @@ namespace doris {
 class HttpTestHandler : public HttpHandler {
 public:
     void handle(HttpRequest* req) override {
-        char buf[1024];
-        readlink("/proc/self/exe", buf, 1023);
-        char* dir_path = dirname(buf);
-        std::string path = std::string(dir_path);
+        std::string path = GetCurrentRunningDir();
+        ASSERT_FALSE(path.empty());
 
         std::unique_ptr<SequentialFile> file;
 
         auto& file_name = req->param("FILE");
 
         FILE* fp = fopen((path + "/plugin_test/source/" + file_name).c_str(), "r");
+        ASSERT_TRUE(fp != nullptr);
 
         std::string response;
         char f[1024];
@@ -68,19 +67,14 @@ public:
 class PluginZipTest : public testing::Test {
 public:
     PluginZipTest() {
-        char buf[1024];
-        readlink("/proc/self/exe", buf, 1023);
-        char* dir_path = dirname(buf);
-        _path = std::string(dir_path);
-
+        _path = GetCurrentRunningDir();
+        EXPECT_FALSE(_path.empty());
         _server.reset(new EvHttpServer(29191));
         _server->register_handler(GET, "/{FILE}", &_handler);
         _server->start();
 
         std::cout << "the path: " << _path << std::endl;
     }
-
-    ~PluginZipTest() { _server->stop(); };
 
 public:
     std::string _path;
@@ -142,9 +136,9 @@ TEST_F(PluginZipTest, http_normal) {
 }
 
 TEST_F(PluginZipTest, already_install) {
-    // This test case will finish very soon, sleep 1 second to ensure that EvHttpServer worker has started
+    // This test case will finish very soon, sleep 100 us to ensure that EvHttpServer worker has started
     // before this unit test case finished, or there may cause an ASAN error.
-    sleep(1);
+    usleep(100);
     FileUtils::remove_all(_path + "/plugin_test/target");
 
     PluginZip zip("http://127.0.0.1:29191/test.zip");

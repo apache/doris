@@ -105,7 +105,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
         OLAPStatus res =
                 reader.next_row_with_aggregation(&row, mem_pool.get(), agg_object_pool.get(), &eof);
         if (res == OLAP_SUCCESS && eof) {
-            VLOG(3) << "reader reads to the end.";
+            VLOG_NOTICE << "reader reads to the end.";
             break;
         } else if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to read in reader. [res=%d]", res);

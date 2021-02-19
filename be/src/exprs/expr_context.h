@@ -22,6 +22,8 @@
 
 #include "common/status.h"
 #include "exprs/expr_value.h"
+#include "exprs/expr.h"
+#include "exprs/slot_ref.h"
 #include "udf/udf.h"
 #include "udf/udf_internal.h" // for ArrayVal
 
@@ -205,6 +207,13 @@ private:
     /// This is used by Exprs to call GetValue() on a child expr, rather than root_.
     void* get_value(Expr* e, TupleRow* row);
 };
+
+inline void* ExprContext::get_value(TupleRow* row) {
+    if (_root->is_slotref()) {
+        return SlotRef::get_value(_root, row);
+    }
+    return get_value(_root, row);
+}
 
 } // namespace doris
 

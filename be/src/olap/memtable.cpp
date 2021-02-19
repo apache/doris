@@ -121,14 +121,21 @@ OLAPStatus MemTable::flush() {
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        Table::Iterator it(_skip_list);
-        for (it.SeekToFirst(); it.Valid(); it.Next()) {
-            char* row = (char*)it.key();
-            ContiguousRow dst_row(_schema, row);
-            agg_finalize_row(&dst_row, _table_mem_pool.get());
-            RETURN_NOT_OK(_rowset_writer->add_row(dst_row));
+        OLAPStatus st = _rowset_writer->flush_single_memtable(this, &_flush_size);
+        if (st == OLAP_ERR_FUNC_NOT_IMPLEMENTED) {
+            // For alpha rowset, we do not implement "flush_single_memtable".
+            // Flush the memtable like the old way.
+            Table::Iterator it(_skip_list);
+            for (it.SeekToFirst(); it.Valid(); it.Next()) {
+                char* row = (char*)it.key();
+                ContiguousRow dst_row(_schema, row);
+                agg_finalize_row(&dst_row, _table_mem_pool.get());
+                RETURN_NOT_OK(_rowset_writer->add_row(dst_row));
+            }
+            RETURN_NOT_OK(_rowset_writer->flush());
+        } else {
+            RETURN_NOT_OK(st);
         }
-        RETURN_NOT_OK(_rowset_writer->flush());
     }
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
@@ -137,6 +144,30 @@ OLAPStatus MemTable::flush() {
 
 OLAPStatus MemTable::close() {
     return flush();
+}
+
+MemTable::Iterator::Iterator(MemTable* memtable):
+    _mem_table(memtable),
+    _it(memtable->_skip_list) {
+}
+
+void MemTable::Iterator::seek_to_first() {
+    _it.SeekToFirst();
+}
+
+bool MemTable::Iterator::valid() {
+    return _it.Valid();
+}
+
+void MemTable::Iterator::next() {
+    _it.Next();
+}
+
+ContiguousRow MemTable::Iterator::get_current_row() {
+    char* row = (char*) _it.key();
+    ContiguousRow dst_row(_mem_table->_schema, row);
+    agg_finalize_row(&dst_row, _mem_table->_table_mem_pool.get());
+    return dst_row;
 }
 
 } // namespace doris

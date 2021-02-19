@@ -17,10 +17,10 @@ _Put an `x` in the boxes that apply_
 
 _Put an `x` in the boxes that apply. You can also fill these out after creating the PR. If you're unsure about any of them, don't hesitate to ask. We're here to help! This is simply a reminder of what we are going to look for before merging your code._
 
-- [] I have create an issue on (Fix #ISSUE), and have described the bug/feature there in detail
+- [] I have created an issue on (Fix #ISSUE) and described the bug/feature there in detail
 - [] Compiling and unit tests pass locally with my changes
 - [] I have added tests that prove my fix is effective or that my feature works
-- [] If this change need a document change, I have updated the document
+- [] If these changes need document changes, I have updated the document
 - [] Any dependent changes have been merged
 
 ## Further comments

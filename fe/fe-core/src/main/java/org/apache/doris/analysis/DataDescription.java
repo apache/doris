@@ -34,15 +34,9 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TNetworkAddress;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.io.StringReader;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -51,6 +45,13 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import java.io.StringReader;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 // used to describe data info which is needed to import.
 //
@@ -102,6 +103,7 @@ public class DataDescription {
     private final List<String> columnsFromPath;
     // save column mapping in SET(xxx = xxx) clause
     private final List<Expr> columnMappingList;
+    private final Expr precedingFilterExpr;
     private final Expr whereExpr;
     private final String srcTableName;
     // this only used in multi load, all filePaths is file not dir
@@ -116,6 +118,7 @@ public class DataDescription {
     private boolean stripOuterArray = false;
     private String jsonPaths = "";
     private String jsonRoot = "";
+    private boolean fuzzyParse = false;
 
     private String sequenceCol;
 
@@ -143,7 +146,7 @@ public class DataDescription {
                            boolean isNegative,
                            List<Expr> columnMappingList) {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
-                isNegative, columnMappingList, null, LoadTask.MergeType.APPEND, null, null);
+                isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null);
     }
 
     public DataDescription(String tableName,
@@ -155,6 +158,7 @@ public class DataDescription {
                            List<String> columnsFromPath,
                            boolean isNegative,
                            List<Expr> columnMappingList,
+                           Expr fileFilterExpr,
                            Expr whereExpr,
                            LoadTask.MergeType mergeType,
                            Expr deleteCondition,
@@ -168,6 +172,7 @@ public class DataDescription {
         this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = fileFilterExpr;
         this.whereExpr = whereExpr;
         this.srcTableName = null;
         this.mergeType = mergeType;
@@ -193,6 +198,7 @@ public class DataDescription {
         this.columnsFromPath = null;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = null; // external hive table does not support file filter expr
         this.whereExpr = whereExpr;
         this.srcTableName = srcTableName;
         this.mergeType = mergeType;
@@ -380,6 +386,10 @@ public class DataDescription {
         return partitionNames;
     }
 
+    public Expr getPrecdingFilterExpr() {
+        return precedingFilterExpr;
+    }
+
     public Expr getWhereExpr() {
         return whereExpr;
     }
@@ -475,6 +485,14 @@ public class DataDescription {
 
     public void setStripOuterArray(boolean stripOuterArray) {
         this.stripOuterArray = stripOuterArray;
+    }
+
+    public boolean isFuzzyParse() {
+        return fuzzyParse;
+    }
+
+    public void setFuzzyParse(boolean fuzzyParse) {
+        this.fuzzyParse = fuzzyParse;
     }
 
     public String getJsonPaths() {
@@ -787,16 +805,6 @@ public class DataDescription {
         analyzeColumns();
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
-        if (mergeType == LoadTask.MergeType.MERGE) {
-            parsedColumnExprList.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
-        } else if (mergeType == LoadTask.MergeType.DELETE) {
-            parsedColumnExprList.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
-        }
-        // add columnExpr for sequence column
-        if (hasSequenceCol()) {
-            parsedColumnExprList.add(new ImportColumnDesc(Column.SEQUENCE_COL,
-                    new SlotRef(null, getSequenceCol())));
-        }
     }
 
     /*

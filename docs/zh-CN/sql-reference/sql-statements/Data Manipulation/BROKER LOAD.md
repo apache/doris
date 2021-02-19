@@ -68,6 +68,7 @@ under the License.
             [COLUMNS TERMINATED BY "column_separator"]
             [FORMAT AS "file_type"]
             [(column_list)]
+            [PRECEDING FILTER predicate]
             [SET (k1 = func(k2))]
             [WHERE predicate]
             [DELETE ON label=true]
@@ -103,6 +104,10 @@ under the License.
             当需要跳过导入文件中的某一列时，将该列指定为 table 中不存在的列名即可。
             语法：
             (col_name1, col_name2, ...)
+
+            PRECEDING FILTER predicate:
+
+            用于过滤原始数据。原始数据是未经列映射、转换的数据。用户可以在对转换前的数据前进行一次过滤，选取期望的数据，再进行转换。
             
             SET:
 
@@ -476,6 +481,20 @@ under the License.
          COLUMNS TERMINATED BY ","
          (k1,k2,source_sequence,v1,v2)
          ORDER BY source_sequence
+        ) 
+        with BROKER "hdfs" ("username"="user", "password"="pass");
+
+    14. 先过滤原始数据，在进行列的映射、转换和过滤操作
+
+        LOAD LABEL example_db.label_filter
+        (
+         DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+         INTO TABLE `tbl1`
+         COLUMNS TERMINATED BY ","
+         (k1,k2,v1,v2)
+         PRECEDING FILTER k1 > 2
+         SET (k1 = k1 +1)
+         WHERE k1 > 3
         ) 
         with BROKER "hdfs" ("username"="user", "password"="pass");
          

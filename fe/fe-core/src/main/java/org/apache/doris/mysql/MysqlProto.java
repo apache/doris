@@ -138,8 +138,12 @@ public class MysqlProto {
         serializer.reset();
         MysqlHandshakePacket handshakePacket = new MysqlHandshakePacket(context.getConnectionId());
         handshakePacket.writeTo(serializer);
-        channel.sendAndFlush(serializer.toByteBuffer());
-
+        try {
+            channel.sendAndFlush(serializer.toByteBuffer());
+        } catch (IOException e) {
+            LOG.warn("Send and flush channel exception, ignore. Exception: " + e.toString());
+            return false;
+        }
         // Server receive authenticate packet from client.
         ByteBuffer handshakeResponse = channel.fetchOnePacket();
         if (handshakeResponse == null) {
@@ -160,6 +164,31 @@ public class MysqlProto {
             sendResponsePacket(context);
             return false;
         }
+
+        // Starting with MySQL 8.0.4, MySQL changed the default authentication plugin for MySQL client
+        // from mysql_native_password to caching_sha2_password.
+        // ref: https://mysqlserverteam.com/mysql-8-0-4-new-default-authentication-plugin-caching_sha2_password/
+        // So, User use mysql client or ODBC Driver after 8.0.4 have problem to connect to Doris
+        // with password.
+        // So Doris support the Protocol::AuthSwitchRequest to tell client to keep the default password plugin
+        // which Doris is using now.
+        if (!handshakePacket.checkAuthPluginSameAsDoris(authPacket.getPluginName())) {
+            // 1. clear the serializer
+            serializer.reset();
+            // 2. build the auth switch request and send to the client
+            handshakePacket.buildAuthSwitchRequest(serializer);
+            channel.sendAndFlush(serializer.toByteBuffer());
+            // Server receive auth switch response packet from client.
+            ByteBuffer authSwitchResponse = channel.fetchOnePacket();
+            if (authSwitchResponse == null) {
+                // receive response failed.
+                return false;
+            }
+            // 3. the client use default password plugin of Doris to dispose
+            // password
+            authPacket.setAuthResponse(readEofString(authSwitchResponse));
+        }
+
         // change the capability of serializer
         context.setCapability(context.getServerCapability());
         serializer.setCapability(context.getCapability());

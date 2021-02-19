@@ -64,7 +64,7 @@ Syntax:
             Range: -2^127 + 1 ~ 2^127 - 1
         FLOAT(4 Bytes)
             Support scientific notation
-        DOUBLE(12 Bytes)
+        DOUBLE(8 Bytes)
             Support scientific notation
         DECIMAL[(precision, scale)] (16 Bytes)
             Default is DECIMAL(10, 0)

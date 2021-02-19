@@ -177,13 +177,13 @@ public class ExportStmt extends StatementBase {
             throw new AnalysisException("Db does not exist. name: " + tblName.getDb());
         }
 
-        db.readLock();
-        try {
-            Table table = db.getTable(tblName.getTbl());
-            if (table == null) {
-                throw new AnalysisException("Table[" + tblName.getTbl() + "] does not exist");
-            }
+        Table table = db.getTable(tblName.getTbl());
+        if (table == null) {
+            throw new AnalysisException("Table[" + tblName.getTbl() + "] does not exist");
+        }
 
+        table.readLock();
+        try {
             if (partitions == null) {
                 return;
             }
@@ -212,10 +212,8 @@ public class ExportStmt extends StatementBase {
                 }
             }
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
-
-        return;
     }
 
     private static void checkPath(String path) throws AnalysisException {

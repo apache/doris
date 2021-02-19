@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.SchedException.Status;
@@ -620,19 +621,22 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // clear all CLONE replicas
             Database db = Catalog.getCurrentCatalog().getDb(dbId);
             if (db != null) {
-                db.writeLock();
-                try {
-                    List<Replica> cloneReplicas = Lists.newArrayList();
-                    tablet.getReplicas().stream().filter(r -> r.getState() == ReplicaState.CLONE).forEach(r -> {
-                        cloneReplicas.add(r);
-                    });
+                Table table = db.getTable(tblId);
+                if (table != null) {
+                    table.writeLock();
+                    try {
+                        List<Replica> cloneReplicas = Lists.newArrayList();
+                        tablet.getReplicas().stream().filter(r -> r.getState() == ReplicaState.CLONE).forEach(r -> {
+                            cloneReplicas.add(r);
+                        });
 
-                    for (Replica cloneReplica : cloneReplicas) {
-                        tablet.deleteReplica(cloneReplica);
+                        for (Replica cloneReplica : cloneReplicas) {
+                            tablet.deleteReplica(cloneReplica);
+                        }
+
+                    } finally {
+                        table.writeUnlock();
                     }
-
-                } finally {
-                    db.writeUnlock();
                 }
             }
         }
@@ -777,13 +781,13 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         if (db == null) {
             throw new SchedException(Status.UNRECOVERABLE, "db does not exist");
         }
-        db.writeLock();
+        OlapTable olapTable = (OlapTable) db.getTable(tblId);
+        if (olapTable == null) {
+            throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
+        }
+
+        olapTable.writeLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tblId);
-            if (olapTable == null) {
-                throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
-            }
-            
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
                 throw new SchedException(Status.UNRECOVERABLE, "partition does not exist");
@@ -884,7 +888,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
             throw e;
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         if (request.isSetCopySize()) {

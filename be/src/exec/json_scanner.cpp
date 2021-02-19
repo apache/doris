@@ -36,8 +36,9 @@ JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
                          const TBrokerScanRangeParams& params,
                          const std::vector<TBrokerRangeDesc>& ranges,
                          const std::vector<TNetworkAddress>& broker_addresses,
+                         const std::vector<ExprContext*>& pre_filter_ctxs,
                          ScannerCounter* counter)
-        : BaseScanner(state, profile, params, counter),
+        : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
           _cur_file_reader(nullptr),
@@ -122,7 +123,7 @@ Status JsonScanner::open_next_reader() {
     case TFileType::FILE_STREAM: {
         _stream_load_pipe = _state->exec_env()->load_stream_mgr()->get(range.load_id);
         if (_stream_load_pipe == nullptr) {
-            VLOG(3) << "unknown stream load id: " << UniqueId(range.load_id);
+            VLOG_NOTICE << "unknown stream load id: " << UniqueId(range.load_id);
             return Status::InternalError("unknown stream load id");
         }
         file = _stream_load_pipe.get();
@@ -139,6 +140,7 @@ Status JsonScanner::open_next_reader() {
     std::string jsonpath = "";
     bool strip_outer_array = false;
     bool num_as_string = false;
+    bool fuzzy_parse = false;
 
     if (range.__isset.jsonpaths) {
         jsonpath = range.jsonpaths;
@@ -152,8 +154,11 @@ Status JsonScanner::open_next_reader() {
     if (range.__isset.num_as_string) {
         num_as_string = range.num_as_string;
     }
-    _cur_file_reader =
-            new JsonReader(_state, _counter, _profile, file, strip_outer_array, num_as_string);
+    if (range.__isset.fuzzy_parse) {
+        fuzzy_parse = range.fuzzy_parse;
+    }
+    _cur_file_reader = new JsonReader(_state, _counter, _profile, file, strip_outer_array,
+                                      num_as_string, fuzzy_parse);
     RETURN_IF_ERROR(_cur_file_reader->init(jsonpath, json_root));
 
     return Status::OK();
@@ -185,7 +190,8 @@ rapidjson::Value::ConstValueIterator JsonDataInternal::get_next() {
 
 ////// class JsonReader
 JsonReader::JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
-                       FileReader* file_reader, bool strip_outer_array, bool num_as_string)
+                       FileReader* file_reader, bool strip_outer_array, bool num_as_string,
+                       bool fuzzy_parse)
         : _handle_json_callback(nullptr),
           _next_line(0),
           _total_lines(0),
@@ -196,6 +202,7 @@ JsonReader::JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProf
           _closed(false),
           _strip_outer_array(strip_outer_array),
           _num_as_string(num_as_string),
+          _fuzzy_parse(fuzzy_parse),
           _json_doc(nullptr) {
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
@@ -272,7 +279,7 @@ void JsonReader::_close() {
 Status JsonReader::_parse_json_doc(bool* eof) {
     // read a whole message, must be delete json_str by `delete[]`
     SCOPED_TIMER(_file_read_timer);
-    std::unique_ptr<uint8_t[]> json_str; 
+    std::unique_ptr<uint8_t[]> json_str;
     size_t length = 0;
     RETURN_IF_ERROR(_file_reader->read_one_message(&json_str, &length));
     _bytes_read_counter += length;
@@ -300,7 +307,8 @@ Status JsonReader::_parse_json_doc(bool* eof) {
         str_error << "Parse json data for JsonDoc failed. code = "
                   << _origin_json_doc.GetParseError() << ", error-info:"
                   << rapidjson::GetParseError_En(_origin_json_doc.GetParseError());
-        _state->append_error_msg_to_file(std::string((char*)json_str.get(), length), str_error.str());
+        _state->append_error_msg_to_file(std::string((char*)json_str.get(), length),
+                                         str_error.str());
         _counter->num_rows_filtered++;
         return Status::DataQualityError(str_error.str());
     }
@@ -427,9 +435,7 @@ void JsonReader::_write_data_to_tuple(rapidjson::Value::ConstValueIterator value
 // for simple format json
 void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
                                   const std::vector<SlotDescriptor*>& slot_descs,
-                                  const std::vector<rapidjson::Value>& value_key,
                                   MemPool* tuple_pool, bool* valid) {
-    DCHECK(slot_descs.size() == value_key.size());
     if (!objectValue.IsObject()) {
         // Here we expect the incoming `objectValue` to be a Json Object, such as {"key" : "value"},
         // not other type of Json format.
@@ -441,21 +447,30 @@ void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
     }
 
     int nullcount = 0;
-    for (int i = 0; i < slot_descs.size(); ++i) {
-        rapidjson::Value::ConstMemberIterator it = objectValue.FindMember(value_key[i]);
+    for (auto v : slot_descs) {
+        rapidjson::Value::ConstMemberIterator it = objectValue.MemberEnd();
+        if (_fuzzy_parse) {
+            auto idx_it = _name_map.find(v->col_name());
+            if (idx_it != _name_map.end() && idx_it->second < objectValue.MemberCount()) {
+                it = objectValue.MemberBegin() + idx_it->second;
+            }
+        } else {
+            it = objectValue.FindMember(
+                    rapidjson::Value(v->col_name().c_str(), v->col_name().size()));
+        }
         if (it != objectValue.MemberEnd()) {
             const rapidjson::Value& value = it->value;
-            _write_data_to_tuple(&value, slot_descs[i], tuple, tuple_pool, valid);
+            _write_data_to_tuple(&value, v, tuple, tuple_pool, valid);
             if (!(*valid)) {
                 return;
             }
         } else { // not found
-            if (slot_descs[i]->is_nullable()) {
-                tuple->set_null(slot_descs[i]->null_indicator_offset());
+            if (v->is_nullable()) {
+                tuple->set_null(v->null_indicator_offset());
                 nullcount++;
             } else {
                 std::stringstream str_error;
-                str_error << "The column `" << slot_descs[i]->col_name()
+                str_error << "The column `" << v->col_name()
                           << "` is not nullable, but it's not found in jsondata.";
                 _state->append_error_msg_to_file(_print_json_value(objectValue), str_error.str());
                 _counter->num_rows_filtered++;
@@ -486,11 +501,6 @@ void JsonReader::_set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
  */
 Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
                                        MemPool* tuple_pool, bool* eof) {
-    // If you use a string as the key to find the json object, strlen will be called every time, so the key is constructed in advance
-    std::vector<rapidjson::Value> value_key;
-    for (auto v : slot_descs) {
-        value_key.emplace_back(v->col_name().c_str(), v->col_name().size());
-    }
     do {
         bool valid = false;
         if (_next_line >= _total_lines) { // parse json and generic document
@@ -502,6 +512,8 @@ Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescr
             if (*eof) {          // read all data, then return
                 return Status::OK();
             }
+            _name_map.clear();
+            rapidjson::Value* objectValue = nullptr;
             if (_json_doc->IsArray()) {
                 _total_lines = _json_doc->Size();
                 if (_total_lines == 0) {
@@ -513,18 +525,30 @@ Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescr
                     _counter->num_rows_filtered++;
                     continue;
                 }
+                objectValue = &(*_json_doc)[0];
             } else {
                 _total_lines = 1; // only one row
+                objectValue = _json_doc;
             }
-
             _next_line = 0;
+            if (_fuzzy_parse) {
+                for (auto v : slot_descs) {
+                    for (int i = 0; i < objectValue->MemberCount(); ++i) {
+                        auto it = objectValue->MemberBegin() + i;
+                        if (v->col_name() == it->name.GetString()) {
+                            _name_map[v->col_name()] = i;
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         if (_json_doc->IsArray()) {                                   // handle case 1
             rapidjson::Value& objectValue = (*_json_doc)[_next_line]; // json object
-            _set_tuple_value(objectValue, tuple, slot_descs, value_key, tuple_pool, &valid);
+            _set_tuple_value(objectValue, tuple, slot_descs, tuple_pool, &valid);
         } else { // handle case 2
-            _set_tuple_value(*_json_doc, tuple, slot_descs, value_key, tuple_pool, &valid);
+            _set_tuple_value(*_json_doc, tuple, slot_descs, tuple_pool, &valid);
         }
         _next_line++;
         if (!valid) {
@@ -642,6 +666,11 @@ Status JsonReader::_handle_flat_array_complex_json(Tuple* tuple,
             }
             _total_lines = _json_doc->Size();
             _next_line = 0;
+
+            if (_total_lines == 0) {
+                // meet an empty json array.
+                continue;
+            }
         }
         rapidjson::Value& objectValue = (*_json_doc)[_next_line++];
         if (!_write_values_by_jsonpath(objectValue, tuple_pool, tuple, slot_descs)) {

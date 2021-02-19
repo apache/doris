@@ -173,7 +173,28 @@ public class MetaService {
                 writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
                 return;
             }
-            checkLongParam(versionStr);
+
+            long version = checkLongParam(versionStr);
+
+            // for master node, reject image put
+            if (Catalog.getCurrentCatalog().isMaster()) {
+                response.appendContent("this node is master, reject image put");
+                writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
+                LOG.error("this node is master, but receive image put from host {}, reject it", machine);
+                return;
+            }
+
+            // do not accept image whose version is bigger than max journalId
+            // if accepted, newly added log will not be replayed when restart
+            long maxJournalId = Catalog.getCurrentCatalog().getMaxJournalId();
+            if (version > maxJournalId) {
+                response.appendContent("image version [" + version + "] is bigger than local max journal id ["
+                                               + maxJournalId + "], reject image put");
+                writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
+                LOG.error("receive image whose version [{}] is bigger than local max journal id [{}], reject it",
+                          version, maxJournalId);
+                return;
+            }
 
             String url = "http://" + machine + ":" + portStr
                     + "/image?version=" + versionStr;
@@ -330,7 +351,6 @@ public class MetaService {
 
             response.appendContent("dump finished. " + dumpFilePath);
             writeResponse(request, response);
-            return;
         }
     }
 }

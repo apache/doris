@@ -98,7 +98,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
         prev_version = rs->version().second;
         *ret_cumulative_point = prev_version + 1;
     }
-    VLOG(3) << "cumulative compaction size_based policy, calculate cumulative point value = "
+    VLOG_NOTICE << "cumulative compaction size_based policy, calculate cumulative point value = "
             << *ret_cumulative_point << ", calc promotion size value = " << promotion_size
             << " tablet = " << tablet->full_name();
 }
@@ -268,7 +268,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         rs_iter = input_rowsets->erase(rs_iter);
     }
 
-    VLOG(1) << "cumulative compaction size_based policy, compaction_score = " << *compaction_score
+    VLOG_CRITICAL << "cumulative compaction size_based policy, compaction_score = " << *compaction_score
             << ", total_size = " << total_size << ", calc promotion size value = " << promotion_size
             << ", tablet = " << tablet->full_name() << ", input_rowset size "
             << input_rowsets->size();
@@ -427,8 +427,10 @@ void CumulativeCompactionPolicy::pick_candidate_rowsets(
     int64_t now = UnixSeconds();
     for (auto& it : rs_version_map) {
         // find all rowset version greater than cumulative_point and skip the create time in skip_window_sec
-        if (it.first.first >= cumulative_point &&
-            (it.second->creation_time() + skip_window_sec < now)) {
+        if (it.first.first >= cumulative_point
+            && ((it.second->creation_time() + skip_window_sec < now)
+            // this case means a rowset has been compacted before which is not a new published rowset, so it should participate compaction
+            || (it.first.first != it.first.second))) {
             candidate_rowsets->push_back(it.second);
         }
     }

@@ -19,7 +19,6 @@ package org.apache.doris.load;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -29,11 +28,11 @@ import org.apache.doris.task.PushTask;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionState;
 
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.Collection;
 import java.util.Map;
@@ -62,7 +61,10 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
     private Set<PushTask> pushTasks;
     private DeleteInfo deleteInfo;
 
-    public DeleteJob(long id, long transactionId, String label, DeleteInfo deleteInfo) {
+    private Map<Long, Short> partitionReplicaNum;
+
+    public DeleteJob(long id, long transactionId, String label,
+                     Map<Long, Short> partitionReplicaNum, DeleteInfo deleteInfo) {
         this.id = id;
         this.signature = transactionId;
         this.label = label;
@@ -73,6 +75,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         tabletDeleteInfoMap = Maps.newConcurrentMap();
         pushTasks = Sets.newHashSet();
         state = DeleteState.UN_QUORUM;
+        this.partitionReplicaNum = partitionReplicaNum;
     }
 
     /**
@@ -84,30 +87,21 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
     public void checkAndUpdateQuorum() throws MetaNotFoundException {
         long dbId = deleteInfo.getDbId();
         long tableId = deleteInfo.getTableId();
-        long partitionId = deleteInfo.getPartitionId();
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             throw new MetaNotFoundException("can not find database "+ dbId +" when commit delete");
         }
 
-        short replicaNum = -1;
-        db.readLock();
-        try {
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            if (table == null) {
-                throw new MetaNotFoundException("can not find table "+ tableId +" when commit delete");
-            }
-            replicaNum = table.getPartitionInfo().getReplicationNum(partitionId);
-        } finally {
-            db.readUnlock();
-        }
-
-        short quorumNum = (short) (replicaNum / 2 + 1);
         for (TabletDeleteInfo tDeleteInfo : getTabletDeleteInfo()) {
+            Short replicaNum = partitionReplicaNum.get(tDeleteInfo.getPartitionId());
+            if (replicaNum == null) {
+                // should not happen
+                throw new MetaNotFoundException("Unknown partition " + tDeleteInfo.getPartitionId() + " when commit delete job");
+            }
             if (tDeleteInfo.getFinishedReplicas().size() == replicaNum) {
                 finishedTablets.add(tDeleteInfo.getTabletId());
             }
-            if (tDeleteInfo.getFinishedReplicas().size() >= quorumNum) {
+            if (tDeleteInfo.getFinishedReplicas().size() >= replicaNum / 2 + 1) {
                 quorumTablets.add(tDeleteInfo.getTabletId());
             }
         }
@@ -137,8 +131,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         return pushTasks.add(pushTask);
     }
 
-    public boolean addFinishedReplica(long tabletId, Replica replica) {
-        tabletDeleteInfoMap.putIfAbsent(tabletId, new TabletDeleteInfo(tabletId));
+    public boolean addFinishedReplica(long partitionId, long tabletId, Replica replica) {
+        tabletDeleteInfoMap.putIfAbsent(tabletId, new TabletDeleteInfo(partitionId, tabletId));
         TabletDeleteInfo tDeleteInfo =  tabletDeleteInfoMap.get(tabletId);
         return tDeleteInfo.addFinishedReplica(replica);
     }

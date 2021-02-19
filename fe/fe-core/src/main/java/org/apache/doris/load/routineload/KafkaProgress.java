@@ -19,7 +19,11 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
@@ -38,6 +42,8 @@ import java.util.Map;
  */
 // {"partitionIdToOffset": {}}
 public class KafkaProgress extends RoutineLoadProgress {
+    private static final Logger LOG = LogManager.getLogger(KafkaProgress.class);
+
     public static final String OFFSET_BEGINNING = "OFFSET_BEGINNING"; // -2
     public static final String OFFSET_END = "OFFSET_END"; // -1
     // OFFSET_ZERO is just for show info, if user specified offset is 0
@@ -47,7 +53,7 @@ public class KafkaProgress extends RoutineLoadProgress {
     public static final long OFFSET_END_VAL = -1;
 
     // (partition id, begin offset)
-    // the offset the next msg to be consumed
+    // the offset saved here is the next offset need to be consumed
     private Map<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
 
     public KafkaProgress() {
@@ -101,11 +107,12 @@ public class KafkaProgress extends RoutineLoadProgress {
             } else if (entry.getValue() == -2) {
                 showPartitionIdToOffset.put(entry.getKey(), OFFSET_BEGINNING);
             } else {
+                // The offset saved in partitionIdToOffset is the next offset to be consumed.
+                // So here we minus 1 to return the "already consumed" offset.
                 showPartitionIdToOffset.put(entry.getKey(), "" + (entry.getValue() - 1));
             }
         }
     }
-
 
     // modify the partition offset of this progress.
     // throw exception is the specified partition does not exist in progress.
@@ -138,11 +145,13 @@ public class KafkaProgress extends RoutineLoadProgress {
     }
 
     @Override
-    public void update(RoutineLoadProgress progress) {
-        KafkaProgress newProgress = (KafkaProgress) progress;
+    public void update(RLTaskTxnCommitAttachment attachment) {
+        KafkaProgress newProgress = (KafkaProgress) attachment.getProgress();
         // + 1 to point to the next msg offset to be consumed
         newProgress.partitionIdToOffset.entrySet().stream()
                 .forEach(entity -> this.partitionIdToOffset.put(entity.getKey(), entity.getValue() + 1));
+        LOG.debug("update kafka progress: {}, task: {}, job: {}",
+                newProgress.toJsonString(), DebugUtil.printId(attachment.getTaskId()), attachment.getJobId());
     }
 
     @Override
