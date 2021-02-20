@@ -37,7 +37,7 @@ under the License.
     3. Baidu Object Storage(BOS): BOS on Baidu Cloud.
     4. Apache HDFS.
 
-### Syntax: 
+### Syntax:
 
     LOAD LABEL load_label
     (
@@ -50,13 +50,13 @@ under the License.
     1. load_label
 
         Unique load label within a database.
-        syntax: 
+        syntax:
         [database_name.]your_label
      
     2. data_desc
 
         To describe the data source. 
-        syntax: 
+        syntax:
             [MERGE|APPEND|DELETE]
             DATA INFILE
             (
@@ -105,7 +105,7 @@ under the License.
 
             When you need to skip a column in the import file, specify it as a column name that does not exist in the table.
 
-            syntax: 
+            syntax:
             (col_name1, col_name2, ...)
 
             PRECEDING FILTER predicate:
@@ -178,7 +178,7 @@ under the License.
     4. opt_properties
 
         Used to specify some special parameters. 
-        Syntax: 
+        Syntax:
         [PROPERTIES ("key"="value", ...)]
         
         You can specify the following parameters:

@@ -99,7 +99,7 @@ PROPERTIES (
 );
 ```
 
-The following parameters are accepted by ODBC external table:: 
+The following parameters are accepted by ODBC external table:
 
 Parameter | Description
 ---|---

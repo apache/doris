@@ -311,7 +311,7 @@ The result of analyzed is:
    ]
 }
 ```
-The query uses: 
+The query uses:
 
 ```
 "term" : {

@@ -53,7 +53,7 @@ UNION
 SELECT null, null, SUM( k3 ) FROM t
 ```
 
-This is an example of real query: 
+This is an example of real query:
 
 ```
 mysql> SELECT * FROM t;
@@ -98,7 +98,7 @@ mysql> SELECT k1, k2, SUM(k3) FROM t GROUP BY GROUPING SETS ( (k1, k2), (k2), (k
 SELECT a, b,c, SUM( d ) FROM tab1 GROUP BY ROLLUP(a,b,c)
 ```
 
-This statement is equivalent to GROUPING SETS as followed: 
+This statement is equivalent to GROUPING SETS as followed:
 
 ```
 GROUPING SETS (
@@ -158,7 +158,7 @@ mysql> select * from t;
 +------+------+------+
 ```
 
-grouping sets result: 
+grouping sets result:
 
 ```
 mysql> SELECT k1, k2, GROUPING(k1), GROUPING(k2), SUM(k3) FROM t GROUP BY GROUPING SETS ( (k1, k2), (k2), (k1), ( ) );
@@ -218,7 +218,7 @@ First of all, a GROUP BY clause is essentially a special case of GROUPING SETS, 
    GROUP BY a
 is equivalent to:
    GROUP BY GROUPING SETS((a))
-also, 
+also,
    GROUP BY a,b,c
 is equivalent to:
    GROUP BY GROUPING SETS((a,b,c))

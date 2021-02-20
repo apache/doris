@@ -56,7 +56,7 @@ Db_name [.tbl_name] supports the following three forms:
 
 The libraries or tables specified here can be non-existent libraries and tables.
 
-user_identity: 
+user_identity:
 
 The user_identity syntax here is the same as CREATE USER. And you must create user_identity for the user using CREATE USER. The host in user_identity can be a domain name. If it is a domain name, the validity time of permissions may be delayed by about one minute.
 

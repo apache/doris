@@ -312,7 +312,7 @@ The DROP statement is as follows:
 
 **Note: DROP BACKEND will delete the BE directly and the data on it will not be recovered!!! So we strongly do not recommend DROP BACKEND to delete BE nodes. When you use this statement, there will be corresponding error-proof operation hints.**
 
-DECOMMISSION clause: 
+DECOMMISSION clause:
 
 ```ALTER SYSTEM DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```
 

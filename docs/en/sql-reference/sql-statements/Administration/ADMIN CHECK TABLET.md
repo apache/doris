@@ -29,7 +29,7 @@ under the License.
 
 This statement is used to perform a specified check operation on a list of tablets.
 
-Syntax: 
+Syntax:
 
 ```
 ADMIN CHECK TABLE (tablet_id1, tablet_id2, ...)
