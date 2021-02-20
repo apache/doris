@@ -604,7 +604,7 @@ Syntax:
     PROPERTIES("replication_num" = "3");
 ```
 
-12. Create a inmemory table:
+13. Create a inmemory table:
 
 ```
     CREATE TABLE example_db.table_hash
@@ -622,7 +622,7 @@ Syntax:
     PROPERTIES ("in_memory"="true");
 ```
 
-13. Create a hive external table
+14. Create a hive external table
 ```
     CREATE TABLE example_db.table_hive
     (

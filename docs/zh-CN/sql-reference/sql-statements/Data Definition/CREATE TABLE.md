@@ -661,7 +661,7 @@ under the License.
     PROPERTIES ("in_memory"="true");
 ```
 
-13. 创建一个hive外部表
+14. 创建一个hive外部表
 
 ```
     CREATE TABLE example_db.table_hive
