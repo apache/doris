@@ -314,9 +314,13 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
             continue;
         }
 
-        tuple->set_not_null(slot_desc->null_indicator_offset());
         const rapidjson::Value& col = line[col_name];
+        if ((pure_doc_value && col.IsArray() && col[0].IsNull()) || col.IsNull()) {
+            tuple->set_null(slot_desc->null_indicator_offset());
+            continue;
+        }
 
+        tuple->set_not_null(slot_desc->null_indicator_offset());
         void* slot = tuple->get_slot(slot_desc->tuple_offset());
         PrimitiveType type = slot_desc->type().type;
 
