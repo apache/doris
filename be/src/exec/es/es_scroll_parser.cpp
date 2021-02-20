@@ -320,6 +320,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
         void* slot = tuple->get_slot(slot_desc->tuple_offset());
         PrimitiveType type = slot_desc->type().type;
 
+        // when the column value is null, the subsequent type casting will report an error
         if (col.IsNull()) {
             slot = nullptr;
             continue;
