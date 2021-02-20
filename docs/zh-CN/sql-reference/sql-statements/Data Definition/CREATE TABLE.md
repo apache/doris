@@ -644,7 +644,6 @@ under the License.
     PROPERTIES("replication_num" = "3");
     
 13. 创建一个内存表
-
 ```
     CREATE TABLE example_db.table_hash
     (
@@ -662,7 +661,6 @@ under the License.
 ```
 
 14. 创建一个hive外部表
-
 ```
     CREATE TABLE example_db.table_hive
     (
@@ -680,7 +678,7 @@ under the License.
 ```
 
 ## keyword
-
+```
     CREATE,TABLE
 
 ```
