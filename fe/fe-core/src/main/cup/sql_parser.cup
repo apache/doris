@@ -239,7 +239,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_EXISTS, KW_EXPORT, KW_EXTERNAL, KW_EXTRACT,
     KW_FALSE, KW_FEATURE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FILE, KW_FILTER, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORCE, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION, KW_FUNCTIONS,
     KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP, KW_GROUPING,
-    KW_HASH, KW_HAVING, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HOUR, KW_HUB,
+    KW_HASH, KW_HAVING, KW_HDFS, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HOUR, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE, KW_INSTALL,
     KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERSECT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL, KW_ISOLATION,
     KW_JOIN,
@@ -257,7 +257,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
     KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESOURCES, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROUTINE, KW_ROW, KW_ROWS,
-    KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SET_VAR, KW_SHOW, KW_SIGNED,
+    KW_S3, KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SET_VAR, KW_SHOW, KW_SIGNED,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STOP, KW_STORAGE, KW_STRING,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
@@ -487,6 +487,8 @@ nonterminal OutFileClause opt_outfile;
 nonterminal RoutineLoadDataSourceProperties opt_datasource_properties;
 
 nonterminal Boolean opt_signed_unsigned;
+
+nonterminal StorageBackend storage_backend;
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -1167,11 +1169,9 @@ create_stmt ::=
     {:
         RESULT = new CreateClusterStmt(name, properties, password);
     :}
-    | KW_CREATE opt_read_only:isReadOnly KW_REPOSITORY ident:repoName KW_WITH KW_BROKER ident:brokerName
-      KW_ON KW_LOCATION STRING_LITERAL:location
-      opt_properties:properties
+    | KW_CREATE opt_read_only:isReadOnly KW_REPOSITORY ident:repoName KW_WITH storage_backend:storage
     {:
-        RESULT = new CreateRepositoryStmt(isReadOnly, repoName, brokerName, location, properties);
+        RESULT = new CreateRepositoryStmt(isReadOnly, repoName, storage);
     :}
     | KW_CREATE KW_ROLE ident:role
     {:
@@ -1203,6 +1203,25 @@ opt_aggregate ::=
     | KW_AGGREGATE
     {:
         RESULT = true;
+    :}
+    ;
+
+storage_backend ::=
+    ｜ KW_BROKER ident:brokerName KW_ON KW_LOCATION STRING_LITERAL:location opt_properties:properties
+    {:
+        RESULT = new StorageBackend(brokerName, location, StorageBackend.StorageType.BROKER, properties);
+    :}
+    | KW_S3 KW_ON KW_LOCATION STRING_LITERAL:location opt_properties:properties
+    {:
+        RESULT = new StorageBackend("", location, StorageBackend.StorageType.S3, properties);
+    :}
+    | KW_HDFS KW_ON KW_LOCATION STRING_LITERAL:location opt_properties:properties
+    {:
+        RESULT = new StorageBackend("", location, StorageBackend.StorageType.HDFS, properties);
+    :}
+    | KW_LOCAL KW_ON KW_LOCATION STRING_LITERAL:location opt_properties:properties
+    {:
+        RESULT = new StorageBackend("", location, StorageBackend.StorageType.LOCAL, properties);
     :}
     ;
 
@@ -4665,6 +4684,10 @@ keyword ::=
     | KW_BOOLEAN:id
     {: RESULT = id; :}
     | KW_BROKER:id
+    {: RESULT = id; :}
+    | KW_S3:id
+    {: RESULT = id; :}
+    | KW_HDFS:id
     {: RESULT = id; :}
     | KW_BACKENDS:id
     {: RESULT = id; :}

@@ -813,13 +813,13 @@ build_croaringbitmap
 build_orc
 build_cctz
 build_tsan_header
-# build_aws_c_common
-# build_aws_s2n
-# build_aws_c_cal
-# build_aws_c_io
-# build_aws_checksums
-# build_aws_c_event_stream
-# build_aws_sdk
+build_aws_c_common
+build_aws_s2n
+build_aws_c_cal
+build_aws_c_io
+build_aws_checksums
+build_aws_c_event_stream
+build_aws_sdk
 build_js_and_css
 
 echo "Finihsed to build all thirdparties"

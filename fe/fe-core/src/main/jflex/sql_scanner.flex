@@ -111,6 +111,8 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("boolean", new Integer(SqlParserSymbols.KW_BOOLEAN));
         keywordMap.put("both", new Integer(SqlParserSymbols.KW_BOTH));
         keywordMap.put("broker", new Integer(SqlParserSymbols.KW_BROKER));
+        keywordMap.put("s3", new Integer(SqlParserSymbols.KW_S3));
+        keywordMap.put("hdfs", new Integer(SqlParserSymbols.KW_HDFS));
         keywordMap.put("buckets", new Integer(SqlParserSymbols.KW_BUCKETS));
         keywordMap.put("builtin", new Integer(SqlParserSymbols.KW_BUILTIN));
         keywordMap.put("by", new Integer(SqlParserSymbols.KW_BY));

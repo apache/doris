@@ -84,6 +84,13 @@ enum TTypeNodeType {
     STRUCT
 }
 
+enum TStorageBackendType {
+    BROKER,
+    S3,
+    HDFS,
+    LOCAL
+}
+
 struct TScalarType {
     1: required TPrimitiveType type
 

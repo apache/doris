@@ -68,6 +68,7 @@ set(UTIL_FILES
   filesystem_util.cc
   load_error_hub.cpp
   broker_load_error_hub.cpp
+  broker_storage_backend.cpp
   null_load_error_hub.cpp
   time.cpp
   os_info.cpp
@@ -103,6 +104,8 @@ set(UTIL_FILES
   brpc_stub_cache.cpp
   zlib.cpp
   pprof_utils.cpp
+  s3_uri.cpp
+  s3_storage_backend.cpp
   topn_counter.cpp
 )
 

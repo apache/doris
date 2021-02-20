@@ -362,6 +362,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 throw new AnalysisException(String.format("Exceeded the maximum depth of an " +
                         "expression tree (%s).", Config.expr_depth_limit));
             }
+        } else {
+            throw new AnalysisException("analyzer is null.");
         }
 
         for (Expr child: children) {
