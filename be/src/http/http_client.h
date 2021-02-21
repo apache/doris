@@ -66,6 +66,11 @@ public:
         curl_easy_setopt(_curl, CURLOPT_COPYPOSTFIELDS, post_body.c_str());
     }
 
+    void set_ssl() {
+        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, false);
+        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, false);
+    }
+
     // TODO(zc): support set header
     // void set_header(const std::string& key, const std::string& value) {
     // _cntl.http_request().SetHeader(key, value);
