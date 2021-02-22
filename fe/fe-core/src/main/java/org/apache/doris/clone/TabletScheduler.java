@@ -496,7 +496,6 @@ public class TabletScheduler extends MasterDaemon {
                 Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
                 TabletStatus st = tablet.getColocateHealthStatus(
                         partition.getVisibleVersion(),
-                        partition.getVisibleVersionHash(),
                         tbl.getPartitionInfo().getReplicationNum(partition.getId()),
                         backendsSet);
                 statusPair = Pair.create(st, Priority.HIGH);

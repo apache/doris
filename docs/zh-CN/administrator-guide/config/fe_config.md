@@ -89,11 +89,11 @@ FE 的配置项有两种方式进行配置：
     
 ## 应用举例
 
-1. 修改 `async_load_task_pool_size`
+1. 修改 `async_pending_load_task_pool_size`
 
     通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项不能动态配置（`IsMutable` 为 false）。则需要在 `fe.conf` 中添加：
     
-    `async_load_task_pool_size=20`
+    `async_pending_load_task_pool_size=20`
     
     之后重启 FE 进程以生效该配置。
     
@@ -133,6 +133,22 @@ FE 的配置项有两种方式进行配置：
 ### `alter_table_timeout_second`
 
 ### `async_load_task_pool_size`
+
+此配置仅用于与旧版本兼容，该配置已经被`async_loading_load_task_pool_size`所取代，将来会被移除。
+
+### `async_loading_load_task_pool_size`
+
+`loading_load`任务执行程序池大小。 该池大小限制了正在运行的最大`loading_load`任务数。
+
+当前，它仅限制`broker load`的`loading_load`任务的数量。
+
+### `async_pending_load_task_pool_size`
+
+`pending_load`任务执行程序池大小。 该池大小限制了正在运行的最大`pending_load`任务数。
+
+当前，它仅限制`broker load`和`spark load`的`pending_load`任务的数量。
+
+它应该小于`max_running_txn_num_per_db`的值。
 
 ### `audit_log_delete_age`
 
@@ -713,14 +729,6 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 将此参数设置为 true，则 Doris 会自动使用空白副本填充所有副本都以损坏或丢失的 Tablet。
 
 默认为 false。
-
-
-### `enable_odbc_table`
-
-将此参数设置为 true，则 Doris 能够支持ODBC的外表建立，查询。具体ODBC表的使用方式，参考ODBC表的使用文档。
-
-在该功能仍然在实验阶段，所以当前改参数默认为 false。
-
 
 ### `default_db_data_quota_bytes`
 

@@ -151,6 +151,12 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     Used for compatibility with MySQL clients. No practical effect.
 
+* `delete_without_partition`
+
+    When set to true. When using the delete command to delete partition table data, no partition is required. The delete operation will be automatically applied to all partitions.
+
+     Note, however, that the automatic application to all partitions may cause the delete command to take a long time to trigger a large number of subtasks and cause a long time. If it is not necessary, it is not recommended to turn it on.
+
 * `disable_colocate_join`
 
     Controls whether the [Colocation Join] (./colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.

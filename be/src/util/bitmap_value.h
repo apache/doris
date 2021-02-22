@@ -1006,6 +1006,47 @@ public:
         }
     }
 
+    void remove(uint64_t value) {
+        switch (_type) {
+            case EMPTY:
+                break;
+            case SINGLE:
+                //there is need to convert the type if two variables are equal
+                if (_sv == value) {
+                    _type = EMPTY;
+                }
+                break;
+            case BITMAP:
+                _bitmap.remove(value);
+                _convert_to_smaller_type();
+        }
+    }
+
+    // Compute the union between the current bitmap and the provided bitmap.
+    BitmapValue& operator-=(const BitmapValue& rhs) {
+        switch (rhs._type) {
+            case EMPTY:
+                break;
+            case SINGLE:
+                remove(rhs._sv);
+                break;
+            case BITMAP:
+                switch (_type) {
+                    case EMPTY:
+                        break;
+                    case SINGLE:
+                        remove(rhs._sv);
+                        break;
+                    case BITMAP:
+                        _bitmap -= rhs._bitmap;
+                        _convert_to_smaller_type();
+                        break;
+                }
+                break;
+        }
+        return *this;
+    }
+
     // Compute the union between the current bitmap and the provided bitmap.
     // Possible type transitions are:
     // EMPTY  -> SINGLE

@@ -43,6 +43,7 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
@@ -52,6 +53,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -87,6 +89,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     public DynamicPartitionScheduler(String name, long intervalMs) {
         super(name, intervalMs);
         this.initialize = false;
+    }
+
+    public void executeDynamicPartitionFirstTime(Long dbId, Long tableId) {
+        List<Pair<Long, Long>> tempDynamicPartitionTableInfo = Lists.newArrayList(new Pair<>(dbId, tableId));
+        executeDynamicPartition(tempDynamicPartitionTableInfo);
     }
 
     public void registerDynamicPartitionTable(Long dbId, Long tableId) {
@@ -239,7 +246,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 RangeUtils.checkRangeIntersect(reservePartitionKeyRange, checkDropPartitionKey);
                 if (checkDropPartitionKey.upperEndpoint().compareTo(reservePartitionKeyRange.lowerEndpoint()) <= 0) {
                     String dropPartitionName = olapTable.getPartition(checkDropPartitionId).getName();
-                    dropPartitionClauses.add(new DropPartitionClause(false, dropPartitionName, false, true));
+                    dropPartitionClauses.add(new DropPartitionClause(false, dropPartitionName, false, false));
                 }
             } catch (DdlException e) {
                 break;
@@ -248,8 +255,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return dropPartitionClauses;
     }
 
-    private void executeDynamicPartition() {
-        Iterator<Pair<Long, Long>> iterator = dynamicPartitionTableInfo.iterator();
+    private void executeDynamicPartition(Collection<Pair<Long, Long>> dynamicPartitionTableInfoCol) {
+        Iterator<Pair<Long, Long>> iterator = dynamicPartitionTableInfoCol.iterator();
         while (iterator.hasNext()) {
             Pair<Long, Long> tableInfo = iterator.next();
             Long dbId = tableInfo.first;
@@ -388,7 +395,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
         setInterval(Config.dynamic_partition_check_interval_seconds * 1000L);
         if (Config.dynamic_partition_enable) {
-            executeDynamicPartition();
+            executeDynamicPartition(dynamicPartitionTableInfo);
         }
     }
 }

@@ -118,9 +118,9 @@ ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port
         : ThriftClientImpl(ipaddress, port), _iface(new InterfaceType(_protocol)) {
     switch (server_type) {
     case ThriftServer::NON_BLOCKING:
-    case ThriftServer::THREADED:
         _transport.reset(new apache::thrift::transport::TFramedTransport(_socket));
         break;
+    case ThriftServer::THREADED:
     case ThriftServer::THREAD_POOL:
         _transport.reset(new apache::thrift::transport::TBufferedTransport(_socket));
         break;

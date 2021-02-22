@@ -141,7 +141,6 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportChecker;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
@@ -206,8 +205,8 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
-import org.apache.doris.task.PullLoadJobMgr;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -368,7 +367,6 @@ public class Catalog {
 
     private MetaReplayState metaReplayState;
 
-    private PullLoadJobMgr pullLoadJobMgr;
     private BrokerMgr brokerMgr;
     private ResourceMgr resourceMgr;
 
@@ -521,7 +519,6 @@ public class Catalog {
 
         this.isDefaultClusterCreated = false;
 
-        this.pullLoadJobMgr = new PullLoadJobMgr(!isCheckpointCatalog);
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
 
@@ -540,10 +537,10 @@ public class Catalog {
         this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat, Config.tablet_rebalancer_type);
         this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
 
-        this.pendingLoadTaskScheduler = new MasterTaskExecutor("pending_load_task_scheduler", Config.async_load_task_pool_size,
-                Config.desired_max_waiting_jobs, !isCheckpointCatalog);
-        this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading_load_task_scheduler", Config.async_load_task_pool_size,
-                Config.desired_max_waiting_jobs, !isCheckpointCatalog);
+        this.pendingLoadTaskScheduler = new MasterTaskExecutor("pending_load_task_scheduler", Config.async_pending_load_task_pool_size,
+                Config.async_pending_load_task_pool_size, !isCheckpointCatalog);
+        this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading_load_task_scheduler", Config.async_loading_load_task_pool_size,
+                Config.async_loading_load_task_pool_size / 5, !isCheckpointCatalog);
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
         this.loadTimeoutChecker = new LoadTimeoutChecker(loadManager);
@@ -588,10 +585,6 @@ public class Catalog {
     // but in some cases, we should get the serving catalog explicitly.
     public static Catalog getServingCatalog() {
         return SingletonHolder.INSTANCE;
-    }
-
-    public PullLoadJobMgr getPullLoadJobMgr() {
-        return pullLoadJobMgr;
     }
 
     public BrokerMgr getBrokerMgr() {
@@ -735,8 +728,7 @@ public class Catalog {
         // 1. check and create dirs and files
         File meta = new File(metaDir);
         if (!meta.exists()) {
-            LOG.error("{} does not exist, will exit", meta.getAbsolutePath());
-            System.exit(-1);
+            throw new Exception(meta.getAbsolutePath() + " does not exist, will exit");
         }
 
         if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
@@ -750,8 +742,7 @@ public class Catalog {
                 imageDir.mkdirs();
             }
         } else {
-            LOG.error("Invalid edit log type: {}", Config.edit_log_type);
-            System.exit(-1);
+            throw new Exception("Invalid edit log type: " + Config.edit_log_type);
         }
 
         // init plugin manager
@@ -811,9 +802,8 @@ public class Catalog {
             // check file integrity, if has.
             if ((roleFile.exists() && !versionFile.exists())
                     || (!roleFile.exists() && versionFile.exists())) {
-                LOG.error("role file and version file must both exist or both not exist. "
+                throw new IOException("role file and version file must both exist or both not exist. "
                         + "please specific one helper node to recover. will exit.");
-                System.exit(-1);
             }
 
             // ATTN:
@@ -920,8 +910,7 @@ public class Catalog {
             if (!versionFile.exists()) {
                 // If the version file doesn't exist, download it from helper node
                 if (!getVersionFileFromHelper(rightHelperNode)) {
-                    LOG.error("fail to download version file from " + rightHelperNode.first + " will exit.");
-                    System.exit(-1);
+                    throw new IOException("fail to download version file from " + rightHelperNode.first + " will exit.");
                 }
 
                 // NOTE: cluster_id will be init when Storage object is constructed,
@@ -960,13 +949,11 @@ public class Catalog {
                         Preconditions.checkNotNull(token);
                         Preconditions.checkNotNull(remoteToken);
                         if (!token.equals(remoteToken)) {
-                            LOG.error("token is not equal with helper node {}. will exit.", rightHelperNode.first);
-                            System.exit(-1);
+                            throw new IOException("token is not equal with helper node " + rightHelperNode.first + ". will exit.");
                         }
                     }
                 } catch (Exception e) {
-                    LOG.warn("fail to check cluster_id and token with helper node.", e);
-                    System.exit(-1);
+                    throw new IOException("fail to check cluster_id and token with helper node.", e);
                 }
             }
 
@@ -974,8 +961,7 @@ public class Catalog {
         }
 
         if (Config.cluster_id != -1 && clusterId != Config.cluster_id) {
-            LOG.error("cluster id is not equal with config item cluster_id. will exit.");
-            System.exit(-1);
+            throw new IOException("cluster id is not equal with config item cluster_id. will exit.");
         }
 
         if (role.equals(FrontendNodeType.FOLLOWER)) {
@@ -1060,13 +1046,12 @@ public class Catalog {
         LOG.debug("get self node: {}", selfNode);
     }
 
-    private void getHelperNodes(String[] args) throws AnalysisException {
+    private void getHelperNodes(String[] args) throws Exception {
         String helpers = null;
         for (int i = 0; i < args.length; i++) {
             if (args[i].equalsIgnoreCase("-helper")) {
                 if (i + 1 >= args.length) {
-                    System.out.println("-helper need parameter host:port,host:port");
-                    System.exit(-1);
+                    throw new AnalysisException("-helper need parameter host:port,host:port");
                 }
                 helpers = args[i + 1];
                 break;
@@ -1081,8 +1066,7 @@ public class Catalog {
             } else if (Config.enable_deploy_manager.equalsIgnoreCase("local")) {
                 deployManager = new LocalFileDeployManager(this, 5000 /* 5s interval */);
             } else {
-                System.err.println("Unknow deploy manager: " + Config.enable_deploy_manager);
-                System.exit(-1);
+                throw new AnalysisException("Unknow deploy manager: " + Config.enable_deploy_manager);
             }
 
             getHelperNodeFromDeployManager();
@@ -1118,7 +1102,7 @@ public class Catalog {
     }
 
     @SuppressWarnings("unchecked")
-    private void getHelperNodeFromDeployManager() {
+    private void getHelperNodeFromDeployManager() throws Exception {
         Preconditions.checkNotNull(deployManager);
 
         // 1. check if this is the first time to start up
@@ -1126,9 +1110,8 @@ public class Catalog {
         File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
         if ((roleFile.exists() && !versionFile.exists())
                 || (!roleFile.exists() && versionFile.exists())) {
-            LOG.error("role file and version file must both exist or both not exist. "
+            throw new Exception("role file and version file must both exist or both not exist. "
                     + "please specific one helper node to recover. will exit.");
-            System.exit(-1);
         }
 
         if (roleFile.exists()) {
@@ -1143,8 +1126,7 @@ public class Catalog {
         // Get helper node from deploy manager.
         helperNodes = deployManager.getHelperNodes();
         if (helperNodes == null || helperNodes.isEmpty()) {
-            LOG.error("failed to get helper node from deploy manager. exit");
-            System.exit(-1);
+            throw new Exception("failed to get helper node from deploy manager. exit");
         }
     }
 
@@ -1652,27 +1634,11 @@ public class Catalog {
         }
 
         // delete jobs
+        // Delete job has been moved to DeleteHandler. Here the jobSize is always 0, we need do nothing.
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_11) {
             jobSize = dis.readInt();
+            Preconditions.checkState(jobSize == 0, jobSize);
             newChecksum ^= jobSize;
-            for (int i = 0; i < jobSize; i++) {
-                long dbId = dis.readLong();
-                newChecksum ^= dbId;
-
-                int deleteCount = dis.readInt();
-                newChecksum ^= deleteCount;
-                for (int j = 0; j < deleteCount; j++) {
-                    DeleteInfo deleteInfo = new DeleteInfo();
-                    deleteInfo.readFields(dis);
-                    long currentTimeMs = System.currentTimeMillis();
-
-                    // Delete the history delete jobs that are older than
-                    // LABEL_KEEP_MAX_MS
-                    if ((currentTimeMs - deleteInfo.getCreateTimeMs()) / 1000 <= Config.label_keep_max_second) {
-                        load.unprotectAddDeleteInfo(deleteInfo);
-                    }
-                }
-            }
         }
 
         // load error hub info
@@ -1684,28 +1650,10 @@ public class Catalog {
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
             // 4. load delete jobs
+            // Delete job has been moved to DeleteHandler. Here the jobSize is always 0, we need do nothing.
             int deleteJobSize = dis.readInt();
+            Preconditions.checkState(deleteJobSize == 0, deleteJobSize);
             newChecksum ^= deleteJobSize;
-            for (int i = 0; i < deleteJobSize; i++) {
-                long dbId = dis.readLong();
-                newChecksum ^= dbId;
-
-                int deleteJobCount = dis.readInt();
-                newChecksum ^= deleteJobCount;
-                for (int j = 0; j < deleteJobCount; j++) {
-                    LoadJob job = new LoadJob();
-                    job.readFields(dis);
-                    long currentTimeMs = System.currentTimeMillis();
-
-                    // Delete the history load jobs that are older than
-                    // LABEL_KEEP_MAX_MS
-                    // This job must be FINISHED or CANCELLED
-                    if ((currentTimeMs - job.getCreateTimeMs()) / 1000 <= Config.label_keep_max_second
-                            || (job.getState() != JobState.FINISHED && job.getState() != JobState.CANCELLED)) {
-                        load.unprotectAddLoadJob(job, true /* replay */);
-                    }
-                }
-            }
         }
 
         LOG.info("finished replay loadJob from image");
@@ -2071,46 +2019,20 @@ public class Catalog {
         }
 
         // 2. save delete jobs
-        Map<Long, List<DeleteInfo>> dbToDeleteInfos = load.getDbToDeleteInfos();
-        jobSize = dbToDeleteInfos.size();
+        // delete jobs are moved to DeleteHandler. So here we just set job size as 0.
+        jobSize = 0;
         checksum ^= jobSize;
         dos.writeInt(jobSize);
-        for (Entry<Long, List<DeleteInfo>> entry : dbToDeleteInfos.entrySet()) {
-            long dbId = entry.getKey();
-            checksum ^= dbId;
-            dos.writeLong(dbId);
-
-            List<DeleteInfo> deleteInfos = entry.getValue();
-            int deletInfoCount = deleteInfos.size();
-            checksum ^= deletInfoCount;
-            dos.writeInt(deletInfoCount);
-            for (DeleteInfo deleteInfo : deleteInfos) {
-                deleteInfo.write(dos);
-            }
-        }
 
         // 3. load error hub info
         LoadErrorHub.Param param = load.getLoadErrorHubInfo();
         param.write(dos);
 
         // 4. save delete load job info
-        Map<Long, List<LoadJob>> dbToDeleteJobs = load.getDbToDeleteJobs();
-        int deleteJobSize = dbToDeleteJobs.size();
+        // delete jobs are moved to DeleteHandler. So here we just set job size as 0.
+        int deleteJobSize = 0;
         checksum ^= deleteJobSize;
         dos.writeInt(deleteJobSize);
-        for (Entry<Long, List<LoadJob>> entry : dbToDeleteJobs.entrySet()) {
-            long dbId = entry.getKey();
-            checksum ^= dbId;
-            dos.writeLong(dbId);
-
-            List<LoadJob> deleteJobs = entry.getValue();
-            int deleteJobCount = deleteJobs.size();
-            checksum ^= deleteJobCount;
-            dos.writeInt(deleteJobCount);
-            for (LoadJob job : deleteJobs) {
-                job.write(dos);
-            }
-        }
 
         return checksum;
     }
@@ -2258,7 +2180,6 @@ public class Catalog {
             @Override
             protected void runAfterCatalogReady() {
                 load.removeOldLoadJobs();
-                load.removeOldDeleteJobs();
                 loadManager.removeOldLoadJob();
                 exportMgr.removeOldExportJobs();
             }
@@ -2730,9 +2651,11 @@ public class Catalog {
 
                 // save table names for recycling
                 Set<String> tableNames = db.getTableNamesWithLock();
-                unprotectDropDb(db, stmt.isForceDrop());
+                unprotectDropDb(db, stmt.isForceDrop(), false);
                 if (!stmt.isForceDrop()) {
                     Catalog.getCurrentRecycleBin().recycleDatabase(db, tableNames);
+                } else {
+                    Catalog.getCurrentCatalog().eraseDatabase(db.getId(), false);
                 }
             } finally {
                 db.writeUnlock();
@@ -2752,11 +2675,11 @@ public class Catalog {
         LOG.info("finish drop database[{}], is force : {}", dbName, stmt.isForceDrop());
     }
 
-    public void unprotectDropDb(Database db, boolean isForeDrop) {
+    public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay) {
         for (Table table : db.getTables()) {
             table.writeLock();
             try {
-                unprotectDropTable(db, table, isForeDrop);
+                unprotectDropTable(db, table, isForeDrop, isReplay);
             } finally {
                 table.writeUnlock();
             }
@@ -2786,9 +2709,11 @@ public class Catalog {
             db.writeLock();
             try {
                 Set<String> tableNames = db.getTableNamesWithLock();
-                unprotectDropDb(db, isForceDrop);
+                unprotectDropDb(db, isForceDrop, true);
                 if (!isForceDrop) {
                     Catalog.getCurrentRecycleBin().recycleDatabase(db, tableNames);
+                } else {
+                    Catalog.getCurrentCatalog().eraseDatabase(db.getId(), false);
                 }
             } finally {
                 db.writeUnlock();
@@ -2850,13 +2775,14 @@ public class Catalog {
         if (table != null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
         }
-        table.writeLock();
+
+        db.writeLock();
         try {
             if (!Catalog.getCurrentRecycleBin().recoverTable(db, tableName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
             }
         } finally {
-            table.writeUnlock();
+            db.writeUnlock();
         }
     }
 
@@ -3052,12 +2978,8 @@ public class Catalog {
             createOlapTable(db, stmt);
             return;
         } else if (engineName.equals("odbc")) {
-            if (Config.enable_odbc_table) {
-                createOdbcTable(db, stmt);
-                return;
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
-            }
+            createOdbcTable(db, stmt);
+            return;
         } else if (engineName.equals("mysql")) {
             createMysqlTable(db, stmt);
             return;
@@ -3096,6 +3018,7 @@ public class Catalog {
             }
             CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(createTableStmt.get(0), ConnectContext.get());
             parsedCreateTableStmt.setTableName(stmt.getTableName());
+            parsedCreateTableStmt.setIfNotExists(stmt.isIfNotExists());
             createTable(parsedCreateTableStmt);
         } catch (UserException e) {
             throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: " + e.getMessage());
@@ -3636,7 +3559,7 @@ public class Catalog {
         Set<String> bfColumns = null;
         double bfFpp = 0;
         try {
-            bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(properties, baseSchema);
+            bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(properties, baseSchema, keysType);
             if (bfColumns != null && bfColumns.isEmpty()) {
                 bfColumns = null;
             }
@@ -3733,7 +3656,7 @@ public class Catalog {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        int schemaHash = Util.schemaHash(schemaVersion, baseSchema, bfColumns, bfFpp);
+        int schemaHash = Util.generateSchemaHash();
         olapTable.setIndexMeta(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash,
                 shortKeyColumnCount, baseIndexStorageType, keysType);
 
@@ -3754,7 +3677,7 @@ public class Catalog {
             List<Column> rollupColumns = getRollupHandler().checkAndPrepareMaterializedView(addRollupClause,
                     olapTable, baseRollupIndex, false);
             short rollupShortKeyColumnCount = Catalog.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
-            int rollupSchemaHash = Util.schemaHash(schemaVersion, rollupColumns, bfColumns, bfFpp);
+            int rollupSchemaHash = Util.generateSchemaHash();
             long rollupIndexId = getCurrentCatalog().getNextId();
             olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
                     rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
@@ -3859,7 +3782,7 @@ public class Catalog {
             }
             LOG.info("successfully create table[{};{}]", tableName, tableId);
             // register or remove table from DynamicPartition after table created
-            DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable);
+            DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
             dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
                     tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
         } catch (DdlException e) {
@@ -4290,12 +4213,12 @@ public class Catalog {
                         }
                     }
                 } // end for partitions
-                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(dbId, olapTable);
+                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(dbId, olapTable, true);
             }
         }
     }
 
-    public void replayAlterExteranlTableSchema(String dbName, String tableName, List<Column> newSchema) throws DdlException {
+    public void replayAlterExternalTableSchema(String dbName, String tableName, List<Column> newSchema) throws DdlException {
         Database db = this.fullNameToDb.get(dbName);
         Table table = db.getTable(tableName);
         table.writeLock();
@@ -4436,7 +4359,7 @@ public class Catalog {
             DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, stmt.isForceDrop());
             table.writeLock();
             try {
-                unprotectDropTable(db, table, stmt.isForceDrop());
+                unprotectDropTable(db, table, stmt.isForceDrop(), false);
             } finally {
                 table.writeUnlock();
             }
@@ -4447,7 +4370,7 @@ public class Catalog {
         LOG.info("finished dropping table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
     }
 
-    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop) {
+    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay) {
         if (table.getType() == TableType.ELASTICSEARCH) {
             esRepository.deRegisterTable(table.getId());
         } else if (table.getType() == TableType.OLAP) {
@@ -4459,6 +4382,10 @@ public class Catalog {
         db.dropTable(table.getName());
         if (!isForceDrop) {
             Catalog.getCurrentRecycleBin().recycleTable(db.getId(), table);
+        } else {
+            if (table.getType() == TableType.OLAP) {
+                Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, isReplay);
+            }
         }
 
         LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
@@ -4471,7 +4398,7 @@ public class Catalog {
         db.writeLock();
         table.writeLock();
         try {
-            unprotectDropTable(db, table, isForceDrop);
+            unprotectDropTable(db, table, isForceDrop, true);
         } finally {
             table.writeUnlock();
             db.writeUnlock();
@@ -5386,7 +5313,7 @@ public class Catalog {
             tableProperty.buildDynamicProperty();
         }
 
-        DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table);
+        DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table, false);
         dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
                 table.getName(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), logProperties);
@@ -5483,7 +5410,8 @@ public class Catalog {
         try {
             TableProperty tableProperty = olapTable.getTableProperty();
             if (tableProperty == null) {
-                olapTable.setTableProperty(new TableProperty(properties).buildProperty(opCode));
+                tableProperty = new TableProperty(properties).buildProperty(opCode);
+                olapTable.setTableProperty(tableProperty);
             } else {
                 tableProperty.modifyTableProperties(properties);
                 tableProperty.buildProperty(opCode);
@@ -6870,6 +6798,68 @@ public class Catalog {
             }
         } finally {
             table.writeUnlock();
+        }
+    }
+
+    public void eraseDatabase(long dbId, boolean needEditLog) {
+        // remove jobs
+        Catalog.getCurrentCatalog().getLoadInstance().removeDbLoadJob(dbId);
+        Catalog.getCurrentCatalog().getSchemaChangeHandler().removeDbAlterJob(dbId);
+        Catalog.getCurrentCatalog().getRollupHandler().removeDbAlterJob(dbId);
+
+        // remove database transaction manager
+        Catalog.getCurrentCatalog().getGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
+
+        if (needEditLog) {
+            Catalog.getCurrentCatalog().getEditLog().logEraseDb(dbId);
+        }
+    }
+
+    public void onEraseOlapTable(OlapTable olapTable, boolean isReplay) {
+        // inverted index
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        Collection<Partition> allPartitions = olapTable.getAllPartitions();
+        for (Partition partition : allPartitions) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                for (Tablet tablet : index.getTablets()) {
+                    invertedIndex.deleteTablet(tablet.getId());
+                }
+            }
+        }
+
+        if (!isReplay) {
+            // drop all replicas
+            AgentBatchTask batchTask = new AgentBatchTask();
+            for (Partition partition : olapTable.getAllPartitions()) {
+                List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+                for (MaterializedIndex materializedIndex : allIndices) {
+                    long indexId = materializedIndex.getId();
+                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                    for (Tablet tablet : materializedIndex.getTablets()) {
+                        long tabletId = tablet.getId();
+                        List<Replica> replicas = tablet.getReplicas();
+                        for (Replica replica : replicas) {
+                            long backendId = replica.getBackendId();
+                            DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId, schemaHash);
+                            batchTask.addTask(dropTask);
+                        } // end for replicas
+                    } // end for tablets
+                } // end for indices
+            } // end for partitions
+            AgentTaskExecutor.submit(batchTask);
+        }
+
+        // colocation
+        Catalog.getCurrentColocateIndex().removeTable(olapTable.getId());
+    }
+
+    public void onErasePartition(Partition partition) {
+        // remove tablet in inverted index
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (Tablet tablet : index.getTablets()) {
+                invertedIndex.deleteTablet(tablet.getId());
+            }
         }
     }
 }

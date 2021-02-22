@@ -40,10 +40,6 @@ public:
 
     ProgressUpdater();
 
-    // Sets the GLOG level for this progress updater.  By default, this will use
-    // 2 but objects can override it.
-    void set_logging_level(int level) { _logging_level = level; }
-
     // 'delta' more of the work has been complete.  Will potentially output to
     // VLOG_PROGRESS
     void update(int64_t delta);
@@ -56,7 +52,6 @@ public:
 
 private:
     std::string _label;
-    int _logging_level;
     int64_t _total;
     int _update_period;
     int64_t _num_complete;

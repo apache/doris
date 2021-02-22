@@ -68,6 +68,7 @@ private:
     DescriptorTbl* _desc_tbl;
     std::vector<TNetworkAddress> _addresses;
     ScannerCounter _counter;
+    std::vector<doris::ExprContext*> _pre_filter; 
 };
 
 void BrokerScannerTest::init_desc_table() {
@@ -357,7 +358,7 @@ TEST_F(BrokerScannerTest, normal) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -409,7 +410,7 @@ TEST_F(BrokerScannerTest, normal2) {
     range.size = 4;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -455,7 +456,7 @@ TEST_F(BrokerScannerTest, normal3) {
     range.size = 5;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -502,7 +503,7 @@ TEST_F(BrokerScannerTest, normal4) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -533,7 +534,7 @@ TEST_F(BrokerScannerTest, normal5) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -557,7 +558,7 @@ TEST_F(BrokerScannerTest, normal6) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -588,7 +589,7 @@ TEST_F(BrokerScannerTest, normal7) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -612,7 +613,7 @@ TEST_F(BrokerScannerTest, normal8) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -643,7 +644,7 @@ TEST_F(BrokerScannerTest, normal9) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 

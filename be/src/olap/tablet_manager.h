@@ -101,7 +101,7 @@ public:
     //   where we should change tablet status from shutdown back to running
     OLAPStatus load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
                                      TSchemaHash schema_hash, const std::string& header,
-                                     bool update_meta, bool force = false, bool restore = false);
+                                     bool update_meta, bool force = false, bool restore = false, bool check_path=true);
 
     OLAPStatus load_tablet_from_dir(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
                                     const std::string& schema_hash_path, bool force = false,
@@ -135,6 +135,10 @@ public:
 
     void register_clone_tablet(int64_t tablet_id);
     void unregister_clone_tablet(int64_t tablet_id);
+
+    void get_tablets_distribution_on_different_disks(
+                    std::map<int64_t, std::map<DataDir*, int64_t>> &tablets_num_on_disk,
+                    std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>> &tablets_info_on_disk);
 
 private:
     // Add a tablet pointer to StorageEngine

@@ -57,6 +57,14 @@ void ZoneMapIndexWriter::add_values(const void* values, size_t count) {
     }
 }
 
+void ZoneMapIndexWriter::reset_page_zone_map() {
+    _page_zone_map.pass_all  = true;
+}
+
+void ZoneMapIndexWriter::reset_segment_zone_map() {
+    _segment_zone_map.pass_all = true;
+}
+
 Status ZoneMapIndexWriter::flush() {
     // Update segment zone map.
     if (_field->compare(_segment_zone_map.min_value, _page_zone_map.min_value) > 0) {

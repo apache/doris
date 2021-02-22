@@ -103,6 +103,7 @@ WITH BROKER broker_name broker_properties
     [PARTITION (p1, p2)]
     [COLUMNS TERMINATED BY separator ]
     [(col1, ...)]
+    [PRECEDING FILTER predicate]
     [SET (k1=f1(xx), k2=f2(xx))]
     [WHERE predicate]
 
@@ -169,6 +170,10 @@ The following is a detailed explanation of some parameters of the data descripti
 + partition
 
 	In `data_desc`, you can specify the partition information of the table to be imported, but it will not be imported if the data to be imported does not belong to the specified partition. At the same time, data that does not specify a Partition is considered error data.
+
++ preceding filter predicate
+
+    Used to filter original data. The original data is the data without column mapping and transformation. The user can filter the data before conversion, select the desired data, and then perform the conversion.
 
 + where predicate
 

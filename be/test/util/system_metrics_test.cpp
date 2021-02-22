@@ -18,9 +18,9 @@
 #include "util/system_metrics.h"
 
 #include <gtest/gtest.h>
-#include <libgen.h>
 
 #include "common/config.h"
+#include "test_util/test_util.h"
 #include "util/logging.h"
 #include "util/metrics.h"
 #include "util/stopwatch.hpp"
@@ -40,9 +40,7 @@ extern const char* k_ut_fd_path;
 extern const char* k_ut_net_snmp_path;
 
 TEST_F(SystemMetricsTest, normal) {
-    char buf[1024];
-    readlink("/proc/self/exe", buf, 1023);
-    char* dir_path = dirname(buf);
+    std::string dir_path = GetCurrentRunningDir();
     std::string stat_path(dir_path);
     stat_path += "/test_data/stat_normal";
     LOG(INFO) << stat_path;
@@ -172,9 +170,7 @@ TEST_F(SystemMetricsTest, normal) {
 }
 
 TEST_F(SystemMetricsTest, no_proc_file) {
-    char buf[1024];
-    readlink("/proc/self/exe", buf, 1023);
-    char* dir_path = dirname(buf);
+    std::string dir_path = GetCurrentRunningDir();
     std::string stat_path(dir_path);
     stat_path += "/test_data/no_stat_normal";
     LOG(INFO) << stat_path;

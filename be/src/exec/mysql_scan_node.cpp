@@ -41,7 +41,7 @@ MysqlScanNode::MysqlScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
 MysqlScanNode::~MysqlScanNode() {}
 
 Status MysqlScanNode::prepare(RuntimeState* state) {
-    VLOG(1) << "MysqlScanNode::Prepare";
+    VLOG_CRITICAL << "MysqlScanNode::Prepare";
 
     if (_is_init) {
         return Status::OK();
@@ -99,7 +99,7 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
 
 Status MysqlScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
-    VLOG(1) << "MysqlScanNode::Open";
+    VLOG_CRITICAL << "MysqlScanNode::Open";
 
     if (NULL == state) {
         return Status::InternalError("input pointer is NULL.");
@@ -144,7 +144,7 @@ Status MysqlScanNode::write_text_slot(char* value, int value_length, SlotDescrip
 }
 
 Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    VLOG(1) << "MysqlScanNode::GetNext";
+    VLOG_CRITICAL << "MysqlScanNode::GetNext";
 
     if (NULL == state || NULL == row_batch || NULL == eos) {
         return Status::InternalError("input is NULL pointer");

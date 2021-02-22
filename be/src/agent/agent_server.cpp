@@ -198,8 +198,9 @@ void AgentServer::make_snapshot(TAgentResult& t_agent_result,
                                 const TSnapshotRequest& snapshot_request) {
     Status ret_st;
     string snapshot_path;
+    bool allow_incremental_clone = false;
     OLAPStatus err_code =
-            SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path);
+            SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path, &allow_incremental_clone);
     if (err_code != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to make_snapshot. tablet_id=" << snapshot_request.tablet_id
                      << ", schema_hash=" << snapshot_request.schema_hash
@@ -211,13 +212,11 @@ void AgentServer::make_snapshot(TAgentResult& t_agent_result,
                   << ", schema_hash=" << snapshot_request.schema_hash
                   << ", snapshot_path: " << snapshot_path;
         t_agent_result.__set_snapshot_path(snapshot_path);
+        t_agent_result.__set_allow_incremental_clone(allow_incremental_clone);
     }
 
     ret_st.to_thrift(&t_agent_result.status);
     t_agent_result.__set_snapshot_version(snapshot_request.preferred_snapshot_version);
-    if (snapshot_request.__isset.allow_incremental_clone) {
-        t_agent_result.__set_allow_incremental_clone(snapshot_request.allow_incremental_clone);
-    }
 }
 
 void AgentServer::release_snapshot(TAgentResult& t_agent_result, const std::string& snapshot_path) {

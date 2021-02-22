@@ -23,6 +23,7 @@
 #include "agent/cgroups_mgr.h"
 #include "common/object_pool.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "exprs/slot_ref.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/field.h"

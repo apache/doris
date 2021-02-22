@@ -85,7 +85,7 @@ OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, si
 
             return OLAP_ERR_COMPRESS_ERROR;
         } else if (*written_len > dest_len) {
-            VLOG(3) << "buffer overflow when compressing. "
+            VLOG_NOTICE << "buffer overflow when compressing. "
                     << "dest_len=" << dest_len << ", written_len=" << *written_len;
 
             return OLAP_ERR_BUFFER_OVERFLOW;
@@ -106,7 +106,7 @@ OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, si
 
             return OLAP_ERR_COMPRESS_ERROR;
         } else if (*written_len > dest_len) {
-            VLOG(3) << "buffer overflow when compressing. "
+            VLOG_NOTICE << "buffer overflow when compressing. "
                     << ", dest_len=" << dest_len << ", written_len=" << *written_len;
 
             return OLAP_ERR_BUFFER_OVERFLOW;
@@ -120,7 +120,7 @@ OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, si
         int lz4_res = LZ4_compress_default(src_buf, dest_buf, src_len, dest_len);
         *written_len = lz4_res;
         if (0 == lz4_res) {
-            VLOG(10) << "compress failed. src_len=" << src_len << ", dest_len=" << dest_len
+            VLOG_TRACE << "compress failed. src_len=" << src_len << ", dest_len=" << dest_len
                      << ", written_len=" << *written_len << ", lz4_res=" << lz4_res;
             return OLAP_ERR_BUFFER_OVERFLOW;
         }
@@ -626,7 +626,7 @@ OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
     }
 
     // 3. remove file to trash
-    VLOG(3) << "move file to trash. " << old_file_path << " -> " << new_file_path;
+    VLOG_NOTICE << "move file to trash. " << old_file_path << " -> " << new_file_path;
     if (rename(old_file_path.c_str(), new_file_path.c_str()) < 0) {
         OLAP_LOG_WARNING("move file to trash failed. [file=%s target='%s' err='%m']",
                          old_file_path.c_str(), new_file_path.c_str());
@@ -708,7 +708,7 @@ COPY_EXIT:
         ::close(dest_fd);
     }
 
-    VLOG(3) << "copy file success. [src=" << src << " dest=" << dest << "]";
+    VLOG_NOTICE << "copy file success. [src=" << src << " dest=" << dest << "]";
 
     return res;
 }
@@ -777,7 +777,7 @@ OLAPStatus read_write_test_file(const string& test_file_path) {
     }
     if (remove(test_file_path.c_str()) != 0) {
         char errmsg[64];
-        VLOG(3) << "fail to delete test file. [err='" << strerror_r(errno, errmsg, 64) << "' path='"
+        VLOG_NOTICE << "fail to delete test file. [err='" << strerror_r(errno, errmsg, 64) << "' path='"
                 << test_file_path << "']";
         return OLAP_ERR_IO_ERROR;
     }

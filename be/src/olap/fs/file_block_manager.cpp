@@ -175,7 +175,7 @@ Status FileWritableBlock::appendv(const Slice* data, size_t data_cnt) {
 }
 
 Status FileWritableBlock::flush_data_async() {
-    VLOG(3) << "Flushing block " << _path;
+    VLOG_NOTICE << "Flushing block " << _path;
     RETURN_IF_ERROR(_writer->flush(WritableFile::FLUSH_ASYNC));
     return Status::OK();
 }
@@ -187,7 +187,7 @@ Status FileWritableBlock::finalize() {
     if (_state == FINALIZED) {
         return Status::OK();
     }
-    VLOG(3) << "Finalizing block " << _path;
+    VLOG_NOTICE << "Finalizing block " << _path;
     if (_state == DIRTY && BlockManager::block_manager_preflush_control == "finalize") {
         flush_data_async();
     }
@@ -211,7 +211,7 @@ Status FileWritableBlock::_close(SyncMode mode) {
     Status sync;
     if (mode == SYNC && (_state == CLEAN || _state == DIRTY || _state == FINALIZED)) {
         // Safer to synchronize data first, then metadata.
-        VLOG(3) << "Syncing block " << _path;
+        VLOG_NOTICE << "Syncing block " << _path;
         if (_block_manager->_metrics) {
             _block_manager->_metrics->total_disk_sync->increment(1);
         }
@@ -399,14 +399,14 @@ Status FileBlockManager::create_block(const CreateBlockOptions& opts,
     wr_opts.mode = Env::MUST_CREATE;
     RETURN_IF_ERROR(env_util::open_file_for_write(wr_opts, _env, opts.path, &writer));
 
-    VLOG(1) << "Creating new block at " << opts.path;
+    VLOG_CRITICAL << "Creating new block at " << opts.path;
     block->reset(new internal::FileWritableBlock(this, opts.path, writer));
     return Status::OK();
 }
 
 Status FileBlockManager::open_block(const std::string& path,
                                     std::unique_ptr<ReadableBlock>* block) {
-    VLOG(1) << "Opening block with path at " << path;
+    VLOG_CRITICAL << "Opening block with path at " << path;
     std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle(
             new OpenedFileHandle<RandomAccessFile>());
     bool found = _file_cache->lookup(path, file_handle.get());

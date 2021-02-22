@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -66,10 +67,10 @@ private:
 
     int _server_fd = -1;
     std::unique_ptr<ThreadPool> _workers;
-    std::vector<std::shared_ptr<event_base>> event_bases;
+    std::mutex _event_bases_lock;    // protect _event_bases
+    std::vector<std::shared_ptr<event_base>> _event_bases;
 
-    pthread_rwlock_t _rw_lock;
-
+    std::mutex _handler_lock;
     PathTrie<HttpHandler*> _get_handlers;
     HttpHandler* _static_file_handler = nullptr;
     PathTrie<HttpHandler*> _put_handlers;

@@ -157,7 +157,7 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
             return status;
         }
 
-        VLOG(10) << "get merged row: " << row_cursor->to_string();
+        VLOG_TRACE << "get merged row: " << row_cursor->to_string();
 
         _read_block->get_row(_read_block->pos(), _dst_cursor);
         copy_row(_dst_cursor, *row_cursor, _read_block->mem_pool());
@@ -374,7 +374,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
             // filter
             if (new_column_data->rowset_pruning_filter()) {
                 _stats->rows_stats_filtered += new_column_data->num_rows();
-                VLOG(3) << "filter segment group in query in condition. version="
+                VLOG_NOTICE << "filter segment group in query in condition. version="
                         << new_column_data->version();
                 continue;
             }
@@ -383,14 +383,14 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
         int ret = new_column_data->delete_pruning_filter();
         if (ret == DEL_SATISFIED) {
             _stats->rows_del_filtered += new_column_data->num_rows();
-            VLOG(3) << "filter segment group in delete predicate:" << new_column_data->version();
+            VLOG_NOTICE << "filter segment group in delete predicate:" << new_column_data->version();
             continue;
         } else if (ret == DEL_PARTIAL_SATISFIED) {
-            VLOG(3) << "filter segment group partially in delete predicate:"
+            VLOG_NOTICE << "filter segment group partially in delete predicate:"
                     << new_column_data->version();
             new_column_data->set_delete_status(DEL_PARTIAL_SATISFIED);
         } else {
-            VLOG(3) << "not filter segment group in delete predicate:"
+            VLOG_NOTICE << "not filter segment group in delete predicate:"
                     << new_column_data->version();
             new_column_data->set_delete_status(DEL_NOT_SATISFIED);
         }

@@ -26,6 +26,7 @@
 #include "gutil/map-util.h"
 #include "gutil/strings/substitute.h"
 #include "gutil/sysinfo.h"
+#include "util/debug/sanitizer_scopes.h"
 #include "util/scoped_cleanup.h"
 #include "util/thread.h"
 
@@ -278,6 +279,7 @@ Status ThreadPool::init() {
 }
 
 void ThreadPool::shutdown() {
+    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     MutexLock unique_lock(&_lock);
     check_not_pool_thread_unlocked();
 
@@ -476,6 +478,7 @@ bool ThreadPool::wait_for(const MonoDelta& delta) {
 }
 
 void ThreadPool::dispatch_thread() {
+    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     MutexLock unique_lock(&_lock);
     InsertOrDie(&_threads, Thread::current_thread());
     DCHECK_GT(_num_threads_pending_start, 0);
@@ -491,7 +494,7 @@ void ThreadPool::dispatch_thread() {
     while (true) {
         // Note: Status::Aborted() is used to indicate normal shutdown.
         if (!_pool_status.ok()) {
-            VLOG(2) << "DispatchThread exiting: " << _pool_status.to_string();
+            VLOG_CRITICAL << "DispatchThread exiting: " << _pool_status.to_string();
             break;
         }
 
@@ -519,7 +522,7 @@ void ThreadPool::dispatch_thread() {
                     // protecting the state, signal, and release again before we get the mutex. So,
                     // we'll recheck the empty queue case regardless.
                     if (_queue.empty()) {
-                        VLOG(3) << "Releasing worker thread from pool " << _name << " after "
+                        VLOG_NOTICE << "Releasing worker thread from pool " << _name << " after "
                                 << _idle_timeout.ToMilliseconds() << "ms of idle time.";
                         break;
                     }

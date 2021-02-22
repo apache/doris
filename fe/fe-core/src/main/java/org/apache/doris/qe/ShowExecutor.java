@@ -32,6 +32,7 @@ import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
+import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDbStmt;
@@ -126,14 +127,14 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -192,6 +193,8 @@ public class ShowExecutor {
             handleShowEngines();
         } else if (stmt instanceof ShowFunctionsStmt) {
             handleShowFunctions();
+        } else if (stmt instanceof ShowCreateFunctionStmt) {
+            handleShowCreateFunction();
         } else if (stmt instanceof ShowVariablesStmt) {
             handleShowVariables();
         } else if (stmt instanceof ShowColumnStmt) {
@@ -358,6 +361,23 @@ public class ShowExecutor {
             ShowResultSetMetaData.builder()
                 .addColumn(new Column("Function Name", ScalarType.createVarchar(256))).build();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
+    }
+
+    // Handle show create function
+    private void handleShowCreateFunction() throws AnalysisException {
+        ShowCreateFunctionStmt showCreateFunctionStmt = (ShowCreateFunctionStmt) stmt;
+        Database db = ctx.getCatalog().getDb(showCreateFunctionStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showCreateFunctionStmt.getDbName());
+        }
+
+        Function function = db.getFunction(showCreateFunctionStmt.getFunction());
+        List<List<String>> resultRowSet = Lists.newArrayList();
+        List<String> resultRow = Lists.newArrayList();
+        resultRow.add(function.signatureString());
+        resultRow.add(function.toSql(false));
+        resultRowSet.add(resultRow);
+        resultSet = new ShowResultSet(showCreateFunctionStmt.getMetaData(), resultRowSet);
     }
 
     private void handleShowProc() throws AnalysisException {
@@ -1052,8 +1072,7 @@ public class ShowExecutor {
 
         DeleteHandler deleteHandler = catalog.getDeleteHandler();
         Load load = catalog.getLoadInstance();
-        List<List<Comparable>> deleteInfos = deleteHandler.getDeleteInfosByDb(dbId, true);
-        deleteInfos.addAll(load.getDeleteInfosByDb(dbId, true));
+        List<List<Comparable>> deleteInfos = deleteHandler.getDeleteInfosByDb(dbId);
         List<List<String>> rows = Lists.newArrayList();
         for (List<Comparable> deleteInfo : deleteInfos) {
             List<String> oneInfo = new ArrayList<String>(deleteInfo.size());

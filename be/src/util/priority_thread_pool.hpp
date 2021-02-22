@@ -97,10 +97,7 @@ public:
     // Returns once the shutdown flag has been set, does not wait for the threads to
     // terminate.
     void shutdown() {
-        {
-            boost::lock_guard<boost::mutex> l(_lock);
-            _shutdown = true;
-        }
+        _shutdown = true;
         _work_queue.shutdown();
     }
 
@@ -143,9 +140,7 @@ private:
         }
     }
 
-    // Returns value of _shutdown under a lock, forcing visibility to threads in the pool.
     bool is_shutdown() {
-        boost::lock_guard<boost::mutex> l(_lock);
         return _shutdown;
     }
 
@@ -156,11 +151,11 @@ private:
     // Collection of worker threads that process work from the queue.
     boost::thread_group _threads;
 
-    // Guards _shutdown and _empty_cv
+    // Guards _empty_cv
     boost::mutex _lock;
 
     // Set to true when threads should stop doing work and terminate.
-    bool _shutdown;
+    std::atomic<bool> _shutdown;
 
     // Signalled when the queue becomes empty
     boost::condition_variable _empty_cv;

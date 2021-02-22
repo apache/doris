@@ -51,7 +51,7 @@ OLAPStatus ReadOnlyFileStream::_assure_data() {
     if (OLAP_LIKELY(_uncompressed != NULL && _uncompressed->remaining() > 0)) {
         return OLAP_SUCCESS;
     } else if (_file_cursor.eof()) {
-        VLOG(10) << "STREAM EOF. length=" << _file_cursor.length()
+        VLOG_TRACE << "STREAM EOF. length=" << _file_cursor.length()
                  << ", used=" << _file_cursor.position();
         return OLAP_ERR_COLUMN_STREAM_EOF;
     }
@@ -119,7 +119,7 @@ OLAPStatus ReadOnlyFileStream::seek(PositionProvider* position) {
         if (OLAP_LIKELY(OLAP_SUCCESS == res)) {
             // assure data will be successful in most case
         } else if (res == OLAP_ERR_COLUMN_STREAM_EOF) {
-            VLOG(10) << "file stream eof.";
+            VLOG_TRACE << "file stream eof.";
             return res;
         } else {
             OLAP_LOG_WARNING("fail to assure data after seek");

@@ -26,6 +26,7 @@
 #include "exec/es/es_scan_reader.h"
 #include "exec/es/es_scroll_query.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -99,7 +100,7 @@ Status EsHttpScanNode::build_conjuncts_list() {
             _predicates.push_back(predicate);
             _predicate_to_conjunct.push_back(i);
         } else {
-            VLOG(1) << status.get_error_msg();
+            VLOG_CRITICAL << status.get_error_msg();
             status = predicate->get_es_query_status();
             if (!status.ok()) {
                 LOG(WARNING) << status.get_error_msg();

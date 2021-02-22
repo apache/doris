@@ -17,6 +17,7 @@
 
 #include "exprs/case_expr.h"
 
+#include "exprs/expr_context.h"
 #include "exprs/anyval_util.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/runtime_state.h"

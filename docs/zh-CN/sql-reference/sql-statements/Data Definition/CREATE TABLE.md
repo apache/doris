@@ -66,7 +66,7 @@ under the License.
             范围：-2^127 + 1 ~ 2^127 - 1
         FLOAT（4字节）
             支持科学计数法
-        DOUBLE（12字节）
+        DOUBLE（8字节）
             支持科学计数法
         DECIMAL[(precision, scale)] (16字节)
             保证精度的小数类型。默认是 DECIMAL(10, 0)
@@ -661,7 +661,7 @@ under the License.
     PROPERTIES ("in_memory"="true");
 ```
 
-13. 创建一个hive外部表
+14. 创建一个hive外部表
 
 ```
     CREATE TABLE example_db.table_hive

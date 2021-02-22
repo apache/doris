@@ -14,25 +14,33 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+//
+// Wrappers around the annotations from gutil/dynamic_annotations.h,
+// provided as C++-style scope guards.
 
-package org.apache.doris.task;
+#pragma once
 
-import org.apache.doris.common.LoadException;
-import org.apache.doris.load.LoadJob;
+#include "gutil/dynamic_annotations.h"
+#include "gutil/macros.h"
 
-public class InsertLoadEtlTask extends MiniLoadEtlTask {
+namespace doris {
+namespace debug {
 
-    public InsertLoadEtlTask(LoadJob job) {
-        super(job);
-    }
+// Scope guard which instructs TSAN to ignore all reads and writes
+// on the current thread as long as it is alive. These may be safely
+// nested.
+class ScopedTSANIgnoreReadsAndWrites {
+ public:
+  ScopedTSANIgnoreReadsAndWrites() {
+    ANNOTATE_IGNORE_READS_AND_WRITES_BEGIN();
+  }
+  ~ScopedTSANIgnoreReadsAndWrites() {
+    ANNOTATE_IGNORE_READS_AND_WRITES_END();
+  }
+ private:
+  DISALLOW_COPY_AND_ASSIGN(ScopedTSANIgnoreReadsAndWrites);
+};
 
-    @Override
-    protected boolean updateJobEtlStatus() {
-        return true;
-    }
+} // namespace debug
+} // namespace doris
 
-    @Override
-    protected void processEtlRunning() throws LoadException {
-        throw new LoadException("not implement");
-    }
-}
