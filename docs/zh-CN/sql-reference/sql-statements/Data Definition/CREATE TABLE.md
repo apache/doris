@@ -66,7 +66,7 @@ under the License.
             范围：-2^127 + 1 ~ 2^127 - 1
         FLOAT（4字节）
             支持科学计数法
-        DOUBLE（12字节）
+        DOUBLE（8字节）
             支持科学计数法
         DECIMAL[(precision, scale)] (16字节)
             保证精度的小数类型。默认是 DECIMAL(10, 0)
@@ -276,14 +276,15 @@ under the License.
 ```
       PROPERTIES (
           "dynamic_partition.enable" = "true|false",
-          "dynamic_partition.time_unit" = "DAY|WEEK|MONTH",
+          "dynamic_partition.time_unit" = "HOUR|DAY|WEEK|MONTH",
           "dynamic_partition.start" = "${integer_value}",
           "dynamic_partitoin.end" = "${integer_value}",
           "dynamic_partition.prefix" = "${string_value}",
           "dynamic_partition.buckets" = "${integer_value}
 ```
     dynamic_partition.enable: 用于指定表级别的动态分区功能是否开启。默认为 true。
-    dynamic_partition.time_unit: 用于指定动态添加分区的时间单位，可选择为DAY（天），WEEK(周)，MONTH（月）
+    dynamic_partition.time_unit: 用于指定动态添加分区的时间单位，可选择为HOUR（小时），DAY（天），WEEK(周)，MONTH（月）。
+                                 注意：以小时为单位的分区列，数据类型不能为 DATE。
     dynamic_partition.start: 用于指定向前删除多少个分区。值必须小于0。默认为 Integer.MIN_VALUE。
     dynamic_partition.end: 用于指定提前创建的分区数量。值必须大于0。
     dynamic_partition.prefix: 用于指定创建的分区名前缀，例如分区名前缀为p，则自动创建分区名为p20200108
@@ -643,7 +644,6 @@ under the License.
     PROPERTIES("replication_num" = "3");
     
 13. 创建一个内存表
-
 ```
     CREATE TABLE example_db.table_hash
     (
@@ -660,8 +660,7 @@ under the License.
     PROPERTIES ("in_memory"="true");
 ```
 
-13. 创建一个hive外部表
-
+14. 创建一个hive外部表
 ```
     CREATE TABLE example_db.table_hive
     (
@@ -679,7 +678,7 @@ under the License.
 ```
 
 ## keyword
-
+```
     CREATE,TABLE
 
 ```

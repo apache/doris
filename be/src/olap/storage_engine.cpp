@@ -140,6 +140,10 @@ StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     DEREGISTER_HOOK_METRIC(compaction_mem_current_consumption);
     _clear();
+
+    if(_compaction_thread_pool){
+        _compaction_thread_pool->shutdown();
+    }
 }
 
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
@@ -434,7 +438,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     for (int i = 0; i < stores.size(); i++) {
         int j = i + 1;
         if (j < stores.size()) {
-            if (stores[i]->tablet_set().size() > stores[j]->tablet_set().size()) {
+            if (stores[i]->tablet_size() > stores[j]->tablet_size()) {
                 std::swap(stores[i], stores[j]);
             }
             std::random_shuffle(stores.begin() + j, stores.end());
@@ -506,6 +510,7 @@ void StorageEngine::stop() {
         thread->join();     \
     }
 
+    THREAD_JOIN(_compaction_tasks_producer_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
@@ -574,9 +579,9 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 }
 
 void StorageEngine::_start_clean_fd_cache() {
-    VLOG(10) << "start clean file descritpor cache";
+    VLOG_TRACE << "start clean file descritpor cache";
     _file_cache->prune();
-    VLOG(10) << "end clean file descritpor cache";
+    VLOG_TRACE << "end clean file descritpor cache";
 }
 
 OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
@@ -728,7 +733,7 @@ OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local
             if (pos != string::npos) {
                 actual_expire = std::stoi(dir_name.substr(pos + 1));
             }
-            VLOG(10) << "get actual expire time " << actual_expire << " of dir: " << dir_name;
+            VLOG_TRACE << "get actual expire time " << actual_expire << " of dir: " << dir_name;
 
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
                 Status ret = FileUtils::remove_all(path_name);
@@ -765,11 +770,11 @@ void StorageEngine::start_delete_unused_rowset() {
         if (it->second.use_count() != 1) {
             ++it;
         } else if (it->second->need_delete_file()) {
-            VLOG(3) << "start to remove rowset:" << it->second->rowset_id()
+            VLOG_NOTICE << "start to remove rowset:" << it->second->rowset_id()
                     << ", version:" << it->second->version().first << "-"
                     << it->second->version().second;
             OLAPStatus status = it->second->remove();
-            VLOG(3) << "remove rowset:" << it->second->rowset_id()
+            VLOG_NOTICE << "remove rowset:" << it->second->rowset_id()
                     << " finished. status:" << status;
             it = _unused_rowsets.erase(it);
         }
@@ -781,7 +786,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
         return;
     }
 
-    VLOG(3) << "add unused rowset, rowset id:" << rowset->rowset_id()
+    VLOG_NOTICE << "add unused rowset, rowset id:" << rowset->rowset_id()
             << ", version:" << rowset->version().first << "-" << rowset->version().second
             << ", unique id:" << rowset->unique_id();
 
@@ -806,6 +811,7 @@ OLAPStatus StorageEngine::create_tablet(const TCreateTabletReq& request) {
         LOG(WARNING) << "there is no available disk that can be used to create tablet.";
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
+    TRACE("got data directory for create tablet");
     return _tablet_manager->create_tablet(request, stores);
 }
 

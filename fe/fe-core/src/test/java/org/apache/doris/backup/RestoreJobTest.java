@@ -17,9 +17,10 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
-import org.apache.doris.backup.BackupJobInfo.BackupTableInfo;
+import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.RestoreJob.RestoreJobState;
 import org.apache.doris.catalog.Catalog;
@@ -28,6 +29,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
@@ -118,7 +120,7 @@ public class RestoreJobTest {
 
     @Injectable
     private Repository repo = new Repository(repoId, "repo", false, "bos://my_repo",
-            new BlobStorage("broker", Maps.newHashMap()));
+            BlobStorage.create("broker", StorageBackend.StorageType.BROKER, Maps.newHashMap()));
 
     private BackupMeta backupMeta;
 
@@ -217,31 +219,26 @@ public class RestoreJobTest {
         jobInfo.success = true;
         
         expectedRestoreTbl = (OlapTable) db.getTable(CatalogMocker.TEST_TBL2_ID);
-        BackupTableInfo tblInfo = new BackupTableInfo();
+        BackupOlapTableInfo tblInfo = new BackupOlapTableInfo();
         tblInfo.id = CatalogMocker.TEST_TBL2_ID;
-        tblInfo.name = CatalogMocker.TEST_TBL2_NAME;
-        jobInfo.tables.put(tblInfo.name, tblInfo);
+        jobInfo.backupOlapTableObjects.put(CatalogMocker.TEST_TBL2_NAME, tblInfo);
         
         for (Partition partition : expectedRestoreTbl.getPartitions()) {
             BackupPartitionInfo partInfo = new BackupPartitionInfo();
             partInfo.id = partition.getId();
-            partInfo.name = partition.getName();
-            tblInfo.partitions.put(partInfo.name, partInfo);
+            tblInfo.partitions.put(partition.getName(), partInfo);
             
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 BackupIndexInfo idxInfo = new BackupIndexInfo();
                 idxInfo.id = index.getId();
-                idxInfo.name = expectedRestoreTbl.getIndexNameById(index.getId());
                 idxInfo.schemaHash = expectedRestoreTbl.getSchemaHashByIndexId(index.getId());
-                partInfo.indexes.put(idxInfo.name, idxInfo);
+                partInfo.indexes.put(expectedRestoreTbl.getIndexNameById(index.getId()), idxInfo);
                 
                 for (Tablet tablet : index.getTablets()) {
-                    BackupTabletInfo tabletInfo = new BackupTabletInfo();
-                    tabletInfo.id = tablet.getId();
-                    tabletInfo.files.add(tabletInfo.id + ".dat");
-                    tabletInfo.files.add(tabletInfo.id + ".idx");
-                    tabletInfo.files.add(tabletInfo.id + ".hdr");
-                    idxInfo.tablets.add(tabletInfo);
+                    List<String> files = Lists.newArrayList(tablet.getId() + ".dat",
+                            tablet.getId()+ ".idx",  tablet.getId()+".hdr");
+                    BackupTabletInfo tabletInfo = new BackupTabletInfo(tablet.getId(), files);
+                    idxInfo.sortedTabletInfoList.add(tabletInfo);
                 }
             }
         }
@@ -253,8 +250,9 @@ public class RestoreJobTest {
                 jobInfo, false, 3, 100000, -1, catalog, repo.getId());
         
         List<Table> tbls = Lists.newArrayList();
+        List<Resource> resources = Lists.newArrayList();
         tbls.add(expectedRestoreTbl);
-        backupMeta = new BackupMeta(tbls);
+        backupMeta = new BackupMeta(tbls, resources);
     }
 
     @Ignore

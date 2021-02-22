@@ -26,7 +26,7 @@
 
 #include "common/status.h"
 #include "exec/exec_node.h"
-#include "exec/olap_common.h"
+#include "exec/olap_utils.h"
 #include "exprs/expr.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -55,7 +55,7 @@ public:
     ~OlapScanner();
 
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
-                   const std::vector<TCondition>& filters, const std::vector<TCondition>& is_nulls);
+                   const std::vector<TCondition>& filters);
 
     Status open();
 
@@ -80,8 +80,7 @@ public:
 
 private:
     Status _init_params(const std::vector<OlapScanRange*>& key_ranges,
-                        const std::vector<TCondition>& filters,
-                        const std::vector<TCondition>& is_nulls);
+                        const std::vector<TCondition>& filters);
     Status _init_return_columns();
     void _convert_row_to_tuple(Tuple* tuple);
 

@@ -45,6 +45,9 @@ public:
               topic(t_info.topic),
               begin_offset(t_info.partition_begin_offset),
               properties(t_info.properties) {
+        // The offset(begin_offset) sent from FE is the starting offset,
+        // and the offset(cmt_offset) reported by BE to FE is the consumed offset,
+        // so we need to minus 1 here.
         for (auto& p : t_info.partition_begin_offset) {
             cmt_offset[p.first] = p.second - 1;
         }

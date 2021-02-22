@@ -103,6 +103,7 @@ WITH BROKER broker_name broker_properties
     [PARTITION (p1, p2)]
     [COLUMNS TERMINATED BY separator ]
     [(col1, ...)]
+    [PRECEDING FILTER predicate]
     [SET (k1=f1(xx), k2=f2(xx))]
     [WHERE predicate]
 
@@ -173,6 +174,10 @@ Label 的另一个作用，是防止用户重复导入相同的数据。**强烈
 + set column mapping
 
     在 ```data_desc``` 中的 SET 语句负责设置列函数变换，这里的列函数变换支持所有查询的等值表达式变换。如果原始数据的列和表中的列不一一对应，就需要用到这个属性。
+
++ preceding filter predicate
+
+    用于过滤原始数据。原始数据是未经列映射、转换的数据。用户可以在对转换前的数据前进行一次过滤，选取期望的数据，再进行转换。
 
 + where predicate
 
@@ -464,6 +469,14 @@ LoadFinishTime: 2019-07-27 11:50:16
         注意：一般用户的环境可能达不到 10M/s 的速度，所以建议超过 500G 的文件都进行文件切分，再导入。
         
         ```
+
+### 性能分析
+
+可以在提交 LOAD 作业前，先执行 `set is_report_success=true` 打开会话变量。然后提交导入作业。待导入作业完成后，可以在 FE 的 web 页面的 `Queris` 标签中查看到导入作业的 Profile。
+
+这个 Profile 可以帮助分析导入作业的运行状态。
+
+当前只有作业成功执行后，才能查看 Profile。
         
 ### 完整例子
 

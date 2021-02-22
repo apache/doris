@@ -66,6 +66,7 @@ private:
     DescriptorTbl* _desc_tbl;
     std::vector<TNetworkAddress> _addresses;
     ScannerCounter _counter;
+    std::vector<doris::ExprContext*> _pre_filter;
 };
 
 TEST_F(OrcScannerTest, normal) {
@@ -405,7 +406,7 @@ TEST_F(OrcScannerTest, normal) {
     rangeDesc.file_type = TFileType::FILE_LOCAL;
     ranges.push_back(rangeDesc);
 
-    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, &_counter);
+    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, _pre_filter, &_counter);
     ASSERT_TRUE(scanner.open().ok());
 
     auto tracker = std::make_shared<MemTracker>();
@@ -528,7 +529,7 @@ TEST_F(OrcScannerTest, normal2) {
     rangeDesc.file_type = TFileType::FILE_LOCAL;
     ranges.push_back(rangeDesc);
 
-    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, &_counter);
+    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, _pre_filter, &_counter);
     ASSERT_TRUE(scanner.open().ok());
 
     auto tracker = std::make_shared<MemTracker>();
@@ -877,7 +878,7 @@ TEST_F(OrcScannerTest, normal3) {
     rangeDesc.file_type = TFileType::FILE_LOCAL;
     ranges.push_back(rangeDesc);
 
-    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, &_counter);
+    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, _pre_filter, &_counter);
     ASSERT_TRUE(scanner.open().ok());
 
     auto tracker = std::make_shared<MemTracker>();

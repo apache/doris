@@ -727,7 +727,7 @@ void RunLengthIntegerWriter::get_position(PositionEntryWriter* index_entry, bool
 
     if (print) {
         _output->print_position_debug_info();
-        VLOG(10) << "literals=" << _num_literals;
+        VLOG_TRACE << "literals=" << _num_literals;
     }
 }
 

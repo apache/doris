@@ -259,9 +259,13 @@ public class ShowAction extends RestBaseController {
                 if (table.getType() != TableType.OLAP) {
                     continue;
                 }
-
-                long tableSize = ((OlapTable) table).getDataSize();
-                totalSize += tableSize;
+                table.readLock();
+                try {
+                    long tableSize = ((OlapTable) table).getDataSize();
+                    totalSize += tableSize;
+                } finally {
+                    table.readUnlock();
+                }
             } // end for tables
         } finally {
             db.readUnlock();

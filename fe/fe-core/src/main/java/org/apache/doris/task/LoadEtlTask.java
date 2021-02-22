@@ -160,13 +160,7 @@ public abstract class LoadEtlTask extends MasterTask {
         try {
             for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
                 long tableId = tableEntry.getKey();
-                OlapTable table = null;
-                db.readLock();
-                try {
-                    table = (OlapTable) db.getTable(tableId);
-                } finally {
-                    db.readUnlock();
-                }
+                OlapTable table = (OlapTable) db.getTable(tableId);
                 if (table == null) {
                     throw new MetaNotFoundException("table does not exist. id: " + tableId);
                 }
@@ -180,7 +174,7 @@ public abstract class LoadEtlTask extends MasterTask {
                         continue;
                     }
                     
-                    db.readLock();
+                    table.readLock();
                     try {
                         Partition partition = table.getPartition(partitionId);
                         if (partition == null) {
@@ -188,7 +182,7 @@ public abstract class LoadEtlTask extends MasterTask {
                         }
                         // yiguolei: real time load do not need get version here
                     } finally {
-                        db.readUnlock();
+                        table.readUnlock();
                     }
 
                     LOG.info("load job id: {}, label: {}, partition info: {}-{}-{}, partition load info: {}",
@@ -239,14 +233,13 @@ public abstract class LoadEtlTask extends MasterTask {
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
-            OlapTable table = null;
-            db.readLock();
-            try {
-                table = (OlapTable) db.getTable(tableId);
-                if (table == null) {
-                    throw new LoadException("table does not exist. id: " + tableId);
-                }
+            OlapTable table = (OlapTable) db.getTable(tableId);
+            if (table == null) {
+                throw new LoadException("table does not exist. id: " + tableId);
+            }
 
+            table.readLock();
+            try {
                 TableLoadInfo tableLoadInfo = tableEntry.getValue();
                 for (Entry<Long, PartitionLoadInfo> partitionEntry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
                     long partitionId = partitionEntry.getKey();
@@ -286,13 +279,12 @@ public abstract class LoadEtlTask extends MasterTask {
                             idToTabletLoadInfo.put(tablet.getId(), tabletLoadInfo);
                         }
                     }
-                    
                     // partition might have no load data
                     partitionEntry.getValue().setNeedLoad(needLoad);
 
                 }
             } finally {
-                db.readUnlock();
+                table.readUnlock();
             }
         }
         

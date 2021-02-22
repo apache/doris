@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -41,7 +42,6 @@ import com.google.common.base.Strings;
 
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
@@ -73,12 +73,11 @@ public class ShowDataStmt extends ShowStmt {
     public ShowDataStmt(String dbName, String tableName) {
         this.dbName = dbName;
         this.tableName = tableName;
-
-        this.totalRows = new LinkedList<List<String>>();
+        this.totalRows = Lists.newArrayList();
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
@@ -93,9 +92,10 @@ public class ShowDataStmt extends ShowStmt {
         if (db == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
-        db.readLock();
-        try {
-            if (tableName == null) {
+
+        if (tableName == null) {
+            db.readLock();
+            try {
                 long totalSize = 0;
                 long totalReplicaCount = 0;
 
@@ -110,8 +110,8 @@ public class ShowDataStmt extends ShowStmt {
 
                 for (Table table : tables) {
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                                                                            table.getName(),
-                                                                            PrivPredicate.SHOW)) {
+                            table.getName(),
+                            PrivPredicate.SHOW)) {
                         continue;
                     }
                     sortedTables.add(table);
@@ -123,9 +123,15 @@ public class ShowDataStmt extends ShowStmt {
                     }
 
                     OlapTable olapTable = (OlapTable) table;
-                    long tableSize = olapTable.getDataSize();
-                    long replicaCount = olapTable.getReplicaCount();
-
+                    long tableSize = 0;
+                    long replicaCount = 0;
+                    olapTable.readLock();
+                    try {
+                        tableSize = olapTable.getDataSize();
+                        replicaCount = olapTable.getReplicaCount();
+                    } finally {
+                        olapTable.readUnlock();
+                    }
                     Pair<Double, String> tableSizePair = DebugUtil.getByteUint(tableSize);
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
                             + tableSizePair.second;
@@ -161,30 +167,26 @@ public class ShowDataStmt extends ShowStmt {
                         + leftPair.second;
                 List<String> leftRow = Arrays.asList("Left", readableLeft, String.valueOf(replicaCountLeft));
                 totalRows.add(leftRow);
-            } else {
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                                                                        tableName,
-                                                                        PrivPredicate.SHOW)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA",
-                                                        ConnectContext.get().getQualifiedUser(),
-                                                        ConnectContext.get().getRemoteIP(),
-                                                        tableName);
-                }
+            } finally {
+                db.readUnlock();
+            }
+        } else {
+            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                    tableName,
+                    PrivPredicate.SHOW)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA",
+                        ConnectContext.get().getQualifiedUser(),
+                        ConnectContext.get().getRemoteIP(),
+                        tableName);
+            }
 
-                Table table = db.getTable(tableName);
-                if (table == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-                }
+            OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableName, TableType.OLAP);
+            int i = 0;
+            long totalSize = 0;
+            long totalReplicaCount = 0;
 
-                if (table.getType() != TableType.OLAP) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, tableName);
-                }
-
-                OlapTable olapTable = (OlapTable) table;
-                int i = 0;
-                long totalSize = 0;
-                long totalReplicaCount = 0;
-
+            olapTable.readLock();
+            try {
                 // sort by index name
                 Map<String, Long> indexNames = olapTable.getIndexNameToId();
                 Map<String, Long> sortedIndexNames = new TreeMap<String, Long>();
@@ -210,14 +212,14 @@ public class ShowDataStmt extends ShowStmt {
                     List<String> row = null;
                     if (i == 0) {
                         row = Arrays.asList(tableName,
-                                            olapTable.getIndexNameById(indexId),
-                                            readableSize, String.valueOf(indexReplicaCount),
-                                            String.valueOf(indexRowCount));
+                                olapTable.getIndexNameById(indexId),
+                                readableSize, String.valueOf(indexReplicaCount),
+                                String.valueOf(indexRowCount));
                     } else {
                         row = Arrays.asList("",
-                                            olapTable.getIndexNameById(indexId),
-                                            readableSize, String.valueOf(indexReplicaCount),
-                                            String.valueOf(indexRowCount));
+                                olapTable.getIndexNameById(indexId),
+                                readableSize, String.valueOf(indexReplicaCount),
+                                String.valueOf(indexRowCount));
                     }
 
                     totalSize += indexSize;
@@ -232,9 +234,9 @@ public class ShowDataStmt extends ShowStmt {
                         + totalSizePair.second;
                 List<String> row = Arrays.asList("", "Total", readableSize, String.valueOf(totalReplicaCount), "");
                 totalRows.add(row);
+            } finally {
+                olapTable.readUnlock();
             }
-        } finally {
-            db.readUnlock();
         }
     }
 

@@ -51,8 +51,10 @@
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
 #include "util/monotime.h"
+#include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
+#include "util/trace.h"
 
 using std::deque;
 using std::list;
@@ -257,6 +259,7 @@ void TaskWorkerPool::_remove_task_info(const TTaskType::type task_type, int64_t 
     EnumToString(TTaskType, task_type, type_str);
     LOG(INFO) << "remove task info. type=" << type_str << ", signature=" << signature
               << ", queue_size=" << queue_size;
+    TRACE("remove task info");
 }
 
 void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request) {
@@ -278,6 +281,7 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
         }
         sleep(config::sleep_one_second);
     }
+    TRACE("finish task");
 }
 
 uint32_t TaskWorkerPool::_get_next_task_index(int32_t thread_count,
@@ -324,6 +328,17 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             _tasks.pop_front();
         }
 
+        scoped_refptr<Trace> trace(new Trace);
+        MonotonicStopWatch watch;
+        watch.start();
+        SCOPED_CLEANUP({
+            if (watch.elapsed_time() / 1e9 > config::agent_task_trace_threshold_sec) {
+                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+            }
+        });
+        ADOPT_TRACE(trace.get());
+        TRACE("start to create tablet $0", create_tablet_req.tablet_id);
+
         TStatusCode::type status_code = TStatusCode::OK;
         std::vector<string> error_msgs;
         TStatus task_status;
@@ -351,6 +366,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
             finish_tablet_infos.push_back(tablet_info);
         }
+        TRACE("StorageEngine create tablet finish, status: $0", create_status);
 
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
@@ -623,7 +639,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
         }
 
         if (status == DORIS_SUCCESS) {
-            VLOG(3) << "push ok. signature: " << agent_task_req.signature
+            VLOG_NOTICE << "push ok. signature: " << agent_task_req.signature
                     << ", push_type: " << push_req.push_type;
             error_msgs.push_back("push success");
 
@@ -1221,9 +1237,14 @@ void TaskWorkerPool::_upload_worker_thread_callback() {
                   << ", job id:" << upload_request.job_id;
 
         std::map<int64_t, std::vector<std::string>> tablet_files;
-        SnapshotLoader loader(_env, upload_request.job_id, agent_task_req.signature);
-        Status status = loader.upload(upload_request.src_dest_map, upload_request.broker_addr,
-                                      upload_request.broker_prop, &tablet_files);
+        std::unique_ptr<SnapshotLoader> loader = nullptr;
+        if (upload_request.__isset.storage_backend && upload_request.storage_backend == TStorageBackendType::S3) {
+            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature, upload_request.broker_prop));
+        } else {
+            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature, upload_request.broker_addr,
+                                      upload_request.broker_prop));
+        }
+        Status status = loader->upload(upload_request.src_dest_map, &tablet_files);
 
         TStatusCode::type status_code = TStatusCode::OK;
         std::vector<string> error_msgs;
@@ -1279,9 +1300,15 @@ void TaskWorkerPool::_download_worker_thread_callback() {
 
         // TODO: download
         std::vector<int64_t> downloaded_tablet_ids;
-        SnapshotLoader loader(_env, download_request.job_id, agent_task_req.signature);
-        Status status = loader.download(download_request.src_dest_map, download_request.broker_addr,
-                                        download_request.broker_prop, &downloaded_tablet_ids);
+
+        std::unique_ptr<SnapshotLoader> loader = nullptr;
+        if (download_request.__isset.storage_backend && download_request.storage_backend == TStorageBackendType::S3) {
+            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature, download_request.broker_prop));
+        } else {
+            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature, download_request.broker_addr,
+                                        download_request.broker_prop));
+        }
+        Status status = loader->download(download_request.src_dest_map,  &downloaded_tablet_ids);
 
         if (!status.ok()) {
             status_code = TStatusCode::RUNTIME_ERROR;
@@ -1332,9 +1359,10 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
         TStatus task_status;
 
         string snapshot_path;
+        bool allow_incremental_clone = false; // not used
         std::vector<string> snapshot_files;
         OLAPStatus make_snapshot_status =
-                SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path);
+                SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path, &allow_incremental_clone);
         if (make_snapshot_status != OLAP_SUCCESS) {
             status_code = make_snapshot_status == OLAP_ERR_VERSION_ALREADY_MERGED
                                   ? TStatusCode::OLAP_ERR_VERSION_ALREADY_MERGED

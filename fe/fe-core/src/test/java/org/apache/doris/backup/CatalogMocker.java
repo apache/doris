@@ -197,8 +197,8 @@ public class CatalogMocker {
         TEST_ROLLUP_SCHEMA.add(k2);
         TEST_ROLLUP_SCHEMA.add(v1);
 
-        SCHEMA_HASH = Util.schemaHash(0, TEST_TBL_BASE_SCHEMA, null, 0);
-        ROLLUP_SCHEMA_HASH = Util.schemaHash(0, TEST_ROLLUP_SCHEMA, null, 0);
+        SCHEMA_HASH = Util.generateSchemaHash();
+        ROLLUP_SCHEMA_HASH = Util.generateSchemaHash();
     }
 
     private static PaloAuth fetchAdminAccess() {

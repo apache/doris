@@ -59,8 +59,7 @@ OlapScanner::~OlapScanner() {}
 
 Status OlapScanner::prepare(const TPaloScanRange& scan_range,
                             const std::vector<OlapScanRange*>& key_ranges,
-                            const std::vector<TCondition>& filters,
-                            const std::vector<TCondition>& is_nulls) {
+                            const std::vector<TCondition>& filters) {
     // Get olap table
     TTabletId tablet_id = scan_range.tablet_id;
     SchemaHash schema_hash = strtoul(scan_range.schema_hash.c_str(), nullptr, 10);
@@ -105,7 +104,7 @@ Status OlapScanner::prepare(const TPaloScanRange& scan_range,
 
     {
         // Initialize _params
-        RETURN_IF_ERROR(_init_params(key_ranges, filters, is_nulls));
+        RETURN_IF_ERROR(_init_params(key_ranges, filters));
     }
 
     return Status::OK();
@@ -131,8 +130,7 @@ Status OlapScanner::open() {
 
 // it will be called under tablet read lock because capture rs readers need
 Status OlapScanner::_init_params(const std::vector<OlapScanRange*>& key_ranges,
-                                 const std::vector<TCondition>& filters,
-                                 const std::vector<TCondition>& is_nulls) {
+                                 const std::vector<TCondition>& filters) {
     RETURN_IF_ERROR(_init_return_columns());
 
     _params.tablet = _tablet;
@@ -144,9 +142,7 @@ Status OlapScanner::_init_params(const std::vector<OlapScanRange*>& key_ranges,
     for (auto& filter : filters) {
         _params.conditions.push_back(filter);
     }
-    for (auto& is_null_str : is_nulls) {
-        _params.conditions.push_back(is_null_str);
-    }
+
     // Range
     for (auto key_range : key_ranges) {
         if (key_range->begin_scan_range.size() == 1 &&
@@ -358,7 +354,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                         if (pushdown_return_rate >
                             config::doris_max_pushdown_conjuncts_return_rate) {
                             _use_pushdown_conjuncts = false;
-                            VLOG(2) << "Stop Using PushDown Conjuncts. "
+                            VLOG_CRITICAL << "Stop Using PushDown Conjuncts. "
                                     << "PushDownReturnRate: " << pushdown_return_rate << "%"
                                     << " MaxPushDownReturnRate: "
                                     << config::doris_max_pushdown_conjuncts_return_rate << "%";
@@ -483,9 +479,10 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_stats_filtered_counter, _reader->stats().rows_stats_filtered);
     COUNTER_UPDATE(_parent->_bf_filtered_counter, _reader->stats().rows_bf_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, _reader->stats().rows_del_filtered);
+    COUNTER_UPDATE(_parent->_del_filtered_counter, _reader->stats().rows_vec_del_cond_filtered);
+
     COUNTER_UPDATE(_parent->_conditions_filtered_counter,
                    _reader->stats().rows_conditions_filtered);
-
     COUNTER_UPDATE(_parent->_key_range_filtered_counter, _reader->stats().rows_key_range_filtered);
 
     COUNTER_UPDATE(_parent->_index_load_timer, _reader->stats().index_load_ns);

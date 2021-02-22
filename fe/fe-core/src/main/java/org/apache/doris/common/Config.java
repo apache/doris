@@ -68,7 +68,8 @@ public class Config extends ConfigBase {
     public static String sys_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
     @ConfField public static String sys_log_level = "INFO"; 
     @ConfField public static int sys_log_roll_num = 10;
-    @ConfField public static String[] sys_log_verbose_modules = {"org.apache.thrift", "org.apache.doris.thrift", "org.apache.doris.http", "org.apache.doris.service.FrontendServiceImpl"};
+    @ConfField
+    public static String[] sys_log_verbose_modules = {};
     @ConfField public static String sys_log_roll_interval = "DAY";
     @ConfField public static String sys_log_delete_age = "7d";
     @Deprecated
@@ -391,7 +392,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_version_timeout_second = 30; // 30 seconds
-    
+
     /**
      * minimal intervals between two publish version action
      */
@@ -592,12 +593,26 @@ public class Config extends ConfigBase {
     public static int max_running_txn_num_per_db = 100;
 
     /**
-     * The load task executor pool size. This pool size limits the max running load tasks.
-     * Currently, it only limits the load task of broker load, pending and loading phases.
-     * It should be less than 'max_running_txn_num_per_db'
+     * This configuration is just for compatible with old version, this config has been replaced by async_loading_load_task_pool_size,
+     * it will be removed in the future.
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int async_load_task_pool_size = 10;
+
+    /**
+     * The pending_load task executor pool size. This pool size limits the max running pending_load tasks.
+     * Currently, it only limits the pending_load task of broker load and spark load.
+     * It should be less than 'max_running_txn_num_per_db'
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int async_pending_load_task_pool_size = 10;
+
+    /**
+     * The loading_load task executor pool size. This pool size limits the max running loading_load tasks.
+     * Currently, it only limits the loading_load task of broker load.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int async_loading_load_task_pool_size = async_load_task_pool_size;
 
     /**
      * Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
@@ -1010,6 +1025,18 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_balancing_tablets = 100;
 
+    // Rebalancer type(ignore case): BeLoad, Partition. If type parse failed, use BeLoad as default.
+    @ConfField(masterOnly = true)
+    public static String tablet_rebalancer_type = "BeLoad";
+
+    // Valid only if use PartitionRebalancer. If this changed, cached moves will be cleared.
+    @ConfField(mutable = true, masterOnly = true)
+    public static long partition_rebalance_move_expire_after_access = 600; // 600s
+
+    // Valid only if use PartitionRebalancer
+    @ConfField(mutable = true, masterOnly = true)
+    public static int partition_rebalance_max_moves_num_per_selection = 10;
+
     // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
     // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
     // several seconds after some modification of metadata(drop partition, etc..).
@@ -1301,4 +1328,25 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static boolean enable_alpha_rowset = false;
+
+    /**
+     * This config is used to solve fe heartbeat response read_timeout problem,
+     * When config is set to be true, master will get fe heartbeat response by thrift protocol
+     * instead of http protocol. In order to maintain compatibility with the old version,
+     * the default is false, and the configuration cannot be changed to true until all fe are upgraded.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_fe_heartbeat_by_thrift = false;
+
+    /**
+     * If set to true, FE will be started in BDBJE debug mode
+     */
+    @ConfField
+    public static boolean enable_bdbje_debug_mode = false;
+
+    /**
+     * This config is used to try skip broker when access bos or other cloud storage via broker
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_access_file_without_broker = false;
 }

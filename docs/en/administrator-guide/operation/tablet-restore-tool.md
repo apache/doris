@@ -123,7 +123,7 @@ In some very special circumstances, such as code bugs, or human misoperation, et
     ADMIN SET FRONTEND CONFIG ("recover_with_empty_tablet" = "true");
     ```
 
-    * Note: You can first check whether the current version supports this parameter through the `AMDIN SHOW FRONTEND CONFIG;` command.
+    * Note: You can first check whether the current version supports this parameter through the `ADMIN SHOW FRONTEND CONFIG;` command.
 
 3. A few minutes after the setup is complete, you should see the following log in the Master FE log `fe.log`:
 

@@ -109,8 +109,10 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("bitmap", new Integer(SqlParserSymbols.KW_BITMAP));
         keywordMap.put("bitmap_union", new Integer(SqlParserSymbols.KW_BITMAP_UNION));
         keywordMap.put("boolean", new Integer(SqlParserSymbols.KW_BOOLEAN));
-        keywordMap.put("both", new Integer(SqlParserSymbols.KW_BOTH));
+        // keywordMap.put("both", new Integer(SqlParserSymbols.KW_BOTH));
         keywordMap.put("broker", new Integer(SqlParserSymbols.KW_BROKER));
+        keywordMap.put("s3", new Integer(SqlParserSymbols.KW_S3));
+        keywordMap.put("hdfs", new Integer(SqlParserSymbols.KW_HDFS));
         keywordMap.put("buckets", new Integer(SqlParserSymbols.KW_BUCKETS));
         keywordMap.put("builtin", new Integer(SqlParserSymbols.KW_BUILTIN));
         keywordMap.put("by", new Integer(SqlParserSymbols.KW_BY));
@@ -176,6 +178,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("errors", new Integer(SqlParserSymbols.KW_ERRORS));
         keywordMap.put("events", new Integer(SqlParserSymbols.KW_EVENTS));
         keywordMap.put("except", new Integer(SqlParserSymbols.KW_EXCEPT));
+        keywordMap.put("exclude", new Integer(SqlParserSymbols.KW_EXCLUDE));
         keywordMap.put("exists", new Integer(SqlParserSymbols.KW_EXISTS));
         keywordMap.put("explain", new Integer(SqlParserSymbols.KW_DESCRIBE));
         keywordMap.put("export", new Integer(SqlParserSymbols.KW_EXPORT));
@@ -184,6 +187,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("false", new Integer(SqlParserSymbols.KW_FALSE));
         keywordMap.put("feature", new Integer(SqlParserSymbols.KW_FEATURE));
         keywordMap.put("file", new Integer(SqlParserSymbols.KW_FILE));
+        keywordMap.put("filter", new Integer(SqlParserSymbols.KW_FILTER));
         keywordMap.put("first", new Integer(SqlParserSymbols.KW_FIRST));
         keywordMap.put("float", new Integer(SqlParserSymbols.KW_FLOAT));
         keywordMap.put("follower", new Integer(SqlParserSymbols.KW_FOLLOWER));
@@ -280,7 +284,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("plugin", new Integer(SqlParserSymbols.KW_PLUGIN));
         keywordMap.put("plugins", new Integer(SqlParserSymbols.KW_PLUGINS));
         keywordMap.put("preceding", new Integer(SqlParserSymbols.KW_PRECEDING));
-        keywordMap.put("primary", new Integer(SqlParserSymbols.KW_PRIMARY));
+        // keywordMap.put("primary", new Integer(SqlParserSymbols.KW_PRIMARY));
         keywordMap.put("proc", new Integer(SqlParserSymbols.KW_PROC));
         keywordMap.put("procedure", new Integer(SqlParserSymbols.KW_PROCEDURE));
         keywordMap.put("processlist", new Integer(SqlParserSymbols.KW_PROCESSLIST));
@@ -506,8 +510,8 @@ IdentifierOrKwContents = [:digit:]*[:jletter:][:jletterdigit:]* | "&&" | "||"
 IdentifierOrKw = \`{IdentifierOrKwContents}\` | {IdentifierOrKwContents}
 IntegerLiteral = [:digit:][:digit:]*
 QuotedIdentifier = \`(\`\`|[^\`])*\`
-SingleQuoteStringLiteral = \'(\\.|[^\\\'])*\'
-DoubleQuoteStringLiteral = \"(\\.|[^\\\"])*\"
+SingleQuoteStringLiteral = \'(\\.|[^\\\']|\'\')*\'
+DoubleQuoteStringLiteral = \"(\\.|[^\\\"]|\"\")*\"
 
 FLit1 = [0-9]+ \. [0-9]*
 FLit2 = \. [0-9]+
@@ -595,12 +599,12 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 
 {SingleQuoteStringLiteral} {
   return newToken(SqlParserSymbols.STRING_LITERAL,
-                  escapeBackSlash(yytext().substring(1, yytext().length()-1)));
+      escapeBackSlash(yytext().substring(1, yytext().length()-1)).replaceAll("''", "'"));
 }
 
 {DoubleQuoteStringLiteral} {
   return newToken(SqlParserSymbols.STRING_LITERAL,
-                  escapeBackSlash(yytext().substring(1, yytext().length()-1)));
+      escapeBackSlash(yytext().substring(1, yytext().length()-1)).replaceAll("\"\"", "\""));
 }
 
 {CommentedHintBegin} {

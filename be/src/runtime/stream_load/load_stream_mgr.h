@@ -40,7 +40,7 @@ public:
             return Status::InternalError("id already exist");
         }
         _stream_map.emplace(id, stream);
-        VLOG(3) << "put stream load pipe: " << id;
+        VLOG_NOTICE << "put stream load pipe: " << id;
         return Status::OK();
     }
 
@@ -60,7 +60,7 @@ public:
         auto it = _stream_map.find(id);
         if (it != std::end(_stream_map)) {
             _stream_map.erase(it);
-            VLOG(3) << "remove stream load pipe: " << id;
+            VLOG_NOTICE << "remove stream load pipe: " << id;
         }
         return;
     }

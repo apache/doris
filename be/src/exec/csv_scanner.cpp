@@ -40,7 +40,7 @@ CsvScanner::~CsvScanner() {
 }
 
 Status CsvScanner::open() {
-    VLOG(1) << "CsvScanner::Connect";
+    VLOG_CRITICAL << "CsvScanner::Connect";
 
     if (_is_open) {
         LOG(INFO) << "this scanner already opened";

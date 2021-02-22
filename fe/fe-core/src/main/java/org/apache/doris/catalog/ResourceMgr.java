@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.catalog.Resource.ResourceType;
@@ -34,8 +33,9 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,6 +45,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import com.google.gson.annotations.SerializedName;
 
 /**
  * Resource manager is responsible for managing external resources used by Doris.
@@ -70,15 +72,18 @@ public class ResourceMgr implements Writable {
         if (stmt.getResourceType() != ResourceType.SPARK && stmt.getResourceType() != ResourceType.ODBC_CATALOG) {
             throw new DdlException("Only support SPARK and ODBC_CATALOG resource.");
         }
-
-        String resourceName = stmt.getResourceName();
         Resource resource = Resource.fromStmt(stmt);
-        if (nameToResource.putIfAbsent(resourceName, resource) != null) {
-            throw new DdlException("Resource(" + resourceName + ") already exist");
-        }
+        createResource(resource);
         // log add
         Catalog.getCurrentCatalog().getEditLog().logCreateResource(resource);
         LOG.info("create resource success. resource: {}", resource);
+    }
+
+    public void createResource(Resource resource) throws DdlException {
+        String resourceName = resource.getName();
+        if (nameToResource.putIfAbsent(resourceName, resource) != null) {
+            throw new DdlException("Resource(" + resourceName + ") already exist");
+        }
     }
 
     public void replayCreateResource(Resource resource) {
@@ -94,6 +99,15 @@ public class ResourceMgr implements Writable {
         // log drop
         Catalog.getCurrentCatalog().getEditLog().logDropResource(new DropResourceOperationLog(name));
         LOG.info("drop resource success. resource name: {}", name);
+    }
+
+    // Drop resource whether successful or not
+    public void dropResource(Resource resource) {
+        String name = resource.getName();
+        if (nameToResource.remove(name) == null) {
+            LOG.info("resource " + name + " does not exists.");
+            return;
+        }
     }
 
     public void replayDropResource(DropResourceOperationLog operationLog) {

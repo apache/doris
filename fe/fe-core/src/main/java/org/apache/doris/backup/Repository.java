@@ -17,6 +17,9 @@
 
 package org.apache.doris.backup;
 
+import org.apache.commons.codec.digest.DigestUtils;
+
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
@@ -27,13 +30,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
@@ -50,10 +46,15 @@ import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.List;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+
 /*
  * Repository represents a remote storage for backup to or restore from
  * File organization in repository is:
- * 
+ *
  * * __palo_repository_repo_name/
  *   * __repo_info
  *   * __ss_my_ss1/
@@ -76,8 +77,6 @@ import java.util.List;
  *                 * __10023.hdr.dnmwDDWI92dDko
  */
 public class Repository implements Writable {
-    private static final Logger LOG = LogManager.getLogger(Repository.class);
-
     public static final String PREFIX_REPO = "__palo_repository_";
     public static final String PREFIX_SNAPSHOT_DIR = "__ss_";
     public static final String PREFIX_DB = "__db_";
@@ -86,14 +85,11 @@ public class Repository implements Writable {
     public static final String PREFIX_IDX = "__idx_";
     public static final String PREFIX_COMMON = "__";
     public static final String PREFIX_JOB_INFO = "__info_";
-
     public static final String SUFFIX_TMP_FILE = "part";
-
     public static final String FILE_REPO_INFO = "__repo_info";
     public static final String FILE_META_INFO = "__meta";
-
     public static final String DIR_SNAPSHOT_CONTENT = "__ss_content";
-
+    private static final Logger LOG = LogManager.getLogger(Repository.class);
     private static final String PATH_DELIMITER = "/";
     private static final String CHECKSUM_SEPARATOR = ".";
 
@@ -122,6 +118,58 @@ public class Repository implements Writable {
         this.location = location;
         this.storage = storage;
         this.createTime = System.currentTimeMillis();
+    }
+
+    // join job info file name with timestamp
+    // eg: __info_2018-01-01-08-00-00
+    private static String jobInfoFileNameWithTimestamp(long createTime) {
+        if (createTime == -1) {
+            return PREFIX_JOB_INFO;
+        } else {
+            return PREFIX_JOB_INFO
+                    + TimeUtils.longToTimeString(createTime, new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss"));
+        }
+    }
+
+    // join the name with specified prefix
+    private static String joinPrefix(String prefix, Object name) {
+        return prefix + name;
+    }
+
+    // disjoint the name with specified prefix
+    private static String disjoinPrefix(String prefix, String nameWithPrefix) {
+        return nameWithPrefix.substring(prefix.length());
+    }
+
+    private static String assembleFileNameWithSuffix(String filePath, String md5sum) {
+        return filePath + CHECKSUM_SEPARATOR + md5sum;
+    }
+
+    public static Pair<String, String> decodeFileNameWithChecksum(String fileNameWithChecksum) {
+        int index = fileNameWithChecksum.lastIndexOf(CHECKSUM_SEPARATOR);
+        if (index == -1) {
+            return null;
+        }
+        String fileName = fileNameWithChecksum.substring(0, index);
+        String md5sum = fileNameWithChecksum.substring(index + CHECKSUM_SEPARATOR.length());
+
+        if (md5sum.length() != 32) {
+            return null;
+        }
+
+        return Pair.create(fileName, md5sum);
+    }
+
+    // in: /path/to/orig_file
+    // out: /path/to/orig_file.BUWDnl831e4nldsf
+    public static String replaceFileNameWithChecksumFileName(String origPath, String fileNameWithChecksum) {
+        return origPath.substring(0, origPath.lastIndexOf(PATH_DELIMITER) + 1) + fileNameWithChecksum;
+    }
+
+    public static Repository read(DataInput in) throws IOException {
+        Repository repo = new Repository();
+        repo.readFields(in);
+        return repo;
     }
 
     public long getId() {
@@ -166,7 +214,7 @@ public class Repository implements Writable {
             if (!remoteFile.isFile()) {
                 return new Status(ErrCode.COMMON_ERROR, "the existing repo info is not a file");
             }
-            
+
             // exist, download and parse the repo info file
             String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/tmp_info_" + System.currentTimeMillis();
             try {
@@ -182,7 +230,7 @@ public class Repository implements Writable {
                 createTime = TimeUtils.timeStringToLong((String) root.get("create_time"));
                 if (createTime == -1) {
                     return new Status(ErrCode.COMMON_ERROR,
-                            "failed to parse create time of repository: " + (String) root.get("create_time"));
+                            "failed to parse create time of repository: " + root.get("create_time"));
                 }
                 return Status.OK;
 
@@ -192,7 +240,7 @@ public class Repository implements Writable {
                 File localFile = new File(localFilePath);
                 localFile.delete();
             }
-            
+
         } else if (remoteFiles.size() > 1) {
             return new Status(ErrCode.COMMON_ERROR,
                     "Invalid repository dir. expected one repo info file. get more: " + remoteFiles);
@@ -209,49 +257,49 @@ public class Repository implements Writable {
     // eg: location/__palo_repository_repo_name/__repo_info
     public String assembleRepoInfoFilePath() {
         return Joiner.on(PATH_DELIMITER).join(location,
-                                              joinPrefix(PREFIX_REPO, name),
-                                              FILE_REPO_INFO);
+                joinPrefix(PREFIX_REPO, name),
+                FILE_REPO_INFO);
     }
 
     // eg: location/__palo_repository_repo_name/__my_sp1/__meta
     public String assembleMetaInfoFilePath(String label) {
         return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
-                                              joinPrefix(PREFIX_SNAPSHOT_DIR, label),
-                                              FILE_META_INFO);
+                joinPrefix(PREFIX_SNAPSHOT_DIR, label),
+                FILE_META_INFO);
     }
 
     // eg: location/__palo_repository_repo_name/__my_sp1/__info_2018-01-01-08-00-00
     public String assembleJobInfoFilePath(String label, long createTime) {
         return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
-                                              joinPrefix(PREFIX_SNAPSHOT_DIR, label),
-                                              jobInfoFileNameWithTimestamp(createTime));
+                joinPrefix(PREFIX_SNAPSHOT_DIR, label),
+                jobInfoFileNameWithTimestamp(createTime));
     }
 
     // eg:
     // __palo_repository_repo_name/__ss_my_ss1/__ss_content/__db_10001/__tbl_10020/__part_10031/__idx_10020/__10022/
     public String getRepoTabletPathBySnapshotInfo(String label, SnapshotInfo info) {
         return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
-                                              joinPrefix(PREFIX_SNAPSHOT_DIR, label),
-                                              DIR_SNAPSHOT_CONTENT,
-                                              joinPrefix(PREFIX_DB, info.getDbId()),
-                                              joinPrefix(PREFIX_TBL, info.getTblId()),
-                                              joinPrefix(PREFIX_PART, info.getPartitionId()),
-                                              joinPrefix(PREFIX_IDX, info.getIndexId()),
-                                              joinPrefix(PREFIX_COMMON, info.getTabletId()));
+                joinPrefix(PREFIX_SNAPSHOT_DIR, label),
+                DIR_SNAPSHOT_CONTENT,
+                joinPrefix(PREFIX_DB, info.getDbId()),
+                joinPrefix(PREFIX_TBL, info.getTblId()),
+                joinPrefix(PREFIX_PART, info.getPartitionId()),
+                joinPrefix(PREFIX_IDX, info.getIndexId()),
+                joinPrefix(PREFIX_COMMON, info.getTabletId()));
     }
 
     public String getRepoPath(String label, String childPath) {
         return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
-                                              joinPrefix(PREFIX_SNAPSHOT_DIR, label),
-                                              DIR_SNAPSHOT_CONTENT,
-                                              childPath);
+                joinPrefix(PREFIX_SNAPSHOT_DIR, label),
+                DIR_SNAPSHOT_CONTENT,
+                childPath);
     }
 
     // Check if this repo is available.
     // If failed to connect this repo, set errMsg and return false.
     public boolean ping() {
         String checkPath = Joiner.on(PATH_DELIMITER).join(location,
-                                                          joinPrefix(PREFIX_REPO, name));
+                joinPrefix(PREFIX_REPO, name));
         Status st = storage.checkPathExist(checkPath);
         if (!st.ok()) {
             errMsg = TimeUtils.longToTimeString(System.currentTimeMillis()) + ": " + st.getErrMsg();
@@ -297,23 +345,23 @@ public class Repository implements Writable {
     // /location/__palo_repository_repo_name/__ss_my_ss1/__ss_content/__db_10001/__tbl_10020/__part_10031/__idx_10032/__10023/__3481721
     public String assembleRemoteSnapshotPath(String label, SnapshotInfo info) {
         String path = Joiner.on(PATH_DELIMITER).join(location,
-                                                     joinPrefix(PREFIX_REPO, name),
-                                                     joinPrefix(PREFIX_SNAPSHOT_DIR, label),
-                                                     DIR_SNAPSHOT_CONTENT,
-                                                     joinPrefix(PREFIX_DB, info.getDbId()),
-                                                     joinPrefix(PREFIX_TBL, info.getTblId()),
-                                                     joinPrefix(PREFIX_PART, info.getPartitionId()),
-                                                     joinPrefix(PREFIX_IDX, info.getIndexId()),
-                                                     joinPrefix(PREFIX_COMMON, info.getTabletId()),
-                                                     joinPrefix(PREFIX_COMMON, info.getSchemaHash()));
+                joinPrefix(PREFIX_REPO, name),
+                joinPrefix(PREFIX_SNAPSHOT_DIR, label),
+                DIR_SNAPSHOT_CONTENT,
+                joinPrefix(PREFIX_DB, info.getDbId()),
+                joinPrefix(PREFIX_TBL, info.getTblId()),
+                joinPrefix(PREFIX_PART, info.getPartitionId()),
+                joinPrefix(PREFIX_IDX, info.getIndexId()),
+                joinPrefix(PREFIX_COMMON, info.getTabletId()),
+                joinPrefix(PREFIX_COMMON, info.getSchemaHash()));
         LOG.debug("get remote tablet snapshot path: {}", path);
         return path;
     }
 
     public Status getSnapshotInfoFile(String label, String backupTimestamp, List<BackupJobInfo> infos) {
-        String remoteInfoFilePath = assembleJobInfoFilePath(label, -1) + backupTimestamp;    
-        File localInfoFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER 
-                                      + "info_" + System.currentTimeMillis());
+        String remoteInfoFilePath = assembleJobInfoFilePath(label, -1) + backupTimestamp;
+        File localInfoFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER
+                + "info_" + System.currentTimeMillis());
         try {
             Status st = download(remoteInfoFilePath, localInfoFile.getPath());
             if (!st.ok()) {
@@ -372,32 +420,48 @@ public class Repository implements Writable {
             return new Status(ErrCode.COMMON_ERROR, "failed to get md5sum of file: " + localFilePath);
         }
         Preconditions.checkState(!Strings.isNullOrEmpty(md5sum));
-        String tmpRemotePath = assembleFileNameWithSuffix(remoteFilePath, SUFFIX_TMP_FILE);
         String finalRemotePath = assembleFileNameWithSuffix(remoteFilePath, md5sum);
-        LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}", localFilePath, tmpRemotePath, finalRemotePath);
 
-        // this may be a retry, so we should first delete remote file
-        Status st = storage.delete(tmpRemotePath);
-        if (!st.ok()) {
-            return st;
+        Status st = Status.OK;
+        if (storage instanceof BrokerStorage) {
+            // this may be a retry, so we should first delete remote file
+            String tmpRemotePath = assembleFileNameWithSuffix(remoteFilePath, SUFFIX_TMP_FILE);
+            LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}", localFilePath, tmpRemotePath, finalRemotePath);
+            st = storage.delete(tmpRemotePath);
+            if (!st.ok()) {
+                return st;
+            }
+
+            st = storage.delete(finalRemotePath);
+            if (!st.ok()) {
+                return st;
+            }
+
+            // upload tmp file
+            st = storage.upload(localFilePath, tmpRemotePath);
+            if (!st.ok()) {
+                return st;
+            }
+
+            // rename tmp file with checksum named file
+            st = storage.rename(tmpRemotePath, finalRemotePath);
+            if (!st.ok()) {
+                return st;
+            }
+        } else if (storage instanceof S3Storage) {
+            LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
+            st = storage.delete(finalRemotePath);
+            if (!st.ok()) {
+                return st;
+            }
+
+            // upload final file
+            st = storage.upload(localFilePath, finalRemotePath);
+            if (!st.ok()) {
+                return st;
+            }
         }
 
-        st = storage.delete(finalRemotePath);
-        if (!st.ok()) {
-            return st;
-        }
-
-        // upload tmp file
-        st = storage.upload(localFilePath, tmpRemotePath);
-        if (!st.ok()) {
-            return st;
-        }
-
-        // rename tmp file with checksum named file
-        st = storage.rename(tmpRemotePath, finalRemotePath);
-        if (!st.ok()) {
-            return st;
-        }
         LOG.info("finished to upload local file {} to remote file: {}", localFilePath, finalRemotePath);
         return st;
     }
@@ -419,7 +483,7 @@ public class Repository implements Writable {
         }
 
         String remoteFilePathWithChecksum = replaceFileNameWithChecksumFileName(remoteFilePath,
-                                                                                remoteFiles.get(0).getName());
+                remoteFiles.get(0).getName());
         LOG.debug("get download filename with checksum: " + remoteFilePathWithChecksum);
 
         // 1. get checksum from remote file name
@@ -457,52 +521,6 @@ public class Repository implements Writable {
         return Status.OK;
     }
 
-    // join job info file name with timestamp
-    // eg: __info_2018-01-01-08-00-00
-    private static String jobInfoFileNameWithTimestamp(long createTime) {
-        if (createTime == -1) {
-            return PREFIX_JOB_INFO;
-        } else {
-            return PREFIX_JOB_INFO
-                    + TimeUtils.longToTimeString(createTime, new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss"));
-        }
-    }
-
-    // join the name with specified prefix
-    private static String joinPrefix(String prefix, Object name) {
-        return prefix + name;
-    }
-
-    // disjoint the name with specified prefix
-    private static String disjoinPrefix(String prefix, String nameWithPrefix) {
-        return nameWithPrefix.substring(prefix.length());
-    }
-
-    private static String assembleFileNameWithSuffix(String filePath, String md5sum) {
-        return filePath + CHECKSUM_SEPARATOR + md5sum;
-    }
-
-    public static Pair<String, String> decodeFileNameWithChecksum(String fileNameWithChecksum) {
-        int index = fileNameWithChecksum.lastIndexOf(CHECKSUM_SEPARATOR);
-        if (index == -1) {
-            return null;
-        }
-        String fileName = fileNameWithChecksum.substring(0, index);
-        String md5sum = fileNameWithChecksum.substring(index + CHECKSUM_SEPARATOR.length());
-
-        if (md5sum.length() != 32) {
-            return null;
-        }
-
-        return Pair.create(fileName, md5sum);
-    }
-
-    // in: /path/to/orig_file
-    // out: /path/to/orig_file.BUWDnl831e4nldsf
-    public static String replaceFileNameWithChecksumFileName(String origPath, String fileNameWithChecksum) {
-        return origPath.substring(0, origPath.lastIndexOf(PATH_DELIMITER) + 1) + fileNameWithChecksum;
-    }
-
     public Status getBrokerAddress(Long beId, Catalog catalog, List<FsBroker> brokerAddrs) {
         // get backend
         Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
@@ -510,19 +528,24 @@ public class Repository implements Writable {
             return new Status(ErrCode.COMMON_ERROR, "backend " + beId + " is missing. "
                     + "failed to send upload snapshot task");
         }
+        // only Broker storage backend need to get broker addr, other type return a fake one;
+        if (storage.getStorageType() != StorageBackend.StorageType.BROKER) {
+            brokerAddrs.add(new FsBroker("127.0.0.1", 0));
+            return Status.OK;
+        }
 
         // get proper broker for this backend
         FsBroker brokerAddr = null;
         try {
-            brokerAddr = catalog.getBrokerMgr().getBroker(storage.getBrokerName(), be.getHost());
+            brokerAddr = catalog.getBrokerMgr().getBroker(((BrokerStorage) storage).getBrokerName(), be.getHost());
         } catch (AnalysisException e) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
-                    + storage.getBrokerName() + " when try to send upload snapshot task: "
+                    + ((BrokerStorage) storage).getBrokerName() + " when try to send upload snapshot task: "
                     + e.getMessage());
         }
         if (brokerAddr == null) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
-                    + storage.getBrokerName() + " when try to send upload snapshot task");
+                    + ((BrokerStorage) storage).getBrokerName() + " when try to send upload snapshot task");
         }
         brokerAddrs.add(brokerAddr);
         return Status.OK;
@@ -535,7 +558,8 @@ public class Repository implements Writable {
         info.add(TimeUtils.longToTimeString(createTime));
         info.add(String.valueOf(isReadOnly));
         info.add(location);
-        info.add(storage.getBrokerName());
+        info.add(storage.getType() != StorageBackend.StorageType.BROKER ? "-" : storage.getName());
+        info.add(storage.getStorageType().name());
         info.add(errMsg == null ? FeConstants.null_string : errMsg);
         return info;
     }
@@ -634,12 +658,6 @@ public class Repository implements Writable {
         }
 
         return info;
-    }
-
-    public static Repository read(DataInput in) throws IOException {
-        Repository repo = new Repository();
-        repo.readFields(in);
-        return repo;
     }
 
     @Override

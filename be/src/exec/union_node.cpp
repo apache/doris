@@ -119,7 +119,10 @@ Status UnionNode::get_next_pass_through(RuntimeState* state, RowBatch* row_batch
     DCHECK(is_child_passthrough(_child_idx));
     // TODO(zc)
     // DCHECK(child(_child_idx)->row_desc().LayoutEquals(row_batch->row_desc()));
-    if (_child_eos) RETURN_IF_ERROR(child(_child_idx)->open(state));
+    if (_child_eos) {
+        RETURN_IF_ERROR(child(_child_idx)->open(state));
+        _child_eos = false;
+    }
     DCHECK_EQ(row_batch->num_rows(), 0);
     RETURN_IF_ERROR(child(_child_idx)->get_next(state, row_batch, &_child_eos));
     if (_child_eos) {
@@ -156,7 +159,10 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
             _child_row_idx = 0;
             // open the current child unless it's the first child, which was already opened in
             // UnionNode::open().
-            if (_child_eos) RETURN_IF_ERROR(child(_child_idx)->open(state));
+            if (_child_eos) {
+                RETURN_IF_ERROR(child(_child_idx)->open(state));
+                _child_eos = false;
+            }
             // The first batch from each child is always fetched here.
             RETURN_IF_ERROR(child(_child_idx)->get_next(state, _child_batch.get(), &_child_eos));
         }

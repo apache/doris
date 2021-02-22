@@ -102,7 +102,7 @@ public class LoadManager implements Writable{
         LoadJob loadJob = null;
         writeLock();
         try {
-            if (stmt.getBrokerDesc().isMultiLoadBroker()) {
+            if (stmt.getBrokerDesc() != null && stmt.getBrokerDesc().isMultiLoadBroker()) {
                 if (!Catalog.getCurrentCatalog().getLoadInstance()
                         .isUncommittedLabel(dbId, stmt.getLabel().getLabelName())) {
                     throw new DdlException("label: " + stmt.getLabel().getLabelName() + " not found!") ;
@@ -626,14 +626,9 @@ public class LoadManager implements Writable{
      * @throws DdlException
      */
     private void checkTable(Database database, String tableName) throws DdlException {
-        database.readLock();
-        try {
-            if (database.getTable(tableName) == null) {
-                LOG.info("Table {} is not belongs to database {}", tableName, database.getFullName());
-                throw new DdlException("Table[" + tableName + "] does not exist");
-            }
-        } finally {
-            database.readUnlock();
+        if (database.getTable(tableName) == null) {
+            LOG.info("Table {} is not belongs to database {}", tableName, database.getFullName());
+            throw new DdlException("Table[" + tableName + "] does not exist");
         }
     }
 

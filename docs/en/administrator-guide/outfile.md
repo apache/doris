@@ -30,7 +30,7 @@ This document describes how to use the `SELECT INTO OUTFILE` command to export q
 
 ## Syntax
 
-The `SELECT INTO OUTFILE` statement can export the query results to a file. Currently, it only supports exporting to remote storage such as HDFS, S3, and BOS through the Broker process. The syntax is as follows:
+The `SELECT INTO OUTFILE` statement can export the query results to a file. Currently, it only supports exporting to remote storage such as HDFS, S3, BOS and COS(Tencent Cloud) through the Broker process. The syntax is as follows:
 
 ```
 query_stmt
@@ -156,7 +156,35 @@ WITH BROKER `broker_name`
     If the result is less than 1GB, file will be: `result_0.parquet`.
     
     If larger than 1GB, may be: `result_0.parquet, result_1.parquet, ...`.
+
+4. Example 4
+
+    Export simple query results to the file `cos://${bucket_name}/path/result.txt`. Specify the export format as CSV.
     
+    ```
+   select k1,k2,v1 from tbl1 limit 100000
+   into outfile "s3a://my_bucket/export/my_file_"
+   FORMAT AS CSV
+   PROPERTIES
+   (
+       "broker.name" = "hdfs_broker",
+       "broker.fs.s3a.access.key" = "xxx",
+       "broker.fs.s3a.secret.key" = "xxxx",
+       "broker.fs.s3a.endpoint" = "https://cos.xxxxxx.myqcloud.com/",
+       "column_separator" = ",",
+       "line_delimiter" = "\n",
+       "max_file_size" = "1024MB"
+    )
+    ```
+    
+    If the result is less than 1GB, file will be: `my_file_0.csv`.
+    
+    If larger than 1GB, may be: `my_file_0.csv, result_1.csv, ...`.
+    
+    Please Note: 
+    1. Paths that do not exist are automatically created.
+    2. These parameters(access.key/secret.key/endpointneed) need to be confirmed with `Tecent Cloud COS`. In particular, the value of endpoint does not need to be filled in bucket_name。
+
 ## Return result
 
 The command is a synchronization command. The command returns, which means the operation is over.

@@ -150,21 +150,22 @@ public class ExportStmt extends StatementBase {
         // check table && partitions whether exist
         checkTable(analyzer.getCatalog());
 
-        // check path is valid
-        checkPath(path);
-
         // check broker whether exist
         if (brokerDesc == null) {
             throw new AnalysisException("broker is not provided");
         }
 
-        if (!analyzer.getCatalog().getBrokerMgr().containsBroker(brokerDesc.getName())) {
-            throw new AnalysisException("broker " + brokerDesc.getName() + " does not exist");
-        }
+        // check path is valid
+        checkPath(path, brokerDesc.getStorageType());
+        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
+            if (!analyzer.getCatalog().getBrokerMgr().containsBroker(brokerDesc.getName())) {
+                throw new AnalysisException("broker " + brokerDesc.getName() + " does not exist");
+            }
 
-        FsBroker broker = analyzer.getCatalog().getBrokerMgr().getAnyBroker(brokerDesc.getName());
-        if (broker == null) {
-            throw new AnalysisException("failed to get alive broker");
+            FsBroker broker = analyzer.getCatalog().getBrokerMgr().getAnyBroker(brokerDesc.getName());
+            if (broker == null) {
+                throw new AnalysisException("failed to get alive broker");
+            }
         }
 
         // check properties
@@ -177,13 +178,13 @@ public class ExportStmt extends StatementBase {
             throw new AnalysisException("Db does not exist. name: " + tblName.getDb());
         }
 
-        db.readLock();
-        try {
-            Table table = db.getTable(tblName.getTbl());
-            if (table == null) {
-                throw new AnalysisException("Table[" + tblName.getTbl() + "] does not exist");
-            }
+        Table table = db.getTable(tblName.getTbl());
+        if (table == null) {
+            throw new AnalysisException("Table[" + tblName.getTbl() + "] does not exist");
+        }
 
+        table.readLock();
+        try {
             if (partitions == null) {
                 return;
             }
@@ -212,13 +213,11 @@ public class ExportStmt extends StatementBase {
                 }
             }
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
-
-        return;
     }
 
-    private static void checkPath(String path) throws AnalysisException {
+    public static void checkPath(String path, StorageBackend.StorageType type) throws AnalysisException {
         if (Strings.isNullOrEmpty(path)) {
             throw new AnalysisException("No dest path specified.");
         }
@@ -226,9 +225,23 @@ public class ExportStmt extends StatementBase {
         try {
             URI uri = new URI(path);
             String schema = uri.getScheme();
-            if (schema == null || (!schema.equalsIgnoreCase("bos") && !schema.equalsIgnoreCase("afs")
+            if (type == StorageBackend.StorageType.BROKER) {
+                if (schema == null || (!schema.equalsIgnoreCase("bos") && !schema.equalsIgnoreCase("afs")
                     && !schema.equalsIgnoreCase("hdfs"))) {
-                throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' or 'BOS://' path.");
+                    throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' or 'BOS://' path.");
+                }
+            } else if (type == StorageBackend.StorageType.S3) {
+                if (schema == null || !schema.equalsIgnoreCase("s3")) {
+                    throw new AnalysisException("Invalid export path. please use valid 'S3://' path.");
+                }
+            } else if (type == StorageBackend.StorageType.HDFS) {
+                if (schema == null || !schema.equalsIgnoreCase("hdfs")) {
+                    throw new AnalysisException("Invalid export path. please use valid 'HDFS://' path.");
+                }
+            } else if (type == StorageBackend.StorageType.LOCAL) {
+                if (schema != null && !schema.equalsIgnoreCase("file")) {
+                    throw new AnalysisException("Invalid export path. please use valid 'file://' path.");
+                }
             }
         } catch (URISyntaxException e) {
             throw new AnalysisException("Invalid path format. " + e.getMessage());

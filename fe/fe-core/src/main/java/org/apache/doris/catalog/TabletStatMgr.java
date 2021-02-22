@@ -28,10 +28,10 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TTabletStat;
 import org.apache.doris.thrift.TTabletStatResult;
 
-import com.google.common.collect.ImmutableMap;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;
@@ -61,7 +61,7 @@ public class TabletStatMgr extends MasterDaemon {
                 client = ClientPool.backendPool.borrowObject(address);
                 TTabletStatResult result = client.getTabletStat();
 
-                LOG.info("get tablet stat from backend: {}, num: {}", backend.getId(), result.getTabletsStatsSize());
+                LOG.debug("get tablet stat from backend: {}, num: {}", backend.getId(), result.getTabletsStatsSize());
                 updateTabletStat(backend.getId(), result);
 
                 ok = true;
@@ -76,7 +76,7 @@ public class TabletStatMgr extends MasterDaemon {
             }
         }
         LOG.info("finished to get tablet stat of all backends. cost: {} ms",
-                 (System.currentTimeMillis() - start));
+                (System.currentTimeMillis() - start));
 
         // after update replica in all backends, update index row num
         start = System.currentTimeMillis();
@@ -86,14 +86,15 @@ public class TabletStatMgr extends MasterDaemon {
             if (db == null) {
                 continue;
             }
-            db.writeLock();
-            try {
-                for (Table table : db.getTables()) {
-                    if (table.getType() != TableType.OLAP) {
-                        continue;
-                    }
+            List<Table> tableList = db.getTables();
+            for (Table table : tableList) {
+                if (table.getType() != TableType.OLAP) {
+                    continue;
+                }
 
-                    OlapTable olapTable = (OlapTable) table;
+                OlapTable olapTable = (OlapTable) table;
+                table.writeLock();
+                try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         long version = partition.getVisibleVersion();
                         long versionHash = partition.getVisibleVersionHash();
@@ -112,15 +113,15 @@ public class TabletStatMgr extends MasterDaemon {
                             index.setRowCount(indexRowCount);
                         } // end for indices
                     } // end for partitions
-                    LOG.info("finished to set row num for table: {} in database: {}",
+                    LOG.debug("finished to set row num for table: {} in database: {}",
                              table.getName(), db.getFullName());
+                } finally {
+                    table.writeUnlock();
                 }
-            } finally {
-                db.writeUnlock();
             }
         }
         LOG.info("finished to update index row num of all databases. cost: {} ms",
-                 (System.currentTimeMillis() - start));
+                (System.currentTimeMillis() - start));
     }
 
     private void updateTabletStat(Long beId, TTabletStatResult result) {

@@ -51,6 +51,9 @@ public:
         _env._master_info = new TMasterInfo();
         _env._load_stream_mgr = new LoadStreamMgr();
         _env._stream_load_executor = new StreamLoadExecutor(&_env);
+
+        config::routine_load_thread_pool_size = 5;
+        config::max_consumer_num_per_group = 3;
     }
 
     void TearDown() override {
@@ -97,25 +100,23 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     st = executor.submit_task(task);
     ASSERT_TRUE(st.ok());
 
-    sleep(2);
+    usleep(200);
     k_info.brokers = "127.0.0.1:9092";
     task.__set_kafka_load_info(k_info);
     st = executor.submit_task(task);
     ASSERT_TRUE(st.ok());
 
-    sleep(2);
+    usleep(200);
     k_info.brokers = "192.0.0.2:9092";
     task.__set_kafka_load_info(k_info);
     st = executor.submit_task(task);
     ASSERT_TRUE(st.ok());
 
-    sleep(2);
+    usleep(200);
     k_info.brokers = "192.0.0.2:9092";
     task.__set_kafka_load_info(k_info);
     st = executor.submit_task(task);
     ASSERT_TRUE(st.ok());
-
-    sleep(2);
 }
 
 } // namespace doris

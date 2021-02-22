@@ -40,7 +40,7 @@ under the License.
         2) When the selected key column does not exist in a rollup, delete cannot be performed.
         3) The relationship between conditions can only be "and".
         If you want to achieve the "or" relationship, you need to divide the conditions into two DELETE statements.
-        4) If you partition a table for RANGE, you must specify PARTITION. If it is a single partition table, you can not specify it.
+        4) If it is a RANGE partitioned table, you can specify the partition. If not specified, and the session variable delete_without_partition is true, it will be applied to all partitions. If it is a single partition table, you do not need to specify it.
     
     Notice:
         This statement may reduce query efficiency for a period of time after execution.
@@ -55,6 +55,10 @@ under the License.
     
     2. Delete rows whose K1 column value is greater than or equal to 3 and whose K2 column value is "abc" in my_table partition P1
     DELETE FROM my_table PARTITION p1
+    WHERE k1 >= 3 AND k2 = "abc";
+
+    2. Delete rows whose K1 column value is greater than or equal to 3 and whose K2 column value is "abc" in my_table partition P1,P2
+    DELETE FROM my_table PARTITIONS (p1, p2)
     WHERE k1 >= 3 AND k2 = "abc";
 
 ## keyword

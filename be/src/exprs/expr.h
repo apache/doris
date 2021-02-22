@@ -23,7 +23,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "exprs/expr_value.h"
 #include "gen_cpp/Opcodes_types.h"
 #include "runtime/datetime_value.h"
@@ -46,6 +45,7 @@ USING_DORIS_UDF;
 namespace doris {
 
 class Expr;
+class ExprContext;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;

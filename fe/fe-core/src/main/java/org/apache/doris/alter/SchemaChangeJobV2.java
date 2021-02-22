@@ -29,6 +29,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -37,6 +38,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
@@ -215,12 +217,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
         }
         MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>(totalReplicaNum);
-        db.readLock();
+
+        OlapTable tbl = null;
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
+            tbl = (OlapTable) db.getTableOrThrowException(tableId, TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new AlterCancelException(e.getMessage());
+        }
+
+        tbl.readLock();
+        try {
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             for (long partitionId : partitionIndexMap.rowKeySet()) {
@@ -267,7 +273,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
             }
         } finally {
-            db.readUnlock();
+            tbl.readUnlock();
         }
 
         if (!FeConstants.runningUnitTest) {
@@ -304,16 +310,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         // create all replicas success.
         // add all shadow indexes to catalog
-        db.writeLock();
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             addShadowIndexToCatalog(tbl);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
 
         this.watershedTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
@@ -372,13 +374,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (db == null) {
             throw new AlterCancelException("Databasee " + dbId + " does not exist");
         }
-        
-        db.readLock();
+
+        OlapTable tbl = null;
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
+            tbl = (OlapTable) db.getTableOrThrowException(tableId, TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new AlterCancelException(e.getMessage());
+        }
+
+        tbl.readLock();
+        try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
 
             for (long partitionId : partitionIndexMap.rowKeySet()) {
@@ -415,7 +420,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
             } // end for partitions
         } finally {
-            db.readUnlock();
+            tbl.readUnlock();
         }
 
         AgentTaskQueue.addBatchTask(schemaChangeBatchTask);
@@ -446,14 +451,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             throw new AlterCancelException("Database " + dbId + " does not exist");
         }
 
-        db.readLock();
+        OlapTable tbl = null;
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
-        } finally {
-            db.readUnlock();
+            tbl = (OlapTable) db.getTableOrThrowException(tableId, TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new AlterCancelException(e.getMessage());
         }
 
         if (!schemaChangeBatchTask.isFinished()) {
@@ -467,16 +469,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             return;
         }
 
+
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
          */
-        db.writeLock();
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
 
             for (long partitionId : partitionIndexMap.rowKeySet()) {
@@ -514,7 +513,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // all partitions are good
             onFinished(tbl);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
 
         pruneMeta();
@@ -626,10 +625,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db != null) {
-            db.writeLock();
-            try {
-                OlapTable tbl = (OlapTable) db.getTable(tableId);
-                if (tbl != null) {
+            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            if (tbl != null) {
+                tbl.writeLock();
+                try {
                     for (long partitionId : partitionIndexMap.rowKeySet()) {
                         Partition partition = tbl.getPartition(partitionId);
                         Preconditions.checkNotNull(partition, partitionId);
@@ -647,9 +646,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         tbl.deleteIndexInfo(shadowIndexName);
                     }
                     tbl.setState(OlapTableState.NORMAL);
+                } finally {
+                    tbl.writeUnlock();
                 }
-            } finally {
-                db.writeUnlock();
             }
         }
 
@@ -673,14 +672,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             return;
         }
 
-        db.writeLock();
+        OlapTable tbl = (OlapTable) db.getTable(tableId);
+        if (tbl == null) {
+            // table may be dropped before replaying this log. just return
+            return;
+        }
+
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                // table may be dropped before replaying this log. just return
-                return;
-            }
-            
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
             for (Cell<Long, Long, MaterializedIndex> cell : partitionIndexMap.cellSet()) {
                 long partitionId = cell.getRowKey();
@@ -702,7 +701,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // set table state
             tbl.setState(OlapTableState.SCHEMA_CHANGE);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
         
         this.watershedTxnId = replayedJob.watershedTxnId;
@@ -721,16 +720,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             return;
         }
 
-        db.writeLock();
+        OlapTable tbl = (OlapTable) db.getTable(tableId);
+        if (tbl == null) {
+            // table may be dropped before replaying this log. just return
+            return;
+        }
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                // table may be dropped before replaying this log. just return
-                return;
-            }
             addShadowIndexToCatalog(tbl);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
 
         // should still be in WAITING_TXN state, so that the alter tasks will be resend again
@@ -746,14 +745,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     private void replayFinished(SchemaChangeJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db != null) {
-            db.writeLock();
-            try {
-                OlapTable tbl = (OlapTable) db.getTable(tableId);
-                if (tbl != null) {
+            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            if (tbl != null) {
+                tbl.writeLock();
+                try {
                     onFinished(tbl);
+                } finally {
+                    tbl.writeUnlock();
                 }
-            } finally {
-                db.writeUnlock();
+
             }
         }
         jobState = JobState.FINISHED;

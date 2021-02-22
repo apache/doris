@@ -384,18 +384,19 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         return _fragment_map.size();
     });
 
-    CHECK(Thread::create(
+    auto s = Thread::create(
                   "FragmentMgr", "cancel_timeout_plan_fragment",
-                  [this]() { this->cancel_worker(); }, &_cancel_thread)
-                  .ok());
+                  [this]() { this->cancel_worker(); }, &_cancel_thread);
+    CHECK(s.ok()) << s.to_string();
 
     // TODO(zc): we need a better thread-pool
     // now one user can use all the thread pool, others have no resource.
-    ThreadPoolBuilder("FragmentMgrThreadPool")
+    s = ThreadPoolBuilder("FragmentMgrThreadPool")
             .set_min_threads(config::fragment_pool_thread_num_min)
             .set_max_threads(config::fragment_pool_thread_num_max)
             .set_max_queue_size(config::fragment_pool_queue_size)
             .build(&_thread_pool);
+    CHECK(s.ok()) << s.to_string();
 }
 
 FragmentMgr::~FragmentMgr() {

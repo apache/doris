@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
-import scala.Tuple2;
-
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import com.google.common.base.Strings;
@@ -31,8 +29,6 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 import org.apache.parquet.column.ParquetProperties;
 import org.apache.parquet.hadoop.ParquetWriter;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
@@ -58,6 +54,8 @@ import org.apache.spark.sql.types.StructType;
 import org.apache.spark.storage.StorageLevel;
 import org.apache.spark.util.LongAccumulator;
 import org.apache.spark.util.SerializableConfiguration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -77,6 +75,8 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 
+import scala.Tuple2;
+
 // This class is a Spark-based data preprocessing program,
 // which will make use of the distributed compute framework of spark to
 // do ETL job/sort/preaggregate jobs in spark job
@@ -89,7 +89,7 @@ import java.util.Set;
 // 3. process aggregation if needed
 // 4. write data to parquet file
 public final class SparkDpp implements java.io.Serializable {
-    private static final Logger LOG = LogManager.getLogger(SparkDpp.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SparkDpp.class);
 
     private static final String NULL_FLAG = "\\N";
     private static final String DPP_RESULT_FILE = "dpp_result.json";
@@ -97,7 +97,6 @@ public final class SparkDpp implements java.io.Serializable {
     private SparkSession spark = null;
     private EtlJobConfig etlJobConfig = null;
     private LongAccumulator abnormalRowAcc = null;
-    private LongAccumulator unselectedRowAcc = null;
     private LongAccumulator scannedRowsAcc = null;
     private LongAccumulator fileNumberAcc = null;
     private LongAccumulator fileSizeAcc = null;
@@ -109,18 +108,21 @@ public final class SparkDpp implements java.io.Serializable {
     // we need to wrap it so that we can use it in executor.
     private SerializableConfiguration serializableHadoopConf;
     private DppResult dppResult = new DppResult();
+    Map<Long, Set<String>> tableToBitmapDictColumns = new HashMap<>();
 
     // just for ut
     public SparkDpp() {}
 
-    public SparkDpp(SparkSession spark, EtlJobConfig etlJobConfig) {
+    public SparkDpp(SparkSession spark, EtlJobConfig etlJobConfig, Map<Long, Set<String>> tableToBitmapDictColumns) {
         this.spark = spark;
         this.etlJobConfig = etlJobConfig;
+        if (tableToBitmapDictColumns != null) {
+            this.tableToBitmapDictColumns = tableToBitmapDictColumns;
+        }
     }
 
     public void init() {
         abnormalRowAcc = spark.sparkContext().longAccumulator("abnormalRowAcc");
-        unselectedRowAcc = spark.sparkContext().longAccumulator("unselectedRowAcc");
         scannedRowsAcc = spark.sparkContext().longAccumulator("scannedRowsAcc");
         fileNumberAcc = spark.sparkContext().longAccumulator("fileNumberAcc");
         fileSizeAcc = spark.sparkContext().longAccumulator("fileSizeAcc");
@@ -545,7 +547,9 @@ public final class SparkDpp implements java.io.Serializable {
                 }
             }
             if (column.columnType.equalsIgnoreCase("DATE")) {
-                dataframe = dataframe.withColumn(dstField.name(), dataframe.col(dstField.name()).cast("date"));
+                dataframe = dataframe.withColumn(dstField.name(), dataframe.col(dstField.name()).cast(DataTypes.DateType));
+            } else if (column.columnType.equalsIgnoreCase("DATETIME")) {
+                dataframe = dataframe.withColumn(dstField.name(), dataframe.col(dstField.name()).cast(DataTypes.TimestampType));
             } else if (column.columnType.equalsIgnoreCase("BOOLEAN")) {
                 dataframe = dataframe.withColumn(dstField.name(),
                         functions.when(functions.lower(dataframe.col(dstField.name())).equalTo("true"), "1")
@@ -846,7 +850,8 @@ public final class SparkDpp implements java.io.Serializable {
                                                String hiveDbTableName,
                                                EtlJobConfig.EtlIndex baseIndex,
                                                EtlJobConfig.EtlFileGroup fileGroup,
-                                               StructType dstTableSchema) throws SparkDppException {
+                                               StructType dstTableSchema,
+                                               Set<String> dictBitmapColumnSet) throws SparkDppException {
         // select base index columns from hive table
         StringBuilder sql = new StringBuilder();
         sql.append("select ");
@@ -854,19 +859,44 @@ public final class SparkDpp implements java.io.Serializable {
             sql.append(column.columnName).append(",");
         });
         sql.deleteCharAt(sql.length() - 1).append(" from ").append(hiveDbTableName);
+        if (!Strings.isNullOrEmpty(fileGroup.where)) {
+            sql.append(" where ").append(fileGroup.where);
+        }
+
         Dataset<Row> dataframe = spark.sql(sql.toString());
+        // Note(wb): in current spark load implementation, spark load can't be consistent with doris BE; The reason is as follows
+        // For stream load in doris BE, it runs as follow steps:
+        // step 1: type check
+        // step 2: expression calculation
+        // step 3: strict mode check
+        // step 4: nullable column check
+        // BE can do the four steps row by row
+        // but spark load relies on spark to do step2, so it can only do step 1 for whole dataset and then do step 2 for whole dataset and so on;
+        // So in spark load, we first do step 1,3,4,and then do step 2.
         dataframe = checkDataFromHiveWithStrictMode(dataframe, baseIndex, fileGroup.columnMappings.keySet(), etlJobConfig.properties.strictMode,
-                    dstTableSchema);
+                dstTableSchema, dictBitmapColumnSet);
         dataframe = convertSrcDataframeToDstDataframe(baseIndex, dataframe, dstTableSchema, fileGroup);
         return dataframe;
     }
 
     private Dataset<Row> checkDataFromHiveWithStrictMode(
-            Dataset<Row> dataframe, EtlJobConfig.EtlIndex baseIndex, Set<String> mappingColKeys, boolean isStrictMode, StructType dstTableSchema) throws SparkDppException {
+            Dataset<Row> dataframe, EtlJobConfig.EtlIndex baseIndex, Set<String> mappingColKeys, boolean isStrictMode, StructType dstTableSchema,
+            Set<String> dictBitmapColumnSet) throws SparkDppException {
         List<EtlJobConfig.EtlColumn> columnNameNeedCheckArrayList = new ArrayList<>();
         List<ColumnParser> columnParserArrayList = new ArrayList<>();
         for (EtlJobConfig.EtlColumn column : baseIndex.columns) {
-            if (!StringUtils.equalsIgnoreCase(column.columnType, "varchar") &&
+            // note(wb): there are three data source for bitmap column
+            // case 1: global dict; need't check
+            // case 2: bitmap hash function; this func is not supported in spark load now, so ignore it here
+            // case 3: origin value is a integer value; it should be checked use LongParser
+            if (StringUtils.equalsIgnoreCase(column.columnType, "bitmap")) {
+                if (dictBitmapColumnSet.contains(column.columnName.toLowerCase())) {
+                    continue;
+                } else {
+                    columnNameNeedCheckArrayList.add(column);
+                    columnParserArrayList.add(new BigIntParser());
+                }
+            } else if (!StringUtils.equalsIgnoreCase(column.columnType, "varchar") &&
                     !StringUtils.equalsIgnoreCase(column.columnType, "char") &&
                     !mappingColKeys.contains(column.columnName)) {
                 columnNameNeedCheckArrayList.add(column);
@@ -877,6 +907,7 @@ public final class SparkDpp implements java.io.Serializable {
         ColumnParser[] columnParserArray = columnParserArrayList.toArray(new ColumnParser[columnParserArrayList.size()]);
         EtlJobConfig.EtlColumn[] columnNameArray = columnNameNeedCheckArrayList.toArray(new EtlJobConfig.EtlColumn[columnNameNeedCheckArrayList.size()]);
 
+        StructType srcSchema = dataframe.schema();
         JavaRDD<Row> result = dataframe.toJavaRDD().flatMap(new FlatMapFunction<Row, Row>() {
             @Override
             public Iterator<Row> call(Row row) throws Exception {
@@ -896,6 +927,11 @@ public final class SparkDpp implements java.io.Serializable {
                         if (isStrictMode) {
                             validRow = false;
                             LOG.warn(String.format("row parsed failed in strict mode, column name %s, src row %s", column.columnName, row.toString()));
+                        // a column parsed failed would be filled null, but if doris column is not allowed null, we should skip this row
+                        } else if (!column.isAllowNull) {
+                            validRow = false;
+                            LOG.warn("column:" + i + " can not be null. row:" + row.toString());
+                            break;
                         } else {
                             columnIndexNeedToRepalceNull.add(fieldIndex);
                         }
@@ -907,7 +943,7 @@ public final class SparkDpp implements java.io.Serializable {
                     if (abnormalRowAcc.value() <= 5) {
                         invalidRows.add(row.toString());
                     }
-                } if (columnIndexNeedToRepalceNull.size() != 0) {
+                } else if (columnIndexNeedToRepalceNull.size() != 0) {
                     Object[] newRow = new Object[row.size()];
                     for (int i = 0; i < row.size(); i++) {
                         if (columnIndexNeedToRepalceNull.contains(i)) {
@@ -924,7 +960,8 @@ public final class SparkDpp implements java.io.Serializable {
             }
         });
 
-        return spark.createDataFrame(result, dstTableSchema);
+        // here we just check data but not do cast, so data type should be same with src schema which is hive table schema
+        return spark.createDataFrame(result, srcSchema);
     }
 
     private void process() throws Exception {
@@ -932,6 +969,7 @@ public final class SparkDpp implements java.io.Serializable {
             for (Map.Entry<Long, EtlJobConfig.EtlTable> entry : etlJobConfig.tables.entrySet()) {
                 Long tableId = entry.getKey();
                 EtlJobConfig.EtlTable etlTable = entry.getValue();
+                Set<String> dictBitmapColumnSet = tableToBitmapDictColumns.getOrDefault(tableId, new HashSet<>());
 
                 // get the base index meta
                 EtlJobConfig.EtlIndex baseIndex = null;
@@ -980,19 +1018,14 @@ public final class SparkDpp implements java.io.Serializable {
                     if (sourceType == EtlJobConfig.SourceType.FILE) {
                         fileGroupDataframe = loadDataFromFilePaths(spark, baseIndex, filePaths, fileGroup, dstTableSchema);
                     } else if (sourceType == EtlJobConfig.SourceType.HIVE) {
-                        fileGroupDataframe = loadDataFromHiveTable(spark, fileGroup.dppHiveDbTableName, baseIndex, fileGroup, dstTableSchema);
+                        fileGroupDataframe = loadDataFromHiveTable(spark, fileGroup.dppHiveDbTableName, baseIndex, fileGroup, dstTableSchema,
+                                dictBitmapColumnSet);
                     } else {
                         throw new RuntimeException("Unknown source type: " + sourceType.name());
                     }
                     if (fileGroupDataframe == null) {
                         LOG.info("no data for file file group:" + fileGroup);
                         continue;
-                    }
-                    if (!Strings.isNullOrEmpty(fileGroup.where)) {
-                        long originalSize = fileGroupDataframe.count();
-                        fileGroupDataframe = fileGroupDataframe.filter(fileGroup.where);
-                        long currentSize = fileGroupDataframe.count();
-                        unselectedRowAcc.add(currentSize - originalSize);
                     }
 
                     JavaPairRDD<List<Object>, Object[]> ret = fillTupleWithPartitionColumn(

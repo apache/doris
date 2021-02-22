@@ -19,13 +19,20 @@ package org.apache.doris.analysis;
 
 public class ImportWhereStmt extends StatementBase {
     private Expr expr;
+    // Only used in load processs to define a "preceding filter" expr
+    private boolean isPreceding;
 
-    public ImportWhereStmt(Expr expr) {
+    public ImportWhereStmt(Expr expr, boolean isPreceding) {
         this.expr = expr;
+        this.isPreceding = isPreceding;
     }
 
     public Expr getExpr() {
         return expr;
+    }
+
+    public boolean isPreceding() {
+        return isPreceding;
     }
 
     @Override

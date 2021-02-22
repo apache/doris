@@ -35,6 +35,7 @@
 #include "gutil/once.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
+#include "util/debug/sanitizer_scopes.h"
 #include "util/easy_json.h"
 #include "util/mutex.h"
 #include "util/os_util.h"
@@ -149,7 +150,7 @@ void ThreadMgr::add_thread(const pthread_t& pthread_id, const std::string& name,
     // relationship between thread functors, ignoring potential data races.
     // The annotations prevent this from happening.
     ANNOTATE_IGNORE_SYNC_BEGIN();
-    ANNOTATE_IGNORE_READS_AND_WRITES_BEGIN();
+    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     {
         MutexLock l(&_lock);
         _thread_categories[category][pthread_id] = ThreadDescriptor(category, name, tid);
@@ -157,12 +158,11 @@ void ThreadMgr::add_thread(const pthread_t& pthread_id, const std::string& name,
         _threads_started_metric++;
     }
     ANNOTATE_IGNORE_SYNC_END();
-    ANNOTATE_IGNORE_READS_AND_WRITES_END();
 }
 
 void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& category) {
     ANNOTATE_IGNORE_SYNC_BEGIN();
-    ANNOTATE_IGNORE_READS_AND_WRITES_BEGIN();
+    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     {
         MutexLock l(&_lock);
         auto category_it = _thread_categories.find(category);
@@ -171,7 +171,6 @@ void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& ca
         _threads_running_metric--;
     }
     ANNOTATE_IGNORE_SYNC_END();
-    ANNOTATE_IGNORE_READS_AND_WRITES_END();
 }
 
 void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
@@ -350,7 +349,7 @@ Status Thread::start_thread(const std::string& category, const std::string& name
     t->_joinable = true;
     cleanup.cancel();
 
-    VLOG(3) << "Started thread " << t->tid() << " - " << category << ":" << name;
+    VLOG_NOTICE << "Started thread " << t->tid() << " - " << category << ":" << name;
     return Status::OK();
 }
 
@@ -401,7 +400,7 @@ void Thread::finish_thread(void* arg) {
     // Signal any Joiner that we're done.
     t->_done.count_down();
 
-    VLOG(2) << "Ended thread " << t->_tid << " - " << t->category() << ":" << t->name();
+    VLOG_CRITICAL << "Ended thread " << t->_tid << " - " << t->category() << ":" << t->name();
     t->Release();
     // NOTE: the above 'Release' call could be the last reference to 'this',
     // so 'this' could be destructed at this point. Do not add any code

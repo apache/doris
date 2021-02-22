@@ -74,20 +74,15 @@ static int on_connection(struct evhttp_request* req, void* param) {
 EvHttpServer::EvHttpServer(int port, int num_workers)
         : _host("0.0.0.0"), _port(port), _num_workers(num_workers), _real_port(0) {
     DCHECK_GT(_num_workers, 0);
-    auto res = pthread_rwlock_init(&_rw_lock, nullptr);
-    DCHECK_EQ(res, 0);
 }
 
 EvHttpServer::EvHttpServer(const std::string& host, int port, int num_workers)
         : _host(host), _port(port), _num_workers(num_workers), _real_port(0) {
     DCHECK_GT(_num_workers, 0);
-    auto res = pthread_rwlock_init(&_rw_lock, nullptr);
-    DCHECK_EQ(res, 0);
 }
 
 EvHttpServer::~EvHttpServer() {
     stop();
-    pthread_rwlock_destroy(&_rw_lock);
 }
 
 void EvHttpServer::start() {
@@ -100,14 +95,17 @@ void EvHttpServer::start() {
             .build(&_workers);
 
     evthread_use_pthreads();
-    event_bases.resize(_num_workers);
+    _event_bases.resize(_num_workers);
     for (int i = 0; i < _num_workers; ++i) {
         CHECK(_workers->submit_func([this, i]() {
                           std::shared_ptr<event_base> base(event_base_new(), [](event_base* base) {
                               event_base_free(base);
                           });
                           CHECK(base != nullptr) << "Couldn't create an event_base.";
-                          event_bases[i] = base;
+                          {
+                              std::lock_guard<std::mutex> lock(_event_bases_lock);
+                              _event_bases[i] = base;
+                          }
 
                           /* Create a new evhttp object to handle requests. */
                           std::shared_ptr<evhttp> http(evhttp_new(base.get()),
@@ -127,9 +125,13 @@ void EvHttpServer::start() {
 }
 
 void EvHttpServer::stop() {
-    for (int i = 0; i < _num_workers; ++i) {
-        LOG(WARNING) << "event_base_loopexit ret: "
-                     << event_base_loopexit(event_bases[i].get(), nullptr);
+    {
+        std::lock_guard<std::mutex> lock(_event_bases_lock);
+        for (int i = 0; i < _num_workers; ++i) {
+            LOG(WARNING) << "event_base_loopexit ret: "
+                         << event_base_loopexit(_event_bases[i].get(), nullptr);
+        }
+        _event_bases.clear();
     }
     _workers->shutdown();
     close(_server_fd);
@@ -180,7 +182,7 @@ bool EvHttpServer::register_handler(const HttpMethod& method, const std::string&
     }
 
     bool result = true;
-    pthread_rwlock_wrlock(&_rw_lock);
+    std::lock_guard<std::mutex> lock(_handler_lock);
     PathTrie<HttpHandler*>* root = nullptr;
     switch (method) {
     case GET:
@@ -208,17 +210,15 @@ bool EvHttpServer::register_handler(const HttpMethod& method, const std::string&
     if (result) {
         result = root->insert(path, handler);
     }
-    pthread_rwlock_unlock(&_rw_lock);
-
+    
     return result;
 }
 
 void EvHttpServer::register_static_file_handler(HttpHandler* handler) {
     DCHECK(handler != nullptr);
     DCHECK(_static_file_handler == nullptr);
-    pthread_rwlock_wrlock(&_rw_lock);
+    std::lock_guard<std::mutex> lock(_handler_lock);
     _static_file_handler = handler;
-    pthread_rwlock_unlock(&_rw_lock);
 }
 
 int EvHttpServer::on_header(struct evhttp_request* ev_req) {
@@ -258,7 +258,7 @@ HttpHandler* EvHttpServer::_find_handler(HttpRequest* req) {
 
     HttpHandler* handler = nullptr;
 
-    pthread_rwlock_rdlock(&_rw_lock);
+    std::lock_guard<std::mutex> lock(_handler_lock);
     switch (req->method()) {
     case GET:
         _get_handlers.retrieve(path, &handler, req->params());
@@ -286,7 +286,6 @@ HttpHandler* EvHttpServer::_find_handler(HttpRequest* req) {
         LOG(WARNING) << "unknown HTTP method, method=" << req->method();
         break;
     }
-    pthread_rwlock_unlock(&_rw_lock);
     return handler;
 }
 

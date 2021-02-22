@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DorisHttpException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -64,22 +65,19 @@ public class TableRowCountAction extends RestBaseController {
             if (db == null) {
                 return ResponseEntityBuilder.okWithCommonError("Database [" + dbName + "] " + "does not exists");
             }
-            db.writeLock();
+            OlapTable olapTable = null;
             try {
-                Table table = db.getTable(tblName);
-                if (table == null) {
-                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] " + "does not exists");
-                }
-                // just only support OlapTable, ignore others such as ESTable
-                if (!(table instanceof OlapTable)) {
-                    return ResponseEntityBuilder.okWithCommonError("Table [" + tblName + "] "
-                            + "is not a OlapTable, only support OlapTable currently");
-                }
-                OlapTable olapTable = (OlapTable) table;
+                olapTable = (OlapTable) db.getTableOrThrowException(tblName, Table.TableType.OLAP);
+            } catch (MetaNotFoundException e) {
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+            }
+
+            olapTable.readLock();
+            try {
                 resultMap.put("status", 200);
                 resultMap.put("size", olapTable.proximateRowCount());
             } finally {
-                db.writeUnlock();
+                olapTable.readLock();
             }
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic

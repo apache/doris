@@ -23,23 +23,29 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 
-import java.util.List;
 import java.util.Map;
 
 public class BackupStmt extends AbstractBackupStmt {
     private final static String PROP_TYPE = "type";
+    public final static String PROP_CONTENT = "content";
 
     public enum BackupType {
         INCREMENTAL, FULL
     }
 
-    private BackupType type = BackupType.FULL;
+    public enum BackupContent {
+        METADATA_ONLY, ALL
+    }
 
-    public BackupStmt(LabelName labelName, String repoName, List<TableRef> tblRefs, Map<String, String> properties) {
-        super(labelName, repoName, tblRefs, properties);
+    private BackupType type = BackupType.FULL;
+    private BackupContent content = BackupContent.ALL;
+
+
+    public BackupStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause abstractBackupTableRefClause,
+                      Map<String, String> properties) {
+        super(labelName, repoName, abstractBackupTableRefClause, properties);
     }
 
     public long getTimeoutMs() {
@@ -50,12 +56,19 @@ public class BackupStmt extends AbstractBackupStmt {
         return type;
     }
 
+    public BackupContent getContent() {
+        return content;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+    }
 
+    @Override
+    protected void customAnalyzeTableRefClause() throws AnalysisException {
         // tbl refs can not set alias in backup
-        for (TableRef tblRef : tblRefs) {
+        for (TableRef tblRef : abstractBackupTableRefClause.getTableRefList()) {
             if (tblRef.hasExplicitAlias()) {
                 throw new AnalysisException("Can not set alias for table in Backup Stmt: " + tblRef);
             }
@@ -65,23 +78,34 @@ public class BackupStmt extends AbstractBackupStmt {
     @Override
     protected void analyzeProperties() throws AnalysisException {
         super.analyzeProperties();
-        
+
         Map<String, String> copiedProperties = Maps.newHashMap(properties);
         // type
-        if (copiedProperties.containsKey(PROP_TYPE)) {
+        String typeProp = copiedProperties.get(PROP_TYPE);
+        if (typeProp != null) {
             try {
-                type = BackupType.valueOf(copiedProperties.get(PROP_TYPE).toUpperCase());
-            } catch (Exception e) { 
+                type = BackupType.valueOf(typeProp.toUpperCase());
+            } catch (Exception e) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                                                    "Invalid backup job type: "
-                                                            + copiedProperties.get(PROP_TYPE));
+                        "Invalid backup job type: " + typeProp);
             }
             copiedProperties.remove(PROP_TYPE);
+        }
+        // content
+        String contentProp = copiedProperties.get(PROP_CONTENT);
+        if (contentProp != null) {
+            try {
+                content = BackupContent.valueOf(contentProp.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid backup job content:" + contentProp);
+            }
+            copiedProperties.remove(PROP_CONTENT);
         }
 
         if (!copiedProperties.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                                                "Unknown backup job properties: " + copiedProperties.keySet());
+                    "Unknown backup job properties: " + copiedProperties.keySet());
         }
     }
 
@@ -94,12 +118,12 @@ public class BackupStmt extends AbstractBackupStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("BACKUP SNAPSHOT ").append(labelName.toSql());
-        sb.append("\n").append("TO ").append(repoName).append("\nON\n(");
-
-        sb.append(Joiner.on(",\n").join(tblRefs));
-
-        sb.append("\n)\nPROPERTIES\n(");
-        sb.append(new PrintableMap<String, String>(properties, " = ", true, true));
+        sb.append("\n").append("TO ").append(repoName).append("\n");
+        if (abstractBackupTableRefClause != null) {
+            sb.append(abstractBackupTableRefClause.toSql()).append("\n");
+        }
+        sb.append("PROPERTIES\n(");
+        sb.append(new PrintableMap<>(properties, " = ", true, true));
         sb.append("\n)");
         return sb.toString();
     }

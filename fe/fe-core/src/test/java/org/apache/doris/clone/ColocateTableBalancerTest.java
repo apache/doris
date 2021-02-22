@@ -17,8 +17,10 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.collect.Sets;
 import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
+
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
@@ -32,6 +34,7 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -41,9 +44,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class ColocateTableBalancerTest {
     private ColocateTableBalancer balancer = ColocateTableBalancer.getInstance();
@@ -230,6 +230,37 @@ public class ColocateTableBalancerTest {
         allAvailBackendIds = Lists.newArrayList(7L, 8L, 9L);
         changed = Deencapsulation.invoke(balancer, "relocateAndBalance", groupId, new HashSet<Long>(), allAvailBackendIds,
                                          colocateTableIndex, infoService, statistic, balancedBackendsPerBucketSeq);
+        Assert.assertFalse(changed);
+    }
+
+    @Test
+    public void testFixBalanceEndlessLoop2(@Mocked SystemInfoService infoService,
+                                           @Mocked ClusterLoadStatistic statistic) {
+        new Expectations() {
+            {
+                statistic.getBackendLoadStatistic(anyLong);
+                result = new Delegate<BackendLoadStatistic>() {
+                    BackendLoadStatistic delegate(Long beId) {
+                        return new FakeBackendLoadStatistic(beId, null, null, null);
+                    }
+                };
+                minTimes = 0;
+            }
+        };
+        GroupId groupId = new GroupId(10000, 10001);
+        List<Column> distributionCols = Lists.newArrayList();
+        ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId, distributionCols, 5, (short) 1);
+        Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();
+        group2Schema.put(groupId, groupSchema);
+
+        ColocateTableIndex colocateTableIndex = createColocateIndex(groupId, Lists.newArrayList(7L, 7L, 7L, 7L, 7L));
+        Deencapsulation.setField(colocateTableIndex, "group2Schema", group2Schema);
+
+        List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
+        Set<Long> unAvailBackendIds = Sets.newHashSet(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L);
+        List<Long> availBackendIds = Lists.newArrayList();
+        boolean changed = (Boolean) Deencapsulation.invoke(balancer, "relocateAndBalance", groupId, unAvailBackendIds, availBackendIds,
+                colocateTableIndex, infoService, statistic, balancedBackendsPerBucketSeq);
         Assert.assertFalse(changed);
     }
 

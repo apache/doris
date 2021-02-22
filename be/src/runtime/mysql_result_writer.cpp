@@ -18,6 +18,7 @@
 #include "runtime/mysql_result_writer.h"
 
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/primitive_type.h"

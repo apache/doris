@@ -133,6 +133,7 @@ struct TBrokerRangeDesc {
     13: optional string json_root;
     //  it's usefull when format_type == FORMAT_JSON
     14: optional bool num_as_string;
+    15: optional bool fuzzy_parse;
 }
 
 struct TBrokerScanRangeParams {
@@ -223,6 +224,7 @@ struct TBrokerScanNode {
     // Partition info used to process partition select in broker load
     2: optional list<Exprs.TExpr> partition_exprs
     3: optional list<Partitions.TRangePartition> partition_infos
+	4: optional list<Exprs.TExpr> pre_filter_exprs
 }
 
 struct TEsScanNode {

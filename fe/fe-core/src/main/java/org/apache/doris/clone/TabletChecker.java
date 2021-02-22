@@ -204,10 +204,12 @@ public class TabletChecker extends MasterDaemon {
                 continue;
             }
 
-            db.readLock();
-            try {
-                List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
-                for (Table table : db.getTables()) {
+            List<Table> tableList = db.getTables();
+            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
+
+            for (Table table : tableList) {
+                table.readLock();
+                try {
                     if (!table.needSchedule()) {
                         continue;
                     }
@@ -227,12 +229,12 @@ public class TabletChecker extends MasterDaemon {
                         for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             for (Tablet tablet : idx.getTablets()) {
                                 totalTabletNum++;
-                                
+
                                 if (tabletScheduler.containsTablet(tablet.getId())) {
                                     tabletInScheduler++;
                                     continue;
                                 }
-                                
+
                                 Pair<TabletStatus, TabletSchedCtx.Priority> statusWithPrio = tablet.getHealthStatusWithPriority(
                                         infoService,
                                         db.getClusterName(),
@@ -287,10 +289,10 @@ public class TabletChecker extends MasterDaemon {
                                     olapTbl.getId(), Lists.newArrayList(partition.getId())));
                         }
                     } // partitions
-                } // tables
-            } finally {
-                db.readUnlock();
-            }
+                } finally {
+                    table.readUnlock();
+                }
+            } // tables
         } // end for dbs
 
         long cost = System.currentTimeMillis() - start;
@@ -332,31 +334,30 @@ public class TabletChecker extends MasterDaemon {
                 continue;
             }
 
-            db.readLock();
-            try {
-                Iterator<Map.Entry<Long, Set<PrioPart>>> jter = dbEntry.getValue().entrySet().iterator();
-                while (jter.hasNext()) {
-                    Map.Entry<Long, Set<PrioPart>> tblEntry = jter.next();
-                    long tblId = tblEntry.getKey();
-                    OlapTable tbl = (OlapTable) db.getTable(tblId);
-                    if (tbl == null) {
-                        deletedPrios.add(Pair.create(dbId, tblId));
-                        continue;
-                    }
-
+            Iterator<Map.Entry<Long, Set<PrioPart>>> jter = dbEntry.getValue().entrySet().iterator();
+            while (jter.hasNext()) {
+                Map.Entry<Long, Set<PrioPart>> tblEntry = jter.next();
+                long tblId = tblEntry.getKey();
+                OlapTable tbl = (OlapTable) db.getTable(tblId);
+                if (tbl == null) {
+                    deletedPrios.add(Pair.create(dbId, tblId));
+                    continue;
+                }
+                tbl.readLock();
+                try {
                     Set<PrioPart> parts = tblEntry.getValue();
                     parts = parts.stream().filter(p -> (tbl.getPartition(p.partId) != null && !p.isTimeout())).collect(
                             Collectors.toSet());
                     if (parts.isEmpty()) {
                         deletedPrios.add(Pair.create(dbId, tblId));
                     }
+                } finally {
+                    tbl.readUnlock();
                 }
+            }
 
-                if (dbEntry.getValue().isEmpty()) {
-                    iter.remove();
-                }
-            } finally {
-                db.readUnlock();
+            if (dbEntry.getValue().isEmpty()) {
+                iter.remove();
             }
         }
         for (Pair<Long, Long> prio : deletedPrios) {
@@ -423,13 +424,12 @@ public class TabletChecker extends MasterDaemon {
         long dbId = db.getId();
         long tblId = -1;
         List<Long> partIds = Lists.newArrayList();
-        db.readLock();
+        Table tbl = db.getTable(tblName);
+        if (tbl == null || tbl.getType() != TableType.OLAP) {
+            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
+        }
+        tbl.readLock();
         try {
-            Table tbl = db.getTable(tblName);
-            if (tbl == null || tbl.getType() != TableType.OLAP) {
-                throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
-            }
-
             tblId = tbl.getId();
             OlapTable olapTable = (OlapTable) tbl;
 
@@ -445,7 +445,7 @@ public class TabletChecker extends MasterDaemon {
                 }
             }
         } finally {
-            db.readUnlock();
+            tbl.readUnlock();
         }
 
         Preconditions.checkState(tblId != -1);

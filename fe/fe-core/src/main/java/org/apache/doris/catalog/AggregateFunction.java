@@ -361,21 +361,27 @@ public class AggregateFunction extends Function {
         if (ifNotExists) {
             sb.append("IF NOT EXISTS ");
         }
-        sb.append(dbName() + "." + signatureString() + "\n")
-                .append(" RETURNS " + getReturnType() + "\n");
+
+        sb.append(signatureString()).append(" RETURNS " + getReturnType());
         if (getIntermediateType() != null) {
-            sb.append(" INTERMEDIATE " + getIntermediateType() + "\n");
+            sb.append(" INTERMEDIATE " + getIntermediateType());
         }
-        sb.append(" LOCATION '" + getLocation() + "'\n")
-                .append(" UPDATE_FN='" + getUpdateFnSymbol() + "'\n")
-                .append(" INIT_FN='" + getInitFnSymbol() + "'\n")
-                .append(" MERGE_FN='" + getMergeFnSymbol() + "'\n");
+
+        sb.append(" PROPERTIES (")
+                .append("\n  \"INIT_FN\"=\"" + getUpdateFnSymbol() + "\"")
+                .append(",\n  \"UPDATE_FN\"=\"" + getInitFnSymbol() + "\"")
+                .append(",\n  \"MERGE_FN\"=\"" + getMergeFnSymbol() + "\"");
         if (getSerializeFnSymbol() != null) {
-            sb.append(" SERIALIZE_FN='" + getSerializeFnSymbol() + "'\n");
+            sb.append(",\n  \"SERIALIZE_FN\"=\"" + getSerializeFnSymbol() + "\"");
         }
         if (getFinalizeFnSymbol() != null) {
-            sb.append(" FINALIZE_FN='" + getFinalizeFnSymbol() + "'\n");
+            sb.append(",\n  \"FINALIZE_FN\"=\"" + getFinalizeFnSymbol() + "\"");
         }
+
+        sb.append(",\n  \"OBJECT_FILE\"=")
+                .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
+        sb.append(",\n  \"MD5\"=").append("\"" + getChecksum() + "\"");
+        sb.append("\n);");
         return sb.toString();
     }
 

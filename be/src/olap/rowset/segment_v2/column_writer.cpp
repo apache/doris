@@ -359,8 +359,10 @@ Status ScalarColumnWriter::finish_current_page() {
     if (_next_rowid == _first_rowid) {
         return Status::OK();
     }
-
     if (_opts.need_zone_map) {
+        if (_next_rowid - _first_rowid < config::zone_map_row_num_threshold) {
+            _zone_map_index_builder->reset_page_zone_map();
+        }
         RETURN_IF_ERROR(_zone_map_index_builder->flush());
     }
 

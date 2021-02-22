@@ -37,7 +37,7 @@
 
 namespace doris {
 
-#define VLOG_ETL VLOG(2)
+#define VLOG_ETL VLOG_CRITICAL
 
 std::string EtlJobMgr::to_http_path(const std::string& file_name) {
     std::stringstream url;

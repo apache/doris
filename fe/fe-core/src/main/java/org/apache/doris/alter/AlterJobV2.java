@@ -21,8 +21,10 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -176,10 +178,8 @@ public abstract class AlterJobV2 implements Writable {
         }
     }
 
-    public final boolean cancel(String errMsg) {
-        synchronized (this) {
-            return cancelImpl(errMsg);
-        }
+    public synchronized final boolean cancel(String errMsg) {
+        return cancelImpl(errMsg);
     }
 
     /**
@@ -188,21 +188,16 @@ public abstract class AlterJobV2 implements Writable {
     */
     protected boolean checkTableStable(Database db) throws AlterCancelException {
         OlapTable tbl = null;
-        boolean isStable = false;
-        db.readLock();
         try {
-            tbl = (OlapTable) db.getTable(tableId);
-            if (tbl == null) {
-                throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
-
-            isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
-                    Catalog.getCurrentCatalog().getTabletScheduler(), db.getClusterName());
-        } finally {
-            db.readUnlock();
+            tbl = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new AlterCancelException(e.getMessage());
         }
 
-        db.writeLock();
+        boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
+                    Catalog.getCurrentCatalog().getTabletScheduler(), db.getClusterName());
+
+        tbl.writeLock();
         try {
             if (!isStable) {
                 errMsg = "table is unstable";
@@ -216,7 +211,7 @@ public abstract class AlterJobV2 implements Writable {
                 return true;
             }
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
     }
 

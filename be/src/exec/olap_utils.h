@@ -208,7 +208,7 @@ inline SQLFilterOp to_olap_filter_type(TExprOpcode::type type, bool opposite) {
         return opposite ? FILTER_IN : FILTER_NOT_IN;
 
     default:
-        VLOG(1) << "TExprOpcode: " << type;
+        VLOG_CRITICAL << "TExprOpcode: " << type;
         DCHECK(false);
     }
 

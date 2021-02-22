@@ -103,6 +103,7 @@ WITH BROKER broker_name broker_properties
     [PARTITION (p1, p2)]
     [COLUMNS TERMINATED BY separator ]
     [(col1, ...)]
+    [PRECEDING FILTER predicate]
     [SET (k1=f1(xx), k2=f2(xx))]
     [WHERE predicate]
 
@@ -169,6 +170,10 @@ The following is a detailed explanation of some parameters of the data descripti
 + partition
 
 	In `data_desc`, you can specify the partition information of the table to be imported, but it will not be imported if the data to be imported does not belong to the specified partition. At the same time, data that does not specify a Partition is considered error data.
+
++ preceding filter predicate
+
+    Used to filter original data. The original data is the data without column mapping and transformation. The user can filter the data before conversion, select the desired data, and then perform the conversion.
 
 + where predicate
 
@@ -455,6 +460,14 @@ We will only discuss the case of a single BE. If the user cluster has more than 
 		Note: The average user's environment may not reach the speed of 10M/s, so it is recommended that more than 500G files be split and imported.
 		
 		```
+
+### Performance analysis
+
+You can execute `set is_report_success=true` to open the load job profile before submitting the import job. After the import job is completed, you can view the profile of the import job in the `Queris` tab of the FE web page.
+
+This profile can help analyze the running status of the import job.
+
+Currently, the profile can only be viewed after the job is successfully executed.
 
 ### Complete examples
 

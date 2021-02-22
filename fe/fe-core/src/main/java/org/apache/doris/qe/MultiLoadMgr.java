@@ -376,6 +376,7 @@ public class MultiLoadMgr {
             LoadStmt loadStmt = new LoadStmt(commitLabel, dataDescriptions, brokerDesc, null, properties);
             loadStmt.setEtlJobType(EtlJobType.BROKER);
             loadStmt.setOrigStmt(new OriginStatement("", 0));
+            loadStmt.setUserInfo(ConnectContext.get().getCurrentUserIdentity());
             Analyzer analyzer = new Analyzer(ConnectContext.get().getCatalog(), ConnectContext.get());
             try {
                 loadStmt.analyze(analyzer);
@@ -469,6 +470,7 @@ public class MultiLoadMgr {
             boolean stripOuterArray = false;
             String jsonPaths = "";
             String jsonRoot = "";
+            boolean fuzzyParse = false;
             if (properties != null) {
                 colString = properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
                 String columnSeparatorStr = properties.get(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR);
@@ -496,28 +498,30 @@ public class MultiLoadMgr {
                 if (properties.get(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION) != null) {
                     deleteCondition = parseWhereExpr(properties.get(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION));
                 }
-                backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
-                if (backend == null) {
-                    throw new DdlException("Backend [" + backendId + "] not found. ");
-                }
                 if (fileFormat != null && fileFormat.equalsIgnoreCase("json")) {
                     stripOuterArray = Boolean.valueOf(
                             properties.getOrDefault(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY, "false"));
                     jsonPaths = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_JSONPATHS, "");
                     jsonRoot = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_JSONROOT, "");
+                    fuzzyParse = Boolean.valueOf(
+                        properties.getOrDefault(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE, "false"));
                 }
             }
-
             DataDescription dataDescription = new DataDescription(tbl, partitionNames, files, null, columnSeparator,
-                    fileFormat, null, isNegative, null, whereExpr, mergeType, deleteCondition,
+                    fileFormat, null, isNegative, null, null, whereExpr, mergeType, deleteCondition,
                     sequenceColName);
             dataDescription.setColumnDef(colString);
+            backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
+            if (backend == null) {
+                throw new DdlException("Backend [" + backendId + "] not found. ");
+            }
             dataDescription.setBeAddr(new TNetworkAddress(backend.getHost(), backend.getHeartbeatPort()));
             dataDescription.setFileSize(fileSizes);
             dataDescription.setBackendId(backendId);
             dataDescription.setJsonPaths(jsonPaths);
             dataDescription.setJsonRoot(jsonRoot);
             dataDescription.setStripOuterArray(stripOuterArray);
+            dataDescription.setFuzzyParse(fuzzyParse);
             return dataDescription;
         }
 

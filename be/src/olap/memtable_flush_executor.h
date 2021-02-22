@@ -21,6 +21,7 @@
 #include <memory>
 #include <vector>
 
+#include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_define.h"
 #include "util/threadpool.h"
 
@@ -37,6 +38,7 @@ struct FlushStatistic {
     int64_t flush_time_ns = 0;
     int64_t flush_count = 0;
     int64_t flush_size_bytes = 0;
+    int64_t flush_disk_size_bytes = 0;
 };
 
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
@@ -95,7 +97,9 @@ public:
     // because it needs path hash of each data dir.
     void init(const std::vector<DataDir*>& data_dirs);
 
-    OLAPStatus create_flush_token(std::unique_ptr<FlushToken>* flush_token);
+    OLAPStatus create_flush_token(
+            std::unique_ptr<FlushToken>* flush_token,
+            RowsetTypePB rowset_type);
 
 private:
     std::unique_ptr<ThreadPool> _flush_pool;

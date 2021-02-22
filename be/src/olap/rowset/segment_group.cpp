@@ -221,7 +221,7 @@ bool SegmentGroup::delete_all_files() {
         string index_path = construct_index_file_path(seg_id);
         string data_path = construct_data_file_path(seg_id);
 
-        VLOG(3) << "delete index file. path=" << index_path;
+        VLOG_NOTICE << "delete index file. path=" << index_path;
         if (remove(index_path.c_str()) != 0) {
             // if the errno is not ENOENT, log the error msg.
             // ENOENT stands for 'No such file or directory'
@@ -233,7 +233,7 @@ bool SegmentGroup::delete_all_files() {
             }
         }
 
-        VLOG(3) << "delete data file. path=" << data_path;
+        VLOG_NOTICE << "delete data file. path=" << data_path;
         if (remove(data_path.c_str()) != 0) {
             if (errno != ENOENT) {
                 char errmsg[64];
@@ -485,7 +485,7 @@ OLAPStatus SegmentGroup::find_short_key(const RowCursor& key, RowCursor* helper_
         }
     }
 
-    VLOG(3) << "seg=" << offset.segment << ", offset=" << offset.offset;
+    VLOG_NOTICE << "seg=" << offset.segment << ", offset=" << offset.offset;
     return _index.get_row_block_position(offset, pos);
 }
 
@@ -703,7 +703,7 @@ OLAPStatus SegmentGroup::finalize_segment(uint32_t data_segment_size, int64_t nu
         return res;
     }
 
-    VLOG(3) << "finalize_segment. file_name=" << _current_file_handler.file_name()
+    VLOG_NOTICE << "finalize_segment. file_name=" << _current_file_handler.file_name()
             << ", file_length=" << file_length;
 
     if ((res = _current_file_handler.close()) != OLAP_SUCCESS) {
@@ -811,7 +811,7 @@ OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path
                          << ", to=" << new_data_file_name << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
         } else {
-            VLOG(3) << "link data file from " << old_data_file_name << " to " << new_data_file_name
+            VLOG_NOTICE << "link data file from " << old_data_file_name << " to " << new_data_file_name
                     << " successfully";
         }
         success_links->push_back(new_data_file_name);
@@ -830,7 +830,7 @@ OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path
                          << ", to=" << new_index_file_name << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
         } else {
-            VLOG(3) << "link index file from " << old_index_file_name << " to "
+            VLOG_NOTICE << "link index file from " << old_index_file_name << " to "
                     << new_index_file_name << " successfully";
         }
         success_links->push_back(new_index_file_name);
@@ -855,7 +855,7 @@ OLAPStatus SegmentGroup::convert_to_old_files(const std::string& snapshot_path,
             }
             success_links->push_back(old_data_file_name);
         }
-        VLOG(3) << "create hard link. from=" << new_data_file_name << ", "
+        VLOG_NOTICE << "create hard link. from=" << new_data_file_name << ", "
                 << "to=" << old_data_file_name;
         std::string new_index_file_name =
                 construct_index_file_path(_rowset_path_prefix, segment_id);
@@ -869,7 +869,7 @@ OLAPStatus SegmentGroup::convert_to_old_files(const std::string& snapshot_path,
             }
             success_links->push_back(old_index_file_name);
         }
-        VLOG(3) << "create hard link. from=" << new_index_file_name << ", "
+        VLOG_NOTICE << "create hard link. from=" << new_index_file_name << ", "
                 << "to=" << old_index_file_name;
     }
     return OLAP_SUCCESS;

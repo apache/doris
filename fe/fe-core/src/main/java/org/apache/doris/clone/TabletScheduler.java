@@ -138,14 +138,18 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     public TabletScheduler(Catalog catalog, SystemInfoService infoService, TabletInvertedIndex invertedIndex,
-            TabletSchedulerStat stat) {
+                           TabletSchedulerStat stat, String rebalancerType) {
         super("tablet scheduler", SCHEDULE_INTERVAL_MS);
         this.catalog = catalog;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
         this.colocateTableIndex = catalog.getColocateTableIndex();
         this.stat = stat;
-        this.rebalancer = new BeLoadRebalancer(infoService, invertedIndex);
+        if (rebalancerType.equalsIgnoreCase("partition")) {
+            this.rebalancer = new PartitionRebalancer(infoService, invertedIndex);
+        } else {
+            this.rebalancer = new BeLoadRebalancer(infoService, invertedIndex);
+        }
     }
 
     public TabletSchedulerStat getStat() {
@@ -454,13 +458,12 @@ public class TabletScheduler extends MasterDaemon {
         }
 
         Pair<TabletStatus, TabletSchedCtx.Priority> statusPair;
-        db.writeLock();
+        OlapTable tbl = (OlapTable) db.getTable(tabletCtx.getTblId());
+        if (tbl == null) {
+            throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
+        }
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tabletCtx.getTblId());
-            if (tbl == null) {
-                throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
-            }
-
             boolean isColocateTable = colocateTableIndex.isColocateTable(tbl.getId());
 
             OlapTableState tableState = tbl.getState();
@@ -493,7 +496,6 @@ public class TabletScheduler extends MasterDaemon {
                 Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
                 TabletStatus st = tablet.getColocateHealthStatus(
                         partition.getVisibleVersion(),
-                        partition.getVisibleVersionHash(),
                         tbl.getPartitionInfo().getReplicationNum(partition.getId()),
                         backendsSet);
                 statusPair = Pair.create(st, Priority.HIGH);
@@ -549,7 +551,7 @@ public class TabletScheduler extends MasterDaemon {
 
             handleTabletByTypeAndStatus(statusPair.first, tabletCtx, batchTask);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
     }
 
@@ -852,7 +854,7 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     private boolean deleteReplicaChosenByRebalancer(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
-        Long id = rebalancer.getToDeleteReplicaId(tabletCtx.getTabletId());
+        Long id = rebalancer.getToDeleteReplicaId(tabletCtx);
         if (id == -1L) {
             return false;
         }

@@ -300,6 +300,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR>
                 memory_copy(dst_slice->data, src_slice->data, src_slice->size);
                 dst_slice->size = src_slice->size;
             }
+            dst->set_is_null(false);
         }
     }
 };

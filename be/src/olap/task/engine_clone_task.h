@@ -45,16 +45,14 @@ private:
     virtual OLAPStatus _finish_clone(Tablet* tablet, const std::string& clone_dir,
                                      int64_t committed_version, bool is_incremental_clone);
 
-    OLAPStatus _clone_incremental_data(Tablet* tablet, const TabletMeta& cloned_tablet_meta,
+    OLAPStatus _finish_incremental_clone(Tablet* tablet, const TabletMeta& cloned_tablet_meta,
                                        int64_t committed_version);
 
-    OLAPStatus _clone_full_data(Tablet* tablet, TabletMeta* cloned_tablet_meta);
+    OLAPStatus _finish_full_clone(Tablet* tablet, TabletMeta* cloned_tablet_meta);
 
-    AgentStatus _clone_copy(DataDir& data_dir, const string& local_data_path, TBackend* src_host,
+    AgentStatus _make_and_download_snapshots(DataDir& data_dir, const string& local_data_path, TBackend* src_host,
                             string* src_file_path, vector<string>* error_msgs,
                             const vector<Version>* missing_versions, bool* allow_incremental_clone);
-
-    OLAPStatus _convert_to_new_snapshot(const string& clone_dir, int64_t tablet_id);
 
     void _set_tablet_info(AgentStatus status, bool is_new_tablet);
 
