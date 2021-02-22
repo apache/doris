@@ -1069,6 +1069,8 @@ public class Coordinator {
                         List<List<TScanRangeParams>> perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
                                 expectedInstanceNum);
 
+                        LOG.debug("scan range number per instance is: {}", perInstanceScanRanges.size());
+
                         for (List<TScanRangeParams> scanRangeParams : perInstanceScanRanges) {
                             FInstanceExecParam instanceParam = new FInstanceExecParam(null, key, 0, params);
                             instanceParam.perNodeScanRanges.put(planNodeId, scanRangeParams);
@@ -1085,7 +1087,7 @@ public class Coordinator {
                     throw new UserException("there is no scanNode Backend");
                 }
                 this.addressToBackendID.put(execHostport, backendIdRef.getRef());
-                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, 
+                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport,
                         0, params);
                 params.instanceExecParams.add(instanceParam);
             }
@@ -1205,13 +1207,11 @@ public class Coordinator {
                 for (Map<Integer, List<TScanRangeParams>> nodeScanRangeMap : perInstanceScanRange) {
                     for (Map.Entry<Integer, List<TScanRangeParams>> nodeScanRange : nodeScanRangeMap.entrySet()) {
                         if (!instanceParam.perNodeScanRanges.containsKey(nodeScanRange.getKey())) {
-                            range.put(nodeScanRange.getKey(), nodeScanRange.getValue());
-                            instanceParam.perNodeScanRanges.put(nodeScanRange.getKey(), nodeScanRange.getValue());
-                        } else {
-                            range.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
-                            instanceParam.perNodeScanRanges.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
+                            range.put(nodeScanRange.getKey(), Lists.newArrayList());
+                            instanceParam.perNodeScanRanges.put(nodeScanRange.getKey(), Lists.newArrayList());
                         }
-
+                        range.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
+                        instanceParam.perNodeScanRanges.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
                     }
                 }
                 params.instanceExecParams.add(instanceParam);
@@ -1665,12 +1665,11 @@ public class Coordinator {
                         instanceParam.addBucketSeq(nodeScanRangeMap.first);
                         for (Map.Entry<Integer, List<TScanRangeParams>> nodeScanRange : nodeScanRangeMap.second.entrySet()) {
                             if (!instanceParam.perNodeScanRanges.containsKey(nodeScanRange.getKey())) {
-                                range.put(nodeScanRange.getKey(), nodeScanRange.getValue());
-                                instanceParam.perNodeScanRanges.put(nodeScanRange.getKey(), nodeScanRange.getValue());
-                            } else {
-                                range.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
-                                instanceParam.perNodeScanRanges.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
+                                range.put(nodeScanRange.getKey(), Lists.newArrayList());
+                                instanceParam.perNodeScanRanges.put(nodeScanRange.getKey(), Lists.newArrayList());
                             }
+                            range.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
+                            instanceParam.perNodeScanRanges.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
                         }
                     }
                     params.instanceExecParams.add(instanceParam);

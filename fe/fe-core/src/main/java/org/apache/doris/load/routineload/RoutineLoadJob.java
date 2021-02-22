@@ -156,6 +156,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     //    protected RoutineLoadDesc routineLoadDesc; // optional
     protected PartitionNames partitions; // optional
     protected List<ImportColumnDesc> columnDescs; // optional
+    protected Expr precedingFilter; // optional
     protected Expr whereExpr; // optional
     protected ColumnSeparator columnSeparator; // optional
     protected int desireTaskConcurrentNum; // optional
@@ -352,6 +353,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     }
                 }
             }
+            if (routineLoadDesc.getPrecedingFilter() != null) {
+                precedingFilter = routineLoadDesc.getPrecedingFilter().getExpr();
+            }
             if (routineLoadDesc.getWherePredicate() != null) {
                 whereExpr = routineLoadDesc.getWherePredicate().getExpr();
             }
@@ -471,6 +475,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return fileFormatType;
     }
 
+    @Override
+    public Expr getPrecedingFilter() {
+        return precedingFilter;
+    }
+
+    @Override
     public Expr getWhereExpr() {
         return whereExpr;
     }
@@ -1334,6 +1344,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null ? STAR_STRING : Joiner.on(",").join(columnDescs));
+        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSql());
         jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
         if (getFormat().equalsIgnoreCase("json")) {
             jobProperties.put("dataFormat", "json");

@@ -476,7 +476,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
                      << ctx->brief();
         return plan_status;
     }
-    VLOG(3) << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
+    VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
     // if we not use streaming, we must download total content before we begin
     // to process this load
     if (!ctx->use_streaming) {

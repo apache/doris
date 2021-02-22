@@ -354,7 +354,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                         if (pushdown_return_rate >
                             config::doris_max_pushdown_conjuncts_return_rate) {
                             _use_pushdown_conjuncts = false;
-                            VLOG(2) << "Stop Using PushDown Conjuncts. "
+                            VLOG_CRITICAL << "Stop Using PushDown Conjuncts. "
                                     << "PushDownReturnRate: " << pushdown_return_rate << "%"
                                     << " MaxPushDownReturnRate: "
                                     << config::doris_max_pushdown_conjuncts_return_rate << "%";
@@ -479,9 +479,10 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_stats_filtered_counter, _reader->stats().rows_stats_filtered);
     COUNTER_UPDATE(_parent->_bf_filtered_counter, _reader->stats().rows_bf_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, _reader->stats().rows_del_filtered);
+    COUNTER_UPDATE(_parent->_del_filtered_counter, _reader->stats().rows_vec_del_cond_filtered);
+
     COUNTER_UPDATE(_parent->_conditions_filtered_counter,
                    _reader->stats().rows_conditions_filtered);
-
     COUNTER_UPDATE(_parent->_key_range_filtered_counter, _reader->stats().rows_key_range_filtered);
 
     COUNTER_UPDATE(_parent->_index_load_timer, _reader->stats().index_load_ns);

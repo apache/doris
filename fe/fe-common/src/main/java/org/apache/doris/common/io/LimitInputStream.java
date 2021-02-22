@@ -17,8 +17,8 @@
 
 package org.apache.doris.common.io;
 
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -27,7 +27,7 @@ import java.io.InputStream;
  * A LimitInputStream that the InputStream is limited .
  */
 public class LimitInputStream extends InputStream {
-    private static final Logger LOG = LogManager.getLogger(LimitInputStream.class);
+    private static final Logger LOG = LoggerFactory.getLogger(LimitInputStream.class);
 
     /**
      * The input stream to be limited.

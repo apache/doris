@@ -17,27 +17,31 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.analysis.BackupStmt.BackupContent;
+import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OdbcCatalogResource;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -53,7 +57,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.annotations.Expose;
+import com.google.gson.annotations.SerializedName;
+import org.glassfish.jersey.internal.guava.Sets;
 
 /*
  * This is a memory structure mapping the job info file in repository.
@@ -64,31 +73,185 @@ public class BackupJobInfo implements Writable {
     private static final Logger LOG = LogManager.getLogger(BackupJobInfo.class);
 
     public String name;
+    @SerializedName("database")
     public String dbName;
+    @SerializedName("id")
     public long dbId;
+    @SerializedName("backup_time")
     public long backupTime;
-    public Map<String, BackupTableInfo> tables = Maps.newHashMap();
-    public boolean success;
+    @SerializedName("content")
+    public BackupContent content;
+    // only include olap table
+    @SerializedName("backup_objects")
+    public Map<String, BackupOlapTableInfo> backupOlapTableObjects = Maps.newHashMap();
+    // include other objects: view, external table
+    @SerializedName("new_backup_objects")
+    public NewBackupObjects newBackupObjects = new NewBackupObjects();
+    public boolean success = true;
+    @SerializedName("backup_result")
+    public String successJson = "succeed";
 
+    @SerializedName("meta_version")
     public int metaVersion;
 
     // This map is used to save the table alias mapping info when processing a restore job.
     // origin -> alias
+    @Expose(serialize = false, deserialize = false)
     public Map<String, String> tblAlias = Maps.newHashMap();
 
-    public boolean containsTbl(String tblName) {
-        return tables.containsKey(tblName);
+    public void initBackupJobInfoAfterDeserialize() {
+        // transform success
+        if (successJson.equals("succeed")) {
+            success = true;
+        } else {
+            success = false;
+        }
+
+        // init meta version
+        if (metaVersion == 0) {
+            // meta_version does not exist
+            metaVersion = FeConstants.meta_version;
+        }
+
+        // init olap table info
+        for (BackupOlapTableInfo backupOlapTableInfo : backupOlapTableObjects.values()) {
+            for (BackupPartitionInfo backupPartitionInfo : backupOlapTableInfo.partitions.values()) {
+                for (BackupIndexInfo backupIndexInfo : backupPartitionInfo.indexes.values()) {
+                    List<Long> sortedTabletIds = backupIndexInfo.getSortedTabletIds();
+                    for (Long tabletId : sortedTabletIds) {
+                        List<String> files = backupIndexInfo.getTabletFiles(tabletId);
+                        if (files == null) {
+                            continue;
+                        }
+                        BackupTabletInfo backupTabletInfo = new BackupTabletInfo(tabletId, files);
+                        backupIndexInfo.sortedTabletInfoList.add(backupTabletInfo);
+                    }
+                }
+            }
+        }
     }
 
-    public BackupTableInfo getTableInfo(String tblName) {
-        return tables.get(tblName);
+    public Table.TableType getTypeByTblName(String tblName) {
+        if (backupOlapTableObjects.containsKey(tblName)) {
+            return Table.TableType.OLAP;
+        }
+        for (BackupViewInfo backupViewInfo : newBackupObjects.views) {
+            if (backupViewInfo.name.equals(tblName)) {
+                return Table.TableType.VIEW;
+            }
+        }
+        for (BackupOdbcTableInfo backupOdbcTableInfo : newBackupObjects.odbcTables) {
+            if (backupOdbcTableInfo.dorisTableName.equals(tblName)) {
+                return Table.TableType.ODBC;
+            }
+        }
+        return null;
     }
 
-    public void retainTables(Set<String> tblNames) {
-        Iterator<Map.Entry<String, BackupTableInfo>> iter = tables.entrySet().iterator();
+    public BackupOlapTableInfo getOlapTableInfo(String tblName) {
+        return backupOlapTableObjects.get(tblName);
+    }
+
+    public void removeTable(TableRef tableRef, TableType tableType) {
+        switch (tableType) {
+            case OLAP:
+                removeOlapTable(tableRef);
+                break;
+            case VIEW:
+                removeView(tableRef);
+                break;
+            case ODBC:
+                removeOdbcTable(tableRef);
+                break;
+            default:
+                break;
+        }
+    }
+
+    public void removeOlapTable(TableRef tableRef) {
+        String tblName = tableRef.getName().getTbl();
+        BackupOlapTableInfo tblInfo = backupOlapTableObjects.get(tblName);
+        if (tblInfo == null) {
+            LOG.info("Ignore error: exclude table " + tblName + " does not exist in snapshot " + name);
+            return;
+        }
+        PartitionNames partitionNames = tableRef.getPartitionNames();
+        if (partitionNames == null) {
+            backupOlapTableObjects.remove(tblInfo);
+            return;
+        }
+        // check the selected partitions
+        for (String partName : partitionNames.getPartitionNames()) {
+            if (tblInfo.containsPart(partName)) {
+                tblInfo.partitions.remove(partName);
+            } else {
+                LOG.info("Ignore error: exclude partition " + partName + " of table " + tblName
+                        + " does not exist in snapshot");
+            }
+        }
+    }
+
+    public void removeView(TableRef tableRef) {
+        Iterator<BackupViewInfo> iter = newBackupObjects.views.listIterator();
+        while (iter.hasNext()) {
+            if (iter.next().name.equals(tableRef.getName().getTbl())) {
+                iter.remove();
+                return;
+            }
+        }
+    }
+
+    public void removeOdbcTable(TableRef tableRef) {
+        Iterator<BackupOdbcTableInfo> iter = newBackupObjects.odbcTables.listIterator();
+        while (iter.hasNext()) {
+            BackupOdbcTableInfo backupOdbcTableInfo = iter.next();
+            if (backupOdbcTableInfo.dorisTableName.equals(tableRef.getName().getTbl())) {
+                if (backupOdbcTableInfo.resourceName != null) {
+                    Iterator<BackupOdbcResourceInfo> resourceIter = newBackupObjects.odbcResources.listIterator();
+                    while (resourceIter.hasNext()) {
+                        if (resourceIter.next().name.equals(backupOdbcTableInfo.resourceName)) {
+                            resourceIter.remove();
+                        }
+                    }
+                }
+                iter.remove();
+                return;
+            }
+        }
+    }
+
+    public void retainOlapTables(Set<String> tblNames) {
+        Iterator<Map.Entry<String, BackupOlapTableInfo>> iter = backupOlapTableObjects.entrySet().iterator();
         while (iter.hasNext()) {
             if (!tblNames.contains(iter.next().getKey())) {
                 iter.remove();
+            }
+        }
+    }
+
+    public void retainView(Set<String> viewNames) {
+        Iterator<BackupViewInfo> iter = newBackupObjects.views.listIterator();
+        while (iter.hasNext()) {
+            if (!viewNames.contains(iter.next().name)) {
+                iter.remove();
+            }
+        }
+    }
+
+    public void retainOdbcTables(Set<String> odbcTableNames) {
+        Iterator<BackupOdbcTableInfo> odbcIter = newBackupObjects.odbcTables.listIterator();
+        Set<String> removedOdbcResourceNames = Sets.newHashSet();
+        while (odbcIter.hasNext()) {
+            BackupOdbcTableInfo backupOdbcTableInfo = odbcIter.next();
+            if (!odbcTableNames.contains(backupOdbcTableInfo.dorisTableName)) {
+                removedOdbcResourceNames.add(backupOdbcTableInfo.resourceName);
+                odbcIter.remove();
+            }
+        }
+        Iterator<BackupOdbcResourceInfo> resourceIter = newBackupObjects.odbcResources.listIterator();
+        while (resourceIter.hasNext()) {
+            if (removedOdbcResourceNames.contains(resourceIter.next().name)) {
+                resourceIter.remove();
             }
         }
     }
@@ -110,8 +273,56 @@ public class BackupJobInfo implements Writable {
         return alias;
     }
 
-    public static class BackupTableInfo {
+    public static class BriefBackupJobInfo {
         public String name;
+        public String database;
+        @SerializedName("backup_time")
+        public long backupTime;
+        public BackupContent content;
+        @SerializedName("olap_table_list")
+        public List<BriefBackupOlapTable> olapTableList = Lists.newArrayList();
+        @SerializedName("view_list")
+        public List<BackupViewInfo> viewList = Lists.newArrayList();
+        @SerializedName("odbc_table_list")
+        public List<BackupOdbcTableInfo> odbcTableList = Lists.newArrayList();
+        @SerializedName("odbc_resource_list")
+        public List<BackupOdbcResourceInfo> odbcResourceList = Lists.newArrayList();
+
+        public static BriefBackupJobInfo fromBackupJobInfo(BackupJobInfo backupJobInfo) {
+            BriefBackupJobInfo briefBackupJobInfo = new BriefBackupJobInfo();
+            briefBackupJobInfo.name = backupJobInfo.name;
+            briefBackupJobInfo.database = backupJobInfo.dbName;
+            briefBackupJobInfo.backupTime = backupJobInfo.backupTime;
+            briefBackupJobInfo.content = backupJobInfo.content;
+            for (Map.Entry<String, BackupOlapTableInfo> olapTableEntry :
+                    backupJobInfo.backupOlapTableObjects.entrySet()) {
+                BriefBackupOlapTable briefBackupOlapTable = new BriefBackupOlapTable();
+                briefBackupOlapTable.name = olapTableEntry.getKey();
+                briefBackupOlapTable.partitionNames = Lists.newArrayList(olapTableEntry.getValue().partitions.keySet());
+                briefBackupJobInfo.olapTableList.add(briefBackupOlapTable);
+            }
+            briefBackupJobInfo.viewList = backupJobInfo.newBackupObjects.views;
+            briefBackupJobInfo.odbcTableList = backupJobInfo.newBackupObjects.odbcTables;
+            briefBackupJobInfo.odbcResourceList = backupJobInfo.newBackupObjects.odbcResources;
+            return briefBackupJobInfo;
+        }
+    }
+
+    public static class BriefBackupOlapTable {
+        public String name;
+        @SerializedName("partition_names")
+        public List<String> partitionNames;
+    }
+
+    public static class NewBackupObjects {
+        public List<BackupViewInfo> views = Lists.newArrayList();
+        @SerializedName("odbc_tables")
+        public List<BackupOdbcTableInfo> odbcTables = Lists.newArrayList();
+        @SerializedName("odbc_resources")
+        public List<BackupOdbcResourceInfo> odbcResources = Lists.newArrayList();
+    }
+
+    public static class BackupOlapTableInfo {
         public long id;
         public Map<String, BackupPartitionInfo> partitions = Maps.newHashMap();
 
@@ -135,20 +346,12 @@ public class BackupJobInfo implements Writable {
                 }
             }
         }
-
-        @Override
-        public String toString() {
-            StringBuilder sb = new StringBuilder();
-            sb.append("name: ").append(name).append(", id: ").append(id);
-            sb.append(", partitions: [").append(Joiner.on(", ").join(partitions.keySet())).append("]");
-            return sb.toString();
-        }
     }
 
     public static class BackupPartitionInfo {
-        public String name;
         public long id;
         public long version;
+        @SerializedName("version_hash")
         public long versionHash;
         public Map<String, BackupIndexInfo> indexes = Maps.newHashMap();
 
@@ -158,24 +361,67 @@ public class BackupJobInfo implements Writable {
     }
 
     public static class BackupIndexInfo {
-        public String name;
         public long id;
+        @SerializedName("schema_hash")
         public int schemaHash;
-        public List<BackupTabletInfo> tablets = Lists.newArrayList();
+        public Map<Long, List<String>> tablets = Maps.newHashMap();
+        @SerializedName("tablets_order")
+        public List<Long> tabletsOrder = Lists.newArrayList();
+        @Expose(serialize = false, deserialize = false)
+        public List<BackupTabletInfo> sortedTabletInfoList = Lists.newArrayList();
 
-        public BackupTabletInfo getTablet(long tabletId) {
-            for (BackupTabletInfo backupTabletInfo : tablets) {
-                if (backupTabletInfo.id == tabletId) {
-                    return backupTabletInfo;
-                }
+        public List<String> getTabletFiles(long tabletId) {
+            return tablets.get(tabletId);
+        }
+
+        private List<Long> getSortedTabletIds() {
+            if (tabletsOrder == null || tabletsOrder.isEmpty()) {
+                // in previous version, we are not saving tablets order(which was a BUG),
+                // so we have to sort the tabletIds to restore the original order of tablets.
+                List<Long> tmpList = Lists.newArrayList(tablets.keySet());
+                tmpList.sort((o1, o2) -> Long.valueOf(o1).compareTo(Long.valueOf(o2)));
+                return tmpList;
+            } else {
+                return tabletsOrder;
             }
-            return null;
         }
     }
 
     public static class BackupTabletInfo {
         public long id;
-        public List<String> files = Lists.newArrayList();
+        public List<String> files;
+
+        public BackupTabletInfo(long id, List<String> files) {
+            this.id = id;
+            this.files = files;
+        }
+    }
+
+    public static class BackupViewInfo {
+        public long id;
+        public String name;
+    }
+
+    public static class BackupOdbcTableInfo {
+        public long id;
+        @SerializedName("doris_table_name")
+        public String dorisTableName;
+        @SerializedName("linked_odbc_database_name")
+        public String linkedOdbcDatabaseName;
+        @SerializedName("linked_odbc_table_name")
+        public String linkedOdbcTableName;
+        @SerializedName("resource_name")
+        public String resourceName;
+        public String host;
+        public String port;
+        public String user;
+        public String driver;
+        @SerializedName("odbc_type")
+        public String odbcType;
+    }
+
+    public static class BackupOdbcResourceInfo {
+        public String name;
     }
 
     // eg: __db_10001/__tbl_10002/__part_10003/__idx_10002/__10004
@@ -185,7 +431,7 @@ public class BackupJobInfo implements Writable {
             return null;
         }
 
-        BackupTableInfo tblInfo = tables.get(tbl);
+        BackupOlapTableInfo tblInfo = backupOlapTableObjects.get(tbl);
         if (tblInfo == null) {
             LOG.debug("tbl {} does not exist", tbl);
             return null;
@@ -226,46 +472,85 @@ public class BackupJobInfo implements Writable {
     }
 
     public static BackupJobInfo fromCatalog(long backupTime, String label, String dbName, long dbId,
-            Collection<Table> tbls, Map<Long, SnapshotInfo> snapshotInfos) {
+                                            BackupContent content, BackupMeta backupMeta,
+                                            Map<Long, SnapshotInfo> snapshotInfos) {
 
         BackupJobInfo jobInfo = new BackupJobInfo();
         jobInfo.backupTime = backupTime;
         jobInfo.name = label;
         jobInfo.dbName = dbName;
         jobInfo.dbId = dbId;
-        jobInfo.success = true;
         jobInfo.metaVersion = FeConstants.meta_version;
+        jobInfo.content = content;
 
+        Collection<Table> tbls = backupMeta.getTables().values();
         // tbls
         for (Table tbl : tbls) {
-            OlapTable olapTbl = (OlapTable) tbl;
-            BackupTableInfo tableInfo = new BackupTableInfo();
-            tableInfo.id = tbl.getId();
-            tableInfo.name = tbl.getName();
-            jobInfo.tables.put(tableInfo.name, tableInfo);
-            // partitions
-            for (Partition partition : olapTbl.getPartitions()) {
-                BackupPartitionInfo partitionInfo = new BackupPartitionInfo();
-                partitionInfo.id = partition.getId();
-                partitionInfo.name = partition.getName();
-                partitionInfo.version = partition.getVisibleVersion();
-                partitionInfo.versionHash = partition.getVisibleVersionHash();
-                tableInfo.partitions.put(partitionInfo.name, partitionInfo);
-                // indexes
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                    BackupIndexInfo idxInfo = new BackupIndexInfo();
-                    idxInfo.id = index.getId();
-                    idxInfo.name = olapTbl.getIndexNameById(index.getId());
-                    idxInfo.schemaHash = olapTbl.getSchemaHashByIndexId(index.getId());
-                    partitionInfo.indexes.put(idxInfo.name, idxInfo);
-                    // tablets
-                    for (Tablet tablet : index.getTablets()) {
-                        BackupTabletInfo tabletInfo = new BackupTabletInfo();
-                        tabletInfo.id = tablet.getId();
-                        tabletInfo.files.addAll(snapshotInfos.get(tablet.getId()).getFiles());
-                        idxInfo.tablets.add(tabletInfo);
+            if (tbl instanceof OlapTable) {
+                OlapTable olapTbl = (OlapTable) tbl;
+                BackupOlapTableInfo tableInfo = new BackupOlapTableInfo();
+                tableInfo.id = tbl.getId();
+                jobInfo.backupOlapTableObjects.put(tbl.getName(), tableInfo);
+                // partitions
+                for (Partition partition : olapTbl.getPartitions()) {
+                    BackupPartitionInfo partitionInfo = new BackupPartitionInfo();
+                    partitionInfo.id = partition.getId();
+                    partitionInfo.version = partition.getVisibleVersion();
+                    partitionInfo.versionHash = partition.getVisibleVersionHash();
+                    tableInfo.partitions.put(partition.getName(), partitionInfo);
+                    // indexes
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        BackupIndexInfo idxInfo = new BackupIndexInfo();
+                        idxInfo.id = index.getId();
+                        idxInfo.schemaHash = olapTbl.getSchemaHashByIndexId(index.getId());
+                        partitionInfo.indexes.put(olapTbl.getIndexNameById(index.getId()), idxInfo);
+                        // tablets
+                        if (content == BackupContent.METADATA_ONLY) {
+                            for (Tablet tablet: index.getTablets()) {
+                                idxInfo.tablets.put(tablet.getId(), Lists.newArrayList());
+                            }
+                        } else {
+                            for (Tablet tablet : index.getTablets()) {
+                                idxInfo.tablets.put(tablet.getId(),
+                                        Lists.newArrayList(snapshotInfos.get(tablet.getId()).getFiles()));
+                            }
+                        }
+                        idxInfo.tabletsOrder.addAll(index.getTabletIdsInOrder());
                     }
                 }
+            } else if (tbl instanceof View) {
+                View view = (View) tbl;
+                BackupViewInfo backupViewInfo = new BackupViewInfo();
+                backupViewInfo.id = view.getId();
+                backupViewInfo.name = view.getName();
+                jobInfo.newBackupObjects.views.add(backupViewInfo);
+            } else if (tbl instanceof OdbcTable) {
+                OdbcTable odbcTable = (OdbcTable) tbl;
+                BackupOdbcTableInfo backupOdbcTableInfo = new BackupOdbcTableInfo();
+                backupOdbcTableInfo.id = odbcTable.getId();
+                backupOdbcTableInfo.dorisTableName = odbcTable.getName();
+                backupOdbcTableInfo.linkedOdbcDatabaseName = odbcTable.getOdbcDatabaseName();
+                backupOdbcTableInfo.linkedOdbcTableName = odbcTable.getOdbcTableName();
+                if (odbcTable.getOdbcCatalogResourceName() != null) {
+                    backupOdbcTableInfo.resourceName = odbcTable.getOdbcCatalogResourceName();
+                } else {
+                    backupOdbcTableInfo.host = odbcTable.getHost();
+                    backupOdbcTableInfo.port = odbcTable.getPort();
+                    backupOdbcTableInfo.user = odbcTable.getUserName();
+                    backupOdbcTableInfo.driver = odbcTable.getOdbcDriver();
+                    backupOdbcTableInfo.odbcType = odbcTable.getOdbcTableTypeName();
+                }
+                jobInfo.newBackupObjects.odbcTables.add(backupOdbcTableInfo);
+            }
+        }
+        // resources
+        Collection<Resource> resources = backupMeta.getResourceNameMap().values();
+        for (Resource resource : resources) {
+            if (resource instanceof OdbcCatalogResource) {
+                OdbcCatalogResource odbcCatalogResource = (OdbcCatalogResource) resource;
+                BackupOdbcResourceInfo backupOdbcResourceInfo = new BackupOdbcResourceInfo();
+                backupOdbcResourceInfo.name = odbcCatalogResource.getName();
+                jobInfo.newBackupObjects.odbcResources.add(backupOdbcResourceInfo);
             }
         }
 
@@ -275,12 +560,10 @@ public class BackupJobInfo implements Writable {
     public static BackupJobInfo fromFile(String path) throws IOException {
         byte[] bytes = Files.readAllBytes(Paths.get(path));
         String json = new String(bytes, StandardCharsets.UTF_8);
-        BackupJobInfo jobInfo = new BackupJobInfo();
-        genFromJson(json, jobInfo);
-        return jobInfo;
+        return genFromJson(json);
     }
 
-    private static void genFromJson(String json, BackupJobInfo jobInfo) {
+    private static BackupJobInfo genFromJson(String json) {
         /* parse the json string: 
          * {
          *   "backup_time": 1522231864000,
@@ -299,9 +582,9 @@ public class BackupJobInfo implements Writable {
          *                           "schema_hash": 3473401,
          *                           "tablets": {
          *                               "10008": ["__10029_seg1.dat", "__10029_seg2.dat"],
-         *                               "10007": ["__10029_seg1.dat", "__10029_seg2.dat"]
+         *                               "10007": ["__10030_seg1.dat", "__10030_seg2.dat"]
          *                           },
-         *                           "tablets_order": ["10029", "10030"]
+         *                           "tablets_order": ["10007", "10008"]
          *                       },
          *                       "table1": {
          *                           "id": 10008,
@@ -310,7 +593,7 @@ public class BackupJobInfo implements Writable {
          *                               "10004": ["__10027_seg1.dat", "__10027_seg2.dat"],
          *                               "10005": ["__10028_seg1.dat", "__10028_seg2.dat"]
          *                           },
-         *                           "tablets_order": ["10027, "10028"]
+         *                           "tablets_order": ["10004, "10005"]
          *                       }
          *                   },
          *                   "id": 10007
@@ -320,96 +603,38 @@ public class BackupJobInfo implements Writable {
          *           },
          *           "id": 10001
          *       }
+         *   },
+         *   "new_backup_objects": {
+         *       "views": [
+         *           {"id": 1,
+         *            "name": "view1"
+         *           }
+         *       ],
+         *       "odbc_tables": [
+         *           {"id": 2,
+         *            "doris_table_name": "oracle1",
+         *            "linked_odbc_database_name": "external_db1",
+         *            "linked_odbc_table_name": "external_table1",
+         *            "resource_name": "bj_oracle"
+         *           }
+         *       ],
+         *       "odbc_resources": [
+         *           {"name": "bj_oracle"}
+         *       ]
          *   }
          * }
          */
-        JSONObject root = new JSONObject(json);
-        jobInfo.name = (String) root.get("name");
-        jobInfo.dbName = (String) root.get("database");
-        jobInfo.dbId = root.getLong("id");
-        jobInfo.backupTime = root.getLong("backup_time");
-        
-        try {
-            jobInfo.metaVersion = root.getInt("meta_version");
-        } catch (JSONException e) {
-            // meta_version does not exist
-            jobInfo.metaVersion = FeConstants.meta_version;
-        }
-        
-        JSONObject backupObjs = root.getJSONObject("backup_objects");
-        String[] tblNames = JSONObject.getNames(backupObjs);
-        for (String tblName : tblNames) {
-            BackupTableInfo tblInfo = new BackupTableInfo();
-            tblInfo.name = tblName;
-            JSONObject tbl = backupObjs.getJSONObject(tblName);
-            tblInfo.id = tbl.getLong("id");
-            JSONObject parts = tbl.getJSONObject("partitions");
-            String[] partsNames = JSONObject.getNames(parts);
-            for (String partName : partsNames) {
-                BackupPartitionInfo partInfo = new BackupPartitionInfo();
-                partInfo.name = partName;
-                JSONObject part = parts.getJSONObject(partName);
-                partInfo.id = part.getLong("id");
-                partInfo.version = part.getLong("version");
-                partInfo.versionHash = part.getLong("version_hash");
-                JSONObject indexes = part.getJSONObject("indexes");
-                String[] indexNames = JSONObject.getNames(indexes);
-                for (String idxName : indexNames) {
-                    BackupIndexInfo indexInfo = new BackupIndexInfo();
-                    indexInfo.name = idxName;
-                    JSONObject idx = indexes.getJSONObject(idxName);
-                    indexInfo.id = idx.getLong("id");
-                    indexInfo.schemaHash = idx.getInt("schema_hash");
-                    JSONObject tablets = idx.getJSONObject("tablets");
-                    String[] tabletIds = JSONObject.getNames(tablets);
-
-                    JSONArray tabletsOrder = null;
-                    if (idx.has("tablets_order")) {
-                        tabletsOrder = idx.getJSONArray("tablets_order");
-                    }
-                    String[] orderedTabletIds = sortTabletIds(tabletIds, tabletsOrder);
-                    Preconditions.checkState(tabletIds.length == orderedTabletIds.length);
-
-                    for (String tabletId : orderedTabletIds) {
-                        BackupTabletInfo tabletInfo = new BackupTabletInfo();
-                        tabletInfo.id = Long.valueOf(tabletId);
-                        JSONArray files = tablets.getJSONArray(tabletId);
-                        for (Object object : files) {
-                            tabletInfo.files.add((String) object);
-                        }
-                        indexInfo.tablets.add(tabletInfo);
-                    }
-                    partInfo.indexes.put(indexInfo.name, indexInfo);
-                }
-                tblInfo.partitions.put(partName, partInfo);
-            }
-            jobInfo.tables.put(tblName, tblInfo);
-        }
-        
-        String result = root.getString("backup_result");
-        if (result.equals("succeed")) {
-            jobInfo.success = true;
-        } else {
-            jobInfo.success = false;
-        }
+        Gson gson = new Gson();
+        BackupJobInfo jobInfo = gson.fromJson(json, BackupJobInfo.class);
+        jobInfo.initBackupJobInfoAfterDeserialize();
+        return jobInfo;
     }
 
-    private static String[] sortTabletIds(String[] tabletIds, JSONArray tabletsOrder) {
-        if (tabletsOrder == null || tabletsOrder.toList().isEmpty()) {
-            // in previous version, we are not saving tablets order(which was a BUG),
-            // so we have to sort the tabletIds to restore the original order of tablets.
-            List<String> tmpList = Lists.newArrayList(tabletIds);
-            tmpList.sort((o1, o2) -> Long.valueOf(o1).compareTo(Long.valueOf(o2)));
-            return tmpList.toArray(new String[0]);
-        } else {
-            return (String[]) tabletsOrder.toList().toArray(new String[0]);
-        }
-    }
 
     public void writeToFile(File jobInfoFile) throws FileNotFoundException {
         PrintWriter printWriter = new PrintWriter(jobInfoFile);
         try {
-            printWriter.print(toJson(true).toString());
+            printWriter.print(toJson(false));
             printWriter.flush();
         } finally {
             printWriter.close();
@@ -418,92 +643,32 @@ public class BackupJobInfo implements Writable {
 
     // Only return basic info, table and partitions
     public String getBrief() {
-        return toJson(false).toString(1);
+        BriefBackupJobInfo briefBackupJobInfo = BriefBackupJobInfo.fromBackupJobInfo(this);
+        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        return gson.toJson(briefBackupJobInfo);
     }
 
-    public JSONObject toJson(boolean verbose) {
-        JSONObject root = new JSONObject();
-        root.put("name", name);
-        root.put("database", dbName);
-        if (verbose) {
-            root.put("id", dbId);
+    public String toJson(boolean prettyPrinting) {
+        Gson gson;
+        if (prettyPrinting) {
+            gson = new GsonBuilder().setPrettyPrinting().create();
+        } else {
+            gson = new Gson();
         }
-        root.put("backup_time", backupTime);
-        JSONObject backupObj = new JSONObject();
-        root.put("backup_objects", backupObj);
-        root.put("meta_version", FeConstants.meta_version);
-        
-        for (BackupTableInfo tblInfo : tables.values()) {
-            JSONObject tbl = new JSONObject();
-            if (verbose) {
-                tbl.put("id", tblInfo.id);
-            }
-            JSONObject parts = new JSONObject();
-            tbl.put("partitions", parts);
-            for (BackupPartitionInfo partInfo : tblInfo.partitions.values()) {
-                JSONObject part = new JSONObject();
-                if (verbose) {
-                    part.put("id", partInfo.id);
-                    part.put("version", partInfo.version);
-                    part.put("version_hash", partInfo.versionHash);
-                    JSONObject indexes = new JSONObject();
-                    part.put("indexes", indexes);
-                    for (BackupIndexInfo idxInfo : partInfo.indexes.values()) {
-                        JSONObject idx = new JSONObject();
-                        idx.put("id", idxInfo.id);
-                        idx.put("schema_hash", idxInfo.schemaHash);
-                        JSONObject tablets = new JSONObject();
-                        JSONArray tabletsOrder = new JSONArray();
-                        idx.put("tablets", tablets);
-                        for (BackupTabletInfo tabletInfo : idxInfo.tablets) {
-                            JSONArray files = new JSONArray();
-                            tablets.put(String.valueOf(tabletInfo.id), files);
-                            for (String fileName : tabletInfo.files) {
-                                files.put(fileName);
-                            }
-                            // to save the order of tablets
-                            tabletsOrder.put(String.valueOf(tabletInfo.id));
-                        }
-                        indexes.put(idxInfo.name, idx);
-                    }
-                }
-                parts.put(partInfo.name, part);
-            }
-            backupObj.put(tblInfo.name, tbl);
-        }
-
-        root.put("backup_result", "succeed");
-        return root;
-    }
-
-    public String toString(int indentFactor) {
-        return toJson(true).toString(indentFactor);
+        return gson.toJson(this);
     }
 
     public String getInfo() {
-        List<String> objs = Lists.newArrayList();
-        for (BackupTableInfo tblInfo : tables.values()) {
-            StringBuilder sb = new StringBuilder();
-            sb.append(tblInfo.name);
-            List<String> partNames = tblInfo.partitions.values().stream()
-                    .filter(n -> !n.name.equals(tblInfo.name)).map(n -> n.name).collect(Collectors.toList());
-            if (!partNames.isEmpty()) {
-                sb.append(" PARTITIONS [").append(Joiner.on(", ").join(partNames)).append("]");
-            }
-            objs.add(sb.toString());
-        }
-        return Joiner.on(", ").join(objs);
+        return getBrief();
     }
 
     public static BackupJobInfo read(DataInput in) throws IOException {
-        BackupJobInfo jobInfo = new BackupJobInfo();
-        jobInfo.readFields(in);
-        return jobInfo;
+        return BackupJobInfo.readFields(in);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, toJson(true).toString());
+        Text.writeString(out, toJson(false));
         out.writeInt(tblAlias.size());
         for (Map.Entry<String, String> entry : tblAlias.entrySet()) {
             Text.writeString(out, entry.getKey());
@@ -511,20 +676,20 @@ public class BackupJobInfo implements Writable {
         }
     }
 
-    public void readFields(DataInput in) throws IOException {
+    public static BackupJobInfo readFields(DataInput in) throws IOException {
         String json = Text.readString(in);
-        genFromJson(json, this);
+        BackupJobInfo backupJobInfo = genFromJson(json);
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             String tbl = Text.readString(in);
             String alias = Text.readString(in);
-            tblAlias.put(tbl, alias);
+            backupJobInfo.tblAlias.put(tbl, alias);
         }
+        return backupJobInfo;
     }
 
-    @Override
     public String toString() {
-        return toJson(true).toString();
+        return toJson(true);
     }
 }
 

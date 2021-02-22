@@ -433,17 +433,18 @@ struct TMasterOpRequest {
     6: optional i64 execMemLimit // deprecated, move into query_options
     7: optional i32 queryTimeout // deprecated, move into query_options
     8: optional string user_ip
-    9: optional string time_zone
+    9: optional string time_zone // deprecated, move into session_variables
     10: optional i64 stmt_id
-    11: optional i64 sqlMode
+    11: optional i64 sqlMode // deprecated, move into session_variables
     12: optional i64 loadMemLimit // deprecated, move into query_options
-    13: optional bool enableStrictMode
+    13: optional bool enableStrictMode // deprecated, move into session_variables
     // this can replace the "user" field
     14: optional Types.TUserIdentity current_user_ident
     15: optional i32 stmtIdx  // the idx of the sql in multi statements
     16: optional PaloInternalService.TQueryOptions query_options
     17: optional Types.TUniqueId query_id // when this is a query, we translate this query id to master
-    18: optional i64 insert_visible_timeout_ms
+    18: optional i64 insert_visible_timeout_ms // deprecated, move into session_variables
+    19: optional map<string, string> session_variables
 }
 
 struct TColumnDefinition {

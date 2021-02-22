@@ -80,7 +80,8 @@ struct AddBatchCounter {
 template <typename T>
 class ReusableClosure : public google::protobuf::Closure {
 public:
-    ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
+    ReusableClosure() : cid(INVALID_BTHREAD_ID) {
+    }
     ~ReusableClosure() {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
@@ -173,12 +174,17 @@ public:
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
                      int64_t* serialize_batch_ns, int64_t* mem_exceeded_block_ns,
-                     int64_t* queue_push_lock_ns, int64_t* actual_consume_ns) {
+                     int64_t* queue_push_lock_ns, int64_t* actual_consume_ns,
+                     int64_t* total_add_batch_exec_time_ns, int64_t* add_batch_exec_time_ns,
+                     int64_t* total_add_batch_num) {
         (*add_batch_counter_map)[_node_id] += _add_batch_counter;
         *serialize_batch_ns += _serialize_batch_ns;
         *mem_exceeded_block_ns += _mem_exceeded_block_ns;
         *queue_push_lock_ns += _queue_push_lock_ns;
         *actual_consume_ns += _actual_consume_ns;
+        *add_batch_exec_time_ns = (_add_batch_counter.add_batch_execution_time_us * 1000);
+        *total_add_batch_exec_time_ns += *add_batch_exec_time_ns;
+        *total_add_batch_num += _add_batch_counter.add_batch_num;
     }
 
     int64_t node_id() const { return _node_id; }
@@ -237,10 +243,10 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
 
     AddBatchCounter _add_batch_counter;
-    std::atomic<int64_t> _serialize_batch_ns;
-    std::atomic<int64_t> _mem_exceeded_block_ns;
-    std::atomic<int64_t> _queue_push_lock_ns;
-    std::atomic<int64_t> _actual_consume_ns;
+    std::atomic<int64_t> _serialize_batch_ns{0};
+    std::atomic<int64_t> _mem_exceeded_block_ns{0};
+    std::atomic<int64_t> _queue_push_lock_ns{0};
+    std::atomic<int64_t> _actual_consume_ns{0};
 };
 
 class IndexChannel {
@@ -261,6 +267,8 @@ public:
 
     void mark_as_failed(const NodeChannel* ch) { _failed_channels.insert(ch->node_id()); }
     bool has_intolerable_failure();
+
+    size_t num_node_channels() const { return _node_channels.size(); }
 
 private:
     OlapTableSink* _parent;
@@ -382,12 +390,18 @@ private:
     RuntimeProfile::Counter* _output_rows_counter = nullptr;
     RuntimeProfile::Counter* _filtered_rows_counter = nullptr;
     RuntimeProfile::Counter* _send_data_timer = nullptr;
+    RuntimeProfile::Counter* _wait_mem_limit_timer = nullptr;
     RuntimeProfile::Counter* _convert_batch_timer = nullptr;
     RuntimeProfile::Counter* _validate_data_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _non_blocking_send_timer = nullptr;
+    RuntimeProfile::Counter* _non_blocking_send_work_timer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
+    RuntimeProfile::Counter* _total_add_batch_exec_timer = nullptr;
+    RuntimeProfile::Counter* _max_add_batch_exec_timer = nullptr;
+    RuntimeProfile::Counter* _add_batch_number = nullptr;
+    RuntimeProfile::Counter* _num_node_channels = nullptr;
 
     // load mem limit is for remote load channel
     int64_t _load_mem_limit = -1;

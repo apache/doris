@@ -1425,7 +1425,7 @@ Status PartitionedAggregationNode::MoveHashPartitions(int64_t num_input_rows) {
             aggregated_partitions_.push_back(partition);
         }
     }
-    VLOG(2) << ss.str();
+    VLOG_CRITICAL << ss.str();
     hash_partitions_.clear();
     return Status::OK();
 }

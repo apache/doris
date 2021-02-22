@@ -654,7 +654,7 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
 TEST_F(OlapScanKeysTest, ToOlapFilterTest) {
     ColumnValueRange<int32_t> range("col", TYPE_INT);
 
-    std::list<TCondition> filters;
+    std::vector<TCondition> filters;
     range.to_olap_filter(filters);
     ASSERT_TRUE(filters.empty());
 
@@ -720,6 +720,16 @@ TEST_F(OlapScanKeysTest, ToOlapFilterTest) {
     ASSERT_EQ(std::next(filters.begin(), 0)->condition_values[1], "30");
     ASSERT_EQ(std::next(filters.begin(), 0)->condition_values[2], "40");
     ASSERT_EQ(std::next(filters.begin(), 0)->condition_values[3], "50");
+    
+    filters.clear();
+    range.to_in_condition(filters, false);
+    ASSERT_EQ(std::next(filters.begin(), 0)->column_name, "col");
+    ASSERT_EQ(std::next(filters.begin(), 0)->condition_op, "!*=");
+    ASSERT_EQ(std::next(filters.begin(), 0)->condition_values[0], "20");
+    ASSERT_EQ(std::next(filters.begin(), 0)->condition_values[1], "30");
+    ASSERT_EQ(std::next(filters.begin(), 0)->condition_values[2], "40");
+    ASSERT_EQ(std::next(filters.begin(), 0)->condition_values[3], "50");
+
 
     ASSERT_TRUE(range.add_range(FILTER_LARGER, 20).ok());
     filters.clear();

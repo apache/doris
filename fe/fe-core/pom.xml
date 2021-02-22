@@ -37,7 +37,7 @@ under the License.
     <properties>
         <doris.home>${basedir}/../../</doris.home>
         <fe_ut_parallel>1</fe_ut_parallel>
-        <doris.thridparty>${basedir}/../../thirdparty</doris.thridparty>
+        <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
     </properties>
 
     <profiles>
@@ -49,7 +49,7 @@ under the License.
                 </property>
             </activation>
             <properties>
-                <doris.thridparty>${env.DORIS_THIRDPARTY}</doris.thridparty>
+                <doris.thirdparty>${env.DORIS_THIRDPARTY}</doris.thirdparty>
             </properties>
         </profile>
         <profile>
@@ -66,6 +66,10 @@ under the License.
     </profiles>
 
     <dependencies>
+        <dependency>
+            <groupId>org.apache</groupId>
+            <artifactId>doris-fe-common</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
@@ -257,19 +261,6 @@ under the License.
             <scope>test</scope>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.apache.thrift/libfb303 -->
-        <dependency>
-            <groupId>org.apache.thrift</groupId>
-            <artifactId>libfb303</artifactId>
-            <type>pom</type>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
-        <dependency>
-            <groupId>org.apache.thrift</groupId>
-            <artifactId>libthrift</artifactId>
-        </dependency>
-
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
@@ -419,12 +410,6 @@ under the License.
         <dependency>
             <groupId>io.fabric8</groupId>
             <artifactId>zjsonpatch</artifactId>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/log4j/log4j -->
-        <dependency>
-            <groupId>log4j</groupId>
-            <artifactId>log4j</artifactId>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
@@ -581,26 +566,6 @@ under the License.
         <finalName>palo-fe</finalName>
 
         <plugins>
-            <!--thrift-->
-            <plugin>
-                <groupId>org.apache.thrift.tools</groupId>
-                <artifactId>maven-thrift-plugin</artifactId>
-                <version>0.1.11</version>
-                <configuration>
-                    <thriftExecutable>${doris.thridparty}/installed/bin/thrift</thriftExecutable>
-                    <thriftSourceRoot>${doris.home}/gensrc/thrift</thriftSourceRoot>
-                    <generator>java:fullcamel</generator>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>thrift-sources</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>compile</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
             <!--jcup-->
             <plugin>
                 <groupId>net.sourceforge.czt.dev</groupId>

@@ -111,7 +111,7 @@ Status ESScanReader::open() {
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
-    VLOG(1) << "open _cached response: " << _cached_response;
+    VLOG_CRITICAL << "open _cached response: " << _cached_response;
     return Status::OK();
 }
 
@@ -153,7 +153,7 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
     }
 
     scroll_parser.reset(new ScrollParser(_doc_value_mode));
-    VLOG(1) << "get_next request ES, returned response: " << response;
+    VLOG_CRITICAL << "get_next request ES, returned response: " << response;
     Status status = scroll_parser->parse(response, _exactly_once);
     if (!status.ok()) {
         _eos = true;

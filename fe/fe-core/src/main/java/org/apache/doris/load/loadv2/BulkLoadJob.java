@@ -37,6 +37,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -85,13 +86,12 @@ public abstract class BulkLoadJob extends LoadJob {
     // we persist these sessionVariables due to the session is not available when replaying the job.
     private Map<String, String> sessionVariables = Maps.newHashMap();
 
-    // only for log replay
-    public BulkLoadJob() {
-        super();
+    public BulkLoadJob(EtlJobType jobType) {
+        super(jobType);
     }
 
-    public BulkLoadJob(long dbId, String label, OriginStatement originStmt, UserIdentity userInfo) throws MetaNotFoundException {
-        super(dbId, label);
+    public BulkLoadJob(EtlJobType jobType, long dbId, String label, OriginStatement originStmt, UserIdentity userInfo) throws MetaNotFoundException {
+        super(jobType, dbId, label);
         this.originStmt = originStmt;
         this.authorizationInfo = gatherAuthInfo();
         this.userInfo = userInfo;
@@ -164,7 +164,7 @@ public abstract class BulkLoadJob extends LoadJob {
     private AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
         Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {
-            throw new MetaNotFoundException("Database " + dbId + "has been deleted");
+            throw new MetaNotFoundException("Database " + dbId + " has been deleted");
         }
         return new AuthorizationInfo(database.getFullName(), getTableNames());
     }

@@ -56,6 +56,11 @@ public class PlannerTest {
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
+
+        createTblStmtStr = "create table db1.tbl2(k1 int, k2 int sum) "
+                + "AGGREGATE KEY(k1) partition by range(k1) () distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
 
     @Test
@@ -322,6 +327,14 @@ public class PlannerTest {
         List<PlanFragment> fragments1 = planner1.getFragments();
         String plan1 = planner1.getExplainString(fragments1, TExplainLevel.VERBOSE);
         Assert.assertEquals(3, StringUtils.countMatches(plan1, "nullIndicatorBit=0"));
+    }
+
+    @Test
+    public void testAccessingVisibleColumnWithoutPartition() throws Exception {
+        String sql = "select count(k1) from db1.tbl2";
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        stmtExecutor.execute();
+        Assert.assertNotNull(stmtExecutor.planner());
     }
 
 }

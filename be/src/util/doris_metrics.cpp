@@ -281,6 +281,7 @@ void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::stri
     if (init_system_metrics) {
         _system_metrics.reset(
                 new SystemMetrics(&_metric_registry, disk_devices, network_interfaces));
+        _is_inited = true;
     }
 }
 

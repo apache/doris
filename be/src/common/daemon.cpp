@@ -289,6 +289,11 @@ void Daemon::start() {
     CHECK(st.ok()) << st.to_string();
 
     if (config::enable_metric_calculator) {
+        CHECK(DorisMetrics::instance()->is_inited())
+                << "enable metric calculator failed, maybe you set enable_system_metrics to false "
+                << " or there may be some hardware error which causes metric init failed, please check log first;"
+                << " you can set enable_metric_calculator = false to quickly recover ";
+
         st = Thread::create(
                 "Daemon", "calculate_metrics_thread",
                 [this]() { this->calculate_metrics_thread(); }, &_calculate_metrics_thread);

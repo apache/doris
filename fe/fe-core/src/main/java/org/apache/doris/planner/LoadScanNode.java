@@ -51,44 +51,57 @@ public abstract class LoadScanNode extends ScanNode {
 
     protected Expr deleteCondition;
     protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
-    protected int numInstances;
 
     public LoadScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName);
     }
 
-    protected void initWhereExpr(Expr whereExpr, Analyzer analyzer) throws UserException {
+    protected void initAndSetWhereExpr(Expr whereExpr, TupleDescriptor tupleDesc, Analyzer analyzer) throws UserException {
+        Expr newWhereExpr = initWhereExpr(whereExpr, tupleDesc, analyzer);
+        if (newWhereExpr != null) {
+            addConjuncts(newWhereExpr.getConjuncts());
+        }
+    }
+
+    protected void initAndSetPrecedingFilter(Expr whereExpr, TupleDescriptor tupleDesc, Analyzer analyzer) throws UserException {
+        Expr newWhereExpr = initWhereExpr(whereExpr, tupleDesc, analyzer);
+        if (newWhereExpr != null) {
+            addPreFilterConjuncts(newWhereExpr.getConjuncts());
+        }
+    }
+
+    private Expr initWhereExpr(Expr whereExpr, TupleDescriptor tupleDesc, Analyzer analyzer) throws UserException {
         if (whereExpr == null) {
-            return;
+            return null;
         }
 
         Map<String, SlotDescriptor> dstDescMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (SlotDescriptor slotDescriptor : desc.getSlots()) {
+        for (SlotDescriptor slotDescriptor : tupleDesc.getSlots()) {
             dstDescMap.put(slotDescriptor.getColumn().getName(), slotDescriptor);
         }
 
         // substitute SlotRef in filter expression
         // where expr must be equal first to transfer some predicates(eg: BetweenPredicate to BinaryPredicate)
-        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
+        Expr newWhereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
         List<SlotRef> slots = Lists.newArrayList();
-        whereExpr.collect(SlotRef.class, slots);
+        newWhereExpr.collect(SlotRef.class, slots);
 
         ExprSubstitutionMap smap = new ExprSubstitutionMap();
         for (SlotRef slot : slots) {
             SlotDescriptor slotDesc = dstDescMap.get(slot.getColumnName());
             if (slotDesc == null) {
                 throw new UserException("unknown column reference in where statement, reference="
-                                                + slot.getColumnName());
+                        + slot.getColumnName());
             }
             smap.getLhs().add(slot);
             smap.getRhs().add(new SlotRef(slotDesc));
         }
-        whereExpr = whereExpr.clone(smap);
-        whereExpr.analyze(analyzer);
-        if (!whereExpr.getType().equals(Type.BOOLEAN)) {
+        newWhereExpr = newWhereExpr.clone(smap);
+        newWhereExpr.analyze(analyzer);
+        if (!newWhereExpr.getType().equals(Type.BOOLEAN)) {
             throw new UserException("where statement is not a valid statement return bool");
         }
-        addConjuncts(whereExpr.getConjuncts());
+        return newWhereExpr;
     }
 
     protected void checkBitmapCompatibility(Analyzer analyzer, SlotDescriptor slotDesc, Expr expr) throws AnalysisException {
@@ -180,6 +193,12 @@ public abstract class LoadScanNode extends ScanNode {
     protected void toThrift(TPlanNode planNode) {
         planNode.setNodeType(TPlanNodeType.BROKER_SCAN_NODE);
         TBrokerScanNode brokerScanNode = new TBrokerScanNode(desc.getId().asInt());
+        if (!preFilterConjuncts.isEmpty()) {
+            for (Expr e : preFilterConjuncts) {
+                brokerScanNode.addToPreFilterExprs(e.treeToThrift());
+            }
+        }
         planNode.setBrokerScanNode(brokerScanNode);
     }
 }
+

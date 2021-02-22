@@ -198,6 +198,12 @@ public final class FeMetaVersion {
     public static final int VERSION_92 = 92;
     //jira: 4863 for load job support udf
     public static final int VERSION_93 = 93;
+    // refactor load job property persist method
+    public static final int VERSION_94 = 94;
+    // serialize resources in restore job
+    public static final int VERSION_95 = 95;
+    // support delete without partition
+    public static final int VERSION_96 = 96;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_93;
+    public static final int VERSION_CURRENT = VERSION_96;
 }

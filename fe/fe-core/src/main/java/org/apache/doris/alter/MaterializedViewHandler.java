@@ -61,13 +61,13 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -331,8 +331,7 @@ public class MaterializedViewHandler extends AlterHandler {
             mvKeysType = olapTable.getKeysType();
         }
         // get rollup schema hash
-        int mvSchemaHash = Util.schemaHash(0 /* init schema version */, mvColumns, olapTable.getCopiedBfColumns(),
-                                           olapTable.getBfFpp());
+        int mvSchemaHash = Util.generateSchemaHash();
         // get short key column count
         short mvShortKeyColumnCount = Catalog.calcShortKeyColumnCount(mvColumns, properties);
         // get timeout

@@ -120,6 +120,7 @@ public class IndexDef {
 
     public enum IndexType {
         BITMAP,
+
     }
 
     public void checkColumn(Column column, KeysType keysType) throws AnalysisException {
@@ -130,11 +131,10 @@ public class IndexDef {
                           colType.isStringType() || colType == PrimitiveType.BOOLEAN)) {
                 throw new AnalysisException(colType + " is not supported in bitmap index. "
                         + "invalid column: " + indexColName);
-            } else if (((keysType == KeysType.AGG_KEYS || keysType == KeysType.UNIQUE_KEYS) && !column.isKey())
-                    || keysType == KeysType.PRIMARY_KEYS) {
+            } else if ((keysType == KeysType.AGG_KEYS && !column.isKey())) {
                 throw new AnalysisException(
-                        "BITMAP index only used in columns of DUP_KEYS table or key columns of"
-                                + " UNIQUE_KEYS/AGG_KEYS table. invalid column: " + indexColName);
+                        "BITMAP index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
+                                + " AGG_KEYS table. invalid column: " + indexColName);
             }
         } else {
             throw new AnalysisException("Unsupported index type: " + indexType);
