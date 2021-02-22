@@ -1237,9 +1237,14 @@ void TaskWorkerPool::_upload_worker_thread_callback() {
                   << ", job id:" << upload_request.job_id;
 
         std::map<int64_t, std::vector<std::string>> tablet_files;
-        SnapshotLoader loader(_env, upload_request.job_id, agent_task_req.signature);
-        Status status = loader.upload(upload_request.src_dest_map, upload_request.broker_addr,
-                                      upload_request.broker_prop, &tablet_files);
+        std::unique_ptr<SnapshotLoader> loader = nullptr;
+        if (upload_request.__isset.storage_backend && upload_request.storage_backend == TStorageBackendType::S3) {
+            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature, upload_request.broker_prop));
+        } else {
+            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature, upload_request.broker_addr,
+                                      upload_request.broker_prop));
+        }
+        Status status = loader->upload(upload_request.src_dest_map, &tablet_files);
 
         TStatusCode::type status_code = TStatusCode::OK;
         std::vector<string> error_msgs;
@@ -1295,9 +1300,15 @@ void TaskWorkerPool::_download_worker_thread_callback() {
 
         // TODO: download
         std::vector<int64_t> downloaded_tablet_ids;
-        SnapshotLoader loader(_env, download_request.job_id, agent_task_req.signature);
-        Status status = loader.download(download_request.src_dest_map, download_request.broker_addr,
-                                        download_request.broker_prop, &downloaded_tablet_ids);
+
+        std::unique_ptr<SnapshotLoader> loader = nullptr;
+        if (download_request.__isset.storage_backend && download_request.storage_backend == TStorageBackendType::S3) {
+            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature, download_request.broker_prop));
+        } else {
+            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature, download_request.broker_addr,
+                                        download_request.broker_prop));
+        }
+        Status status = loader->download(download_request.src_dest_map,  &downloaded_tablet_ids);
 
         if (!status.ok()) {
             status_code = TStatusCode::RUNTIME_ERROR;

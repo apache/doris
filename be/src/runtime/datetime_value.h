@@ -430,7 +430,7 @@ public:
         static DateTimeValue _s_min_datetime_value(0, TIME_DATETIME, 0, 0, 0, 0, 0, 1, 1);
         return _s_min_datetime_value;
     }
-    
+
     static DateTimeValue datetime_max_value() {
         static DateTimeValue _s_max_datetime_value(0, TIME_DATETIME, 23, 59, 59, 0, 9999, 12, 31);
         return _s_max_datetime_value;

@@ -317,6 +317,15 @@ public class LoadStmt extends DdlStmt {
                     && !((table instanceof OlapTable) && ((OlapTable) table).hasDeleteSign()) ) {
                 throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
             }
+            if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {
+                for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
+                    dataDescription.getFilePaths().set(i,
+                        brokerDesc.convertPathToS3(dataDescription.getFilePaths().get(i)));
+                }
+                for (String path : dataDescription.getFilePaths()) {
+                    ExportStmt.checkPath(path, brokerDesc.getStorageType());
+                }
+            }
         }
         if (isLoadFromTable) {
             if (dataDescriptions.size() > 1) {

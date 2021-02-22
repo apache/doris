@@ -23,6 +23,7 @@
 
 #include "exec/broker_writer.h"
 #include "exec/local_file_writer.h"
+#include "exec/s3_writer.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "runtime/mem_tracker.h"
@@ -260,6 +261,13 @@ Status ExportSink::open_file_writer() {
                 _t_export_sink.export_path + "/" + file_name, 0 /* offset */);
         RETURN_IF_ERROR(broker_writer->open());
         _file_writer.reset(broker_writer);
+        break;
+    }
+    case TFileType::FILE_S3: {
+        S3Writer* s3_writer = new S3Writer( _t_export_sink.properties,
+                _t_export_sink.export_path + "/" + file_name, 0 /* offset */);
+        RETURN_IF_ERROR(s3_writer->open());
+        _file_writer.reset(s3_writer);
         break;
     }
     default: {

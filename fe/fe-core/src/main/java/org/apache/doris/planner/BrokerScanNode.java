@@ -24,6 +24,7 @@ import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
@@ -59,6 +60,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.Charset;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -265,13 +267,17 @@ public class BrokerScanNode extends LoadScanNode {
         // Generate on broker scan range
         TBrokerScanRange brokerScanRange = new TBrokerScanRange();
         brokerScanRange.setParams(params);
-        FsBroker broker = null;
-        try {
-            broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getHost());
-        } catch (AnalysisException e) {
-            throw new UserException(e.getMessage());
+        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
+            FsBroker broker = null;
+            try {
+                broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getHost());
+            } catch (AnalysisException e) {
+                throw new UserException(e.getMessage());
+            }
+            brokerScanRange.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+        } else {
+            brokerScanRange.setBrokerAddresses(new ArrayList<>());
         }
-        brokerScanRange.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
 
         // Scan range
         TScanRange scanRange = new TScanRange();
@@ -408,7 +414,7 @@ public class BrokerScanNode extends LoadScanNode {
             ParamCreateContext context,
             List<TBrokerFileStatus> fileStatuses)
             throws UserException {
-        if (fileStatuses == null || fileStatuses.isEmpty()) {
+        if (fileStatuses  == null || fileStatuses.isEmpty()) {
             return;
         }
         TScanRangeLocations curLocations = newLocations(context.params, brokerDesc);

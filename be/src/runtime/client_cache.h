@@ -146,7 +146,7 @@ class ClientCache;
 template <class T>
 class ClientConnection {
 public:
-    ClientConnection(ClientCache<T>* client_cache, TNetworkAddress address, Status* status)
+    ClientConnection(ClientCache<T>* client_cache, const TNetworkAddress& address, Status* status)
             : _client_cache(client_cache), _client(NULL) {
         *status = _client_cache->get_client(address, &_client, 0);
 
@@ -155,7 +155,7 @@ public:
         }
     }
 
-    ClientConnection(ClientCache<T>* client_cache, TNetworkAddress address, int timeout_ms,
+    ClientConnection(ClientCache<T>* client_cache, const TNetworkAddress& address, int timeout_ms,
                      Status* status)
             : _client_cache(client_cache), _client(NULL) {
         *status = _client_cache->get_client(address, &_client, timeout_ms);

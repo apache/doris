@@ -26,6 +26,7 @@ import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RestoreStmt;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.AbstractJob.JobType;
@@ -172,11 +173,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     // handle create repository stmt
     public void createRepository(CreateRepositoryStmt stmt) throws DdlException {
-        if (!catalog.getBrokerMgr().containsBroker(stmt.getBrokerName())) {
+        if (!catalog.getBrokerMgr().containsBroker(stmt.getBrokerName())
+            && stmt.getStorageType() == StorageBackend.StorageType.BROKER) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "broker does not exist: " + stmt.getBrokerName());
         }
 
-        BlobStorage storage = new BlobStorage(stmt.getBrokerName(), stmt.getProperties());
+        BlobStorage storage = BlobStorage.create(stmt.getBrokerName(),stmt.getStorageType(), stmt.getProperties());
         long repoId = catalog.getNextId();
         Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(), storage);
 
