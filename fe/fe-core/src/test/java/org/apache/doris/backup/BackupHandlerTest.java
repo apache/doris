@@ -24,6 +24,7 @@ import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.RestoreStmt;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.catalog.BrokerMgr;
@@ -242,8 +243,9 @@ public class BackupHandlerTest {
 
         // add repo
         handler = new BackupHandler(catalog);
-        CreateRepositoryStmt stmt = new CreateRepositoryStmt(false, "repo", "broker", "bos://location",
-                Maps.newHashMap());
+        StorageBackend storageBackend = new StorageBackend("broker", "bos://location",
+                StorageBackend.StorageType.BROKER ,Maps.newHashMap());
+        CreateRepositoryStmt stmt = new CreateRepositoryStmt(false, "repo", storageBackend);
         try {
             handler.createRepository(stmt);
         } catch (DdlException e) {
@@ -278,7 +280,7 @@ public class BackupHandlerTest {
         // handleFinishedSnapshotUploadTask
         Map<String, String> srcToDestPath = Maps.newHashMap();
         UploadTask uploadTask = new UploadTask(null, 0, 0, backupJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                srcToDestPath, null, null);
+                srcToDestPath, null, null, StorageBackend.StorageType.BROKER);
         request = new TFinishTaskRequest();
         Map<Long, List<String>> tabletFiles = Maps.newHashMap();
         request.setTabletFiles(tabletFiles);
@@ -343,7 +345,7 @@ public class BackupHandlerTest {
 
         // handleDownloadSnapshotTask
         DownloadTask downloadTask = new DownloadTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                srcToDestPath, null, null);
+                srcToDestPath, null, null, StorageBackend.StorageType.BROKER);
         request = new TFinishTaskRequest();
         List<Long> downloadedTabletIds = Lists.newArrayList();
         request.setDownloadedTabletIds(downloadedTabletIds);

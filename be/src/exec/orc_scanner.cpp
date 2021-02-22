@@ -18,7 +18,9 @@
 #include "exec/orc_scanner.h"
 
 #include "exec/broker_reader.h"
+#include "exec/buffered_reader.h"
 #include "exec/local_file_reader.h"
+#include "exec/s3_reader.h"
 #include "exprs/expr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -397,6 +399,11 @@ Status ORCScanner::open_next_reader() {
             file_reader.reset(new BrokerReader(_state->exec_env(), _broker_addresses,
                                                _params.properties, range.path, range.start_offset,
                                                file_size));
+            break;
+        }
+        case TFileType::FILE_S3: {
+            file_reader.reset(new BufferedReader(
+                    new S3Reader(_params.properties, range.path, range.start_offset)));
             break;
         }
         default: {

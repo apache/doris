@@ -17,12 +17,16 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.backup.BlobStorage;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -37,16 +41,17 @@ import java.util.Map;
 //   "username" = "user0",
 //   "password" = "password0"
 // )
-public class BrokerDesc implements Writable {
+public class BrokerDesc extends StorageDesc implements Writable {
+    private final static Logger LOG = LogManager.getLogger(BrokerDesc.class);
+
     // just for multi load
     public final static String MULTI_LOAD_BROKER = "__DORIS_MULTI_LOAD_BROKER__";
     public final static String MULTI_LOAD_BROKER_BACKEND_KEY = "__DORIS_MULTI_LOAD_BROKER_BACKEND__";
-    private String name;
-    private Map<String, String> properties;
 
     // Only used for recovery
     private BrokerDesc() {
         this.properties = Maps.newHashMap();
+        this.storageType = StorageBackend.StorageType.BROKER;
     }
 
     public BrokerDesc(String name, Map<String, String> properties) {
@@ -55,6 +60,17 @@ public class BrokerDesc implements Writable {
         if (this.properties == null) {
             this.properties = Maps.newHashMap();
         }
+        this.storageType = StorageBackend.StorageType.BROKER;
+        tryConvertToS3();
+    }
+    public BrokerDesc(String name, StorageBackend.StorageType storageType, Map<String, String> properties) {
+        this.name = name;
+        this.properties = properties;
+        if (this.properties == null) {
+            this.properties = Maps.newHashMap();
+        }
+        this.storageType = storageType;
+        tryConvertToS3();
     }
 
     public String getName() {
@@ -65,6 +81,10 @@ public class BrokerDesc implements Writable {
         return properties;
     }
 
+    public StorageBackend.StorageType getStorageType() {
+        return storageType;
+    }
+
     public boolean isMultiLoadBroker() {
         return this.name.equalsIgnoreCase(MULTI_LOAD_BROKER);
     }
@@ -73,12 +93,25 @@ public class BrokerDesc implements Writable {
         if (isMultiLoadBroker()) {
             return TFileType.FILE_LOCAL;
         }
+        if (storageType == StorageBackend.StorageType.BROKER) {
+            return TFileType.FILE_BROKER;
+        }
+        if (storageType == StorageBackend.StorageType.S3) {
+            return TFileType.FILE_S3;
+        }
+        if (storageType == StorageBackend.StorageType.HDFS) {
+            return TFileType.FILE_HDFS;
+        }
         return TFileType.FILE_BROKER;
+    }
+    public StorageBackend.StorageType storageType() {
+        return storageType;
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, name);
+        properties.put(BlobStorage.STORAGE_TYPE, storageType.name());
         out.writeInt(properties.size());
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             Text.writeString(out, entry.getKey());
@@ -95,6 +128,16 @@ public class BrokerDesc implements Writable {
             final String val = Text.readString(in);
             properties.put(key, val);
         }
+        StorageBackend.StorageType st = StorageBackend.StorageType.BROKER;
+        String typeStr = properties.remove(BlobStorage.STORAGE_TYPE);
+        if (typeStr != null) {
+            try {
+                st = StorageBackend.StorageType.valueOf(typeStr);
+            }  catch (IllegalArgumentException e) {
+                LOG.warn("set to BROKER, because of exception", e);
+            }
+        }
+        storageType = st;
     }
 
     public static BrokerDesc read(DataInput in) throws IOException {
@@ -105,7 +148,11 @@ public class BrokerDesc implements Writable {
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("WITH BROKER ").append(name);
+        if (storageType == StorageBackend.StorageType.BROKER) {
+            sb.append("WITH BROKER ").append(name);
+        } else {
+            sb.append("WITH ").append(storageType.name());
+        }
         if (properties != null && !properties.isEmpty()) {
             PrintableMap<String, String> printableMap = new PrintableMap<>(properties, " = ", true, false, true);
             sb.append(" (").append(printableMap.toString()).append(")");
