@@ -22,6 +22,7 @@
 #include "env/env.h"
 #include "exec/broker_reader.h"
 #include "exec/local_file_reader.h"
+#include "exec/s3_reader.h"
 #include "exprs/expr.h"
 #include "exprs/json_functions.h"
 #include "gutil/strings/split.h"
@@ -119,7 +120,12 @@ Status JsonScanner::open_next_reader() {
         file = broker_reader;
         break;
     }
-
+    case TFileType::FILE_S3: {
+        S3Reader* s3_reader = new S3Reader(_params.properties, range.path, start_offset);
+        RETURN_IF_ERROR(s3_reader->open());
+        file = s3_reader;
+        break;
+    }
     case TFileType::FILE_STREAM: {
         _stream_load_pipe = _state->exec_env()->load_stream_mgr()->get(range.load_id);
         if (_stream_load_pipe == nullptr) {

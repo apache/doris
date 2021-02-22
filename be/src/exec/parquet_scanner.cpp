@@ -22,6 +22,7 @@
 #include "exec/decompressor.h"
 #include "exec/local_file_reader.h"
 #include "exec/parquet_reader.h"
+#include "exec/s3_reader.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 #include "exprs/expr.h"
@@ -125,6 +126,11 @@ Status ParquetScanner::open_next_reader() {
             file_reader.reset(new BufferedReader(
                     new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
                                      range.path, range.start_offset, file_size)));
+            break;
+        }
+        case TFileType::FILE_S3: {
+            file_reader.reset(new BufferedReader(
+                    new S3Reader(_params.properties, range.path, range.start_offset)));
             break;
         }
 #if 0

@@ -34,42 +34,50 @@
 #include "olap/tablet.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/exec_env.h"
+#include "util/broker_storage_backend.h"
 #include "util/file_utils.h"
+#include "util/s3_storage_backend.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
 
-#ifdef BE_TEST
-inline BrokerServiceClientCache* client_cache(ExecEnv* env) {
-    static BrokerServiceClientCache s_client_cache;
-    return &s_client_cache;
+SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
+                               const TNetworkAddress& broker_addr,
+                               const std::map<std::string, std::string>& broker_prop)
+        : _env(env),
+          _job_id(job_id),
+          _task_id(task_id),
+          _broker_addr(broker_addr),
+          _prop(broker_prop) {
+    _storage_backend.reset(new BrokerStorageBackend(_env, broker_addr, broker_prop));
 }
-
-inline const std::string& client_id(ExecEnv* env, const TNetworkAddress& addr) {
-    static std::string s_client_id = "doris_unit_test";
-    return s_client_id;
-}
-#else
-inline BrokerServiceClientCache* client_cache(ExecEnv* env) {
-    return env->broker_client_cache();
-}
-
-inline const std::string& client_id(ExecEnv* env, const TNetworkAddress& addr) {
-    return env->broker_mgr()->get_client_id(addr);
-}
-#endif
 
 SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id)
-        : _env(env), _job_id(job_id), _task_id(task_id) {}
+        : _env(env),
+          _job_id(job_id),
+          _task_id(task_id),
+          _broker_addr(TNetworkAddress()),
+          _prop(std::map<std::string, std::string>()),
+          _storage_backend(nullptr) {}
+
+SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id, const std::map<std::string, std::string>& prop)
+        : _env(env),
+          _job_id(job_id),
+          _task_id(task_id),
+          _broker_addr(TNetworkAddress()),
+          _prop(prop) {
+              _storage_backend.reset(new S3StorageBackend(prop));
+          }
 
 SnapshotLoader::~SnapshotLoader() {}
 
 Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_dest_path,
-                              const TNetworkAddress& broker_addr,
-                              const std::map<std::string, std::string>& broker_prop,
                               std::map<int64_t, std::vector<std::string>>* tablet_files) {
+    if (!_storage_backend) {
+        return Status::InternalError("Storage backend not initialized.");
+    }
     LOG(INFO) << "begin to upload snapshot files. num: " << src_to_dest_path.size()
-              << ", broker addr: " << broker_addr << ", job: " << _job_id << ", task" << _task_id;
+              << ", broker addr: " << _broker_addr << ", job: " << _job_id << ", task" << _task_id;
 
     // check if job has already been cancelled
     int tmp_counter = 1;
@@ -79,19 +87,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
     // 1. validate local tablet snapshot paths
     RETURN_IF_ERROR(_check_local_snapshot_paths(src_to_dest_path, true));
 
-    // 2. get broker client
-    BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
-    if (!status.ok()) {
-        std::stringstream ss;
-        ss << "failed to get broker client. "
-           << "broker addr: " << broker_addr << ". msg: " << status.get_error_msg();
-        LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
-    }
-
-    std::vector<TNetworkAddress> broker_addrs;
-    broker_addrs.push_back(broker_addr);
-    // 3. for each src path, upload it to remote storage
+    // 2. for each src path, upload it to remote storage
     // we report to frontend for every 10 files, and we will cancel the job if
     // the job has already been cancelled in frontend.
     int report_counter = 0;
@@ -108,8 +104,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
 
         // 2.1 get existing files from remote path
         std::map<std::string, FileStat> remote_files;
-        RETURN_IF_ERROR(
-                _get_existing_files_from_remote(client, dest_path, broker_prop, &remote_files));
+        RETURN_IF_ERROR(_storage_backend->list(dest_path, &remote_files));
 
         for (auto& tmp : remote_files) {
             VLOG_CRITICAL << "get remote file: " << tmp.first << ", checksum: " << tmp.second.md5;
@@ -160,60 +155,9 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
             }
 
             // upload
-            // open broker writer. file name end with ".part"
-            // it will be rename to ".md5sum" after upload finished
             std::string full_remote_file = dest_path + "/" + local_file;
-            {
-                // NOTICE: broker writer must be closed before calling rename
-                std::unique_ptr<BrokerWriter> broker_writer;
-                broker_writer.reset(new BrokerWriter(_env, broker_addrs, broker_prop,
-                                                     full_remote_file + ".part", 0 /* offset */));
-                RETURN_IF_ERROR(broker_writer->open());
-
-                // read file and write to broker
-                std::string full_local_file = src_path + "/" + local_file;
-                FileHandler file_handler;
-                OLAPStatus ost = file_handler.open(full_local_file, O_RDONLY);
-                if (ost != OLAP_SUCCESS) {
-                    return Status::InternalError("failed to open file: " + full_local_file);
-                }
-
-                size_t file_len = file_handler.length();
-                if (file_len == -1) {
-                    return Status::InternalError("failed to get length of file: " +
-                                                 full_local_file);
-                }
-
-                constexpr size_t buf_sz = 1024 * 1024;
-                char read_buf[buf_sz];
-                size_t left_len = file_len;
-                size_t read_offset = 0;
-                while (left_len > 0) {
-                    size_t read_len = left_len > buf_sz ? buf_sz : left_len;
-                    ost = file_handler.pread(read_buf, read_len, read_offset);
-                    if (ost != OLAP_SUCCESS) {
-                        return Status::InternalError("failed to read file: " + full_local_file);
-                    }
-                    // write through broker
-                    size_t write_len = 0;
-                    RETURN_IF_ERROR(broker_writer->write(reinterpret_cast<const uint8_t*>(read_buf),
-                                                         read_len, &write_len));
-                    DCHECK_EQ(write_len, read_len);
-
-                    read_offset += read_len;
-                    left_len -= read_len;
-                }
-
-                // close manually, because we need to check its close status
-                RETURN_IF_ERROR(broker_writer->close());
-
-                LOG(INFO) << "finished to write file via broker. file: " << full_local_file
-                          << ", length: " << file_len;
-            }
-
-            // rename file to end with ".md5sum"
-            RETURN_IF_ERROR(_rename_remote_file(client, full_remote_file + ".part",
-                                                full_remote_file + "." + md5sum, broker_prop));
+            std::string full_local_file = src_path + "/" + local_file;
+            RETURN_IF_ERROR(_storage_backend->upload_with_checksum(full_local_file, full_remote_file, md5sum));
         } // end for each tablet's local files
 
         tablet_files->emplace(tablet_id, local_files_with_checksum);
@@ -232,11 +176,12 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
  * may also contains severval useless files.
  */
 Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to_dest_path,
-                                const TNetworkAddress& broker_addr,
-                                const std::map<std::string, std::string>& broker_prop,
                                 std::vector<int64_t>* downloaded_tablet_ids) {
+    if (!_storage_backend) {
+        return Status::InternalError("Storage backend not initialized.");
+    }
     LOG(INFO) << "begin to download snapshot files. num: " << src_to_dest_path.size()
-              << ", broker addr: " << broker_addr << ", job: " << _job_id
+              << ", broker addr: " << _broker_addr << ", job: " << _job_id
               << ", task id: " << _task_id;
 
     // check if job has already been cancelled
@@ -247,19 +192,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
     // 1. validate local tablet snapshot paths
     RETURN_IF_ERROR(_check_local_snapshot_paths(src_to_dest_path, false));
 
-    // 2. get broker client
-    BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
-    if (!status.ok()) {
-        std::stringstream ss;
-        ss << "failed to get broker client. "
-           << "broker addr: " << broker_addr << ". msg: " << status.get_error_msg();
-        LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
-    }
-
-    std::vector<TNetworkAddress> broker_addrs;
-    broker_addrs.push_back(broker_addr);
-    // 3. for each src path, download it to local storage
+    // 2. for each src path, download it to local storage
     int report_counter = 0;
     int total_num = src_to_dest_path.size();
     int finished_num = 0;
@@ -278,14 +211,13 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
         VLOG_CRITICAL << "get local tablet id: " << local_tablet_id << ", schema hash: " << schema_hash
                 << ", remote tablet id: " << remote_tablet_id;
 
-        // 1. get local files
+        // 2.1. get local files
         std::vector<std::string> local_files;
         RETURN_IF_ERROR(_get_existing_files_from_local(local_path, &local_files));
 
-        // 2. get remote files
+        // 2.2. get remote files
         std::map<std::string, FileStat> remote_files;
-        RETURN_IF_ERROR(
-                _get_existing_files_from_remote(client, remote_path, broker_prop, &remote_files));
+        RETURN_IF_ERROR(_storage_backend->list(remote_path, &remote_files));
         if (remote_files.empty()) {
             std::stringstream ss;
             ss << "get nothing from remote path: " << remote_path;
@@ -356,59 +288,12 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             if (data_dir->reach_capacity_limit(file_len)) {
                 return Status::InternalError("capacity limit reached");
             }
+            // remove file which will be downloaded now.
+            // this file will be added to local_files if it be downloaded successfully.
+            local_files.erase(find);
+            RETURN_IF_ERROR(_storage_backend->download(full_remote_file, full_local_file));
 
-            {
-                // 1. open remote file for read
-                std::unique_ptr<BrokerReader> broker_reader;
-                broker_reader.reset(new BrokerReader(_env, broker_addrs, broker_prop,
-                                                     full_remote_file, 0 /* offset */));
-                RETURN_IF_ERROR(broker_reader->open());
-
-                // 2. remove the existing local file if exist
-                if (boost::filesystem::remove(full_local_file)) {
-                    VLOG_CRITICAL << "remove the previously exist local file: " << full_local_file;
-                }
-                // remove file which will be downloaded now.
-                // this file will be added to local_files if it be downloaded successfully.
-                local_files.erase(find);
-
-                // 3. open local file for write
-                FileHandler file_handler;
-                OLAPStatus ost = file_handler.open_with_mode(
-                        full_local_file, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
-                if (ost != OLAP_SUCCESS) {
-                    return Status::InternalError("failed to open file: " + full_local_file);
-                }
-
-                // 4. read remote and write to local
-                VLOG_CRITICAL << "read remote file: " << full_remote_file
-                        << " to local: " << full_local_file << ". file size: " << file_len;
-                constexpr size_t buf_sz = 1024 * 1024;
-                char read_buf[buf_sz];
-                size_t write_offset = 0;
-                bool eof = false;
-                while (!eof) {
-                    size_t read_len = buf_sz;
-                    RETURN_IF_ERROR(broker_reader->read(reinterpret_cast<uint8_t*>(read_buf),
-                                                        &read_len, &eof));
-
-                    if (eof) {
-                        continue;
-                    }
-
-                    if (read_len > 0) {
-                        ost = file_handler.pwrite(read_buf, read_len, write_offset);
-                        if (ost != OLAP_SUCCESS) {
-                            return Status::InternalError("failed to write file: " +
-                                                         full_local_file);
-                        }
-
-                        write_offset += read_len;
-                    }
-                }
-            } // file_handler should be closed before calculating checksum
-
-            // 5. check md5 of the downloaded file
+            // 3. check md5 of the downloaded file
             std::string downloaded_md5sum;
             status = FileUtils::md5sum(full_local_file, &downloaded_md5sum);
             if (!status.ok()) {
@@ -656,72 +541,6 @@ Status SnapshotLoader::_check_local_snapshot_paths(
     return Status::OK();
 }
 
-Status SnapshotLoader::_get_existing_files_from_remote(
-        BrokerServiceConnection& client, const std::string& remote_path,
-        const std::map<std::string, std::string>& broker_prop,
-        std::map<std::string, FileStat>* files) {
-    try {
-        // get existing files from remote path
-        TBrokerListResponse list_rep;
-        TBrokerListPathRequest list_req;
-        list_req.__set_version(TBrokerVersion::VERSION_ONE);
-        list_req.__set_path(remote_path + "/*");
-        list_req.__set_isRecursive(false);
-        list_req.__set_properties(broker_prop);
-        list_req.__set_fileNameOnly(true); // we only need file name, not abs path
-
-        try {
-            client->listPath(list_rep, list_req);
-        } catch (apache::thrift::transport::TTransportException& e) {
-            RETURN_IF_ERROR(client.reopen());
-            client->listPath(list_rep, list_req);
-        }
-
-        if (list_rep.opStatus.statusCode == TBrokerOperationStatusCode::FILE_NOT_FOUND) {
-            LOG(INFO) << "path does not exist: " << remote_path;
-            return Status::OK();
-        } else if (list_rep.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
-            std::stringstream ss;
-            ss << "failed to list files from remote path: " << remote_path
-               << ", msg: " << list_rep.opStatus.message;
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
-        LOG(INFO) << "finished to list files from remote path. file num: " << list_rep.files.size();
-
-        // split file name and checksum
-        for (const auto& file : list_rep.files) {
-            if (file.isDir) {
-                // this is not a file
-                continue;
-            }
-
-            const std::string& file_name = file.path;
-            size_t pos = file_name.find_last_of(".");
-            if (pos == std::string::npos || pos == file_name.size() - 1) {
-                // Not found checksum separator, ignore this file
-                continue;
-            }
-
-            FileStat stat = {std::string(file_name, 0, pos), std::string(file_name, pos + 1),
-                             file.size};
-            files->emplace(std::string(file_name, 0, pos), stat);
-            VLOG_CRITICAL << "split remote file: " << std::string(file_name, 0, pos)
-                    << ", checksum: " << std::string(file_name, pos + 1);
-        }
-
-        LOG(INFO) << "finished to split files. valid file num: " << files->size();
-
-    } catch (apache::thrift::TException& e) {
-        std::stringstream ss;
-        ss << "failed to list files in remote path: " << remote_path << ", msg: " << e.what();
-        LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
-    }
-
-    return Status::OK();
-}
-
 Status SnapshotLoader::_get_existing_files_from_local(const std::string& local_path,
                                                       std::vector<std::string>* local_files) {
     Status status = FileUtils::list_files(Env::Default(), local_path, local_files);
@@ -734,44 +553,6 @@ Status SnapshotLoader::_get_existing_files_from_local(const std::string& local_p
     }
     LOG(INFO) << "finished to list files in local path: " << local_path
               << ", file num: " << local_files->size();
-    return Status::OK();
-}
-
-Status SnapshotLoader::_rename_remote_file(BrokerServiceConnection& client,
-                                           const std::string& orig_name,
-                                           const std::string& new_name,
-                                           const std::map<std::string, std::string>& broker_prop) {
-    try {
-        TBrokerOperationStatus op_status;
-        TBrokerRenamePathRequest rename_req;
-        rename_req.__set_version(TBrokerVersion::VERSION_ONE);
-        rename_req.__set_srcPath(orig_name);
-        rename_req.__set_destPath(new_name);
-        rename_req.__set_properties(broker_prop);
-
-        try {
-            client->renamePath(op_status, rename_req);
-        } catch (apache::thrift::transport::TTransportException& e) {
-            RETURN_IF_ERROR(client.reopen());
-            client->renamePath(op_status, rename_req);
-        }
-
-        if (op_status.statusCode != TBrokerOperationStatusCode::OK) {
-            std::stringstream ss;
-            ss << "Fail to rename file: " << orig_name << " to: " << new_name
-               << " msg:" << op_status.message;
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
-    } catch (apache::thrift::TException& e) {
-        std::stringstream ss;
-        ss << "Fail to rename file: " << orig_name << " to: " << new_name << " msg:" << e.what();
-        LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
-    }
-
-    LOG(INFO) << "finished to rename file. orig: " << orig_name << ", new: " << new_name;
-
     return Status::OK();
 }
 

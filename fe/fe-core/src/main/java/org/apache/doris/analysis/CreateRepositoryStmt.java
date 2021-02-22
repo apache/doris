@@ -18,33 +18,23 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.base.Strings;
 
 import java.util.Map;
 
 public class CreateRepositoryStmt extends DdlStmt {
     private boolean isReadOnly;
     private String name;
-    private String brokerName;
-    private String location;
-    private Map<String, String> properties;
+    private StorageBackend storage;
 
-    public CreateRepositoryStmt(boolean isReadOnly, String name, String brokerName, String location,
-            Map<String, String> properties) {
+    public CreateRepositoryStmt(boolean isReadOnly, String name, StorageBackend storage) {
         this.isReadOnly = isReadOnly;
         this.name = name;
-        this.brokerName = brokerName;
-        this.location = location;
-        this.properties = properties;
+        this.storage = storage;
     }
 
     public boolean isReadOnly() {
@@ -56,34 +46,28 @@ public class CreateRepositoryStmt extends DdlStmt {
     }
 
     public String getBrokerName() {
-        return brokerName;
+        return storage.getStorageName();
+    }
+
+    public StorageBackend.StorageType getStorageType() {
+        return storage.getStorageType();
     }
 
     public String getLocation() {
-        return location;
+        return storage.getLocation();
     }
 
     public Map<String, String> getProperties() {
-        return properties;
+        return storage.getProperties();
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-
+        storage.analyze(analyzer);
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-        }
-
-        FeNameFormat.checkCommonName("repository", name);
-
-        if (Strings.isNullOrEmpty(brokerName)) {
-            throw new AnalysisException("You must specify the broker of the repository");
-        }
-
-        if (Strings.isNullOrEmpty(location)) {
-            throw new AnalysisException("You must specify a location on the repository");
         }
     }
 
@@ -94,8 +78,7 @@ public class CreateRepositoryStmt extends DdlStmt {
         if (isReadOnly) {
             sb.append("READ_ONLY ");
         }
-        sb.append("REPOSITORY `").append(name).append("` ").append("WITH BROKER `").append(brokerName).append("` ");
-        sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
+        sb.append("REPOSITORY `").append(name).append("` WITH ").append(storage.toSql());
         return sb.toString();
     }
 }
