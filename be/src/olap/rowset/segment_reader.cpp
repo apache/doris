@@ -129,7 +129,7 @@ OLAPStatus SegmentReader::_load_segment_file() {
         return res;
     }
 
-    //VLOG(3) << "seg file : " << _file_name;
+    //VLOG_NOTICE << "seg file : " << _file_name;
     // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
     _file_header = _segment_group->get_seg_pb(_segment_id);
     _null_supported = _segment_group->get_null_supported(_segment_id);
@@ -370,14 +370,14 @@ OLAPStatus SegmentReader::_pick_columns() {
 }
 
 OLAPStatus SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t last_block) {
-    VLOG(10) << "pick for " << first_block << " to " << last_block << " for delete_condition";
+    VLOG_TRACE << "pick for " << first_block << " to " << last_block << " for delete_condition";
 
     if (_delete_handler->empty()) {
         return OLAP_SUCCESS;
     }
 
     if (DEL_NOT_SATISFIED == _delete_status) {
-        VLOG(10) << "the segment not satisfy the delete_conditions";
+        VLOG_TRACE << "the segment not satisfy the delete_conditions";
         return OLAP_SUCCESS;
     }
 
@@ -422,11 +422,11 @@ OLAPStatus SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t
                 }
             } else if (true == del_partial_satisfied) {
                 _include_blocks[j] = DEL_PARTIAL_SATISFIED;
-                VLOG(10) << "filter block partially: " << j;
+                VLOG_TRACE << "filter block partially: " << j;
             } else {
                 _include_blocks[j] = DEL_SATISFIED;
                 --_remain_block;
-                VLOG(10) << "filter block: " << j;
+                VLOG_TRACE << "filter block: " << j;
                 if (j < _block_count - 1) {
                     _stats->rows_del_filtered += _num_rows_in_block;
                 } else {
@@ -456,7 +456,7 @@ OLAPStatus SegmentReader::_init_include_blocks(uint32_t first_block, uint32_t la
 }
 
 OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_block) {
-    VLOG(10) << "pick from " << first_block << " to " << last_block;
+    VLOG_TRACE << "pick from " << first_block << " to " << last_block;
 
     if (first_block > last_block) {
         OLAP_LOG_WARNING("invalid block offset. [first_block=%u last_block=%u]", first_block,
@@ -511,7 +511,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
     }
 
     if (_remain_block < MIN_FILTER_BLOCK_NUM) {
-        VLOG(10) << "bloom filter is ignored for too few block remained. "
+        VLOG_TRACE << "bloom filter is ignored for too few block remained. "
                  << "remain_block=" << _remain_block
                  << ", const_time=" << timer.get_elapse_time_us();
         return OLAP_SUCCESS;
@@ -548,7 +548,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
         }
     }
 
-    VLOG(10) << "pick row groups finished. remain_block=" << _remain_block
+    VLOG_TRACE << "pick row groups finished. remain_block=" << _remain_block
              << ", const_time=" << timer.get_elapse_time_us();
     return OLAP_SUCCESS;
 }
@@ -713,7 +713,7 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
         }
     }
 
-    VLOG(10) << "found index entry count: " << _block_count;
+    VLOG_TRACE << "found index entry count: " << _block_count;
     return OLAP_SUCCESS;
 }
 
@@ -812,7 +812,7 @@ OLAPStatus SegmentReader::_seek_to_block_directly(int64_t block_id,
         PositionProvider position(&_column_indices[cid]->entry(block_id));
         if (OLAP_SUCCESS != (res = _column_readers[cid]->seek(&position))) {
             if (OLAP_ERR_COLUMN_STREAM_EOF == res) {
-                VLOG(10) << "Stream EOF. tablet_id=" << _segment_group->get_tablet_id()
+                VLOG_TRACE << "Stream EOF. tablet_id=" << _segment_group->get_tablet_id()
                          << ", column_id=" << _column_readers[cid]->column_unique_id()
                          << ", block_id=" << block_id;
                 return OLAP_ERR_DATA_EOF;
@@ -832,7 +832,7 @@ OLAPStatus SegmentReader::_seek_to_block_directly(int64_t block_id,
 }
 
 OLAPStatus SegmentReader::_reset_readers() {
-    VLOG(10) << _streams.size() << " stream in total.";
+    VLOG_TRACE << _streams.size() << " stream in total.";
 
     for (std::map<StreamName, ReadOnlyFileStream*>::iterator it = _streams.begin();
          it != _streams.end(); ++it) {

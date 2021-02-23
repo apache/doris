@@ -794,6 +794,14 @@ When writing is too frequent and the disk time is insufficient, you can configur
 
 ### `tablet_writer_open_rpc_timeout_sec`
 
+### `tablet_writer_ignore_eovercrowded`
+
+* Type: bool
+* Description: Used to ignore brpc error '[E1011]The server is overcrowded' when writing data. 
+* Default value: false
+
+When meet '[E1011]The server is overcrowded' error, you can tune the configuration `brpc_socket_max_unwritten_bytes`, but it can't be modified at runtime. Set it to `true` to avoid writing failed temporarily. Notice that, it only effects `write`, other rpc requests will still check if overcrowded.
+
 ### `tc_free_memory_rate`
 
 ### `tc_max_total_thread_cache_bytes`
@@ -856,3 +864,9 @@ If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
 * Default: 8040
 
 ### `write_buffer_size`
+
+### `zone_map_row_num_threshold`
+
+* Type: int32
+* Description: If the number of rows in a page is less than this value, no zonemap will be created to reduce data expansion
+* Default: 20

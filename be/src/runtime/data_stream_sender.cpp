@@ -26,6 +26,7 @@
 
 #include "common/logging.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
@@ -199,7 +200,10 @@ Status DataStreamSender::Channel::init(RuntimeState* state) {
     _brpc_timeout_ms = std::min(3600, state->query_options().query_timeout) * 1000;
     _brpc_stub = state->exec_env()->brpc_stub_cache()->get_stub(_brpc_dest_addr);
 
-    _need_close = true;
+    // In bucket shuffle join will set fragment_instance_id (-1, -1)
+    // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
+    // so the empty channel not need call function close_internal()
+    _need_close = (_fragment_instance_id.hi != -1 && _fragment_instance_id.lo != -1);
     return Status::OK();
 }
 

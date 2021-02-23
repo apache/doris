@@ -23,6 +23,7 @@
 
 #include "common/object_pool.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "runtime/dpp_sink.h"
 #include "runtime/load_path_mgr.h"

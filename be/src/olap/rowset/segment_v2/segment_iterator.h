@@ -119,6 +119,8 @@ private:
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<ColumnPredicate*> _col_predicates;
 
+    int16_t** _select_vec;
+
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`
     std::unique_ptr<Schema> _seek_schema;

@@ -17,10 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
-
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LabelName;
@@ -39,10 +35,12 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.SparkResource;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -52,6 +50,7 @@ import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -63,12 +62,12 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -79,6 +78,10 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class SparkLoadJobTest {
     private long dbId;
@@ -251,7 +254,7 @@ public class SparkLoadJobTest {
         sparkConfigs.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
         SparkLoadJob job = new SparkLoadJob(dbId, label, null, new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
         job.state = JobState.ETL;
-        job.maxFilterRatio = 0.15;
+        job.setMaxFilterRatio(0.15);
         job.transactionId = transactionId;
         Deencapsulation.setField(job, "appId", appId);
         Deencapsulation.setField(job, "etlOutputPath", etlOutputPath);
@@ -354,8 +357,10 @@ public class SparkLoadJobTest {
                 result = filePathToSize;
                 catalog.getDb(dbId);
                 result = db;
-                db.getTable(tableId);
-                result = table;
+                db.getTablesOnIdOrderOrThrowException((List<Long>) any);
+                result = Lists.newArrayList(table);
+                table.getId();
+                result = tableId;
                 table.getPartition(partitionId);
                 result = partition;
                 table.getPartitionInfo();
@@ -381,7 +386,7 @@ public class SparkLoadJobTest {
                 AgentTaskExecutor.submit((AgentBatchTask) any);
                 Catalog.getCurrentGlobalTransactionMgr();
                 result = transactionMgr;
-                transactionMgr.commitTransaction(dbId, transactionId, (List<TabletCommitInfo>) any,
+                transactionMgr.commitTransaction(dbId, (List<Table>) any, transactionId, (List<TabletCommitInfo>) any,
                                                  (LoadJobFinalOperation) any);
             }
         };
@@ -506,5 +511,69 @@ public class SparkLoadJobTest {
         if (file.exists()) {
             file.delete();
         }
+    }
+
+    @Test
+    public void testSparkLoadJobPersist(@Mocked Catalog catalog, @Mocked Database db,
+                                        @Mocked Table table,
+                                        @Mocked ResourceMgr resourceMgr) throws Exception {
+        long dbId = 1000L;
+        SparkResource sparkResource = new SparkResource("my_spark", Maps.newHashMap(), "/path/to/", "bos",
+                Maps.newHashMap());
+        new Expectations() {
+            {
+                catalog.getDb(dbId);
+                result = db;
+                catalog.getResourceMgr();
+                result = resourceMgr;
+                //db.getTable(anyLong);
+                //result = table;
+                //table.getName();
+                //result = "table1";
+                resourceMgr.getResource(anyString);
+                result = sparkResource;
+                Catalog.getCurrentCatalogJournalVersion();
+                result = FeMetaVersion.VERSION_CURRENT;
+            }
+        };
+
+        String label = "label1";
+        ResourceDesc resourceDesc = new ResourceDesc("my_spark", Maps.newHashMap());
+        String oriStmt = "LOAD LABEL db1.label1\n" +
+                "(\n" +
+                "DATA INFILE(\"hdfs://127.0.0.1:8000/user/palo/data/input/file\")\n" +
+                "INTO TABLE `my_table`\n" +
+                "WHERE k1 > 10\n" +
+                ")\n" +
+                "WITH RESOURCE 'my_spark';";
+        OriginStatement originStmt = new OriginStatement(oriStmt, 0);
+        UserIdentity userInfo = UserIdentity.ADMIN;
+        SparkLoadJob sparkLoadJob = new SparkLoadJob(dbId, label, resourceDesc, originStmt, userInfo);
+        sparkLoadJob.setJobProperties(Maps.newHashMap());
+
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
+
+        // 1. Write objects to file
+        File file = new File("./testSparkLoadJobPersist");
+        file.createNewFile();
+        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        sparkLoadJob.write(dos);
+
+        dos.flush();
+        dos.close();
+
+        // 2. Read objects from file
+        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+
+        SparkLoadJob sparkLoadJob2 = (SparkLoadJob) SparkLoadJob.read(dis);
+        Assert.assertEquals("my_spark", sparkLoadJob2.getResourceName());
+        Assert.assertEquals(label, sparkLoadJob2.getLabel());
+        Assert.assertEquals(dbId, sparkLoadJob2.getDbId());
+
+        // 3. delete files
+        dis.close();
+        file.delete();
     }
 }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -427,20 +427,20 @@ public abstract class QueryStmt extends StatementBase {
         return resultExprs.get((int) pos - 1).clone();
     }
 
-    public void getWithClauseDbs(Analyzer analyzer, Map<String, Database> dbs, Set<String> parentViewNameSet) throws AnalysisException {
+    public void getWithClauseTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
         if (withClause_ != null) {
-            withClause_.getDbs(analyzer, dbs, parentViewNameSet);
+            withClause_.getTables(analyzer, tableMap, parentViewNameSet);
         }
     }
 
-    // get database used by this query.
+    // get tables used by this query.
     // Set<String> parentViewNameSet contain parent stmt view name
     // to make sure query like "with tmp as (select * from db1.table1) " +
     //                "select a.siteid, b.citycode, a.siteid from (select siteid, citycode from tmp) a " +
     //                "left join (select siteid, citycode from tmp) b on a.siteid = b.siteid;";
     // tmp in child stmt "(select siteid, citycode from tmp)" do not contain with_Clause
     // so need to check is view name by parentViewNameSet. issue link: https://github.com/apache/incubator-doris/issues/4598
-    public abstract void getDbs(Analyzer analyzer, Map<String, Database> dbs, Set<String> parentViewNameSet) throws AnalysisException;
+    public abstract void getTables(Analyzer analyzer, Map<Long, Table> tables, Set<String> parentViewNameSet) throws AnalysisException;
 
     /**
      * UnionStmt and SelectStmt have different implementations.

@@ -190,16 +190,18 @@ public class PublishVersionDaemon extends MasterDaemon {
                             LOG.warn("Database [{}] has been dropped.", transactionState.getDbId());
                             continue;
                         }
-                        db.readLock();
-                        try {
-                            for (int i = 0; i < transactionState.getTableIdList().size(); i++) {
-                                long tableId = transactionState.getTableIdList().get(i);
-                                Table table = db.getTable(tableId);
-                                if (table == null || table.getType() != Table.TableType.OLAP) {
-                                    LOG.warn("Table [{}] in database [{}] has been dropped.", tableId, db.getFullName());
-                                    continue;
-                                }
-                                OlapTable olapTable = (OlapTable) table;
+
+
+                        for (int i = 0; i < transactionState.getTableIdList().size(); i++) {
+                            long tableId = transactionState.getTableIdList().get(i);
+                            Table table = db.getTable(tableId);
+                            if (table == null || table.getType() != Table.TableType.OLAP) {
+                                LOG.warn("Table [{}] in database [{}] has been dropped.", tableId, db.getFullName());
+                                continue;
+                            }
+                            OlapTable olapTable = (OlapTable) table;
+                            olapTable.readLock();
+                            try {
                                 for (Long errorPartitionId : errorPartitionIds) {
                                     Partition partition = olapTable.getPartition(errorPartitionId);
                                     if (partition != null) {
@@ -214,9 +216,9 @@ public class PublishVersionDaemon extends MasterDaemon {
                                         }
                                     }
                                 }
+                            } finally {
+                                olapTable.readUnlock();
                             }
-                        } finally {
-                            db.readUnlock();
                         }
                     }
                     shouldFinishTxn = true;

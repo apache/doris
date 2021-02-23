@@ -29,6 +29,7 @@ import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.MemoryUsage;
 import java.lang.management.RuntimeMXBean;
 import java.lang.management.ThreadMXBean;
+import java.lang.management.ThreadInfo;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -82,7 +83,28 @@ public class JvmStats {
         }
         Mem mem = new Mem(heapCommitted, heapUsed, heapMax, nonHeapCommitted, nonHeapUsed,
                 Collections.unmodifiableList(pools));
-        Threads threads = new Threads(threadMXBean.getThreadCount(), threadMXBean.getPeakThreadCount());
+
+        int threadsNew = 0;
+        int threadsRunnable = 0;
+        int threadsBlocked = 0;
+        int threadsWaiting = 0;
+        int threadsTimedWaiting = 0;
+        int threadsTerminated = 0;
+        long threadIds[] = threadMXBean.getAllThreadIds();
+        for (ThreadInfo threadInfo : threadMXBean.getThreadInfo(threadIds, 0)) {
+            if (threadInfo == null) continue; // race protection
+            switch (threadInfo.getThreadState()) {
+                case NEW:           threadsNew++;           break;
+                case RUNNABLE:      threadsRunnable++;      break;
+                case BLOCKED:       threadsBlocked++;       break;
+                case WAITING:       threadsWaiting++;       break;
+                case TIMED_WAITING: threadsTimedWaiting++;  break;
+                case TERMINATED:    threadsTerminated++;    break;
+                default:                                    break;
+            }
+        }
+        Threads threads = new Threads(threadMXBean.getThreadCount(), threadMXBean.getPeakThreadCount(), threadsNew,
+                threadsRunnable, threadsBlocked, threadsWaiting, threadsTimedWaiting, threadsTerminated);
 
         List<GarbageCollectorMXBean> gcMxBeans = ManagementFactory.getGarbageCollectorMXBeans();
         GarbageCollector[] collectors = new GarbageCollector[gcMxBeans.size()];
@@ -192,6 +214,12 @@ public class JvmStats {
         static final String THREADS = "threads";
         static final String COUNT = "count";
         static final String PEAK_COUNT = "peak_count";
+        static final String NEW_COUNT = "new_count";
+        static final String RUNNING_COUNT = "runnable_count";
+        static final String BLOCKED_COUNT = "blocked_count";
+        static final String WAITING_COUNT = "waiting_count";
+        static final String TIMED_WAITING_COUNT = "timed_waiting_count";
+        static final String TERMINATED_COUNT = "terminated_count";
 
         static final String GC = "gc";
         static final String COLLECTORS = "collectors";
@@ -264,10 +292,23 @@ public class JvmStats {
 
         private final int count;
         private final int peakCount;
+        private final int threadsNewCount;
+        private final int threadsRunnableCount;
+        private final int threadsBlockedCount;
+        private final int threadsWaitingCount;
+        private final int threadsTimedWaitingCount;
+        private final int threadsTerminatedCount;
 
-        public Threads(int count, int peakCount) {
+        public Threads(int count, int peakCount, int threadsNewCount, int threadsRunnableCount, int threadsBlockedCount,
+                       int threadsWaitingCount, int threadsTimedWaitingCount, int threadsTerminatedCount) {
             this.count = count;
             this.peakCount = peakCount;
+            this.threadsNewCount = threadsNewCount;
+            this.threadsRunnableCount = threadsRunnableCount;
+            this.threadsBlockedCount = threadsBlockedCount;
+            this.threadsWaitingCount = threadsWaitingCount;
+            this.threadsTimedWaitingCount = threadsTimedWaitingCount;
+            this.threadsTerminatedCount = threadsTerminatedCount;
         }
 
         public int getCount() {
@@ -276,6 +317,30 @@ public class JvmStats {
 
         public int getPeakCount() {
             return peakCount;
+        }
+
+        public int getThreadsNewCount() {
+            return threadsNewCount;
+        }
+
+        public int getThreadsRunnableCount() {
+            return threadsRunnableCount;
+        }
+
+        public int getThreadsBlockedCount() {
+            return threadsBlockedCount;
+        }
+
+        public int getThreadsWaitingCount() {
+            return threadsWaitingCount;
+        }
+
+        public int getThreadsTimedWaitingCount() {
+            return threadsTimedWaitingCount;
+        }
+
+        public int getThreadsTerminatedCount() {
+            return threadsTerminatedCount;
         }
 
         @Override

@@ -458,13 +458,12 @@ public class TabletScheduler extends MasterDaemon {
         }
 
         Pair<TabletStatus, TabletSchedCtx.Priority> statusPair;
-        db.writeLock();
+        OlapTable tbl = (OlapTable) db.getTable(tabletCtx.getTblId());
+        if (tbl == null) {
+            throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
+        }
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(tabletCtx.getTblId());
-            if (tbl == null) {
-                throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
-            }
-
             boolean isColocateTable = colocateTableIndex.isColocateTable(tbl.getId());
 
             OlapTableState tableState = tbl.getState();
@@ -497,7 +496,6 @@ public class TabletScheduler extends MasterDaemon {
                 Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
                 TabletStatus st = tablet.getColocateHealthStatus(
                         partition.getVisibleVersion(),
-                        partition.getVisibleVersionHash(),
                         tbl.getPartitionInfo().getReplicationNum(partition.getId()),
                         backendsSet);
                 statusPair = Pair.create(st, Priority.HIGH);
@@ -553,7 +551,7 @@ public class TabletScheduler extends MasterDaemon {
 
             handleTabletByTypeAndStatus(statusPair.first, tabletCtx, batchTask);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
     }
 

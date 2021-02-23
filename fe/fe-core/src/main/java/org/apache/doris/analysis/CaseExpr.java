@@ -113,7 +113,7 @@ public class CaseExpr extends Expr {
         StringBuilder output = new StringBuilder("CASE");
         int childIdx = 0;
         if (hasCaseExpr) {
-            output.append(children.get(childIdx++).toSql());
+            output.append(' ').append(children.get(childIdx++).toSql());
         }
         while (childIdx + 2 <= children.size()) {
             output.append(" WHEN " + children.get(childIdx++).toSql());

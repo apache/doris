@@ -146,17 +146,12 @@ public class MetaInfoAction extends RestBaseController {
         }
 
         List<String> tblNames = Lists.newArrayList();
-        db.readLock();
-        try {
-            for (Table tbl : db.getTables()) {
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
-                        PrivPredicate.SHOW)) {
-                    continue;
-                }
-                tblNames.add(tbl.getName());
+        for (Table tbl : db.getTables()) {
+            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
+                    PrivPredicate.SHOW)) {
+                continue;
             }
-        } finally {
-            db.readUnlock();
+            tblNames.add(tbl.getName());
         }
 
         Collections.sort(tblNames);
@@ -230,12 +225,12 @@ public class MetaInfoAction extends RestBaseController {
 
         // get all proc paths
         Map<String, Map<String, Object>> result = Maps.newHashMap();
-        db.readLock();
+        Table tbl = db.getTable(tblName);
+        if (tbl == null) {
+            return ResponseEntityBuilder.okWithCommonError("Table does not exist: " + tblName);
+        }
+        tbl.readLock();
         try {
-            Table tbl = db.getTable(tblName);
-            if (tbl == null) {
-                return ResponseEntityBuilder.okWithCommonError("Table does not exist: " + tblName);
-            }
             long baseId = -1;
             if (tbl.getType() == Table.TableType.OLAP) {
                 baseId = ((OlapTable) tbl).getBaseIndexId();
@@ -253,7 +248,7 @@ public class MetaInfoAction extends RestBaseController {
                 }
             }
         } finally {
-            db.readUnlock();
+            tbl.readUnlock();
         }
 
         return ResponseEntityBuilder.ok(result);

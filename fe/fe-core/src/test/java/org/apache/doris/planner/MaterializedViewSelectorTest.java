@@ -39,6 +39,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.doris.thrift.TStorageType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -355,24 +356,27 @@ public class MaterializedViewSelectorTest {
     @Test
     public void testCompensateIndex(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
             @Injectable OlapTable table) {
-        Map<Long, List<Column>> candidateIndexIdToSchema = Maps.newHashMap();
-        Map<Long, List<Column>> allVisibleIndexes = Maps.newHashMap();
+        Map<Long, MaterializedIndexMeta> candidateIndexIdToSchema = Maps.newHashMap();
+        Map<Long, MaterializedIndexMeta> allVisibleIndexes = Maps.newHashMap();
         List<Column> index1Columns = Lists.newArrayList();
         Column index1Column1 = new Column("c2", Type.INT, true, AggregateType.SUM, true, "", "");
         index1Columns.add(index1Column1);
-        allVisibleIndexes.put(new Long(1), index1Columns);
+        allVisibleIndexes.put(new Long(1), new MaterializedIndexMeta(
+                0, index1Columns, 0, 0, (short) 0, TStorageType.COLUMN, KeysType.AGG_KEYS, null));
         List<Column> index2Columns = Lists.newArrayList();
         Column index2Column1 = new Column("c1", Type.INT, true, null, true, "", "");
         index2Columns.add(index2Column1);
         Column index2Column2 = new Column("c2", Type.INT, false, AggregateType.SUM, true, "", "");
         index2Columns.add(index2Column2);
-        allVisibleIndexes.put(new Long(2), index2Columns);
+        allVisibleIndexes.put(new Long(2), new MaterializedIndexMeta(
+                0, index2Columns, 0, 0, (short) 0, TStorageType.COLUMN, KeysType.AGG_KEYS, null));
         List<Column> index3Columns = Lists.newArrayList();
         Column index3Column1 = new Column("c1", Type.INT, true, null, true, "", "");
         index3Columns.add(index3Column1);
         Column index3Column2 = new Column("c3", Type.INT, false, AggregateType.SUM, true, "", "");
         index3Columns.add(index3Column2);
-        allVisibleIndexes.put(new Long(3), index3Columns);
+        allVisibleIndexes.put(new Long(3), new MaterializedIndexMeta(
+                0, index3Columns, 0, 0, (short) 0, TStorageType.COLUMN, KeysType.AGG_KEYS, null));
         List<Column> keyColumns = Lists.newArrayList();
         keyColumns.add(index2Column1);
         new Expectations() {

@@ -19,10 +19,15 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonUtils;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -32,6 +37,8 @@ import java.io.IOException;
 import java.util.Map;
 
 public abstract class Resource implements Writable {
+    private static final Logger LOG = LogManager.getLogger(OdbcCatalogResource.class);
+
     public enum ResourceType {
         UNKNOWN,
         SPARK,
@@ -51,6 +58,9 @@ public abstract class Resource implements Writable {
     protected String name;
     @SerializedName(value = "type")
     protected ResourceType type;
+
+    public Resource() {
+    }
 
     public Resource(String name, ResourceType type) {
         this.name = name;
@@ -109,6 +119,16 @@ public abstract class Resource implements Writable {
     public static Resource read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, Resource.class);
+    }
+
+    @Override
+    public Resource clone() {
+        Resource copied = DeepCopy.copy(this, Resource.class, FeConstants.meta_version);
+        if (copied == null) {
+            LOG.warn("failed to clone odbc resource: " + getName());
+            return null;
+        }
+        return copied;
     }
 }
 

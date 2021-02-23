@@ -29,7 +29,7 @@
 
 namespace doris {
 
-#define VLOG_EXPORT VLOG(2)
+#define VLOG_EXPORT VLOG_CRITICAL
 
 static size_t LRU_MAX_CASH_TASK_NUM = 1000;
 

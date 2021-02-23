@@ -22,6 +22,7 @@
 #include "env/env.h"
 #include "exec/broker_reader.h"
 #include "exec/local_file_reader.h"
+#include "exec/s3_reader.h"
 #include "exprs/expr.h"
 #include "exprs/json_functions.h"
 #include "gutil/strings/split.h"
@@ -36,8 +37,9 @@ JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
                          const TBrokerScanRangeParams& params,
                          const std::vector<TBrokerRangeDesc>& ranges,
                          const std::vector<TNetworkAddress>& broker_addresses,
+                         const std::vector<ExprContext*>& pre_filter_ctxs,
                          ScannerCounter* counter)
-        : BaseScanner(state, profile, params, counter),
+        : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
           _cur_file_reader(nullptr),
@@ -118,11 +120,16 @@ Status JsonScanner::open_next_reader() {
         file = broker_reader;
         break;
     }
-
+    case TFileType::FILE_S3: {
+        S3Reader* s3_reader = new S3Reader(_params.properties, range.path, start_offset);
+        RETURN_IF_ERROR(s3_reader->open());
+        file = s3_reader;
+        break;
+    }
     case TFileType::FILE_STREAM: {
         _stream_load_pipe = _state->exec_env()->load_stream_mgr()->get(range.load_id);
         if (_stream_load_pipe == nullptr) {
-            VLOG(3) << "unknown stream load id: " << UniqueId(range.load_id);
+            VLOG_NOTICE << "unknown stream load id: " << UniqueId(range.load_id);
             return Status::InternalError("unknown stream load id");
         }
         file = _stream_load_pipe.get();
@@ -665,6 +672,11 @@ Status JsonReader::_handle_flat_array_complex_json(Tuple* tuple,
             }
             _total_lines = _json_doc->Size();
             _next_line = 0;
+
+            if (_total_lines == 0) {
+                // meet an empty json array.
+                continue;
+            }
         }
         rapidjson::Value& objectValue = (*_json_doc)[_next_line++];
         if (!_write_values_by_jsonpath(objectValue, tuple_pool, tuple, slot_descs)) {

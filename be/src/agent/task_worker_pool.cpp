@@ -639,7 +639,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
         }
 
         if (status == DORIS_SUCCESS) {
-            VLOG(3) << "push ok. signature: " << agent_task_req.signature
+            VLOG_NOTICE << "push ok. signature: " << agent_task_req.signature
                     << ", push_type: " << push_req.push_type;
             error_msgs.push_back("push success");
 
@@ -1237,9 +1237,14 @@ void TaskWorkerPool::_upload_worker_thread_callback() {
                   << ", job id:" << upload_request.job_id;
 
         std::map<int64_t, std::vector<std::string>> tablet_files;
-        SnapshotLoader loader(_env, upload_request.job_id, agent_task_req.signature);
-        Status status = loader.upload(upload_request.src_dest_map, upload_request.broker_addr,
-                                      upload_request.broker_prop, &tablet_files);
+        std::unique_ptr<SnapshotLoader> loader = nullptr;
+        if (upload_request.__isset.storage_backend && upload_request.storage_backend == TStorageBackendType::S3) {
+            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature, upload_request.broker_prop));
+        } else {
+            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature, upload_request.broker_addr,
+                                      upload_request.broker_prop));
+        }
+        Status status = loader->upload(upload_request.src_dest_map, &tablet_files);
 
         TStatusCode::type status_code = TStatusCode::OK;
         std::vector<string> error_msgs;
@@ -1295,9 +1300,15 @@ void TaskWorkerPool::_download_worker_thread_callback() {
 
         // TODO: download
         std::vector<int64_t> downloaded_tablet_ids;
-        SnapshotLoader loader(_env, download_request.job_id, agent_task_req.signature);
-        Status status = loader.download(download_request.src_dest_map, download_request.broker_addr,
-                                        download_request.broker_prop, &downloaded_tablet_ids);
+
+        std::unique_ptr<SnapshotLoader> loader = nullptr;
+        if (download_request.__isset.storage_backend && download_request.storage_backend == TStorageBackendType::S3) {
+            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature, download_request.broker_prop));
+        } else {
+            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature, download_request.broker_addr,
+                                        download_request.broker_prop));
+        }
+        Status status = loader->download(download_request.src_dest_map,  &downloaded_tablet_ids);
 
         if (!status.ok()) {
             status_code = TStatusCode::RUNTIME_ERROR;
@@ -1348,9 +1359,10 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
         TStatus task_status;
 
         string snapshot_path;
+        bool allow_incremental_clone = false; // not used
         std::vector<string> snapshot_files;
         OLAPStatus make_snapshot_status =
-                SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path);
+                SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path, &allow_incremental_clone);
         if (make_snapshot_status != OLAP_SUCCESS) {
             status_code = make_snapshot_status == OLAP_ERR_VERSION_ALREADY_MERGED
                                   ? TStatusCode::OLAP_ERR_VERSION_ALREADY_MERGED

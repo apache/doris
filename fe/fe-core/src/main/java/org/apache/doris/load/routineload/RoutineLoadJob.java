@@ -23,14 +23,11 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
-import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -93,6 +90,7 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 /**
  * Routine load job is a function which stream load data from streaming medium to doris.
@@ -158,6 +156,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     //    protected RoutineLoadDesc routineLoadDesc; // optional
     protected PartitionNames partitions; // optional
     protected List<ImportColumnDesc> columnDescs; // optional
+    protected Expr precedingFilter; // optional
     protected Expr whereExpr; // optional
     protected ColumnSeparator columnSeparator; // optional
     protected int desireTaskConcurrentNum; // optional
@@ -354,6 +353,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     }
                 }
             }
+            if (routineLoadDesc.getPrecedingFilter() != null) {
+                precedingFilter = routineLoadDesc.getPrecedingFilter().getExpr();
+            }
             if (routineLoadDesc.getWherePredicate() != null) {
                 whereExpr = routineLoadDesc.getWherePredicate().getExpr();
             }
@@ -367,15 +369,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 deleteCondition = routineLoadDesc.getDeleteCondition();
             }
             mergeType = routineLoadDesc.getMergeType();
-            if (mergeType == LoadTask.MergeType.MERGE) {
-                columnDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
-            } else if (mergeType == LoadTask.MergeType.DELETE) {
-                columnDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
-            }
             if (routineLoadDesc.hasSequenceCol()) {
                 sequenceCol = routineLoadDesc.getSequenceColName();
-                // add expr for sequence column
-                columnDescs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, sequenceCol)));
             }
         }
     }
@@ -418,12 +413,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (database == null) {
             throw new MetaNotFoundException("Database " + dbId + "has been deleted");
         }
-        database.readLock();
-        try {
-            return database.getFullName();
-        } finally {
-            database.readUnlock();
-        }
+
+        return database.getFullName();
     }
 
     public long getTableId() {
@@ -435,16 +426,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (database == null) {
             throw new MetaNotFoundException("Database " + dbId + "has been deleted");
         }
-        database.readLock();
-        try {
-            Table table = database.getTable(tableId);
-            if (table == null) {
-                throw new MetaNotFoundException("Failed to find table " + tableId + " in db " + dbId);
-            }
-            return table.getName();
-        } finally {
-            database.readUnlock();
+
+        Table table = database.getTable(tableId);
+        if (table == null) {
+            throw new MetaNotFoundException("Failed to find table " + tableId + " in db " + dbId);
         }
+        return table.getName();
+
     }
 
     public JobState getState() {
@@ -487,6 +475,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return fileFormatType;
     }
 
+    @Override
+    public Expr getPrecedingFilter() {
+        return precedingFilter;
+    }
+
+    @Override
     public Expr getWhereExpr() {
         return whereExpr;
     }
@@ -581,7 +575,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (columnDescs == null) {
             return new ArrayList<>();
         }
-        return columnDescs;
+        // use the copy of columnDescs avoid duplicated add delete condition
+        return columnDescs.stream().collect(Collectors.toList());
     }
 
     public String getJsonPaths() {
@@ -600,6 +595,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return value;
     }
 
+    @Override
     public String getSequenceCol() {
         return sequenceCol;
     }
@@ -798,7 +794,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (db == null) {
             throw new MetaNotFoundException("db " + dbId + " does not exist");
         }
-        db.readLock();
+        Table table = db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        table.readLock();
         try {
             TExecPlanFragmentParams planParams = planner.plan(loadId);
             // add table indexes to transaction state
@@ -810,7 +807,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
             return planParams;
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
     }
 
@@ -1086,7 +1083,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
-    protected static void unprotectedCheckMeta(Database db, String tblName, RoutineLoadDesc routineLoadDesc)
+    protected static void checkMeta(Database db, String tblName, RoutineLoadDesc routineLoadDesc)
             throws UserException {
         Table table = db.getTable(tblName);
         if (table == null) {
@@ -1108,10 +1105,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         
         // check partitions
         OlapTable olapTable = (OlapTable) table;
-        for (String partName : partitionNames.getPartitionNames()) {
-            if (olapTable.getPartition(partName, partitionNames.isTemp()) == null) {
-                throw new DdlException("Partition " + partName + " does not exist");
+        olapTable.readLock();
+        try {
+            for (String partName : partitionNames.getPartitionNames()) {
+                if (olapTable.getPartition(partName, partitionNames.isTemp()) == null) {
+                    throw new DdlException("Partition " + partName + " does not exist");
+                }
             }
+        } finally {
+            olapTable.readUnlock();
         }
 
         // columns will be checked when planing
@@ -1220,13 +1222,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
 
         // check table belong to database
-        database.readLock();
-        Table table;
-        try {
-            table = database.getTable(tableId);
-        } finally {
-            database.readUnlock();
-        }
+        Table table = database.getTable(tableId);
         if (table == null) {
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id).add("db_id", dbId)
                              .add("table_id", tableId)
@@ -1278,15 +1274,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public List<String> getShowInfo() {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        Table tbl = null;
-        if (db != null) {
-            db.readLock();
-            try {
-                tbl = db.getTable(tableId);
-            } finally {
-                db.readUnlock();
-            }
-        }
+        Table tbl = (db == null) ? null : db.getTable(tableId);
 
         readLock();
         try {
@@ -1356,6 +1344,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null ? STAR_STRING : Joiner.on(",").join(columnDescs));
+        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSql());
         jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
         if (getFormat().equalsIgnoreCase("json")) {
             jobProperties.put("dataFormat", "json");

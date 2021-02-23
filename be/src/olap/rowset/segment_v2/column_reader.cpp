@@ -155,6 +155,7 @@ bool ColumnReader::match_condition(CondColumn* cond) const {
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
     _parse_zone_map(_zone_map_index_meta->segment_zone_map(), min_value.get(), max_value.get());
+
     return _zone_map_match_condition(_zone_map_index_meta->segment_zone_map(), min_value.get(),
                                      max_value.get(), cond);
 }
@@ -186,7 +187,7 @@ bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
         return false; // no data in this zone
     }
 
-    if (cond == nullptr) {
+    if (cond == nullptr || zone_map.pass_all()) {
         return true;
     }
 
@@ -203,20 +204,24 @@ Status ColumnReader::_get_filtered_pages(
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
     for (int32_t i = 0; i < page_size; ++i) {
-        _parse_zone_map(zone_maps[i], min_value.get(), max_value.get());
-        if (_zone_map_match_condition(zone_maps[i], min_value.get(), max_value.get(),
-                                      cond_column)) {
-            bool should_read = true;
-            if (delete_condition != nullptr) {
-                int state = delete_condition->del_eval({min_value.get(), max_value.get()});
-                if (state == DEL_SATISFIED) {
-                    should_read = false;
-                } else if (state == DEL_PARTIAL_SATISFIED) {
-                    delete_partial_filtered_pages->insert(i);
+        if (zone_maps[i].pass_all()) {
+            page_indexes->push_back(i);
+        } else {
+            _parse_zone_map(zone_maps[i], min_value.get(), max_value.get());
+            if (_zone_map_match_condition(zone_maps[i], min_value.get(), max_value.get(),
+                                          cond_column)) {
+                bool should_read = true;
+                if (delete_condition != nullptr) {
+                    int state = delete_condition->del_eval({min_value.get(), max_value.get()});
+                    if (state == DEL_SATISFIED) {
+                        should_read = false;
+                    } else if (state == DEL_PARTIAL_SATISFIED) {
+                        delete_partial_filtered_pages->insert(i);
+                    }
                 }
-            }
-            if (should_read) {
-                page_indexes->push_back(i);
+                if (should_read) {
+                    page_indexes->push_back(i);
+                }
             }
         }
     }

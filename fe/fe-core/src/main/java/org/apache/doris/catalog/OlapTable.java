@@ -52,19 +52,19 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -75,7 +75,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.zip.Adler32;
 
 /**
  * Internal representation of tableFamilyGroup-related metadata. A OlaptableFamilyGroup contains several tableFamily.
@@ -101,7 +100,7 @@ public class OlapTable extends Table {
         WAITING_STABLE
     }
 
-    private OlapTableState state;
+    private volatile OlapTableState state;
 
     // index id -> index meta
     private Map<Long, MaterializedIndexMeta> indexIdToMeta = Maps.newHashMap();
@@ -372,8 +371,9 @@ public class OlapTable extends Table {
     }
 
     public List<MaterializedIndex> getVisibleIndex() {
-        Partition partition = idToPartition.values().stream().findFirst().get();
-        return partition.getMaterializedIndices(IndexExtState.VISIBLE);
+        Optional<Partition> partition = idToPartition.values().stream().findFirst();
+        return partition.isPresent() ? partition.get().getMaterializedIndices(IndexExtState.VISIBLE)
+                : Collections.emptyList();
     }
 
     public Column getVisibleColumn(String columnName) {
@@ -683,6 +683,8 @@ public class OlapTable extends Table {
                                           rangePartitionInfo.getDataProperty(partition.getId()),
                                           rangePartitionInfo.getReplicationNum(partition.getId()),
                                           rangePartitionInfo.getIsInMemory(partition.getId()));
+            } else {
+                Catalog.getCurrentCatalog().onErasePartition(partition);
             }
 
             // drop partition info
@@ -898,85 +900,60 @@ public class OlapTable extends Table {
         throw new RuntimeException("Don't support anymore");
     }
 
-    public int getSignature(int signatureVersion, List<String> partNames) {
-        Adler32 adler32 = new Adler32();
-        adler32.update(signatureVersion);
-        final String charsetName = "UTF-8";
-
-        try {
-            // table name
-            adler32.update(name.getBytes(charsetName));
-            LOG.debug("signature. table name: {}", name);
-            // type
-            adler32.update(type.name().getBytes(charsetName));
-            LOG.debug("signature. table type: {}", type.name());
-
-            // all indices(should be in order)
-            Set<String> indexNames = Sets.newTreeSet();
-            indexNames.addAll(indexNameToId.keySet());
-            for (String indexName : indexNames) {
-                long indexId = indexNameToId.get(indexName);
-                adler32.update(indexName.getBytes(charsetName));
-                LOG.debug("signature. index name: {}", indexName);
-                MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
-                // schema hash
-                adler32.update(indexMeta.getSchemaHash());
-                LOG.debug("signature. index schema hash: {}", indexMeta.getSchemaHash());
-                // short key column count
-                adler32.update(indexMeta.getShortKeyColumnCount());
-                LOG.debug("signature. index short key: {}", indexMeta.getShortKeyColumnCount());
-                // storage type
-                adler32.update(indexMeta.getStorageType().name().getBytes(charsetName));
-                LOG.debug("signature. index storage type: {}", indexMeta.getStorageType());
-            }
-
-            // bloom filter
-            if (bfColumns != null && !bfColumns.isEmpty()) {
-                for (String bfCol : bfColumns) {
-                    adler32.update(bfCol.getBytes());
-                    LOG.debug("signature. bf col: {}", bfCol);
-                }
-                adler32.update(String.valueOf(bfFpp).getBytes());
-                LOG.debug("signature. bf fpp: {}", bfFpp);
-            }
-
-            // partition type
-            adler32.update(partitionInfo.getType().name().getBytes(charsetName));
-            LOG.debug("signature. partition type: {}", partitionInfo.getType().name());
-            // partition columns
-            if (partitionInfo.getType() == PartitionType.RANGE) {
-                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-                List<Column> partitionColumns = rangePartitionInfo.getPartitionColumns();
-                adler32.update(Util.schemaHash(0, partitionColumns, null, 0));
-                LOG.debug("signature. partition col hash: {}", Util.schemaHash(0, partitionColumns, null, 0));
-            }
-
-            // partition and distribution
-            Collections.sort(partNames, String.CASE_INSENSITIVE_ORDER);
-            for (String partName : partNames) {
-                Partition partition = getPartition(partName);
-                Preconditions.checkNotNull(partition, partName);
-                adler32.update(partName.getBytes(charsetName));
-                LOG.debug("signature. partition name: {}", partName);
-                DistributionInfo distributionInfo = partition.getDistributionInfo();
-                adler32.update(distributionInfo.getType().name().getBytes(charsetName));
-                if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                    adler32.update(Util.schemaHash(0, hashDistributionInfo.getDistributionColumns(), null, 0));
-                    LOG.debug("signature. distribution col hash: {}",
-                              Util.schemaHash(0, hashDistributionInfo.getDistributionColumns(), null, 0));
-                    adler32.update(hashDistributionInfo.getBucketNum());
-                    LOG.debug("signature. bucket num: {}", hashDistributionInfo.getBucketNum());
-                }
-            }
-
-        } catch (UnsupportedEncodingException e) {
-            LOG.error("encoding error", e);
-            return -1;
+    // Get the md5 of signature string of this table with specified partitions.
+    // This method is used to determine whether the tables have the same schema.
+    // Contains:
+    // table name, table type, index name, index schema, short key column count, storage type
+    // bloom filter, partition type and columns, distribution type and columns.
+    // buckets number.
+    public String getSignature(int signatureVersion, List<String> partNames) {
+        StringBuilder sb = new StringBuilder(signatureVersion);
+        sb.append(name);
+        sb.append(type);
+        Set<String> indexNames = Sets.newTreeSet(indexNameToId.keySet());
+        for (String indexName : indexNames) {
+            long indexId = indexNameToId.get(indexName);
+            MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
+            sb.append(indexName);
+            sb.append(Util.getSchemaSignatureString(indexMeta.getSchema()));
+            sb.append(indexMeta.getShortKeyColumnCount());
+            sb.append(indexMeta.getStorageType());
         }
 
-        LOG.debug("signature: {}", Math.abs((int) adler32.getValue()));
-        return Math.abs((int) adler32.getValue());
+        // bloom filter
+        if (bfColumns != null && !bfColumns.isEmpty()) {
+            for (String bfCol : bfColumns) {
+                sb.append(bfCol);
+            }
+            sb.append(bfFpp);
+        }
+
+        // partition type
+        sb.append(partitionInfo.getType());
+        if (partitionInfo.getType() == PartitionType.RANGE) {
+            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+            List<Column> partitionColumns = rangePartitionInfo.getPartitionColumns();
+            sb.append(Util.getSchemaSignatureString(partitionColumns));
+        }
+
+        // partition and distribution
+        Collections.sort(partNames, String.CASE_INSENSITIVE_ORDER);
+        for (String partName : partNames) {
+            Partition partition = getPartition(partName);
+            Preconditions.checkNotNull(partition, partName);
+            DistributionInfo distributionInfo = partition.getDistributionInfo();
+            sb.append(partName);
+            sb.append(distributionInfo.getType());
+            if (distributionInfo.getType() == DistributionInfoType.HASH) {
+                HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                sb.append(Util.getSchemaSignatureString(hashDistributionInfo.getDistributionColumns()));
+                sb.append(hashDistributionInfo.getBucketNum());
+            }
+        }
+
+        String md5 = DigestUtils.md5Hex(sb.toString());
+        LOG.debug("get signature of table {}: {}. signature string: {}", name, md5, sb.toString());
+        return md5;
     }
 
     // get intersect partition names with the given table "anotherTbl". not including temp partitions
@@ -1002,6 +979,7 @@ public class OlapTable extends Table {
         }
         return false;
     }
+
 
     @Override
     public void write(DataOutput out) throws IOException {
@@ -1229,7 +1207,7 @@ public class OlapTable extends Table {
 
     public OlapTable selectiveCopy(Collection<String> reservedPartitions, boolean resetState, IndexExtState extState) {
         OlapTable copied = new OlapTable();
-        if (!DeepCopy.copy(this, copied, OlapTable.class)) {
+        if (!DeepCopy.copy(this, copied, OlapTable.class, FeConstants.meta_version)) {
             LOG.warn("failed to copy olap table: " + getName());
             return null;
         }

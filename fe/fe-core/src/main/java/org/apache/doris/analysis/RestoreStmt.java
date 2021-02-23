@@ -24,11 +24,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -43,14 +41,15 @@ public class RestoreStmt extends AbstractBackupStmt {
     private String backupTimestamp = null;
     private int metaVersion = -1;
 
-    public RestoreStmt(LabelName labelName, String repoName, List<TableRef> tblRefs, Map<String, String> properties) {
-        super(labelName, repoName, tblRefs, properties);
+    public RestoreStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause restoreTableRefClause,
+                       Map<String, String> properties) {
+        super(labelName, repoName, restoreTableRefClause, properties);
     }
-    
+
     public boolean allowLoad() {
         return allowLoad;
     }
-    
+
     public int getReplicationNum() {
         return replicationNum;
     }
@@ -66,14 +65,17 @@ public class RestoreStmt extends AbstractBackupStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+    }
 
+    @Override
+    protected void customAnalyzeTableRefClause() throws AnalysisException {
         // check if alias is duplicated
         Set<String> aliasSet = Sets.newHashSet();
-        for (TableRef tblRef : tblRefs) {
+        for (TableRef tblRef : abstractBackupTableRefClause.getTableRefList()) {
             aliasSet.add(tblRef.getName().getTbl());
         }
 
-        for (TableRef tblRef : tblRefs) {
+        for (TableRef tblRef : abstractBackupTableRefClause.getTableRefList()) {
             if (tblRef.hasExplicitAlias() && !aliasSet.add(tblRef.getExplicitAlias())) {
                 throw new AnalysisException("Duplicated alias name: " + tblRef.getExplicitAlias());
             }
@@ -93,8 +95,7 @@ public class RestoreStmt extends AbstractBackupStmt {
                 allowLoad = false;
             } else {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                                                    "Invalid allow load value: "
-                                                            + copiedProperties.get(PROP_ALLOW_LOAD));
+                        "Invalid allow load value: " + copiedProperties.get(PROP_ALLOW_LOAD));
             }
             copiedProperties.remove(PROP_ALLOW_LOAD);
         }
@@ -105,8 +106,7 @@ public class RestoreStmt extends AbstractBackupStmt {
                 replicationNum = Integer.valueOf(copiedProperties.get(PROP_REPLICATION_NUM));
             } catch (NumberFormatException e) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                                                    "Invalid replication num format: "
-                                                            + copiedProperties.get(PROP_REPLICATION_NUM));
+                        "Invalid replication num format: " + copiedProperties.get(PROP_REPLICATION_NUM));
             }
             copiedProperties.remove(PROP_REPLICATION_NUM);
         }
@@ -117,7 +117,7 @@ public class RestoreStmt extends AbstractBackupStmt {
             copiedProperties.remove(PROP_BACKUP_TIMESTAMP);
         } else {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                                                "Missing " + PROP_BACKUP_TIMESTAMP + " property");
+                    "Missing " + PROP_BACKUP_TIMESTAMP + " property");
         }
 
         // meta version
@@ -126,15 +126,14 @@ public class RestoreStmt extends AbstractBackupStmt {
                 metaVersion = Integer.valueOf(copiedProperties.get(PROP_META_VERSION));
             } catch (NumberFormatException e) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                        "Invalid meta version format: "
-                                + copiedProperties.get(PROP_META_VERSION));
+                        "Invalid meta version format: " + copiedProperties.get(PROP_META_VERSION));
             }
             copiedProperties.remove(PROP_META_VERSION);
         }
 
         if (!copiedProperties.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                                                "Unknown restore job properties: " + copiedProperties.keySet());
+                    "Unknown restore job properties: " + copiedProperties.keySet());
         }
     }
 
@@ -147,11 +146,11 @@ public class RestoreStmt extends AbstractBackupStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("RESTORE SNAPSHOT ").append(labelName.toSql());
-        sb.append("\n").append("FROM ").append(repoName).append("\nON\n(");
-
-        sb.append(Joiner.on(",\n").join(tblRefs));
-
-        sb.append("\n)\nPROPERTIES\n(");
+        sb.append("\n").append("FROM ").append(repoName).append("\n");
+        if (abstractBackupTableRefClause != null) {
+            sb.append(abstractBackupTableRefClause.toSql()).append("\n");
+        }
+        sb.append("PROPERTIES\n(");
         sb.append(new PrintableMap<String, String>(properties, " = ", true, true));
         sb.append("\n)");
         return sb.toString();

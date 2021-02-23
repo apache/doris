@@ -74,6 +74,7 @@ Variables that support both session-level and global-level setting include:
 * `parallel_fragment_exec_instance_num`
 * `parallel_exchange_instance_num`
 * `allow_partition_column_nullable`
+* `insert_visible_timeout_ms`
 
 Variables that support only global-level setting include:
 
@@ -149,6 +150,12 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 * `collation_server`
 
     Used for compatibility with MySQL clients. No practical effect.
+
+* `delete_without_partition`
+
+    When set to true. When using the delete command to delete partition table data, no partition is required. The delete operation will be automatically applied to all partitions.
+
+     Note, however, that the automatic application to all partitions may cause the delete command to take a long time to trigger a large number of subtasks and cause a long time. If it is not necessary, it is not recommended to turn it on.
 
 * `disable_colocate_join`
 
@@ -365,3 +372,8 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 * `allow_partition_column_nullable`
 
     Whether to allow the partition column to be NULL when creating the table. The default is true, which means NULL is allowed. false means the partition column must be defined as NOT NULL.
+
+* `insert_visible_timeout_ms`
+
+    When execute insert statement, doris will wait for the transaction to commit and visible after the import is completed.
+    This parameter controls the timeout of waiting for transaction to be visible. The default value is 10000, and the minimum value is 1000.

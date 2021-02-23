@@ -321,6 +321,45 @@ TEST_F(BitmapFunctionsTest, bitmap_and) {
     BigIntVal expected(1);
     ASSERT_EQ(expected, result);
 }
+
+TEST_F(BitmapFunctionsTest, bitmap_not) {
+    // result is bitmap
+    BitmapValue bitmap1({1024, 1, 2019});
+    BitmapValue bitmap2({33, 44, 2019});
+
+    StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+    StringVal bitmap_str = BitmapFunctions::bitmap_not(ctx, bitmap_src, bitmap_dst);
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
+    BigIntVal expected(2);
+    ASSERT_EQ(expected, result);
+
+    // result is single
+    bitmap1 = BitmapValue({1024, 1, 2019});
+    bitmap2 = BitmapValue({33, 1024, 2019});
+
+    bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+    bitmap_str = BitmapFunctions::bitmap_not(ctx, bitmap_src, bitmap_dst);
+    result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
+    expected = BigIntVal(1);
+    ASSERT_EQ(expected, result);
+
+    // result is empty
+    bitmap1 = BitmapValue({1024, 1, 2019});
+    bitmap2 = BitmapValue({1, 1024, 2019});
+
+    bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+    bitmap_str = BitmapFunctions::bitmap_not(ctx, bitmap_src, bitmap_dst);
+    result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
+    expected = BigIntVal(0);
+    ASSERT_EQ(expected, result);
+}
+
 TEST_F(BitmapFunctionsTest, bitmap_contains) {
     BitmapValue bitmap({4, 5});
     StringVal bitmap_str = convert_bitmap_to_string(ctx, bitmap);

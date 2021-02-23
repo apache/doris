@@ -51,6 +51,9 @@ public:
 
     OLAPStatus flush() override;
 
+    // Return the file size flushed to disk in "flush_size"
+    OLAPStatus flush_single_memtable(MemTable* memtable, int64_t* flush_size) override;
+
     RowsetSharedPtr build() override;
 
     Version version() override { return _context.version; }
@@ -63,27 +66,32 @@ private:
     template <typename RowType>
     OLAPStatus _add_row(const RowType& row);
 
-    OLAPStatus _create_segment_writer();
+    OLAPStatus _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
-    OLAPStatus _flush_segment_writer();
+    OLAPStatus _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
 private:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
-    int _num_segment;
+    AtomicInt<int32_t> _num_segment;
+    /// When flushing the memtable in the load process, we do not use this writer but an independent writer.
+    /// Because we want to flush memtables in parallel.
+    /// In other processes, such as merger or schema change, we will use this unified writer for data writing.
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
+    mutable SpinLock _lock; // lock to protect _wblocks.
     // TODO(lingbin): it is better to wrapper in a Batch?
     std::vector<std::unique_ptr<fs::WritableBlock>> _wblocks;
 
     // counters and statistics maintained during data write
-    int64_t _num_rows_written;
-    int64_t _total_data_size;
-    int64_t _total_index_size;
+    AtomicInt<int64_t> _num_rows_written;
+    AtomicInt<int64_t> _total_data_size;
+    AtomicInt<int64_t> _total_index_size;
     // TODO rowset Zonemap
 
     bool _is_pending = false;
     bool _already_built = false;
+
 };
 
 } // namespace doris

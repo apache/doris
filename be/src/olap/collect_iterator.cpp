@@ -21,6 +21,7 @@
 #include "olap/row.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/beta_rowset_reader.h"
 
 namespace doris {
 
@@ -139,7 +140,14 @@ OLAPStatus CollectIterator::next(const RowCursor** row, bool* delete_flag) {
 }
 
 CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, Reader* reader)
-        : _rs_reader(rs_reader), _is_delete(rs_reader->delete_flag()), _reader(reader) {}
+        : _rs_reader(rs_reader), _is_delete(rs_reader->delete_flag()), _reader(reader) {
+    auto* ans = dynamic_cast<BetaRowsetReader*>(rs_reader.get());
+    if (LIKELY(ans != nullptr)) {
+        _refresh_current_row = &Level0Iterator::_refresh_current_row_v2;
+    } else {
+        _refresh_current_row = &Level0Iterator::_refresh_current_row_v1;
+    }
+}
 
 CollectIterator::Level0Iterator::~Level0Iterator() {}
 
@@ -149,7 +157,7 @@ OLAPStatus CollectIterator::Level0Iterator::init() {
         LOG(WARNING) << "failed to init row cursor, res=" << res;
         return res;
     }
-    RETURN_NOT_OK(_refresh_current_row());
+    RETURN_NOT_OK((this->*_refresh_current_row)());
     return OLAP_SUCCESS;
 }
 
@@ -166,7 +174,7 @@ int64_t CollectIterator::Level0Iterator::version() const {
     return _rs_reader->version().second;
 }
 
-OLAPStatus CollectIterator::Level0Iterator::_refresh_current_row() {
+OLAPStatus CollectIterator::Level0Iterator::_refresh_current_row_v1() {
     do {
         if (_row_block != nullptr && _row_block->has_remaining()) {
             size_t pos = _row_block->pos();
@@ -191,9 +199,28 @@ OLAPStatus CollectIterator::Level0Iterator::_refresh_current_row() {
     return OLAP_ERR_DATA_EOF;
 }
 
+OLAPStatus CollectIterator::Level0Iterator::_refresh_current_row_v2() {
+    do {
+        if (_row_block != nullptr && _row_block->has_remaining()) {
+            size_t pos = _row_block->pos();
+            _row_block->get_row(pos, &_row_cursor);
+            _current_row = &_row_cursor;
+            return OLAP_SUCCESS;
+        } else {
+            auto res = _rs_reader->next_block(&_row_block);
+            if (res != OLAP_SUCCESS) {
+                _current_row = nullptr;
+                return res;
+            }
+        }
+    } while (_row_block != nullptr);
+    _current_row = nullptr;
+    return OLAP_ERR_DATA_EOF;
+}
+
 OLAPStatus CollectIterator::Level0Iterator::next(const RowCursor** row, bool* delete_flag) {
     _row_block->pos_inc();
-    auto res = _refresh_current_row();
+    auto res = (this->*_refresh_current_row)();
     *row = _current_row;
     *delete_flag = _is_delete;
     if (_current_row != nullptr) {

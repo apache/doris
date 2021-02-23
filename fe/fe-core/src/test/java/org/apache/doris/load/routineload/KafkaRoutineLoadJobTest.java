@@ -43,16 +43,16 @@ import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -244,7 +244,7 @@ public class KafkaRoutineLoadJobTest {
     public void testFromCreateStmtWithErrorTable(@Mocked Catalog catalog,
                                                  @Injectable Database database) throws LoadException {
         CreateRoutineLoadStmt createRoutineLoadStmt = initCreateRoutineLoadStmt();
-        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null,
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, null,
                 partitionNames, null, LoadTask.MergeType.APPEND, null);
         Deencapsulation.setField(createRoutineLoadStmt, "routineLoadDesc", routineLoadDesc);
 
@@ -269,7 +269,7 @@ public class KafkaRoutineLoadJobTest {
                                    @Injectable Database database,
             @Injectable OlapTable table) throws UserException {
         CreateRoutineLoadStmt createRoutineLoadStmt = initCreateRoutineLoadStmt();
-        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, partitionNames, null,
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, null, partitionNames, null,
                 LoadTask.MergeType.APPEND, sequenceStmt.getSequenceColName());
         Deencapsulation.setField(createRoutineLoadStmt, "routineLoadDesc", routineLoadDesc);
         List<Pair<Integer, Long>> partitionIdToOffset = Lists.newArrayList();

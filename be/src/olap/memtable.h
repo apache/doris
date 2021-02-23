@@ -46,8 +46,11 @@ public:
     int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
     void insert(const Tuple* tuple);
+    /// Flush 
     OLAPStatus flush();
     OLAPStatus close();
+
+    int64_t flush_size() const { return _flush_size; }
 
 private:
     class RowCursorComparator {
@@ -58,9 +61,29 @@ private:
     private:
         const Schema* _schema;
     };
+
     typedef SkipList<char*, RowCursorComparator> Table;
     typedef Table::key_type TableKey;
 
+public:
+    /// The iterator of memtable, so that the data in this memtable
+    /// can be visited outside.
+    class Iterator {
+        public:
+            Iterator(MemTable* mem_table);
+            ~Iterator() {}
+
+            void seek_to_first();
+            bool valid();
+            void next();
+            ContiguousRow get_current_row();
+
+        private:
+            MemTable* _mem_table;
+            Table::Iterator _it;
+    };
+
+private:
     void _tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool);
     void _aggregate_two_row(const ContiguousRow& new_row, TableKey row_in_skiplist);
 
@@ -88,6 +111,9 @@ private:
     Table::Hint _hint;
 
     RowsetWriter* _rowset_writer;
+
+    // the data size flushed on disk of this memtable
+    int64_t _flush_size = 0;
 
 }; // class MemTable
 

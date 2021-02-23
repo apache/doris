@@ -358,8 +358,8 @@ const OLAPIndexOffset MemIndex::find(const RowCursor& k, RowCursor* helper_curso
         }
 
         offset.offset = *it;
-        VLOG(3) << "show real offset iterator value. off=" << *it;
-        VLOG(3) << "show result offset. seg_off=" << offset.segment << ", off=" << offset.offset;
+        VLOG_NOTICE << "show real offset iterator value. off=" << *it;
+        VLOG_NOTICE << "show result offset. seg_off=" << offset.segment << ", off=" << offset.offset;
     } catch (...) {
         OLAP_LOG_WARNING("fail to compare value in memindex. [cursor='%s' find_last=%d]",
                          k.to_string().c_str(), find_last);

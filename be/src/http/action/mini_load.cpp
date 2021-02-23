@@ -831,7 +831,7 @@ Status MiniLoadAction::_process_put(HttpRequest* req, StreamLoadContext* ctx) {
                      << ctx->brief();
         return plan_status;
     }
-    VLOG(3) << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
+    VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
     return Status::OK();
 }
 

@@ -40,6 +40,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.metric.MetricRepo;
@@ -349,7 +350,7 @@ public class DatabaseTransactionMgr {
      * 5. persistent transactionState
      * 6. update nextVersion because of the failure of persistent transaction resulting in error version
      */
-    public void commitTransaction(long transactionId, List<TabletCommitInfo> tabletCommitInfos,
+    public void commitTransaction(List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos,
                                   TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         // 1. check status
@@ -393,6 +394,10 @@ public class DatabaseTransactionMgr {
         TabletInvertedIndex tabletInvertedIndex = catalog.getTabletInvertedIndex();
         Map<Long, Set<Long>> tabletToBackends = new HashMap<>();
         Map<Long, Set<Long>> tableToPartition = new HashMap<>();
+        Map<Long, Table> idToTable = new HashMap<>();
+        for (int i = 0; i < tableList.size(); i++) {
+            idToTable.put(tableList.get(i).getId(), tableList.get(i));
+        }
         // 2. validate potential exists problem: db->table->partition
         // guarantee exist exception during a transaction
         // if index is dropped, it does not matter.
@@ -408,7 +413,7 @@ public class DatabaseTransactionMgr {
             }
             long tabletId = tabletIds.get(i);
             long tableId = tabletMeta.getTableId();
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            OlapTable tbl = (OlapTable) idToTable.get(tableId);
             if (tbl == null) {
                 // this can happen when tableId == -1 (tablet being dropping)
                 // or table really not exist.
@@ -658,7 +663,24 @@ public class DatabaseTransactionMgr {
                 writeUnlock();
             }
         }
-        db.writeLock();
+        List<Long> tableIdList = transactionState.getTableIdList();
+        // to be compatiable with old meta version, table List may be empty
+        if (tableIdList.isEmpty()) {
+           readLock();
+           try {
+               for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
+                   long tableId = tableCommitInfo.getTableId();
+                   if (!tableIdList.contains(tableId)) {
+                       tableIdList.add(tableId);
+                   }
+               }
+           } finally {
+               readUnlock();
+           }
+        }
+
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
+        MetaLockUtils.writeLockTables(tableList);
         try {
             boolean hasError = false;
             Iterator<TableCommitInfo> tableCommitInfoIterator = transactionState.getIdToTableCommitInfos().values().iterator();
@@ -799,7 +821,7 @@ public class DatabaseTransactionMgr {
             }
             updateCatalogAfterVisible(transactionState, db);
         } finally {
-            db.writeUnlock();
+            MetaLockUtils.writeUnlockTables(tableList);
         }
         LOG.info("finish transaction {} successfully", transactionState);
     }

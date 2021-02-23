@@ -42,12 +42,12 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -82,7 +82,9 @@ public class BrokerFileGroup implements Writable {
     private List<ImportColumnDesc> columnExprList;
     // this is only for hadoop function check
     private Map<String, Pair<String, List<String>>> columnToHadoopFunction;
-    // filter the data which has been conformed
+    // filter the data from source directly
+    private Expr precedingFilterExpr;
+    // filter the data which has been mapped and transformed
     private Expr whereExpr;
     private Expr deleteCondition;
     private LoadTask.MergeType mergeType;
@@ -120,6 +122,7 @@ public class BrokerFileGroup implements Writable {
         this.columnsFromPath = dataDescription.getColumnsFromPath();
         this.columnExprList = dataDescription.getParsedColumnExprList();
         this.columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
+        this.precedingFilterExpr = dataDescription.getPrecdingFilterExpr();
         this.whereExpr = dataDescription.getWhereExpr();
         this.deleteCondition = dataDescription.getDeleteCondition();
         this.mergeType = dataDescription.getMergeType();
@@ -140,35 +143,39 @@ public class BrokerFileGroup implements Writable {
         }
         OlapTable olapTable = (OlapTable) table;
         tableId = table.getId();
-
-        // partitionId
-        PartitionNames partitionNames = dataDescription.getPartitionNames();
-        if (partitionNames != null) {
-            partitionIds = Lists.newArrayList();
-            for (String pName : partitionNames.getPartitionNames()) {
-                Partition partition = olapTable.getPartition(pName, partitionNames.isTemp());
-                if (partition == null) {
-                    throw new DdlException("Unknown partition '" + pName + "' in table '" + table.getName() + "'");
-                }
-                partitionIds.add(partition.getId());
-            }
-        }
-
-        if (olapTable.getState() == OlapTableState.RESTORE) {
-            throw new DdlException("Table [" + table.getName() + "] is under restore");
-        }
-
-        if (olapTable.getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
-            throw new DdlException("Load for AGG_KEYS table should not specify NEGATIVE");
-        }
-
-        // check negative for sum aggregate type
-        if (dataDescription.isNegative()) {
-            for (Column column : table.getBaseSchema()) {
-                if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
-                    throw new DdlException("Column is not SUM AggregateType. column:" + column.getName());
+        table.readLock();
+        try {
+            // partitionId
+            PartitionNames partitionNames = dataDescription.getPartitionNames();
+            if (partitionNames != null) {
+                partitionIds = Lists.newArrayList();
+                for (String pName : partitionNames.getPartitionNames()) {
+                    Partition partition = olapTable.getPartition(pName, partitionNames.isTemp());
+                    if (partition == null) {
+                        throw new DdlException("Unknown partition '" + pName + "' in table '" + table.getName() + "'");
+                    }
+                    partitionIds.add(partition.getId());
                 }
             }
+
+            if (olapTable.getState() == OlapTableState.RESTORE) {
+                throw new DdlException("Table [" + table.getName() + "] is under restore");
+            }
+
+            if (olapTable.getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
+                throw new DdlException("Load for AGG_KEYS table should not specify NEGATIVE");
+            }
+
+            // check negative for sum aggregate type
+            if (dataDescription.isNegative()) {
+                for (Column column : table.getBaseSchema()) {
+                    if (!column.isKey() && column.getAggregationType() != AggregateType.SUM) {
+                        throw new DdlException("Column is not SUM AggregateType. column:" + column.getName());
+                    }
+                }
+            }
+        } finally {
+            table.readUnlock();
         }
 
         // column
@@ -254,6 +261,10 @@ public class BrokerFileGroup implements Writable {
 
     public List<Long> getPartitionIds() {
         return partitionIds;
+    }
+
+    public Expr getPrecedingFilterExpr() {
+        return precedingFilterExpr;
     }
 
     public Expr getWhereExpr() {

@@ -21,6 +21,7 @@
 #include <sstream>
 
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"

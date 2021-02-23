@@ -45,7 +45,7 @@ OLAPStatus CumulativeCompaction::prepare_compact() {
     // 1.calculate cumulative point
     _tablet->calculate_cumulative_point();
     TRACE("calculated cumulative point");
-    VLOG(1) << "after calculate, current cumulative point is " << _tablet->cumulative_layer_point()
+    VLOG_CRITICAL << "after calculate, current cumulative point is " << _tablet->cumulative_layer_point()
             << ", tablet=" << _tablet->full_name();
 
     // 2. pick rowsets to compact

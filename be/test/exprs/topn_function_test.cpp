@@ -16,6 +16,7 @@
 // under the License.
 
 #include "exprs/anyval_util.h"
+#include "exprs/expr_context.h"
 #include "exprs/topn_function.h"
 #include "util/topn_counter.h"
 #include "testutil/function_utils.h"

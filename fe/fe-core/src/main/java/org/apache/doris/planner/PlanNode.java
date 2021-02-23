@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.base.Predicates;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -31,13 +30,14 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanNode;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.math.LongMath;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -81,6 +81,18 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     protected Set<TupleId> nullableTupleIds = Sets.newHashSet();
 
     protected List<Expr> conjuncts = Lists.newArrayList();
+
+    // Conjuncts used to filter the original load file.
+    // In the load execution plan, the difference between "preFilterConjuncts" and "conjuncts" is that
+    // conjuncts are used to filter the data after column conversion and mapping,
+    // while fileFilterConjuncts directly filter the content read from the source data.
+    // That is, the data processing flow is:
+    //
+    //  1. Read data from source.
+    //  2. Filter data by using "preFilterConjuncts".
+    //  3. Do column mapping and transforming.
+    //  4. Filter data by using "conjuncts".
+    protected List<Expr> preFilterConjuncts = Lists.newArrayList();
 
     // Fragment that this PlanNode is executed in. Valid only after this PlanNode has been
     // assigned to a fragment. Set and maintained by enclosing PlanFragment.
@@ -261,6 +273,13 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             return;
         }
         this.conjuncts.addAll(conjuncts);
+    }
+
+    public void addPreFilterConjuncts(List<Expr> conjuncts) {
+        if (conjuncts == null) {
+            return;
+        }
+        this.preFilterConjuncts.addAll(conjuncts);
     }
 
     public void transferConjuncts(PlanNode recipient) {

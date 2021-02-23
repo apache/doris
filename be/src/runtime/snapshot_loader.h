@@ -32,12 +32,8 @@
 namespace doris {
 
 class ExecEnv;
-
-struct FileStat {
-    std::string name;
-    std::string md5;
-    int64_t size;
-};
+class StorageBackend;
+class FileStat;
 
 /*
  * Upload:
@@ -62,17 +58,18 @@ struct FileStat {
 class SnapshotLoader {
 public:
     SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id);
+    SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
+                   const TNetworkAddress& broker_addr,
+                   const std::map<std::string, std::string>& broker_prop);
+    SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
+                   const std::map<std::string, std::string>& broker_prop);
 
     ~SnapshotLoader();
 
     Status upload(const std::map<std::string, std::string>& src_to_dest_path,
-                  const TNetworkAddress& broker_addr,
-                  const std::map<std::string, std::string>& broker_prop,
                   std::map<int64_t, std::vector<std::string>>* tablet_files);
 
     Status download(const std::map<std::string, std::string>& src_to_dest_path,
-                    const TNetworkAddress& broker_addr,
-                    const std::map<std::string, std::string>& broker_prop,
                     std::vector<int64_t>* downloaded_tablet_ids);
 
     Status move(const std::string& snapshot_path, TabletSharedPtr tablet, bool overwrite);
@@ -84,17 +81,8 @@ private:
     Status _check_local_snapshot_paths(const std::map<std::string, std::string>& src_to_dest_path,
                                        bool check_src);
 
-    Status _get_existing_files_from_remote(BrokerServiceConnection& client,
-                                           const std::string& remote_path,
-                                           const std::map<std::string, std::string>& broker_prop,
-                                           std::map<std::string, FileStat>* files);
-
     Status _get_existing_files_from_local(const std::string& local_path,
                                           std::vector<std::string>* local_files);
-
-    Status _rename_remote_file(BrokerServiceConnection& client, const std::string& orig_name,
-                               const std::string& new_name,
-                               const std::map<std::string, std::string>& broker_prop);
 
     bool _end_with(const std::string& str, const std::string& match);
 
@@ -115,6 +103,9 @@ private:
     ExecEnv* _env;
     int64_t _job_id;
     int64_t _task_id;
+    const TNetworkAddress& _broker_addr;
+    const std::map<std::string, std::string>& _prop;
+    std::unique_ptr<StorageBackend> _storage_backend;
 };
 
 } // end namespace doris

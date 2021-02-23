@@ -22,12 +22,12 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.DataInput;
@@ -36,7 +36,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.UnsupportedEncodingException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
@@ -45,9 +44,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
 import java.util.function.Predicate;
-import java.util.zip.Adler32;
 
 public class Util {
     private static final Logger LOG = LogManager.getLogger(Util.class);
@@ -76,6 +73,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
         TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
+        TYPE_STRING_MAP.put(PrimitiveType.NULL_TYPE, "null");
     }
     
     private static class CmdWorker extends Thread {
@@ -215,72 +213,15 @@ public class Util {
         }
         return tokens;
     }
-    
-    public static int schemaHash(int schemaVersion, List<Column> columns, Set<String> bfColumns, double bfFpp) {
-        Adler32 adler32 = new Adler32();
-        adler32.update(schemaVersion);
-        String charsetName = "UTF-8";
-        try {
-            List<String> indexColumnNames = Lists.newArrayList();
-            List<String> bfColumnNames = Lists.newArrayList();
-            // columns
-            for (Column column : columns) {
-                adler32.update(column.getName().getBytes(charsetName));
-                PrimitiveType dataType = column.getDataType();
-                String typeString = null;
-                switch (dataType) {
-                    case CHAR:
-                        typeString = String.format(
-                                TYPE_STRING_MAP.get(dataType), column.getStrLen());
-                        break;
-                    case VARCHAR:
-                        typeString = String.format(
-                                TYPE_STRING_MAP.get(dataType), column.getStrLen());
-                        break;
-                    case DECIMAL:
-                    case DECIMALV2:
-                        typeString = String.format(
-                                TYPE_STRING_MAP.get(dataType), column.getPrecision(), 
-                                column.getScale());
-                        break;
-                    default:
-                        typeString = TYPE_STRING_MAP.get(dataType);
-                        break;
-                }
-                adler32.update(typeString.getBytes(charsetName));
 
-                String columnName = column.getName();
-                if (column.isKey()) {
-                    indexColumnNames.add(columnName);
-                }
-
-                if (bfColumns != null && bfColumns.contains(columnName)) {
-                    bfColumnNames.add(columnName);
-                }
-            }
-            
-            // index column name
-            for (String columnName : indexColumnNames) {
-                adler32.update(columnName.getBytes(charsetName));
-            }
-
-            // bloom filter index
-            if (!bfColumnNames.isEmpty()) {
-                // bf column name
-                for (String columnName : bfColumnNames) {
-                    adler32.update(columnName.getBytes(charsetName));
-                }
-
-                // bf fpp
-                String bfFppStr = String.valueOf(bfFpp);
-                adler32.update(bfFppStr.getBytes(charsetName));
-            }
-        } catch (UnsupportedEncodingException e) {
-            LOG.error("encoding error", e);
-            return -1;
+    // Get a string represent the schema signature, contains:
+    // list of columns and bloom filter column info.
+    public static String getSchemaSignatureString(List<Column> columns) {
+        StringBuilder sb = new StringBuilder();
+        for (Column column : columns) {
+            sb.append(column.getSignatureString(TYPE_STRING_MAP));
         }
-
-        return Math.abs((int) adler32.getValue());
+        return sb.toString();
     }
     
     public static long generateVersionHash() {

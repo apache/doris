@@ -18,11 +18,11 @@
 #include "plugin/plugin_mgr.h"
 
 #include <gtest/gtest.h>
-#include <libgen.h>
 
 #include "plugin/plugin.h"
 #include "plugin/plugin_loader.h"
 #include "string"
+#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -60,10 +60,8 @@ Plugin demo_plugin = {
 class PluginMgrTest : public testing::Test {
 public:
     PluginMgrTest() {
-        char buf[1024];
-        readlink("/proc/self/exe", buf, 1023);
-        char* dir_path = dirname(buf);
-        _path = std::string(dir_path);
+        _path = GetCurrentRunningDir();
+        EXPECT_FALSE(_path.empty());
     }
 
     ~PluginMgrTest() {}

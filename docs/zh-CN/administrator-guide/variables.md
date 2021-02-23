@@ -74,6 +74,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 * `parallel_fragment_exec_instance_num`
 * `parallel_exchange_instance_num`
 * `allow_partition_column_nullable`
+* `insert_visible_timeout_ms`
 
 只支持全局生效的变量包括：
 
@@ -149,6 +150,12 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
 * `collation_server`
 
     用于兼容 MySQL 客户端。无实际作用。
+
+* `delete_without_partition`
+
+    设置为 true 时。当使用 delete 命令删除分区表数据时，可以不指定分区。delete 操作将会自动应用到所有分区。
+
+    但注意，自动应用到所有分区可能到导致 delete 命令耗时触发大量子任务导致耗时较长。如无必要，不建议开启。
     
 * `disable_colocate_join`
 
@@ -364,3 +371,7 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
 * `allow_partition_column_nullable`
 
     建表时是否允许分区列为NULL。默认为true，表示允许为NULL。false 表示分区列必须被定义为NOT NULL
+
+* `insert_visible_timeout_ms`
+
+    在执行insert语句时，导入动作(查询和插入)完成后，还需要等待事务提交，使数据可见。此参数控制等待数据可见的超时时间，默认为10000，最小为1000。

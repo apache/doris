@@ -34,7 +34,7 @@ CONF_Int32(be_port, "9060");
 CONF_Int32(brpc_port, "8060");
 
 // the number of bthreads for brpc, the default value is set to -1, which means the number of bthreads is #cpu-cores
-CONF_Int32(brpc_num_threads, "-1")
+CONF_Int32(brpc_num_threads, "-1");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -243,7 +243,7 @@ CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
 
 // config the cumulative compaction policy
-// Valid configs: num_base, size_based
+// Valid configs: num_based, size_based
 // num_based policy, the original version of cumulative compaction, cumulative version compaction once.
 // size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring
 // lower write amplification, trading off read amplification and space amplification.
@@ -283,6 +283,9 @@ CONF_mInt32(max_compaction_threads, "10");
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
 
+// sleep interval in ms after generated compaction tasks
+CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10")
+
 // Compaction task number per disk.
 CONF_mInt32(compaction_task_num_per_disk, "2");
 
@@ -304,6 +307,12 @@ CONF_mInt64(tablet_scan_frequency_time_node_interval_second, "300");
 // coefficient for tablet scan frequency and compaction score when finding a tablet for compaction
 CONF_mInt32(compaction_tablet_scan_frequency_factor, "0");
 CONF_mInt32(compaction_tablet_compaction_score_factor, "1");
+
+// This config can be set to limit thread number in tablet migration thread pool.
+CONF_Int32(min_tablet_migration_threads, "1");
+CONF_Int32(max_tablet_migration_threads, "1");
+
+CONF_mInt32(finished_migration_tasks_size, "10000");
 
 // Port to start debug webserver on
 CONF_Int32(webserver_port, "8040");
@@ -330,8 +339,12 @@ CONF_mInt64(streaming_load_json_max_mb, "100");
 CONF_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
-CONF_mInt32(tablet_writer_open_rpc_timeout_sec, "60");
+CONF_Int32(tablet_writer_open_rpc_timeout_sec, "60");
+// You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
+CONF_mBool(tablet_writer_ignore_eovercrowded, "false");
+
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
+// You may need to lower the speed when the sink receiver bes are too busy.
 CONF_mInt32(olap_table_sink_send_interval_ms, "1");
 
 // Fragment thread pool
@@ -548,9 +561,12 @@ CONF_Int32(query_cache_max_partition_count, "1024");
 // This is to avoid too many version num.
 CONF_mInt32(max_tablet_version_num, "500");
 
-// Frontend mainly use two thrift sever type: THREAD_POOL, THREADED. if fe use THREADED model for thrift server,
-// the thrift_server_type_of_fe should be set THREADED to make be thrift client to fe constructed with TFramedTransport
+// Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
+// the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
 CONF_String(thrift_server_type_of_fe, "THREAD_POOL");
+
+// disable zone map index when page row is too few
+CONF_mInt32(zone_map_row_num_threshold, "20");
 
 } // namespace config
 

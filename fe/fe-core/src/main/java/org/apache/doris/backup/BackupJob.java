@@ -17,6 +17,8 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.analysis.BackupStmt;
+import org.apache.doris.analysis.BackupStmt.BackupContent;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Catalog;
@@ -24,12 +26,16 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.View;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.task.AgentBatchTask;
@@ -87,11 +93,12 @@ public class BackupJob extends AbstractJob {
 
     // all objects which need backup
     private List<TableRef> tableRefs = Lists.newArrayList();
+//    private BackupContent content = BackupContent.ALL;
 
     private BackupJobState state;
 
     private long snapshotFinishedTime = -1;
-    private long snapshopUploadFinishedTime = -1;
+    private long snapshotUploadFinishedTime = -1;
 
     // save task id map to the backend it be executed
     private Map<Long, Long> unfinishedTaskIds = Maps.newConcurrentMap();
@@ -108,16 +115,19 @@ public class BackupJob extends AbstractJob {
     // save the local file path of meta info and job info file
     private String localMetaInfoFilePath = null;
     private String localJobInfoFilePath = null;
+    // backup properties
+    private Map<String, String> properties = Maps.newHashMap();
 
     public BackupJob() {
         super(JobType.BACKUP);
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
-            Catalog catalog, long repoId) {
+                     BackupContent content, Catalog catalog, long repoId) {
         super(JobType.BACKUP, label, dbId, dbName, timeoutMs, catalog, repoId);
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
+        properties.put(BackupStmt.PROP_CONTENT, content.name());
     }
 
     public BackupJobState getState() {
@@ -138,6 +148,13 @@ public class BackupJob extends AbstractJob {
 
     public String getLocalMetaInfoFilePath() {
         return localMetaInfoFilePath;
+    }
+
+    public BackupContent getContent() {
+        if (properties.containsKey(BackupStmt.PROP_CONTENT)) {
+            return BackupStmt.BackupContent.valueOf(properties.get(BackupStmt.PROP_CONTENT).toUpperCase());
+        }
+        return BackupContent.ALL;
     }
 
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
@@ -341,103 +358,48 @@ public class BackupJob extends AbstractJob {
 
         // generate job id
         jobId = catalog.getNextId();
+        unfinishedTaskIds.clear();
+        taskProgress.clear();
+        taskErrMsg.clear();
         AgentBatchTask batchTask = new AgentBatchTask();
-        db.readLock();
-        try {
-            // check all backup tables again
-            for (TableRef tableRef : tableRefs) {
-                String tblName = tableRef.getName().getTbl();
-                Table tbl = db.getTable(tblName);
-                if (tbl == null) {
-                    status = new Status(ErrCode.NOT_FOUND, "table " + tblName + " does not exist");
-                    return;
-                }
-                if (tbl.getType() != TableType.OLAP) {
-                    status = new Status(ErrCode.COMMON_ERROR, "table " + tblName + " is not OLAP table");
-                    return;
-                }
-
-                OlapTable olapTbl = (OlapTable) tbl;
-                if (tableRef.getPartitionNames() != null) {
-                    for (String partName : tableRef.getPartitionNames().getPartitionNames()) {
-                        Partition partition = olapTbl.getPartition(partName);
-                        if (partition == null) {
-                            status = new Status(ErrCode.NOT_FOUND, "partition " + partName
-                                    + " does not exist  in table" + tblName);
+        for (TableRef tableRef : tableRefs) {
+            String tblName = tableRef.getName().getTbl();
+            Table tbl = db.getTable(tblName);
+            if (tbl == null) {
+                status = new Status(ErrCode.NOT_FOUND, "table " + tblName + " does not exist");
+                return;
+            }
+            switch (tbl.getType()){
+                case OLAP:
+                    checkOlapTable((OlapTable) tbl, tableRef);
+                    if (getContent() == BackupContent.ALL) {
+                        prepareSnapshotTaskForOlapTable((OlapTable) tbl, tableRef, batchTask);
+                    }
+                    break;
+                case VIEW:
+                    break;
+                case ODBC:
+                    OdbcTable odbcTable = (OdbcTable) tbl;
+                    if (odbcTable.getOdbcCatalogResourceName() != null) {
+                        String odbcResourceName = odbcTable.getOdbcCatalogResourceName();
+                        Resource resource = Catalog.getCurrentCatalog().getResourceMgr()
+                                .getResource(odbcResourceName);
+                        if (resource == null) {
+                            status = new Status(ErrCode.NOT_FOUND, "resource " + odbcResourceName
+                                    + " related to " + tblName + "does not exist.");
                             return;
                         }
                     }
-                }
-            }
-
-            unfinishedTaskIds.clear();
-            taskProgress.clear();
-            taskErrMsg.clear();
-            // create snapshot tasks
-            for (TableRef tblRef : tableRefs) {
-                String tblName = tblRef.getName().getTbl();
-                OlapTable tbl = (OlapTable) db.getTable(tblName);
-                List<Partition> partitions = Lists.newArrayList();
-                if (tblRef.getPartitionNames() == null) {
-                    partitions.addAll(tbl.getPartitions());
-                } else {
-                    for (String partName : tblRef.getPartitionNames().getPartitionNames()) {
-                        Partition partition = tbl.getPartition(partName);
-                        partitions.add(partition);
-                    }
-                }
-
-                // snapshot partitions
-                for (Partition partition : partitions) {
-                    long visibleVersion = partition.getVisibleVersion();
-                    long visibleVersionHash = partition.getVisibleVersionHash();
-                    List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.VISIBLE);
-                    for (MaterializedIndex index : indexes) {
-                        int schemaHash = tbl.getSchemaHashByIndexId(index.getId());
-                        List<Tablet> tablets = index.getTablets();
-                        for (Tablet tablet : tablets) {
-                            Replica replica = chooseReplica(tablet, visibleVersion, visibleVersionHash);
-                            if (replica == null) {
-                                status = new Status(ErrCode.COMMON_ERROR,
-                                        "failed to choose replica to make snapshot for tablet " + tablet.getId()
-                                                + ". visible version: " + visibleVersion
-                                                + ", visible version hash: " + visibleVersionHash);
-                                return;
-                            }
-                            SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
-                                    jobId, dbId, tbl.getId(), partition.getId(),
-                                    index.getId(), tablet.getId(),
-                                    visibleVersion, visibleVersionHash,
-                                    schemaHash, timeoutMs, false /* not restore task */);
-                            batchTask.addTask(task);
-                            unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
-                        }
-                    }
-
-                    LOG.info("snapshot for partition {}, version: {}, version hash: {}",
-                             partition.getId(), visibleVersion, visibleVersionHash);
-                }
-            }
-
-            // copy all related schema at this moment
-            List<Table> copiedTables = Lists.newArrayList();
-            for (TableRef tableRef : tableRefs) {
-                String tblName = tableRef.getName().getTbl();
-                OlapTable tbl = (OlapTable) db.getTable(tblName);
-                // only copy visible indexes
-                List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
-                        : tableRef.getPartitionNames().getPartitionNames();
-                OlapTable copiedTbl = tbl.selectiveCopy(reservedPartitions, true, IndexExtState.VISIBLE);
-                if (copiedTbl == null) {
-                    status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + tblName);
+                    break;
+                default:
+                    status = new Status(ErrCode.COMMON_ERROR,
+                            "backup job does not support this type of table " + tblName);
                     return;
-                }
-                copiedTables.add(copiedTbl);
             }
-            backupMeta = new BackupMeta(copiedTables);
-        } finally {
-            db.readUnlock();
         }
+
+        // copy all related schema at this moment
+        prepareBackupMeta(db);
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
@@ -451,6 +413,142 @@ public class BackupJob extends AbstractJob {
         // will be re-generated and be sent again
         LOG.info("finished to send snapshot tasks to backend. {}", this);
     }
+
+    private void checkOlapTable(OlapTable olapTable, TableRef backupTableRef) {
+        olapTable.readLock();
+        try {
+            // check backup table again
+            if (backupTableRef.getPartitionNames() != null) {
+                for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
+                    Partition partition = olapTable.getPartition(partName);
+                    if (partition == null) {
+                        status = new Status(ErrCode.NOT_FOUND, "partition " + partName
+                                + " does not exist  in table" + backupTableRef.getName().getTbl());
+                        return;
+                    }
+                }
+            }
+        }  finally {
+            olapTable.readUnlock();
+        }
+    }
+
+    private void prepareSnapshotTaskForOlapTable(OlapTable olapTable, TableRef backupTableRef, AgentBatchTask batchTask) {
+        olapTable.readLock();
+        try {
+            // check backup table again
+            if (backupTableRef.getPartitionNames() != null) {
+                for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
+                    Partition partition = olapTable.getPartition(partName);
+                    if (partition == null) {
+                        status = new Status(ErrCode.NOT_FOUND, "partition " + partName
+                                + " does not exist  in table" + backupTableRef.getName().getTbl());
+                        return;
+                    }
+                }
+            }
+
+            // create snapshot tasks
+            List<Partition> partitions = Lists.newArrayList();
+            if (backupTableRef.getPartitionNames() == null) {
+                partitions.addAll(olapTable.getPartitions());
+            } else {
+                for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
+                    Partition partition = olapTable.getPartition(partName);
+                    partitions.add(partition);
+                }
+            }
+
+            // snapshot partitions
+            for (Partition partition : partitions) {
+                long visibleVersion = partition.getVisibleVersion();
+                long visibleVersionHash = partition.getVisibleVersionHash();
+                List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.VISIBLE);
+                for (MaterializedIndex index : indexes) {
+                    int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
+                    List<Tablet> tablets = index.getTablets();
+                    for (Tablet tablet : tablets) {
+                        Replica replica = chooseReplica(tablet, visibleVersion, visibleVersionHash);
+                        if (replica == null) {
+                            status = new Status(ErrCode.COMMON_ERROR,
+                                    "failed to choose replica to make snapshot for tablet " + tablet.getId()
+                                            + ". visible version: " + visibleVersion
+                                            + ", visible version hash: " + visibleVersionHash);
+                            return;
+                        }
+                        SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
+                                jobId, dbId, olapTable.getId(), partition.getId(),
+                                index.getId(), tablet.getId(),
+                                visibleVersion, visibleVersionHash,
+                                schemaHash, timeoutMs, false /* not restore task */);
+                        batchTask.addTask(task);
+                        unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
+                    }
+                }
+
+                LOG.info("snapshot for partition {}, version: {}, version hash: {}",
+                        partition.getId(), visibleVersion, visibleVersionHash);
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+    }
+
+    private void prepareBackupMeta(Database db) {
+        // copy all related schema at this moment
+        List<Table> copiedTables = Lists.newArrayList();
+        List<Resource> copiedResources = Lists.newArrayList();
+        for (TableRef tableRef : tableRefs) {
+            String tblName = tableRef.getName().getTbl();
+            Table table = db.getTable(tblName);
+            table.readLock();
+            try {
+                if (table.getType() == TableType.OLAP) {
+                    OlapTable olapTable = (OlapTable) table;
+                    // only copy visible indexes
+                    List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
+                            : tableRef.getPartitionNames().getPartitionNames();
+                    OlapTable copiedTbl = olapTable.selectiveCopy(reservedPartitions, true, IndexExtState.VISIBLE);
+                    if (copiedTbl == null) {
+                        status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + tblName);
+                        return;
+                    }
+                    copiedTables.add(copiedTbl);
+                } else if (table.getType() == TableType.VIEW) {
+                    View view = (View) table;
+                    View copiedView = view.clone();
+                    if (copiedView == null) {
+                        status = new Status(ErrCode.COMMON_ERROR, "failed to copy view: " + tblName);
+                        return;
+                    }
+                    copiedTables.add(copiedView);
+                } else if (table.getType() == TableType.ODBC) {
+                    OdbcTable odbcTable = (OdbcTable) table;
+                    OdbcTable copiedOdbcTable = odbcTable.clone();
+                    if (copiedOdbcTable == null) {
+                        status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc table: " + tblName);
+                        return;
+                    }
+                    copiedTables.add(copiedOdbcTable);
+                    if (copiedOdbcTable.getOdbcCatalogResourceName() != null) {
+                        Resource resource = Catalog.getCurrentCatalog().getResourceMgr()
+                                .getResource(copiedOdbcTable.getOdbcCatalogResourceName());
+                        Resource copiedResource = resource.clone();
+                        if (copiedResource == null) {
+                            status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc resource: "
+                                    + resource.getName());
+                            return;
+                        }
+                        copiedResources.add(copiedResource);
+                    }
+                }
+            } finally {
+                table.readUnlock();
+            }
+        }
+        backupMeta = new BackupMeta(copiedTables, copiedResources);
+    }
+
 
     private void waitingAllSnapshotsFinished() {
         if (unfinishedTaskIds.isEmpty()) {
@@ -509,7 +607,7 @@ public class BackupJob extends AbstractJob {
                 }
                 long signature = catalog.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
-                        brokers.get(0), repo.getStorage().getProperties());
+                        brokers.get(0), repo.getStorage().getProperties(), repo.getStorage().getStorageType());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
             }
@@ -529,7 +627,7 @@ public class BackupJob extends AbstractJob {
 
     private void waitingAllUploadingFinished() {
         if (unfinishedTaskIds.isEmpty()) {
-            snapshopUploadFinishedTime = System.currentTimeMillis();
+            snapshotUploadFinishedTime = System.currentTimeMillis();
             state = BackupJobState.SAVE_META;
 
             // log
@@ -572,8 +670,7 @@ public class BackupJob extends AbstractJob {
             localMetaInfoFilePath = metaInfoFile.getAbsolutePath();
 
             // 3. save job info file
-            jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId, backupMeta.getTables().values(),
-                                                snapshotInfos);
+            jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId, getContent(), backupMeta, snapshotInfos);
             LOG.debug("job info: {}. {}", jobInfo, this);
             File jobInfoFile = new File(jobDir, Repository.PREFIX_JOB_INFO + createTimeStr);
             if (!jobInfoFile.createNewFile()) {
@@ -733,7 +830,7 @@ public class BackupJob extends AbstractJob {
         info.add(getBackupObjs());
         info.add(TimeUtils.longToTimeString(createTime));
         info.add(TimeUtils.longToTimeString(snapshotFinishedTime));
-        info.add(TimeUtils.longToTimeString(snapshopUploadFinishedTime));
+        info.add(TimeUtils.longToTimeString(snapshotUploadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
         info.add(Joiner.on(", ").join(unfinishedTaskIds.entrySet()));
         info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
@@ -772,7 +869,7 @@ public class BackupJob extends AbstractJob {
 
         // times
         out.writeLong(snapshotFinishedTime);
-        out.writeLong(snapshopUploadFinishedTime);
+        out.writeLong(snapshotUploadFinishedTime);
 
         // snapshot info
         out.writeInt(snapshotInfos.size());
@@ -804,6 +901,13 @@ public class BackupJob extends AbstractJob {
             out.writeBoolean(true);
             Text.writeString(out, localJobInfoFilePath);
         }
+
+        // write properties
+        out.writeInt(properties.size());
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            Text.writeString(out, entry.getValue());
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -822,7 +926,7 @@ public class BackupJob extends AbstractJob {
 
         // times
         snapshotFinishedTime = in.readLong();
-        snapshopUploadFinishedTime = in.readLong();
+        snapshotUploadFinishedTime = in.readLong();
 
         // snapshot info
         size = in.readInt();
@@ -846,6 +950,17 @@ public class BackupJob extends AbstractJob {
 
         if (in.readBoolean()) {
             localJobInfoFilePath = Text.readString(in);
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_95) {
+            return;
+        }
+        // read properties
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            String key = Text.readString(in);
+            String value = Text.readString(in);
+            properties.put(key, value);
         }
     }
 

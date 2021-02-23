@@ -60,7 +60,7 @@ public class DropFunctionStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("DROP FUNCTION ").append(functionName);
+        stringBuilder.append("DROP FUNCTION ").append(functionName).append(argsDef);
         return stringBuilder.toString();
     }
 
