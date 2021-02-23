@@ -66,7 +66,7 @@ public:
         curl_easy_setopt(_curl, CURLOPT_COPYPOSTFIELDS, post_body.c_str());
     }
 
-    void set_ssl() {
+    void use_ssl() {
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, false);
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, false);
     }

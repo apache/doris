@@ -43,7 +43,7 @@ public class EsNodeInfo {
 
     private static final Logger LOG = LogManager.getLogger(EsNodeInfo.class);
 
-    public EsNodeInfo(String id, Map<String, Object> map) throws DorisEsException {
+    public EsNodeInfo(String id, Map<String, Object> map) {
         this.id = id;
         EsMajorVersion version = EsMajorVersion.parse((String) map.get("version"));
         this.name = (String) map.get("name");
@@ -101,21 +101,17 @@ public class EsNodeInfo {
         }
     }
 
-    public EsNodeInfo(String id, String seed, boolean useSslClient) throws DorisEsException {
+    public EsNodeInfo(String id, String seed, boolean useSslClient) {
         this.id = id;
-        if (seed.startsWith("http://")) {
-            seed = seed.substring(7);
-        }
-        if (seed.startsWith("https://")) {
-            seed = seed.substring(8);
+        if (!seed.startsWith("http")) {
+            seed = useSslClient ? "https://" + seed : "http://" + seed;
         }
         String[] scratch = seed.split(":");
         int port = 80;
-        String remoteHost = (useSslClient ? "https://" : "http://") + scratch[0];
-        if (scratch.length == 2) {
-            port = Integer.parseInt(scratch[1]);
+        if (scratch.length == 3) {
+            port = Integer.parseInt(scratch[2]);
         }
-        LOG.info("--------------- remoteHost={}, port={} -------------", remoteHost, port);
+        String remoteHost = scratch[0] + ":" + scratch[1];
         this.name = remoteHost;
         this.host = remoteHost;
         this.ip = remoteHost;

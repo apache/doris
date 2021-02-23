@@ -212,6 +212,15 @@ public class EsTable extends Table {
 
         if (properties.containsKey(USE_SSL_CLIENT)) {
             useSslClient = EsUtil.getBooleanProperty(properties, USE_SSL_CLIENT);
+            // check protocol
+            for (String seed : seeds) {
+                if (useSslClient && seed.startsWith("http://")) {
+                    throw new DdlException("if use_ssl_client is true, the https protocol must be used");
+                }
+                if (!useSslClient && seed.startsWith("https://")) {
+                    throw new DdlException("if use_ssl_client is false, the http protocol must be used");
+                }
+            }
         }
 
         if (!Strings.isNullOrEmpty(properties.get(TYPE))
@@ -256,7 +265,6 @@ public class EsTable extends Table {
 
     public TTableDescriptor toThrift() {
         TEsTable tEsTable = new TEsTable();
-        tEsTable.setUseSslClient(useSslClient);
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE,
                 fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setEsTable(tEsTable);

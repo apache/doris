@@ -73,7 +73,6 @@ public class EsRestClient {
         }
         this.currentNode = nodes[currentNodeIndex];
         if (useSslClient) {
-            LOG.info("use ssl client");
             networkClient = new OkHttpClient.Builder()
                     .readTimeout(10, TimeUnit.SECONDS)
                     .sslSocketFactory(createSSLSocketFactory(), new TrustAllCerts())
@@ -245,16 +244,14 @@ public class EsRestClient {
     }
 
     private static SSLSocketFactory createSSLSocketFactory() {
-        SSLSocketFactory ssfFactory = null;
-
+        SSLSocketFactory ssfFactory;
         try {
             SSLContext sc = SSLContext.getInstance("TLS");
             sc.init(null, new TrustManager[]{new TrustAllCerts()}, new SecureRandom());
-
             ssfFactory = sc.getSocketFactory();
         } catch (Exception e) {
+            throw new DorisEsException("createSSLSocketFactory error");
         }
-
         return ssfFactory;
     }
 }
