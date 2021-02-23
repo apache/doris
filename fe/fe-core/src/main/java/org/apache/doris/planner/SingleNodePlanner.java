@@ -939,11 +939,15 @@ public class SingleNodePlanner {
                         break;
                     case LE:
                         partitionColumnFilter.setUpperBound(literal, true);
-                        partitionColumnFilter.lowerBoundInclusive = true;
+                        if (null == partitionColumnFilter.lowerBound) {
+                            partitionColumnFilter.lowerBoundInclusive = true;
+                        }
                         break;
                     case LT:
                         partitionColumnFilter.setUpperBound(literal, false);
-                        partitionColumnFilter.lowerBoundInclusive = true;
+                        if (null == partitionColumnFilter.lowerBound) {
+                            partitionColumnFilter.lowerBoundInclusive = true;
+                        }
                         break;
                     case GE:
                         partitionColumnFilter.setLowerBound(literal, true);
