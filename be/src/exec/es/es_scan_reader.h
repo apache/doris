@@ -65,7 +65,7 @@ private:
     // Elasticsearch shards to fetch document
     std::string _shards;
     // whether use ssl client
-    bool _use_ssl_client;
+    bool _use_ssl_client = false;
     // distinguish the first scroll phase and the following scroll
     bool _is_first;
 

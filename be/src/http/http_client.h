@@ -67,8 +67,8 @@ public:
     }
 
     void use_ssl() {
-        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, false);
-        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, false);
+        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
 
     // TODO(zc): support set header
