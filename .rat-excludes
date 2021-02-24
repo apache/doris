@@ -19,7 +19,8 @@ test.zip
 test.zip.md5
 webroot/*
 net_snmp_normal
-spark_launcher_monitor.log
+.*log
+lru_cache.*
 jmockit/*
 status.*
 env*
@@ -31,3 +32,4 @@ condition_variable.*
 murmur_hash3.*
 utf8_check.cpp
 .markdownlintignore
+tsan_suppressions
