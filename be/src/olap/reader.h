@@ -101,7 +101,7 @@ public:
     uint64_t merged_rows() const { return _merged_rows; }
 
     uint64_t filtered_rows() const {
-        return _stats.rows_del_filtered + _stats.rows_conditions_filtered;
+        return _stats.rows_del_filtered + _stats.rows_conditions_filtered + _stats.rows_vec_del_cond_filtered;
     }
 
     const OlapReaderStatistics& stats() const { return _stats; }
