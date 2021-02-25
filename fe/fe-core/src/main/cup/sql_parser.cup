@@ -385,7 +385,7 @@ nonterminal InlineViewRef inline_view_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
 nonterminal ArrayList<String> opt_sort_hints;
-nonterminal HashMap<String, String> opt_select_hints;
+nonterminal HashMap<String, String> select_hints_list, opt_select_hints;
 nonterminal Expr sign_chain_expr;
 nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
@@ -3400,11 +3400,23 @@ select_clause ::=
     :}
     ;
 
-opt_select_hints ::=
-    COMMENTED_PLAN_HINT_START KW_SET_VAR LPAREN ident_or_text:k EQUAL literal:v RPAREN COMMENTED_PLAN_HINT_END
+select_hints_list ::=
+    select_hints_list:map COMMA ident_or_text:k EQUAL literal:v
+    {:
+        map.put(k, v.getStringValue());
+        RESULT = map;
+    :}
+    | ident_or_text:k EQUAL literal:v
     {:
         HashMap<String, String> map = new HashMap<String, String>();
         map.put(k, v.getStringValue());
+        RESULT = map;
+    :}
+    ;
+
+opt_select_hints ::=
+    COMMENTED_PLAN_HINT_START KW_SET_VAR LPAREN select_hints_list:map RPAREN COMMENTED_PLAN_HINT_END
+    {:
         RESULT = map;
     :}
     | /* empty */
