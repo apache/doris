@@ -301,7 +301,7 @@ public abstract class QueryStmt extends StatementBase {
         sortInfo = new SortInfo(orderingExprs, isAscOrder, nullsFirstParams);
         // order by w/o limit and offset in inline views, set operands and insert statements
         // are ignored.
-        if (!hasLimit() && !hasOffset() && !analyzer.isRootAnalyzer()) {
+        if (!hasLimit() && !hasOffset() && (!analyzer.isRootAnalyzer() || fromInsert)) {
             evaluateOrderBy = false;
             // Return a warning that the order by was ignored.
             StringBuilder strBuilder = new StringBuilder();
