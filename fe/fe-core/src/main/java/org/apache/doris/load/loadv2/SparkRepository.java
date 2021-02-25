@@ -191,13 +191,13 @@ public class SparkRepository {
                 // 1. upload spark2x
                 srcFilePath = localSpark2xPath;
                 String origFilePath = remoteArchivePath + PATH_DELIMITER +
-                        assemblyFileName(PREFIX_LIB, "", SPARK_2X, ".jar");
+                        assemblyFileName(PREFIX_LIB, "", SPARK_2X, ".zip");
                 upload(srcFilePath, origFilePath);
                 // 2. rename spark2x
                 String md5sum = getMd5String(srcFilePath);
                 long size = getFileSize(srcFilePath);
                 String destFilePath = remoteArchivePath + PATH_DELIMITER +
-                        assemblyFileName(PREFIX_LIB, md5sum, SPARK_2X, ".jar");
+                        assemblyFileName(PREFIX_LIB, md5sum, SPARK_2X, ".zip");
                 rename(origFilePath, destFilePath);
                 currentArchive.libraries.add(new SparkLibrary(destFilePath, md5sum, SparkLibrary.LibType.SPARK2X, size));
             }
