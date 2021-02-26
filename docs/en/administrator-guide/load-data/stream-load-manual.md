@@ -187,7 +187,7 @@ The following main explanations are given for the Stream load import result para
 
 	"Publish Timeout": This state also indicates that the import has been completed, except that the data may be delayed and visible without retrying.
 
-	"Label Already Exists"：Label duplicate, need to be replaced Label.
+	"Label Already Exists": Label duplicate, need to be replaced Label.
 
 	"Fail": Import failed.
 	
@@ -211,13 +211,13 @@ The following main explanations are given for the Stream load import result para
 
 + BeginTxnTimeMs: The time cost for RPC to Fe to begin a transaction, Unit milliseconds.
 
-+ StreamLoadPutTimeMs：The time cost for RPC to Fe to get a stream load plan, Unit milliseconds.
++ StreamLoadPutTimeMs: The time cost for RPC to Fe to get a stream load plan, Unit milliseconds.
   
-+ ReadDataTimeMs：Read data time, Unit milliseconds.
++ ReadDataTimeMs: Read data time, Unit milliseconds.
 
-+ WriteDataTimeMs：Write data time, Unit milliseconds.
++ WriteDataTimeMs: Write data time, Unit milliseconds.
 
-+ CommitAndPublishTimeMs：The time cost for RPC to Fe to commit and publish a transaction, Unit milliseconds.
++ CommitAndPublishTimeMs: The time cost for RPC to Fe to commit and publish a transaction, Unit milliseconds.
 
 + ErrorURL: If you have data quality problems, visit this URL to see specific error lines.
 

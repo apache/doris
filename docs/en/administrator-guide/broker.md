@@ -164,7 +164,7 @@ Authentication information is usually provided as a Key-Value in the Property Ma
 
     Simple authentication means that Hadoop configures `hadoop.security.authentication` to` simple`.
 
-    Use system users to access HDFS. Or add in the environment variable started by Broker：```HADOOP_USER_NAME```。
+    Use system users to access HDFS. Or add in the environment variable started by Broker: ```HADOOP_USER_NAME```。
     
     ```
     (
@@ -177,14 +177,14 @@ Authentication information is usually provided as a Key-Value in the Property Ma
 
 2. Kerberos Authentication
 
-    The authentication method needs to provide the following information:：
+    The authentication method needs to provide the following information::
     
     * `hadoop.security.authentication`: Specify the authentication method as kerberos.
-    * `kerberos_principal`： Specify the principal of kerberos.
+    * `kerberos_principal`: Specify the principal of kerberos.
     * `kerberos_keytab`: Specify the path to the keytab file for kerberos. The file must be an absolute path to a file on the server where the broker process is located. And can be accessed by the Broker process.
     * `kerberos_keytab_content`: Specify the content of the keytab file in kerberos after base64 encoding. You can choose one of these with `kerberos_keytab` configuration.
 
-    Examples are as follows：
+    Examples are as follows:
     
     ```
     (
@@ -201,7 +201,7 @@ Authentication information is usually provided as a Key-Value in the Property Ma
     )
     ```
     If Kerberos authentication is used, the [krb5.conf](https://web.mit.edu/kerberos/krb5-1.12/doc/admin/conf_files/krb5_conf.html) file is required when deploying the Broker process.
-    The krb5.conf file contains Kerberos configuration information，Normally, you should install your krb5.conf file in the directory /etc. You can override the default location by setting the environment variable KRB5_CONFIG.
+    The krb5.conf file contains Kerberos configuration information, Normally, you should install your krb5.conf file in the directory /etc. You can override the default location by setting the environment variable KRB5_CONFIG.
     An example of the contents of the krb5.conf file is as follows:
     ```
     [libdefaults]
@@ -226,7 +226,7 @@ Authentication information is usually provided as a Key-Value in the Property Ma
     * `dfs.namenode.rpc-address.xxx.nn`: Specify the rpc address information of namenode, Where nn represents the name of the namenode configured in `dfs.ha.namenodes.xxx`, such as: "dfs.namenode.rpc-address.my_ha.my_nn" = "host:port".
     * `dfs.client.failover.proxy.provider`: Specify the provider for the client to connect to the namenode. The default is: org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider.
 
-    Examples are as follows：
+    Examples are as follows:
     
     ```
     (
@@ -263,7 +263,7 @@ Authentication information is usually provided as a Key-Value in the Property Ma
     * Region Endpoint: Endpoint of the BOS region.
     * For the regions supported by BOS and corresponding Endpoints, please see [Get access domain name](https://cloud.baidu.com/doc/BOS/s/Ck1rk80hn#%E8%8E%B7%E5%8F%96%E8%AE %BF%E9%97%AE%E5%9F%9F%E5%90%8D)
 
-    Examples are as follows：
+    Examples are as follows:
 
     ```
     (

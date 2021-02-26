@@ -50,8 +50,8 @@ There are three main commands for resource management: `create resource`, `drop 
    In the command to create a resource, the user must provide the following information:
 
    * `resource_name` name of the resource
-   * `PROPERTIES` related parameters, as follows：
-     * `type`：resource type, required. Currently, only spark and odbc_catalog are supported.
+   * `PROPERTIES` related parameters, as follows:
+     * `type`: resource type, required. Currently, only spark and odbc_catalog are supported.
      * For other parameters, see the resource introduction
 
 
@@ -62,7 +62,7 @@ There are three main commands for resource management: `create resource`, `drop 
 
 3. SHOW RESOURCES
 
-    This command can view the resources that the user has permission to use. Please refer to：`HELP SHOW RESOURCES`
+    This command can view the resources that the user has permission to use. Please refer to: `HELP SHOW RESOURCES`
 
 
 
@@ -70,8 +70,8 @@ There are three main commands for resource management: `create resource`, `drop 
 
 Currently, Doris can support
 
-* Spark resource : do ETL work
-* ODBC resource : query and import data from external tables
+* Spark resource: do ETL work
+* ODBC resource: query and import data from external tables
 
 The following shows how the two resources are used.
 
@@ -79,9 +79,9 @@ The following shows how the two resources are used.
 
 #### Parameter
 
-##### Spark Parameters：
+##### Spark Parameters:
 
-`spark.master`: required, currently supported yarn，spark://host:port。
+`spark.master`: required, currently supported yarn, spark://host:port。
 
 `spark.submit.deployMode`: The deployment mode of spark. required. It supports cluster and client.
 
@@ -91,7 +91,7 @@ The following shows how the two resources are used.
 
 Other parameters are optional, refer to: http://spark.apache.org/docs/latest/configuration.html.
 
-##### If spark is used for ETL, also need to specify the following parameters：
+##### If spark is used for ETL, also need to specify the following parameters:
 
 `working_dir`: Directory used by ETL. Spark is required when used as an ETL resource. For example: hdfs://host:port/tmp/doris.
 
@@ -130,9 +130,9 @@ PROPERTIES
 
 #### Parameter
 
-##### ODBC Parameters：
+##### ODBC Parameters:
 
-`type`: Required，must be `odbc_catalog`. As the type identifier of resource.
+`type`: Required, must be `odbc_catalog`. As the type identifier of resource.
 
 `user`: The user name of the external table, required.
 

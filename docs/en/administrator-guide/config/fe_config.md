@@ -744,7 +744,7 @@ Used to set default database data quota size, default is 1T.
 
 ### `default_max_filter_ratio`
 
-Used to set default max filter ratio of load Job. It will be overridden by `max_filter_ratio` of the load job properties，default value is 0, value range 0-1.
+Used to set default max filter ratio of load Job. It will be overridden by `max_filter_ratio` of the load job properties, default value is 0, value range 0-1.
 
 ### `enable_http_server_v2`
 

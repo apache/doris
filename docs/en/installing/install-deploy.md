@@ -122,7 +122,7 @@ This is a representation of [CIDR] (https://en.wikipedia.org/wiki/Classless_Inte
 
 BE is configured as `priority_networks = 10.1.3.0/24'.`.
 
-When you want to ADD BACKEND use ：`ALTER SYSTEM ADD BACKEND "192.168.0.1:9050";`
+When you want to ADD BACKEND use: `ALTER SYSTEM ADD BACKEND "192.168.0.1:9050";`
 
 Then FE and BE will not be able to communicate properly.
 
@@ -312,7 +312,7 @@ The DROP statement is as follows:
 
 **Note: DROP BACKEND will delete the BE directly and the data on it will not be recovered!!! So we strongly do not recommend DROP BACKEND to delete BE nodes. When you use this statement, there will be corresponding error-proof operation hints.**
 
-DECOMMISSION clause：
+DECOMMISSION clause:
 
 ```ALTER SYSTEM DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```
 
@@ -424,6 +424,6 @@ Broker is a stateless process that can be started or stopped at will. Of course,
 
    The default value of max_file_descriptor_number is 131072.
 
-   For Example : ulimit -n 65536; this command set file descriptor to 65536.
+   For Example: ulimit -n 65536; this command set file descriptor to 65536.
 
    After starting BE process, you can use **cat /proc/$pid/limits** to see the actual limit of process.

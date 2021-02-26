@@ -93,15 +93,13 @@ Syntax:
        * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will   occur if and only if the newly imported data is a non-null value. If the newly imported   data is null, Doris will still retain the original value. Note: if NOT NULL is specified  in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it     to NULL and will not report an error to the user. Users can leverage this aggregate type    to achieve importing some of columns.
        * BITMAP_UNION: Only for BITMAP type
     Allow NULL: Default is NOT NULL. NULL value should be represented as `\N` in load source file.
-    Notice:  
-    
-        The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
+    Notice: The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
 2. index_definition
     Syntax:
         `INDEX index_name (col_name[, col_name, ...]) [USING BITMAP] COMMENT 'xxxxxx'`
     Explain:
-        index_name：index name
-        col_name：column name
+        index_name: index name
+        col_name: column name
     Notice:
         Only support BITMAP index in current version, BITMAP can only apply to single column
 3. ENGINE type
