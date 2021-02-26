@@ -124,9 +124,12 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
     params
   }
 
-  protected val openResult: TScanOpenResult = clientLock.synchronized {
-    client.openScanner(openParams)
-  }
+  protected val openResult: TScanOpenResult =
+    if (deserializeArrowToRowBatchAsync) {
+      clientLock.synchronized {
+        client.openScanner(openParams)
+      }
+    } else client.openScanner(openParams)
   protected val contextId: String = openResult.getContext_id
   protected val schema: Schema =
     SchemaUtils.convertToSchema(openResult.getSelected_columns)
@@ -197,9 +200,12 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
         val nextBatchParams = new TScanNextBatchParams
         nextBatchParams.setContext_id(contextId)
         nextBatchParams.setOffset(offset)
-        val nextResult = clientLock.synchronized {
-          client.getNext(nextBatchParams)
-        }
+        val nextResult =
+          if (deserializeArrowToRowBatchAsync) {
+            clientLock.synchronized {
+              client.getNext(nextBatchParams)
+            }
+          } else client.getNext(nextBatchParams)
         eos.set(nextResult.isEos)
         if (!eos.get) {
           rowBatch = new RowBatch(nextResult, schema)
@@ -225,7 +231,11 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
   def close(): Unit = {
     val closeParams = new TScanCloseParams
     closeParams.context_id = contextId
-    clientLock.synchronized {
+    if (deserializeArrowToRowBatchAsync) {
+      clientLock.synchronized {
+        client.closeScanner(closeParams)
+      }
+    } else {
       client.closeScanner(closeParams)
     }
   }
