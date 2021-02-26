@@ -417,7 +417,7 @@ FROM data_source
         "kafka_offsets" = "0,0,0"
         );
     ```
-      It support two kinds data style：
+      It support two kinds data style:
       1）{"category":"a9jadhx","author":"test","price":895}
         2）[
                 {"category":"a9jadhx","author":"test","price":895},
@@ -475,7 +475,7 @@ FROM data_source
       {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
     ]
 
-   Tips：
+   Tips:
      1）If the json data starts as an array and each object in the array is a record, you need to set the strip_outer_array to true to represent the flat array.
      2）If the json data starts with an array, and each object in the array is a record, our ROOT node is actually an object in the array when we set jsonpath.
 

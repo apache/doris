@@ -25,7 +25,7 @@ under the License.
  # SHOW DYNAMIC PARTITION TABLES
 ## description
     This statement is used to display all dynamically partitioned table states under the current db
-    Grammar：
+    Grammar:
         SHOW DYNAMIC PARTITION TABLES [FROM db_name];
 
  ## example

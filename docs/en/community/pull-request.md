@@ -69,7 +69,7 @@ upstream  https://github.com/apache/incubator-doris.git (push)
 git checkout -b <your_branch_name>
 ```
 
-Note:  \<your\_branch\_name\> name is customized for you.
+Note: \<your\_branch\_name\> name is customized for you.
 
 Code changes can be made after creation.
 

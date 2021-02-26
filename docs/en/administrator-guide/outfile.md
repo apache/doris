@@ -81,7 +81,7 @@ WITH BROKER `broker_name`
 
     * `column_separator`: Column separator, only applicable to CSV format. The default is `\t`.
     * `line_delimiter`: Line delimiter, only applicable to CSV format. The default is `\n`.
-    * `max_file_size`：The max size of a single file. Default is 1GB. Range from 5MB to 2GB. Files exceeding this size will be splitted.
+    * `max_file_size`: The max size of a single file. Default is 1GB. Range from 5MB to 2GB. Files exceeding this size will be splitted.
 
 1. Example 1
 

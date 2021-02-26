@@ -206,14 +206,14 @@ Where url is the url given by ErrorURL.
     ```Curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1), v2=bitmap_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 
 10. a simple load json
-       table schema： 
+       table schema:
            `category` varchar(512) NULL COMMENT "",
            `author` varchar(512) NULL COMMENT "",
            `title` varchar(512) NULL COMMENT "",
            `price` double NULL COMMENT ""
-       json data：
+       json data:
            {"category":"C++","author":"avc","title":"C++ primer","price":895}
-       load command by curl：
+       load command by curl:
            curl --location-trusted -u root  -H "label:123" -H "format: json" -T testData http://host:port/api/testDb/testTbl/_stream_load
          you can load multiple records, for example:
                [
@@ -230,7 +230,7 @@ Where url is the url given by ErrorURL.
            ] 
        Matched imports are made by specifying jsonpath parameter, such as `category`, `author`, and `price`, for example:
          curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -T testData http://host:port/api/testDb/testTbl/_stream_load
-       Tips：
+       Tips:
         1）If the json data starts as an array and each object in the array is a record, you need to set the strip_outer_array to true to represent the flat array.
         2）If the json data starts with an array, and each object in the array is a record, our ROOT node is actually an object in the array when we set jsonpath.
 
@@ -243,7 +243,7 @@ Where url is the url given by ErrorURL.
                 {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
                 ]
             }
-       Matched imports are made by specifying jsonpath parameter, such as `category`, `author`, and `price`, for example: 
+       Matched imports are made by specifying jsonpath parameter, such as `category`, `author`, and `price`, for example:
          curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
 
 13. delete all data which key columns match the load data 
