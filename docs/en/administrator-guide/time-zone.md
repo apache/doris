@@ -39,7 +39,7 @@ There are multiple time zone related parameters in Doris
 
 * `system_time_zone`:
 
-When the server starts, it will be set automatically according to the time zone set by the machine, which can not be modified after setting.
+When the server starts, it will be set automatically according to the time zone set by the machine, which cannot be modified after setting.
 
 * `time_zone`:
 

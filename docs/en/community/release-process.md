@@ -340,7 +340,7 @@ $ git tag
 
 ### Packing Signature
 
-The following steps also need to log into user accounts directly through terminals such as SecureCRT, and can not be transferred through Su - user or ssh, otherwise the password input box will not show and error will be reported.
+The following steps also need to log into user accounts directly through terminals such as SecureCRT, and cannot be transferred through Su - user or ssh, otherwise the password input box will not show and error will be reported.
 
 ```
 $ git checkout 0.9.0-rc01

@@ -99,7 +99,7 @@ PROPERTIES (
 );
 ```
 
-The following parameters are accepted by ODBC external table:：
+The following parameters are accepted by ODBC external table:
 
 Parameter | Description
 ---|---
@@ -123,8 +123,8 @@ Description     = ODBC for MySQL
 Driver          = /usr/lib64/libmyodbc8w.so
 FileUsage       = 1 
 ```
-* `[]`:The corresponding driver name in is the driver name. When creating an external table, the driver name of the external table should be consistent with that in the configuration file.
-* `Driver=`:  This should be setted in according to the actual be installation path of the driver. It is essentially the path of a dynamic library. Here, we need to ensure that the pre dependencies of the dynamic library are met.
+* `[]`: The corresponding driver name in is the driver name. When creating an external table, the driver name of the external table should be consistent with that in the configuration file.
+* `Driver=`: This should be setted in according to the actual be installation path of the driver. It is essentially the path of a dynamic library. Here, we need to ensure that the pre dependencies of the dynamic library are met.
 
 **Remember, all BE nodes are required to have the same driver installed, the same installation path and the same be/conf/odbcinst.ini config.**
 
@@ -158,7 +158,7 @@ Transactions ensure the atomicity of ODBC external table writing, but it will re
 
 ## Data type mapping
 
-There are different data types among different database. Here, the types in each database and the data type matching in Doris are listed.
+There are different data types among different databases. Here, the types in each database and the data type matching in Doris are listed.
 
 ### MySQL 
 
@@ -214,23 +214,23 @@ There are different data types among different database. Here, the types in each
 
 ## Q&A
 
-1. Relationship with the original external table of MySQL
+1. Relationship with the original external table of MySQL?
 
 After accessing the ODBC external table, the original way to access the MySQL external table will be gradually abandoned. If you have not used the MySQL external table before, it is recommended that the newly accessed MySQL tables use ODBC external table directly.
     
-2. Besides MySQL and Oracle, can doris support more databases
+2. Besides MySQL and Oracle, can doris support more databases?
 
-Currently, Doris only adapts to MySQL and Oracle. The adaptation of other databases is under planning. In principle, any database that supports ODBC access can be accessed through the ODBC external table. If you need to access other database, you are welcome to modify the code and contribute to Doris.
+Currently, Doris only adapts to MySQL and Oracle. The adaptation of other databases is under planning. In principle, any database that supports ODBC access can be accessed through the ODBC external table. If you need to access other databases, you are welcome to modify the code and contribute to Doris.
 
-3. When is it appropriate to use ODBC external tables.
+3. When is it appropriate to use ODBC external tables?
 
-    Generally, when the amount of external data is small and less than 100W. It can be accessed through ODBC external table. Since external table the can not play the role of Doris in the storage engine and will bring additional network overhead. it is recommended to determine whether to access through external tables or import data into Doris according to the actual access delay requirements for queries.
+    Generally, when the amount of external data is small and less than 100W, it can be accessed through ODBC external table. Since external table the cannot play the role of Doris in the storage engine and will bring additional network overhead, it is recommended to determine whether to access through external tables or import data into Doris according to the actual access delay requirements for queries.
 
-4. Garbled code in Oracle access
+4. Garbled code in Oracle access?
 
-   Add the following parameters to the BE start up script：`export NLS_LANG=AMERICAN_AMERICA.AL32UTF8`， Restart all be
+   Add the following parameters to the BE start up script: `export NLS_LANG=AMERICAN_AMERICA.AL32UTF8`R, Restart all be
 
-5. ANSI Driver or Unicode Driver ？
+5. ANSI Driver or Unicode Driver?
 
    Currently, ODBC supports both ANSI and Unicode driver forms, while Doris only supports Unicode driver. If you force the use of ANSI driver, the query results may be wrong.
 

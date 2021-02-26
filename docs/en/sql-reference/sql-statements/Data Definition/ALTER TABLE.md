@@ -89,7 +89,7 @@ under the License.
             ADD ROLLUP [rollup_name (column_name1, column_name2, ...)
                                     [FROM from_index_name]
                                     [PROPERTIES ("key"="value", ...)],...]
-        example：
+        example:
             ADD ROLLUP r1(col1,col2) from r0, r2(col3,col4) from r0
     1.3 note:
             1) If from_index_name is not specified, it is created by default from base index
@@ -103,8 +103,8 @@ under the License.
         example:
            DROP ROLLUP r1
     2.1 Batch Delete rollup index
-        grammar：DROP ROLLUP [rollup_name [PROPERTIES ("key"="value", ...)],...]
-        example：DROP ROLLUP r1,r2
+        grammar: DROP ROLLUP [rollup_name [PROPERTIES ("key"="value", ...)],...]
+        example: DROP ROLLUP r1,r2
     2.2 note:
             1) Cannot delete base index
                
@@ -173,7 +173,7 @@ under the License.
             1) All columns in index must be written
             2) value is listed after the key column
             
-    6. Modify the properties of the table, currently supports modifying the bloom filter column, the colocate_with attribute and the dynamic_partition attribute， the replication_num and default.replication_num.
+    6. Modify the properties of the table, currently supports modifying the bloom filter column, the colocate_with attribute and the dynamic_partition attribute,  the replication_num and default.replication_num.
         grammar:
             PROPERTIES ("key"="value")
         note:
@@ -217,7 +217,7 @@ under the License.
             2. BITMAP index only supports apply on single column
     2. drop index
         grammar:
-            DROP INDEX index_name；
+            DROP INDEX index_name;
 
 ## example
 

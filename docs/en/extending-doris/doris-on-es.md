@@ -207,9 +207,9 @@ Doris obtains data from ES following the following two principles:
 * **Best effort**: Automatically detect whether the column to be read has column storage enabled (doc_value: true).If all the fields obtained have column storage, Doris will obtain the values ​​of all fields from the column storage(doc_values)
 * **Automatic downgrade**: If the field to be obtained has one or more field that is not have doc_value, the values ​​of all fields will be parsed from the line store `_source`
 
-##### Advantage：
+##### Advantage:
 
-By default, Doris On ES will get all the required columns from the row storage, which is `_source`, and the storage of `_source` is the origin json format document，Inferior to column storage in batch read performance，Especially obvious when only a few columns are needed，When only a few columns are obtained, the performance of docvalue is about ten times that of _source
+By default, Doris On ES will get all the required columns from the row storage, which is `_source`, and the storage of `_source` is the origin json format document, Inferior to column storage in batch read performance, Especially obvious when only a few columns are needed, When only a few columns are obtained, the performance of docvalue is about ten times that of _source
 
 ##### Tip
 1. Fields of type `text` are not column-stored in ES, so if the value of the field to be obtained has a field of type `text`, it will be automatically downgraded to get from `_source`
@@ -237,13 +237,13 @@ PROPERTIES (
 );
 ```
 
-Parameter Description：
+Parameter Description:
 
 Parameter | Description
 ---|---
 **enable\_keyword\_sniff** | Whether to detect the string type (**text**) `fields` in ES to obtain additional not analyzed (**keyword**) field name(multi-fields mechanism)
 
-You can directly import data without creating an index. At this time, ES will automatically create a new index in ES, For a field of type string, a field of type `text` and field of type `keyword` will be created meantime, This is the multi-fields feature of ES, mapping is as follows：
+You can directly import data without creating an index. At this time, ES will automatically create a new index in ES, For a field of type string, a field of type `text` and field of type `keyword` will be created meantime, This is the multi-fields feature of ES, mapping is as follows:
 
 ```
 "k4": {
@@ -256,15 +256,15 @@ You can directly import data without creating an index. At this time, ES will au
    }
 }
 ```
-When performing conditional filtering on k4, for example =，Doris On ES will convert the query to ES's TermQuery
+When performing conditional filtering on k4, for example =, Doris On ES will convert the query to ES's TermQuery
 
-SQL filter：
+SQL filter:
 
 ```
 k4 = "Doris On ES"
 ```
 
-The query DSL converted into ES is：
+The query DSL converted into ES is:
 
 ```
 "term" : {
@@ -273,7 +273,7 @@ The query DSL converted into ES is：
 }
 ```
 
-Because the first field type of k4 is `text`, when data is imported, it will perform word segmentation processing according to the word segmentator set by k4 (if it is not set, it is the standard word segmenter) to get three Term of doris, on, and es, as follows ES analyze API analysis：
+Because the first field type of k4 is `text`, when data is imported, it will perform word segmentation processing according to the word segmentator set by k4 (if it is not set, it is the standard word segmenter) to get three Term of doris, on, and es, as follows ES analyze API analysis: 
 
 ```
 POST /_analyze
@@ -282,7 +282,7 @@ POST /_analyze
   "text": "Doris On ES"
 }
 ```
-The result of analyzed is：
+The result of analyzed is:
 
 ```
 {
@@ -311,14 +311,14 @@ The result of analyzed is：
    ]
 }
 ```
-The query uses：
+The query uses:
 
 ```
 "term" : {
     "k4": "Doris On ES"
 }
 ```
-This term does not match any term in the dictionary，and will not return any results，enable `enable_keyword_sniff: true` will automatically convert `k4 = "Doris On ES"` into `k4.keyword = "Doris On ES"`to exactly match SQL semantics，The converted ES query DSL is:
+This term does not match any term in the dictionary, and will not return any results, enable `enable_keyword_sniff: true` will automatically convert `k4 = "Doris On ES"` into `k4.keyword = "Doris On ES"`to exactly match SQL semantics, The converted ES query DSL is:
 
 ```
 "term" : {
@@ -456,7 +456,7 @@ select * from es_table where esquery(k4, ' {
 
 ### Suggestions for using Date type fields
 
-The use of Datetype fields in ES is very flexible, but in Doris On ES, if the type of the Date type field is not set properly, it will cause the filter condition can not be pushed down.
+The use of Datetype fields in ES is very flexible, but in Doris On ES, if the type of the Date type field is not set properly, it will cause the filter condition cannot be pushed down.
 
 When creating an index, do maximum format compatibility with the setting of the Date type format:
 
