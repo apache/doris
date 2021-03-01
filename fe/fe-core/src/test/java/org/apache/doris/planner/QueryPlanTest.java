@@ -1412,6 +1412,10 @@ public class QueryPlanTest {
         sql = "select day from tbl_int_date where day = 20201030";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 00:00:00'"));
+        //valid date contains micro second
+        sql = "select day from tbl_int_date where day = '2020-10-30 10:00:01.111111'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01'"));
         //invalid date
         sql = "select day from tbl_int_date where day = '2020-10-32'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
@@ -1424,10 +1428,13 @@ public class QueryPlanTest {
         //invalid date
         sql = "select day from tbl_int_date where day = 2020-10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println("wangxixu-explain:"+explainString);
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid date
         sql = "select day from tbl_int_date where day = 10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("EMPTYSET"));
+
 
         //valid datetime
         sql = "select day from tbl_int_date where date = '2020-10-30 12:12:30'";
@@ -1441,6 +1448,10 @@ public class QueryPlanTest {
         sql = "select day from tbl_int_date where date = '2020-10-30'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 00:00:00'"));
+        //valid datetime contains micro second
+        sql = "select day from tbl_int_date where date = '2020-10-30 10:00:01.111111'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01'"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = '2020-10-32'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
