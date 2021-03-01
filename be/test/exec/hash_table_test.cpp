@@ -15,68 +15,87 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <map>
-#include <stdlib.h>
-#include <stdio.h>
-#include <iostream>
-#include <vector>
+#include "exec/hash_table.hpp"
 
 #include <gtest/gtest.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <iostream>
+#include <map>
+#include <memory>
+#include <unordered_map>
+#include <vector>
 
 #include "common/compiler_util.h"
-#include "exec/hash_table.hpp"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
+#include "exprs/slot_ref.h"
+#include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
+#include "runtime/test_env.h"
 #include "util/cpu_info.h"
 #include "util/runtime_profile.h"
+#include "util/time.h"
 
 namespace doris {
 
-using std::vector;
-using std::map;
-
-
 class HashTableTest : public testing::Test {
 public:
-    HashTableTest() : _mem_pool() {}
+    HashTableTest() {
+        _tracker = MemTracker::CreateTracker(-1, "root");
+        _pool_tracker = MemTracker::CreateTracker(-1, "mem-pool", _tracker);
+        _mem_pool.reset(new MemPool(_pool_tracker.get()));
+        _state = _pool.add(new RuntimeState(TQueryGlobals()));
+        _state->init_instance_mem_tracker();
+        _state->_exec_env = ExecEnv::GetInstance();
+    }
 
 protected:
+    RuntimeState* _state;
+    std::shared_ptr<MemTracker> _tracker;
+    std::shared_ptr<MemTracker> _pool_tracker;
     ObjectPool _pool;
-    MemPool _mem_pool;
-    vector<Expr*> _build_expr;
-    vector<Expr*> _probe_expr;
+    std::shared_ptr<MemPool> _mem_pool;
+    std::vector<ExprContext*> _build_expr;
+    std::vector<ExprContext*> _probe_expr;
 
     virtual void SetUp() {
         RowDescriptor desc;
         Status status;
+        TypeDescriptor int_desc(TYPE_INT);
 
-        // Not very easy to test complex tuple layouts so this test will use the
-        // simplest.  The purpose of these tests is to exercise the hash map
-        // internals so a simple build/probe expr is fine.
-        _build_expr.push_back(_pool.add(new SlotRef(TYPE_INT, 0)));
-        status = Expr::prepare(_build_expr, NULL, desc);
+        auto build_slot_ref = _pool.add(new SlotRef(int_desc, 0));
+        _build_expr.push_back(_pool.add(new ExprContext(build_slot_ref)));
+        status = Expr::prepare(_build_expr, _state, desc, _tracker);
         EXPECT_TRUE(status.ok());
 
-        _probe_expr.push_back(_pool.add(new SlotRef(TYPE_INT, 0)));
-        status = Expr::prepare(_probe_expr, NULL, desc);
+        auto probe_slot_ref = _pool.add(new SlotRef(int_desc, 0));
+        _probe_expr.push_back(_pool.add(new ExprContext(probe_slot_ref)));
+        status = Expr::prepare(_probe_expr, _state, desc, _tracker);
         EXPECT_TRUE(status.ok());
+    }
+
+    void TearDown() {
+        Expr::close(_build_expr, _state);
+        Expr::close(_probe_expr, _state);
     }
 
     TupleRow* create_tuple_row(int32_t val);
 
     // Wrapper to call private methods on HashTable
     // TODO: understand google testing, there must be a more natural way to do this
-    void resize_table(HashTable* table, int64_t new_size) {
-        table->resize_buckets(new_size);
-    }
+    void resize_table(HashTable* table, int64_t new_size) { table->resize_buckets(new_size); }
 
     // Do a full table scan on table.  All values should be between [min,max).  If
     // all_unique, then each key(int value) should only appear once.  Results are
     // stored in results, indexed by the key.  Results must have been preallocated to
     // be at least max size.
-    void full_scan(HashTable* table, int min, int max, bool all_unique,
-                  TupleRow** results, TupleRow** expected) {
+    void full_scan(HashTable* table, int min, int max, bool all_unique, TupleRow** results,
+                   TupleRow** expected) {
         HashTable::Iterator iter = table->begin();
 
         while (iter != table->end()) {
@@ -106,7 +125,7 @@ protected:
 
     struct ProbeTestData {
         TupleRow* probe_row;
-        vector<TupleRow*> expected_build_rows;
+        std::vector<TupleRow*> expected_build_rows;
     };
 
     void probe_test(HashTable* table, ProbeTestData* data, int num_data, bool scan) {
@@ -120,7 +139,7 @@ protected:
                 EXPECT_TRUE(iter == table->end());
             } else {
                 if (scan) {
-                    map<TupleRow*, bool> matched;
+                    std::map<TupleRow*, bool> matched;
 
                     while (iter != table->end()) {
                         EXPECT_TRUE(matched.find(iter.get_row()) == matched.end());
@@ -135,7 +154,7 @@ protected:
                     }
                 } else {
                     EXPECT_EQ(data[i].expected_build_rows.size(), 1);
-                    EXPECT_EQ(data[i].expected_build_rows[0]->get_tuple(0), 
+                    EXPECT_EQ(data[i].expected_build_rows[0]->get_tuple(0),
                               iter.get_row()->get_tuple(0));
                     validate_match(row, iter.get_row());
                 }
@@ -145,8 +164,8 @@ protected:
 };
 
 TupleRow* HashTableTest::create_tuple_row(int32_t val) {
-    uint8_t* tuple_row_mem = _mem_pool.allocate(sizeof(int32_t*));
-    uint8_t* tuple_mem = _mem_pool.allocate(sizeof(int32_t));
+    uint8_t* tuple_row_mem = _mem_pool->allocate(sizeof(int32_t*));
+    uint8_t* tuple_mem = _mem_pool->allocate(sizeof(int32_t));
     *reinterpret_cast<int32_t*>(tuple_mem) = val;
     TupleRow* row = reinterpret_cast<TupleRow*>(tuple_row_mem);
     row->set_tuple(0, reinterpret_cast<Tuple*>(tuple_mem));
@@ -175,6 +194,9 @@ TEST_F(HashTableTest, SetupTest) {
 // testing for probe rows that are both there and not.
 // The hash table is rehashed a few times and the scans/finds are tested again.
 TEST_F(HashTableTest, BasicTest) {
+    std::shared_ptr<MemTracker> hash_table_tracker =
+            MemTracker::CreateTracker(-1, "hash-table-basic-tracker", _tracker);
+
     TupleRow* build_rows[5];
     TupleRow* scan_rows[5] = {0};
 
@@ -192,8 +214,11 @@ TEST_F(HashTableTest, BasicTest) {
         }
     }
 
-    // Create the hash table and insert the build rows
-    HashTable hash_table(_build_expr, _probe_expr, 1, false, 0);
+    std::vector<bool> is_null_safe = {false};
+    int initial_seed = 1;
+    int64_t num_buckets = 4;
+    HashTable hash_table(_build_expr, _probe_expr, 1, false, is_null_safe, initial_seed,
+                         hash_table_tracker, num_buckets);
 
     for (int i = 0; i < 5; ++i) {
         hash_table.insert(build_rows[i]);
@@ -228,13 +253,21 @@ TEST_F(HashTableTest, BasicTest) {
     memset(scan_rows, 0, sizeof(scan_rows));
     full_scan(&hash_table, 0, 5, true, scan_rows, build_rows);
     probe_test(&hash_table, probe_rows, 10, false);
+    hash_table.close();
 }
 
 // This tests makes sure we can scan ranges of buckets
 TEST_F(HashTableTest, ScanTest) {
-    HashTable hash_table(_build_expr, _probe_expr, 1, false, 0);
+    std::shared_ptr<MemTracker> hash_table_tracker =
+            MemTracker::CreateTracker(-1, "hash-table-scan-tracker", _tracker);
+
+    std::vector<bool> is_null_safe = {false};
+    int initial_seed = 1;
+    int64_t num_buckets = 4;
+    HashTable hash_table(_build_expr, _probe_expr, 1, false, is_null_safe, initial_seed,
+                         hash_table_tracker, num_buckets);
     // Add 1 row with val 1, 2 with val 2, etc
-    vector<TupleRow*> build_rows;
+    std::vector<TupleRow*> build_rows;
     ProbeTestData probe_rows[15];
     probe_rows[0].probe_row = create_tuple_row(0);
 
@@ -269,6 +302,8 @@ TEST_F(HashTableTest, ScanTest) {
     resize_table(&hash_table, 2);
     EXPECT_EQ(hash_table.num_buckets(), 2);
     probe_test(&hash_table, probe_rows, 15, true);
+
+    hash_table.close();
 }
 
 // This test continues adding to the hash table to trigger the resize code paths
@@ -277,9 +312,13 @@ TEST_F(HashTableTest, GrowTableTest) {
     int num_to_add = 4;
     int expected_size = 0;
 
-    auto mem_tracker = std::make_shared<MemTracker>(1024 * 1024);
-    HashTable hash_table(
-        _build_expr, _probe_expr, 1, false, 0, mem_tracker, num_to_add);
+    std::shared_ptr<MemTracker> mem_tracker =
+            MemTracker::CreateTracker(1024 * 1024, "hash-table-grow-tracker", _tracker);
+    std::vector<bool> is_null_safe = {false};
+    int initial_seed = 1;
+    int64_t num_buckets = 4;
+    HashTable hash_table(_build_expr, _probe_expr, 1, false, is_null_safe, initial_seed,
+                         mem_tracker, num_buckets);
     EXPECT_FALSE(mem_tracker->limit_exceeded());
 
     // This inserts about 5M entries
@@ -292,6 +331,7 @@ TEST_F(HashTableTest, GrowTableTest) {
         num_to_add *= 2;
         EXPECT_EQ(hash_table.size(), expected_size);
     }
+    LOG(INFO) << "consume:" << mem_tracker->consumption() << ",expected_size:" << expected_size;
 
     EXPECT_TRUE(mem_tracker->limit_exceeded());
 
@@ -307,6 +347,7 @@ TEST_F(HashTableTest, GrowTableTest) {
             EXPECT_TRUE(iter == hash_table.end());
         }
     }
+    hash_table.close();
 }
 
 // This test continues adding to the hash table to trigger the resize code paths
@@ -315,38 +356,39 @@ TEST_F(HashTableTest, GrowTableTest2) {
     int num_to_add = 1024;
     int expected_size = 0;
 
-    auto mem_tracker = std::make_shared<MemTracker>(1024 * 1024);
-    HashTable hash_table(
-        _build_expr, _probe_expr, 1, false, 0, mem_tracker, num_to_add);
+    std::shared_ptr<MemTracker> mem_tracker =
+            MemTracker::CreateTracker(1024 * 1024, "hash-table-grow2-tracker", _tracker);
+    std::vector<bool> is_null_safe = {false};
+    int initial_seed = 1;
+    int64_t num_buckets = 4;
+    HashTable hash_table(_build_expr, _probe_expr, 1, false, is_null_safe, initial_seed,
+                         mem_tracker, num_buckets);
 
     LOG(INFO) << time(NULL);
 
-    // This inserts about 5M entries
-    for (int i = 0; i < 5 * 1024 * 1024; ++i) {
-        hash_table.insert(create_tuple_row(build_row_val));
+    // constexpr const int test_size = 5 * 1024 * 1024;
+    constexpr const int test_size = 5 * 1024 * 100;
+
+    for (int i = 0; i < test_size; ++i) {
+        hash_table.insert(create_tuple_row(build_row_val++));
         expected_size += num_to_add;
     }
 
     LOG(INFO) << time(NULL);
 
     // Validate that we can find the entries
-    for (int i = 0; i < 5 * 1024 * 1024; ++i) {
-        TupleRow* probe_row = create_tuple_row(i);
+    for (int i = 0; i < test_size; ++i) {
+        TupleRow* probe_row = create_tuple_row(i++);
         hash_table.find(probe_row);
     }
 
     LOG(INFO) << time(NULL);
+    hash_table.close();
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();

@@ -22,13 +22,13 @@
 #include "common/logging.h"
 #include "env/env.h"
 #include "olap/fs/block_manager.h"
+#include "olap/key_coder.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
-#include "olap/key_coder.h"
 #include "olap/types.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
@@ -84,7 +84,8 @@ Status IndexedColumnWriter::add(const void* value) {
         _typeinfo->deep_copy(_first_value.data(), value, &_mem_pool);
     }
     size_t num_to_write = 1;
-    RETURN_IF_ERROR(_data_page_builder->add(reinterpret_cast<const uint8_t*>(value), &num_to_write));
+    RETURN_IF_ERROR(
+            _data_page_builder->add(reinterpret_cast<const uint8_t*>(value), &num_to_write));
     _num_values++;
     if (_data_page_builder->is_page_full()) {
         RETURN_IF_ERROR(_finish_current_data_page());
@@ -97,7 +98,7 @@ Status IndexedColumnWriter::_finish_current_data_page() {
     if (num_values_in_page == 0) {
         return Status::OK();
     }
-    ordinal_t first_ordinal = _num_values -  num_values_in_page;
+    ordinal_t first_ordinal = _num_values - num_values_in_page;
 
     // IndexedColumn doesn't have NULLs, thus data page body only contains encoded values
     OwnedSlice page_body = _data_page_builder->finish();
@@ -110,14 +111,15 @@ Status IndexedColumnWriter::_finish_current_data_page() {
     footer.mutable_data_page_footer()->set_num_values(num_values_in_page);
     footer.mutable_data_page_footer()->set_nullmap_size(0);
 
-    RETURN_IF_ERROR(PageIO::compress_and_write_page(
-            _compress_codec, _options.compression_min_space_saving, _wblock, { page_body.slice() },
-            footer, &_last_data_page));
+    RETURN_IF_ERROR(PageIO::compress_and_write_page(_compress_codec,
+                                                    _options.compression_min_space_saving, _wblock,
+                                                    {page_body.slice()}, footer, &_last_data_page));
     _num_data_pages++;
 
     if (_options.write_ordinal_index) {
         std::string key;
-        KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::full_encode_ascending(&first_ordinal, &key);
+        KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::full_encode_ascending(&first_ordinal,
+                                                                               &key);
         _ordinal_index_builder->add(key, _last_data_page);
     }
 
@@ -134,12 +136,11 @@ Status IndexedColumnWriter::_finish_current_data_page() {
 Status IndexedColumnWriter::finish(IndexedColumnMetaPB* meta) {
     RETURN_IF_ERROR(_finish_current_data_page());
     if (_options.write_ordinal_index) {
-        RETURN_IF_ERROR(_flush_index(_ordinal_index_builder.get(),
-                                     meta->mutable_ordinal_index_meta()));
+        RETURN_IF_ERROR(
+                _flush_index(_ordinal_index_builder.get(), meta->mutable_ordinal_index_meta()));
     }
     if (_options.write_value_index) {
-        RETURN_IF_ERROR(_flush_index(_value_index_builder.get(),
-                                     meta->mutable_value_index_meta()));
+        RETURN_IF_ERROR(_flush_index(_value_index_builder.get(), meta->mutable_value_index_meta()));
     }
     meta->set_data_type(_typeinfo->type());
     meta->set_encoding(_options.encoding);
@@ -160,7 +161,7 @@ Status IndexedColumnWriter::_flush_index(IndexPageBuilder* index_builder, BTreeM
         PagePointer pp;
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
                 _compress_codec, _options.compression_min_space_saving, _wblock,
-                { page_body.slice() }, page_footer, &pp));
+                {page_body.slice()}, page_footer, &pp));
 
         meta->set_is_root_data_page(false);
         pp.to_proto(meta->mutable_root_page());

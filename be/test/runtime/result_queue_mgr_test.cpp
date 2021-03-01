@@ -15,21 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "runtime/result_queue_mgr.h"
+
 #include <arrow/array.h>
 #include <arrow/builder.h>
-#include <arrow/type.h>
 #include <arrow/record_batch.h>
+#include <arrow/type.h>
 #include <gtest/gtest.h>
+
 #include <memory>
 
 #include "gen_cpp/DorisExternalService_types.h"
-#include "runtime/result_queue_mgr.h"
 #include "util/blocking_queue.hpp"
 
 namespace doris {
 
-class ResultQueueMgrTest : public testing::Test {
-};
+class ResultQueueMgrTest : public testing::Test {};
 
 TEST_F(ResultQueueMgrTest, create_normal) {
     BlockQueueSharedPtr block_queue_t;
@@ -81,7 +82,8 @@ TEST_F(ResultQueueMgrTest, fetch_result_normal) {
 
     std::vector<std::shared_ptr<arrow::Array>> arrays;
     arrays.push_back(k1_col);
-    std::shared_ptr<arrow::RecordBatch> record_batch = arrow::RecordBatch::Make(schema, 1, std::move(arrays));
+    std::shared_ptr<arrow::RecordBatch> record_batch =
+            arrow::RecordBatch::Make(schema, 1, std::move(arrays));
     block_queue_t->blocking_put(record_batch);
     // sentinel
     block_queue_t->blocking_put(nullptr);
@@ -117,7 +119,7 @@ TEST_F(ResultQueueMgrTest, normal_cancel) {
     query_id.lo = 10;
     query_id.hi = 100;
     ResultQueueMgr queue_mgr;
-    BlockQueueSharedPtr block_queue_t;    
+    BlockQueueSharedPtr block_queue_t;
     queue_mgr.create_queue(query_id, &block_queue_t);
     ASSERT_TRUE(block_queue_t != nullptr);
     ASSERT_TRUE(queue_mgr.cancel(query_id).ok());
@@ -128,12 +130,12 @@ TEST_F(ResultQueueMgrTest, cancel_no_block) {
     query_id.lo = 10;
     query_id.hi = 100;
     ResultQueueMgr queue_mgr;
-    BlockQueueSharedPtr block_queue_t;    
+    BlockQueueSharedPtr block_queue_t;
     queue_mgr.create_queue(query_id, &block_queue_t);
     ASSERT_TRUE(block_queue_t != nullptr);
     ASSERT_TRUE(queue_mgr.cancel(query_id).ok());
 }
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

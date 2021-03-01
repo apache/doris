@@ -60,15 +60,15 @@ public class StorageTypeCheckAction extends RestBaseController {
         }
 
         Map<String, Map<String, String>> result = Maps.newHashMap();
-        db.readLock();
-        try {
-            List<Table> tbls = db.getTables();
-            for (Table tbl : tbls) {
-                if (tbl.getType() != TableType.OLAP) {
-                    continue;
-                }
+        List<Table> tbls = db.getTables();
+        for (Table tbl : tbls) {
+            if (tbl.getType() != TableType.OLAP) {
+                continue;
+            }
 
-                OlapTable olapTbl = (OlapTable) tbl;
+            OlapTable olapTbl = (OlapTable) tbl;
+            olapTbl.readLock();
+            try {
                 Map<String, String> indexMap = Maps.newHashMap();
                 for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTbl.getIndexIdToMeta().entrySet()) {
                     MaterializedIndexMeta indexMeta = entry.getValue();
@@ -77,9 +77,9 @@ public class StorageTypeCheckAction extends RestBaseController {
                     }
                 }
                 result.put(tbl.getName(), indexMap);
+            } finally {
+                olapTbl.readUnlock();
             }
-        } finally {
-            db.readUnlock();
         }
         return ResponseEntityBuilder.ok(result);
     }

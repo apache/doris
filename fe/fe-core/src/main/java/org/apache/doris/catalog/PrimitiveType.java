@@ -546,6 +546,13 @@ public enum PrimitiveType {
         isTimeType = true;
     }
 
+    /**
+     * @return
+     */
+    public boolean isTimeType() {
+        return isTimeType;
+    }
+
     public static PrimitiveType fromThrift(TPrimitiveType tPrimitiveType) {
         switch (tPrimitiveType) {
             case INVALID_TYPE:
@@ -710,7 +717,7 @@ public enum PrimitiveType {
             }
             case DECIMAL:
             case DECIMALV2:
-                return MysqlColType.MYSQL_TYPE_DECIMAL;
+                return MysqlColType.MYSQL_TYPE_NEWDECIMAL;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }

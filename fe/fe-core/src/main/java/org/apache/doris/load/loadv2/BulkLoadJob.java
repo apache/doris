@@ -22,12 +22,14 @@ import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
@@ -35,6 +37,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -58,6 +61,7 @@ import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * parent class of BrokerLoadJob and SparkLoadJob from load stmt
@@ -72,6 +76,8 @@ public abstract class BulkLoadJob extends LoadJob {
     // the expr of columns will be reanalyze when the log is replayed
     private OriginStatement originStmt;
 
+    private UserIdentity userInfo;
+
     // include broker desc and data desc
     protected BrokerFileGroupAggInfo fileGroupAggInfo = new BrokerFileGroupAggInfo();
     protected List<TabletCommitInfo> commitInfos = Lists.newArrayList();
@@ -80,15 +86,15 @@ public abstract class BulkLoadJob extends LoadJob {
     // we persist these sessionVariables due to the session is not available when replaying the job.
     private Map<String, String> sessionVariables = Maps.newHashMap();
 
-    // only for log replay
-    public BulkLoadJob() {
-        super();
+    public BulkLoadJob(EtlJobType jobType) {
+        super(jobType);
     }
 
-    public BulkLoadJob(long dbId, String label, OriginStatement originStmt) throws MetaNotFoundException {
-        super(dbId, label);
+    public BulkLoadJob(EtlJobType jobType, long dbId, String label, OriginStatement originStmt, UserIdentity userInfo) throws MetaNotFoundException {
+        super(jobType, dbId, label);
         this.originStmt = originStmt;
         this.authorizationInfo = gatherAuthInfo();
+        this.userInfo = userInfo;
 
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
@@ -112,11 +118,11 @@ public abstract class BulkLoadJob extends LoadJob {
             switch (stmt.getEtlJobType()) {
                 case BROKER:
                     bulkLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                    stmt.getBrokerDesc(), stmt.getOrigStmt());
+                                                    stmt.getBrokerDesc(), stmt.getOrigStmt(), stmt.getUserInfo());
                     break;
                 case SPARK:
                     bulkLoadJob = new SparkLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                   stmt.getResourceDesc(), stmt.getOrigStmt());
+                                                   stmt.getResourceDesc(), stmt.getOrigStmt(), stmt.getUserInfo());
                     break;
                 case MINI:
                 case DELETE:
@@ -158,7 +164,7 @@ public abstract class BulkLoadJob extends LoadJob {
     private AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
         Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {
-            throw new MetaNotFoundException("Database " + dbId + "has been deleted");
+            throw new MetaNotFoundException("Database " + dbId + " has been deleted");
         }
         return new AuthorizationInfo(database.getFullName(), getTableNames());
     }
@@ -185,7 +191,7 @@ public abstract class BulkLoadJob extends LoadJob {
     }
 
     @Override
-    public Set<String> getTableNames() throws MetaNotFoundException{
+    public Set<String> getTableNames() throws MetaNotFoundException {
         Set<String> result = Sets.newHashSet();
         Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {
@@ -233,8 +239,20 @@ public abstract class BulkLoadJob extends LoadJob {
                 loadTask.updateRetryInfo();
                 idToTasks.put(loadTask.getSignature(), loadTask);
                 // load id will be added to loadStatistic when executing this task
-                Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
-                return;
+                try {
+                    if (loadTask.getTaskType() == LoadTask.TaskType.PENDING) {
+                        Catalog.getCurrentCatalog().getPendingLoadTaskScheduler().submit(loadTask);
+                    } else if (loadTask.getTaskType() == LoadTask.TaskType.LOADING) {
+                        Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().submit(loadTask);
+                    } else {
+                        throw new LoadException(String.format("Unknown load task type: %s. task id: %d, job id, %d",
+                                loadTask.getTaskType(), loadTask.getSignature(), id));
+                    }
+                } catch (RejectedExecutionException | LoadException e) {
+                    unprotectedExecuteCancel(failMsg, true);
+                    logFinalOperation();
+                    return;
+                }
             }
         } finally {
             writeUnlock();
@@ -290,6 +308,7 @@ public abstract class BulkLoadJob extends LoadJob {
         super.write(out);
         brokerDesc.write(out);
         originStmt.write(out);
+        userInfo.write(out);
 
         out.writeInt(sessionVariables.size());
         for (Map.Entry<String, String> entry : sessionVariables.entrySet()) {
@@ -319,6 +338,13 @@ public abstract class BulkLoadJob extends LoadJob {
         // The reason is that it will thrown MetaNotFoundException when the tableId could not be found by tableName.
         // The origin stmt will be analyzed after the replay is completed.
 
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_93) {
+            userInfo = UserIdentity.read(in);
+            // must set is as analyzed, because when write the user info to meta image, it will be checked.
+            userInfo.setIsAnalyzed();
+        } else {
+            userInfo = UserIdentity.UNKNOWN;
+        }
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
             int size = in.readInt();
             for (int i = 0; i < size; i++) {
@@ -332,4 +358,7 @@ public abstract class BulkLoadJob extends LoadJob {
         }
     }
 
+    public UserIdentity getUserInfo() {
+        return userInfo;
+    }
 }

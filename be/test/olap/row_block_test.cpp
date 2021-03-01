@@ -15,13 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/row_block.h"
+
 #include <gtest/gtest.h>
+
 #include <sstream>
 
 #include "common/object_pool.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
-#include "olap/row_block.h"
 #include "olap/tablet.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
@@ -37,10 +39,8 @@ namespace doris {
 class TestRowBlock : public testing::Test {
 public:
     TestRowBlock() {}
-    void SetUp() {
-    }
-    void TearDown() {
-    }
+    void SetUp() {}
+    void TearDown() {}
 };
 
 void init_tablet_schema(TabletSchema* tablet_schema) {
@@ -132,7 +132,7 @@ TEST_F(TestRowBlock, write_and_read) {
 
         // bigint
         {
-            int64_t val = i; 
+            int64_t val = i;
             row.set_not_null(0);
             row.set_field_content(0, (const char*)&val, block.mem_pool());
         }
@@ -173,7 +173,7 @@ TEST_F(TestRowBlock, write_and_read_without_nullbyte) {
 
         // bigint
         {
-            int64_t val = i; 
+            int64_t val = i;
             row.set_not_null(0);
             row.set_field_content(0, (const char*)&val, block.mem_pool());
         }
@@ -214,7 +214,7 @@ TEST_F(TestRowBlock, compress_failed) {
 
         // bigint
         {
-            int64_t val = i; 
+            int64_t val = i;
             row.set_field_content(0, (const char*)&val, block.mem_pool());
         }
         // char
@@ -252,7 +252,7 @@ TEST_F(TestRowBlock, decompress_failed) {
 
         // bigint
         {
-            int64_t val = i; 
+            int64_t val = i;
             row.set_field_content(0, (const char*)&val, block.mem_pool());
         }
         // char
@@ -321,7 +321,7 @@ TEST_F(TestRowBlock, pos_limit) {
     block.set_block_status(DEL_SATISFIED);
     ASSERT_EQ(DEL_SATISFIED, block.block_status());
 }
-}
+} // namespace doris
 
 // @brief Test Stub
 int main(int argc, char** argv) {
@@ -334,6 +334,5 @@ int main(int argc, char** argv) {
     int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     ret = RUN_ALL_TESTS();
-    return ret; 
+    return ret;
 }
-

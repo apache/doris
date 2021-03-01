@@ -19,25 +19,25 @@
 #define DORIS_BE_SRC_OLAP_READER_H
 
 #include <gen_cpp/PaloInternalService_types.h>
+#include <thrift/protocol/TDebugProtocol.h>
+
 #include <list>
 #include <memory>
 #include <queue>
 #include <sstream>
 #include <stack>
 #include <string>
-#include <thrift/protocol/TDebugProtocol.h>
 #include <utility>
 #include <vector>
 
+#include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
 #include "olap/row_cursor.h"
-#include "util/runtime_profile.h"
-
-#include "olap/column_predicate.h"
-#include "olap/tablet.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/tablet.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -74,35 +74,9 @@ struct ReaderParams {
     RuntimeProfile* profile = nullptr;
     RuntimeState* runtime_state = nullptr;
 
-    void check_validation() const {
-        if (UNLIKELY(version.first == -1)) {
-            LOG(FATAL) << "version is not set. tablet=" << tablet->full_name();
-        }
-    }
+    void check_validation() const;
 
-    std::string to_string() {
-        std::stringstream ss;
-        ss << "tablet=" << tablet->full_name()
-           << " reader_type=" << reader_type
-           << " aggregation=" << aggregation
-           << " version=" << version
-           << " range=" << range
-           << " end_range=" << end_range;
-
-        for (auto& key : start_key) {
-            ss << " keys=" << key;
-        }
-
-        for (auto& key : end_key){
-            ss << " end_keys=" << key;
-        }
-
-        for (auto& condition : conditions) {
-            ss << " conditions=" << apache::thrift::ThriftDebugString(condition);
-        }
-
-        return ss.str();
-    }
+    std::string to_string() const;
 };
 
 class Reader {
@@ -119,16 +93,15 @@ public:
     // Return OLAP_SUCCESS and set `*eof` to false when next row is read into `row_cursor`.
     // Return OLAP_SUCCESS and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
-    OLAPStatus next_row_with_aggregation(RowCursor *row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool *eof) {
+    OLAPStatus next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
+                                         ObjectPool* agg_pool, bool* eof) {
         return (this->*_next_row_func)(row_cursor, mem_pool, agg_pool, eof);
     }
 
-    uint64_t merged_rows() const {
-        return _merged_rows;
-    }
+    uint64_t merged_rows() const { return _merged_rows; }
 
     uint64_t filtered_rows() const {
-        return _stats.rows_del_filtered;
+        return _stats.rows_del_filtered + _stats.rows_conditions_filtered + _stats.rows_vec_del_cond_filtered;
     }
 
     const OlapReaderStatistics& stats() const { return _stats; }
@@ -136,31 +109,9 @@ public:
 
 private:
     struct KeysParam {
-        ~KeysParam() {
-            for (auto start_key : start_keys) {
-                SAFE_DELETE(start_key);
-            }
+        ~KeysParam();
 
-            for (auto end_key : end_keys) {
-                SAFE_DELETE(end_key);
-            }
-        }
-
-        std::string to_string() const {
-            std::stringstream ss;
-            ss << "range=" << range
-               << " end_range=" << end_range;
-
-            for (auto start_key : start_keys) {
-                ss << " keys=" << start_key->to_string();
-            }
-
-            for (auto end_key : end_keys) {
-                ss << " end_keys=" << end_key->to_string();
-            }
-
-            return ss.str();
-        }
+        std::string to_string() const;
 
         std::string range;
         std::string end_range;
@@ -169,6 +120,7 @@ private:
     };
 
     friend class CollectIterator;
+    friend class DeleteHandler;
 
     OLAPStatus _init_params(const ReaderParams& read_params);
 
@@ -178,14 +130,14 @@ private:
 
     void _init_conditions_param(const ReaderParams& read_params);
 
-    ColumnPredicate* _new_eq_pred(const TabletColumn& column, int index, const std::string& cond);
-    ColumnPredicate* _new_ne_pred(const TabletColumn& column, int index, const std::string& cond);
-    ColumnPredicate* _new_lt_pred(const TabletColumn& column, int index, const std::string& cond);
-    ColumnPredicate* _new_le_pred(const TabletColumn& column, int index, const std::string& cond);
-    ColumnPredicate* _new_gt_pred(const TabletColumn& column, int index, const std::string& cond);
-    ColumnPredicate* _new_ge_pred(const TabletColumn& column, int index, const std::string& cond);
+    ColumnPredicate* _new_eq_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
+    ColumnPredicate* _new_ne_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
+    ColumnPredicate* _new_lt_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
+    ColumnPredicate* _new_le_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
+    ColumnPredicate* _new_gt_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
+    ColumnPredicate* _new_ge_pred(const TabletColumn& column, int index, const std::string& cond, bool opposite) const;
 
-    ColumnPredicate* _parse_to_predicate(const TCondition& condition);
+    ColumnPredicate* _parse_to_predicate(const TCondition& condition, bool opposite = false) const;
 
     OLAPStatus _init_delete_condition(const ReaderParams& read_params);
 
@@ -194,9 +146,23 @@ private:
 
     void _init_load_bf_columns(const ReaderParams& read_params);
 
-    OLAPStatus _dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
-    OLAPStatus _agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
-    OLAPStatus _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    // Direcly read row from rowset and pass to upper caller. No need to do aggregation.
+    // This is usually used for DUPLICATE KEY tables
+    OLAPStatus _direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+                                bool* eof);
+    // Just same as _direct_next_row, but this is only for AGGREGATE KEY tables.
+    // And this is an optimization for AGGR tables.
+    // When there is only one rowset and is not overlapping, we can read it directly without aggregation.
+    OLAPStatus _direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
+                                        ObjectPool* agg_pool, bool* eof);
+    // For normal AGGREGATE KEY tables, read data by a merge heap.
+    OLAPStatus _agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+                                 bool* eof);
+    // For UNIQUE KEY tables, read data by a merge heap.
+    // The difference from _agg_key_next_row is that it will read the data from high version to low version,
+    // to minimize the comparison time in merge heap.
+    OLAPStatus _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+                                    bool* eof);
 
     TabletSharedPtr tablet() { return _tablet; }
 
@@ -215,9 +181,11 @@ private:
     std::vector<bool> _is_upper_keys_included;
     Conditions _conditions;
     std::vector<ColumnPredicate*> _col_predicates;
+    std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 
-    OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof) = nullptr;
+    OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool,
+                                         ObjectPool* agg_pool, bool* eof) = nullptr;
 
     bool _aggregation = false;
     // for agg query, we don't need to finalize when scan agg object data
@@ -228,7 +196,7 @@ private:
     bool _has_sequence_col = false;
     int32_t _sequence_col_idx = -1;
     const RowCursor* _next_key = nullptr;
-    CollectIterator* _collect_iter = nullptr;
+    std::unique_ptr<CollectIterator> _collect_iter;
     std::vector<uint32_t> _key_cids;
     std::vector<uint32_t> _value_cids;
 
@@ -238,6 +206,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(Reader);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_READER_H

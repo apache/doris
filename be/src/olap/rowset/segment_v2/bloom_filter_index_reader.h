@@ -17,17 +17,17 @@
 
 #pragma once
 
-#include <memory>
 #include <map>
+#include <memory>
 
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/column_block.h"
 #include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
-#include "runtime/mem_tracker.h"
+#include "olap/rowset/segment_v2/row_ranges.h"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 
@@ -43,9 +43,8 @@ class BloomFilter;
 class BloomFilterIndexReader {
 public:
     explicit BloomFilterIndexReader(const std::string& file_name,
-                               const BloomFilterIndexPB* bloom_filter_index_meta)
-        : _file_name(file_name),
-          _bloom_filter_index_meta(bloom_filter_index_meta) {
+                                    const BloomFilterIndexPB* bloom_filter_index_meta)
+            : _file_name(file_name), _bloom_filter_index_meta(bloom_filter_index_meta) {
         _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
     }
 
@@ -54,9 +53,7 @@ public:
     // create a new column iterator.
     Status new_iterator(std::unique_ptr<BloomFilterIndexIterator>* iterator);
 
-    const TypeInfo* type_info() const {
-        return _typeinfo;
-    }
+    const TypeInfo* type_info() const { return _typeinfo; }
 
 private:
     friend class BloomFilterIndexIterator;
@@ -70,18 +67,15 @@ private:
 class BloomFilterIndexIterator {
 public:
     explicit BloomFilterIndexIterator(BloomFilterIndexReader* reader)
-        : _reader(reader),
-          _bloom_filter_iter(reader->_bloom_filter_reader.get()),
-          _tracker(new MemTracker()),
-          _pool(new MemPool(_tracker.get())) {
-    }
+            : _reader(reader),
+              _bloom_filter_iter(reader->_bloom_filter_reader.get()),
+              _tracker(new MemTracker()),
+              _pool(new MemPool(_tracker.get())) {}
 
     // Read bloom filter at the given ordinal into `bf`.
     Status read_bloom_filter(rowid_t ordinal, std::unique_ptr<BloomFilter>* bf);
 
-    size_t current_bloom_filter_index() const {
-        return _bloom_filter_iter.get_current_ordinal();
-    }
+    size_t current_bloom_filter_index() const { return _bloom_filter_iter.get_current_ordinal(); }
 
 private:
     BloomFilterIndexReader* _reader;

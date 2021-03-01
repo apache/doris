@@ -15,15 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/rowset/segment_v2/binary_plain_page.h"
+
 #include <gtest/gtest.h>
+
 #include <iostream>
 #include <vector>
 
 #include "common/logging.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
-#include "olap/rowset/segment_v2/binary_plain_page.h"
-#include "olap/olap_common.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
@@ -35,8 +37,7 @@ class BinaryPlainPageTest : public testing::Test {
 public:
     BinaryPlainPageTest() {}
 
-    virtual ~BinaryPlainPageTest() {
-    }
+    virtual ~BinaryPlainPageTest() {}
 
     template <class PageBuilderType, class PageDecoderType>
     void TestBinarySeekByValueSmallPage() {
@@ -44,14 +45,14 @@ public:
         slices.emplace_back("Hello");
         slices.emplace_back(",");
         slices.emplace_back("Doris");
-        
+
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
         PageBuilderType page_builder(options);
         size_t count = slices.size();
 
-        Slice *ptr = &slices[0];
-        Status ret = page_builder.add(reinterpret_cast<const uint8_t *>(ptr), &count);
+        Slice* ptr = &slices[0];
+        Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
 
         OwnedSlice owned_slice = page_builder.finish();
 
@@ -72,31 +73,36 @@ public:
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
         size_t size = 3;
-        Slice* values = reinterpret_cast<Slice*>(pool.allocate(size * sizeof(Slice)));
-        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(pool.allocate(BitmapSize(size)));
-        ColumnBlock block(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values, null_bitmap, size, &pool);
+        std::unique_ptr<ColumnVectorBatch> cvb;
+        ColumnVectorBatch::create(size, true, get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR),
+                                  nullptr, &cvb);
+        ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);
 
         status = page_decoder.next_batch(&size, &column_block_view);
+        Slice* values = reinterpret_cast<Slice*>(block.data());
         ASSERT_TRUE(status.ok());
 
         Slice* value = reinterpret_cast<Slice*>(values);
-        ASSERT_EQ (3, size);
-        ASSERT_EQ ("Hello", value[0].to_string());
-        ASSERT_EQ (",", value[1].to_string());
-        ASSERT_EQ ("Doris", value[2].to_string());
-        
-        Slice* values2 = reinterpret_cast<Slice*>(pool.allocate(size * sizeof(Slice)));
-        ColumnBlock block2(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values2, null_bitmap, 1, &pool);
+        ASSERT_EQ(3, size);
+        ASSERT_EQ("Hello", value[0].to_string());
+        ASSERT_EQ(",", value[1].to_string());
+        ASSERT_EQ("Doris", value[2].to_string());
+
+        std::unique_ptr<ColumnVectorBatch> cvb2;
+        ColumnVectorBatch::create(1, true, get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR), nullptr,
+                                  &cvb2);
+        ColumnBlock block2(cvb2.get(), &pool);
         ColumnBlockView column_block_view2(&block2);
 
         size_t fetch_num = 1;
         page_decoder.seek_to_position_in_page(2);
         status = page_decoder.next_batch(&fetch_num, &column_block_view2);
+        Slice* values2 = reinterpret_cast<Slice*>(block2.data());
         ASSERT_TRUE(status.ok());
         Slice* value2 = reinterpret_cast<Slice*>(values2);
-        ASSERT_EQ (1, fetch_num);
-        ASSERT_EQ ("Doris", value2[0].to_string());
+        ASSERT_EQ(1, fetch_num);
+        ASSERT_EQ("Doris", value2[0].to_string());
     }
 };
 
@@ -104,8 +110,8 @@ TEST_F(BinaryPlainPageTest, TestBinaryPlainPageBuilderSeekByValueSmallPage) {
     TestBinarySeekByValueSmallPage<BinaryPlainPageBuilder, BinaryPlainPageDecoder>();
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

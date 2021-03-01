@@ -15,18 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
+#include "olap/tablet_meta.h"
 
 #include <gtest/gtest.h>
 
-#include "olap/tablet_meta.h"
+#include <string>
 
 namespace doris {
 
 TEST(TabletMetaTest, SaveAndParse) {
     std::string meta_path = "./be/test/olap/test_data/tablet_meta_test.hdr";
 
-    TabletMeta old_tablet_meta(1, 2, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK);
+    TabletMeta old_tablet_meta(1, 2, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK);
     ASSERT_EQ(OLAP_SUCCESS, old_tablet_meta.save(meta_path));
 
     {
@@ -40,9 +41,9 @@ TEST(TabletMetaTest, SaveAndParse) {
     ASSERT_EQ(old_tablet_meta, new_tablet_meta);
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

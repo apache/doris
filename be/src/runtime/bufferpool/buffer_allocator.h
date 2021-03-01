@@ -78,168 +78,166 @@ namespace doris {
 /// to fulfill allocations from their own arena, there will be no lock contention.
 ///
 struct BufferPool::BufferAllocator {
-  
-  BufferAllocator(BufferPool* pool, int64_t min_buffer_len, int64_t system_bytes_limit,
-      int64_t clean_page_bytes_limit);
-  ~BufferAllocator();
+    BufferAllocator(BufferPool* pool, int64_t min_buffer_len, int64_t system_bytes_limit,
+                    int64_t clean_page_bytes_limit);
+    ~BufferAllocator();
 
-  /// Allocate a buffer with a power-of-two length 'len'. This function may acquire
-  /// 'FreeBufferArena::lock_' and Page::lock so no locks lower in the lock acquisition
-  /// order (see buffer-pool-internal.h) should be held by the caller.
-  ///
-  /// Always succeeds on allocating memory up to 'system_bytes_limit', unless the system
-  /// is unable to give us 'system_bytes_limit' of memory or an internal bug: if all
-  /// clients write out enough dirty pages to stay within their reservation, then there
-  /// should always be enough free buffers and clean pages to reclaim.
-  Status Allocate(ClientHandle* client, int64_t len,
-      BufferPool::BufferHandle* buffer) WARN_UNUSED_RESULT;
+    /// Allocate a buffer with a power-of-two length 'len'. This function may acquire
+    /// 'FreeBufferArena::lock_' and Page::lock so no locks lower in the lock acquisition
+    /// order (see buffer-pool-internal.h) should be held by the caller.
+    ///
+    /// Always succeeds on allocating memory up to 'system_bytes_limit', unless the system
+    /// is unable to give us 'system_bytes_limit' of memory or an internal bug: if all
+    /// clients write out enough dirty pages to stay within their reservation, then there
+    /// should always be enough free buffers and clean pages to reclaim.
+    Status Allocate(ClientHandle* client, int64_t len,
+                    BufferPool::BufferHandle* buffer) WARN_UNUSED_RESULT;
 
-  /// Frees 'buffer', which must be open before calling. Closes 'buffer' and updates
-  /// internal state but does not release to any reservation.
-  void Free(BufferPool::BufferHandle&& buffer);
+    /// Frees 'buffer', which must be open before calling. Closes 'buffer' and updates
+    /// internal state but does not release to any reservation.
+    void Free(BufferPool::BufferHandle&& buffer);
 
-  /// Adds a clean page 'page' to a clean page list. Caller must hold the page's
-  /// client's lock via 'client_lock' so that moving the page between the client list and
-  /// the free page list is atomic. Caller must not hold 'FreeBufferArena::lock_' or any
-  /// Page::lock.
-  void AddCleanPage(const boost::unique_lock<boost::mutex>& client_lock, Page* page);
+    /// Adds a clean page 'page' to a clean page list. Caller must hold the page's
+    /// client's lock via 'client_lock' so that moving the page between the client list and
+    /// the free page list is atomic. Caller must not hold 'FreeBufferArena::lock_' or any
+    /// Page::lock.
+    void AddCleanPage(const std::unique_lock<std::mutex>& client_lock, Page* page);
 
-  /// Removes a clean page 'page' from a clean page list and returns true, if present in
-  /// one of the lists. Returns true if it was present. If 'claim_buffer' is true, the
-  /// caller must have reservation for the buffer, which is returned along with the page.
-  /// Otherwise the buffer is moved directly to the free buffer list. Caller must hold
-  /// the page's client's lock via 'client_lock' so that moving the page between the
-  /// client list and the free page list is atomic. Caller must not hold
-  /// 'FreeBufferArena::lock_' or any Page::lock.
-  bool RemoveCleanPage(
-      const boost::unique_lock<boost::mutex>& client_lock, bool claim_buffer, Page* page);
+    /// Removes a clean page 'page' from a clean page list and returns true, if present in
+    /// one of the lists. Returns true if it was present. If 'claim_buffer' is true, the
+    /// caller must have reservation for the buffer, which is returned along with the page.
+    /// Otherwise the buffer is moved directly to the free buffer list. Caller must hold
+    /// the page's client's lock via 'client_lock' so that moving the page between the
+    /// client list and the free page list is atomic. Caller must not hold
+    /// 'FreeBufferArena::lock_' or any Page::lock.
+    bool RemoveCleanPage(const std::unique_lock<std::mutex>& client_lock, bool claim_buffer,
+                         Page* page);
 
-  /// Periodically called to release free buffers back to the SystemAllocator. Releases
-  /// buffers based on recent allocation patterns, trying to minimise the number of
-  /// excess buffers retained in each list above the minimum required to avoid going
-  /// to the system allocator.
-  void Maintenance();
+    /// Periodically called to release free buffers back to the SystemAllocator. Releases
+    /// buffers based on recent allocation patterns, trying to minimise the number of
+    /// excess buffers retained in each list above the minimum required to avoid going
+    /// to the system allocator.
+    void Maintenance();
 
-  /// Try to release at least 'bytes_to_free' bytes of memory to the system allocator.
-  void ReleaseMemory(int64_t bytes_to_free);
+    /// Try to release at least 'bytes_to_free' bytes of memory to the system allocator.
+    void ReleaseMemory(int64_t bytes_to_free);
 
-  int64_t system_bytes_limit() const { return system_bytes_limit_; }
+    int64_t system_bytes_limit() const { return system_bytes_limit_; }
 
-  /// Return the amount of memory currently allocated from the system.
-  int64_t GetSystemBytesAllocated() const {
-    return system_bytes_limit_ - system_bytes_remaining_.load();
-  }
+    /// Return the amount of memory currently allocated from the system.
+    int64_t GetSystemBytesAllocated() const {
+        return system_bytes_limit_ - system_bytes_remaining_.load();
+    }
 
-  /// Return the total number of free buffers in the allocator.
-  int64_t GetNumFreeBuffers() const;
+    /// Return the total number of free buffers in the allocator.
+    int64_t GetNumFreeBuffers() const;
 
-  /// Return the total bytes of free buffers in the allocator.
-  int64_t GetFreeBufferBytes() const;
+    /// Return the total bytes of free buffers in the allocator.
+    int64_t GetFreeBufferBytes() const;
 
-  /// Return the limit on bytes of clean pages in the allocator.
-  int64_t GetCleanPageBytesLimit() const;
+    /// Return the limit on bytes of clean pages in the allocator.
+    int64_t GetCleanPageBytesLimit() const;
 
-  /// Return the total number of clean pages in the allocator.
-  int64_t GetNumCleanPages() const;
+    /// Return the total number of clean pages in the allocator.
+    int64_t GetNumCleanPages() const;
 
-  /// Return the total bytes of clean pages in the allocator.
-  int64_t GetCleanPageBytes() const;
+    /// Return the total bytes of clean pages in the allocator.
+    int64_t GetCleanPageBytes() const;
 
-  std::string DebugString();
+    std::string DebugString();
 
- protected:
-  friend class BufferAllocatorTest;
-  friend class BufferPoolTest;
-  friend class FreeBufferArena;
+protected:
+    friend class BufferAllocatorTest;
+    friend class BufferPoolTest;
+    friend class FreeBufferArena;
 
-  /// Test helper: gets the current size of the free list for buffers of 'len' bytes
-  /// on core 'core'.
-  int GetFreeListSize(int core, int64_t len);
+    /// Test helper: gets the current size of the free list for buffers of 'len' bytes
+    /// on core 'core'.
+    int GetFreeListSize(int core, int64_t len);
 
-  /// Test helper: reduce the number of scavenge attempts so backend tests can force
-  /// use of the "locked" scavenging code path.
-  void set_max_scavenge_attempts(int val) {
-    DCHECK_GE(val, 1);
-    max_scavenge_attempts_ = val;
-  }
+    /// Test helper: reduce the number of scavenge attempts so backend tests can force
+    /// use of the "locked" scavenging code path.
+    void set_max_scavenge_attempts(int val) {
+        DCHECK_GE(val, 1);
+        max_scavenge_attempts_ = val;
+    }
 
- private:
-  /// Compute the maximum power-of-two buffer length that could be allocated based on the
-  /// amount of memory available 'system_bytes_limit'. The value is always at least
-  /// 'min_buffer_len' so that there is at least one valid buffer size.
-  static int64_t CalcMaxBufferLen(int64_t min_buffer_len, int64_t system_bytes_limit);
+private:
+    /// Compute the maximum power-of-two buffer length that could be allocated based on the
+    /// amount of memory available 'system_bytes_limit'. The value is always at least
+    /// 'min_buffer_len' so that there is at least one valid buffer size.
+    static int64_t CalcMaxBufferLen(int64_t min_buffer_len, int64_t system_bytes_limit);
 
-  /// Same as Allocate() but leaves 'buffer->client_' NULL and does not update counters.
-  Status AllocateInternal(
-      int64_t len, BufferPool::BufferHandle* buffer) WARN_UNUSED_RESULT;
+    /// Same as Allocate() but leaves 'buffer->client_' NULL and does not update counters.
+    Status AllocateInternal(int64_t len, BufferPool::BufferHandle* buffer) WARN_UNUSED_RESULT;
 
-  /// Tries to reclaim enough memory from various sources so that the caller can allocate
-  /// a buffer of 'target_bytes' from the system allocator. Scavenges buffers from the
-  /// free buffer and clean page lists of all cores and frees them with
-  /// 'system_allocator_'. Also tries to decrement 'system_bytes_remaining_'.
-  /// 'current_core' is the index of the current CPU core. Any bytes freed in excess of
-  /// 'target_bytes' are added to 'system_bytes_remaining_.' If 'slow_but_sure' is true,
-  /// this function uses a slower strategy that guarantees enough memory will be found
-  /// but can block progress of other threads for longer. If 'slow_but_sure' is false,
-  /// then this function optimistically tries to reclaim the memory but may not reclaim
-  /// 'target_bytes' of memory. Returns the number of bytes reclaimed.
-  int64_t ScavengeBuffers(bool slow_but_sure, int current_core, int64_t target_bytes);
+    /// Tries to reclaim enough memory from various sources so that the caller can allocate
+    /// a buffer of 'target_bytes' from the system allocator. Scavenges buffers from the
+    /// free buffer and clean page lists of all cores and frees them with
+    /// 'system_allocator_'. Also tries to decrement 'system_bytes_remaining_'.
+    /// 'current_core' is the index of the current CPU core. Any bytes freed in excess of
+    /// 'target_bytes' are added to 'system_bytes_remaining_.' If 'slow_but_sure' is true,
+    /// this function uses a slower strategy that guarantees enough memory will be found
+    /// but can block progress of other threads for longer. If 'slow_but_sure' is false,
+    /// then this function optimistically tries to reclaim the memory but may not reclaim
+    /// 'target_bytes' of memory. Returns the number of bytes reclaimed.
+    int64_t ScavengeBuffers(bool slow_but_sure, int current_core, int64_t target_bytes);
 
-  /// Helper to free a list of buffers to the system. Returns the number of bytes freed.
-  int64_t FreeToSystem(std::vector<BufferHandle>&& buffers);
+    /// Helper to free a list of buffers to the system. Returns the number of bytes freed.
+    int64_t FreeToSystem(std::vector<BufferHandle>&& buffers);
 
-  /// Compute a sum over all arenas. Does not lock the arenas.
-  int64_t SumOverArenas(std::function<int64_t(FreeBufferArena* arena)> compute_fn) const;
+    /// Compute a sum over all arenas. Does not lock the arenas.
+    int64_t SumOverArenas(std::function<int64_t(FreeBufferArena* arena)> compute_fn) const;
 
-  /// The pool that this allocator is associated with.
-  BufferPool* const pool_;
+    /// The pool that this allocator is associated with.
+    BufferPool* const pool_;
 
-  /// System allocator that is ultimately used to allocate and free buffers.
-  const boost::scoped_ptr<SystemAllocator> system_allocator_;
+    /// System allocator that is ultimately used to allocate and free buffers.
+    const boost::scoped_ptr<SystemAllocator> system_allocator_;
 
-  /// The minimum power-of-two buffer length that can be allocated.
-  const int64_t min_buffer_len_;
+    /// The minimum power-of-two buffer length that can be allocated.
+    const int64_t min_buffer_len_;
 
-  /// The maximum power-of-two buffer length that can be allocated. Always >=
-  /// 'min_buffer_len' so that there is at least one valid buffer size.
-  const int64_t max_buffer_len_;
+    /// The maximum power-of-two buffer length that can be allocated. Always >=
+    /// 'min_buffer_len' so that there is at least one valid buffer size.
+    const int64_t max_buffer_len_;
 
-  /// The log2 of 'min_buffer_len_'.
-  const int log_min_buffer_len_;
+    /// The log2 of 'min_buffer_len_'.
+    const int log_min_buffer_len_;
 
-  /// The log2 of 'max_buffer_len_'.
-  const int log_max_buffer_len_;
+    /// The log2 of 'max_buffer_len_'.
+    const int log_max_buffer_len_;
 
-  /// The maximum physical memory in bytes that will be allocated from the system.
-  const int64_t system_bytes_limit_;
+    /// The maximum physical memory in bytes that will be allocated from the system.
+    const int64_t system_bytes_limit_;
 
-  /// The remaining number of bytes of 'system_bytes_limit_' that can be used for
-  /// allocating new buffers. Must be updated atomically before a new buffer is
-  /// allocated or after an existing buffer is freed with the system allocator.
-  AtomicInt64 system_bytes_remaining_;
+    /// The remaining number of bytes of 'system_bytes_limit_' that can be used for
+    /// allocating new buffers. Must be updated atomically before a new buffer is
+    /// allocated or after an existing buffer is freed with the system allocator.
+    AtomicInt64 system_bytes_remaining_;
 
-  /// The maximum bytes of clean pages that can accumulate across all arenas before
-  /// they will be evicted.
-  const int64_t clean_page_bytes_limit_;
+    /// The maximum bytes of clean pages that can accumulate across all arenas before
+    /// they will be evicted.
+    const int64_t clean_page_bytes_limit_;
 
-  /// The number of bytes of 'clean_page_bytes_limit_' not used by clean pages. I.e.
-  /// (clean_page_bytes_limit - bytes of clean pages in the BufferAllocator).
-  /// 'clean_pages_bytes_limit_' is enforced by increasing this value before a
-  /// clean page is added and decreasing it after a clean page is reclaimed or evicted.
-  AtomicInt64 clean_page_bytes_remaining_;
+    /// The number of bytes of 'clean_page_bytes_limit_' not used by clean pages. I.e.
+    /// (clean_page_bytes_limit - bytes of clean pages in the BufferAllocator).
+    /// 'clean_pages_bytes_limit_' is enforced by increasing this value before a
+    /// clean page is added and decreasing it after a clean page is reclaimed or evicted.
+    AtomicInt64 clean_page_bytes_remaining_;
 
-  /// Free and clean pages. One arena per core.
-  std::vector<std::unique_ptr<FreeBufferArena>> per_core_arenas_;
+    /// Free and clean pages. One arena per core.
+    std::vector<std::unique_ptr<FreeBufferArena>> per_core_arenas_;
 
-  /// Default number of times to attempt scavenging.
-  static const int MAX_SCAVENGE_ATTEMPTS = 3;
+    /// Default number of times to attempt scavenging.
+    static const int MAX_SCAVENGE_ATTEMPTS = 3;
 
-  /// Number of times to attempt scavenging. Usually MAX_SCAVENGE_ATTEMPTS but can be
-  /// overridden by tests. The first max_scavenge_attempts_ - 1 attempts do not lock
-  /// all arenas so may fail. The final attempt locks all arenas, which is expensive
-  /// but is guaranteed to succeed.
-  int max_scavenge_attempts_;
+    /// Number of times to attempt scavenging. Usually MAX_SCAVENGE_ATTEMPTS but can be
+    /// overridden by tests. The first max_scavenge_attempts_ - 1 attempts do not lock
+    /// all arenas so may fail. The final attempt locks all arenas, which is expensive
+    /// but is guaranteed to succeed.
+    int max_scavenge_attempts_;
 };
-}
+} // namespace doris
 
 #endif

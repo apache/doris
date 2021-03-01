@@ -17,21 +17,21 @@
 
 #include "runtime/data_stream_recvr.h"
 
-#include <unordered_set>
-#include <unordered_map>
-#include <deque>
+#include <google/protobuf/stubs/common.h>
 
 #include <boost/thread/locks.hpp>
 #include <boost/thread/mutex.hpp>
-#include <google/protobuf/stubs/common.h>
+#include <deque>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "gen_cpp/data.pb.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/sorted_run_merger.h"
-#include "util/runtime_profile.h"
-#include "util/logging.h"
 #include "util/debug_util.h"
+#include "util/logging.h"
+#include "util/runtime_profile.h"
 
 using std::list;
 using std::vector;
@@ -70,10 +70,8 @@ public:
     // blocks if this will make the stream exceed its buffer limit.
     // If the total size of the batches in this queue would exceed the allowed buffer size,
     // the queue is considered full and the call blocks until a batch is dequeued.
-    void add_batch(
-        const PRowBatch& pb_batch,
-        int be_number, int64_t packet_seq,
-        ::google::protobuf::Closure** done);
+    void add_batch(const PRowBatch& pb_batch, int be_number, int64_t packet_seq,
+                   ::google::protobuf::Closure** done);
 
     // Decrement the number of remaining senders for this queue and signal eos ("new data")
     // if the count drops to 0. The number of senders will be 1 for a merging
@@ -88,8 +86,8 @@ public:
     void close();
 
     // Returns the current batch from this queue being processed by a consumer.
-    RowBatch* current_batch() const { {
-        return _current_batch.get(); }
+    RowBatch* current_batch() const {
+        { return _current_batch.get(); }
     }
 
 private:
@@ -125,29 +123,29 @@ private:
     // Set to true when the first batch has been received
     bool _received_first_batch;
 
-    std::unordered_set<int> _sender_eos_set; // sender_id
+    std::unordered_set<int> _sender_eos_set;          // sender_id
     std::unordered_map<int, int64_t> _packet_seq_map; // be_number => packet_seq
 
     std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
 };
 
-DataStreamRecvr::SenderQueue::SenderQueue(
-        DataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile) :
-    _recvr(parent_recvr),
-    _is_cancelled(false),
-    _num_remaining_senders(num_senders),
-    _received_first_batch(false) {
-}
+DataStreamRecvr::SenderQueue::SenderQueue(DataStreamRecvr* parent_recvr, int num_senders,
+                                          RuntimeProfile* profile)
+        : _recvr(parent_recvr),
+          _is_cancelled(false),
+          _num_remaining_senders(num_senders),
+          _received_first_batch(false) {}
 
 Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
     unique_lock<mutex> l(_lock);
     // wait until something shows up or we know we're done
     while (!_is_cancelled && _batch_queue.empty() && _num_remaining_senders > 0) {
         VLOG_ROW << "wait arrival fragment_instance_id=" << _recvr->fragment_instance_id()
-            << " node=" << _recvr->dest_node_id();
+                 << " node=" << _recvr->dest_node_id();
         // Don't count time spent waiting on the sender as active time.
         CANCEL_SAFE_SCOPED_TIMER(_recvr->_data_arrival_timer, &_is_cancelled);
-        CANCEL_SAFE_SCOPED_TIMER(_received_first_batch ? NULL : _recvr->_first_batch_wait_total_timer,
+        CANCEL_SAFE_SCOPED_TIMER(
+                _received_first_batch ? NULL : _recvr->_first_batch_wait_total_timer,
                 &_is_cancelled);
         _data_arrival_cv.wait(l);
     }
@@ -187,10 +185,9 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
     return Status::OK();
 }
 
-void DataStreamRecvr::SenderQueue::add_batch(
-        const PRowBatch& pb_batch,
-        int be_number, int64_t packet_seq,
-        ::google::protobuf::Closure** done) {
+void DataStreamRecvr::SenderQueue::add_batch(const PRowBatch& pb_batch, int be_number,
+                                             int64_t packet_seq,
+                                             ::google::protobuf::Closure** done) {
     unique_lock<mutex> l(_lock);
     if (_is_cancelled) {
         return;
@@ -244,9 +241,8 @@ void DataStreamRecvr::SenderQueue::add_batch(
         // it in this thread.
         batch = new RowBatch(_recvr->row_desc(), pb_batch, _recvr->mem_tracker().get());
     }
-   
-    VLOG_ROW << "added #rows=" << batch->num_rows()
-        << " batch_size=" << batch_size << "\n";
+
+    VLOG_ROW << "added #rows=" << batch->num_rows() << " batch_size=" << batch_size << "\n";
     _batch_queue.emplace_back(batch_size, batch);
     // if done is nullptr, this function can't delay this response
     if (done != nullptr && _recvr->exceeds_limit(batch_size)) {
@@ -268,10 +264,8 @@ void DataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
     _sender_eos_set.insert(be_number);
     DCHECK_GT(_num_remaining_senders, 0);
     _num_remaining_senders--;
-    VLOG_FILE << "decremented senders: fragment_instance_id="
-        << _recvr->fragment_instance_id()
-        << " node_id=" << _recvr->dest_node_id()
-        << " #senders=" << _num_remaining_senders;
+    VLOG_FILE << "decremented senders: fragment_instance_id=" << _recvr->fragment_instance_id()
+              << " node_id=" << _recvr->dest_node_id() << " #senders=" << _num_remaining_senders;
     if (_num_remaining_senders == 0) {
         _data_arrival_cv.notify_one();
     }
@@ -284,9 +278,8 @@ void DataStreamRecvr::SenderQueue::cancel() {
             return;
         }
         _is_cancelled = true;
-        VLOG_QUERY << "cancelled stream: _fragment_instance_id="
-            << _recvr->fragment_instance_id()
-            << " node_id=" << _recvr->dest_node_id();
+        VLOG_QUERY << "cancelled stream: _fragment_instance_id=" << _recvr->fragment_instance_id()
+                   << " node_id=" << _recvr->dest_node_id();
     }
     // Wake up all threads waiting to produce/consume batches.  They will all
     // notice that the stream is cancelled and handle it.
@@ -319,8 +312,7 @@ void DataStreamRecvr::SenderQueue::close() {
     }
 
     // Delete any batches queued in _batch_queue
-    for (RowBatchQueue::iterator it = _batch_queue.begin();
-            it != _batch_queue.end(); ++it) {
+    for (RowBatchQueue::iterator it = _batch_queue.begin(); it != _batch_queue.end(); ++it) {
         delete it->second;
     }
 
@@ -344,7 +336,7 @@ Status DataStreamRecvr::create_merger(const TupleRowComparator& less_than) {
 }
 
 void DataStreamRecvr::transfer_all_resources(RowBatch* transfer_batch) {
-    BOOST_FOREACH(SenderQueue* sender_queue, _sender_queues) {
+    BOOST_FOREACH (SenderQueue* sender_queue, _sender_queues) {
         if (sender_queue->current_batch() != NULL) {
             sender_queue->current_batch()->transfer_resource_ownership(transfer_batch);
         }
@@ -354,18 +346,18 @@ void DataStreamRecvr::transfer_all_resources(RowBatch* transfer_batch) {
 DataStreamRecvr::DataStreamRecvr(
         DataStreamMgr* stream_mgr, const std::shared_ptr<MemTracker>& parent_tracker,
         const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
-        PlanNodeId dest_node_id, int num_senders, bool is_merging, 
-        int total_buffer_limit, RuntimeProfile* profile, 
-        std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr) :
-            _mgr(stream_mgr),
-            _fragment_instance_id(fragment_instance_id),
-            _dest_node_id(dest_node_id),
-            _total_buffer_limit(total_buffer_limit),
-            _row_desc(row_desc),
-            _is_merging(is_merging),
-            _num_buffered_bytes(0),
-            _profile(profile),
-            _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
+        PlanNodeId dest_node_id, int num_senders, bool is_merging, int total_buffer_limit,
+        RuntimeProfile* profile,
+        std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
+        : _mgr(stream_mgr),
+          _fragment_instance_id(fragment_instance_id),
+          _dest_node_id(dest_node_id),
+          _total_buffer_limit(total_buffer_limit),
+          _row_desc(row_desc),
+          _is_merging(is_merging),
+          _num_buffered_bytes(0),
+          _profile(profile),
+          _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
     _mem_tracker = MemTracker::CreateTracker(_profile, -1, "DataStreamRecvr", parent_tracker);
 
     // Create one queue per sender if is_merging is true.
@@ -373,18 +365,16 @@ DataStreamRecvr::DataStreamRecvr(
     _sender_queues.reserve(num_queues);
     int num_sender_per_queue = is_merging ? 1 : num_senders;
     for (int i = 0; i < num_queues; ++i) {
-        SenderQueue* queue = _sender_queue_pool.add(
-                new SenderQueue(this, num_sender_per_queue, profile));
+        SenderQueue* queue =
+                _sender_queue_pool.add(new SenderQueue(this, num_sender_per_queue, profile));
         _sender_queues.push_back(queue);
     }
 
     // Initialize the counters
-    _bytes_received_counter =
-        ADD_COUNTER(_profile, "BytesReceived", TUnit::BYTES);
+    _bytes_received_counter = ADD_COUNTER(_profile, "BytesReceived", TUnit::BYTES);
     // _bytes_received_time_series_counter =
     //     ADD_TIME_SERIES_COUNTER(_profile, "BytesReceived", _bytes_received_counter);
-    _deserialize_row_batch_timer =
-        ADD_TIMER(_profile, "DeserializeRowBatchTimer");
+    _deserialize_row_batch_timer = ADD_TIMER(_profile, "DeserializeRowBatchTimer");
     _data_arrival_timer = ADD_TIMER(_profile, "DataArrivalWaitTime");
     _buffer_full_total_timer = ADD_TIMER(_profile, "SendersBlockedTotalTimer(*)");
     _first_batch_wait_total_timer = ADD_TIMER(_profile, "FirstBatchArrivalWaitTime");
@@ -395,10 +385,8 @@ Status DataStreamRecvr::get_next(RowBatch* output_batch, bool* eos) {
     return _merger->get_next(output_batch, eos);
 }
 
-void DataStreamRecvr::add_batch(
-        const PRowBatch& batch, int sender_id,
-        int be_number, int64_t packet_seq,
-        ::google::protobuf::Closure** done) {
+void DataStreamRecvr::add_batch(const PRowBatch& batch, int sender_id, int be_number,
+                                int64_t packet_seq, ::google::protobuf::Closure** done) {
     int use_sender_id = _is_merging ? sender_id : 0;
     // Add all batches to the same queue if _is_merging is false.
     _sender_queues[use_sender_id]->add_batch(batch, be_number, packet_seq, done);
@@ -438,4 +426,4 @@ Status DataStreamRecvr::get_batch(RowBatch** next_batch) {
     return _sender_queues[0]->get_batch(next_batch);
 }
 
-}
+} // namespace doris

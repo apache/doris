@@ -52,11 +52,11 @@ Doris's new privilege management system refers to Mysql's privilege management m
 
 ## Supported operations
 
-1. Create users：CREATE USER
+1. Create users: CREATE USER
 2. Delete users: DROP USER
 3. Authorization: GRANT
 4. Withdrawal: REVOKE
-5. Create role：CREATE ROLE
+5. Create role: CREATE ROLE
 6. Delete Roles: DROP ROLE
 7. View current user privileges: SHOW GRANTS
 8. View all user privilegesSHOW ALL GRANTS;
@@ -132,7 +132,7 @@ ADMIN\_PRIV and GRANT\_PRIV have the authority of **"grant authority"** at the s
 
 	* Users with ADMIN or GLOBAL GRANT privileges can set any user's password.
 	* Ordinary users can set their corresponding User Identity password. The corresponding User Identity can be viewed by `SELECT CURRENT_USER();`command.
-	* Users with GRANT privileges at non-GLOBAL level can not set the password of existing users, but can only specify the password when creating users.
+	* Users with GRANT privileges at non-GLOBAL level cannot set the password of existing users, but can only specify the password when creating users.
 
 
 ## Some explanations

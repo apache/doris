@@ -27,6 +27,7 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -191,10 +192,11 @@ public class ExportJob implements Writable {
 
         this.partitions = stmt.getPartitions();
 
-        db.readLock();
+        this.exportTable = db.getTable(stmt.getTblName().getTbl());
+
+        exportTable.readLock();
         try {
             this.dbId = db.getId();
-            this.exportTable = db.getTable(stmt.getTblName().getTbl());
             if (exportTable == null) {
                 throw new DdlException("Table " + stmt.getTblName().getTbl() + " does not exist");
             }
@@ -202,7 +204,7 @@ public class ExportJob implements Writable {
             this.tableName = stmt.getTblName();
             genExecFragment();
         } finally {
-            db.readUnlock();
+            exportTable.readUnlock();
         }
 
         this.sql = stmt.toSql();
@@ -210,7 +212,11 @@ public class ExportJob implements Writable {
 
     private void genExecFragment() throws UserException {
         registerToDesc();
-        String tmpExportPathStr = getExportPath() + "/__doris_export_tmp_" + id + "/";
+        String tmpExportPathStr = getExportPath();
+        // broker will upload file to tp path and than rename to the final file
+        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
+            tmpExportPathStr = tmpExportPathStr + "/__doris_export_tmp_" + id + "/";
+        }
         try {
             URI uri = new URI(tmpExportPathStr);
             tmpExportPathStr = uri.normalize().toString();

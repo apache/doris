@@ -106,6 +106,7 @@ public class BaseController {
         Cookie cookie = new Cookie(PALO_SESSION_ID, key);
         cookie.setMaxAge(PALO_SESSION_EXPIRED_TIME);
         cookie.setPath("/");
+        cookie.setHttpOnly(true);
         response.addCookie(cookie);
         LOG.debug("add session cookie: {} {}", PALO_SESSION_ID, key);
         HttpAuthManager.getInstance().addSessionValue(key, value);
@@ -157,7 +158,6 @@ public class BaseController {
             for (Cookie cookie : cookies) {
                 if (cookie.getName() != null && cookie.getName().equals(cookieName)) {
                     String sessionId = cookie.getValue();
-                    LOG.debug("get cookie value. {}: {}", cookie.getName(), sessionId);
                     sessionIds.add(sessionId);
                 }
             }
@@ -170,8 +170,8 @@ public class BaseController {
         for (Cookie cookie : cookies) {
             if (cookie.getName() != null && cookie.getName().equals(cookieName)) {
                 cookie.setMaxAge(age);
+                cookie.setPath("/");
                 response.addCookie(cookie);
-                LOG.debug("get update cookie: {} {}", cookie.getName(), cookie.getValue());
             }
         }
     }

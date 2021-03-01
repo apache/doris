@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
@@ -29,19 +30,19 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SetStmt;
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
-import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -54,7 +55,9 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.common.util.QueryPlannerProfile;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -86,16 +89,17 @@ import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.glassfish.jersey.internal.guava.Sets;
 
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -123,6 +127,8 @@ public class StmtExecutor {
     private PQueryStatistics statisticsForAuditLog;
     private boolean isCached;
 
+    private QueryPlannerProfile plannerProfile = new QueryPlannerProfile();
+
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
         this.context = context;
@@ -146,7 +152,8 @@ public class StmtExecutor {
     }
 
     // At the end of query execution, we begin to add up profile
-    public void initProfile(long beginTimeInNanoSecond) {
+    public void initProfile(QueryPlannerProfile plannerProfile) {
+        // Summary profile
         profile = new RuntimeProfile("Query");
         summaryProfile = new RuntimeProfile("Summary");
         summaryProfile.addInfoString(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
@@ -165,9 +172,14 @@ public class StmtExecutor {
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
         summaryProfile.addInfoString(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
 
+        RuntimeProfile plannerRuntimeProfile = new RuntimeProfile("Execution Summary");
+        plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
+        summaryProfile.addChild(plannerRuntimeProfile);
+
         profile.addChild(summaryProfile);
+
         if (coord != null) {
-            coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(beginTimeInNanoSecond));
+            coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(plannerProfile.getQueryBeginTime()));
             coord.endProfile();
             profile.addChild(coord.getQueryProfile());
             coord = null;
@@ -224,17 +236,25 @@ public class StmtExecutor {
         return parsedStmt;
     }
 
-    // Execute one statement.
+    // query with a random sql
+    public void execute() throws Exception {
+        UUID uuid = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        execute(queryId);
+    }
+
+    // Execute one statement with queryId
+    // The queryId will be set in ConnectContext
+    // This queryId will also be send to master FE for exec master only query.
+    // query id in ConnectContext will be changed when retry exec a query or master FE return a different one.
     // Exception:
     //  IOException: talk with client failed.
-    public void execute() throws Exception {
+    public void execute(TUniqueId queryId) throws Exception {
 
-        long beginTimeInNanoSecond = TimeUtils.getStartTime();
+        plannerProfile.setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
-        // set query id
-        UUID uuid = UUID.randomUUID();
-        context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+        context.setQueryId(queryId);
 
         try {
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
@@ -253,6 +273,11 @@ public class StmtExecutor {
 
             if (isForwardToMaster()) {
                 forwardToMaster();
+                if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
+                    // If the query id changed in master, we set it in context.
+                    // WARN: when query timeout, this code may not be reach.
+                    context.setQueryId(masterOpExecutor.getQueryId());
+                }
                 return;
             } else {
                 LOG.debug("no need to transfer to Master. stmt: {}", context.getStmtId());
@@ -265,12 +290,14 @@ public class StmtExecutor {
                     try {
                         //reset query id for each retry
                         if (i > 0) {
-                            uuid = UUID.randomUUID();
-                            context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+                            UUID uuid = UUID.randomUUID();
+                            TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+                            LOG.warn("Query {} {} times with new query id: {}", DebugUtil.printId(queryId), i, newQueryId);
+                            context.setQueryId(newQueryId);
                         }
                         handleQueryStmt();
                         if (context.getSessionVariable().isReportSucc()) {
-                            writeProfile(beginTimeInNanoSecond);
+                            writeProfile();
                         }
                         break;
                     } catch (RpcException e) {
@@ -298,7 +325,7 @@ public class StmtExecutor {
                 try {
                     handleInsertStmt();
                     if (context.getSessionVariable().isReportSucc()) {
-                        writeProfile(beginTimeInNanoSecond);
+                        writeProfile();
                     }
                 } catch (Throwable t) {
                     LOG.warn("handle insert stmt fail", t);
@@ -359,37 +386,18 @@ public class StmtExecutor {
     }
 
     private void forwardToMaster() throws Exception {
-        masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus);
+        boolean isQuery = parsedStmt instanceof QueryStmt;
+        masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery);
         LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         masterOpExecutor.execute();
     }
 
-    private void writeProfile(long beginTimeInNanoSecond) {
-        initProfile(beginTimeInNanoSecond);
+    private void writeProfile() {
+        initProfile(plannerProfile);
         profile.computeTimeInChildProfile();
         StringBuilder builder = new StringBuilder();
         profile.prettyPrint(builder, "");
         ProfileManager.getInstance().pushProfile(profile);
-    }
-
-    // Lock all database before analyze
-    private void lock(Map<String, Database> dbs) {
-        if (dbs == null) {
-            return;
-        }
-        for (Database db : dbs.values()) {
-            db.readLock();
-        }
-    }
-
-    // unLock all database after analyze
-    private void unLock(Map<String, Database> dbs) {
-        if (dbs == null) {
-            return;
-        }
-        for (Database db : dbs.values()) {
-            db.readUnlock();
-        }
     }
 
     // Analyze one statement to structure in memory.
@@ -404,6 +412,7 @@ public class StmtExecutor {
             try {
                 parsedStmt = SqlParserUtils.getStmt(parser, originStmt.idx);
                 parsedStmt.setOrigStmt(originStmt);
+                parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             } catch (Error e) {
                 LOG.info("error happened when parsing stmt {}, id: {}", originStmt, context.getStmtId(), e);
                 throw new AnalysisException("sql parsing error, please check your sql");
@@ -444,11 +453,12 @@ public class StmtExecutor {
         if (parsedStmt instanceof QueryStmt
                 || parsedStmt instanceof InsertStmt
                 || parsedStmt instanceof CreateTableAsSelectStmt) {
-            Map<String, Database> dbs = Maps.newTreeMap();
+            Map<Long, Table> tableMap = Maps.newTreeMap();
             QueryStmt queryStmt;
+            Set<String> parentViewNameSet = Sets.newHashSet();
             if (parsedStmt instanceof QueryStmt) {
                 queryStmt = (QueryStmt) parsedStmt;
-                queryStmt.getDbs(analyzer, dbs);
+                queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
             } else {
                 InsertStmt insertStmt;
                 if (parsedStmt instanceof InsertStmt) {
@@ -456,10 +466,11 @@ public class StmtExecutor {
                 } else {
                     insertStmt = ((CreateTableAsSelectStmt) parsedStmt).getInsertStmt();
                 }
-                insertStmt.getDbs(analyzer, dbs);
+                insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
             }
-
-            lock(dbs);
+            // table id in tableList is in ascending order because that table map is a sorted map
+            List<Table> tables = Lists.newArrayList(tableMap.values());
+            MetaLockUtils.readLockTables(tables);
             try {
                 analyzeAndGenerateQueryPlan(tQueryOptions);
             } catch (MVSelectFailedException e) {
@@ -476,7 +487,7 @@ public class StmtExecutor {
                 LOG.warn("Analyze failed because ", e);
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             } finally {
-                unLock(dbs);
+                MetaLockUtils.readUnlockTables(tables);
             }
         } else {
             try {
@@ -533,6 +544,7 @@ public class StmtExecutor {
                 if (isExplain) parsedStmt.setIsExplain(isExplain, isVerbose);
             }
         }
+        plannerProfile.setQueryAnalysisFinishTime();
 
         // create plan
         planner = new Planner();
@@ -544,6 +556,8 @@ public class StmtExecutor {
         }
         // TODO(zc):
         // Preconditions.checkState(!analyzer.hasUnassignedConjuncts());
+
+        plannerProfile.setQueryPlanFinishTime();
     }
 
     private void resetAnalyzerAndStmt() {
@@ -747,6 +761,7 @@ public class StmtExecutor {
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
         coord.exec();
+        plannerProfile.setQueryScheduleFinishTime();
         while (true) {
             batch = coord.getNext();
             // for outfile query, there will be only one empty batch send back with eos flag
@@ -776,6 +791,7 @@ public class StmtExecutor {
         } else {
             context.getState().setOk(statisticsForAuditLog.returned_rows, 0, "");
         }
+        plannerProfile.setQueryFetchResultFinishTime();
     }
 
     // Process a select statement.
@@ -806,6 +822,7 @@ public class StmtExecutor {
         Throwable throwable = null;
 
         String label = insertStmt.getLabel();
+        LOG.info("Do insert [{}] with query id: {}", label, DebugUtil.printId(context.queryId()));
 
         long loadedRows = 0;
         int filteredRows = 0;
@@ -862,11 +879,10 @@ public class StmtExecutor {
                 context.getState().setOk();
                 return;
             }
-
             if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                    insertStmt.getDbObj(), insertStmt.getTransactionId(),
+                    insertStmt.getDbObj(), Lists.newArrayList(insertStmt.getTargetTable()), insertStmt.getTransactionId(),
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
-                    10000)) {
+                    context.getSessionVariable().getInsertVisibleTimeoutMs())) {
                 txnStatus = TransactionStatus.VISIBLE;
                 MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
             } else {
@@ -1090,6 +1106,9 @@ public class StmtExecutor {
         }
         if (statisticsForAuditLog.scan_rows == null) {
             statisticsForAuditLog.scan_rows = 0L;
+        }
+        if (statisticsForAuditLog.cpu_ms == null) {
+            statisticsForAuditLog.cpu_ms = 0L;
         }
         return statisticsForAuditLog;
     }

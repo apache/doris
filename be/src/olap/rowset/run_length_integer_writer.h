@@ -20,9 +20,9 @@
 
 #include <endian.h>
 
-#include "olap/out_stream.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/out_stream.h"
 
 namespace doris {
 
@@ -104,7 +104,7 @@ with fixed delta values or long repeated sequences.
 class RunLengthIntegerWriter {
 public:
     // 如果RunLengthIntegerWriter用于输出带符号的数据(int8, int16, int32, int64),
-    // 则设置is_singed为true, 此时会使用ZigZag 
+    // 则设置is_singed为true, 此时会使用ZigZag
     // 编码以减少存储负数时使用的比特数
     explicit RunLengthIntegerWriter(OutStream* output, bool is_signed);
     ~RunLengthIntegerWriter() {}
@@ -114,7 +114,7 @@ public:
 
     void print_position_debug_info() {
         _output->print_position_debug_info();
-        VLOG(10) << "_num_literals=" << _num_literals;
+        VLOG_TRACE << "_num_literals=" << _num_literals;
     }
 
 private:
@@ -146,22 +146,16 @@ private:
     // 对于实际的排列顺序，未来可以写个小函数来判断
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     struct ShortRepeatHead {
-        uint8_t run_length: 3,
-                value_bytes: 3,
-                type: 2;
+        uint8_t run_length : 3, value_bytes : 3, type : 2;
         char blob[];
     };
 
     struct DirectHead {
-        uint8_t length_msb: 1,
-                bit_width: 5,
-                type: 2;
-        uint8_t length_low: 8;
+        uint8_t length_msb : 1, bit_width : 5, type : 2;
+        uint8_t length_low : 8;
         char blob[];
 
-        inline uint16_t length() const {
-            return (((uint16_t)length_msb) << 8) | length_low;
-        }
+        inline uint16_t length() const { return (((uint16_t)length_msb) << 8) | length_low; }
         inline void set_length(uint16_t length) {
             length_msb = (length >> 8) & 0x01;
             length_low = length & 0xff;
@@ -169,19 +163,13 @@ private:
     };
 
     struct PatchedBaseHead {
-        uint8_t length_msb: 1,
-                bit_width: 5,
-                type: 2;
-        uint8_t length_low: 8;
-        uint8_t patch_width: 5,
-                base_bytes: 3;
-        uint8_t patch_length: 5,
-                gap_width: 3;
+        uint8_t length_msb : 1, bit_width : 5, type : 2;
+        uint8_t length_low : 8;
+        uint8_t patch_width : 5, base_bytes : 3;
+        uint8_t patch_length : 5, gap_width : 3;
 
         char blob[];
-        inline uint16_t length() const {
-            return (((uint16_t)length_msb) << 8) | length_low;
-        }
+        inline uint16_t length() const { return (((uint16_t)length_msb) << 8) | length_low; }
         inline void set_length(uint16_t length) {
             length_msb = (length >> 8) & 0x01;
             length_low = length & 0xff;
@@ -189,15 +177,11 @@ private:
     };
 
     struct DeltaHead {
-        uint8_t length_msb: 1,
-                bit_width: 5,
-                type: 2;
-        uint8_t length_low: 8;
+        uint8_t length_msb : 1, bit_width : 5, type : 2;
+        uint8_t length_low : 8;
         char blob[];
 
-        inline uint16_t length() const {
-            return (((uint16_t)length_msb) << 8) | length_low;
-        }
+        inline uint16_t length() const { return (((uint16_t)length_msb) << 8) | length_low; }
         inline void set_length(uint16_t length) {
             length_msb = (length >> 8) & 0x01;
             length_low = length & 0xff;
@@ -262,7 +246,7 @@ private:
     OLAPStatus _write_delta_values();
 
     static const uint16_t MAX_SCOPE = 512;
-    static const uint16_t MIN_REPEAT = 3;  // NOTE 不要修改这个值, 否则程序出错
+    static const uint16_t MIN_REPEAT = 3; // NOTE 不要修改这个值, 否则程序出错
     static const uint16_t MAX_SHORT_REPEAT_LENGTH = 10;
     // MAX_PATCH_LIST原本只需要0.05*MAX_SCOPE, 然而为了防止percentile_bits()里
     // 与这里的浮点计算产生的误差, 这里直接放大两倍, 请不要修改这个值
@@ -275,9 +259,9 @@ private:
     int64_t _literals[MAX_SCOPE];
     EncodingType _encoding;
     uint16_t _num_literals;
-    int64_t _zig_zag_literals[MAX_SCOPE];  // for direct encoding
+    int64_t _zig_zag_literals[MAX_SCOPE];      // for direct encoding
     int64_t _base_reduced_literals[MAX_SCOPE]; // for for patched base encoding
-    int64_t _adj_deltas[MAX_SCOPE - 1];     // for delta encoding
+    int64_t _adj_deltas[MAX_SCOPE - 1];        // for delta encoding
     int64_t _fixed_delta;
     uint32_t _zz_bits_90p;
     uint32_t _zz_bits_100p;
@@ -294,6 +278,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(RunLengthIntegerWriter);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_INTEGER_WRITER_H

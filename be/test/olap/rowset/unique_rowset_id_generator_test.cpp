@@ -18,19 +18,20 @@
 #include "olap/rowset/unique_rowset_id_generator.h"
 
 #include <gtest/gtest.h>
+
 #include <iostream>
 
+#include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/threadpool.h"
-#include "util/pretty_printer.h"
+#include "test_util/test_util.h"
 
 namespace doris {
-class UniqueRowsetIdGeneratorTest : public testing::Test {
-};
+class UniqueRowsetIdGeneratorTest : public testing::Test {};
 
 TEST_F(UniqueRowsetIdGeneratorTest, RowsetIdFormatTest) {
     {
-        int64_t hi = 1;  // version
+        int64_t hi = 1; // version
         hi <<= 56;
         RowsetId rowset_id;
         rowset_id.init(123);
@@ -41,7 +42,7 @@ TEST_F(UniqueRowsetIdGeneratorTest, RowsetIdFormatTest) {
         ASSERT_EQ(std::string("123"), rowset_id.to_string());
     }
     {
-        int64_t hi = 1;  // version
+        int64_t hi = 1; // version
         hi <<= 56;
         RowsetId rowset_id;
         rowset_id.init("123");
@@ -51,9 +52,9 @@ TEST_F(UniqueRowsetIdGeneratorTest, RowsetIdFormatTest) {
         ASSERT_EQ(rowset_id.lo, 0);
         ASSERT_EQ(std::string("123"), rowset_id.to_string());
     }
-    
+
     {
-        int64_t hi = 2;  // version
+        int64_t hi = 2; // version
         hi <<= 56;
         const std::string rowset_id_v2("0200000000000003c04f58d989cab2f2efd45faa20449189");
         RowsetId rowset_id;
@@ -67,13 +68,13 @@ TEST_F(UniqueRowsetIdGeneratorTest, RowsetIdFormatTest) {
 TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdTest) {
     UniqueId backend_uid = UniqueId::gen_uid();
     UniqueRowsetIdGenerator id_generator(backend_uid);
-    int64_t hi = 2;  // version
+    int64_t hi = 2; // version
     hi <<= 56;
 
-    RowsetId rowset_id = id_generator.next_id();  // hi == 1
+    RowsetId rowset_id = id_generator.next_id(); // hi == 1
     ASSERT_EQ(rowset_id.hi, hi + 1);
     ASSERT_EQ(rowset_id.version, 2);
-    rowset_id = id_generator.next_id();  // hi == 2
+    rowset_id = id_generator.next_id(); // hi == 2
     ASSERT_EQ(rowset_id.hi, hi + 2);
     ASSERT_EQ(rowset_id.version, 2);
     ASSERT_EQ(backend_uid.lo, rowset_id.lo);
@@ -86,43 +87,43 @@ TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdTest) {
     ASSERT_FALSE(in_use);
 
     int64_t high = rowset_id.hi + 1;
-    rowset_id = id_generator.next_id();  // hi == 3
+    rowset_id = id_generator.next_id(); // hi == 3
     ASSERT_EQ(rowset_id.hi, high);
     in_use = id_generator.id_in_use(rowset_id);
     ASSERT_TRUE(in_use);
 
-    std::string rowset_mid_str = rowset_id.to_string().substr(16,16);
+    std::string rowset_mid_str = rowset_id.to_string().substr(16, 16);
     std::string backend_mid_str = backend_uid.to_string().substr(0, 16);
     ASSERT_EQ(rowset_mid_str, backend_mid_str);
 }
 
 TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdBenchmark) {
     const int kNumThreads = 8;
-    const int kIdPerThread = 1000000;
+    const int kIdPerThread = LOOP_LESS_OR_MORE(1000, 1000000);
 
     UniqueId backend_uid = UniqueId::gen_uid();
     UniqueRowsetIdGenerator id_generator(backend_uid);
     std::unique_ptr<ThreadPool> pool;
     Status s = ThreadPoolBuilder("GenerateIdBenchmark")
-            .set_min_threads(kNumThreads)
-            .set_max_threads(kNumThreads)
-            .build(&pool);
+                       .set_min_threads(kNumThreads)
+                       .set_max_threads(kNumThreads)
+                       .build(&pool);
     ASSERT_TRUE(s.ok()) << s.to_string();
 
     int64_t cost_ns = 0;
     {
         SCOPED_RAW_TIMER(&cost_ns);
         for (int i = 0; i < kNumThreads; i++) {
-            ASSERT_TRUE(pool->submit_func([&id_generator]() {
-                for (int i = 0; i < kIdPerThread; ++i) {
-                    id_generator.next_id();
-                }
-            }).ok());
+            ASSERT_TRUE(pool->submit_func([&id_generator, kIdPerThread]() {
+                                for (int i = 0; i < kIdPerThread; ++i) {
+                                    id_generator.next_id();
+                                }
+                            }).ok());
         }
         pool->wait();
     }
 
-    int64_t hi = 2;  // version
+    int64_t hi = 2; // version
     hi <<= 56;
     RowsetId last_id = id_generator.next_id();
     ASSERT_EQ(last_id.hi, hi + kNumThreads * kIdPerThread + 1);
@@ -130,11 +131,10 @@ TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdBenchmark) {
               << PrettyPrinter::print(cost_ns, TUnit::TIME_NS) << std::endl;
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
-

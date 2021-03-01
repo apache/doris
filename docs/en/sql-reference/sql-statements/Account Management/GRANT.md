@@ -36,7 +36,7 @@ GRANT privilege_list ON db_name[.tbl_name] TO user_identity [ROLE role_name]
 
 Privilege_list is a list of permissions that need to be granted, separated by commas. Currently Doris supports the following permissions:
 
-NODE_PRIV: Operational privileges of cluster nodes, including operation of nodes' up and down lines. Only root users have this privilege and can not be given to other users.
+NODE_PRIV: Operational privileges of cluster nodes, including operation of nodes' up and down lines. Only root users have this privilege and cannot be given to other users.
 ADMIN_PRIV: All rights except NODE_PRIV.
 GRANT_PRIV: Permission to operate permissions. Including the creation and deletion of users, roles, authorization and revocation, password settings and so on.
 SELECT_PRIV: Read permissions for specified libraries or tables
@@ -45,7 +45,7 @@ ALTER_PRIV: schema change permissions for specified libraries or tables
 CREATE_PRIV: Creation permissions for specified libraries or tables
 DROP_PRIV: Delete permissions for specified libraries or tables
 
-旧版权限中的 ALL 和 READ_WRITE 会被转换成：SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV；
+旧版权限中的 ALL 和 READ_WRITE 会被转换成: SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV;
 READ_ONLY is converted to SELECT_PRIV.
 
 Db_name [.tbl_name] supports the following three forms:
@@ -56,7 +56,7 @@ Db_name [.tbl_name] supports the following three forms:
 
 The libraries or tables specified here can be non-existent libraries and tables.
 
-user_identity：
+user_identity:
 
 The user_identity syntax here is the same as CREATE USER. And you must create user_identity for the user using CREATE USER. The host in user_identity can be a domain name. If it is a domain name, the validity time of permissions may be delayed by about one minute.
 

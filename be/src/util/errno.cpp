@@ -23,9 +23,9 @@
 
 namespace doris {
 
-void errno_to_cstring(int err, char *buf, size_t buf_len) {
+void errno_to_cstring(int err, char* buf, size_t buf_len) {
 #if !defined(__GLIBC__) || \
-    ((_POSIX_C_SOURCE >= 200112 || _XOPEN_SOURCE >= 600) && !defined(_GNU_SOURCE))
+        ((_POSIX_C_SOURCE >= 200112 || _XOPEN_SOURCE >= 600) && !defined(_GNU_SOURCE))
     // Using POSIX version 'int strerror_r(...)'.
     int ret = strerror_r(err, buf, buf_len);
     if (ret && ret != ERANGE && ret != EINVAL) {
@@ -47,4 +47,4 @@ void errno_to_cstring(int err, char *buf, size_t buf_len) {
 #endif
 }
 
-}
+} // namespace doris

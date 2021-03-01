@@ -39,7 +39,7 @@ uint8_t* encode_varint32(uint8_t* dst, uint32_t v) {
 }
 
 const uint8_t* decode_varint32_ptr_fallback(const uint8_t* p, const uint8_t* limit,
-                                         uint32_t* value) {
+                                            uint32_t* value) {
     uint32_t result = 0;
     for (uint32_t shift = 0; shift <= 28 && p < limit; shift += 7) {
         uint32_t byte = *p;
@@ -73,4 +73,4 @@ const uint8_t* decode_varint64_ptr(const uint8_t* p, const uint8_t* limit, uint6
     return nullptr;
 }
 
-}
+} // namespace doris

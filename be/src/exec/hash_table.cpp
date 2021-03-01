@@ -18,35 +18,37 @@
 #include "exec/hash_table.hpp"
 
 #include "exprs/expr.h"
-#include "runtime/raw_value.h"
-#include "runtime/string_value.hpp"
+#include "exprs/expr_context.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
+#include "runtime/string_value.hpp"
 #include "util/doris_metrics.h"
 
 namespace doris {
 
 const float HashTable::MAX_BUCKET_OCCUPANCY_FRACTION = 0.75f;
 
-HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
-                     const vector<ExprContext*>& probe_expr_ctxs,
-                     int num_build_tuples, bool stores_nulls, 
-                     const std::vector<bool>& finds_nulls,
-                     int32_t initial_seed,
-                     const std::shared_ptr<MemTracker>& mem_tracker, int64_t num_buckets) :
-        _build_expr_ctxs(build_expr_ctxs),
-        _probe_expr_ctxs(probe_expr_ctxs),
-        _num_build_tuples(num_build_tuples),
-        _stores_nulls(stores_nulls),
-        _finds_nulls(finds_nulls),
-        _initial_seed(initial_seed),
-        _node_byte_size(sizeof(Node) + sizeof(Tuple*) * _num_build_tuples),
-        _num_filled_buckets(0),
-        _nodes(NULL),
-        _num_nodes(0),
-        _exceeded_limit(false),
-        _mem_tracker(mem_tracker),
-        _mem_limit_exceeded(false) {
+HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
+                     const std::vector<ExprContext*>& probe_expr_ctxs, int num_build_tuples,
+                     bool stores_nulls, const std::vector<bool>& finds_nulls, int32_t initial_seed,
+                     const std::shared_ptr<MemTracker>& mem_tracker, int64_t num_buckets)
+        : _build_expr_ctxs(build_expr_ctxs),
+          _probe_expr_ctxs(probe_expr_ctxs),
+          _num_build_tuples(num_build_tuples),
+          _stores_nulls(stores_nulls),
+          _finds_nulls(finds_nulls),
+          _initial_seed(initial_seed),
+          _node_byte_size(sizeof(Node) + sizeof(Tuple*) * _num_build_tuples),
+          _num_filled_buckets(0),
+          _current_nodes(nullptr),
+          _num_nodes(0),
+          _current_capacity(num_buckets),
+          _current_used(0),
+          _total_capacity(num_buckets),
+          _exceeded_limit(false),
+          _mem_tracker(mem_tracker),
+          _mem_limit_exceeded(false) {
     DCHECK(_mem_tracker);
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
 
@@ -57,35 +59,38 @@ HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
     _mem_tracker->Consume(_buckets.capacity() * sizeof(Bucket));
 
     // Compute the layout and buffer size to store the evaluated expr results
-    _results_buffer_size = Expr::compute_results_layout(_build_expr_ctxs,
-                           &_expr_values_buffer_offsets, &_var_result_begin);
+    _results_buffer_size = Expr::compute_results_layout(
+            _build_expr_ctxs, &_expr_values_buffer_offsets, &_var_result_begin);
     _expr_values_buffer = new uint8_t[_results_buffer_size];
     memset(_expr_values_buffer, 0, sizeof(uint8_t) * _results_buffer_size);
     _expr_value_null_bits = new uint8_t[_build_expr_ctxs.size()];
 
-    _nodes_capacity = 1024;
-    _nodes = reinterpret_cast<uint8_t*>(malloc(_nodes_capacity * _node_byte_size));
-    memset(_nodes, 0, _nodes_capacity * _node_byte_size);
+    _alloc_list.reserve(10);
+    _current_nodes = reinterpret_cast<uint8_t*>(malloc(_current_capacity * _node_byte_size));
+    // TODO: remove memset later
+    memset(_current_nodes, 0, _current_capacity * _node_byte_size);
+    _alloc_list.push_back(_current_nodes);
 
-    _mem_tracker->Consume(_nodes_capacity * _node_byte_size);
+    _mem_tracker->Consume(_current_capacity * _node_byte_size);
     if (_mem_tracker->limit_exceeded()) {
-        mem_limit_exceeded(_nodes_capacity * _node_byte_size);
+        mem_limit_exceeded(_current_capacity * _node_byte_size);
     }
 }
 
-HashTable::~HashTable() {
-}
+HashTable::~HashTable() {}
 
 void HashTable::close() {
     // TODO: use tr1::array?
     delete[] _expr_values_buffer;
     delete[] _expr_value_null_bits;
-    free(_nodes);
-    _mem_tracker->Release(_nodes_capacity * _node_byte_size);
+    for (auto ptr : _alloc_list) {
+        free(ptr);
+    }
+    _mem_tracker->Release(_total_capacity * _node_byte_size);
     _mem_tracker->Release(_buckets.size() * sizeof(Bucket));
 }
 
-bool HashTable::eval_row(TupleRow* row, const vector<ExprContext*>& ctxs) {
+bool HashTable::eval_row(TupleRow* row, const std::vector<ExprContext*>& ctxs) {
     // Put a non-zero constant in the result location for NULL.
     // We don't want(NULL, 1) to hash to the same as (0, 1).
     // This needs to be as big as the biggest primitive type since the bytes
@@ -149,7 +154,6 @@ uint32_t HashTable::hash_variable_len_row() {
                 hash = decimal->hash(hash);
             }
         }
-        
     }
 
     return hash;
@@ -175,7 +179,6 @@ bool HashTable::equals(TupleRow* build_row) {
 
         if (!RawValue::eq(loc, val, _build_expr_ctxs[i]->root()->type())) {
             return false;
-
         }
     }
 
@@ -204,11 +207,10 @@ void HashTable::resize_buckets(int64_t num_buckets) {
         Bucket* bucket = &_buckets[i];
         Bucket* sister_bucket = &_buckets[i + old_num_buckets];
         Node* last_node = NULL;
-        int node_idx = bucket->_node_idx;
+        Node* node = bucket->_node;
 
-        while (node_idx != -1) {
-            Node* node = get_node(node_idx);
-            int64_t next_idx = node->_next_idx;
+        while (node != nullptr) {
+            Node* next_node = node->_next;
             uint32_t hash = node->_hash;
 
             bool node_must_move = true;
@@ -224,12 +226,12 @@ void HashTable::resize_buckets(int64_t num_buckets) {
             }
 
             if (node_must_move) {
-                move_node(bucket, move_to, node_idx, node, last_node);
+                move_node(bucket, move_to, node, last_node);
             } else {
                 last_node = node;
             }
 
-            node_idx = next_idx;
+            node = next_node;
         }
     }
 
@@ -238,19 +240,19 @@ void HashTable::resize_buckets(int64_t num_buckets) {
 }
 
 void HashTable::grow_node_array() {
-    int64_t old_size = _nodes_capacity * _node_byte_size;
-    _nodes_capacity = _nodes_capacity + _nodes_capacity / 2;
-    int64_t new_size = _nodes_capacity * _node_byte_size;
+    _current_capacity = _total_capacity / 2;
+    _total_capacity += _current_capacity;
+    int64_t alloc_size = _current_capacity * _node_byte_size;
+    _current_nodes = reinterpret_cast<uint8_t*>(malloc(alloc_size));
+    _current_used = 0;
+    // TODO: remove memset later
+    memset(_current_nodes, 0, alloc_size);
+    // add _current_nodes to alloc pool
+    _alloc_list.push_back(_current_nodes);
 
-    uint8_t* new_nodes = reinterpret_cast<uint8_t*>(malloc(new_size));
-    memset(new_nodes, 0, new_size);
-    memcpy(new_nodes, _nodes, old_size);
-    free(_nodes);
-    _nodes = new_nodes;
-
-    _mem_tracker->Consume(new_size - old_size);
+    _mem_tracker->Consume(alloc_size);
     if (_mem_tracker->limit_exceeded()) {
-        mem_limit_exceeded(new_size - old_size);
+        mem_limit_exceeded(alloc_size);
     }
 }
 
@@ -267,29 +269,27 @@ std::string HashTable::debug_string(bool skip_empty, const RowDescriptor* desc) 
     ss << std::endl;
 
     for (int i = 0; i < _buckets.size(); ++i) {
-        int64_t node_idx = _buckets[i]._node_idx;
+        Node* node = _buckets[i]._node;
         bool first = true;
 
-        if (skip_empty && node_idx == -1) {
+        if (skip_empty && node == nullptr) {
             continue;
         }
 
         ss << i << ": ";
 
-        while (node_idx != -1) {
-            Node* node = get_node(node_idx);
-
+        while (node != nullptr) {
             if (!first) {
                 ss << ",";
             }
 
             if (desc == NULL) {
-                ss << node_idx << "(" << (void*)node->data() << ")";
+                ss << node->_hash << "(" << (void*)node->data() << ")";
             } else {
                 ss << (void*)node->data() << " " << node->data()->to_string(*desc);
             }
 
-            node_idx = node->_next_idx;
+            node = node->_next;
             first = false;
         }
 
@@ -299,4 +299,4 @@ std::string HashTable::debug_string(bool skip_empty, const RowDescriptor* desc) 
     return ss.str();
 }
 
-}
+} // namespace doris

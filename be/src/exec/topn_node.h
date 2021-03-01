@@ -23,6 +23,7 @@
 
 #include "exec/exec_node.h"
 #include "runtime/descriptors.h"
+#include "util/sort_heap.h"
 #include "util/tuple_row_compare.h"
 
 namespace doris {
@@ -46,8 +47,7 @@ public:
     virtual Status open(RuntimeState* state);
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status close(RuntimeState* state);
-    virtual void push_down_predicate(
-        RuntimeState *state, std::list<ExprContext*> *expr_ctxs);
+    virtual void push_down_predicate(RuntimeState* state, std::list<ExprContext*>* expr_ctxs);
 
 protected:
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
@@ -102,19 +102,13 @@ private:
     // Number of rows skipped. Used for adhering to _offset.
     int64_t _num_rows_skipped;
 
-    // The priority queue will never have more elements in it than the LIMIT.  The stl
-    // priority queue doesn't support a max size, so to get that functionality, the order
-    // of the queue is the opposite of what the ORDER BY clause specifies, such that the top
-    // of the queue is the last sorted element.
-    boost::scoped_ptr<
-        std::priority_queue<
-        Tuple*, std::vector<Tuple*>, TupleRowComparator>> _priority_queue;
+    // The priority queue will never have more elements in it than the LIMIT.      
+    std::unique_ptr<SortingHeap<Tuple*, std::vector<Tuple*>, TupleRowComparator>> _priority_queue;
 
     // END: Members that must be Reset()
     /////////////////////////////////////////
 };
 
-};
+}; // namespace doris
 
 #endif
-

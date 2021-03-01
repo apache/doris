@@ -20,14 +20,14 @@
 #include <stdint.h>
 
 #include "common/status.h"
-#include "olap/olap_define.h"
 #include "exec/file_reader.h"
+#include "olap/olap_define.h"
 
 namespace doris {
 
 // Buffered Reader
-// Add a cache layer between the caller and the file reader to reduce the 
-// times of calls to the read function to speed up. 
+// Add a cache layer between the caller and the file reader to reduce the
+// times of calls to the read function to speed up.
 class BufferedReader : public FileReader {
 public:
     // If the reader need the file size, set it when construct FileReader.
@@ -37,10 +37,11 @@ public:
 
     virtual Status open() override;
 
-    // Read 
+    // Read
     virtual Status read(uint8_t* buf, size_t* buf_len, bool* eof) override;
-    virtual Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) override;
-    virtual Status read_one_message(uint8_t** buf, size_t* length) override;
+    virtual Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read,
+                          void* out) override;
+    virtual Status read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) override;
     virtual int64_t size() override;
     virtual Status seek(int64_t position) override;
     virtual Status tell(int64_t* position) override;
@@ -50,6 +51,7 @@ public:
 private:
     Status _fill();
     Status _read_once(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out);
+
 private:
     FileReader* _reader;
     char* _buffer;
@@ -59,4 +61,4 @@ private:
     int64_t _cur_offset;
 };
 
-}
+} // namespace doris

@@ -29,18 +29,18 @@ namespace doris {
 RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity)
         : _schema(schema),
           _capacity(capacity),
-          _column_datas(_schema.num_columns(), nullptr),
-          _column_null_bitmaps(_schema.num_columns(), nullptr),
+          _column_vector_batches(_schema.num_columns()),
           _tracker(new MemTracker(-1, "RowBlockV2")),
           _pool(new MemPool(_tracker.get())),
           _selection_vector(nullptr) {
-    auto bitmap_size = BitmapSize(capacity);
     for (auto cid : _schema.column_ids()) {
-        size_t data_size = _schema.column(cid)->type_info()->size() * _capacity;
-        _column_datas[cid] = new uint8_t[data_size];
-
-        if (_schema.column(cid)->is_nullable()) {
-            _column_null_bitmaps[cid] = new uint8_t[bitmap_size];
+        Status status = ColumnVectorBatch::create(
+                _capacity, _schema.column(cid)->is_nullable(), _schema.column(cid)->type_info(),
+                const_cast<Field*>(_schema.column(cid)), &_column_vector_batches[cid]);
+        if (!status.ok()) {
+            LOG(ERROR) << "failed to create ColumnVectorBatch for type: "
+                       << _schema.column(cid)->type();
+            return;
         }
     }
     _selection_vector = new uint16_t[_capacity];
@@ -48,12 +48,6 @@ RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity)
 }
 
 RowBlockV2::~RowBlockV2() {
-    for (auto data : _column_datas) {
-        delete[] data;
-    }
-    for (auto null_bitmap : _column_null_bitmaps) {
-        delete[] null_bitmap;
-    }
     delete[] _selection_vector;
 }
 
@@ -64,12 +58,13 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
             for (uint16_t i = 0; i < _selected_size; ++i) {
                 uint16_t row_idx = _selection_vector[i];
                 dst->get_row(i, helper);
-                bool is_null = BitmapTest(_column_null_bitmaps[cid], row_idx);
+                bool is_null = _column_vector_batches[cid]->is_null_at(row_idx);
                 if (is_null) {
                     helper->set_null(cid);
                 } else {
                     helper->set_not_null(cid);
-                    helper->set_field_content_shallow(cid,
+                    helper->set_field_content_shallow(
+                            cid,
                             reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
                 }
             }
@@ -78,8 +73,8 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
                 uint16_t row_idx = _selection_vector[i];
                 dst->get_row(i, helper);
                 helper->set_not_null(cid);
-                helper->set_field_content_shallow(cid,
-                        reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
+                helper->set_field_content_shallow(
+                        cid, reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx)));
             }
         }
     }
@@ -110,4 +105,4 @@ std::string RowBlockRow::debug_string() const {
     return ss.str();
 }
 
-}
+} // namespace doris

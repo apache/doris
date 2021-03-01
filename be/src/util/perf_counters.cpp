@@ -17,17 +17,16 @@
 
 #include "util/perf_counters.h"
 
+#include <linux/perf_event.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/syscall.h>
 
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
-
-#include <sys/syscall.h>
-#include <linux/perf_event.h>
 
 #include "util/debug_util.h"
 
@@ -51,10 +50,8 @@ enum PERF_IO_IDX {
 
 // Wrapper around sys call.  This syscall is hard to use and this is how it is recommended
 // to be used.
-static inline int sys_perf_event_open(
-    struct perf_event_attr* attr,
-    pid_t pid, int cpu, int group_fd,
-    unsigned long flags) {
+static inline int sys_perf_event_open(struct perf_event_attr* attr, pid_t pid, int cpu,
+                                      int group_fd, unsigned long flags) {
     attr->size = sizeof(*attr);
     return syscall(__NR_perf_event_open, attr, pid, cpu, group_fd, flags);
 }
@@ -307,7 +304,7 @@ bool PerfCounters::get_sys_counters(vector<int64_t>& buffer) {
 //    write_bytes: 0
 //    cancelled_write_bytes: 0
 bool PerfCounters::get_proc_self_io_counters(vector<int64_t>& buffer) {
-    std::ifstream file("/proc/self/io", ios::in);
+    std::ifstream file("/proc/self/io", std::ios::in);
     std::string buf;
     int64_t values[PROC_IO_LAST_COUNTER];
     int ret = 0;
@@ -347,7 +344,7 @@ bool PerfCounters::get_proc_self_io_counters(vector<int64_t>& buffer) {
 }
 
 bool PerfCounters::get_proc_self_status_counters(vector<int64_t>& buffer) {
-    ifstream file("/proc/self/status", ios::in);
+    std::ifstream file("/proc/self/status", std::ios::in);
     string buf;
 
     while (file) {
@@ -366,7 +363,7 @@ bool PerfCounters::get_proc_self_status_counters(vector<int64_t>& buffer) {
                 istringstream stream(buf);
                 int64_t value;
                 stream >> value;
-                buffer[i] = value * 1024;  // values in file are in kb
+                buffer[i] = value * 1024; // values in file are in kb
             }
         }
     }
@@ -378,8 +375,7 @@ bool PerfCounters::get_proc_self_status_counters(vector<int64_t>& buffer) {
     return true;
 }
 
-PerfCounters::PerfCounters() : _group_fd(-1) {
-}
+PerfCounters::PerfCounters() : _group_fd(-1) {}
 
 // Close all fds for the counters
 PerfCounters::~PerfCounters() {
@@ -467,12 +463,12 @@ void PerfCounters::snapshot(const string& name) {
     string fixed_name = name;
 
     if (fixed_name.size() == 0) {
-        stringstream ss;
+        std::stringstream ss;
         ss << _snapshots.size() + 1;
         fixed_name = ss.str();
     }
 
-    vector<int64_t> buffer(_counters.size());
+    std::vector<int64_t> buffer(_counters.size());
 
     get_sys_counters(buffer);
     get_proc_self_io_counters(buffer);
@@ -482,7 +478,7 @@ void PerfCounters::snapshot(const string& name) {
     _snapshot_names.push_back(fixed_name);
 }
 
-const vector<int64_t>* PerfCounters::counters(int snapshot) const {
+const std::vector<int64_t>* PerfCounters::counters(int snapshot) const {
     if (snapshot < 0 || snapshot >= _snapshots.size()) {
         return NULL;
     }
@@ -498,7 +494,7 @@ void PerfCounters::pretty_print(ostream* s) const {
         stream << setw(PRETTY_PRINT_WIDTH) << _counter_names[i];
     }
 
-    stream << endl;
+    stream << std::endl;
 
     for (int s = 0; s < _snapshots.size(); s++) {
         stream << setw(8) << _snapshot_names[s];
@@ -506,14 +502,13 @@ void PerfCounters::pretty_print(ostream* s) const {
 
         for (int i = 0; i < snapshot.size(); ++i) {
             stream << setw(PRETTY_PRINT_WIDTH)
-                    << PrettyPrinter::print(snapshot[i], _counters[i].type);
+                   << PrettyPrinter::print(snapshot[i], _counters[i].type);
         }
 
-        stream << endl;
+        stream << std::endl;
     }
 
-    stream << endl;
+    stream << std::endl;
 }
 
-}
-
+} // namespace doris

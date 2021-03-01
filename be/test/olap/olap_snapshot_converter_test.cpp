@@ -55,10 +55,8 @@ public:
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
-        std::vector<StorePath> paths;
-        paths.emplace_back("_engine_data_path", -1);
         EngineOptions options;
-        options.store_paths = paths;
+        // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
         if (k_engine == nullptr) {
             k_engine = new StorageEngine(options);
@@ -129,7 +127,7 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     ASSERT_TRUE(ret);
     OlapSnapshotConverter converter;
     TabletMetaPB tablet_meta_pb;
-    vector<RowsetMetaPB> pending_rowsets;
+    std::vector<RowsetMetaPB> pending_rowsets;
     OLAPStatus status = converter.to_new_snapshot(header_msg, _tablet_data_path, _tablet_data_path,
                                                   &tablet_meta_pb, &pending_rowsets, true);
     ASSERT_TRUE(status == OLAP_SUCCESS);

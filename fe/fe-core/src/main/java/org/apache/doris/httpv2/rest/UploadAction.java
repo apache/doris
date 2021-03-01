@@ -270,6 +270,8 @@ public class UploadAction extends RestBaseController {
         public String jsonPaths;
         public String stripOuterArray;
         public String jsonRoot;
+        public String numAsString;
+        public String fuzzyParse;
 
 
         public LoadContext(HttpServletRequest request, String db, String tbl, String user, String passwd, TmpFileMgr.TmpFile file) {
@@ -299,7 +301,9 @@ public class UploadAction extends RestBaseController {
             this.format = request.getHeader("format");
             this.jsonPaths = request.getHeader("jsonpaths");
             this.stripOuterArray = request.getHeader("strip_outer_array");
+            this.numAsString = request.getHeader("num_as_string");
             this.jsonRoot = request.getHeader("json_root");
+            this.fuzzyParse = request.getHeader("fuzzy_parse");
         }
     }
 }

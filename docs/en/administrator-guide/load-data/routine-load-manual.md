@@ -105,7 +105,7 @@ The detailed syntax for creating a routine load task can be connected to Doris a
 
     As another example, suppose the user needs to load a table containing only a column of `k1` with a column type of `int`. And you need to process the corresponding column in the source file: convert the negative number to a positive number and the positive number to 100. This function can be implemented with the `case when` function. The correct wording should be as follows:
 
-    `COLUMNS (xx, case when xx < 0 than cast(-xx as varchar) else cast((xx + '100') as varchar) end)`
+    `COLUMNS (xx, k1 = case when xx < 0 then cast(-xx as varchar) else cast((xx + '100') as varchar) end)`
 
     Note that we need to convert all the parameters in `case when` to varchar in order to get the desired result.
 

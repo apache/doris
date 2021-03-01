@@ -10,7 +10,8 @@
 #ifndef BASE_MACROS_H_
 #define BASE_MACROS_H_
 
-#include <stddef.h>         // For size_t
+#include <stddef.h> // For size_t
+
 #include "gutil/port.h"
 
 // The swigged version of an abstract class must be concrete if any methods
@@ -36,13 +37,12 @@
 // containing the name of the variable.
 
 template <bool>
-struct CompileAssert {
-};
+struct CompileAssert {};
 
 #ifndef COMPILE_ASSERT
 
 #define COMPILE_ASSERT(expr, msg) \
-  typedef CompileAssert<(bool(expr))> msg[bool(expr) ? 1 : -1] ATTRIBUTE_UNUSED
+    typedef CompileAssert<(bool(expr))> msg[bool(expr) ? 1 : -1] ATTRIBUTE_UNUSED
 
 // Implementation details of COMPILE_ASSERT:
 //
@@ -86,7 +86,6 @@ struct CompileAssert {
 //   causes ((0.0) ? 1 : -1) to incorrectly evaluate to 1.
 #endif // COMPILE_ASSERT
 
-
 // A macro to disallow the copy constructor and operator= functions
 // This should be used in the private: declarations for a class
 //
@@ -98,8 +97,8 @@ struct CompileAssert {
 // avoid these in new code.
 #ifndef DISALLOW_COPY_AND_ASSIGN
 #define DISALLOW_COPY_AND_ASSIGN(TypeName) \
-  TypeName(const TypeName&) = delete;      \
-  void operator=(const TypeName&) = delete
+    TypeName(const TypeName&) = delete;    \
+    void operator=(const TypeName&) = delete
 #endif
 
 // An older, politically incorrect name for the above.
@@ -113,8 +112,8 @@ struct CompileAssert {
 // that wants to prevent anyone from instantiating it. This is
 // especially useful for classes containing only static methods.
 #define DISALLOW_IMPLICIT_CONSTRUCTORS(TypeName) \
-  TypeName() = delete;                           \
-  DISALLOW_COPY_AND_ASSIGN(TypeName)
+    TypeName() = delete;                         \
+    DISALLOW_COPY_AND_ASSIGN(TypeName)
 
 // The arraysize(arr) macro returns the # of elements in an array arr.
 // The expression is a compile-time constant, and therefore can be
@@ -186,22 +185,20 @@ char (&ArraySizeHelper(const T (&array)[N]))[N];
 //
 // Starting with Visual C++ 2005, WinNT.h includes ARRAYSIZE.
 #if !defined(_MSC_VER) || (defined(_MSC_VER) && _MSC_VER < 1400)
-#define ARRAYSIZE(a) \
-  ((sizeof(a) / sizeof(*(a))) / \
-   static_cast<size_t>(!(sizeof(a) % sizeof(*(a)))))
+#define ARRAYSIZE(a) ((sizeof(a) / sizeof(*(a))) / static_cast<size_t>(!(sizeof(a) % sizeof(*(a)))))
 #endif
 
 // A macro to turn a symbol into a string
-#define AS_STRING(x)   AS_STRING_INTERNAL(x)
-#define AS_STRING_INTERNAL(x)   #x
+#define AS_STRING(x) AS_STRING_INTERNAL(x)
+#define AS_STRING_INTERNAL(x) #x
 
 // Macro that allows definition of a variable appended with the current line
 // number in the source file. Typically for use by other macros to allow the
 // user to declare multiple variables with the same "base" name inside the same
 // lexical block.
-#define VARNAME_LINENUM(varname) VARNAME_LINENUM_INTERNAL(varname ## _L, __LINE__)
+#define VARNAME_LINENUM(varname) VARNAME_LINENUM_INTERNAL(varname##_L, __LINE__)
 #define VARNAME_LINENUM_INTERNAL(v, line) VARNAME_LINENUM_INTERNAL2(v, line)
-#define VARNAME_LINENUM_INTERNAL2(v, line) v ## line
+#define VARNAME_LINENUM_INTERNAL2(v, line) v##line
 
 // The following enum should be used only as a constructor argument to indicate
 // that the variable has static storage class, and that the constructor should
@@ -254,34 +251,37 @@ enum LinkerInitialized { LINKER_INITIALIZED };
 //  of code.
 #if defined(__clang__) && defined(LANG_CXX11) && defined(__has_warning)
 #if __has_feature(cxx_attributes) && __has_warning("-Wimplicit-fallthrough")
-#define FALLTHROUGH_INTENDED [[clang::fallthrough]]  // NOLINT
+#define FALLTHROUGH_INTENDED [[clang::fallthrough]] // NOLINT
 #endif
 #endif
 
 #ifndef FALLTHROUGH_INTENDED
-#define FALLTHROUGH_INTENDED do { } while (0)
+#define FALLTHROUGH_INTENDED \
+    do {                     \
+    } while (0)
 #endif
 
 // Retry on EINTR for functions like read() that return -1 on error.
-#define RETRY_ON_EINTR(err, expr) do { \
-  static_assert(std::is_signed<decltype(err)>::value, \
-                #err " must be a signed integer"); \
-  (err) = (expr); \
-} while ((err) == -1 && errno == EINTR)
+#define RETRY_ON_EINTR(err, expr)                                                              \
+    do {                                                                                       \
+        static_assert(std::is_signed<decltype(err)>::value, #err " must be a signed integer"); \
+        (err) = (expr);                                                                        \
+    } while ((err) == -1 && errno == EINTR)
 
 // Same as above but for stream API calls like fread() and fwrite().
-#define STREAM_RETRY_ON_EINTR(nread, stream, expr) do { \
-  static_assert(std::is_unsigned<decltype(nread)>::value == true, \
-                #nread " must be an unsigned integer"); \
-  (nread) = (expr); \
-} while ((nread) == 0 && ferror(stream) == EINTR)
+#define STREAM_RETRY_ON_EINTR(nread, stream, expr)                      \
+    do {                                                                \
+        static_assert(std::is_unsigned<decltype(nread)>::value == true, \
+                      #nread " must be an unsigned integer");           \
+        (nread) = (expr);                                               \
+    } while ((nread) == 0 && ferror(stream) == EINTR)
 
 // Same as above but for functions that return pointer types (like
 // fopen() and freopen()).
-#define POINTER_RETRY_ON_EINTR(ptr, expr) do { \
-  static_assert(std::is_pointer<decltype(ptr)>::value == true, \
-                #ptr " must be a pointer"); \
-  (ptr) = (expr); \
-} while ((ptr) == nullptr && errno == EINTR)
+#define POINTER_RETRY_ON_EINTR(ptr, expr)                                                        \
+    do {                                                                                         \
+        static_assert(std::is_pointer<decltype(ptr)>::value == true, #ptr " must be a pointer"); \
+        (ptr) = (expr);                                                                          \
+    } while ((ptr) == nullptr && errno == EINTR)
 
-#endif  // BASE_MACROS_H_
+#endif // BASE_MACROS_H_

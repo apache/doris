@@ -19,18 +19,19 @@
 
 #include "common/object_pool.h"
 #include "olap/hll.h"
-#include "olap/types.h"
 #include "olap/row_cursor_cell.h"
+#include "olap/types.h"
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/string_value.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/string_value.h"
 #include "util/bitmap_value.h"
 
 namespace doris {
 
-using AggInitFunc = void (*)(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool);
+using AggInitFunc = void (*)(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                             ObjectPool* agg_pool);
 using AggUpdateFunc = void (*)(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool);
 using AggFinalizeFunc = void (*)(RowCursorCell* src, MemPool* mem_pool);
 
@@ -45,7 +46,8 @@ public:
     // Memory Note: For plain memory can be allocated from *mem_pool, whose lifetime
     // will last util finalize function is called. Memory allocated from heap should
     // be freed in finalize function to avoid memory leak.
-    inline void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) const {
+    inline void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                     ObjectPool* agg_pool) const {
         _init_fn(dst, src, src_null, mem_pool, agg_pool);
     }
 
@@ -75,21 +77,23 @@ public:
     FieldAggregationMethod agg_method() const { return _agg_method; }
 
 private:
-    void (*_init_fn)(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool);
+    void (*_init_fn)(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                     ObjectPool* agg_pool);
     void (*_update_fn)(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool);
     void (*_finalize_fn)(RowCursorCell* src, MemPool* mem_pool);
 
     friend class AggregateFuncResolver;
 
-    template<typename Traits>
+    template <typename Traits>
     AggregateInfo(const Traits& traits);
 
     FieldAggregationMethod _agg_method;
 };
 
-template<FieldType field_type>
+template <FieldType field_type>
 struct BaseAggregateFuncs {
-    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                     ObjectPool* agg_pool) {
         dst->set_is_null(src_null);
         if (src_null) {
             return;
@@ -100,22 +104,20 @@ struct BaseAggregateFuncs {
     }
 
     // Default update do nothing.
-    static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
-    }
+    static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {}
 
     // Default finalize do nothing.
-    static void finalize(RowCursorCell* src, MemPool* mem_pool) {
-    }
+    static void finalize(RowCursorCell* src, MemPool* mem_pool) {}
 };
 
-template<FieldAggregationMethod agg_method, FieldType field_type>
-struct AggregateFuncTraits : public BaseAggregateFuncs<field_type> {
-};
+template <FieldAggregationMethod agg_method, FieldType field_type>
+struct AggregateFuncTraits : public BaseAggregateFuncs<field_type> {};
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL> :
-        public BaseAggregateFuncs<OLAP_FIELD_TYPE_DECIMAL>  {
-    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL>
+        : public BaseAggregateFuncs<OLAP_FIELD_TYPE_DECIMAL> {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                     ObjectPool* agg_pool) {
         dst->set_is_null(src_null);
         if (src_null) {
             return;
@@ -129,9 +131,10 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL>
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATETIME> :
-        public BaseAggregateFuncs<OLAP_FIELD_TYPE_DECIMAL> {
-    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATETIME>
+        : public BaseAggregateFuncs<OLAP_FIELD_TYPE_DECIMAL> {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                     ObjectPool* agg_pool) {
         dst->set_is_null(src_null);
         if (src_null) {
             return;
@@ -144,9 +147,10 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATETIME
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATE> :
-        public BaseAggregateFuncs<OLAP_FIELD_TYPE_DECIMAL> {
-    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATE>
+        : public BaseAggregateFuncs<OLAP_FIELD_TYPE_DECIMAL> {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                     ObjectPool* agg_pool) {
         dst->set_is_null(src_null);
         if (src_null) {
             return;
@@ -159,8 +163,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATE> :
 };
 
 template <FieldType field_type>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, field_type> :
-        public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, field_type> {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, field_type>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, field_type> {
     typedef typename FieldTypeTraits<field_type>::CppType CppType;
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
@@ -179,8 +183,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, field_type> :
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_LARGEINT> :
-        public BaseAggregateFuncs<OLAP_FIELD_TYPE_LARGEINT> {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_LARGEINT>
+        : public BaseAggregateFuncs<OLAP_FIELD_TYPE_LARGEINT> {
     typedef typename FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType CppType;
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
@@ -206,8 +210,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_LARGEINT>
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_VARCHAR> :
-        public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_VARCHAR>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         bool src_null = src.is_null();
         // ignore null value
@@ -232,12 +236,11 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_VARCHAR> 
 
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_CHAR>
-        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_VARCHAR> {
-};
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_VARCHAR> {};
 
 template <FieldType field_type>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, field_type> :
-        public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, field_type> {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, field_type>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, field_type> {
     typedef typename FieldTypeTraits<field_type>::CppType CppType;
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
@@ -256,8 +259,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, field_type> :
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_LARGEINT> :
-        public BaseAggregateFuncs<OLAP_FIELD_TYPE_LARGEINT> {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_LARGEINT>
+        : public BaseAggregateFuncs<OLAP_FIELD_TYPE_LARGEINT> {
     typedef typename FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType CppType;
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
@@ -277,8 +280,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_LARGEINT>
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR> :
-        public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         bool src_null = src.is_null();
         // ignore null value
@@ -297,18 +300,18 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR> 
                 memory_copy(dst_slice->data, src_slice->data, src_slice->size);
                 dst_slice->size = src_slice->size;
             }
+            dst->set_is_null(false);
         }
     }
 };
 
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_CHAR>
-        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR> {
-};
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR> {};
 
 template <FieldType field_type>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_SUM, field_type> :
-        public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, field_type>  {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_SUM, field_type>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, field_type> {
     typedef typename FieldTypeTraits<field_type>::CppType CppType;
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
@@ -329,8 +332,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_SUM, field_type> :
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_LARGEINT> :
-        public BaseAggregateFuncs<OLAP_FIELD_TYPE_LARGEINT> {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_LARGEINT>
+        : public BaseAggregateFuncs<OLAP_FIELD_TYPE_LARGEINT> {
     typedef typename FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>::CppType CppType;
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
@@ -354,8 +357,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_LARGEINT>
 };
 
 template <FieldType field_type>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, field_type> :
-        public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, field_type>  {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, field_type>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, field_type> {
     typedef typename FieldTypeTraits<field_type>::CppType CppType;
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
@@ -368,8 +371,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, field_type> :
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR> :
-        public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         bool dst_null = dst->is_null();
         bool src_null = src.is_null();
@@ -393,14 +396,13 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCH
 
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_CHAR>
-        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR> {
-};
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR> {};
 
 // REPLACE_IF_NOT_NULL
 
 template <FieldType field_type>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, field_type> :
-        public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, field_type>  {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, field_type>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, field_type> {
     typedef typename FieldTypeTraits<field_type>::CppType CppType;
 
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
@@ -416,8 +418,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, field_typ
 };
 
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_VARCHAR> :
-        public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_VARCHAR>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         bool src_null = src.is_null();
         if (src_null) {
@@ -442,13 +444,14 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIEL
 
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_CHAR>
-        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_VARCHAR> {
-};
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL,
+                                     OLAP_FIELD_TYPE_VARCHAR> {};
 // when data load, after hll_hash function, hll_union column won't be null
 // so when init, update hll, the src is not null
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL> {
-    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                     ObjectPool* agg_pool) {
         DCHECK_EQ(src_null, false);
         dst->set_not_null();
 
@@ -476,7 +479,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         if (mem_pool == nullptr) { // for query
             HyperLogLog src_hll(*src_slice);
             dst_hll->merge(src_hll);
-        } else {   // for stream load
+        } else { // for stream load
             auto* src_hll = reinterpret_cast<HyperLogLog*>(src_slice->data);
             dst_hll->merge(*src_hll);
         }
@@ -484,8 +487,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
 
     // The HLL object memory will be released by ObjectPool
     static void finalize(RowCursorCell* src, MemPool* mem_pool) {
-        auto *slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
-        auto *hll = reinterpret_cast<HyperLogLog*>(slice->data);
+        auto* slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
+        auto* hll = reinterpret_cast<HyperLogLog*>(slice->data);
 
         slice->data = (char*)mem_pool->allocate(hll->max_serialized_size());
         slice->size = hll->serialize((uint8_t*)slice->data);
@@ -495,7 +498,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
 // so when init, update bitmap, the src is not null
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {
-    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                     ObjectPool* agg_pool) {
         DCHECK_EQ(src_null, false);
         dst->set_not_null();
         auto* src_slice = reinterpret_cast<const Slice*>(src);
@@ -505,7 +509,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
         dst_slice->size = 0;
         auto bitmap = new BitmapValue(src_slice->data);
 
-        dst_slice->data = (char*) bitmap;
+        dst_slice->data = (char*)bitmap;
 
         mem_pool->mem_tracker()->Consume(sizeof(BitmapValue));
 
@@ -523,7 +527,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
         // fixme(kks): trick here, need improve
         if (mem_pool == nullptr) { // for query
             (*dst_bitmap) |= BitmapValue(src_slice->data);
-        } else {   // for stream load
+        } else { // for stream load
             DCHECK_EQ(src_slice->size, 0);
             (*dst_bitmap) |= *reinterpret_cast<BitmapValue*>(src_slice->data);
         }
@@ -541,14 +545,13 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
     }
 };
 
-
 // for backward compatibility
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_VARCHAR> :
-    public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {};
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_VARCHAR>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {
+};
 
-
-template<FieldAggregationMethod aggMethod, FieldType fieldType>
+template <FieldAggregationMethod aggMethod, FieldType fieldType>
 struct AggregateTraits : public AggregateFuncTraits<aggMethod, fieldType> {
     static const FieldAggregationMethod agg_method = aggMethod;
     static const FieldType type = fieldType;

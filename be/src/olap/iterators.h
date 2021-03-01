@@ -21,6 +21,8 @@
 
 #include "common/status.h"
 #include "olap/olap_common.h"
+#include "olap/column_predicate.h"
+#include "olap/block_column_predicate.h"
 
 namespace doris {
 
@@ -34,21 +36,17 @@ class StorageReadOptions {
 public:
     struct KeyRange {
         KeyRange()
-            : lower_key(nullptr),
-              include_lower(false),
-              upper_key(nullptr),
-              include_upper(false) {
-        }
+                : lower_key(nullptr),
+                  include_lower(false),
+                  upper_key(nullptr),
+                  include_upper(false) {}
 
-        KeyRange(const RowCursor* lower_key_,
-                 bool include_lower_,
-                 const RowCursor* upper_key_,
+        KeyRange(const RowCursor* lower_key_, bool include_lower_, const RowCursor* upper_key_,
                  bool include_upper_)
-            : lower_key(lower_key_),
-              include_lower(include_lower_),
-              upper_key(upper_key_),
-              include_upper(include_upper_) {
-        }
+                : lower_key(lower_key_),
+                  include_lower(include_lower_),
+                  upper_key(upper_key_),
+                  include_upper(include_upper_) {}
 
         // the lower bound of the range, nullptr if not existed
         const RowCursor* lower_key;
@@ -71,11 +69,13 @@ public:
 
     // delete conditions used by column index to filter pages
     std::vector<const Conditions*> delete_conditions;
+
+    std::shared_ptr<AndBlockColumnPredicate> delete_condition_predicates = std::make_shared<AndBlockColumnPredicate>();
     // reader's column predicate, nullptr if not existed
     // used to fiter rows in row block
     // TODO(hkp): refactor the column predicate framework
     // to unify Conditions and ColumnPredicate
-    const std::vector<ColumnPredicate*>* column_predicates = nullptr;
+    std::vector<ColumnPredicate*> column_predicates;
 
     // REQUIRED (null is not allowed)
     OlapReaderStatistics* stats = nullptr;
@@ -85,8 +85,8 @@ public:
 // Used to read data in RowBlockV2 one by one
 class RowwiseIterator {
 public:
-    RowwiseIterator() { }
-    virtual ~RowwiseIterator() { }
+    RowwiseIterator() {}
+    virtual ~RowwiseIterator() {}
 
     // Initialize this iterator and make it ready to read with
     // input options.
@@ -112,4 +112,4 @@ public:
     virtual uint64_t data_id() const { return 0; }
 };
 
-}
+} // namespace doris

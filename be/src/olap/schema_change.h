@@ -49,7 +49,7 @@ bool count_field(RowCursor* read_helper, RowCursor* write_helper, const TabletCo
 
 class RowBlockChanger {
 public:
-    RowBlockChanger(const TabletSchema& tablet_schema, const DeleteHandler& delete_handler);
+    RowBlockChanger(const TabletSchema& tablet_schema, const DeleteHandler* delete_handler);
 
     RowBlockChanger(const TabletSchema& tablet_schema);
 
@@ -57,17 +57,17 @@ public:
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
 
-    SchemaMapping get_schema_mapping() const { return _schema_mapping; }
+    const SchemaMapping& get_schema_mapping() const { return _schema_mapping; }
 
-    OLAPStatus change_row_block(const RowBlock* ref_block, int32_t data_version, RowBlock* mutable_block,
-                          uint64_t* filtered_rows) const;
+    OLAPStatus change_row_block(const RowBlock* ref_block, int32_t data_version,
+                                RowBlock* mutable_block, uint64_t* filtered_rows) const;
 
 private:
     // @brief column-mapping specification of new schema
     SchemaMapping _schema_mapping;
 
     // delete handler for filtering data which use specified in DELETE_DATA
-    DeleteHandler _delete_handler;
+    const DeleteHandler* _delete_handler = nullptr;
 
     DISALLOW_COPY_AND_ASSIGN(RowBlockChanger);
 };
@@ -92,8 +92,9 @@ public:
     SchemaChange() : _filtered_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() {}
 
-    virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_builder,
-                         TabletSharedPtr tablet, TabletSharedPtr base_tablet) = 0;
+    virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader,
+                               RowsetWriter* new_rowset_builder, TabletSharedPtr tablet,
+                               TabletSharedPtr base_tablet) = 0;
 
     void add_filtered_rows(uint64_t filtered_rows) { _filtered_rows += filtered_rows; }
 
@@ -119,7 +120,7 @@ public:
     ~LinkedSchemaChange() {}
 
     virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer,
-                 TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
+                               TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
 
 private:
     const RowBlockChanger& _row_block_changer;
@@ -135,7 +136,7 @@ public:
     virtual ~SchemaChangeDirectly();
 
     virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer,
-                         TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
+                               TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
 
 private:
     const RowBlockChanger& _row_block_changer;
@@ -154,8 +155,9 @@ public:
                                      size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
-    virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_builder,
-                         TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
+    virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader,
+                               RowsetWriter* new_rowset_builder, TabletSharedPtr new_tablet,
+                               TabletSharedPtr base_tablet) override;
 
 private:
     bool _internal_sorting(const std::vector<RowBlock*>& row_block_arr,
@@ -208,7 +210,7 @@ private:
         TabletSharedPtr base_tablet;
         TabletSharedPtr new_tablet;
         std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
-        DeleteHandler delete_handler;
+        DeleteHandler* delete_handler = nullptr;
         std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;
     };
 
@@ -226,12 +228,11 @@ private:
 
     static OLAPStatus _convert_historical_rowsets(const SchemaChangeParams& sc_params);
 
-    static OLAPStatus _parse_request(TabletSharedPtr base_tablet,
-                                     TabletSharedPtr new_tablet,
-                                     RowBlockChanger* rb_changer,
-                                     bool* sc_sorting,
-                                     bool* sc_directly,
-                                     const std::unordered_map<std::string, AlterMaterializedViewParam>& materialized_function_map);
+    static OLAPStatus _parse_request(
+            TabletSharedPtr base_tablet, TabletSharedPtr new_tablet, RowBlockChanger* rb_changer,
+            bool* sc_sorting, bool* sc_directly,
+            const std::unordered_map<std::string, AlterMaterializedViewParam>&
+                    materialized_function_map);
 
     // 需要新建default_value时的初始化设置
     static OLAPStatus _init_column_mapping(ColumnMapping* column_mapping,

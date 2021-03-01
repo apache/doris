@@ -256,11 +256,23 @@ public class ScalarFunction extends Function {
     @Override
     public String toSql(boolean ifNotExists) {
         StringBuilder sb = new StringBuilder("CREATE FUNCTION ");
-        if (ifNotExists) sb.append("IF NOT EXISTS ");
-        sb.append(dbName() + "." + signatureString() + "\n")
-                .append(" RETURNS " + getReturnType() + "\n")
-                .append(" LOCATION '" + getLocation() + "'\n")
-                .append(" SYMBOL='" + getSymbolName() + "'\n");
+        if (ifNotExists) {
+            sb.append("IF NOT EXISTS ");
+        }
+        sb.append(signatureString())
+                .append(" RETURNS " + getReturnType())
+                .append(" PROPERTIES (");
+        sb.append("\n  \"SYMBOL\"=").append("\"" + getSymbolName() + "\"");
+        if (getPrepareFnSymbol() != null) {
+            sb.append(",\n  \"PREPARE_FN\"=").append("\"" + getPrepareFnSymbol() + "\"");
+        }
+        if (getCloseFnSymbol() != null) {
+            sb.append(",\n  \"CLOSE_FN\"=").append("\"" + getCloseFnSymbol() + "\"");
+        }
+        sb.append(",\n  \"OBJECT_FILE\"=")
+                .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
+        sb.append(",\n  \"MD5\"=").append("\"" + getChecksum() + "\"");
+        sb.append("\n);");
         return sb.toString();
     }
 

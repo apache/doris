@@ -15,25 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/delete_handler.h"
+
+#include <gtest/gtest.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <boost/assign.hpp>
+#include <boost/regex.hpp>
 #include <iostream>
 #include <string>
 #include <vector>
 
-#include <boost/assign.hpp>
-#include <boost/regex.hpp>
-#include <gtest/gtest.h>
-
-#include "olap/delete_handler.h"
 #include "olap/olap_define.h"
-#include "olap/storage_engine.h"
-#include "olap/push_handler.h"
-#include "olap/utils.h"
 #include "olap/options.h"
+#include "olap/push_handler.h"
+#include "olap/storage_engine.h"
+#include "olap/utils.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
+#include "util/cpu_info.h"
 
 using namespace std;
 using namespace doris;
@@ -234,7 +235,6 @@ void set_create_duplicate_tablet_request(TCreateTabletReq* request) {
     request->tablet_schema.columns.push_back(v);
 }
 
-
 void set_default_push_request(TPushReq* request) {
     request->tablet_id = 10003;
     request->schema_hash = 270068375;
@@ -258,8 +258,8 @@ protected:
         set_default_create_tablet_request(&_create_tablet);
         res = k_engine->create_tablet(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        tablet = k_engine->tablet_manager()->get_tablet(
-                _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
+        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
+                                                        _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
         _tablet_path = tablet->tablet_path();
 
@@ -339,7 +339,8 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred;
-    success_res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
+    success_res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(),
+                                                                      conditions, &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, success_res);
 
     // 验证存储在header中的过滤条件正确
@@ -362,7 +363,9 @@ TEST_F(TestDeleteConditionHandler, StoreCondInvalidParameters) {
     // 空的过滤条件
     std::vector<TCondition> conditions;
     DeletePredicatePB del_pred;
-    OLAPStatus failed_res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);;
+    OLAPStatus failed_res = _delete_condition_handler.generate_delete_predicate(
+            tablet->tablet_schema(), conditions, &del_pred);
+    ;
     ASSERT_EQ(OLAP_ERR_DELETE_INVALID_PARAMETERS, failed_res);
 }
 
@@ -377,7 +380,9 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     condition.condition_values.push_back("2");
     conditions.push_back(condition);
     DeletePredicatePB del_pred;
-    OLAPStatus failed_res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);;
+    OLAPStatus failed_res = _delete_condition_handler.generate_delete_predicate(
+            tablet->tablet_schema(), conditions, &del_pred);
+    ;
     ASSERT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, failed_res);
 
     // 'v'是value列
@@ -388,7 +393,9 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    failed_res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);;
+    failed_res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(),
+                                                                     conditions, &del_pred);
+    ;
     ASSERT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, failed_res);
 
     // value column in duplicate model can be deleted;
@@ -399,7 +406,9 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    OLAPStatus success_res = _delete_condition_handler.generate_delete_predicate(dup_tablet->tablet_schema(), conditions, &del_pred);;
+    OLAPStatus success_res = _delete_condition_handler.generate_delete_predicate(
+            dup_tablet->tablet_schema(), conditions, &del_pred);
+    ;
     ASSERT_EQ(OLAP_SUCCESS, success_res);
 }
 
@@ -420,8 +429,8 @@ protected:
         set_default_create_tablet_request(&_create_tablet);
         res = k_engine->create_tablet(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        tablet = k_engine->tablet_manager()->get_tablet(
-                _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
+        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
+                                                        _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
         _tablet_path = tablet->tablet_path();
     }
@@ -442,7 +451,6 @@ protected:
 
 TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     OLAPStatus res;
-    DeleteConditionHandler cond_handler;
     std::vector<TCondition> conditions;
 
     // 测试数据中, k1,k2,k3,k4类型分别为int8, int16, int32, int64
@@ -472,7 +480,8 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // k5类型为int128
@@ -484,7 +493,8 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_2;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_2);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_2);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // k9类型为decimal, precision=6, frac=3
@@ -496,25 +506,29 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_3;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_3);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_3);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2");
     DeletePredicatePB del_pred_4;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_4);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_4);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-2");
     DeletePredicatePB del_pred_5;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_5);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_5);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-2.3");
     DeletePredicatePB del_pred_6;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_6);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_6);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // k10,k11类型分别为date, datetime
@@ -532,7 +546,8 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_7;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_7);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_7);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // k12,k13类型分别为string(64), varchar(64)
@@ -550,13 +565,13 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_8;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_8);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_8);
     ASSERT_EQ(OLAP_SUCCESS, res);
 }
 
 TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     OLAPStatus res;
-    DeleteConditionHandler cond_handler;
     std::vector<TCondition> conditions;
 
     // 测试k1的值越上界，k1类型为int8
@@ -568,14 +583,16 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_1;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_1);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_1);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k1的值越下界，k1类型为int8
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-1000");
     DeletePredicatePB del_pred_2;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_2);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_2);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k2的值越上界，k2类型为int16
@@ -583,14 +600,16 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k2";
     conditions[0].condition_values.push_back("32768");
     DeletePredicatePB del_pred_3;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_3);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_3);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k2的值越下界，k2类型为int16
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-32769");
     DeletePredicatePB del_pred_4;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_4);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_4);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k3的值越上界，k3类型为int32
@@ -598,14 +617,16 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k3";
     conditions[0].condition_values.push_back("2147483648");
     DeletePredicatePB del_pred_5;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_5);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_5);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k3的值越下界，k3类型为int32
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-2147483649");
     DeletePredicatePB del_pred_6;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_6);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_6);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k4的值越上界，k2类型为int64
@@ -613,14 +634,16 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k4";
     conditions[0].condition_values.push_back("9223372036854775808");
     DeletePredicatePB del_pred_7;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_7);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_7);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k4的值越下界，k1类型为int64
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-9223372036854775809");
     DeletePredicatePB del_pred_8;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_8);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_8);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k5的值越上界，k5类型为int128
@@ -628,14 +651,16 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k5";
     conditions[0].condition_values.push_back("170141183460469231731687303715884105728");
     DeletePredicatePB del_pred_9;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_9);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_9);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k5的值越下界，k5类型为int128
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-170141183460469231731687303715884105729");
     DeletePredicatePB del_pred_10;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_10);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_10);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k9整数部分长度过长，k9类型为decimal, precision=6, frac=3
@@ -643,21 +668,24 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k9";
     conditions[0].condition_values.push_back("12347876.5");
     DeletePredicatePB del_pred_11;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_11);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_11);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k9小数部分长度过长，k9类型为decimal, precision=6, frac=3
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("1.2345678");
     DeletePredicatePB del_pred_12;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_12);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_12);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k9没有小数部分，但包含小数点
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("1.");
     DeletePredicatePB del_pred_13;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_13);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_13);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k10类型的过滤值不符合对应格式，k10为date
@@ -665,19 +693,22 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k10";
     conditions[0].condition_values.push_back("20130101");
     DeletePredicatePB del_pred_14;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_14);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_14);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-64-01");
     DeletePredicatePB del_pred_15;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_15);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_15);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-40");
     DeletePredicatePB del_pred_16;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_16);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_16);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k11类型的过滤值不符合对应格式，k11为datetime
@@ -685,62 +716,73 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].column_name = "k11";
     conditions[0].condition_values.push_back("20130101 00:00:00");
     DeletePredicatePB del_pred_17;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_17);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_17);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-64-01 00:00:00");
     DeletePredicatePB del_pred_18;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_18);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_18);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-40 00:00:00");
     DeletePredicatePB del_pred_19;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_19);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_19);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-01 24:00:00");
     DeletePredicatePB del_pred_20;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_20);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_20);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-01 00:60:00");
     DeletePredicatePB del_pred_21;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_21);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_21);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-01 00:00:60");
     DeletePredicatePB del_pred_22;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_22);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_22);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k12和k13类型的过滤值过长，k12,k13类型分别为string(64), varchar(64)
     conditions[0].condition_values.clear();
     conditions[0].column_name = "k12";
-    conditions[0].condition_values.push_back("YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
-                                    "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
-                                    "FhYWFhYWFhYWFhYWFhYWFhYWFhYWE=;k13=YWFhYQ==");
+    conditions[0].condition_values.push_back(
+            "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
+            "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
+            "FhYWFhYWFhYWFhYWFhYWFhYWFhYWE=;k13=YWFhYQ==");
     DeletePredicatePB del_pred_23;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_23);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_23);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
-    
+
     conditions[0].condition_values.clear();
     conditions[0].column_name = "k13";
-    conditions[0].condition_values.push_back("YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
-                                    "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
-                                    "FhYWFhYWFhYWFhYWFhYWFhYWFhYWE=;k13=YWFhYQ==");
+    conditions[0].condition_values.push_back(
+            "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
+            "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
+            "FhYWFhYWFhYWFhYWFhYWFhYWFhYWE=;k13=YWFhYQ==");
     DeletePredicatePB del_pred_24;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_24);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_24);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 }
 
 class TestDeleteHandler : public testing::Test {
 protected:
     void SetUp() {
+        CpuInfo::init();
         // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
@@ -754,8 +796,8 @@ protected:
         set_default_create_tablet_request(&_create_tablet);
         res = k_engine->create_tablet(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        tablet = k_engine->tablet_manager()->get_tablet(
-                _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
+        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
+                                                        _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet != nullptr);
         _tablet_path = tablet->tablet_path();
 
@@ -783,7 +825,6 @@ protected:
 TEST_F(TestDeleteHandler, InitSuccess) {
     OLAPStatus res;
     std::vector<TCondition> conditions;
-    DeleteConditionHandler delete_condition_handler;
 
     // 往头文件中添加过滤条件
     TCondition condition;
@@ -806,7 +847,8 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, res);
     tablet->add_delete_predicate(del_pred, 1);
 
@@ -818,7 +860,8 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_2;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_2);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_2);
     ASSERT_EQ(OLAP_SUCCESS, res);
     tablet->add_delete_predicate(del_pred_2, 2);
 
@@ -830,7 +873,8 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_3;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_3);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_3);
     ASSERT_EQ(OLAP_SUCCESS, res);
     tablet->add_delete_predicate(del_pred_3, 3);
 
@@ -842,7 +886,8 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_4;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_4);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_4);
     ASSERT_EQ(OLAP_SUCCESS, res);
     tablet->add_delete_predicate(del_pred_4, 4);
 
@@ -850,7 +895,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(4, _delete_handler.conditions_num());
-    vector<int32_t> conds_version = _delete_handler.get_conds_version();
+    std::vector<int64_t> conds_version = _delete_handler.get_conds_version();
     EXPECT_EQ(4, conds_version.size());
     sort(conds_version.begin(), conds_version.end());
     EXPECT_EQ(1, conds_version[0]);
@@ -865,7 +910,6 @@ TEST_F(TestDeleteHandler, InitSuccess) {
 // 即只有满足一条过滤条件包含的所有子条件，这条数据才会被过滤
 TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     OLAPStatus res;
-    DeleteConditionHandler cond_handler;
     std::vector<TCondition> conditions;
 
     // 往Header中添加过滤条件
@@ -884,7 +928,8 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, res);
     tablet->add_delete_predicate(del_pred, 1);
 
@@ -894,7 +939,7 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     ASSERT_EQ(1, _delete_handler.conditions_num());
 
     // 构造一行测试数据
-    vector<string> data_str;
+    std::vector<string> data_str;
     data_str.push_back("1");
     data_str.push_back("6");
     data_str.push_back("8");
@@ -926,7 +971,6 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
 // 即如果存在多个过滤条件，会一次检查数据是否符合这些过滤条件；只要有一个过滤条件符合，则过滤数据
 TEST_F(TestDeleteHandler, FilterDataConditions) {
     OLAPStatus res;
-    DeleteConditionHandler cond_handler;
     std::vector<TCondition> conditions;
 
     // 往Header中添加过滤条件
@@ -945,7 +989,8 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, res);
     tablet->add_delete_predicate(del_pred, 1);
 
@@ -958,7 +1003,8 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_2;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_2);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_2);
     ASSERT_EQ(OLAP_SUCCESS, res);
     tablet->add_delete_predicate(del_pred_2, 2);
 
@@ -971,7 +1017,8 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_3;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_3);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_3);
     ASSERT_EQ(OLAP_SUCCESS, res);
     tablet->add_delete_predicate(del_pred_3, 3);
 
@@ -980,7 +1027,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(3, _delete_handler.conditions_num());
 
-    vector<string> data_str;
+    std::vector<string> data_str;
     data_str.push_back("4");
     data_str.push_back("5");
     data_str.push_back("8");
@@ -1004,7 +1051,6 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
 // 测试在过滤时，版本号小于数据版本的过滤条件将不起作用
 TEST_F(TestDeleteHandler, FilterDataVersion) {
     OLAPStatus res;
-    DeleteConditionHandler cond_handler;
     std::vector<TCondition> conditions;
 
     // 往Header中添加过滤条件
@@ -1023,7 +1069,8 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, res);
     tablet->add_delete_predicate(del_pred, 3);
 
@@ -1036,7 +1083,8 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     conditions.push_back(condition);
 
     DeletePredicatePB del_pred_2;
-    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_2);
+    res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions,
+                                                              &del_pred_2);
     ASSERT_EQ(OLAP_SUCCESS, res);
     tablet->add_delete_predicate(del_pred_2, 4);
 
@@ -1046,7 +1094,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     ASSERT_EQ(2, _delete_handler.conditions_num());
 
     // 构造一行测试数据
-    vector<string> data_str;
+    std::vector<string> data_str;
     data_str.push_back("1");
     data_str.push_back("6");
     data_str.push_back("8");

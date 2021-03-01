@@ -26,7 +26,9 @@ namespace doris {
 
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
     os << "(flush time(ms)=" << stat.flush_time_ns / 1000 / 1000
-       << ", flush count=" << stat.flush_count << ")";
+       << ", flush count=" << stat.flush_count
+       << ", flush bytes: " << stat.flush_size_bytes
+       << ", flush disk bytes: " << stat.flush_disk_size_bytes << ")";
     return os;
 }
 
@@ -65,9 +67,14 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable) {
         return;
     }
 
+    VLOG_CRITICAL << "flush memtable cost: " << timer.elapsed_time()
+            << ", count: " << _stats.flush_count
+            << ", mem size: " << memtable->memory_usage()
+            << ", disk size: " << memtable->flush_size();
     _stats.flush_time_ns += timer.elapsed_time();
     _stats.flush_count++;
     _stats.flush_size_bytes += memtable->memory_usage();
+    _stats.flush_disk_size_bytes += memtable->flush_size();
 }
 
 void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
@@ -81,8 +88,16 @@ void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
 }
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
-OLAPStatus MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>* flush_token) {
-    flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
+OLAPStatus MemTableFlushExecutor::create_flush_token(
+        std::unique_ptr<FlushToken>* flush_token,
+        RowsetTypePB rowset_type) {
+    if (rowset_type == BETA_ROWSET) {
+        // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
+        flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
+    } else {
+        // alpha rowset do not support flush in CONCURRENT.
+        flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
+    }
     return OLAP_SUCCESS;
 }
 

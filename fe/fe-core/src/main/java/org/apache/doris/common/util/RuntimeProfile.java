@@ -24,16 +24,17 @@ import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TUnit;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Formatter;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -58,7 +59,7 @@ public class RuntimeProfile {
     private Map<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
 
     private Map<String, TreeSet<String>> childCounterMap = Maps.newHashMap();
-    private List<Pair<RuntimeProfile, Boolean>> childList = Lists.newArrayList();
+    private LinkedList<Pair<RuntimeProfile, Boolean>> childList = Lists.newLinkedList();
 
     private String name;
     
@@ -240,8 +241,8 @@ public class RuntimeProfile {
             this.printChildCounters(prefix + "  ", childCounterName, builder);
         }
     }
-    
-    private String printCounter(long value, TUnit type) {
+
+    public static String printCounter(long value, TUnit type) {
         StringBuilder builder = new StringBuilder();
         long tmpValue = value;
         switch (type) {
@@ -318,6 +319,16 @@ public class RuntimeProfile {
         this.childList.add(pair);
     }
 
+    public void addFirstChild(RuntimeProfile child) {
+        if (child == null) {
+            return;
+        }
+
+        this.childMap.put(child.name, child);
+        Pair<RuntimeProfile, Boolean> pair = Pair.create(child, true);
+        this.childList.addFirst(pair);
+    }
+
     // Because the profile of summary and child fragment is not a real parent-child relationship
     // Each child profile needs to calculate the time proportion consumed by itself
     public void computeTimeInChildProfile() {
@@ -358,9 +369,8 @@ public class RuntimeProfile {
             @Override
             public int compare(Pair<RuntimeProfile, Boolean> profile1, Pair<RuntimeProfile, Boolean> profile2)
             {
-                long distance = profile2.first.getCounterTotalTime().getValue() 
-                        - profile1.first.getCounterTotalTime().getValue();
-                return (int) distance;
+                return Long.valueOf(profile2.first.getCounterTotalTime().getValue())
+                    .compareTo(profile1.first.getCounterTotalTime().getValue());
             }
         });
     }

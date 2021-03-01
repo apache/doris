@@ -62,7 +62,7 @@ public class EsPartitionsProcDir implements ProcDirInterface {
 
         // get info
         List<List<Comparable>> partitionInfos = new ArrayList<List<Comparable>>();
-        db.readLock();
+        esTable.readLock();
         try {
             RangePartitionInfo rangePartitionInfo = null;
             if (esTable.getPartitionInfo().getType() == PartitionType.RANGE) {
@@ -97,7 +97,7 @@ public class EsPartitionsProcDir implements ProcDirInterface {
                 partitionInfos.add(partitionInfo);
             }
         } finally {
-            db.readUnlock();
+            esTable.readUnlock();
         }
 
         // set result
@@ -121,13 +121,7 @@ public class EsPartitionsProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String indexName) throws AnalysisException {
-
-        db.readLock();
-        try {
-            return new EsShardProcDir(db, esTable, indexName);
-        } finally {
-            db.readUnlock();
-        }
+        return new EsShardProcDir(db, esTable, indexName);
     }
 
 }

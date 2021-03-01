@@ -11,9 +11,8 @@
 
 #include <string>
 
-#include "olap/olap_common.h"
-
 #include "gutil/endian.h"
+#include "olap/olap_common.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -106,14 +105,14 @@ inline uint128_t decode_fixed128_le(const uint8_t* buf) {
 #endif
 }
 
-template<typename T>
+template <typename T>
 inline void put_fixed32_le(T* dst, uint32_t val) {
     uint8_t buf[sizeof(val)];
     encode_fixed32_le(buf, val);
     dst->append((char*)buf, sizeof(buf));
 }
 
-template<typename T>
+template <typename T>
 inline void put_fixed64_le(T* dst, uint64_t val) {
     uint8_t buf[sizeof(val)];
     encode_fixed64_le(buf, val);
@@ -130,7 +129,7 @@ inline int varint_length(uint64_t v) {
     return len;
 }
 
-template<typename T>
+template <typename T>
 inline void put_fixed128_le(T* dst, uint128_t val) {
     uint8_t buf[sizeof(val)];
     encode_fixed128_le(buf, val);
@@ -153,11 +152,11 @@ inline uint8_t* encode_varint64(uint8_t* dst, uint64_t v) {
     return dst;
 }
 
-extern const uint8_t* decode_varint32_ptr_fallback(
-    const uint8_t* p, const uint8_t* limit, uint32_t* value);
+extern const uint8_t* decode_varint32_ptr_fallback(const uint8_t* p, const uint8_t* limit,
+                                                   uint32_t* value);
 
-inline const uint8_t* decode_varint32_ptr(
-        const uint8_t* ptr, const uint8_t* limit, uint32_t* value) {
+inline const uint8_t* decode_varint32_ptr(const uint8_t* ptr, const uint8_t* limit,
+                                          uint32_t* value) {
     if (ptr < limit) {
         uint32_t result = *ptr;
         if ((result & 128) == 0) {
@@ -170,27 +169,27 @@ inline const uint8_t* decode_varint32_ptr(
 
 extern const uint8_t* decode_varint64_ptr(const uint8_t* p, const uint8_t* limit, uint64_t* value);
 
-template<typename T>
+template <typename T>
 inline void put_varint32(T* dst, uint32_t v) {
     uint8_t buf[5];
     uint8_t* ptr = encode_varint32(buf, v);
     dst->append((char*)buf, static_cast<size_t>(ptr - buf));
 }
 
-template<typename T>
+template <typename T>
 inline void put_varint64(T* dst, uint64_t v) {
     uint8_t buf[10];
     uint8_t* ptr = encode_varint64(buf, v);
     dst->append((char*)buf, static_cast<size_t>(ptr - buf));
 }
 
-template<typename T>
+template <typename T>
 inline void put_length_prefixed_slice(T* dst, const Slice& value) {
     put_varint32(dst, value.get_size());
     dst->append(value.get_data(), value.get_size());
 }
 
-template<typename T>
+template <typename T>
 inline void put_varint64_varint32(T* dst, uint64_t v1, uint32_t v2) {
     uint8_t buf[15];
     uint8_t* ptr = encode_varint64(buf, v1);

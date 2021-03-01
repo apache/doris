@@ -21,15 +21,12 @@
 
 namespace doris {
 
-Rowset::Rowset(const TabletSchema *schema,
-               std::string rowset_path,
-               RowsetMetaSharedPtr rowset_meta)
+Rowset::Rowset(const TabletSchema* schema, std::string rowset_path, RowsetMetaSharedPtr rowset_meta)
         : _schema(schema),
-         _rowset_path(std::move(rowset_path)),
-         _rowset_meta(std::move(rowset_meta)),
-         _refs_by_reader(0),
-         _rowset_state_machine(RowsetStateMachine()) {
-
+          _rowset_path(std::move(rowset_path)),
+          _rowset_meta(std::move(rowset_meta)),
+          _refs_by_reader(0),
+          _rowset_state_machine(RowsetStateMachine()) {
     _is_pending = !_rowset_meta->has_version();
     if (_is_pending) {
         _is_cumulative = false;
@@ -56,7 +53,7 @@ OLAPStatus Rowset::load(bool use_cache) {
         }
     }
     // load is done
-    LOG(INFO) << "rowset is loaded. rowset version:" << start_version() << "-" << end_version()
+    LOG(INFO) << "rowset is loaded. " << rowset_id() << ", rowset version:" << rowset_meta()->version()
               << ", state from ROWSET_UNLOADED to ROWSET_LOADED. tabletid:"
               << _rowset_meta->tablet_id();
     return OLAP_SUCCESS;
@@ -79,4 +76,3 @@ void Rowset::make_visible(Version version, VersionHash version_hash) {
 }
 
 } // namespace doris
-

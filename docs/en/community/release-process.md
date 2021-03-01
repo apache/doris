@@ -37,9 +37,9 @@ The general process of publication is as follows:
 	3. clean up issues
 	4. merging necessary patch to release branch
 3. Verify branch
-         1. QA stability test
-         2. Verify the correctness of the compiled image
-         3. Prepare Release Nodes
+	1. QA stability test
+	2. Verify the correctness of the compiled image
+	3. Prepare Release Nodes
 4. Running the voting process for a release
 	1. singing a tag and upload it to [Apache dev svn repo](https://dist.apache.org/repos/dist/dev/incubator/doris)
 	2. calling votes from [Doris community](dev@doris.apache.org)
@@ -256,7 +256,7 @@ OpenPGP Public Key Primary Fingerprint:
 #### Generating keys
 
 ```
-svn co //dist.apache.org/repos/dist/dev/incubator/doris/
+svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
 # edit doris/KEY file
 gpg --list-sigs [用户 ID] >> doris/KEYS
 gpg --armor --export [用户 ID] >> doris/KEYS
@@ -340,7 +340,7 @@ $ git tag
 
 ### Packing Signature
 
-The following steps also need to log into user accounts directly through terminals such as SecureCRT, and can not be transferred through Su - user or ssh, otherwise the password input box will not show and error will be reported.
+The following steps also need to log into user accounts directly through terminals such as SecureCRT, and cannot be transferred through Su - user or ssh, otherwise the password input box will not show and error will be reported.
 
 ```
 $ git checkout 0.9.0-rc01

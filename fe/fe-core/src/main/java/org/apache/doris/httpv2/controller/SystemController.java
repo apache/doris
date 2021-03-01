@@ -104,7 +104,7 @@ public class SystemController extends BaseController {
             String showProcStmt = "SHOW PROC \"" + procPath + "\"";
 
             MasterOpExecutor masterOpExecutor = new MasterOpExecutor(new OriginStatement(showProcStmt, 0),
-                    ConnectContext.get(), RedirectStatus.FORWARD_NO_SYNC);
+                    ConnectContext.get(), RedirectStatus.FORWARD_NO_SYNC, true);
             try {
                 masterOpExecutor.execute();
             } catch (Exception e) {

@@ -17,6 +17,12 @@
 
 package org.apache.doris.load.loadv2;
 
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.UserException;
@@ -30,25 +36,26 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-
 public class BrokerLoadPendingTaskTest {
+
+    private static TBrokerFileStatus tBrokerFileStatus = new TBrokerFileStatus();
+
+    @BeforeClass
+    public static void setUp() {
+        tBrokerFileStatus.size = 1;
+    }
 
     @Test
     public void testExecuteTask(@Injectable BrokerLoadJob brokerLoadJob,
                                 @Injectable BrokerFileGroup brokerFileGroup,
                                 @Injectable BrokerDesc brokerDesc,
-                                @Mocked Catalog catalog,
-                                @Injectable TBrokerFileStatus tBrokerFileStatus) throws UserException {
+                                @Mocked Catalog catalog) throws UserException {
         Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         brokerFileGroups.add(brokerFileGroup);
@@ -62,6 +69,7 @@ public class BrokerLoadPendingTaskTest {
                 result = "hdfs://localhost:8900/test_column";
             }
         };
+
         new MockUp<BrokerUtil>() {
             @Mock
             public void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses) {

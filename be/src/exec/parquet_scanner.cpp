@@ -16,39 +16,39 @@
 // under the License.
 
 #include "exec/parquet_scanner.h"
+
+#include "exec/broker_reader.h"
+#include "exec/buffered_reader.h"
+#include "exec/decompressor.h"
+#include "exec/local_file_reader.h"
+#include "exec/parquet_reader.h"
+#include "exec/s3_reader.h"
+#include "exec/text_converter.h"
+#include "exec/text_converter.hpp"
+#include "exprs/expr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/raw_value.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
-#include "exec/parquet_reader.h"
-#include "exprs/expr.h"
-#include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
-#include "exec/local_file_reader.h"
-#include "exec/broker_reader.h"
-#include "exec/buffered_reader.h"
-#include "exec/decompressor.h"
-#include "exec/parquet_reader.h"
 
 namespace doris {
 
-
-ParquetScanner::ParquetScanner(RuntimeState* state,
-                             RuntimeProfile* profile,
-                             const TBrokerScanRangeParams& params,
-                             const std::vector<TBrokerRangeDesc>& ranges,
-                             const std::vector<TNetworkAddress>& broker_addresses,
-                             ScannerCounter* counter) : BaseScanner(state, profile, params, counter),
-        _ranges(ranges),
-        _broker_addresses(broker_addresses),
-        // _splittable(params.splittable),
-        _cur_file_reader(nullptr),
-        _next_range(0),
-        _cur_file_eof(false),
-        _scanner_eof(false) {
-}
+ParquetScanner::ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
+                               const TBrokerScanRangeParams& params,
+                               const std::vector<TBrokerRangeDesc>& ranges,
+                               const std::vector<TNetworkAddress>& broker_addresses,
+                               const std::vector<ExprContext*>& pre_filter_ctxs,
+                               ScannerCounter* counter)
+        : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
+          _ranges(ranges),
+          _broker_addresses(broker_addresses),
+          // _splittable(params.splittable),
+          _cur_file_reader(nullptr),
+          _next_range(0),
+          _cur_file_eof(false),
+          _scanner_eof(false) {}
 
 ParquetScanner::~ParquetScanner() {
     close();
@@ -70,17 +70,19 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
             }
             _cur_file_eof = false;
         }
-        RETURN_IF_ERROR(_cur_file_reader->read(_src_tuple, _src_slot_descs, tuple_pool, &_cur_file_eof));
+        RETURN_IF_ERROR(
+                _cur_file_reader->read(_src_tuple, _src_slot_descs, tuple_pool, &_cur_file_eof));
         // range of current file
         const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
         if (range.__isset.num_of_columns_from_file) {
-            fill_slots_of_columns_from_path(range.num_of_columns_from_file, range.columns_from_path);
+            fill_slots_of_columns_from_path(range.num_of_columns_from_file,
+                                            range.columns_from_path);
         }
 
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
         if (fill_dest_tuple(tuple, tuple_pool)) {
-            break;// break if true
+            break; // break if true
         }
     }
     if (_scanner_eof) {
@@ -111,18 +113,26 @@ Status ParquetScanner::open_next_reader() {
         const TBrokerRangeDesc& range = _ranges[_next_range++];
         std::unique_ptr<FileReader> file_reader;
         switch (range.file_type) {
-            case TFileType::FILE_LOCAL: {
-                file_reader.reset(new LocalFileReader(range.path, range.start_offset));
-                break;
+        case TFileType::FILE_LOCAL: {
+            file_reader.reset(new LocalFileReader(range.path, range.start_offset));
+            break;
+        }
+        case TFileType::FILE_BROKER: {
+            int64_t file_size = 0;
+            // for compatibility
+            if (range.__isset.file_size) {
+                file_size = range.file_size;
             }
-            case TFileType::FILE_BROKER: {
-                int64_t file_size = 0;
-                // for compatibility
-                if (range.__isset.file_size) { file_size = range.file_size; }
-                file_reader.reset(new BufferedReader(new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
-                                               range.path, range.start_offset, file_size)));
-                break;
-            }
+            file_reader.reset(new BufferedReader(
+                    new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
+                                     range.path, range.start_offset, file_size)));
+            break;
+        }
+        case TFileType::FILE_S3: {
+            file_reader.reset(new BufferedReader(
+                    new S3Reader(_params.properties, range.path, range.start_offset)));
+            break;
+        }
 #if 0
             case TFileType::FILE_STREAM:
         {
@@ -134,11 +144,11 @@ Status ParquetScanner::open_next_reader() {
             break;
         }
 #endif
-            default: {
-                std::stringstream ss;
-                ss << "Unknown file type, type=" << range.file_type;
-                return Status::InternalError(ss.str());
-            }
+        default: {
+            std::stringstream ss;
+            ss << "Unknown file type, type=" << range.file_type;
+            return Status::InternalError(ss.str());
+        }
         }
         RETURN_IF_ERROR(file_reader->open());
         if (file_reader->size() == 0) {
@@ -146,7 +156,8 @@ Status ParquetScanner::open_next_reader() {
             continue;
         }
         if (range.__isset.num_of_columns_from_file) {
-            _cur_file_reader = new ParquetReaderWrap(file_reader.release(), range.num_of_columns_from_file);
+            _cur_file_reader =
+                    new ParquetReaderWrap(file_reader.release(), range.num_of_columns_from_file);
         } else {
             _cur_file_reader = new ParquetReaderWrap(file_reader.release(), _src_slot_descs.size());
         }
@@ -156,7 +167,13 @@ Status ParquetScanner::open_next_reader() {
         if (status.is_end_of_file()) {
             continue;
         } else {
-            return status;
+            if (!status.ok()) {
+                std::stringstream ss;
+                ss << " file: " << range.path << " error:" << status.get_error_msg();
+                return Status::InternalError(ss.str());
+            } else {
+                return status;
+            }
         }
     }
 }
@@ -173,4 +190,4 @@ void ParquetScanner::close() {
     }
 }
 
-}
+} // namespace doris

@@ -31,13 +31,13 @@ namespace doris {
 
 class CoreDataAllocator {
 public:
-    virtual ~CoreDataAllocator() { }
+    virtual ~CoreDataAllocator() {}
     virtual void* get_or_create(size_t id) = 0;
 };
 
 class CoreDataAllocatorFactory {
 public:
-    CoreDataAllocatorFactory() { }
+    CoreDataAllocatorFactory() {}
     ~CoreDataAllocatorFactory();
     CoreDataAllocator* get_allocator(size_t cpu_id, size_t data_bytes);
     static CoreDataAllocatorFactory* instance();
@@ -50,7 +50,7 @@ private:
     std::map<std::pair<size_t, size_t>, CoreDataAllocator*> _allocators;
 };
 
-template<typename T>
+template <typename T>
 class CoreLocalValueController {
 public:
     CoreLocalValueController() {
@@ -65,7 +65,7 @@ public:
         }
     }
 
-    ~CoreLocalValueController() { }
+    ~CoreLocalValueController() {}
 
     int get_id() {
         std::lock_guard<std::mutex> l(_lock);
@@ -83,9 +83,7 @@ public:
         _free_ids.push_back(id);
     }
     size_t size() const { return _size; }
-    CoreDataAllocator* allocator(int i) const {
-        return _allocators[i];
-    }
+    CoreDataAllocator* allocator(int i) const { return _allocators[i]; }
 
     static CoreLocalValueController<T>* instance() {
         static CoreLocalValueController<T> _s_instance;
@@ -103,7 +101,7 @@ private:
     size_t _size;
 };
 
-template<typename T>
+template <typename T>
 class CoreLocalValue {
 public:
     CoreLocalValue(const T init_value = T()) {
@@ -132,13 +130,12 @@ public:
         }
         return access_at_core(cpu_id);
     }
-    inline T* access_at_core(size_t core_idx) const {
-        return _values[core_idx];
-    }
+    inline T* access_at_core(size_t core_idx) const { return _values[core_idx]; }
+
 private:
     int _id = -1;
     size_t _size = 0;
     std::vector<T*> _values;
 };
 
-}
+} // namespace doris

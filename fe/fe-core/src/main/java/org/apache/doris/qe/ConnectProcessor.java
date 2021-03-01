@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import avro.shaded.com.google.common.collect.Lists;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -31,6 +32,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -46,12 +48,12 @@ import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
-import org.apache.doris.thrift.TQueryOptions;
-
-import com.google.common.base.Strings;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Strings;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -59,6 +61,7 @@ import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousCloseException;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Process one mysql connection, receive one packet, process, send one packet.
@@ -113,6 +116,7 @@ public class ConnectProcessor {
             .setState(ctx.getState().toString()).setQueryTime(elapseMs)
             .setScanBytes(statistics == null ? 0 : statistics.scan_bytes)
             .setScanRows(statistics == null ? 0 : statistics.scan_rows)
+            .setCpuTimeMs(statistics == null ? 0 : statistics.cpu_ms)
             .setReturnRows(ctx.getReturnRows())
             .setStmtId(ctx.getStmtId())
             .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
@@ -177,15 +181,19 @@ public class ConnectProcessor {
 
         // execute this query.
         StatementBase parsedStmt = null;
+        List<Pair<StatementBase, PQueryStatistics>> auditInfoList = Lists.newArrayList();
+        boolean alreadyAddedToAuditInfoList = false;
         try {
             List<StatementBase> stmts = analyze(originStmt);
             for (int i = 0; i < stmts.size(); ++i) {
+                alreadyAddedToAuditInfoList = false;
                 ctx.getState().reset();
                 if (i > 0) {
                     ctx.resetReturnRows();
                 }
                 parsedStmt = stmts.get(i);
                 parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
+                parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
                 executor = new StmtExecutor(ctx, parsedStmt);
                 ctx.setExecutor(executor);
                 executor.execute();
@@ -194,6 +202,8 @@ public class ConnectProcessor {
                     ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
                     finalizeCommand();
                 }
+                auditInfoList.add(new Pair<>(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
+                alreadyAddedToAuditInfoList = true;
             }
         } catch (IOException e) {
             // Client failed.
@@ -215,14 +225,18 @@ public class ConnectProcessor {
             }
         }
 
+        // that means execute some statement failed
+        if (!alreadyAddedToAuditInfoList && executor != null) {
+            auditInfoList.add(new Pair<>(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
+        }
+
         // audit after exec
-        // replace '\n' to '\\n' to make string in one line
-        // TODO(cmy): when user send multi-statement, the executor is the last statement's executor.
-        // We may need to find some way to resolve this.
-        if (executor != null) {
-            auditAfterExec(originStmt.replace("\n", " "), executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+        if (!auditInfoList.isEmpty()) {
+            for (Pair<StatementBase, PQueryStatistics> audit : auditInfoList) {
+                auditAfterExec(originStmt.replace("\n", " "), audit.first, audit.second);
+            }
         } else {
-            // executor can be null if we encounter analysis error.
+            // auditInfoList can be empty if we encounter analysis error.
             auditAfterExec(originStmt.replace("\n", " "), null, null);
         }
     }
@@ -274,14 +288,14 @@ public class ConnectProcessor {
             ctx.getState().setError("Unknown database(" + ctx.getDatabase() + ")");
             return;
         }
-        db.readLock();
-        try {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                ctx.getState().setError("Unknown table(" + tableName + ")");
-                return;
-            }
+        Table table = db.getTable(tableName);
+        if (table == null) {
+            ctx.getState().setError("Unknown table(" + tableName + ")");
+            return;
+        }
 
+        table.readLock();
+        try {
             MysqlSerializer serializer = ctx.getSerializer();
             MysqlChannel channel = ctx.getMysqlChannel();
 
@@ -295,7 +309,7 @@ public class ConnectProcessor {
             }
 
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
         ctx.getState().setEof();
     }
@@ -394,43 +408,42 @@ public class ConnectProcessor {
         if (request.isSetUserIp()) {
             ctx.setRemoteIP(request.getUserIp());
         }
-        if (request.isSetTimeZone()) {
-            ctx.getSessionVariable().setTimeZone(request.getTimeZone());
-        }
         if (request.isSetStmtId()) {
             ctx.setForwardedStmtId(request.getStmtId());
-        }
-        if (request.isSetSqlMode()) {
-            ctx.getSessionVariable().setSqlMode(request.sqlMode);
-        }
-        if (request.isSetEnableStrictMode()) {
-            ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
         }
         if (request.isSetCurrentUserIdent()) {
             UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
             ctx.setCurrentUserIdentity(currentUserIdentity);
         }
 
-        if (request.isSetQueryOptions()) {
-            TQueryOptions queryOptions = request.getQueryOptions();
-            if (queryOptions.isSetMemLimit()) {
-                ctx.getSessionVariable().setMaxExecMemByte(queryOptions.getMemLimit());
-            }
-            if (queryOptions.isSetQueryTimeout()) {
-                ctx.getSessionVariable().setQueryTimeoutS(queryOptions.getQueryTimeout());
-            }
-            if (queryOptions.isSetLoadMemLimit()) {
-                ctx.getSessionVariable().setLoadMemLimit(queryOptions.getLoadMemLimit());
-            }
-            if (queryOptions.isSetMaxScanKeyNum()) {
-                ctx.getSessionVariable().setMaxScanKeyNum(queryOptions.getMaxScanKeyNum());
-            }
-            if (queryOptions.isSetMaxPushdownConditionsPerColumn()) {
-                ctx.getSessionVariable().setMaxPushdownConditionsPerColumn(
-                        queryOptions.getMaxPushdownConditionsPerColumn());
-            }
+        if (request.isSetSessionVariables()) {
+            ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());
         } else {
-            // for compatibility, all following variables are moved to TQueryOptions.
+            // For compatibility, all following variables are moved to SessionVariables.
+            // Should move in future.
+            if (request.isSetTimeZone()) {
+                ctx.getSessionVariable().setTimeZone(request.getTimeZone());
+            }
+            if (request.isSetSqlMode()) {
+                ctx.getSessionVariable().setSqlMode(request.sqlMode);
+            }
+            if (request.isSetEnableStrictMode()) {
+                ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
+            }
+            if (request.isSetCurrentUserIdent()) {
+                UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
+                ctx.setCurrentUserIdentity(currentUserIdentity);
+            }
+            if (request.isSetInsertVisibleTimeoutMs()) {
+                ctx.getSessionVariable().setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
+            }
+        }
+
+        if (request.isSetQueryOptions()) {
+            ctx.getSessionVariable().setForwardedSessionVariables(request.getQueryOptions());
+        } else {
+            // For compatibility, all following variables are moved to TQueryOptions.
+            // Should move in future.
             if (request.isSetExecMemLimit()) {
                 ctx.getSessionVariable().setMaxExecMemByte(request.getExecMemLimit());
             }
@@ -460,7 +473,14 @@ public class ConnectProcessor {
             // 0 for compatibility.
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
             executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
-            executor.execute();
+            TUniqueId queryId; // This query id will be set in ctx
+            if (request.isSetQueryId()) {
+                queryId = request.getQueryId();
+            } else {
+                UUID uuid = UUID.randomUUID();
+                queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            }
+            executor.execute(queryId);
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
@@ -474,6 +494,13 @@ public class ConnectProcessor {
         // no matter the master execute success or fail, the master must transfer the result to follower
         // and tell the follower the current journalID.
         TMasterOpResult result = new TMasterOpResult();
+        if (ctx.queryId() != null &&
+                // If none master FE not set query id or query id was reset in StmtExecutor when a query exec more than once,
+                // return it to none master FE.
+                (!request.isSetQueryId() || !request.getQueryId().equals(ctx.queryId()))
+        ) {
+            result.setQueryId(ctx.queryId());
+        }
         result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
         result.setPacket(getResultPacket());
         if (executor != null && executor.getProxyResultSet() != null) {

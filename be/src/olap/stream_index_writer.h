@@ -49,6 +49,7 @@ public:
     OLAPStatus remove_written_position(uint32_t from, size_t count);
     // 将内容输出到outbuffer中。
     void write_to_buffer(char* out_buffer);
+
 private:
     uint32_t _positions[MAX_POSITION_SIZE];
     size_t _positions_count;
@@ -75,5 +76,5 @@ protected:
     FieldType _field_type;
 };
 
-}  // namespace doris
+} // namespace doris
 #endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_WRITER_H

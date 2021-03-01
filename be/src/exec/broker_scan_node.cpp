@@ -21,56 +21,40 @@
 #include <sstream>
 
 #include "common/object_pool.h"
-#include "runtime/runtime_state.h"
-#include "runtime/row_batch.h"
-#include "runtime/dpp_sink_internal.h"
 #include "exec/broker_scanner.h"
-#include "exec/parquet_scanner.h"
-#include "exec/orc_scanner.h"
 #include "exec/json_scanner.h"
+#include "exec/orc_scanner.h"
+#include "exec/parquet_scanner.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
+#include "runtime/dpp_sink_internal.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
-BrokerScanNode::BrokerScanNode(
-        ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) : 
-            ScanNode(pool, tnode, descs), 
-            _tuple_id(tnode.broker_scan_node.tuple_id),
-            _runtime_state(nullptr),
-            _tuple_desc(nullptr),
-            _num_running_scanners(0),
-            _scan_finished(false),
-            _max_buffered_batches(32),
-            _wait_scanner_timer(nullptr) {
-}
+BrokerScanNode::BrokerScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ScanNode(pool, tnode, descs),
+          _tuple_id(tnode.broker_scan_node.tuple_id),
+          _runtime_state(nullptr),
+          _tuple_desc(nullptr),
+          _num_running_scanners(0),
+          _scan_finished(false),
+          _max_buffered_batches(32),
+          _wait_scanner_timer(nullptr) {}
 
-BrokerScanNode::~BrokerScanNode() {
-}
-
-// We use the PartitionRange to compare here. It should not be a member function of PartitionInfo
-// class because there are some other member in it.
-static bool compare_part_use_range(const PartitionInfo* v1, const PartitionInfo* v2) {
-    return v1->range() < v2->range();
-}
+BrokerScanNode::~BrokerScanNode() {}
 
 Status BrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::init(tnode));
     auto& broker_scan_node = tnode.broker_scan_node;
-    if (broker_scan_node.__isset.partition_exprs) {
-        // ASSERT broker_scan_node.__isset.partition_infos == true
-        RETURN_IF_ERROR(Expr::create_expr_trees(
-                _pool, broker_scan_node.partition_exprs, &_partition_expr_ctxs));
-        for (auto& t_partition_info : broker_scan_node.partition_infos) {
-            PartitionInfo* info = _pool->add(new PartitionInfo());
-            RETURN_IF_ERROR(PartitionInfo::from_thrift(_pool, t_partition_info, info));
-            _partition_infos.emplace_back(info);
-        }
-        // partitions should be in ascending order
-        std::sort(_partition_infos.begin(),
-                  _partition_infos.end(),
-                  compare_part_use_range);
+
+    if (broker_scan_node.__isset.pre_filter_exprs) {
+        RETURN_IF_ERROR(Expr::create_expr_trees(_pool, broker_scan_node.pre_filter_exprs,
+                                                &_pre_filter_ctxs));
     }
+
     return Status::OK();
 }
 
@@ -96,13 +80,8 @@ Status BrokerScanNode::prepare(RuntimeState* state) {
         }
     }
 
-    // prepare partition
-    if (_partition_expr_ctxs.size() > 0) {
-        RETURN_IF_ERROR(Expr::prepare(
-                _partition_expr_ctxs, state, row_desc(), expr_mem_tracker()));
-        for (auto iter : _partition_infos) {
-            RETURN_IF_ERROR(iter->prepare(state, row_desc(), expr_mem_tracker()));
-        }
+    if (_pre_filter_ctxs.size() > 0) {
+        RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, state, row_desc(), expr_mem_tracker()));
     }
 
     // Profile
@@ -117,12 +96,8 @@ Status BrokerScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
 
-    // Open partition
-    if (_partition_expr_ctxs.size() > 0) {
-        RETURN_IF_ERROR(Expr::open(_partition_expr_ctxs, state));
-        for (auto iter : _partition_infos) {
-            RETURN_IF_ERROR(iter->open(state));
-        }
+    if (_pre_filter_ctxs.size() > 0) {
+        RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, state));
     }
 
     RETURN_IF_ERROR(start_scanners());
@@ -158,10 +133,8 @@ Status BrokerScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* 
     std::shared_ptr<RowBatch> scanner_batch;
     {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
-        while (_process_status.ok() &&
-               !_runtime_state->is_cancelled() &&
-               _num_running_scanners > 0 &&
-               _batch_queue.empty()) {
+        while (_process_status.ok() && !_runtime_state->is_cancelled() &&
+               _num_running_scanners > 0 && _batch_queue.empty()) {
             SCOPED_TIMER(_wait_scanner_timer);
             _queue_reader_cond.wait_for(l, std::chrono::seconds(1));
         }
@@ -215,10 +188,10 @@ Status BrokerScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* 
         for (int i = 0; i < row_batch->num_rows(); ++i) {
             TupleRow* row = row_batch->get_row(i);
             VLOG_ROW << "BrokerScanNode output row: "
-                << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
+                     << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
         }
     }
-    
+
     return Status::OK();
 }
 
@@ -235,15 +208,11 @@ Status BrokerScanNode::close(RuntimeState* state) {
         _scanner_threads[i].join();
     }
 
-    // Close partition
-    if (_partition_expr_ctxs.size() > 0) {
-        Expr::close(_partition_expr_ctxs, state);
-        for (auto iter : _partition_infos) {
-            iter->close(state);
-        }
+    if (_pre_filter_ctxs.size() > 0) {
+        Expr::close(_pre_filter_ctxs, state);
     }
 
-    // Close 
+    // Close
     _batch_queue.clear();
 
     return ExecNode::close(state);
@@ -252,17 +221,6 @@ Status BrokerScanNode::close(RuntimeState* state) {
 // This function is called after plan node has been prepared.
 Status BrokerScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     _scan_ranges = scan_ranges;
-
-    // Now we initialize partition information
-    if (_partition_expr_ctxs.size() > 0)  {
-        for (auto& range : _scan_ranges) {
-            auto& params = range.scan_range.broker_scan_range.params;
-            if (params.__isset.partition_ids) {
-                std::sort(params.partition_ids.begin(), params.partition_ids.end());
-            }
-        }
-    }
-
     return Status::OK();
 }
 
@@ -271,61 +229,47 @@ void BrokerScanNode::debug_string(int ident_level, std::stringstream* out) const
 }
 
 std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRange& scan_range,
-        ScannerCounter* counter) {
-    BaseScanner *scan = nullptr;
+                                                            const std::vector<ExprContext*>& pre_filter_ctxs,
+                                                            ScannerCounter* counter) {
+    BaseScanner* scan = nullptr;
     switch (scan_range.ranges[0].format_type) {
     case TFileFormatType::FORMAT_PARQUET:
-        scan = new ParquetScanner(_runtime_state,
-                runtime_profile(),
-                scan_range.params,
-                scan_range.ranges,
-                scan_range.broker_addresses,
-                counter);
+        scan = new ParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                  scan_range.ranges, scan_range.broker_addresses,
+                                  pre_filter_ctxs, counter);
         break;
     case TFileFormatType::FORMAT_ORC:
-        scan = new ORCScanner(_runtime_state,
-                runtime_profile(),
-                scan_range.params,
-                scan_range.ranges,
-                scan_range.broker_addresses,
-                counter);
+        scan = new ORCScanner(_runtime_state, runtime_profile(), scan_range.params,
+                              scan_range.ranges, scan_range.broker_addresses,
+                              pre_filter_ctxs, counter);
         break;
     case TFileFormatType::FORMAT_JSON:
-        scan = new JsonScanner(_runtime_state,
-                runtime_profile(),
-                scan_range.params,
-                scan_range.ranges,
-                scan_range.broker_addresses,
-                counter);
+        scan = new JsonScanner(_runtime_state, runtime_profile(), scan_range.params,
+                               scan_range.ranges, scan_range.broker_addresses,
+                               pre_filter_ctxs, counter);
         break;
     default:
-        scan = new BrokerScanner(
-                _runtime_state,
-                runtime_profile(),
-                scan_range.params,
-                scan_range.ranges,
-                scan_range.broker_addresses,
-                counter);
+        scan = new BrokerScanner(_runtime_state, runtime_profile(), scan_range.params,
+                                 scan_range.ranges, scan_range.broker_addresses,
+                                 pre_filter_ctxs, counter);
     }
     std::unique_ptr<BaseScanner> scanner(scan);
     return scanner;
 }
 
-Status BrokerScanNode::scanner_scan(
-        const TBrokerScanRange& scan_range, 
-        const std::vector<ExprContext*>& conjunct_ctxs, 
-        const std::vector<ExprContext*>& partition_expr_ctxs,
-        ScannerCounter* counter) {
-
+Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
+                                    const std::vector<ExprContext*>& pre_filter_ctxs,
+                                    const std::vector<ExprContext*>& conjunct_ctxs,
+                                    ScannerCounter* counter) {
     //create scanner object and open
-    std::unique_ptr<BaseScanner> scanner = create_scanner(scan_range, counter);
+    std::unique_ptr<BaseScanner> scanner = create_scanner(scan_range, pre_filter_ctxs, counter);
     RETURN_IF_ERROR(scanner->open());
     bool scanner_eof = false;
-    
+
     while (!scanner_eof) {
         // Fill one row batch
         std::shared_ptr<RowBatch> row_batch(
-            new RowBatch(row_desc(), _runtime_state->batch_size(), mem_tracker().get()));
+                new RowBatch(row_desc(), _runtime_state->batch_size(), mem_tracker().get()));
 
         // create new tuple buffer for row_batch
         MemPool* tuple_pool = row_batch->tuple_data_pool();
@@ -375,14 +319,13 @@ Status BrokerScanNode::scanner_scan(
         // Row batch has been filled, push this to the queue
         if (row_batch->num_rows() > 0) {
             std::unique_lock<std::mutex> l(_batch_queue_lock);
-            while (_process_status.ok() && 
-                   !_scan_finished.load() && 
+            while (_process_status.ok() && !_scan_finished.load() &&
                    !_runtime_state->is_cancelled() &&
-                    // stop pushing more batch if
-                    // 1. too many batches in queue, or
-                    // 2. at least one batch in queue and memory exceed limit.
-                   (_batch_queue.size() >= _max_buffered_batches
-                    || (mem_tracker()->AnyLimitExceeded(MemLimit::HARD) && !_batch_queue.empty()))) {
+                   // stop pushing more batch if
+                   // 1. too many batches in queue, or
+                   // 2. at least one batch in queue and memory exceed limit.
+                   (_batch_queue.size() >= _max_buffered_batches ||
+                    (mem_tracker()->AnyLimitExceeded(MemLimit::HARD) && !_batch_queue.empty()))) {
                 _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
             }
             // Process already set failed, so we just return OK
@@ -400,7 +343,7 @@ Status BrokerScanNode::scanner_scan(
             // Queue size Must be smaller than _max_buffered_batches
             _batch_queue.push_back(row_batch);
 
-            // Notify reader to 
+            // Notify reader to
             _queue_reader_cond.notify_one();
         }
     }
@@ -415,22 +358,20 @@ void BrokerScanNode::scanner_worker(int start_idx, int length) {
     if (!status.ok()) {
         LOG(WARNING) << "Clone conjuncts failed.";
     }
-    std::vector<ExprContext*> partition_expr_ctxs;;
+
+    std::vector<ExprContext*> pre_filter_ctxs;
     if (status.ok()) {
-        status = Expr::clone_if_not_exists(
-            _partition_expr_ctxs, _runtime_state, &partition_expr_ctxs);
-        if (!status.ok()) {
-            LOG(WARNING) << "Clone conjuncts failed.";
-        }
+        status = Expr::clone_if_not_exists(_pre_filter_ctxs, _runtime_state, &pre_filter_ctxs);
     }
+
     ScannerCounter counter;
     for (int i = 0; i < length && status.ok(); ++i) {
-        const TBrokerScanRange& scan_range = 
-            _scan_ranges[start_idx + i].scan_range.broker_scan_range;
-        status = scanner_scan(scan_range, scanner_expr_ctxs, partition_expr_ctxs, &counter);
+        const TBrokerScanRange& scan_range =
+                _scan_ranges[start_idx + i].scan_range.broker_scan_range;
+        status = scanner_scan(scan_range, pre_filter_ctxs, scanner_expr_ctxs, &counter);
         if (!status.ok()) {
-            LOG(WARNING) << "Scanner[" << start_idx + i << "] process failed. status="
-                << status.get_error_msg();
+            LOG(WARNING) << "Scanner[" << start_idx + i
+                         << "] process failed. status=" << status.get_error_msg();
         }
     }
 
@@ -438,7 +379,7 @@ void BrokerScanNode::scanner_worker(int start_idx, int length) {
     _runtime_state->update_num_rows_load_filtered(counter.num_rows_filtered);
     _runtime_state->update_num_rows_load_unselected(counter.num_rows_unselected);
 
-    // scanner is going to finish 
+    // scanner is going to finish
     {
         std::lock_guard<std::mutex> l(_batch_queue_lock);
         if (!status.ok()) {
@@ -453,45 +394,6 @@ void BrokerScanNode::scanner_worker(int start_idx, int length) {
         _queue_writer_cond.notify_all();
     }
     Expr::close(scanner_expr_ctxs, _runtime_state);
-    Expr::close(partition_expr_ctxs, _runtime_state);
 }
 
-int64_t BrokerScanNode::binary_find_partition_id(const PartRangeKey& key) const {
-    int low = 0;
-    int high = _partition_infos.size() - 1;
-
-    while (low <= high) {
-        int mid = low + (high - low) / 2;
-        int cmp = _partition_infos[mid]->range().compare_key(key);
-        if (cmp == 0) {
-            return _partition_infos[mid]->id();
-        } else if (cmp < 0) { // current < partition[mid]
-            low = mid + 1;
-        } else {
-            high = mid - 1;
-        }
-    }
-
-    return -1;
-}
-
-int64_t BrokerScanNode::get_partition_id(
-        const std::vector<ExprContext*>& partition_expr_ctxs, TupleRow* row) const {
-    if (_partition_infos.size() == 0) {
-        return -1;
-    }
-    // construct a PartRangeKey
-    PartRangeKey part_key;
-    // use binary search to get the right partition.
-    ExprContext* ctx = partition_expr_ctxs[0];
-    void* partition_val = ctx->get_value(row);
-    if (partition_val != nullptr) {
-        PartRangeKey::from_value(ctx->root()->type().type, partition_val, &part_key);
-    } else {
-        part_key = PartRangeKey::neg_infinite();
-    }
-
-    return binary_find_partition_id(part_key);
-}
-
-}
+} // namespace doris

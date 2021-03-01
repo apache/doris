@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_COMMON_UTIL_MONITOR_ACTION_H
-#define  DORIS_BE_SRC_COMMON_UTIL_MONITOR_ACTION_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_MONITOR_ACTION_H
+#define DORIS_BE_SRC_COMMON_UTIL_MONITOR_ACTION_H
 
 #include <map>
 #include <string>
+
 #include "http/http_handler.h"
 
 namespace doris {
@@ -32,15 +33,16 @@ class MonitorAction : public HttpHandler {
 public:
     MonitorAction();
 
-    virtual ~MonitorAction() { }
+    virtual ~MonitorAction() {}
 
     void register_module(const std::string& name, RestMonitorIface* module);
 
-    void handle(HttpRequest *req) override;
+    void handle(HttpRequest* req) override;
+
 private:
     std::map<std::string, RestMonitorIface*> _module_by_name;
 };
 
-}
+} // namespace doris
 
 #endif

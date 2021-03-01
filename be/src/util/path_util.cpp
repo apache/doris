@@ -37,7 +37,7 @@ namespace path_util {
 
 const string kTmpInfix = ".doristmp";
 
-string join_path_segments(const string& a, const string& b) {
+std::string join_path_segments(const string& a, const string& b) {
     if (a.empty()) {
         return b;
     } else if (b.empty()) {
@@ -47,23 +47,23 @@ string join_path_segments(const string& a, const string& b) {
     }
 }
 
-vector<string> join_path_segments_v(const vector<string>& v, const string& s) {
-    vector<string> out;
+std::vector<string> join_path_segments_v(const std::vector<string>& v, const string& s) {
+    std::vector<string> out;
     for (const string& path : v) {
         out.emplace_back(join_path_segments(path, s));
     }
     return out;
 }
 
-vector<string> split_path(const string& path) {
+std::vector<string> split_path(const string& path) {
     if (path.empty()) {
         return {};
     }
-    vector<string> segments;
+    std::vector<string> segments;
     if (path[0] == '/') {
         segments.emplace_back("/");
     }
-    vector<StringPiece> pieces = Split(path, "/", SkipEmpty());
+    std::vector<StringPiece> pieces = Split(path, "/", SkipEmpty());
     for (const StringPiece& piece : pieces) {
         segments.emplace_back(piece.data(), piece.size());
     }
@@ -71,19 +71,19 @@ vector<string> split_path(const string& path) {
 }
 
 // strdup use malloc to obtain memory for the new string, it should be freed with free.
-// but unique_ptr use delete to free memory by default, so it should specify free memory using free
+// but std::unique_ptr use delete to free memory by default, so it should specify free memory using free
 
-string dir_name(const string& path) {
+std::string dir_name(const string& path) {
     std::vector<char> path_copy(path.c_str(), path.c_str() + path.size() + 1);
     return dirname(&path_copy[0]);
 }
 
-string base_name(const string& path) {
+std::string base_name(const string& path) {
     std::vector<char> path_copy(path.c_str(), path.c_str() + path.size() + 1);
     return basename(&path_copy[0]);
 }
 
-string file_extension(const string& path) {
+std::string file_extension(const string& path) {
     string file_name = base_name(path);
     if (file_name == "." || file_name == "..") {
         return "";

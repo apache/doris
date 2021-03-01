@@ -33,18 +33,17 @@ public:
     LoadStreamMgr();
     ~LoadStreamMgr();
 
-    Status put(const UniqueId& id,
-               std::shared_ptr<StreamLoadPipe> stream) {
+    Status put(const UniqueId& id, std::shared_ptr<StreamLoadPipe> stream) {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _stream_map.find(id);
         if (it != std::end(_stream_map)) {
             return Status::InternalError("id already exist");
         }
         _stream_map.emplace(id, stream);
-        VLOG(3) << "put stream load pipe: " << id;
+        VLOG_NOTICE << "put stream load pipe: " << id;
         return Status::OK();
     }
-    
+
     std::shared_ptr<StreamLoadPipe> get(const UniqueId& id) {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _stream_map.find(id);
@@ -61,7 +60,7 @@ public:
         auto it = _stream_map.find(id);
         if (it != std::end(_stream_map)) {
             _stream_map.erase(it);
-            VLOG(3) << "remove stream load pipe: " << id;
+            VLOG_NOTICE << "remove stream load pipe: " << id;
         }
         return;
     }
@@ -71,4 +70,4 @@ private:
     std::unordered_map<UniqueId, std::shared_ptr<StreamLoadPipe>> _stream_map;
 };
 
-}
+} // namespace doris

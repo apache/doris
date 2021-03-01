@@ -17,14 +17,13 @@
 
 #pragma once
 
+#include <roaring/roaring.hh>
 #include <string>
 #include <vector>
 
-#include <roaring/roaring.hh>
-
 #include "common/logging.h"
-#include "olap/rowset/segment_v2/common.h"
 #include "gutil/strings/substitute.h"
+#include "olap/rowset/segment_v2/common.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -73,38 +72,24 @@ public:
         return false;
     }
 
-    RowRange() : _from(0), _to(0) { }
+    RowRange() : _from(0), _to(0) {}
 
     // Creates a range of [from, to) (from inclusive and to exclusive; empty ranges are invalid)
-    RowRange(int64_t from, int64_t to) : _from(from), _to(to) { }
+    RowRange(int64_t from, int64_t to) : _from(from), _to(to) {}
 
-    bool is_valid() const {
-        return _from < _to;
-    }
+    bool is_valid() const { return _from < _to; }
 
-    size_t count() const {
-        return _to - _from;
-    }
+    size_t count() const { return _to - _from; }
 
-    bool is_before(const RowRange& other) const {
-        return _to <= other._from;
-    }
+    bool is_before(const RowRange& other) const { return _to <= other._from; }
 
-    bool is_after(const RowRange& other) const {
-        return _from >= other._to;
-    }
+    bool is_after(const RowRange& other) const { return _from >= other._to; }
 
-    int64_t from() const {
-        return _from;
-    }
+    int64_t from() const { return _from; }
 
-    int64_t to() const {
-        return _to;
-    }
+    int64_t to() const { return _to; }
 
-    std::string to_string() const {
-        return strings::Substitute("[$0-$1)", _from, _to);
-    }
+    std::string to_string() const { return strings::Substitute("[$0-$1)", _from, _to); }
 
 private:
     int64_t _from;
@@ -113,7 +98,7 @@ private:
 
 class RowRanges {
 public:
-    RowRanges() : _count(0) { }
+    RowRanges() : _count(0) {}
 
     void clear() {
         _ranges.clear();
@@ -135,7 +120,6 @@ public:
         return ranges;
     }
 
-    
     // Calculates the union of the two specified RowRanges object. The union of two range is calculated if there are
     // elements between them. Otherwise, the two disjunct ranges are stored separately.
     // For example:
@@ -168,7 +152,6 @@ public:
         *result = std::move(tmp_range);
     }
 
-    
     // Calculates the intersection of the two specified RowRanges object. Two ranges intersect if they have common
     // elements otherwise the result is empty.
     // For example:
@@ -177,7 +160,8 @@ public:
     // [113, 230) ∩ [230, 340) = <EMPTY>
     //
     // The result RowRanges object will contain all the row indexes there were contained in both of the specified objects
-    static void ranges_intersection(const RowRanges& left, const RowRanges& right, RowRanges* result) {
+    static void ranges_intersection(const RowRanges& left, const RowRanges& right,
+                                    RowRanges* result) {
         RowRanges tmp_range;
         int right_index = 0;
         for (auto it1 = left._ranges.begin(); it1 != left._ranges.end(); ++it1) {
@@ -207,13 +191,9 @@ public:
         return result;
     }
 
-    size_t count() {
-        return _count;
-    }
+    size_t count() { return _count; }
 
-    bool is_empty() {
-        return _count == 0;
-    }
+    bool is_empty() { return _count == 0; }
 
     bool contain(rowid_t from, rowid_t to) {
         // binary search
@@ -243,21 +223,13 @@ public:
         return _ranges[_ranges.size() - 1].to();
     }
 
-    size_t range_size() {
-        return _ranges.size();
-    }
+    size_t range_size() { return _ranges.size(); }
 
-    int64_t get_range_from(size_t range_index) {
-        return _ranges[range_index].from();
-    }
+    int64_t get_range_from(size_t range_index) { return _ranges[range_index].from(); }
 
-    int64_t get_range_to(size_t range_index) {
-        return _ranges[range_index].to();
-    }
+    int64_t get_range_to(size_t range_index) { return _ranges[range_index].to(); }
 
-    size_t get_range_count(size_t range_index) {
-        return _ranges[range_index].count();
-    }
+    size_t get_range_count(size_t range_index) { return _ranges[range_index].count(); }
 
     std::string to_string() {
         std::string result;

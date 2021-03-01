@@ -136,7 +136,14 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `be_port`
 
+* 类型：int32
+* 描述：BE 上 thrift server 的端口号，用于接收来自 FE 的请求
+* 默认值：9060
+
 ### `be_service_threads`
+* 类型：int32
+* 描述：BE 上 thrift server service的执行线程数，代表可以用于执行FE请求的线程数。
+* 默认值：64
 
 ### `brpc_max_body_size`
 
@@ -144,7 +151,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 有时查询失败，在 BE 日志中会出现 `body_size is too large` 的错误信息。这可能发生在 SQL 模式为 multi distinct + 无 group by + 超过1T 数据量的情况下。这个错误表示 brpc 的包大小超过了配置值。此时可以通过调大该配置避免这个错误。
 
-由于这是一个 brpc 的配置，用户也可以在运行中直接修改该参数。通过访问 `http://be_host:brpc_port/flags` 修改。
 
 ### `brpc_socket_max_unwritten_bytes`
 
@@ -152,7 +158,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 有时查询失败，BE 日志中会出现 `The server is overcrowded` 的错误信息，表示连接上有过多的未发送数据。当查询需要发送较大的bitmap字段时，可能会遇到该问题，此时可能通过调大该配置避免该错误。
 
-由于这是一个 brpc 的配置，用户也可以在运行中直接修改该参数。通过访问 `http://be_host:brpc_port/flags` 修改。
 
 ### `brpc_num_threads`
 
@@ -162,9 +167,25 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `brpc_port`
 
+* 类型：int32
+* 描述：BE 上的 brpc 的端口，用于 BE 之间通讯
+* 默认值：8060
+
 ### `buffer_pool_clean_pages_limit`
 
 ### `buffer_pool_limit`
+
+* 类型：string
+* 描述：buffer pool之中最大的可分配内存
+* 默认值：80G
+
+BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构，通过buffer page来进行内存管理，并能够实现数据的落盘。并发的所有查询的内存申请都会通过buffer pool来申请。当前buffer pool仅作用在**AggregationNode**与**ExchangeNode**。
+
+### `check_auto_compaction_interval_seconds`
+
+* 类型：int32
+* 描述：当自动执行compaction的功能关闭时，检查自动compaction开关是否被开启的时间间隔。
+* 默认值：5
 
 ### `check_consistency_worker_count`
 
@@ -176,13 +197,55 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `cluster_id`
 
+* 类型：int32
+
+* 描述：配置BE的所属于的集群id。
+
+* 默认值：-1
+
+该值通常由FE通过心跳向BE下发，不需要额外进行配置。当确认某BE属于某一个确定的Drois集群时，可以进行配置，同时需要修改数据目录下的cluster_id文件，使二者相同。
+
 ### `column_dictionary_key_ratio_threshold`
 
 ### `column_dictionary_key_size_threshold`
 
+### `compaction_tablet_compaction_score_factor`
+
+* 类型：int32
+* 描述：选择tablet进行compaction时，计算 tablet score 的公式中 compaction score的权重。
+* 默认值：1
+
+### `compaction_tablet_scan_frequency_factor`
+
+* 类型：int32
+* 描述：选择tablet进行compaction时，计算 tablet score 的公式中 tablet scan frequency 的权重。
+* 默认值：0
+
+选择一个tablet执行compaction任务时，可以将tablet的scan频率作为一个选择依据，对当前最近一段时间频繁scan的tablet优先执行compaction。
+tablet score可以通过以下公式计算：
+
+tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
+
+### `compaction_task_num_per_disk`
+
+* 类型：int32
+* 描述：每个磁盘可以并发执行的compaction任务数量。
+* 默认值：2
+
 ### `compress_rowbatches`
+* 类型：bool
+
+* 描述：序列化RowBatch时是否使用Snappy压缩算法进行数据压缩
+
+* 默认值：true
 
 ### `create_tablet_worker_count`
+
+### `cumulative_compaction_rounds_for_each_base_compaction_round`
+
+* 类型：int32
+* 描述：Compaction任务的生产者每次连续生产多少轮cumulative compaction任务后生产一轮base compaction。
+* 默认值：9
 
 ### `disable_auto_compaction`
 
@@ -255,10 +318,16 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 在某些部署环境下，`conf/` 目录可能因为系统的版本升级被覆盖掉。这会导致用户在运行是持久化修改的配置项也被覆盖。这时，我们可以将 `be_custom.conf` 存储在另一个指定的目录中，以防止配置文件被覆盖。
 
 ### `default_num_rows_per_column_file_block`
-
-### `default_query_options`
+* 类型：int32
+* 描述：配置单个RowBlock之中包含多少行的数据。
+* 默认值：1024
 
 ### `default_rowset_type`
+* 类型：string
+* 描述：标识BE默认选择的存储格式，可配置的参数为："**ALPHA**", "**BETA**"。主要起以下两个作用
+1. 当建表的storage_format设置为Default时，通过该配置来选取BE的存储格式。
+2. 进行Compaction时选择BE的存储格式
+* 默认值：BETA
 
 ### `delete_worker_count`
 
@@ -266,11 +335,20 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `disable_storage_page_cache`
 
+* 类型：bool
+* 描述：是否进行使用page cache进行index的缓存，该配置仅在BETA存储格式时生效
+* 默认值：false
+
 ### `disk_stat_monitor_interval`
 
 ### `doris_cgroups`
 
 ### `doris_max_pushdown_conjuncts_return_rate`
+
+* 类型：int32
+* 描述：BE在进行HashJoin时，会采取动态分区裁剪的方式将join条件下推到OlapScanner上。当OlapScanner扫描的数据大于32768行时，BE会进行过滤条件检查，如果该过滤条件的过滤率低于该配置，则Doris会停止使用动态分区裁剪的条件进行数据过滤。
+* 默认值：90
+
 
 ### `doris_max_scan_key_num`
 
@@ -282,13 +360,29 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `doris_scan_range_row_count`
 
+* 类型：int32
+* 描述：BE在进行数据扫描时，会将同一个扫描范围拆分为多个ScanRange。该参数代表了每个ScanRange代表扫描数据范围。通过该参数可以限制单个OlapScanner占用io线程的时间。
+* 默认值：524288
+
 ### `doris_scanner_queue_size`
+
+* 类型：int32
+* 描述：TransferThread与OlapScanner之间RowBatch的缓存队列的长度。Doris进行数据扫描时是异步进行的，OlapScanner扫描上来的Rowbatch会放入缓存队列之中，等待上层TransferThread取走。
+* 默认值：1024
 
 ### `doris_scanner_row_num`
 
 ### `doris_scanner_thread_pool_queue_size`
 
+* 类型：int32
+* 描述：Scanner线程池的队列长度。在Doris的扫描任务之中，每一个Scanner会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
+* 默认值：102400
+
 ### `doris_scanner_thread_pool_thread_num`
+
+* 类型：int32
+* 描述：Scanner线程池线程数目。在Doris的扫描任务之中，每一个Scanner会作为一个线程task提交到线程池之中等待被调度，该参数决定了Scanner线程池的大小。
+* 默认值：48
 
 ### `download_low_speed_limit_kbps`
 
@@ -302,9 +396,22 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `enable_partitioned_aggregation`
 
+* 类型：bool
+* 描述：BE节点是否通过PartitionAggregateNode来实现聚合操作，如果false的话将会执行AggregateNode完成聚合。非特殊需求场景不建议设置为false。
+* 默认值：true
+
 ### `enable_prefetch`
 
+* 类型：bool
+* 描述：当使用PartitionedHashTable进行聚合和join计算时，是否进行HashBuket的预取，推荐设置为true。
+* 默认值：true
+
 ### `enable_quadratic_probing`
+
+* 类型：bool
+* 描述：当使用PartitionedHashTable时发生Hash冲突时，是否采用平方探测法来解决Hash冲突。该值为false的话，则选用线性探测发来解决Hash冲突。关于平方探测法可参考：[quadratic_probing](https://en.wikipedia.org/wiki/Quadratic_probing)
+* 默认值：true
+
 
 ### `enable_system_metrics`
 
@@ -320,6 +427,10 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `exchg_node_buffer_size_bytes`
 
+* 类型：int32
+* 描述：ExchangeNode节点Buffer队列的大小，单位为byte。来自Sender端发送的数据量大于ExchangeNode的Buffer大小之后，后续发送的数据将阻塞直到Buffer腾出可写入的空间。
+* 默认值：10485760
+
 ### `file_descriptor_cache_capacity`
 
 ### `file_descriptor_cache_clean_interval`
@@ -334,7 +445,15 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `heartbeat_service_port`
 
+* 类型：int32
+* 描述：BE 上心跳服务端口（thrift），用于接收来自 FE 的心跳
+* 默认值：9050
+
 ### `heartbeat_service_thread_count`
+
+* 类型：int32
+* 描述：执行BE上心跳服务的线程数，默认为1，不建议修改
+* 默认值：1
 
 ### `ignore_broken_disk`
 
@@ -352,7 +471,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `ignore_load_tablet_failure`
 
-* 类型：布尔
+* 类型：bool
 * 描述：用来决定在有tablet 加载失败的情况下是否忽略错误，继续启动be
 * 默认值：false
 
@@ -369,7 +488,7 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `ignore_rowset_stale_unconsistent_delete`
 
-* 类型：布尔
+* 类型：bool
 * 描述：用来决定当删除过期的合并过的rowset后无法构成一致的版本路径时，是否仍要删除。
 * 默认值：false
 
@@ -388,8 +507,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `load_process_max_memory_limit_percent`
 
-### `local_library_dir`
-
 ### `log_buffer_level`
 
 ### `madvise_huge_pages`
@@ -398,7 +515,11 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `max_client_cache_size_per_host`
 
-### `max_compaction_concurrency`
+### `max_compaction_threads`
+
+* 类型：int32
+* 描述：Compaction线程池中线程数量的最大值。
+* 默认值：10
 
 ### `max_consumer_num_per_group`
 
@@ -413,6 +534,10 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 ### `max_memory_sink_batch_count`
 
 ### `max_percentage_of_error_disk`
+
+* 类型：int32
+* 描述：存储引擎允许存在损坏硬盘的百分比，损坏硬盘超过改比例后，BE将会自动退出。
+* 默认值：0
 
 ### `max_pushdown_conditions_per_column`
 
@@ -440,6 +565,10 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `mem_limit`
 
+* 类型：string
+* 描述：限制BE进程使用服务器最大内存百分比。用于防止BE内存挤占太多的机器内存，该参数必须大于0，当百分大于100%之后，该值会默认为100%。
+* 默认值：80%
+
 ### `memory_limitation_per_thread_for_schema_change`
 
 ### `memory_maintenance_sleep_time_s`
@@ -455,6 +584,12 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 默认值：600
 * 单位：秒
 
+### `min_compaction_threads`
+
+* 类型：int32
+* 描述：Compaction线程池中线程数量的最小值。
+* 默认值：10
+
 ### `min_cumulative_compaction_num_singleton_deltas`
 
 ### `min_file_descriptor_number`
@@ -464,6 +599,10 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 ### `mmap_buffers`
 
 ### `num_cores`
+
+* 类型：int32
+* 描述：BE可以使用CPU的核数。当该值为0时，BE将从/proc/cpuinfo之中获取本机的CPU核数。
+* 默认值：0
 
 ### `num_disks`
 
@@ -491,6 +630,10 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `port`
 
+* 类型：int32
+* 描述：BE单测时使用的端口，在实际环境之中无意义，可忽略。
+* 默认值：20001
+
 ### `pprof_profile_dir`
 
 ### `priority_networks`
@@ -514,6 +657,10 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `query_scratch_dirs`
 
+* 类型：string
+* 描述：BE进行数据落盘时选取的目录来存放临时数据，与存储路径配置类似，多目录之间用;分隔。
+* 默认值：${DORIS_HOME}
+
 ### `read_size`
 
 ### `release_snapshot_worker_count`
@@ -530,21 +677,25 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `row_nums_check`
 
-### `scan_context_gc_interval_min`
+### `row_step_for_compaction_merge_log`
 
-### `scratch_dirs`
+* 类型：int64
+* 描述：Compaction执行过程中，每次合并row_step_for_compaction_merge_log行数据会打印一条LOG。如果该参数被设置为0，表示merge过程中不需要打印LOG。
+* 默认值： 0
+* 可动态修改：是
+
+### `scan_context_gc_interval_min`
 
 ### `serialize_batch`
 
-### `sleep_five_seconds`
-
 ### `sleep_one_second`
++ 类型：int32
++ 描述：全局变量，用于BE线程休眠1秒，不应该被修改
++ 默认值：1
 
 ### `small_file_dir`
 
 ### `snapshot_expire_time_sec`
-
-### `sorter_block_size`
 
 ### `status_report_interval`
 
@@ -556,7 +707,22 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `storage_page_cache_limit`
 
+### `index_page_cache_percentage`
+* 类型：int32
+* 描述：索引页缓存占总页面缓存的百分比，取值为[0, 100]。
+* 默认值：10
+
 ### `storage_root_path`
+
+* 类型：string
+* 描述：BE数据存储的目录,多目录之间用;分隔。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过,隔开。
+eg：storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris
+
+	* 1./home/disk1/doris.HDD, 存储限制为50GB, HDD;
+	* 2./home/disk2/doris.SSD，存储限制为1GB，SSD；
+	* 3./home/disk2/doris，存储限制为磁盘容量，默认为HDD
+
+* 默认值：${DORIS_HOME}
 
 ### `storage_strict_check_incompatible_old_format`
 * 类型：bool
@@ -591,6 +757,10 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `sys_log_dir`
 
+* 类型：string
+* 描述：BE日志数据的存储目录
+* 默认值：${DORIS_HOME}/log
+
 ### `sys_log_level`
 
 ### `sys_log_roll_mode`
@@ -607,6 +777,12 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `tablet_meta_checkpoint_min_new_rowsets_num`
 
+### `tablet_scan_frequency_time_node_interval_second`
+
+* 类型：int64
+* 描述：用来表示记录 metric 'query_scan_count' 的时间间隔。为了计算当前一段时间的tablet的scan频率，需要每隔一段时间记录一次 metric 'query_scan_count'。
+* 默认值：300
+
 ### `tablet_stat_cache_update_interval_second`
 
 ### `tablet_rowset_stale_sweep_time_sec`
@@ -618,6 +794,14 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 当写入过于频繁，磁盘时间不足时，可以配置较少这个时间。不过这个时间过短小于5分钟时，可能会引发fe查询不到已经合并过的版本，引发查询-230错误。
 
 ### `tablet_writer_open_rpc_timeout_sec`
+
+### `tablet_writer_ignore_eovercrowded`
+
+* 类型：bool
+* 描述：写入时可忽略brpc的'[E1011]The server is overcrowded'错误。
+* 默认值：false
+
+当遇到'[E1011]The server is overcrowded'的错误时，可以调整配置项`brpc_socket_max_unwritten_bytes`，但这个配置项不能动态调整。所以可通过设置此项为`true`来临时避免写失败。注意，此配置项只影响写流程，其他的rpc请求依旧会检查是否overcrowded。
 
 ### `tc_free_memory_rate`
 
@@ -641,6 +825,21 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `thrift_rpc_timeout_ms`
 
+### `thrift_server_type_of_fe`
+
+该配置表示FE的Thrift服务使用的服务模型, 类型为string, 大小写不敏感,该参数需要和fe的thrift_server_type参数的设置保持一致。目前该参数的取值有两个,`THREADED`和`THREAD_POOL`。
+
+若该参数为`THREADED`, 该模型为非阻塞式I/O模型，
+
+若该参数为`THREAD_POOL`, 该模型为阻塞式I/O模型。
+
+### `total_permits_for_compaction_score`
+
+* 类型：int64
+* 描述：被所有的compaction任务所能持有的 "permits" 上限，用来限制compaction占用的内存。
+* 默认值：10000
+* 可动态修改：是
+
 ### `trash_file_expire_time_sec`
 
 ### `txn_commit_rpc_timeout_ms`
@@ -657,10 +856,18 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `user_function_dir`
 
-### `web_log_bytes`
-
 ### `webserver_num_workers`
 
 ### `webserver_port`
+* 类型：int32
+* 描述：BE 上的 http server 的服务端口
+* 默认值：8040
 
 ### `write_buffer_size`
+
+### `zone_map_row_num_threshold`
+
+* 类型： int32
+* 描述: 如果一个page中的行数小于这个值就不会创建zonemap，用来减少数据膨胀
+* 默认值: 20
+

@@ -19,9 +19,9 @@
 
 namespace doris {
 
-template<>
+template <>
 __int128 StringParser::numeric_limits<__int128>(bool negative) {
     return negative ? MIN_INT128 : MAX_INT128;
 }
 
-}
+} // namespace doris

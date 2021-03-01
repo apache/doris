@@ -48,7 +48,10 @@ public:
 
     RowsetSharedPtr rowset() override { return std::dynamic_pointer_cast<Rowset>(_rowset); }
 
-    int64_t filtered_rows() override { return _stats->rows_del_filtered; }
+    // Return the total number of filtered rows, will be used for validation of schema change
+    int64_t filtered_rows() override {
+        return _stats->rows_del_filtered + _stats->rows_conditions_filtered;
+    }
 
 private:
     BetaRowsetSharedPtr _rowset;

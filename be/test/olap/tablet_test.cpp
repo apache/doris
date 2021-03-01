@@ -15,12 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/tablet.h"
+
 #include <gtest/gtest.h>
+
 #include <sstream>
 
 #include "olap/olap_define.h"
 #include "olap/tablet_meta.h"
-#include "olap/tablet.h"
 
 using namespace std;
 
@@ -30,8 +32,7 @@ using RowsetMetaSharedContainerPtr = std::shared_ptr<std::vector<RowsetMetaShare
 
 class TestTablet : public testing::Test {
 public:
-    virtual ~TestTablet() {
-    }
+    virtual ~TestTablet() {}
 
     virtual void SetUp() {
         _tablet_meta = static_cast<TabletMetaSharedPtr>(
@@ -88,11 +89,9 @@ public:
         })";
     }
 
-    virtual void TearDown() {
-    }
+    virtual void TearDown() {}
 
-    void init_rs_meta(RowsetMetaSharedPtr &pb1, int64_t start, int64_t end) {
-
+    void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
         pb1->init_from_json(_json_rowset_meta);
         pb1->set_start_version(start);
         pb1->set_end_version(end);
@@ -121,7 +120,6 @@ public:
         rs_metas->push_back(ptr5);
     }
     void fetch_expired_row_rs_meta(std::vector<RowsetMetaSharedContainerPtr>* rs_metas) {
-
         RowsetMetaSharedContainerPtr v2(new std::vector<RowsetMetaSharedPtr>());
         RowsetMetaSharedPtr ptr1(new RowsetMeta());
         init_rs_meta(ptr1, 2, 3);
@@ -170,21 +168,20 @@ protected:
 };
 
 TEST_F(TestTablet, delete_expired_stale_rowset) {
-
     std::vector<RowsetMetaSharedPtr> rs_metas;
     std::vector<RowsetMetaSharedContainerPtr> expired_rs_metas;
 
     init_all_rs_meta(&rs_metas);
     fetch_expired_row_rs_meta(&expired_rs_metas);
 
-    for (auto &rowset : rs_metas) {
+    for (auto& rowset : rs_metas) {
         _tablet_meta->add_rs_meta(rowset);
     }
- 
+
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
     _tablet->init();
 
-    for(auto ptr: expired_rs_metas) {
+    for (auto ptr : expired_rs_metas) {
         for (auto rs : *ptr) {
             _tablet->_timestamped_version_tracker.add_version(rs->version());
         }
@@ -195,10 +192,9 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
     ASSERT_EQ(0, _tablet->_timestamped_version_tracker._stale_version_path_map.size());
     _tablet.reset();
 }
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
-    
     testing::InitGoogleTest(&argc, argv);
     auto ret = RUN_ALL_TESTS();
     return ret;

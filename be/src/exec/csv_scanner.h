@@ -33,6 +33,7 @@ public:
 
     Status open();
     Status get_next_row(std::string* line_str, bool* eos);
+
 private:
     bool _is_open;
     std::vector<std::string> _file_paths;
@@ -43,4 +44,3 @@ private:
 
 } // end namespace doris
 #endif // DORIS_BE_SRC_QUERY_EXEC_CSV_SCANNER_H
-

@@ -18,7 +18,6 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.DateLiteral;
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.KeysType;
@@ -299,8 +298,8 @@ public class PropertyAnalyzer {
         return schemaVersion;
     }
 
-    public static Set<String> analyzeBloomFilterColumns(Map<String, String> properties, List<Column> columns)
-            throws AnalysisException {
+    public static Set<String> analyzeBloomFilterColumns(Map<String, String> properties, List<Column> columns,
+                                                        KeysType keysType) throws AnalysisException {
         Set<String> bfColumns = null;
         if (properties != null && properties.containsKey(PROPERTIES_BF_COLUMNS)) {
             bfColumns = Sets.newHashSet();
@@ -324,8 +323,7 @@ public class PropertyAnalyzer {
                                 || type == PrimitiveType.DOUBLE || type == PrimitiveType.BOOLEAN) {
                             throw new AnalysisException(type + " is not supported in bloom filter index. "
                                     + "invalid column: " + bfColumn);
-                        } else if (column.isKey()
-                                || column.getAggregationType() == AggregateType.NONE) {
+                        } else if (keysType != KeysType.AGG_KEYS || column.isKey()) {
                             if (!bfColumnSet.add(bfColumn)) {
                                 throw new AnalysisException("Reduplicated bloom filter column: " + bfColumn);
                             }
@@ -334,10 +332,9 @@ public class PropertyAnalyzer {
                             found = true;
                             break;
                         } else {
-                            // althrough the implemention supports bf for replace non-key column,
-                            // for simplicity and unity, we don't expose that to user.
-                            throw new AnalysisException("Bloom filter index only used in columns of DUP_KEYS table or "
-                                    + "key columns of UNIQUE_KEYS/AGG_KEYS table. invalid column: " + bfColumn);
+                            throw new AnalysisException("Bloom filter index only used in columns of" +
+                                " UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table." +
+                                " invalid column: " + bfColumn);
                         }
                     }
                 }
@@ -411,6 +408,10 @@ public class PropertyAnalyzer {
         }
 
         if (storageFormat.equalsIgnoreCase("v1")) {
+            if (!Config.enable_alpha_rowset) {
+                throw new AnalysisException("Storage format V1 has been deprecated since version 0.14," +
+                        " please use V2 instead");
+            }
             return TStorageFormat.V1;
         } else if (storageFormat.equalsIgnoreCase("v2")) {
             return TStorageFormat.V2;

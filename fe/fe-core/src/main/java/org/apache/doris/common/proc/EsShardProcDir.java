@@ -52,7 +52,7 @@ public class EsShardProcDir implements ProcDirInterface {
         Preconditions.checkNotNull(indexName);
 
         List<List<Comparable>> shardInfos = new ArrayList<List<Comparable>>();
-        db.readLock();
+        esTable.readLock();
         try {
             // get infos
             EsShardPartitions esShardPartitions = esTable.getEsTablePartitions().getEsShardPartitions(indexName);
@@ -75,7 +75,7 @@ public class EsShardProcDir implements ProcDirInterface {
                 }
             }
         } finally {
-            db.readUnlock();
+            esTable.readUnlock();
         }
 
         // sort by tabletId, replicaId

@@ -21,8 +21,8 @@ namespace doris {
 
 #ifdef DORIS_WITH_LZO
 // Lzop
-const uint8_t LzopDecompressor::LZOP_MAGIC[9] =
-    { 0x89, 0x4c, 0x5a, 0x4f, 0x00, 0x0d, 0x0a, 0x1a, 0x0a };
+const uint8_t LzopDecompressor::LZOP_MAGIC[9] = {0x89, 0x4c, 0x5a, 0x4f, 0x00,
+                                                 0x0d, 0x0a, 0x1a, 0x0a};
 
 const uint64_t LzopDecompressor::LZOP_VERSION = 0x1030;
 const uint64_t LzopDecompressor::MIN_LZO_VERSION = 0x0100;
@@ -30,37 +30,34 @@ const uint64_t LzopDecompressor::MIN_LZO_VERSION = 0x0100;
 // + lvl(1) + flags(4) + mode/mtime(12) + filename_len(1)
 // without the real file name, extra field and checksum
 const uint32_t LzopDecompressor::MIN_HEADER_SIZE = 34;
-const uint32_t LzopDecompressor::LZO_MAX_BLOCK_SIZE = (64*1024l*1024l);
+const uint32_t LzopDecompressor::LZO_MAX_BLOCK_SIZE = (64 * 1024l * 1024l);
 
 const uint32_t LzopDecompressor::CRC32_INIT_VALUE = 0;
 const uint32_t LzopDecompressor::ADLER32_INIT_VALUE = 1;
 
-const uint64_t LzopDecompressor::F_H_CRC32        = 0x00001000L;
-const uint64_t LzopDecompressor::F_MASK           = 0x00003FFFL;
-const uint64_t LzopDecompressor::F_OS_MASK        = 0xff000000L;
-const uint64_t LzopDecompressor::F_CS_MASK        = 0x00f00000L;
-const uint64_t LzopDecompressor::F_RESERVED       = ((F_MASK | F_OS_MASK | F_CS_MASK) ^ 0xffffffffL);
-const uint64_t LzopDecompressor::F_MULTIPART      = 0x00000400L;
-const uint64_t LzopDecompressor::F_H_FILTER       = 0x00000800L;
-const uint64_t LzopDecompressor::F_H_EXTRA_FIELD  = 0x00000040L;
-const uint64_t LzopDecompressor::F_CRC32_C        = 0x00000200L;
-const uint64_t LzopDecompressor::F_ADLER32_C      = 0x00000002L;
-const uint64_t LzopDecompressor::F_CRC32_D        = 0x00000100L;
-const uint64_t LzopDecompressor::F_ADLER32_D      = 0x00000001L;
+const uint64_t LzopDecompressor::F_H_CRC32 = 0x00001000L;
+const uint64_t LzopDecompressor::F_MASK = 0x00003FFFL;
+const uint64_t LzopDecompressor::F_OS_MASK = 0xff000000L;
+const uint64_t LzopDecompressor::F_CS_MASK = 0x00f00000L;
+const uint64_t LzopDecompressor::F_RESERVED = ((F_MASK | F_OS_MASK | F_CS_MASK) ^ 0xffffffffL);
+const uint64_t LzopDecompressor::F_MULTIPART = 0x00000400L;
+const uint64_t LzopDecompressor::F_H_FILTER = 0x00000800L;
+const uint64_t LzopDecompressor::F_H_EXTRA_FIELD = 0x00000040L;
+const uint64_t LzopDecompressor::F_CRC32_C = 0x00000200L;
+const uint64_t LzopDecompressor::F_ADLER32_C = 0x00000002L;
+const uint64_t LzopDecompressor::F_CRC32_D = 0x00000100L;
+const uint64_t LzopDecompressor::F_ADLER32_D = 0x00000001L;
 
-LzopDecompressor::~LzopDecompressor() {
-}
+LzopDecompressor::~LzopDecompressor() {}
 
 Status LzopDecompressor::init() {
     return Status::OK();
 }
 
-Status LzopDecompressor::decompress(
-        uint8_t* input, size_t input_len, size_t* input_bytes_read,
-        uint8_t* output, size_t output_max_len,
-        size_t* decompressed_len, bool* stream_end,
-        size_t* more_input_bytes, size_t* more_output_bytes) {
-    
+Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
+                                    uint8_t* output, size_t output_max_len,
+                                    size_t* decompressed_len, bool* stream_end,
+                                    size_t* more_input_bytes, size_t* more_output_bytes) {
     if (!_is_header_loaded) {
         // this is the first time to call lzo decompress, parse the header info first
         RETURN_IF_ERROR(parse_header_info(input, input_len, input_bytes_read, more_input_bytes));
@@ -107,8 +104,8 @@ Status LzopDecompressor::decompress(
     left_input_len -= sizeof(uint32_t);
     if (compressed_size > LZO_MAX_BLOCK_SIZE) {
         std::stringstream ss;
-        ss << "lzo block size: " << compressed_size << " is greater than LZO_MAX_BLOCK_SIZE: "
-           << LZO_MAX_BLOCK_SIZE;
+        ss << "lzo block size: " << compressed_size
+           << " is greater than LZO_MAX_BLOCK_SIZE: " << LZO_MAX_BLOCK_SIZE;
         return Status::InternalError(ss.str());
     }
 
@@ -142,11 +139,11 @@ Status LzopDecompressor::decompress(
 
     // 5. checksum compressed data
     if (left_input_len < compressed_size) {
-        *more_input_bytes = compressed_size - left_input_len;    
+        *more_input_bytes = compressed_size - left_input_len;
         return Status::OK();
     }
-    RETURN_IF_ERROR(checksum(_header_info.input_checksum_type,
-                             "compressed", in_checksum, ptr, compressed_size));
+    RETURN_IF_ERROR(checksum(_header_info.input_checksum_type, "compressed", in_checksum, ptr,
+                             compressed_size));
 
     // 6. decompress
     if (output_max_len < uncompressed_size) {
@@ -160,18 +157,17 @@ Status LzopDecompressor::decompress(
     } else {
         // decompress
         *decompressed_len = uncompressed_size;
-        int ret = lzo1x_decompress_safe(ptr, compressed_size,
-                output, reinterpret_cast<lzo_uint*>(&uncompressed_size), nullptr);
+        int ret = lzo1x_decompress_safe(ptr, compressed_size, output,
+                                        reinterpret_cast<lzo_uint*>(&uncompressed_size), nullptr);
         if (ret != LZO_E_OK || uncompressed_size != *decompressed_len) {
             std::stringstream ss;
             ss << "Lzo decompression failed with ret: " << ret
-               << " decompressed len: " << uncompressed_size
-               << " expected: " << *decompressed_len;
+               << " decompressed len: " << uncompressed_size << " expected: " << *decompressed_len;
             return Status::InternalError(ss.str());
         }
 
-        RETURN_IF_ERROR(checksum(_header_info.output_checksum_type, "decompressed",
-                                 out_checksum, output, uncompressed_size));
+        RETURN_IF_ERROR(checksum(_header_info.output_checksum_type, "decompressed", out_checksum,
+                                 output, uncompressed_size));
         ptr += compressed_size;
     }
 
@@ -210,10 +206,9 @@ Status LzopDecompressor::decompress(
 //   <mtime>
 //   <file-name>
 //   <header-checksum>
-//   <extra-field> -- presence indicated in flags, not currently used. 
+//   <extra-field> -- presence indicated in flags, not currently used.
 Status LzopDecompressor::parse_header_info(uint8_t* input, size_t input_len,
-                                           size_t* input_bytes_read,
-                                           size_t* more_input_bytes) {
+                                           size_t* input_bytes_read, size_t* more_input_bytes) {
     if (input_len < MIN_HEADER_SIZE) {
         LOG(INFO) << "highly recommanded that Lzo header size is larger than " << MIN_HEADER_SIZE
                   << ", or parsing header info may failed."
@@ -288,7 +283,7 @@ Status LzopDecompressor::parse_header_info(uint8_t* input, size_t input_len,
     // 9. filename
     uint8_t filename_len;
     ptr = get_uint8(ptr, &filename_len);
-    
+
     // here we already consume (MIN_HEADER_SIZE)
     // from now we have to check left input is enough for each step
     size_t left = input_len - (ptr - input);
@@ -297,7 +292,7 @@ Status LzopDecompressor::parse_header_info(uint8_t* input, size_t input_len,
         return Status::OK();
     }
 
-    _header_info.filename = std::string((char*) ptr, (size_t) filename_len);
+    _header_info.filename = std::string((char*)ptr, (size_t)filename_len);
     ptr += filename_len;
     left -= filename_len;
 
@@ -338,7 +333,7 @@ Status LzopDecompressor::parse_header_info(uint8_t* input, size_t input_len,
 
         // add the checksum and the len to the total ptr size.
         if (left < sizeof(int32_t) + extra_len) {
-            *more_input_bytes =  sizeof(int32_t) + extra_len - left;
+            *more_input_bytes = sizeof(int32_t) + extra_len - left;
             return Status::OK();
         }
         left -= sizeof(int32_t) + extra_len;
@@ -354,8 +349,7 @@ Status LzopDecompressor::parse_header_info(uint8_t* input, size_t input_len,
     return Status::OK();
 }
 
-Status LzopDecompressor::checksum(LzoChecksum type, const std::string& source,
-                                  uint32_t expected,
+Status LzopDecompressor::checksum(LzoChecksum type, const std::string& source, uint32_t expected,
                                   uint8_t* ptr, size_t len) {
     uint32_t computed_checksum;
     switch (type) {
@@ -376,8 +370,7 @@ Status LzopDecompressor::checksum(LzoChecksum type, const std::string& source,
     if (computed_checksum != expected) {
         std::stringstream ss;
         ss << "checksum of " << source << " block failed."
-           << " computed checksum: " << computed_checksum
-           << " expected: " << expected;
+           << " computed checksum: " << computed_checksum << " expected: " << expected;
         return Status::InternalError(ss.str());
     }
 
@@ -387,11 +380,9 @@ Status LzopDecompressor::checksum(LzoChecksum type, const std::string& source,
 std::string LzopDecompressor::debug_info() {
     std::stringstream ss;
     ss << "LzopDecompressor."
-       << " version: " << _header_info.version
-       << " lib version: " << _header_info.lib_version
+       << " version: " << _header_info.version << " lib version: " << _header_info.lib_version
        << " version needed: " << _header_info.version_needed
-       << " method: " << (uint16_t) _header_info.method
-       << " filename: " << _header_info.filename
+       << " method: " << (uint16_t)_header_info.method << " filename: " << _header_info.filename
        << " header size: " << _header_info.header_size
        << " header checksum type: " << _header_info.header_checksum_type
        << " input checksum type: " << _header_info.input_checksum_type
@@ -400,4 +391,4 @@ std::string LzopDecompressor::debug_info() {
 }
 #endif // DORIS_WITH_LZO
 
-} // namespace
+} // namespace doris

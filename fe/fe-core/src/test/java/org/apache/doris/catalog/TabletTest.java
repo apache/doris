@@ -19,10 +19,16 @@ package org.apache.doris.catalog;
 
 import mockit.Expectations;
 import mockit.Mocked;
+
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.collect.Sets;
+
+import org.apache.arrow.flatbuf.Bool;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,6 +38,8 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class TabletTest {
 
@@ -154,4 +162,50 @@ public class TabletTest {
         file.delete();
     }
 
+    /**
+     * check the tablet's Tablet.TabletStatus, the right location is [1 2 3]
+     * @param backendId2ReplicaIsBad beId -> if replica is a bad replica
+     */
+    @SafeVarargs
+    private final void testTabletColocateHealthStatus0(Tablet.TabletStatus exceptedTabletStatus, Pair<Long, Boolean>... backendId2ReplicaIsBad) {
+        Tablet tablet = new Tablet(1);
+        int replicaId = 1;
+        for (Pair<Long, Boolean> pair : backendId2ReplicaIsBad) {
+            long versionAndSuccessVersion = 100L;
+            long lastFailVersion = -1L;
+            if (pair.second) {
+                versionAndSuccessVersion = 99L;
+                lastFailVersion = 100L;
+            }
+            tablet.addReplica(new Replica(replicaId++, pair.first, versionAndSuccessVersion, 0L, 0, 200000L, 3000L, ReplicaState.NORMAL, lastFailVersion, 0, versionAndSuccessVersion, 0));
+        }
+        Assert.assertEquals(tablet.getColocateHealthStatus(100L, 3, Sets.newHashSet(1L, 2L, 3L)), exceptedTabletStatus);
+    }
+
+    @Test
+    public void testTabletColocateHealthStatus() {
+        // [1 2 4]
+        testTabletColocateHealthStatus0(
+                Tablet.TabletStatus.COLOCATE_MISMATCH,
+                Pair.create(1L, false), Pair.create(2L, false), Pair.create(4L, false)
+        );
+
+        // [1 2 3(bad)]
+        testTabletColocateHealthStatus0(
+                Tablet.TabletStatus.VERSION_INCOMPLETE,
+                Pair.create(1L, false), Pair.create(2L, false), Pair.create(3L, true)
+        );
+
+        // 1 2 3 4(good)
+        testTabletColocateHealthStatus0(
+                Tablet.TabletStatus.COLOCATE_REDUNDANT,
+                Pair.create(1L, false), Pair.create(2L, false), Pair.create(3L, false), Pair.create(4L, false)
+        );
+
+        // [1 2 3 4(bad)]
+        testTabletColocateHealthStatus0(
+                Tablet.TabletStatus.COLOCATE_REDUNDANT,
+                Pair.create(1L, false), Pair.create(2L, false), Pair.create(3L, false), Pair.create(4L, true)
+        );
+    }
 }

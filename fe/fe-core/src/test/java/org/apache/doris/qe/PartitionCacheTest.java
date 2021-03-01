@@ -846,5 +846,30 @@ public class PartitionCacheTest {
             Assert.fail(e.getMessage());
         }
     }
+
+    @Test
+    public void testNotHitPartition() throws Exception {
+        Catalog.getCurrentSystemInfo();
+        StatementBase parseStmt = parseSql(
+                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate"
+        );
+        List<ScanNode> scanNodes = Lists.newArrayList(createEventScanNode());
+        CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
+        ca.checkCacheMode(1579053661000L); //2020-1-15 10:01:01
+        try {
+            PartitionCache cache = (PartitionCache) ca.getCache();
+            cache.rewriteSelectStmt(null);
+            PartitionRange range = cache.getPartitionRange();
+            range.analytics();
+            hitRange = range.buildDiskPartitionRange(newRangeList);
+            Assert.assertEquals(hitRange,Cache.HitRange.None);
+            Assert.assertEquals(newRangeList.size(), 2);
+            Assert.assertEquals(newRangeList.get(0).getCacheKey().realValue(), 20200112);
+            Assert.assertEquals(newRangeList.get(1).getCacheKey().realValue(), 20200114);
+        } catch (Exception e) {
+            LOG.warn("ex={}", e);
+            Assert.fail(e.getMessage());
+        }
+    }
 }
 

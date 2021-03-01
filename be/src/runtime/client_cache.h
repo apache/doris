@@ -18,16 +18,16 @@
 #ifndef DORIS_BE_RUNTIME_CLIENT_CACHE_H
 #define DORIS_BE_RUNTIME_CLIENT_CACHE_H
 
-#include <vector>
+#include <boost/bind.hpp>
+#include <boost/thread/mutex.hpp>
+#include <boost/unordered_map.hpp>
 #include <list>
 #include <string>
-#include <boost/unordered_map.hpp>
-#include <boost/thread/mutex.hpp>
-#include <boost/bind.hpp>
+#include <vector>
 
+#include "common/status.h"
 #include "util/metrics.h"
 #include "util/thrift_client.h"
-#include "common/status.h"
 
 namespace doris {
 
@@ -59,13 +59,13 @@ public:
     ~ClientCacheHelper();
     // Callback method which produces a client object when one cannot be
     // found in the cache. Supplied by the ClientCache wrapper.
-    typedef boost::function < ThriftClientImpl* (const TNetworkAddress& hostport,
-            void** client_key) > client_factory;
+    typedef boost::function<ThriftClientImpl*(const TNetworkAddress& hostport, void** client_key)>
+            client_factory;
 
     // Return client for specific host/port in 'client'. If a client
     // is not available, the client parameter is set to NULL.
-    Status get_client(const TNetworkAddress& hostport,
-                     client_factory factory_method, void** client_key, int timeout_ms);
+    Status get_client(const TNetworkAddress& hostport, client_factory factory_method,
+                      void** client_key, int timeout_ms);
 
     // Close and delete the underlying transport and remove the client from _client_map.
     // Return a new client connecting to the same host/port.
@@ -87,13 +87,13 @@ public:
     void init_metrics(const std::string& name);
 
 private:
-    template <class T> friend class ClientCache;
+    template <class T>
+    friend class ClientCache;
     // Private constructor so that only ClientCache can instantiate this class.
-    ClientCacheHelper() : _metrics_enabled(false), _max_cache_size_per_host(-1) { }
+    ClientCacheHelper() : _metrics_enabled(false), _max_cache_size_per_host(-1) {}
 
-    ClientCacheHelper(int max_cache_size_per_host):
-        _metrics_enabled(false),
-        _max_cache_size_per_host(max_cache_size_per_host) { }
+    ClientCacheHelper(int max_cache_size_per_host)
+            : _metrics_enabled(false), _max_cache_size_per_host(max_cache_size_per_host) {}
 
     // Protects all member variables
     // TODO: have more fine-grained locks or use lock-free data structures,
@@ -101,8 +101,7 @@ private:
     boost::mutex _lock;
 
     // map from (host, port) to list of client keys for that address
-    typedef boost::unordered_map <
-    TNetworkAddress, std::list<void*>> ClientCacheMap;
+    typedef boost::unordered_map<TNetworkAddress, std::list<void*>> ClientCacheMap;
     ClientCacheMap _client_cache;
 
     // Map from client key back to its associated ThriftClientImpl transport
@@ -124,10 +123,10 @@ private:
 
     // Create a new client for specific host/port in 'client' and put it in _client_map
     Status create_client(const TNetworkAddress& hostport, client_factory factory_method,
-                        void** client_key, int timeout_ms);
+                         void** client_key, int timeout_ms);
 };
 
-template<class T>
+template <class T>
 class ClientCache;
 
 // A scoped client connection to help manage clients from a client cache.
@@ -144,12 +143,11 @@ class ClientCache;
 //     }
 //   }
 // ('client' is released back to cache upon destruction.)
-template<class T>
+template <class T>
 class ClientConnection {
 public:
-    ClientConnection(ClientCache<T>* client_cache, TNetworkAddress address, Status* status)
-        : _client_cache(client_cache),
-          _client(NULL) {
+    ClientConnection(ClientCache<T>* client_cache, const TNetworkAddress& address, Status* status)
+            : _client_cache(client_cache), _client(NULL) {
         *status = _client_cache->get_client(address, &_client, 0);
 
         if (status->ok()) {
@@ -157,10 +155,9 @@ public:
         }
     }
 
-    ClientConnection(ClientCache<T>* client_cache, TNetworkAddress address, int timeout_ms,
+    ClientConnection(ClientCache<T>* client_cache, const TNetworkAddress& address, int timeout_ms,
                      Status* status)
-        : _client_cache(client_cache),
-          _client(NULL) {
+            : _client_cache(client_cache), _client(NULL) {
         *status = _client_cache->get_client(address, &_client, timeout_ms);
 
         if (status->ok()) {
@@ -174,17 +171,11 @@ public:
         }
     }
 
-    Status reopen(int timeout_ms) {
-        return _client_cache->reopen_client(&_client, timeout_ms);
-    }
+    Status reopen(int timeout_ms) { return _client_cache->reopen_client(&_client, timeout_ms); }
 
-    Status reopen() {
-        return _client_cache->reopen_client(&_client, 0);
-    }
+    Status reopen() { return _client_cache->reopen_client(&_client, 0); }
 
-    T* operator->() const {
-        return _client;
-    }
+    T* operator->() const { return _client; }
 
 private:
     ClientCache<T>* _client_cache;
@@ -193,21 +184,19 @@ private:
 
 // Generic cache of Thrift clients for a given service type.
 // This class is thread-safe.
-template<class T>
+template <class T>
 class ClientCache {
 public:
     typedef ThriftClient<T> Client;
 
     ClientCache() : _client_cache_helper() {
-        _client_factory =
-            boost::bind<ThriftClientImpl*>(
-                boost::mem_fn(&ClientCache::make_client), this, _1, _2);
+        _client_factory = boost::bind<ThriftClientImpl*>(boost::mem_fn(&ClientCache::make_client),
+                                                         this, _1, _2);
     }
 
     ClientCache(int max_cache_size) : _client_cache_helper(max_cache_size) {
-        _client_factory =
-            boost::bind<ThriftClientImpl*>(
-                boost::mem_fn(&ClientCache::make_client), this, _1, _2);
+        _client_factory = boost::bind<ThriftClientImpl*>(boost::mem_fn(&ClientCache::make_client),
+                                                         this, _1, _2);
     }
 
     // Close all clients connected to the supplied address, (e.g., in
@@ -218,22 +207,16 @@ public:
     }
 
     // Helper method which returns a debug string
-    std::string debug_string() {
-        return _client_cache_helper.debug_string();
-    }
+    std::string debug_string() { return _client_cache_helper.debug_string(); }
 
     // For testing only: shutdown all clients
-    void test_shutdown() {
-        return _client_cache_helper.test_shutdown();
-    }
+    void test_shutdown() { return _client_cache_helper.test_shutdown(); }
 
     // Adds metrics for this cache.
     // The metrics have an identification by the 'name' argument
     // (which should not end in a period).
     // Must be called before the cache is used, otherwise the metrics might be wrong
-    void init_metrics(const std::string& name) {
-        _client_cache_helper.init_metrics(name);
-    }
+    void init_metrics(const std::string& name) { _client_cache_helper.init_metrics(name); }
 
 private:
     friend class ClientConnection<T>;
@@ -251,7 +234,7 @@ private:
     // Status::OK() unless there was an error opening the transport.
     Status get_client(const TNetworkAddress& hostport, T** iface, int timeout_ms) {
         return _client_cache_helper.get_client(hostport, _client_factory,
-                                              reinterpret_cast<void**>(iface), timeout_ms);
+                                               reinterpret_cast<void**>(iface), timeout_ms);
     }
 
     // Close and delete the underlying transport. Return a new client connecting to the
@@ -259,8 +242,8 @@ private:
     // Return an error status if a new connection cannot be established and *client will be
     // NULL in that case.
     Status reopen_client(T** client, int timeout_ms) {
-        return _client_cache_helper.reopen_client(_client_factory,
-                reinterpret_cast<void**>(client), timeout_ms);
+        return _client_cache_helper.reopen_client(_client_factory, reinterpret_cast<void**>(client),
+                                                  timeout_ms);
     }
 
     // Return the client to the cache and set *client to NULL.
@@ -270,11 +253,24 @@ private:
 
     // Factory method to produce a new ThriftClient<T> for the wrapped cache
     ThriftClientImpl* make_client(const TNetworkAddress& hostport, void** client_key) {
-        Client* client = new Client(hostport.hostname, hostport.port);
+        static ThriftServer::ServerType server_type = get_thrift_server_type();
+        Client* client = new Client(hostport.hostname, hostport.port, server_type);
         *client_key = reinterpret_cast<void*>(client->iface());
         return client;
     }
 
+    // since service type is multiple, we should set thrift server type here for be thrift client
+    ThriftServer::ServerType get_thrift_server_type() {
+        auto& thrift_server_type = config::thrift_server_type_of_fe;
+        transform(thrift_server_type.begin(), thrift_server_type.end(), thrift_server_type.begin(),
+                  toupper);
+        if (strcmp(typeid(T).name(), "N5doris21FrontendServiceClientE") == 0 &&
+            thrift_server_type == "THREADED_SELECTOR") {
+            return ThriftServer::ServerType::NON_BLOCKING;
+        } else {
+            return ThriftServer::ServerType::THREADED;
+        }
+    }
 };
 
 // Doris backend client cache, used by a backend to send requests
@@ -292,6 +288,6 @@ class TExtDataSourceServiceClient;
 typedef ClientCache<TExtDataSourceServiceClient> ExtDataSourceServiceClientCache;
 typedef ClientConnection<TExtDataSourceServiceClient> ExtDataSourceServiceConnection;
 
-}
+} // namespace doris
 
 #endif

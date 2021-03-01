@@ -205,9 +205,7 @@ public class DistributedPlanner {
                     childFragments.get(0));
         } else if (root instanceof SelectNode) {
             result = createSelectNodeFragment((SelectNode) root, childFragments);
-        } else if (root instanceof OlapRewriteNode) {
-            result = createOlapRewriteNodeFragment((OlapRewriteNode) root, childFragments);
-        } else if (root instanceof SetOperationNode) {
+        }  else if (root instanceof SetOperationNode) {
             result = createSetOperationNodeFragment((SetOperationNode) root, childFragments, fragments);
         } else if (root instanceof MergeNode) {
             result = createMergeNodeFragment((MergeNode) root, childFragments, fragments);
@@ -545,7 +543,7 @@ public class DistributedPlanner {
         OlapScanNode leftScanNode = ((OlapScanNode) leftRoot);
 
         //1 the left table must be only one partition
-        if (leftScanNode.getSelectedPartitionIds().size() > 1) {
+        if (leftScanNode.getSelectedPartitionIds().size() != 1) {
             return false;
         }
 
@@ -835,15 +833,6 @@ public class DistributedPlanner {
         // (whereas selectNode.child[0] would point to the original child)
         selectNode.setChild(0, childFragment.getPlanRoot());
         childFragment.setPlanRoot(selectNode);
-        return childFragment;
-    }
-
-    private PlanFragment createOlapRewriteNodeFragment(
-            OlapRewriteNode olapRewriteNode, ArrayList<PlanFragment> childFragments) {
-        Preconditions.checkState(olapRewriteNode.getChildren().size() == childFragments.size());
-        PlanFragment childFragment = childFragments.get(0);
-        olapRewriteNode.setChild(0, childFragment.getPlanRoot());
-        childFragment.setPlanRoot(olapRewriteNode);
         return childFragment;
     }
 

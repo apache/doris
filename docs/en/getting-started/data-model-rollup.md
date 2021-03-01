@@ -473,11 +473,11 @@ We use the prefix index of ** 36 bytes ** of a row of data as the prefix index o
 
 When our query condition is the prefix of ** prefix index **, it can greatly speed up the query speed. For example, in the first example, we execute the following queries:
 
-`SELECT * FROM table WHERE user_id=1829239 and age=20；`
+`SELECT * FROM table WHERE user_id=1829239 and age=20;`
 
 The efficiency of this query is much higher than that of ** the following queries:
 
-`SELECT * FROM table WHERE age=20；`
+`SELECT * FROM table WHERE age=20;`
 
 Therefore, when constructing tables, ** correctly choosing column order can greatly improve query efficiency **.
 
@@ -633,5 +633,5 @@ Duplicate model has no limitation of aggregation model. Because the model does n
 Because the data model was established when the table was built, and **could not be modified **. Therefore, it is very important to select an appropriate data model**.
 
 1. Aggregate model can greatly reduce the amount of data scanned and the amount of query computation by pre-aggregation. It is very suitable for report query scenarios with fixed patterns. But this model is not very friendly for count (*) queries. At the same time, because the aggregation method on the Value column is fixed, semantic correctness should be considered in other types of aggregation queries.
-2. Uniq model guarantees the uniqueness of primary key for scenarios requiring unique primary key constraints. However, the query advantage brought by pre-aggregation such as ROLLUP can not be exploited (because the essence is REPLACE, there is no such aggregation as SUM).
+2. Uniq model guarantees the uniqueness of primary key for scenarios requiring unique primary key constraints. However, the query advantage brought by pre-aggregation such as ROLLUP cannot be exploited (because the essence is REPLACE, there is no such aggregation as SUM).
 3. Duplicate is suitable for ad-hoc queries of any dimension. Although it is also impossible to take advantage of the pre-aggregation feature, it is not constrained by the aggregation model and can take advantage of the queue-store model (only reading related columns, but not all Key columns).

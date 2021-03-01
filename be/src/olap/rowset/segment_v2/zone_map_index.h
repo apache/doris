@@ -22,12 +22,12 @@
 #include <vector>
 
 #include "common/status.h"
-#include "util/slice.h"
-#include "olap/field.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "olap/field.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -52,11 +52,19 @@ struct ZoneMap {
     // has_not_null means whether zone has none-null value
     bool has_not_null = false;
 
+    bool pass_all = false;
+
     void to_proto(ZoneMapPB* dst, Field* field) {
-        dst->set_min(field->to_string(min_value));
-        dst->set_max(field->to_string(max_value));
+        if (pass_all) {
+            dst->set_min("");
+            dst->set_max("");
+        } else {
+            dst->set_min(field->to_string(min_value));
+            dst->set_max(field->to_string(max_value));
+        }
         dst->set_has_null(has_null);
         dst->set_has_not_null(has_not_null);
+        dst->set_pass_all(pass_all);
     }
 };
 
@@ -70,9 +78,7 @@ public:
 
     void add_values(const void* values, size_t count);
 
-    void add_nulls(uint32_t count) {
-        _page_zone_map.has_null = true;
-    }
+    void add_nulls(uint32_t count) { _page_zone_map.has_null = true; }
 
     // mark the end of one data page so that we can finalize the corresponding zone map
     Status flush();
@@ -81,6 +87,9 @@ public:
 
     uint64_t size() { return _estimated_size; }
 
+    void reset_page_zone_map();
+    void reset_segment_zone_map();
+
 private:
     void _reset_zone_map(ZoneMap* zone_map) {
         // we should allocate max varchar length and set to max for min value
@@ -88,6 +97,7 @@ private:
         _field->set_to_min(zone_map->max_value);
         zone_map->has_null = false;
         zone_map->has_not_null = false;
+        zone_map->pass_all = false;
     }
 
     Field* _field;
@@ -106,10 +116,8 @@ private:
 
 class ZoneMapIndexReader {
 public:
-    explicit ZoneMapIndexReader(const std::string& filename, const ZoneMapIndexPB* index_meta) :
-            _filename(filename),
-            _index_meta(index_meta) {
-    }
+    explicit ZoneMapIndexReader(const std::string& filename, const ZoneMapIndexPB* index_meta)
+            : _filename(filename), _index_meta(index_meta) {}
 
     // load all page zone maps into memory
     Status load(bool use_page_cache, bool kept_in_memory);

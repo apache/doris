@@ -23,14 +23,15 @@ namespace doris {
 
 using std::to_string;
 
-EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request,
-        int64_t signature, const TTaskType::type task_type, vector<string>* error_msgs,
-        const string& process_name):
-        _alter_tablet_req(request),
-        _signature(signature),
-        _task_type(task_type),
-        _error_msgs(error_msgs),
-        _process_name(process_name) { }
+EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request, int64_t signature,
+                                             const TTaskType::type task_type,
+                                             std::vector<string>* error_msgs,
+                                             const string& process_name)
+        : _alter_tablet_req(request),
+          _signature(signature),
+          _task_type(task_type),
+          _error_msgs(error_msgs),
+          _process_name(process_name) {}
 
 OLAPStatus EngineAlterTabletTask::execute() {
     DorisMetrics::instance()->create_rollup_requests_total->increment(1);
@@ -49,11 +50,11 @@ OLAPStatus EngineAlterTabletTask::execute() {
     }
 
     LOG(INFO) << "success to create new alter tablet. res=" << res
-              << " base_tablet_id=" << _alter_tablet_req.base_tablet_id
-              << ", base_schema_hash" << _alter_tablet_req.base_schema_hash
+              << " base_tablet_id=" << _alter_tablet_req.base_tablet_id << ", base_schema_hash"
+              << _alter_tablet_req.base_schema_hash
               << ", new_tablet_id=" << _alter_tablet_req.new_tablet_id
               << ", new_schema_hash=" << _alter_tablet_req.new_schema_hash;
     return res;
 } // execute
 
-} // doris
+} // namespace doris

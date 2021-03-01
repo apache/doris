@@ -16,13 +16,15 @@
 // under the License.
 
 #include "exprs/encryption_functions.h"
+
+#include <gtest/gtest.h>
+
 #include <iostream>
 #include <string>
+
 #include "exprs/anyval_util.h"
 #include "testutil/function_utils.h"
 #include "util/logging.h"
-
-#include <gtest/gtest.h>
 
 namespace doris {
 class EncryptionFunctionsTest : public testing::Test {
@@ -43,13 +45,15 @@ private:
 TEST_F(EncryptionFunctionsTest, from_base64) {
     std::unique_ptr<doris_udf::FunctionContext> context(new doris_udf::FunctionContext());
     {
-        StringVal result = EncryptionFunctions::from_base64(context.get(), doris_udf::StringVal("aGVsbG8="));
+        StringVal result =
+                EncryptionFunctions::from_base64(context.get(), doris_udf::StringVal("aGVsbG8="));
         StringVal expected = doris_udf::StringVal("hello");
         ASSERT_EQ(expected, result);
     }
 
     {
-        StringVal result = EncryptionFunctions::from_base64(context.get(), doris_udf::StringVal::null());
+        StringVal result =
+                EncryptionFunctions::from_base64(context.get(), doris_udf::StringVal::null());
         StringVal expected = doris_udf::StringVal::null();
         ASSERT_EQ(expected, result);
     }
@@ -59,16 +63,17 @@ TEST_F(EncryptionFunctionsTest, to_base64) {
     std::unique_ptr<doris_udf::FunctionContext> context(new doris_udf::FunctionContext());
 
     {
-        StringVal result = EncryptionFunctions::to_base64(context.get(), doris_udf::StringVal("hello"));
+        StringVal result =
+                EncryptionFunctions::to_base64(context.get(), doris_udf::StringVal("hello"));
         StringVal expected = doris_udf::StringVal("aGVsbG8=");
         ASSERT_EQ(expected, result);
     }
     {
-        StringVal result = EncryptionFunctions::to_base64(context.get(), doris_udf::StringVal::null());
+        StringVal result =
+                EncryptionFunctions::to_base64(context.get(), doris_udf::StringVal::null());
         StringVal expected = doris_udf::StringVal::null();
         ASSERT_EQ(expected, result);
     }
-
 }
 
 } // namespace doris

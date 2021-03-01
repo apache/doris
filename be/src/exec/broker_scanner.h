@@ -17,19 +17,19 @@
 
 #pragma once
 
-#include <memory>
-#include <vector>
-#include <string>
 #include <map>
+#include <memory>
 #include <sstream>
+#include <string>
+#include <vector>
 
-#include "exec/base_scanner.h"
 #include "common/status.h"
+#include "exec/base_scanner.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
-#include "util/slice.h"
 #include "util/runtime_profile.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -52,13 +52,11 @@ class StreamLoadPipe;
 // Broker scanner convert the data read from broker to doris's tuple.
 class BrokerScanner : public BaseScanner {
 public:
-    BrokerScanner(
-        RuntimeState* state,
-        RuntimeProfile* profile,
-        const TBrokerScanRangeParams& params,
-        const std::vector<TBrokerRangeDesc>& ranges,
-        const std::vector<TNetworkAddress>& broker_addresses,
-        ScannerCounter* counter);
+    BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
+                  const TBrokerScanRangeParams& params, const std::vector<TBrokerRangeDesc>& ranges,
+                  const std::vector<TNetworkAddress>& broker_addresses,
+				  const std::vector<ExprContext*>& pre_filter_ctxs,
+                  ScannerCounter* counter);
     ~BrokerScanner();
 
     // Open this scanner, will initialize information need to
@@ -78,28 +76,23 @@ private:
     Status open_next_reader();
 
     // Split one text line to values
-    void split_line(
-        const Slice& line, std::vector<Slice>* values);
+    void split_line(const Slice& line, std::vector<Slice>* values);
 
-    void fill_fix_length_string(
-        const Slice& value, MemPool* pool,
-        char** new_value_p, int new_value_length);
+    void fill_fix_length_string(const Slice& value, MemPool* pool, char** new_value_p,
+                                int new_value_length);
 
-    bool check_decimal_input(
-        const Slice& value,
-        int precision, int scale,
-        std::stringstream* error_msg);
+    bool check_decimal_input(const Slice& value, int precision, int scale,
+                             std::stringstream* error_msg);
 
     // Convert one row to one tuple
     //  'ptr' and 'len' is csv text line
     //  output is tuple
     bool convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool);
 
-    //Status init_expr_ctxes();
-
     Status line_to_src_tuple();
     bool line_to_src_tuple(const Slice& line);
-private:;
+
+private:
     const std::vector<TBrokerRangeDesc>& _ranges;
     const std::vector<TNetworkAddress>& _broker_addresses;
 
@@ -125,4 +118,4 @@ private:;
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
 };
 
-}
+} // namespace doris

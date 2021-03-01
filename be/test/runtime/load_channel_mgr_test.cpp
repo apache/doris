@@ -23,18 +23,18 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
-#include "runtime/exec_env.h"
-#include "runtime/descriptors.h"
-#include "runtime/primitive_type.h"
-#include "runtime/mem_tracker.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
-#include "runtime/descriptor_helper.h"
-#include "util/thrift_util.h"
 #include "olap/delta_writer.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
+#include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/primitive_type.h"
+#include "runtime/row_batch.h"
+#include "runtime/tuple_row.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -46,18 +46,17 @@ int64_t wait_lock_time_ns;
 
 // mock
 DeltaWriter::DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& mem_tracker,
-                         StorageEngine* storage_engine) :
-        _req(*req) {
-}
+                         StorageEngine* storage_engine)
+        : _req(*req) {}
 
-DeltaWriter::~DeltaWriter() {
-}
+DeltaWriter::~DeltaWriter() {}
 
 OLAPStatus DeltaWriter::init() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, const std::shared_ptr<MemTracker>& mem_tracker, DeltaWriter** writer) {
+OLAPStatus DeltaWriter::open(WriteRequest* req, const std::shared_ptr<MemTracker>& mem_tracker,
+                             DeltaWriter** writer) {
     if (open_status != OLAP_SUCCESS) {
         return open_status;
     }
@@ -86,17 +85,25 @@ OLAPStatus DeltaWriter::cancel() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::flush_memtable_and_wait() {
+OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
     return OLAP_SUCCESS;
 }
 
-int64_t DeltaWriter::partition_id() const { return 1L; }
-int64_t DeltaWriter::mem_consumption() const { return 1024L; }
+OLAPStatus DeltaWriter::wait_flush() {
+    return OLAP_SUCCESS;
+}
+
+int64_t DeltaWriter::partition_id() const {
+    return 1L;
+}
+int64_t DeltaWriter::mem_consumption() const {
+    return 1024L;
+}
 
 class LoadChannelMgrTest : public testing::Test {
 public:
-    LoadChannelMgrTest() { }
-    virtual ~LoadChannelMgrTest() { }
+    LoadChannelMgrTest() {}
+    virtual ~LoadChannelMgrTest() {}
     void SetUp() override {
         _k_tablet_recorder.clear();
         open_status = OLAP_SUCCESS;
@@ -104,6 +111,7 @@ public:
         close_status = OLAP_SUCCESS;
         config::streaming_load_rpc_max_alive_time_sec = 120;
     }
+
 private:
 };
 
@@ -112,11 +120,11 @@ TEST_F(LoadChannelMgrTest, check_builder) {
     {
         TTupleDescriptorBuilder tuple;
         tuple.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_INT).column_name("c1").column_pos(0).build());
+                TSlotDescriptorBuilder().type(TYPE_INT).column_name("c1").column_pos(0).build());
         tuple.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("c2").column_pos(1).build());
+                TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("c2").column_pos(1).build());
         tuple.add_slot(
-            TSlotDescriptorBuilder().string_type(64).column_name("c3").column_pos(2).build());
+                TSlotDescriptorBuilder().string_type(64).column_name("c3").column_pos(2).build());
         tuple.build(&table_builder);
     }
     DescriptorTbl* desc_tbl = nullptr;
@@ -134,9 +142,9 @@ TDescriptorTable create_descriptor_table() {
     TTupleDescriptorBuilder tuple_builder;
 
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_INT).column_name("c1").column_pos(0).build());
+            TSlotDescriptorBuilder().type(TYPE_INT).column_name("c1").column_pos(0).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("c2").column_pos(1).build());
+            TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("c2").column_pos(1).build());
     tuple_builder.build(&dtb);
 
     return dtb.desc_tbl();
@@ -242,7 +250,7 @@ TEST_F(LoadChannelMgrTest, normal) {
         }
         row_batch.serialize(request.mutable_row_batch());
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
+        auto st = mgr.add_batch(request, &tablet_vec);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }
@@ -409,7 +417,7 @@ TEST_F(LoadChannelMgrTest, add_failed) {
         row_batch.serialize(request.mutable_row_batch());
         add_status = OLAP_ERR_TABLE_NOT_FOUND;
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
+        auto st = mgr.add_batch(request, &tablet_vec);
         request.release_id();
         ASSERT_FALSE(st.ok());
     }
@@ -499,7 +507,7 @@ TEST_F(LoadChannelMgrTest, close_failed) {
         row_batch.serialize(request.mutable_row_batch());
         close_status = OLAP_ERR_TABLE_NOT_FOUND;
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
+        auto st = mgr.add_batch(request, &tablet_vec);
         request.release_id();
         // even if delta close failed, the return status is still ok, but tablet_vec is empty
         ASSERT_TRUE(st.ok());
@@ -587,7 +595,7 @@ TEST_F(LoadChannelMgrTest, unknown_tablet) {
         }
         row_batch.serialize(request.mutable_row_batch());
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
+        auto st = mgr.add_batch(request, &tablet_vec);
         request.release_id();
         ASSERT_FALSE(st.ok());
     }
@@ -673,10 +681,10 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
         }
         row_batch.serialize(request.mutable_row_batch());
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec1;
-        auto st = mgr.add_batch(request, &tablet_vec1, &wait_lock_time_ns);
+        auto st = mgr.add_batch(request, &tablet_vec1);
         ASSERT_TRUE(st.ok());
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec2;
-        st = mgr.add_batch(request, &tablet_vec2, &wait_lock_time_ns);
+        st = mgr.add_batch(request, &tablet_vec2);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }
@@ -689,7 +697,7 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
         request.set_eos(true);
         request.set_packet_seq(0);
         google::protobuf::RepeatedPtrField<PTabletInfo> tablet_vec;
-        auto st = mgr.add_batch(request, &tablet_vec, &wait_lock_time_ns);
+        auto st = mgr.add_batch(request, &tablet_vec);
         request.release_id();
         ASSERT_TRUE(st.ok());
     }
@@ -698,7 +706,7 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
     ASSERT_EQ(_k_tablet_recorder[21], 1);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

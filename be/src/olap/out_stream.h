@@ -20,9 +20,9 @@
 
 #include "olap/byte_buffer.h"
 #include "olap/compress.h"
+#include "olap/olap_define.h"
 #include "olap/stream_index_writer.h"
 #include "olap/stream_name.h"
-#include "olap/olap_define.h"
 
 namespace doris {
 class FileHandler;
@@ -31,13 +31,10 @@ class FileHandler;
 // 校验值,在读取数据的时候检验这一校验值
 // 采用TLV类型的头部,有足够的扩展性
 struct StreamHead {
-    enum StreamType {
-        UNCOMPRESSED = 0,
-        COMPRESSED = 1
-    };
-    uint8_t type;              // 256种类型, 应该足够以后的扩展了
-    uint32_t length : 24;      // 24位长度
-    uint32_t checksum;         // 32位校验值
+    enum StreamType { UNCOMPRESSED = 0, COMPRESSED = 1 };
+    uint8_t type;         // 256种类型, 应该足够以后的扩展了
+    uint32_t length : 24; // 24位长度
+    uint32_t checksum;    // 32位校验值
     StreamHead() : type(COMPRESSED), length(0), checksum(0) {}
 } __attribute__((packed));
 
@@ -87,55 +84,45 @@ public:
     uint64_t get_total_buffer_size() const;
 
     // 将缓存的数据流输出到文件
-    OLAPStatus write_to_file(
-        FileHandler* file_handle,
-        uint32_t write_mbytes_per_sec) const;
+    OLAPStatus write_to_file(FileHandler* file_handle, uint32_t write_mbytes_per_sec) const;
 
-    bool is_suppressed() const {
-        return _is_suppressed;
-    }
-    void suppress() {
-        _is_suppressed = true;
-    }
+    bool is_suppressed() const { return _is_suppressed; }
+    void suppress() { _is_suppressed = true; }
     // 将数据输出到output_buffers
     OLAPStatus flush();
     // 计算输出数据的crc32值
     uint32_t crc32(uint32_t checksum) const;
-    const std::vector<StorageByteBuffer*>& output_buffers() {
-        return _output_buffers;
-    }
+    const std::vector<StorageByteBuffer*>& output_buffers() { return _output_buffers; }
 
     void print_position_debug_info() {
-        VLOG(10) << "compress: " << _spilled_bytes;
+        VLOG_TRACE << "compress: " << _spilled_bytes;
 
         if (_current != NULL) {
-            VLOG(10) << "uncompress=" << ( _current->position() - sizeof(StreamHead));
+            VLOG_TRACE << "uncompress=" << (_current->position() - sizeof(StreamHead));
         } else {
-            VLOG(10) << "uncompress 0";
+            VLOG_TRACE << "uncompress 0";
         }
     }
 
 private:
     OLAPStatus _create_new_input_buffer();
-    OLAPStatus _write_head(StorageByteBuffer* buf,
-            uint64_t position,
-            StreamHead::StreamType type,
-            uint32_t length);
+    OLAPStatus _write_head(StorageByteBuffer* buf, uint64_t position, StreamHead::StreamType type,
+                           uint32_t length);
     OLAPStatus _spill();
-    OLAPStatus _compress(StorageByteBuffer* input, StorageByteBuffer* output, StorageByteBuffer* overflow,
-            bool* smaller);
+    OLAPStatus _compress(StorageByteBuffer* input, StorageByteBuffer* output,
+                         StorageByteBuffer* overflow, bool* smaller);
     void _output_uncompress();
     void _output_compressed();
     OLAPStatus _make_sure_output_buffer();
 
-    uint32_t _buffer_size;                   // 压缩块大小
-    Compressor _compressor;                  // 压缩函数,如果为NULL表示不压缩
-    std::vector<StorageByteBuffer*> _output_buffers;// 缓冲所有的输出
-    bool _is_suppressed;                     // 流是否被终止
-    StorageByteBuffer* _current;                    // 缓存未压缩的数据
-    StorageByteBuffer* _compressed;                 // 即将输出到output_buffers中的字节
-    StorageByteBuffer* _overflow;                   // _output中放不下的字节
-    uint64_t _spilled_bytes;                 // 已经输出到output的字节数
+    uint32_t _buffer_size;                           // 压缩块大小
+    Compressor _compressor;                          // 压缩函数,如果为NULL表示不压缩
+    std::vector<StorageByteBuffer*> _output_buffers; // 缓冲所有的输出
+    bool _is_suppressed;                             // 流是否被终止
+    StorageByteBuffer* _current;                     // 缓存未压缩的数据
+    StorageByteBuffer* _compressed;                  // 即将输出到output_buffers中的字节
+    StorageByteBuffer* _overflow;                    // _output中放不下的字节
+    uint64_t _spilled_bytes;                         // 已经输出到output的字节数
 
     DISALLOW_COPY_AND_ASSIGN(OutStream);
 };
@@ -151,9 +138,8 @@ public:
     // 创建后的stream的生命期依旧由OutStreamFactory管理
     OutStream* create_stream(uint32_t column_unique_id, StreamInfoMessage::Kind kind);
 
-    const std::map<StreamName, OutStream*>& streams() const {
-        return _streams;
-    }
+    const std::map<StreamName, OutStream*>& streams() const { return _streams; }
+
 private:
     std::map<StreamName, OutStream*> _streams; // 所有创建过的流
     CompressKind _compress_kind;
@@ -182,5 +168,5 @@ protected:
 };
 */
 
-}  // namespace doris
+} // namespace doris
 #endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_OUT_STREAM_H

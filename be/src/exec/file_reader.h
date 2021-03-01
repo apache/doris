@@ -18,6 +18,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <memory>
 
 #include "common/status.h"
 
@@ -25,8 +26,7 @@ namespace doris {
 
 class FileReader {
 public:
-    virtual ~FileReader() {
-    }
+    virtual ~FileReader() {}
     virtual Status open() = 0;
     // Read content to 'buf', 'buf_len' is the max size of this buffer.
     // Return ok when read success, and 'buf_len' is set to size of read content
@@ -40,17 +40,13 @@ public:
      *
      * if read eof then return Status::OK and length is set 0 and buf is set NULL,
      *  other return readed bytes.
-     *
-     * !! Important !!
-     * the buf must be deleted by user, otherwise leak memory
-     * !! Important !!
      */
-    virtual Status read_one_message(uint8_t** buf, size_t* length) = 0;
-    virtual int64_t size () = 0;
+    virtual Status read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) = 0;
+    virtual int64_t size() = 0;
     virtual Status seek(int64_t position) = 0;
     virtual Status tell(int64_t* position) = 0;
     virtual void close() = 0;
     virtual bool closed() = 0;
 };
 
-}
+} // namespace doris

@@ -17,9 +17,10 @@
 
 #include "exec/exec_node.h"
 
-#include <sstream>
 #include <thrift/protocol/TDebugProtocol.h>
 #include <unistd.h>
+
+#include <sstream>
 
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -39,9 +40,9 @@
 #include "exec/merge_join_node.h"
 #include "exec/merge_node.h"
 #include "exec/mysql_scan_node.h"
+#include "exec/odbc_scan_node.h"
 #include "exec/olap_rewrite_node.h"
 #include "exec/olap_scan_node.h"
-#include "exec/odbc_scan_node.h"
 #include "exec/partitioned_aggregation_node.h"
 #include "exec/repeat_node.h"
 #include "exec/schema_scan_node.h"
@@ -50,8 +51,9 @@
 #include "exec/topn_node.h"
 #include "exec/union_node.h"
 #include "exprs/expr_context.h"
-#include "runtime/exec_env.h"
+#include "odbc_scan_node.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/initial_reservations.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
@@ -59,7 +61,6 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-#include "odbc_scan_node.h"
 
 namespace doris {
 
@@ -69,74 +70,70 @@ int ExecNode::get_node_id_from_profile(RuntimeProfile* p) {
     return p->metadata();
 }
 
-ExecNode::RowBatchQueue::RowBatchQueue(int max_batches) :
-    BlockingQueue<RowBatch*>(max_batches) {
-}
+ExecNode::RowBatchQueue::RowBatchQueue(int max_batches) : BlockingQueue<RowBatch*>(max_batches) {}
 
 ExecNode::RowBatchQueue::~RowBatchQueue() {
     DCHECK(cleanup_queue_.empty());
 }
 
 void ExecNode::RowBatchQueue::AddBatch(RowBatch* batch) {
-  if (!blocking_put(batch)) {
-    std::lock_guard<std::mutex> lock(lock_);
-    cleanup_queue_.push_back(batch);
-  }
+    if (!blocking_put(batch)) {
+        std::lock_guard<std::mutex> lock(lock_);
+        cleanup_queue_.push_back(batch);
+    }
 }
 
-bool ExecNode::RowBatchQueue::AddBatchWithTimeout(RowBatch* batch,
-    int64_t timeout_micros) {
+bool ExecNode::RowBatchQueue::AddBatchWithTimeout(RowBatch* batch, int64_t timeout_micros) {
     // return blocking_put_with_timeout(batch, timeout_micros);
     return blocking_put(batch);
 }
 
 RowBatch* ExecNode::RowBatchQueue::GetBatch() {
-  RowBatch* result = NULL;
-  if (blocking_get(&result)) return result;
-  return NULL;
+    RowBatch* result = NULL;
+    if (blocking_get(&result)) return result;
+    return NULL;
 }
 
 int ExecNode::RowBatchQueue::Cleanup() {
-  int num_io_buffers = 0;
+    int num_io_buffers = 0;
 
-  // RowBatch* batch = NULL;
-  // while ((batch = GetBatch()) != NULL) {
-  //   num_io_buffers += batch->num_io_buffers();
-  //   delete batch;
-  // }
+    // RowBatch* batch = NULL;
+    // while ((batch = GetBatch()) != NULL) {
+    //   num_io_buffers += batch->num_io_buffers();
+    //   delete batch;
+    // }
 
-  lock_guard<std::mutex> l(lock_);
-  for (std::list<RowBatch*>::iterator it = cleanup_queue_.begin();
-      it != cleanup_queue_.end(); ++it) {
-    // num_io_buffers += (*it)->num_io_buffers();
-    delete *it;
-  }
-  cleanup_queue_.clear();
-  return num_io_buffers;
+    lock_guard<std::mutex> l(lock_);
+    for (std::list<RowBatch*>::iterator it = cleanup_queue_.begin(); it != cleanup_queue_.end();
+         ++it) {
+        // num_io_buffers += (*it)->num_io_buffers();
+        delete *it;
+    }
+    cleanup_queue_.clear();
+    return num_io_buffers;
 }
 
-ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) :
-        _id(tnode.node_id),
-        _type(tnode.node_type),
-        _pool(pool),
-        _tuple_ids(tnode.row_tuples),
-        _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
-        _resource_profile(tnode.resource_profile),
-        _debug_phase(TExecNodePhase::INVALID),
-        _debug_action(TDebugAction::WAIT),
-        _limit(tnode.limit),
-        _num_rows_returned(0),
-        _rows_returned_counter(NULL),
-        _rows_returned_rate(NULL),
-        _memory_used_counter(NULL),
-        _is_closed(false){
+ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : _id(tnode.node_id),
+          _type(tnode.node_type),
+          _pool(pool),
+          _tuple_ids(tnode.row_tuples),
+          _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+          _resource_profile(tnode.resource_profile),
+          _debug_phase(TExecNodePhase::INVALID),
+          _debug_action(TDebugAction::WAIT),
+          _limit(tnode.limit),
+          _num_rows_returned(0),
+          _rows_returned_counter(NULL),
+          _rows_returned_rate(NULL),
+          _memory_used_counter(NULL),
+          _is_closed(false) {
     init_runtime_profile(print_plan_node_type(tnode.node_type));
 }
 
 ExecNode::~ExecNode() {}
 
-void ExecNode::push_down_predicate(
-        RuntimeState* state, std::list<ExprContext*>* expr_ctxs) {
+void ExecNode::push_down_predicate(RuntimeState* state, std::list<ExprContext*>* expr_ctxs) {
     if (_type != TPlanNodeType::AGGREGATION_NODE) {
         for (int i = 0; i < _children.size(); ++i) {
             _children[i]->push_down_predicate(state, expr_ctxs);
@@ -162,23 +159,22 @@ void ExecNode::push_down_predicate(
 }
 
 Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(
-        Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
+    RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
     return Status::OK();
 }
 
 Status ExecNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::PREPARE));
     DCHECK(_runtime_profile.get() != NULL);
-    _rows_returned_counter =
-        ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
+    _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
     _rows_returned_rate = runtime_profile()->add_derived_counter(
-                              ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
-                              boost::bind<int64_t>(&RuntimeProfile::units_per_second,
-                                                   _rows_returned_counter,
-                                                   runtime_profile()->total_time_counter()),
-                              "");
-    _mem_tracker = MemTracker::CreateTracker(_runtime_profile.get(), -1, "ExecNode "+ _runtime_profile->name(), state->instance_mem_tracker());
+            ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
+            boost::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
+                                 runtime_profile()->total_time_counter()),
+            "");
+    _mem_tracker = MemTracker::CreateTracker(_runtime_profile.get(), -1,
+                                             "ExecNode " + _runtime_profile->name(),
+                                             state->instance_mem_tracker());
     _expr_mem_tracker = MemTracker::CreateTracker(-1, "ExecNode Exprs", _mem_tracker);
     _expr_mem_pool.reset(new MemPool(_expr_mem_tracker.get()));
     // TODO chenhao
@@ -198,12 +194,11 @@ Status ExecNode::open(RuntimeState* state) {
     return Expr::open(_conjunct_ctxs, state);
 }
 
-
 Status ExecNode::reset(RuntimeState* state) {
     _num_rows_returned = 0;
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->reset(state));
-    }   
+    }
     return Status::OK();
 }
 
@@ -211,7 +206,7 @@ Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
     DCHECK(statistics != nullptr);
     for (auto child_node : _children) {
         child_node->collect_query_statistics(statistics);
-    } 
+    }
     return Status::OK();
 }
 
@@ -242,8 +237,8 @@ Status ExecNode::close(RuntimeState* state) {
 
     if (_buffer_pool_client.is_registered()) {
         VLOG_FILE << _id << " returning reservation " << _resource_profile.min_reservation;
-        state->initial_reservations()->Return(
-            &_buffer_pool_client, _resource_profile.min_reservation);
+        state->initial_reservations()->Return(&_buffer_pool_client,
+                                              _resource_profile.min_reservation);
         state->exec_env()->buffer_pool()->DeregisterClient(&_buffer_pool_client);
     }
 
@@ -264,7 +259,7 @@ void ExecNode::add_runtime_exec_option(const std::string& str) {
 }
 
 Status ExecNode::create_tree(RuntimeState* state, ObjectPool* pool, const TPlan& plan,
-                            const DescriptorTbl& descs, ExecNode** root) {
+                             const DescriptorTbl& descs, ExecNode** root) {
     if (plan.nodes.size() == 0) {
         *root = NULL;
         return Status::OK();
@@ -276,20 +271,16 @@ Status ExecNode::create_tree(RuntimeState* state, ObjectPool* pool, const TPlan&
     if (node_idx + 1 != plan.nodes.size()) {
         // TODO: print thrift msg for diagnostic purposes.
         return Status::InternalError(
-                   "Plan tree only partially reconstructed. Not all thrift nodes were used.");
+                "Plan tree only partially reconstructed. Not all thrift nodes were used.");
     }
 
     return Status::OK();
 }
 
-Status ExecNode::create_tree_helper(
-    RuntimeState* state,
-    ObjectPool* pool,
-    const vector<TPlanNode>& tnodes,
-    const DescriptorTbl& descs,
-    ExecNode* parent,
-    int* node_idx,
-    ExecNode** root) {
+Status ExecNode::create_tree_helper(RuntimeState* state, ObjectPool* pool,
+                                    const std::vector<TPlanNode>& tnodes,
+                                    const DescriptorTbl& descs, ExecNode* parent, int* node_idx,
+                                    ExecNode** root) {
     // propagate error case
     if (*node_idx >= tnodes.size()) {
         // TODO: print thrift msg
@@ -336,10 +327,10 @@ Status ExecNode::create_tree_helper(
 }
 
 Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
-                            const DescriptorTbl& descs, ExecNode** node) {
+                             const DescriptorTbl& descs, ExecNode** node) {
     std::stringstream error_msg;
 
-    VLOG(2) << "tnode:\n" << apache::thrift::ThriftDebugString(tnode);
+    VLOG_CRITICAL << "tnode:\n" << apache::thrift::ThriftDebugString(tnode);
     switch (tnode.node_type) {
     case TPlanNodeType::CSV_SCAN_NODE:
         *node = pool->add(new CsvScanNode(pool, tnode, descs));
@@ -350,7 +341,8 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         *node = pool->add(new MysqlScanNode(pool, tnode, descs));
         return Status::OK();
 #else
-        return Status::InternalError("Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
+        return Status::InternalError(
+                "Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
 #endif
     case TPlanNodeType::ODBC_SCAN_NODE:
         *node = pool->add(new OdbcScanNode(pool, tnode, descs));
@@ -449,7 +441,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     default:
         map<int, const char*>::const_iterator i =
-            _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
+                _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
         const char* str = "unknown node type";
 
         if (i != _TPlanNodeType_VALUES_TO_NAMES.end()) {
@@ -463,9 +455,8 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     return Status::OK();
 }
 
-void ExecNode::set_debug_options(
-    int node_id, TExecNodePhase::type phase, TDebugAction::type action,
-    ExecNode* root) {
+void ExecNode::set_debug_options(int node_id, TExecNodePhase::type phase, TDebugAction::type action,
+                                 ExecNode* root) {
     if (root->_id == node_id) {
         root->_debug_phase = phase;
         root->_debug_action = action;
@@ -509,7 +500,7 @@ bool ExecNode::eval_conjuncts(ExprContext* const* ctxs, int num_ctxs, TupleRow* 
     return true;
 }
 
-void ExecNode::collect_nodes(TPlanNodeType::type node_type, vector<ExecNode*>* nodes) {
+void ExecNode::collect_nodes(TPlanNodeType::type node_type, std::vector<ExecNode*>* nodes) {
     if (_type == node_type) {
         nodes->push_back(this);
     }
@@ -577,22 +568,23 @@ Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
     BufferPool* buffer_pool = ExecEnv::GetInstance()->buffer_pool();
     // Check the minimum buffer size in case the minimum buffer size used by the planner
     // doesn't match this backend's.
-        std::stringstream ss; 
+    std::stringstream ss;
     if (_resource_profile.__isset.spillable_buffer_size &&
         _resource_profile.spillable_buffer_size < buffer_pool->min_buffer_len()) {
-        ss << "Spillable buffer size for node " << _id << " of " << _resource_profile.spillable_buffer_size
+        ss << "Spillable buffer size for node " << _id << " of "
+           << _resource_profile.spillable_buffer_size
            << "bytes is less than the minimum buffer pool buffer size of "
-           <<  buffer_pool->min_buffer_len() << "bytes";
+           << buffer_pool->min_buffer_len() << "bytes";
         return Status::InternalError(ss.str());
-    }   
- 
+    }
+
     ss << print_plan_node_type(_type) << " id=" << _id << " ptr=" << this;
     RETURN_IF_ERROR(buffer_pool->RegisterClient(ss.str(), state->instance_buffer_reservation(),
                                                 mem_tracker(), buffer_pool->GetSystemBytesLimit(),
                                                 runtime_profile(), &_buffer_pool_client));
 
     state->initial_reservations()->Claim(&_buffer_pool_client, _resource_profile.min_reservation);
-/*
+    /*
     if (debug_action_ == TDebugAction::SET_DENY_RESERVATION_PROBABILITY &&
         (debug_phase_ == TExecNodePhase::PREPARE || debug_phase_ == TExecNodePhase::OPEN)) {
        // We may not have been able to enable the debug action at the start of Prepare() or
@@ -600,12 +592,12 @@ Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
        // effective.
                RETURN_IF_ERROR(EnableDenyReservationDebugAction());
     } 
-*/  
+*/
     return Status::OK();
 }
 
 Status ExecNode::release_unused_reservation() {
-  return _buffer_pool_client.DecreaseReservationTo(_resource_profile.min_reservation);
+    return _buffer_pool_client.DecreaseReservationTo(_resource_profile.min_reservation);
 }
 /*
 Status ExecNode::enable_deny_reservation_debug_action() {
@@ -617,7 +609,7 @@ Status ExecNode::enable_deny_reservation_debug_action() {
       debug_action_param_.c_str(), debug_action_param_.size(), &parse_result);
   if (parse_result != StringParser::PARSE_SUCCESS || probability < 0.0
       || probability > 1.0) {
-    return Status::InternalError(Substitute(
+    return Status::InternalError(strings::Substitute(
         "Invalid SET_DENY_RESERVATION_PROBABILITY param: '$0'", debug_action_param_));
   }
   _buffer_pool_client.SetDebugDenyIncreaseReservation(probability);
@@ -626,9 +618,9 @@ Status ExecNode::enable_deny_reservation_debug_action() {
 */
 
 Status ExecNode::QueryMaintenance(RuntimeState* state, const std::string& msg) {
-  // TODO chenhao , when introduce latest AnalyticEvalNode open it
-  // ScalarExprEvaluator::FreeLocalAllocations(evals_to_free_);
-  return state->check_query_state(msg);
+    // TODO chenhao , when introduce latest AnalyticEvalNode open it
+    // ScalarExprEvaluator::FreeLocalAllocations(evals_to_free_);
+    return state->check_query_state(msg);
 }
 
-}
+} // namespace doris

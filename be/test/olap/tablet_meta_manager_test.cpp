@@ -15,15 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
-#include <sstream>
-#include <fstream>
+#include "olap/tablet_meta_manager.h"
 
 #include <gtest/gtest.h>
-#include <boost/filesystem.hpp>
 #include <json2pb/json_to_pb.h>
 
-#include "olap/tablet_meta_manager.h"
+#include <boost/filesystem.hpp>
+#include <fstream>
+#include <sstream>
+#include <string>
+
 #include "olap/olap_define.h"
 #include "util/file_utils.h"
 
@@ -35,14 +36,15 @@ using std::string;
 
 namespace doris {
 
-const std::string meta_path = "./be/test/olap/test_data/header.txt";
+// const std::string meta_path = "./be/test/olap/test_data/header.txt";
+const std::string meta_path = "./be/test/olap/test_data/header_without_inc_rs.txt";
 
 class TabletMetaManagerTest : public testing::Test {
 public:
     virtual void SetUp() {
         std::string root_path = "./store";
         ASSERT_TRUE(boost::filesystem::create_directory(root_path));
-        _data_dir = new(std::nothrow) DataDir(root_path);
+        _data_dir = new (std::nothrow) DataDir(root_path);
         ASSERT_NE(nullptr, _data_dir);
         Status st = _data_dir->init();
         ASSERT_TRUE(st.ok());
@@ -105,9 +107,9 @@ TEST_F(TabletMetaManagerTest, TestLoad) {
     ASSERT_EQ(_json_header, json_meta_read);
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

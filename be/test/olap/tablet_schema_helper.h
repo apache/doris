@@ -18,14 +18,14 @@
 #pragma once
 
 #include <string>
-#include "olap/tablet_schema.h"
 
+#include "olap/tablet_schema.h"
 #include "runtime/mem_pool.h"
 
 namespace doris {
 
-TabletColumn create_int_key(int32_t id, bool is_nullable = true,
-        bool is_bf_column = false, bool has_bitmap_index = false) {
+TabletColumn create_int_key(int32_t id, bool is_nullable = true, bool is_bf_column = false,
+                            bool has_bitmap_index = false) {
     TabletColumn column;
     column._unique_id = id;
     column._col_name = std::to_string(id);
@@ -39,12 +39,10 @@ TabletColumn create_int_key(int32_t id, bool is_nullable = true,
     return column;
 }
 
-
-TabletColumn create_int_value(
-        int32_t id,
-        FieldAggregationMethod agg_method = OLAP_FIELD_AGGREGATION_SUM,
-        bool is_nullable = true, const std::string default_value = "",
-        bool is_bf_column = false, bool has_bitmap_index = false) {
+TabletColumn create_int_value(int32_t id,
+                              FieldAggregationMethod agg_method = OLAP_FIELD_AGGREGATION_SUM,
+                              bool is_nullable = true, const std::string default_value = "",
+                              bool is_bf_column = false, bool has_bitmap_index = false) {
     TabletColumn column;
     column._unique_id = id;
     column._col_name = std::to_string(id);
@@ -87,7 +85,7 @@ TabletColumn create_varchar_key(int32_t id, bool is_nullable = true) {
     return column;
 }
 
-template<FieldType type>
+template <FieldType type>
 TabletColumn create_with_default_value(std::string default_value) {
     TabletColumn column;
     column._type = type;
@@ -99,8 +97,8 @@ TabletColumn create_with_default_value(std::string default_value) {
     return column;
 }
 
-
-void set_column_value_by_type(FieldType fieldType, int src, char* target, MemPool* pool, size_t _length = 0) {
+void set_column_value_by_type(FieldType fieldType, int src, char* target, MemPool* pool,
+                              size_t _length = 0) {
     if (fieldType == OLAP_FIELD_TYPE_CHAR) {
         std::string s = std::to_string(src);
         char* src_value = &s[0];
@@ -125,4 +123,4 @@ void set_column_value_by_type(FieldType fieldType, int src, char* target, MemPoo
     }
 }
 
-}
+} // namespace doris

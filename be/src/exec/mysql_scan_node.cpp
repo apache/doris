@@ -21,30 +21,27 @@
 
 #include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
-MysqlScanNode::MysqlScanNode(ObjectPool* pool, const TPlanNode& tnode,
-                             const DescriptorTbl& descs)
-    : ScanNode(pool, tnode, descs),
-      _is_init(false),
-      _table_name(tnode.mysql_scan_node.table_name),
-      _tuple_id(tnode.mysql_scan_node.tuple_id),
-      _columns(tnode.mysql_scan_node.columns),
-      _filters(tnode.mysql_scan_node.filters),
-      _tuple_desc(nullptr) {
-}
+MysqlScanNode::MysqlScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ScanNode(pool, tnode, descs),
+          _is_init(false),
+          _table_name(tnode.mysql_scan_node.table_name),
+          _tuple_id(tnode.mysql_scan_node.tuple_id),
+          _columns(tnode.mysql_scan_node.columns),
+          _filters(tnode.mysql_scan_node.filters),
+          _tuple_desc(nullptr) {}
 
-MysqlScanNode::~MysqlScanNode() {
-}
+MysqlScanNode::~MysqlScanNode() {}
 
 Status MysqlScanNode::prepare(RuntimeState* state) {
-    VLOG(1) << "MysqlScanNode::Prepare";
+    VLOG_CRITICAL << "MysqlScanNode::Prepare";
 
     if (_is_init) {
         return Status::OK();
@@ -65,7 +62,7 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
     _slot_num = _tuple_desc->slots().size();
     // get mysql info
     const MySQLTableDescriptor* mysql_table =
-        static_cast<const MySQLTableDescriptor*>(_tuple_desc->table_desc());
+            static_cast<const MySQLTableDescriptor*>(_tuple_desc->table_desc());
 
     if (NULL == mysql_table) {
         return Status::InternalError("mysql table pointer is NULL.");
@@ -77,19 +74,19 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
     _my_param.passwd = mysql_table->passwd();
     _my_param.db = mysql_table->mysql_db();
     // new one scanner
-    _mysql_scanner.reset(new(std::nothrow) MysqlScanner(_my_param));
+    _mysql_scanner.reset(new (std::nothrow) MysqlScanner(_my_param));
 
     if (_mysql_scanner.get() == NULL) {
         return Status::InternalError("new a mysql scanner failed.");
     }
 
-    _tuple_pool.reset(new(std::nothrow) MemPool(mem_tracker().get()));
+    _tuple_pool.reset(new (std::nothrow) MemPool(mem_tracker().get()));
 
     if (_tuple_pool.get() == NULL) {
         return Status::InternalError("new a mem pool failed.");
     }
 
-    _text_converter.reset(new(std::nothrow) TextConverter('\\'));
+    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
 
     if (_text_converter.get() == NULL) {
         return Status::InternalError("new a text convertor failed.");
@@ -102,7 +99,7 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
 
 Status MysqlScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
-    VLOG(1) << "MysqlScanNode::Open";
+    VLOG_CRITICAL << "MysqlScanNode::Open";
 
     if (NULL == state) {
         return Status::InternalError("input pointer is NULL.");
@@ -134,10 +131,10 @@ Status MysqlScanNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status MysqlScanNode::write_text_slot(char* value, int value_length,
-                                    SlotDescriptor* slot, RuntimeState* state) {
-    if (!_text_converter->write_slot(slot, _tuple, value, value_length,
-                                     true, false, _tuple_pool.get())) {
+Status MysqlScanNode::write_text_slot(char* value, int value_length, SlotDescriptor* slot,
+                                      RuntimeState* state) {
+    if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
+                                     _tuple_pool.get())) {
         std::stringstream ss;
         ss << "fail to convert mysql value '" << value << "' TO " << slot->type();
         return Status::InternalError(ss.str());
@@ -147,7 +144,7 @@ Status MysqlScanNode::write_text_slot(char* value, int value_length,
 }
 
 Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    VLOG(1) << "MysqlScanNode::GetNext";
+    VLOG_CRITICAL << "MysqlScanNode::GetNext";
 
     if (NULL == state || NULL == row_batch || NULL == eos) {
         return Status::InternalError("input is NULL pointer");
@@ -160,7 +157,6 @@ Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_TIMER(materialize_tuple_timer());
 
     // create new tuple buffer for row_batch
     int tuple_buffer_size = row_batch->capacity() * _tuple_desc->byte_size();
@@ -215,7 +211,7 @@ Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
                 } else {
                     std::stringstream ss;
                     ss << "nonnull column contains NULL. table=" << _table_name
-                        << ", column=" << slot_desc->col_name();
+                       << ", column=" << slot_desc->col_name();
                     return Status::InternalError(ss.str());
                 }
             } else {
@@ -251,7 +247,7 @@ Status MysqlScanNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-void MysqlScanNode::debug_string(int indentation_level, stringstream* out) const {
+void MysqlScanNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "MysqlScanNode(tupleid=" << _tuple_id << " table=" << _table_name;
     *out << ")" << std::endl;
@@ -261,8 +257,8 @@ void MysqlScanNode::debug_string(int indentation_level, stringstream* out) const
     }
 }
 
-Status MysqlScanNode::set_scan_ranges(const vector<TScanRangeParams>& scan_ranges) {
+Status MysqlScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     return Status::OK();
 }
 
-}
+} // namespace doris

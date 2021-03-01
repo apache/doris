@@ -17,16 +17,17 @@
 
 #include "exec/es_http_scanner.h"
 
-#include <sstream>
 #include <iostream>
+#include <sstream>
 
+#include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
-#include "exprs/expr.h"
 
 namespace doris {
 
@@ -86,7 +87,8 @@ Status EsHttpScanner::open() {
     return Status::OK();
 }
 
-Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, const std::map<std::string, std::string>& docvalue_context) {
+Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof,
+                               const std::map<std::string, std::string>& docvalue_context) {
     SCOPED_TIMER(_read_timer);
     if (_line_eof && _batch_eof) {
         *eof = true;
@@ -104,8 +106,8 @@ Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, con
 
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        RETURN_IF_ERROR(_es_scroll_parser->fill_tuple(
-                        _tuple_desc, tuple, tuple_pool, &_line_eof, docvalue_context));
+        RETURN_IF_ERROR(_es_scroll_parser->fill_tuple(_tuple_desc, tuple, tuple_pool, &_line_eof,
+                                                      docvalue_context));
         if (!_line_eof) {
             break;
         }
@@ -122,4 +124,4 @@ void EsHttpScanner::close() {
     Expr::close(_conjunct_ctxs, _state);
 }
 
-}
+} // namespace doris

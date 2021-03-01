@@ -40,4 +40,4 @@ RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*> inputs);
 // Client should delete returned iterator.
 RowwiseIterator* new_auto_increment_iterator(const Schema& schema, size_t num_rows);
 
-}
+} // namespace doris

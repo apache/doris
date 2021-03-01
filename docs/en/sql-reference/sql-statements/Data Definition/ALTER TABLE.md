@@ -89,7 +89,7 @@ under the License.
             ADD ROLLUP [rollup_name (column_name1, column_name2, ...)
                                     [FROM from_index_name]
                                     [PROPERTIES ("key"="value", ...)],...]
-        example：
+        example:
             ADD ROLLUP r1(col1,col2) from r0, r2(col3,col4) from r0
     1.3 note:
             1) If from_index_name is not specified, it is created by default from base index
@@ -103,8 +103,8 @@ under the License.
         example:
            DROP ROLLUP r1
     2.1 Batch Delete rollup index
-        grammar：DROP ROLLUP [rollup_name [PROPERTIES ("key"="value", ...)],...]
-        example：DROP ROLLUP r1,r2
+        grammar: DROP ROLLUP [rollup_name [PROPERTIES ("key"="value", ...)],...]
+        example: DROP ROLLUP r1,r2
     2.2 note:
             1) Cannot delete base index
                
@@ -153,11 +153,11 @@ under the License.
             3) Only the type of the column can be modified. The other attributes of the column remain as they are (ie other attributes need to be explicitly written in the statement according to the original attribute, see example 8)
             4) The partition column cannot be modified
             5) The following types of conversions are currently supported (accuracy loss is guaranteed by the user)
-                TINYINT/SMALLINT/INT/BIGINT is converted to TINYINT/SMALLINT/INT/BIGINT/DOUBLE.
+	        TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE convert to a wider range of numeric types
                 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL is converted to VARCHAR
                 VARCHAR supports modification of maximum length
-                Convert VARCHAR to TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE.
-                Convert VARCHAR to DATE (currently support six formats: "%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d")
+                Convert VARCHAR/CHAR to TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE.
+                Convert VARCHAR/CHAR to DATE (currently support six formats: "%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d")
                 Convert DATETIME to DATE(Only year-month-day information is retained, For example: `2019-12-09 21:47:05` <--> `2019-12-09`)
                 Convert DATE to DATETIME(Set hour, minute, second to zero, For example: `2019-12-09` <--> `2019-12-09 00:00:00`)
                 Convert FLOAT to DOUBLE
@@ -173,7 +173,7 @@ under the License.
             1) All columns in index must be written
             2) value is listed after the key column
             
-    6. Modify the properties of the table, currently supports modifying the bloom filter column, the colocate_with attribute and the dynamic_partition attribute， the replication_num and default.replication_num.
+    6. Modify the properties of the table, currently supports modifying the bloom filter column, the colocate_with attribute and the dynamic_partition attribute,  the replication_num and default.replication_num.
         grammar:
             PROPERTIES ("key"="value")
         note:
@@ -217,7 +217,7 @@ under the License.
             2. BITMAP index only supports apply on single column
     2. drop index
         grammar:
-            DROP INDEX index_name；
+            DROP INDEX index_name;
 
 ## example
 

@@ -15,16 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/file_helper.h"
+
 #include <algorithm>
 #include <fstream>
-#include "gtest/gtest.h"
-#include "gmock/gmock.h"
+
 #include "agent/status.h"
-#include "olap/olap_define.h"
-#include "olap/file_helper.h"
 #include "boost/filesystem.hpp"
 #include "common/configbase.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "olap/olap_define.h"
 #include "util/logging.h"
+#include "test_util/test_util.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -39,7 +42,7 @@ namespace doris {
 
 class FileHandlerTest : public testing::Test {
 public:
-    // create a mock cgroup folder 
+    // create a mock cgroup folder
     virtual void SetUp() {
         ASSERT_FALSE(boost::filesystem::exists(_s_test_data_path));
         // create a mock cgroup path
@@ -47,10 +50,7 @@ public:
     }
 
     // delete the mock cgroup folder
-    virtual void TearDown() {
-        ASSERT_TRUE(boost::filesystem::remove_all(_s_test_data_path));
-    }
-    
+    virtual void TearDown() { ASSERT_TRUE(boost::filesystem::remove_all(_s_test_data_path)); }
 
     static std::string _s_test_data_path;
 };
@@ -62,11 +62,11 @@ TEST_F(FileHandlerTest, TestWrite) {
     std::string file_name = _s_test_data_path + "/abcd123.txt";
     // create a file using open
     ASSERT_FALSE(boost::filesystem::exists(file_name));
-    OLAPStatus op_status = file_handler.open_with_mode(file_name, 
-            O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
+    OLAPStatus op_status =
+            file_handler.open_with_mode(file_name, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
     ASSERT_EQ(OLAPStatus::OLAP_SUCCESS, op_status);
     ASSERT_TRUE(boost::filesystem::exists(file_name));
-    
+
     // tell current offset
     off_t cur_offset = file_handler.tell();
     ASSERT_EQ(0, cur_offset);
@@ -84,26 +84,25 @@ TEST_F(FileHandlerTest, TestWrite) {
 
     // write 12 bytes to disk
     char* ten_bytes[12];
-    memset(ten_bytes, 0, sizeof(char)*12);
+    memset(ten_bytes, 0, sizeof(char) * 12);
     file_handler.write(ten_bytes, 12);
     cur_offset = file_handler.tell();
     ASSERT_EQ(22, cur_offset);
     length = file_handler.length();
     ASSERT_EQ(22, length);
 
-    
     char* large_bytes2[(1 << 10)];
-    memset(large_bytes2, 0, sizeof(char)*((1 << 12)));
+    memset(large_bytes2, 0, sizeof(char) * ((1 << 12)));
     int i = 1;
-    while (i < 1 << 17) {
+    while (i < LOOP_LESS_OR_MORE(1 << 10, 1 << 17)) {
         file_handler.write(large_bytes2, ((1 << 12)));
         ++i;
     }
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");

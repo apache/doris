@@ -37,6 +37,7 @@ set(UTIL_FILES
   disk_info.cpp
   errno.cpp
   hash_util.hpp
+  histogram.cpp
   json_util.cpp
   doris_metrics.cpp
   mem_info.cpp
@@ -67,6 +68,7 @@ set(UTIL_FILES
   filesystem_util.cc
   load_error_hub.cpp
   broker_load_error_hub.cpp
+  broker_storage_backend.cpp
   null_load_error_hub.cpp
   time.cpp
   os_info.cpp
@@ -101,6 +103,11 @@ set(UTIL_FILES
   mustache/mustache.cc
   brpc_stub_cache.cpp
   zlib.cpp
+  pprof_utils.cpp
+  s3_uri.cpp
+  s3_storage_backend.cpp
+  s3_util.cpp
+  topn_counter.cpp
 )
 
 if (WITH_MYSQL)

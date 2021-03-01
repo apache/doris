@@ -20,14 +20,14 @@
 // Standard typedefs
 // All Google2 code is compiled with -funsigned-char to make "char"
 // unsigned.  Google2 code therefore doesn't need a "uchar" type.
-typedef int8_t              schar;
-typedef int8_t              int8;
-typedef int16_t             int16;
-typedef int32_t             int32;
+typedef int8_t schar;
+typedef int8_t int8;
+typedef int16_t int16;
+typedef int32_t int32;
 #ifdef _MSC_VER
-typedef __int64             int64;
+typedef __int64 int64;
 #else
-typedef int64_t             int64;
+typedef int64_t int64;
 #endif /* _MSC_VER */
 
 // NOTE: unsigned types are DANGEROUS in loops and other arithmetical
@@ -36,11 +36,11 @@ typedef int64_t             int64;
 // use 'unsigned' to express "this value should always be positive";
 // use assertions for this.
 
-typedef uint8_t        uint8;
-typedef uint16_t       uint16;
-typedef uint32_t       uint32;
+typedef uint8_t uint8;
+typedef uint16_t uint16;
+typedef uint32_t uint32;
 #ifdef _MSC_VER
-typedef unsigned __int64   uint64;
+typedef unsigned __int64 uint64;
 #else
 typedef uint64_t uint64;
 #endif /* _MSC_VER */
@@ -49,7 +49,7 @@ typedef uint64_t uint64;
 // such values require up to 21 bits.
 // (For type-checking on pointers, make this explicitly signed,
 // and it should always be the signed version of whatever int32 is.)
-typedef signed int         char32;
+typedef signed int char32;
 
 //  A type to represent a natural machine word (for e.g. efficiently
 // scanning through memory for checksums or index searching). Don't use
@@ -58,7 +58,7 @@ typedef signed int         char32;
 // (http://www.opengroup.org/public/tech/aspen/lp64_wp.htm), hence
 // their ints are only 32 bits. We want to use the same fundamental
 // type on all archs if possible to preserve *printf() compatability.
-typedef unsigned long      uword_t;
+typedef unsigned long uword_t;
 
 #endif /* SWIG */
 
@@ -68,32 +68,31 @@ typedef unsigned long      uword_t;
 #undef GG_ULONGLONG
 #undef GG_LL_FORMAT
 
-#ifdef _MSC_VER     /* if Visual C++ */
+#ifdef _MSC_VER /* if Visual C++ */
 
 // VC++ long long suffixes
 #define GG_LONGLONG(x) x##I64
 #define GG_ULONGLONG(x) x##UI64
 
-#else   /* not Visual C++ */
+#else /* not Visual C++ */
 
 #define GG_LONGLONG(x) x##LL
 #define GG_ULONGLONG(x) x##ULL
 
-#endif  // _MSC_VER
+#endif // _MSC_VER
 
-
-static const uint8  kuint8max  = (( uint8) 0xFF);
-static const uint16 kuint16max = ((uint16) 0xFFFF);
-static const uint32 kuint32max = ((uint32) 0xFFFFFFFF);
-static const uint64 kuint64max = ((uint64) GG_LONGLONG(0xFFFFFFFFFFFFFFFF));
-static const  int8  kint8min   = ((  int8) ~0x7F);
-static const  int8  kint8max   = ((  int8) 0x7F);
-static const  int16 kint16min  = (( int16) ~0x7FFF);
-static const  int16 kint16max  = (( int16) 0x7FFF);
-static const  int32 kint32min  = (( int32) ~0x7FFFFFFF);
-static const  int32 kint32max  = (( int32) 0x7FFFFFFF);
-static const  int64 kint64min  = (( int64) GG_LONGLONG(~0x7FFFFFFFFFFFFFFF));
-static const  int64 kint64max  = (( int64) GG_LONGLONG(0x7FFFFFFFFFFFFFFF));
+static const uint8 kuint8max = ((uint8)0xFF);
+static const uint16 kuint16max = ((uint16)0xFFFF);
+static const uint32 kuint32max = ((uint32)0xFFFFFFFF);
+static const uint64 kuint64max = ((uint64)GG_LONGLONG(0xFFFFFFFFFFFFFFFF));
+static const int8 kint8min = ((int8)~0x7F);
+static const int8 kint8max = ((int8)0x7F);
+static const int16 kint16min = ((int16)~0x7FFF);
+static const int16 kint16max = ((int16)0x7FFF);
+static const int32 kint32min = ((int32)~0x7FFFFFFF);
+static const int32 kint32max = ((int32)0x7FFFFFFF);
+static const int64 kint64min = ((int64)GG_LONGLONG(~0x7FFFFFFFFFFFFFFF));
+static const int64 kint64max = ((int64)GG_LONGLONG(0x7FFFFFFFFFFFFFFF));
 
 // TODO(user): remove this eventually.
 // No object has kIllegalFprint as its Fingerprint.
@@ -101,4 +100,4 @@ typedef uint64 Fprint;
 static const Fprint kIllegalFprint = 0;
 static const Fprint kMaxFprint = GG_ULONGLONG(0xFFFFFFFFFFFFFFFF);
 
-#endif  // BASE_INTEGRAL_TYPES_H_
+#endif // BASE_INTEGRAL_TYPES_H_

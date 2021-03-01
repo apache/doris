@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -32,6 +31,11 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.GregorianCalendar;
+import java.util.Iterator;
 import java.util.UUID;
 
 public class DynamicPartitionTableTest {
@@ -441,7 +445,7 @@ public class DynamicPartitionTableTest {
     }
 
     @Test
-    public void testEmptyDynamicPartition() throws Exception {
+    public void testCreateDynamicPartitionImmediately() throws Exception {
         String createOlapTblStmt = "CREATE TABLE test.`empty_dynamic_partition` (\n" +
                 "  `k1` date NULL COMMENT \"\",\n" +
                 "  `k2` int NULL COMMENT \"\",\n" +
@@ -463,11 +467,28 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.prefix\" = \"p\",\n" +
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
                 ");";
-        String insertStmt = "insert into test.`empty_dynamic_partition` values ('2020-09-10', 1000, 100, 'test', '2020-09-10 23:59:59');";
         createTable(createOlapTblStmt);
-        expectedException.expect(AnalysisException.class);
-        expectedException.expectMessage("errCode = 2, detailMessage = data cannot be inserted into table with empty partition. " +
-                "Use `SHOW PARTITIONS FROM empty_dynamic_partition` to see the currently partitions of this table. ");
-        UtFrameUtils.parseAndAnalyzeStmt("explain " + insertStmt, connectContext);
+        OlapTable emptyDynamicTable = (OlapTable)Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("empty_dynamic_partition");
+        Assert.assertTrue(emptyDynamicTable.getAllPartitions().size() == 4);
+
+        int partitionCount = 0;
+        Iterator<Partition> partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
+        while (partitionCount < 4) {
+            String partitionName = partitionIterator.next().getName();
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
+            Date partitionDate = sdf.parse(partitionName.substring(1));
+
+            Date date = new Date();
+            Calendar calendar = new GregorianCalendar();
+            calendar.setTime(date);
+            calendar.add(calendar.DATE, partitionCount);
+            date = calendar.getTime();
+
+            Assert.assertEquals(partitionDate.getYear(), date.getYear());
+            Assert.assertEquals(partitionDate.getMonth(), date.getMonth());
+            Assert.assertEquals(partitionDate.getDay(), date.getDay());
+
+            partitionCount++;
+        }
     }
 }

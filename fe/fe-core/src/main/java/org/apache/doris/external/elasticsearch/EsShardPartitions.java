@@ -21,13 +21,13 @@ import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONObject;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -82,7 +82,8 @@ public class EsShardPartitions {
                                         jsonObject.getJSONObject("nodes")));
                     } catch (Exception e) {
                         LOG.error("fetch index [{}] shard partitions failure", indexName, e);
-                        throw new DorisEsException("fetch [" + indexName + "] shard partitions failure [" + e.getMessage() + "]");                   }
+                        throw new DorisEsException("fetch [" + indexName + "] shard partitions failure [" + e.getMessage() + "]");
+                    }
                 }
             }
             if (singleShardRouting.isEmpty()) {
@@ -108,8 +109,9 @@ public class EsShardPartitions {
     }
 
     public TNetworkAddress randomAddress(Map<String, EsNodeInfo> nodesInfo) {
-        int seed = new Random().nextInt() % nodesInfo.size();
-        EsNodeInfo[] nodeInfos = (EsNodeInfo[]) nodesInfo.values().toArray();
+        // return a random value between 0 and 32767 : [0, 32767)
+        int seed = new Random().nextInt(Short.MAX_VALUE) % nodesInfo.size();
+        EsNodeInfo[] nodeInfos = nodesInfo.values().toArray(new EsNodeInfo[0]);
         return nodeInfos[seed].getPublishAddress();
     }
 

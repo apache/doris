@@ -15,15 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 #include "exec/local_file_reader.h"
-#include <unistd.h>
+
 #include <sys/stat.h>
+#include <unistd.h>
+
 #include "common/logging.h"
 
 namespace doris {
 
-LocalFileReader::LocalFileReader(const std::string& path, int64_t start_offset) 
-        : _path(path), _current_offset(start_offset), _file_size(-1), _fp(nullptr) {
-}
+LocalFileReader::LocalFileReader(const std::string& path, int64_t start_offset)
+        : _path(path), _current_offset(start_offset), _file_size(-1), _fp(nullptr) {}
 
 LocalFileReader::~LocalFileReader() {
     close();
@@ -34,8 +35,7 @@ Status LocalFileReader::open() {
     if (_fp == nullptr) {
         char err_buf[64];
         std::stringstream ss;
-        ss << "Open file failed. path=" << _path 
-            << ", error=" << strerror_r(errno, err_buf, 64);
+        ss << "Open file failed. path=" << _path << ", error=" << strerror_r(errno, err_buf, 64);
         return Status::InternalError(ss.str());
     }
     return seek(_current_offset);
@@ -53,21 +53,17 @@ bool LocalFileReader::closed() {
 }
 
 // Read all bytes
-Status LocalFileReader::read_one_message(uint8_t** buf, size_t* length) {
+Status LocalFileReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) {
     bool eof;
     int64_t file_size = size() - _current_offset;
     if (file_size <= 0) {
-        *buf = nullptr;
+        buf->reset();
         *length = 0;
         return Status::OK();
     }
     *length = file_size;
-    *buf = new uint8_t[file_size];
-    read(*buf, length, &eof);
-    if (*length == 0) {
-        delete *buf;
-        *buf = nullptr;
-    }
+    buf->reset(new uint8_t[file_size]);
+    read(buf->get(), length, &eof);
     return Status::OK();
 }
 
@@ -84,31 +80,30 @@ Status LocalFileReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
 Status LocalFileReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
     if (position != _current_offset) {
         int ret = fseek(_fp, position, SEEK_SET);
-        if (ret != 0) {// check fseek return value
+        if (ret != 0) { // check fseek return value
             return Status::InternalError(strerror(errno));
         }
     }
 
-    *bytes_read = fread(out, 1, nbytes,  _fp);
+    *bytes_read = fread(out, 1, nbytes, _fp);
     if (*bytes_read == 0 && ferror(_fp)) {
         char err_buf[64];
         std::stringstream ss;
-        ss << "Read file failed. path=" << _path
-            << ", error=" << strerror_r(errno, err_buf, 64);
+        ss << "Read file failed. path=" << _path << ", error=" << strerror_r(errno, err_buf, 64);
         return Status::InternalError(ss.str());
     }
-    _current_offset = ftell(_fp);// save offset with file
+    _current_offset = ftell(_fp); // save offset with file
     return Status::OK();
 }
 
-int64_t LocalFileReader::size () {
+int64_t LocalFileReader::size() {
     if (_file_size == -1) {
         int ret;
         struct stat buf;
         ret = fstat(fileno(_fp), &buf);
         if (ret) {
-            LOG(WARNING) << "Get file size is error, errno: " << errno
-                    << ", msg " << strerror(errno);
+            LOG(WARNING) << "Get file size is error, errno: " << errno << ", msg "
+                         << strerror(errno);
             return -1;
         }
         _file_size = buf.st_size;
@@ -122,7 +117,7 @@ Status LocalFileReader::seek(int64_t position) {
         char err_buf[64];
         std::stringstream ss;
         ss << "Seek to start_offset failed. offset=" << position
-            << ", error=" << strerror_r(errno, err_buf, 64);
+           << ", error=" << strerror_r(errno, err_buf, 64);
         return Status::InternalError(ss.str());
     }
     return Status::OK();
@@ -133,4 +128,4 @@ Status LocalFileReader::tell(int64_t* position) {
     return Status::OK();
 }
 
-}
+} // namespace doris

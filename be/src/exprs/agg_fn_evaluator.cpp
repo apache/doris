@@ -23,13 +23,13 @@
 #include "exec/aggregation_node.h"
 #include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
-#include "runtime/user_function_cache.h"
-#include "udf/udf_internal.h"
-#include "util/debug_util.h"
 #include "runtime/datetime_value.h"
 #include "runtime/mem_tracker.h"
-#include "thrift/protocol/TDebugProtocol.h"
 #include "runtime/raw_value.h"
+#include "runtime/user_function_cache.h"
+#include "thrift/protocol/TDebugProtocol.h"
+#include "udf/udf_internal.h"
+#include "util/debug_util.h"
 
 namespace doris {
 using doris_udf::FunctionContext;
@@ -56,100 +56,89 @@ typedef void (*InitFn)(FunctionContext*, AnyVal*);
 typedef void (*UpdateFn0)(FunctionContext*, AnyVal*);
 typedef void (*UpdateFn1)(FunctionContext*, const AnyVal&, AnyVal*);
 typedef void (*UpdateFn2)(FunctionContext*, const AnyVal&, const AnyVal&, AnyVal*);
-typedef void (*UpdateFn3)(FunctionContext*, const AnyVal&, const AnyVal&,
+typedef void (*UpdateFn3)(FunctionContext*, const AnyVal&, const AnyVal&, const AnyVal&, AnyVal*);
+typedef void (*UpdateFn4)(FunctionContext*, const AnyVal&, const AnyVal&, const AnyVal&,
                           const AnyVal&, AnyVal*);
-typedef void (*UpdateFn4)(FunctionContext*, const AnyVal&, const AnyVal&,
+typedef void (*UpdateFn5)(FunctionContext*, const AnyVal&, const AnyVal&, const AnyVal&,
                           const AnyVal&, const AnyVal&, AnyVal*);
-typedef void (*UpdateFn5)(FunctionContext*, const AnyVal&, const AnyVal&,
+typedef void (*UpdateFn6)(FunctionContext*, const AnyVal&, const AnyVal&, const AnyVal&,
                           const AnyVal&, const AnyVal&, const AnyVal&, AnyVal*);
-typedef void (*UpdateFn6)(FunctionContext*, const AnyVal&, const AnyVal&,
+typedef void (*UpdateFn7)(FunctionContext*, const AnyVal&, const AnyVal&, const AnyVal&,
                           const AnyVal&, const AnyVal&, const AnyVal&, const AnyVal&, AnyVal*);
-typedef void (*UpdateFn7)(FunctionContext*, const AnyVal&, const AnyVal&,
-                          const AnyVal&, const AnyVal&, const AnyVal&,
-                          const AnyVal&, const AnyVal&, AnyVal*);
-typedef void (*UpdateFn8)(FunctionContext*, const AnyVal&, const AnyVal&,
+typedef void (*UpdateFn8)(FunctionContext*, const AnyVal&, const AnyVal&, const AnyVal&,
                           const AnyVal&, const AnyVal&, const AnyVal&, const AnyVal&, const AnyVal&,
-                          const AnyVal&, AnyVal*);
-typedef StringVal(*SerializeFn)(FunctionContext*, const StringVal&);
-typedef AnyVal(*GetValueFn)(FunctionContext*, const AnyVal&);
-typedef AnyVal(*FinalizeFn)(FunctionContext*, const AnyVal&);
+                          AnyVal*);
+typedef StringVal (*SerializeFn)(FunctionContext*, const StringVal&);
+typedef AnyVal (*GetValueFn)(FunctionContext*, const AnyVal&);
+typedef AnyVal (*FinalizeFn)(FunctionContext*, const AnyVal&);
 
-Status AggFnEvaluator::create(ObjectPool* pool,
-        const TExpr& desc,
-        AggFnEvaluator** result) {
+Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, AggFnEvaluator** result) {
     return create(pool, desc, false, result);
 }
 
-Status AggFnEvaluator::create(
-        ObjectPool* pool,
-        const TExpr& desc,
-        bool is_analytic_fn,
-        AggFnEvaluator** result) {
+Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, bool is_analytic_fn,
+                              AggFnEvaluator** result) {
     *result = pool->add(new AggFnEvaluator(desc.nodes[0], is_analytic_fn));
     int node_idx = 0;
     for (int i = 0; i < desc.nodes[0].num_children; ++i) {
         ++node_idx;
         Expr* expr = NULL;
         ExprContext* ctx = NULL;
-        RETURN_IF_ERROR(Expr::create_tree_from_thrift(
-                pool, desc.nodes, NULL, &node_idx, &expr, &ctx));
+        RETURN_IF_ERROR(
+                Expr::create_tree_from_thrift(pool, desc.nodes, NULL, &node_idx, &expr, &ctx));
         (*result)->_input_exprs_ctxs.push_back(ctx);
     }
     return Status::OK();
 }
 
-AggFnEvaluator::AggFnEvaluator(const TExprNode& desc, bool is_analytic_fn) :
-        _fn(desc.fn),
-        _is_merge(desc.agg_expr.is_merge_agg),
-        _is_analytic_fn(is_analytic_fn),
-        _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)),
-        _intermediate_type(TypeDescriptor::from_thrift(desc.fn.aggregate_fn.intermediate_type)),
-        _function_type(desc.fn.binary_type),
-        _total_mem_consumption(0),
-        _accumulated_mem_consumption(0),
-        _intermediate_slot_desc(NULL),
-        _output_slot_desc(NULL),
-        _init_fn(NULL),
-        _update_fn(NULL),
-        _remove_fn(NULL),
-        _merge_fn(NULL),
-        _serialize_fn(NULL),
-        _get_value_fn(NULL),
-        _finalize_fn(NULL) {
-        if (_fn.name.function_name == "count") {
-            _agg_op = COUNT;
-        } else if (_fn.name.function_name == "min") {
-            _agg_op = MIN;
-        } else if (_fn.name.function_name == "max") {
-            _agg_op = MAX;
-        } else if (_fn.name.function_name == "sum") {
-            _agg_op = SUM;
-        } else if (_fn.name.function_name == "avg") {
-            _agg_op = AVG;
-        } else if (_fn.name.function_name == "ndv" ||
-            _fn.name.function_name == "ndv_no_finalize") {
-            _agg_op = NDV;
-        } else if (_fn.name.function_name == "count_distinct" ||
-            _fn.name.function_name == "count_distinct") {
-            _agg_op = COUNT_DISTINCT;
-        } else if (_fn.name.function_name == "sum_distinct" ||
-            _fn.name.function_name == "sum_distinct") {
-            _agg_op = SUM_DISTINCT;
-        } else if (_fn.name.function_name == "hll_union_agg") {
-            _agg_op = HLL_UNION_AGG;
-        } else {
-            _agg_op = OTHER;
-        }
+AggFnEvaluator::AggFnEvaluator(const TExprNode& desc, bool is_analytic_fn)
+        : _fn(desc.fn),
+          _is_merge(desc.agg_expr.is_merge_agg),
+          _is_analytic_fn(is_analytic_fn),
+          _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)),
+          _intermediate_type(TypeDescriptor::from_thrift(desc.fn.aggregate_fn.intermediate_type)),
+          _function_type(desc.fn.binary_type),
+          _total_mem_consumption(0),
+          _accumulated_mem_consumption(0),
+          _intermediate_slot_desc(NULL),
+          _output_slot_desc(NULL),
+          _init_fn(NULL),
+          _update_fn(NULL),
+          _remove_fn(NULL),
+          _merge_fn(NULL),
+          _serialize_fn(NULL),
+          _get_value_fn(NULL),
+          _finalize_fn(NULL) {
+    if (_fn.name.function_name == "count") {
+        _agg_op = COUNT;
+    } else if (_fn.name.function_name == "min") {
+        _agg_op = MIN;
+    } else if (_fn.name.function_name == "max") {
+        _agg_op = MAX;
+    } else if (_fn.name.function_name == "sum") {
+        _agg_op = SUM;
+    } else if (_fn.name.function_name == "avg") {
+        _agg_op = AVG;
+    } else if (_fn.name.function_name == "ndv" || _fn.name.function_name == "ndv_no_finalize") {
+        _agg_op = NDV;
+    } else if (_fn.name.function_name == "count_distinct" ||
+               _fn.name.function_name == "count_distinct") {
+        _agg_op = COUNT_DISTINCT;
+    } else if (_fn.name.function_name == "sum_distinct" ||
+               _fn.name.function_name == "sum_distinct") {
+        _agg_op = SUM_DISTINCT;
+    } else if (_fn.name.function_name == "hll_union_agg") {
+        _agg_op = HLL_UNION_AGG;
+    } else {
+        _agg_op = OTHER;
+    }
 }
 
-Status AggFnEvaluator::prepare(
-        RuntimeState* state,
-        const RowDescriptor& desc,
-        MemPool* pool,
-        const SlotDescriptor* intermediate_slot_desc,
-        const SlotDescriptor* output_slot_desc,
-        const std::shared_ptr<MemTracker>& mem_tracker,
-        FunctionContext** agg_fn_ctx) {
+Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, MemPool* pool,
+                               const SlotDescriptor* intermediate_slot_desc,
+                               const SlotDescriptor* output_slot_desc,
+                               const std::shared_ptr<MemTracker>& mem_tracker,
+                               FunctionContext** agg_fn_ctx) {
     DCHECK(pool != NULL);
     DCHECK(intermediate_slot_desc != NULL);
     DCHECK(_intermediate_slot_desc == NULL);
@@ -166,8 +155,8 @@ Status AggFnEvaluator::prepare(
     ObjectPool* obj_pool = state->obj_pool();
 
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        _staging_input_vals.push_back(create_any_val(
-                obj_pool, input_expr_ctxs()[i]->root()->type()));
+        _staging_input_vals.push_back(
+                create_any_val(obj_pool, input_expr_ctxs()[i]->root()->type()));
     }
 
     // window has intermediate_slot_type
@@ -193,70 +182,67 @@ Status AggFnEvaluator::prepare(
 
     // Load the function pointers. Merge is not required if this is evaluating an
     // analytic function.
-    if (_fn.aggregate_fn.init_fn_symbol.empty() ||
-        _fn.aggregate_fn.update_fn_symbol.empty() ||
+    if (_fn.aggregate_fn.init_fn_symbol.empty() || _fn.aggregate_fn.update_fn_symbol.empty() ||
         (!_is_analytic_fn && _fn.aggregate_fn.merge_fn_symbol.empty())) {
         // This path is only for partially implemented builtins.
         DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::BUILTIN);
-        stringstream ss;
+        std::stringstream ss;
         ss << "Function " << _fn.name.function_name << " is not implemented.";
         return Status::InternalError(ss.str());
     }
 
     // Load the function pointers.
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-            _fn.id, _fn.aggregate_fn.init_fn_symbol,
-             _fn.hdfs_location, _fn.checksum, &_init_fn, NULL));
+            _fn.id, _fn.aggregate_fn.init_fn_symbol, _fn.hdfs_location, _fn.checksum, &_init_fn,
+            NULL));
 
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-            _fn.id, _fn.aggregate_fn.update_fn_symbol,
-            _fn.hdfs_location, _fn.checksum, &_update_fn, NULL));
+            _fn.id, _fn.aggregate_fn.update_fn_symbol, _fn.hdfs_location, _fn.checksum, &_update_fn,
+            NULL));
 
     // Merge() is not loaded if evaluating the agg fn as an analytic function.
     if (!_is_analytic_fn) {
-    RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-            _fn.id, _fn.aggregate_fn.merge_fn_symbol,
-            _fn.hdfs_location, _fn.checksum, &_merge_fn, NULL));
+        RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
+                _fn.id, _fn.aggregate_fn.merge_fn_symbol, _fn.hdfs_location, _fn.checksum,
+                &_merge_fn, NULL));
     }
 
     // Serialize and Finalize are optional
     if (!_fn.aggregate_fn.serialize_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, _fn.aggregate_fn.serialize_fn_symbol,
-                _fn.hdfs_location, _fn.checksum, &_serialize_fn, NULL));
+                _fn.id, _fn.aggregate_fn.serialize_fn_symbol, _fn.hdfs_location, _fn.checksum,
+                &_serialize_fn, NULL));
     }
     if (!_fn.aggregate_fn.finalize_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, _fn.aggregate_fn.finalize_fn_symbol,
-                _fn.hdfs_location, _fn.checksum, &_finalize_fn, NULL));
+                _fn.id, _fn.aggregate_fn.finalize_fn_symbol, _fn.hdfs_location, _fn.checksum,
+                &_finalize_fn, NULL));
     }
 
     if (!_fn.aggregate_fn.get_value_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, _fn.aggregate_fn.get_value_fn_symbol,
-                _fn.hdfs_location, _fn.checksum, &_get_value_fn,
-                NULL));
+                _fn.id, _fn.aggregate_fn.get_value_fn_symbol, _fn.hdfs_location, _fn.checksum,
+                &_get_value_fn, NULL));
     }
     if (!_fn.aggregate_fn.remove_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, _fn.aggregate_fn.remove_fn_symbol,
-                _fn.hdfs_location, _fn.checksum, &_remove_fn,
-                NULL));
+                _fn.id, _fn.aggregate_fn.remove_fn_symbol, _fn.hdfs_location, _fn.checksum,
+                &_remove_fn, NULL));
     }
 
-    vector<FunctionContext::TypeDesc> arg_types;
+    std::vector<FunctionContext::TypeDesc> arg_types;
     for (int j = 0; j < _input_exprs_ctxs.size(); ++j) {
         arg_types.push_back(
-            AnyValUtil::column_type_to_type_desc(_input_exprs_ctxs[j]->root()->type()));
+                AnyValUtil::column_type_to_type_desc(_input_exprs_ctxs[j]->root()->type()));
     }
 
     FunctionContext::TypeDesc intermediate_type =
-        AnyValUtil::column_type_to_type_desc(_intermediate_type);
+            AnyValUtil::column_type_to_type_desc(_intermediate_type);
     FunctionContext::TypeDesc output_type =
-         AnyValUtil::column_type_to_type_desc(_output_slot_desc->type());
+            AnyValUtil::column_type_to_type_desc(_output_slot_desc->type());
 
-    *agg_fn_ctx = FunctionContextImpl::create_context(state, pool,
-            intermediate_type, output_type, arg_types, 0, false);
+    *agg_fn_ctx = FunctionContextImpl::create_context(state, pool, intermediate_type, output_type,
+                                                      arg_types, 0, false);
     return Status::OK();
 }
 
@@ -265,7 +251,7 @@ Status AggFnEvaluator::open(RuntimeState* state, FunctionContext* agg_fn_ctx) {
     // Now that we have opened all our input exprs, it is safe to evaluate any constant
     // values for the UDA's FunctionContext (we cannot evaluate exprs before calling Open()
     // on them).
-    vector<AnyVal*> constant_args(_input_exprs_ctxs.size());
+    std::vector<AnyVal*> constant_args(_input_exprs_ctxs.size());
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
         constant_args[i] = _input_exprs_ctxs[i]->root()->get_const_val(_input_exprs_ctxs[i]);
     }
@@ -281,9 +267,7 @@ void AggFnEvaluator::close(RuntimeState* state) {
 }
 
 // Utility to put val into an AnyVal struct
-inline void AggFnEvaluator::set_any_val(
-        const void* slot,
-        const TypeDescriptor& type, AnyVal* dst) {
+inline void AggFnEvaluator::set_any_val(const void* slot, const TypeDescriptor& type, AnyVal* dst) {
     if (slot == NULL) {
         dst->is_null = true;
         return;
@@ -343,8 +327,8 @@ inline void AggFnEvaluator::set_any_val(
         return;
 
     case TYPE_DECIMALV2:
-        reinterpret_cast<DecimalV2Val*>(dst)->val 
-            = reinterpret_cast<const PackedInt128*>(slot)->value;
+        reinterpret_cast<DecimalV2Val*>(dst)->val =
+                reinterpret_cast<const PackedInt128*>(slot)->value;
         return;
 
     case TYPE_LARGEINT:
@@ -356,8 +340,8 @@ inline void AggFnEvaluator::set_any_val(
     }
 }
 
-inline void AggFnEvaluator::set_output_slot(const AnyVal* src,
-        const SlotDescriptor* dst_slot_desc, Tuple* dst) {
+inline void AggFnEvaluator::set_output_slot(const AnyVal* src, const SlotDescriptor* dst_slot_desc,
+                                            Tuple* dst) {
     if (src->is_null) {
         dst->set_null(dst_slot_desc->null_indicator_offset());
         return;
@@ -403,23 +387,22 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src,
     case TYPE_HLL:
     case TYPE_OBJECT:
         *reinterpret_cast<StringValue*>(slot) =
-            StringValue::from_string_val(*reinterpret_cast<const StringVal*>(src));
+                StringValue::from_string_val(*reinterpret_cast<const StringVal*>(src));
         return;
 
     case TYPE_DATE:
     case TYPE_DATETIME:
-        *reinterpret_cast<DateTimeValue*>(slot) = DateTimeValue::from_datetime_val(
-                    *reinterpret_cast<const DateTimeVal*>(src));
+        *reinterpret_cast<DateTimeValue*>(slot) =
+                DateTimeValue::from_datetime_val(*reinterpret_cast<const DateTimeVal*>(src));
         return;
 
     case TYPE_DECIMAL:
-        *reinterpret_cast<DecimalValue*>(slot) = DecimalValue::from_decimal_val(
-                    *reinterpret_cast<const DecimalVal*>(src));
+        *reinterpret_cast<DecimalValue*>(slot) =
+                DecimalValue::from_decimal_val(*reinterpret_cast<const DecimalVal*>(src));
         return;
 
     case TYPE_DECIMALV2:
-        *reinterpret_cast<PackedInt128*>(slot) = 
-            reinterpret_cast<const DecimalV2Val*>(src)->val;
+        *reinterpret_cast<PackedInt128*>(slot) = reinterpret_cast<const DecimalV2Val*>(src)->val;
         return;
 
     case TYPE_LARGEINT: {
@@ -452,7 +435,6 @@ void AggFnEvaluator::init(FunctionContext* agg_fn_ctx, Tuple* dst) {
     set_output_slot(_staging_intermediate_val, _intermediate_slot_desc, dst);
     agg_fn_ctx->impl()->set_num_updates(0);
     agg_fn_ctx->impl()->set_num_removes(0);
-
 }
 
 void AggFnEvaluator::update_mem_limlits(int len) {
@@ -465,8 +447,7 @@ void AggFnEvaluator::update_mem_limlits(int len) {
     }
 }
 
-AggFnEvaluator::~AggFnEvaluator() {
-}
+AggFnEvaluator::~AggFnEvaluator() {}
 
 inline void AggFnEvaluator::update_mem_trackers(bool is_filter, bool is_add_buckets, int len) {
     if (!is_filter) {
@@ -509,7 +490,7 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
 
     // 2. merge multi parameter into one parameter(StringVal)
     if (_string_buffer_len < total_len) {
-        _string_buffer_len = ((total_len << 10) + 1) >> 10 ;  // (len/1024+1)*1024
+        _string_buffer_len = ((total_len << 10) + 1) >> 10; // (len/1024+1)*1024
         _string_buffer.reset(new char[_string_buffer_len]);
     }
 
@@ -530,21 +511,21 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
             return true;
 
         case TYPE_BOOLEAN: {
-            *begin = (uint8_t)reinterpret_cast<BooleanVal*>(_staging_input_vals[i])->val;
+            *begin = (uint8_t) reinterpret_cast<BooleanVal*>(_staging_input_vals[i])->val;
             begin += TINYINT_SIZE;
             break;
         }
 
         case TYPE_TINYINT: {
-            memcpy(begin,
-                   &reinterpret_cast<TinyIntVal*>(_staging_input_vals[i])->val, TINYINT_SIZE);
+            memcpy(begin, &reinterpret_cast<TinyIntVal*>(_staging_input_vals[i])->val,
+                   TINYINT_SIZE);
             begin += TINYINT_SIZE;
             break;
         }
 
         case TYPE_SMALLINT: {
-            memcpy(begin,
-                   &reinterpret_cast<SmallIntVal*>(_staging_input_vals[i])->val, SMALLINT_SIZE);
+            memcpy(begin, &reinterpret_cast<SmallIntVal*>(_staging_input_vals[i])->val,
+                   SMALLINT_SIZE);
             begin += SMALLINT_SIZE;
             break;
         }
@@ -621,7 +602,7 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
     DCHECK(begin == string_val.ptr + string_val.len)
             << "COUNT_DISTINCT: StringVal's len doesn't match";
     bool is_add_buckets = false;
-    bool is_filter =  is_in_hybridmap(&string_val, dst, &is_add_buckets);
+    bool is_filter = is_in_hybridmap(&string_val, dst, &is_add_buckets);
     update_mem_trackers(is_filter, is_add_buckets, string_val.len);
     return is_filter;
 }
@@ -646,21 +627,21 @@ bool AggFnEvaluator::sum_distinct_data_filter(TupleRow* row, Tuple* dst) {
 
     case TYPE_BIGINT: {
         const BigIntVal* value = reinterpret_cast<BigIntVal*>(_staging_input_vals[0]);
-        is_filter = is_in_hybridmap((void*) & (value->val), dst, &is_add_buckets);
+        is_filter = is_in_hybridmap((void*)&(value->val), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, BIGINT_SIZE);
         return is_filter;
     }
 
     case TYPE_FLOAT: {
         const FloatVal* value = reinterpret_cast<FloatVal*>(_staging_input_vals[0]);
-        is_filter = is_in_hybridmap((void*) & (value->val), dst, &is_add_buckets);
+        is_filter = is_in_hybridmap((void*)&(value->val), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, FLOAT_SIZE);
         return is_filter;
     }
 
     case TYPE_DOUBLE: {
         const DoubleVal* value = reinterpret_cast<DoubleVal*>(_staging_input_vals[0]);
-        is_filter = is_in_hybridmap((void*) & (value->val), dst, &is_add_buckets);
+        is_filter = is_in_hybridmap((void*)&(value->val), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, DOUBLE_SIZE);
         return is_filter;
     }
@@ -668,7 +649,7 @@ bool AggFnEvaluator::sum_distinct_data_filter(TupleRow* row, Tuple* dst) {
     case TYPE_DECIMAL: {
         const DecimalVal* value = reinterpret_cast<DecimalVal*>(_staging_input_vals[0]);
         DecimalValue temp_value = DecimalValue::from_decimal_val(*value);
-        is_filter = is_in_hybridmap((void*) & (temp_value), dst, &is_add_buckets);
+        is_filter = is_in_hybridmap((void*)&(temp_value), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, DECIMAL_SIZE);
         return is_filter;
     }
@@ -676,14 +657,14 @@ bool AggFnEvaluator::sum_distinct_data_filter(TupleRow* row, Tuple* dst) {
     case TYPE_DECIMALV2: {
         const DecimalV2Val* value = reinterpret_cast<DecimalV2Val*>(_staging_input_vals[0]);
         DecimalV2Value temp_value = DecimalV2Value::from_decimal_val(*value);
-        is_filter = is_in_hybridmap((void*) & (temp_value), dst, &is_add_buckets);
+        is_filter = is_in_hybridmap((void*)&(temp_value), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, DECIMALV2_SIZE);
         return is_filter;
     }
 
     case TYPE_LARGEINT: {
         const LargeIntVal* value = reinterpret_cast<LargeIntVal*>(_staging_input_vals[0]);
-        is_filter = is_in_hybridmap((void*) & (value->val), dst, &is_add_buckets);
+        is_filter = is_in_hybridmap((void*)&(value->val), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, LARGEINT_SIZE);
         return is_filter;
     }
@@ -696,8 +677,8 @@ bool AggFnEvaluator::sum_distinct_data_filter(TupleRow* row, Tuple* dst) {
     return false;
 }
 
-void AggFnEvaluator::update_or_merge(FunctionContext* agg_fn_ctx, TupleRow* row,
-    Tuple* dst, void* fn) {
+void AggFnEvaluator::update_or_merge(FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst,
+                                     void* fn) {
     if (fn == NULL) {
         return;
     }
@@ -741,8 +722,8 @@ void AggFnEvaluator::update_or_merge(FunctionContext* agg_fn_ctx, TupleRow* row,
     // if _agg_op is TAggregationOp::COUNT_DISTINCT, it has only one
     // input parameter, we consider the first parameter as the only input parameter
     if (_is_multi_distinct && _agg_op == AggregationOp::COUNT_DISTINCT) {
-        reinterpret_cast<UpdateFn1>(fn)(agg_fn_ctx,
-                                        *_staging_input_vals[0], _staging_intermediate_val);
+        reinterpret_cast<UpdateFn1>(fn)(agg_fn_ctx, *_staging_input_vals[0],
+                                        _staging_intermediate_val);
     } else {
         switch (input_expr_ctxs().size()) {
         case 0:
@@ -750,61 +731,54 @@ void AggFnEvaluator::update_or_merge(FunctionContext* agg_fn_ctx, TupleRow* row,
             break;
 
         case 1:
-            reinterpret_cast<UpdateFn1>(fn)(agg_fn_ctx,
-                                            *_staging_input_vals[0], _staging_intermediate_val);
+            reinterpret_cast<UpdateFn1>(fn)(agg_fn_ctx, *_staging_input_vals[0],
+                                            _staging_intermediate_val);
             break;
 
         case 2:
-            reinterpret_cast<UpdateFn2>(fn)(
-                    agg_fn_ctx,
-                   *_staging_input_vals[0],
-                   *_staging_input_vals[1],
-                   _staging_intermediate_val);
+            reinterpret_cast<UpdateFn2>(fn)(agg_fn_ctx, *_staging_input_vals[0],
+                                            *_staging_input_vals[1], _staging_intermediate_val);
             break;
 
         case 3:
-            reinterpret_cast<UpdateFn3>(fn)(agg_fn_ctx,
-                                            *_staging_input_vals[0], *_staging_input_vals[1],
-                                            *_staging_input_vals[2], _staging_intermediate_val);
+            reinterpret_cast<UpdateFn3>(fn)(agg_fn_ctx, *_staging_input_vals[0],
+                                            *_staging_input_vals[1], *_staging_input_vals[2],
+                                            _staging_intermediate_val);
             break;
 
         case 4:
-            reinterpret_cast<UpdateFn4>(fn)(agg_fn_ctx,
-                                            *_staging_input_vals[0], *_staging_input_vals[1],
-                                            *_staging_input_vals[2], *_staging_input_vals[3],
-                                            _staging_intermediate_val);
+            reinterpret_cast<UpdateFn4>(fn)(agg_fn_ctx, *_staging_input_vals[0],
+                                            *_staging_input_vals[1], *_staging_input_vals[2],
+                                            *_staging_input_vals[3], _staging_intermediate_val);
             break;
 
         case 5:
-            reinterpret_cast<UpdateFn5>(fn)(agg_fn_ctx,
-                                            *_staging_input_vals[0], *_staging_input_vals[1],
-                                            *_staging_input_vals[2], *_staging_input_vals[3],
-                                            *_staging_input_vals[4], _staging_intermediate_val);
+            reinterpret_cast<UpdateFn5>(fn)(agg_fn_ctx, *_staging_input_vals[0],
+                                            *_staging_input_vals[1], *_staging_input_vals[2],
+                                            *_staging_input_vals[3], *_staging_input_vals[4],
+                                            _staging_intermediate_val);
             break;
 
         case 6:
-            reinterpret_cast<UpdateFn6>(fn)(agg_fn_ctx,
-                                            *_staging_input_vals[0], *_staging_input_vals[1],
-                                            *_staging_input_vals[2], *_staging_input_vals[3],
-                                            *_staging_input_vals[4], *_staging_input_vals[5],
-                                            _staging_intermediate_val);
+            reinterpret_cast<UpdateFn6>(fn)(agg_fn_ctx, *_staging_input_vals[0],
+                                            *_staging_input_vals[1], *_staging_input_vals[2],
+                                            *_staging_input_vals[3], *_staging_input_vals[4],
+                                            *_staging_input_vals[5], _staging_intermediate_val);
             break;
 
         case 7:
-            reinterpret_cast<UpdateFn7>(fn)(agg_fn_ctx,
-                                            *_staging_input_vals[0], *_staging_input_vals[1],
-                                            *_staging_input_vals[2], *_staging_input_vals[3],
-                                            *_staging_input_vals[4], *_staging_input_vals[5],
-                                            *_staging_input_vals[6], _staging_intermediate_val);
+            reinterpret_cast<UpdateFn7>(fn)(
+                    agg_fn_ctx, *_staging_input_vals[0], *_staging_input_vals[1],
+                    *_staging_input_vals[2], *_staging_input_vals[3], *_staging_input_vals[4],
+                    *_staging_input_vals[5], *_staging_input_vals[6], _staging_intermediate_val);
             break;
 
         case 8:
-            reinterpret_cast<UpdateFn8>(fn)(agg_fn_ctx,
-                                            *_staging_input_vals[0], *_staging_input_vals[1],
-                                            *_staging_input_vals[2], *_staging_input_vals[3],
-                                            *_staging_input_vals[4], *_staging_input_vals[5],
-                                            *_staging_input_vals[6], *_staging_input_vals[7],
-                                            _staging_intermediate_val);
+            reinterpret_cast<UpdateFn8>(fn)(agg_fn_ctx, *_staging_input_vals[0],
+                                            *_staging_input_vals[1], *_staging_input_vals[2],
+                                            *_staging_input_vals[3], *_staging_input_vals[4],
+                                            *_staging_input_vals[5], *_staging_input_vals[6],
+                                            *_staging_input_vals[7], _staging_intermediate_val);
             break;
 
         default:
@@ -815,13 +789,12 @@ void AggFnEvaluator::update_or_merge(FunctionContext* agg_fn_ctx, TupleRow* row,
     set_output_slot(_staging_intermediate_val, _intermediate_slot_desc, dst);
 }
 
-void AggFnEvaluator::update(
-        FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst, void* fn, MemPool* pool) {
+void AggFnEvaluator::update(FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst, void* fn,
+                            MemPool* pool) {
     return update_or_merge(agg_fn_ctx, row, dst, fn);
 }
 
-void AggFnEvaluator::merge(
-        FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst, MemPool* pool) {
+void AggFnEvaluator::merge(FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst, MemPool* pool) {
     return update_or_merge(agg_fn_ctx, row, dst, _merge_fn);
 }
 
@@ -841,14 +814,14 @@ void AggFnEvaluator::merge(FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst) 
     set_any_val2(_intermediate_slot_desc, src, _staging_merge_input_val);
 
     // The merge fn always takes one input argument.
-    reinterpret_cast<UpdateFn1>(_merge_fn)(agg_fn_ctx,
-            *_staging_merge_input_val, _staging_intermediate_val);
+    reinterpret_cast<UpdateFn1>(_merge_fn)(agg_fn_ctx, *_staging_merge_input_val,
+                                           _staging_intermediate_val);
 
     set_output_slot(_staging_intermediate_val, _intermediate_slot_desc, dst);
 }
 
-void AggFnEvaluator::choose_update_or_merge(
-        FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst) {
+void AggFnEvaluator::choose_update_or_merge(FunctionContext* agg_fn_ctx, TupleRow* row,
+                                            Tuple* dst) {
     if (_is_merge) {
         return update_or_merge(agg_fn_ctx, row, dst, _merge_fn);
     } else {
@@ -857,7 +830,8 @@ void AggFnEvaluator::choose_update_or_merge(
 }
 
 void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* src,
-    const SlotDescriptor* dst_slot_desc, Tuple* dst, void* fn) {
+                                           const SlotDescriptor* dst_slot_desc, Tuple* dst,
+                                           void* fn) {
     // DCHECK_EQ(dst_slot_desc->type().type, _return_type.type);
     if (src == NULL) {
         src = dst;
@@ -876,72 +850,71 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
 
     // not same
     // if (_is_analytic_fn) {
-        // No fn was given but the src and dst tuples are different (doing a finalize()).
-        // Just copy the src slot into the dst tuple.
-        if (fn == NULL) {
-            DCHECK_EQ(_intermediate_slot_desc->type(), dst_slot_desc->type());
-            RawValue::write(src_slot, dst, dst_slot_desc, NULL);
-            return;
-        }
+    // No fn was given but the src and dst tuples are different (doing a finalize()).
+    // Just copy the src slot into the dst tuple.
+    if (fn == NULL) {
+        DCHECK_EQ(_intermediate_slot_desc->type(), dst_slot_desc->type());
+        RawValue::write(src_slot, dst, dst_slot_desc, NULL);
+        return;
+    }
     // }
-    set_any_val(src_slot, _intermediate_slot_desc->type(),
-            _staging_intermediate_val);
+    set_any_val(src_slot, _intermediate_slot_desc->type(), _staging_intermediate_val);
 
     switch (dst_slot_desc->type().type) {
     case TYPE_BOOLEAN: {
-        typedef BooleanVal(*Fn)(FunctionContext*, AnyVal*);
+        typedef BooleanVal (*Fn)(FunctionContext*, AnyVal*);
         BooleanVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
     }
 
     case TYPE_TINYINT: {
-        typedef TinyIntVal(*Fn)(FunctionContext*, AnyVal*);
+        typedef TinyIntVal (*Fn)(FunctionContext*, AnyVal*);
         TinyIntVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
     }
 
     case TYPE_SMALLINT: {
-        typedef SmallIntVal(*Fn)(FunctionContext*, AnyVal*);
+        typedef SmallIntVal (*Fn)(FunctionContext*, AnyVal*);
         SmallIntVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
     }
 
     case TYPE_INT: {
-        typedef IntVal(*Fn)(FunctionContext*, AnyVal*);
+        typedef IntVal (*Fn)(FunctionContext*, AnyVal*);
         IntVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
     }
 
     case TYPE_BIGINT: {
-        typedef BigIntVal(*Fn)(FunctionContext*, AnyVal*);
+        typedef BigIntVal (*Fn)(FunctionContext*, AnyVal*);
         BigIntVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
     }
 
     case TYPE_FLOAT: {
-        typedef FloatVal(*Fn)(FunctionContext*, AnyVal*);
+        typedef FloatVal (*Fn)(FunctionContext*, AnyVal*);
         FloatVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
     }
 
     case TYPE_DOUBLE: {
-        typedef DoubleVal(*Fn)(FunctionContext*, AnyVal*);
+        typedef DoubleVal (*Fn)(FunctionContext*, AnyVal*);
         DoubleVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
     }
 
     case TYPE_CHAR:
-    case TYPE_VARCHAR: 
+    case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT: {
-        typedef StringVal(*Fn)(FunctionContext*, AnyVal*);
+        typedef StringVal (*Fn)(FunctionContext*, AnyVal*);
         StringVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
@@ -949,21 +922,21 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
 
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        typedef DateTimeVal(*Fn)(FunctionContext*, AnyVal*);
+        typedef DateTimeVal (*Fn)(FunctionContext*, AnyVal*);
         DateTimeVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
     }
 
     case TYPE_DECIMAL: {
-        typedef DecimalVal(*Fn)(FunctionContext*, AnyVal*);
+        typedef DecimalVal (*Fn)(FunctionContext*, AnyVal*);
         DecimalVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
     }
 
     case TYPE_DECIMALV2: {
-        typedef DecimalV2Val(*Fn)(FunctionContext*, AnyVal*);
+        typedef DecimalV2Val (*Fn)(FunctionContext*, AnyVal*);
         DecimalV2Val v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
@@ -1007,4 +980,4 @@ std::string AggFnEvaluator::debug_string() const {
     return out.str();
 }
 
-}
+} // namespace doris

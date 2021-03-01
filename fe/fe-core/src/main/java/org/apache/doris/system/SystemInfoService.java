@@ -29,6 +29,11 @@ import org.apache.doris.common.Status;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageMedium;
+
+import org.apache.commons.validator.routines.InetAddressValidator;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -38,11 +43,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-
-import org.apache.commons.validator.routines.InetAddressValidator;
-import org.apache.doris.thrift.TStorageMedium;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -891,23 +891,16 @@ public class SystemInfoService {
         }
     }
 
-    public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId) {
+    public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId, long tableId) {
         AtomicLong atomicLong = null;
         if ((atomicLong = idToReportVersionRef.get(backendId)) != null) {
             Database db = Catalog.getCurrentCatalog().getDb(dbId);
-            if (db != null) {
-                db.readLock();
-                try {
-                    atomicLong.set(newReportVersion);
-                    LOG.debug("update backend {} report version: {}, db: {}", backendId, newReportVersion, dbId);
-                } finally {
-                    db.readUnlock();
-                }
-            } else {
+            if (db == null) {
                 LOG.warn("failed to update backend report version, db {} does not exist", dbId);
+                return;
             }
-        } else {
-            LOG.warn("failed to update backend report version, backend {} does not exist", backendId);
+            atomicLong.set(newReportVersion);
+            LOG.debug("update backend {} report version: {}, db: {}, table: {}", backendId, newReportVersion, dbId, tableId);
         }
     }
 
@@ -1071,7 +1064,7 @@ public class SystemInfoService {
             if (backend.isDecommissioned()) {
                 // Data on decommissioned backend will move to other backends,
                 // So we need to minus size of those data.
-                capacity -= backend.getTotalCapacityB() - backend.getAvailableCapacityB();
+                capacity -= backend.getDataUsedCapacityB();
             } else {
                 capacity += backend.getAvailableCapacityB();
             }

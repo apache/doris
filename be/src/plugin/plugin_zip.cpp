@@ -15,20 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <boost/algorithm/string/predicate.hpp>
-#include <string.h>
-
 #include "plugin/plugin_zip.h"
 
-#include "http/http_client.h"
-#include "gutil/strings/util.h"
+#include <string.h>
+
+#include <boost/algorithm/string/predicate.hpp>
+
+#include "env/env.h"
 #include "gutil/strings/substitute.h"
+#include "gutil/strings/util.h"
+#include "http/http_client.h"
 #include "util/file_utils.h"
 #include "util/md5.h"
+#include "util/slice.h"
 #include "util/time.h"
 #include "util/zip_util.h"
-#include "util/slice.h"
-#include "env/env.h"
 
 namespace doris {
 
@@ -48,22 +49,22 @@ PluginZip::~PluginZip() {
     }
 }
 
-
 Status PluginZip::extract(const std::string& target_dir, const std::string& plugin_name) {
     // check plugin install path
-    std::string plugin_install_path = Substitute("$0/$1", target_dir, plugin_name);
+    std::string plugin_install_path = strings::Substitute("$0/$1", target_dir, plugin_name);
 
     if (FileUtils::check_exist(plugin_install_path)) {
-        return Status::AlreadyExist(Substitute("plugin $0 already install!", plugin_name));
+        return Status::AlreadyExist(strings::Substitute("plugin $0 already install!", plugin_name));
     }
 
     if (!FileUtils::check_exist(target_dir)) {
         RETURN_IF_ERROR(FileUtils::create_dir(target_dir));
     }
-    
+
     std::string zip_path = _source;
     if (!is_local_source(_source)) {
-        zip_path = Substitute("$0/.temp_$1_$2.zip", target_dir, GetCurrentTimeMicros(), plugin_name);
+        zip_path = strings::Substitute("$0/.temp_$1_$2.zip", target_dir, GetCurrentTimeMicros(),
+                                       plugin_name);
         _clean_paths.push_back(zip_path);
 
         RETURN_IF_ERROR(download(zip_path));
@@ -88,17 +89,17 @@ Status PluginZip::download(const std::string& zip_path) {
     RETURN_IF_ERROR(client.init(_source));
 
     auto download_cb = [&status, &digest, &file](const void* data, size_t length) {
-            digest.update(data, length);
+        digest.update(data, length);
 
-            Slice slice((const char *)data, length);
-            status = file->append(slice);
-            if (!status.ok()) {
-                LOG(WARNING) << "fail to download data, file: " << file->filename()
-                             << ", error: " << status.to_string();
-                return false;
-            }
+        Slice slice((const char*)data, length);
+        status = file->append(slice);
+        if (!status.ok()) {
+            LOG(WARNING) << "fail to download data, file: " << file->filename()
+                         << ", error: " << status.to_string();
+            return false;
+        }
 
-            return true;
+        return true;
     };
 
     RETURN_IF_ERROR(client.execute(download_cb));
@@ -113,19 +114,19 @@ Status PluginZip::download(const std::string& zip_path) {
 
     std::string expect;
     auto download_md5_cb = [&status, &expect](const void* data, size_t length) {
-            expect = std::string((const char*) data, length);
-            return true;
+        expect = std::string((const char*)data, length);
+        return true;
     };
 
     RETURN_IF_ERROR(md5_client.execute(download_md5_cb));
 
     digest.digest();
     if (0 != strncmp(digest.hex().c_str(), expect.c_str(), 32)) {
-        return Status::InternalError(
-                Substitute("plugin install checksum failed. expect: $0, actual:$1", expect, digest.hex()));
+        return Status::InternalError(strings::Substitute(
+                "plugin install checksum failed. expect: $0, actual:$1", expect, digest.hex()));
     }
 
     return Status::OK();
 }
 
-}
+} // namespace doris

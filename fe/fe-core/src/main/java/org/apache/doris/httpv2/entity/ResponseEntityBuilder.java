@@ -48,6 +48,10 @@ public class ResponseEntityBuilder {
         return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 
+    public static ResponseEntity okWithEmpty() {
+        return ResponseEntity.status(HttpStatus.OK).build();
+    }
+
     public static ResponseEntity unauthorized(Object data) {
         ResponseBody body = new ResponseBody().code(RestApiStatusCode.UNAUTHORIZED).msg("Unauthorized").data(data);
         return ResponseEntity.status(HttpStatus.OK).body(body);

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -381,25 +382,24 @@ public class ReportHandler extends Daemon {
             if (db == null) {
                 continue;
             }
-            db.writeLock();
-            try {
-                int syncCounter = 0;
-                List<Long> tabletIds = tabletSyncMap.get(dbId);
-                LOG.info("before sync tablets in db[{}]. report num: {}. backend[{}]",
-                        dbId, tabletIds.size(), backendId);
-                List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
-                for (int i = 0; i < tabletMetaList.size(); i++) {
-                    TabletMeta tabletMeta = tabletMetaList.get(i);
-                    if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
-                        continue;
-                    }
-                    long tabletId = tabletIds.get(i);
-                    long tableId = tabletMeta.getTableId();
-                    OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                    if (olapTable == null) {
-                        continue;
-                    }
-
+            int syncCounter = 0;
+            List<Long> tabletIds = tabletSyncMap.get(dbId);
+            LOG.info("before sync tablets in db[{}]. report num: {}. backend[{}]",
+                    dbId, tabletIds.size(), backendId);
+            List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
+            for (int i = 0; i < tabletMetaList.size(); i++) {
+                TabletMeta tabletMeta = tabletMetaList.get(i);
+                if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                    continue;
+                }
+                long tabletId = tabletIds.get(i);
+                long tableId = tabletMeta.getTableId();
+                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                if (olapTable == null) {
+                    continue;
+                }
+                olapTable.writeLock();
+                try {
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
@@ -422,6 +422,7 @@ public class ReportHandler extends Daemon {
                     if (replica == null) {
                         continue;
                     }
+
                     // yiguolei: it is very important here, if the replica is under schema change or rollup
                     // should ignore the report.
                     // eg.
@@ -494,11 +495,11 @@ public class ReportHandler extends Daemon {
                                     backendVersion, backendVersionHash);
                         }
                     }
-                } // end for tabletMetaSyncMap
-                LOG.info("sync {} tablets in db[{}]. backend[{}]", syncCounter, dbId, backendId);
-            } finally {
-                db.writeUnlock();
+                } finally {
+                    olapTable.writeUnlock();
+                }
             }
+            LOG.info("sync {} tablets in db[{}]. backend[{}]", syncCounter, dbId, backendId);
         } // end for dbs
     }
 
@@ -511,23 +512,23 @@ public class ReportHandler extends Daemon {
             if (db == null) {
                 continue;
             }
-            db.writeLock();
-            try {
-                int deleteCounter = 0;
-                List<Long> tabletIds = tabletDeleteFromMeta.get(dbId);
-                List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
-                for (int i = 0; i < tabletMetaList.size(); i++) {
-                    TabletMeta tabletMeta = tabletMetaList.get(i);
-                    if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
-                        continue;
-                    }
-                    long tabletId = tabletIds.get(i);
-                    long tableId = tabletMeta.getTableId();
-                    OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                    if (olapTable == null) {
-                        continue;
-                    }
 
+            int deleteCounter = 0;
+            List<Long> tabletIds = tabletDeleteFromMeta.get(dbId);
+            List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
+            for (int i = 0; i < tabletMetaList.size(); i++) {
+                TabletMeta tabletMeta = tabletMetaList.get(i);
+                if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                    continue;
+                }
+                long tabletId = tabletIds.get(i);
+                long tableId = tabletMeta.getTableId();
+                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                if (olapTable == null) {
+                    continue;
+                }
+                olapTable.writeLock();
+                try {
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
@@ -636,11 +637,11 @@ public class ReportHandler extends Daemon {
                             LOG.error("invalid situation. tablet[{}] is empty", tabletId);
                         }
                     }
-                } // end for tabletMetas
-                LOG.info("delete {} replica(s) from catalog in db[{}]", deleteCounter, dbId);
-            } finally {
-                db.writeUnlock();
+                } finally {
+                    olapTable.writeUnlock();
+                }
             }
+            LOG.info("delete {} replica(s) from catalog in db[{}]", deleteCounter, dbId);
         } // end for dbs
 
         if (Config.recover_with_empty_tablet && createReplicaBatchTask.getTaskNum() > 0) {
@@ -775,22 +776,21 @@ public class ReportHandler extends Daemon {
             if (db == null) {
                 continue;
             }
-            db.writeLock();
-            try {
-                List<Long> tabletIds = tabletRecoveryMap.get(dbId);
-                List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
-                for (int i = 0; i < tabletMetaList.size(); i++) {
-                    TabletMeta tabletMeta = tabletMetaList.get(i);
-                    if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
-                        continue;
-                    }
-                    long tabletId = tabletIds.get(i);
-                    long tableId = tabletMeta.getTableId();
-                    OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                    if (olapTable == null) {
-                        continue;
-                    }
-
+            List<Long> tabletIds = tabletRecoveryMap.get(dbId);
+            List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
+            for (int i = 0; i < tabletMetaList.size(); i++) {
+                TabletMeta tabletMeta = tabletMetaList.get(i);
+                if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                    continue;
+                }
+                long tabletId = tabletIds.get(i);
+                long tableId = tabletMeta.getTableId();
+                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                if (olapTable == null) {
+                    continue;
+                }
+                olapTable.writeLock();
+                try {
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
@@ -856,9 +856,9 @@ public class ReportHandler extends Daemon {
                             }
                         }
                     }
+                } finally {
+                    olapTable.writeUnlock();
                 }
-            } finally {
-                db.writeUnlock();
             }
         } // end for recovery map
 
@@ -901,12 +901,13 @@ public class ReportHandler extends Daemon {
                 if (db == null) {
                     continue;
                 }
-                db.readLock();
+
+                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                if (olapTable == null) {
+                    continue;
+                }
+                olapTable.readLock();
                 try {
-                    OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                    if (olapTable == null) {
-                        continue;
-                    }
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
                         continue;
@@ -916,7 +917,7 @@ public class ReportHandler extends Daemon {
                         tabletToInMemory.add(new ImmutableTriple<>(tabletId, tabletInfo.getSchemaHash(), feIsInMemory));
                     }
                 } finally {
-                    db.readUnlock();
+                    olapTable.readUnlock();
                 }
             }
         }
@@ -963,13 +964,10 @@ public class ReportHandler extends Daemon {
         if (db == null) {
             throw new MetaNotFoundException("db[" + dbId + "] does not exist");
         }
-        db.writeLock();
-        try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                throw new MetaNotFoundException("table[" + tableId + "] does not exist");
-            }
 
+        OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        olapTable.writeLock();
+        try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
                 throw new MetaNotFoundException("partition[" + partitionId + "] does not exist");
@@ -1065,7 +1063,7 @@ public class ReportHandler extends Daemon {
                         "replica is enough[" + tablet.getReplicas().size() + "-" + replicationNum + "]");
             }
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 

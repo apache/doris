@@ -23,6 +23,8 @@
 
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/olap_file.pb.h"
+#include "olap/block_column_predicate.h"
+#include "olap/column_predicate.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_schema.h"
 
@@ -31,10 +33,10 @@ namespace doris {
 typedef google::protobuf::RepeatedPtrField<DeletePredicatePB> DelPredicateArray;
 class Conditions;
 class RowCursor;
+class Reader;
 
 class DeleteConditionHandler {
 public:
-
     DeleteConditionHandler() {}
     ~DeleteConditionHandler() {}
 
@@ -43,111 +45,106 @@ public:
                                          const std::vector<TCondition>& conditions,
                                          DeletePredicatePB* del_pred);
 
-    // 检查cond表示的删除条件是否符合要求；
-    // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_CONDITION；符合要求返回OLAP_SUCCESS
-    OLAPStatus check_condition_valid(const TabletSchema& tablet_schema, const TCondition& cond);
-
     // construct sub condition from TCondition
     std::string construct_sub_predicates(const TCondition& condition);
 
 private:
+    // Validate the condition on the schema.
+    // Return OLAP_SUCCESS, if valid
+    //        OLAP_ERR_DELETE_INVALID_CONDITION, otherwise
+    OLAPStatus check_condition_valid(const TabletSchema& tablet_schema, const TCondition& cond);
 
-    int32_t _get_field_index(const TabletSchema& schema, const std::string& field_name) const {
-        for (int i = 0; i < schema.num_columns(); i++) {
-            if (schema.column(i).name() == field_name) {
-                return i;
-            }
-        }
-        LOG(WARNING) << "invalid field name. name='" << field_name;
-        return -1;
-    }
-
-    bool is_condition_value_valid(const TabletColumn& column, const TCondition& cond, const string& value);
+    // Check whether the condition value is valid according to its type.
+    // 1. For integers(int8,int16,in32,int64,uint8,uint16,uint32,uint64), check whether they are overflow
+    // 2. For decimal, check whether precision or scale is overflow
+    // 3. For date and datetime, check format and value
+    // 4. For char and varchar, check length
+    bool is_condition_value_valid(const TabletColumn& column,
+                                  const std::string& condition_op,
+                                  const string& value_str);
 };
 
-// 表示一个删除条件
+// Represent a delete condition.
 struct DeleteConditions {
-    DeleteConditions() : filter_version(0), del_cond(NULL) {}
-    ~DeleteConditions() {}
-
-    int32_t filter_version; // 删除条件版本号
-    Conditions* del_cond;   // 删除条件
+    int64_t filter_version = 0;       // The version of this condition
+    Conditions* del_cond = nullptr;   // The delete condition
+    std::vector<const ColumnPredicate*> column_predicate_vec;
 };
 
-// 这个类主要用于判定一条数据(RowCursor)是否符合删除条件。这个类的使用流程如下：
-// 1. 使用一个版本号来初始化handler
+// This class is used for checking whether a row should be deleted.
+// It is used in the following processes：
+// 1. Create and initialize a DeleteHandler object:
 //    OLAPStatus res;
 //    DeleteHandler delete_handler;
 //    res = delete_handler.init(tablet, condition_version);
-// 2. 使用这个handler来判定一条数据是否符合删除条件
-//    bool filter_data;
-//    filter_data = delete_handler.is_filter_data(data_version, row_cursor);
-// 3. 如果有多条数据要判断，可重复调用delete_handler.is_filter_data(data_version, row_data)
-// 4. 完成所有数据的判断后，需要销毁delete_handler对象
+// 2. Use it to check whether a row should be deleted:
+//    bool should_be_deleted = delete_handler.is_filter_data(data_version, row_cursor);
+// 3. If there are multiple rows, you can invoke function is_filter_data multiple times:
+//    should_be_deleted = delete_handler.is_filter_data(data_version, row_cursor);
+// 4. After all rows have been checked, you should release this object by calling:
 //    delete_handler.finalize();
 //
-// 注：
-//    * 第1步中，在调用init()函数之前，需要对Header文件加读锁
+// NOTE：
+//    * In the first step, before calling delete_handler.init(), you should lock the tablet's header file.
 class DeleteHandler {
 public:
-    typedef std::vector<DeleteConditions>::size_type cond_num_t;
-
-    DeleteHandler() : _is_inited(false) {}
-    ~DeleteHandler() {}
-
-    // 初始化handler，将从Header文件中取出小于等于指定版本号的删除条件填充到_del_conds中
-    // 调用前需要先对Header文件加读锁
-    //
-    // 输入参数：
-    //     * tablet: 删除条件和数据所在的tablet
-    //     * version: 要取出的删除条件版本号
-    // 返回值：
-    //     * OLAP_SUCCESS: 调用成功
-    //     * OLAP_ERR_DELETE_INVALID_PARAMETERS: 参数不符合要求
-    //     * OLAP_ERR_MALLOC_ERROR: 在填充_del_conds时，分配内存失败
-    OLAPStatus init(const TabletSchema& schema,
-        const DelPredicateArray& delete_conditions, int32_t version);
-
-    // 判定一条数据是否符合删除条件
-    //
-    // 输入参数：
-    //     * data_version: 待判定数据的版本号
-    //     * row: 待判定的一行数据
-    // 返回值：
-    //     * true: 数据符合删除条件
-    //     * false: 数据不符合删除条件
-    bool is_filter_data(const int32_t data_version, const RowCursor& row) const;
-
-    // 返回handler中有存有多少条删除条件
-    cond_num_t conditions_num() const{
-        return _del_conds.size();
+    DeleteHandler() = default;
+    ~DeleteHandler() {
+        finalize();
     }
 
-    bool empty() const {
-        return _del_conds.empty();
-    }
+    // Initialize DeleteHandler, use the delete conditions of this tablet whose version less than or equal to
+    // 'version' to fill '_del_conds'.
+    // NOTE: You should lock the tablet's header file before calling this function.
+    //
+    // input:
+    //     * schema: tablet's schema, the delete conditions and data rows are in this schema
+    //     * version: maximum version
+    // return:
+    //     * OLAP_SUCCESS: succeed
+    //     * OLAP_ERR_DELETE_INVALID_PARAMETERS: input parameters are not valid
+    //     * OLAP_ERR_MALLOC_ERROR: alloc memory failed
+    OLAPStatus init(const TabletSchema& schema, const DelPredicateArray& delete_conditions,
+                    int64_t version, const doris::Reader* = nullptr);
 
-    // 返回handler中存有的所有删除条件的版本号
-    std::vector<int32_t> get_conds_version();
+    // Check whether a row should be deleted.
+    //
+    // input:
+    //     * data_version: the version of this row
+    //     * row: the row data to be checked
+    // return:
+    //     * true: this row should be deleted
+    //     * false: this row should NOT be deleted
+    bool is_filter_data(const int64_t data_version, const RowCursor& row) const;
 
-    // 销毁handler对象
+    // Return the delete conditions' size.
+    size_t conditions_num() const { return _del_conds.size(); }
+
+    bool empty() const { return _del_conds.empty(); }
+
+    // Return all the versions of the delete conditions.
+    std::vector<int64_t> get_conds_version();
+
+    // Release an instance of this class.
     void finalize();
 
-    // 获取只读删除条件
-    const std::vector<DeleteConditions>& get_delete_conditions() const {
-        return _del_conds;
-    }
+    // Return all the delete conditions.
+    const std::vector<DeleteConditions>& get_delete_conditions() const { return _del_conds; }
 
-    void get_delete_conditions_after_version(int32_t version,
-            std::vector<const Conditions*>* delete_conditions) const;
+    void get_delete_conditions_after_version(int64_t version,
+                                             std::vector<const Conditions *>* delete_conditions,
+                                             AndBlockColumnPredicate* and_block_column_predicate_ptr) const;
 
 private:
     // Use regular expression to extract 'column_name', 'op' and 'operands'
     bool _parse_condition(const std::string& condition_str, TCondition* condition);
 
-    bool _is_inited;
+    bool _is_inited = false;
+    // DeleteConditions in _del_conds are in 'OR' relationship
     std::vector<DeleteConditions> _del_conds;
+
+    DISALLOW_COPY_AND_ASSIGN(DeleteHandler);
 };
 
-}  // namespace doris
+} // namespace doris
 #endif // DORIS_BE_SRC_OLAP_DELETE_HANDLER_H

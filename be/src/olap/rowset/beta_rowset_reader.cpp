@@ -17,13 +17,13 @@
 
 #include "beta_rowset_reader.h"
 
+#include "olap/delete_handler.h"
 #include "olap/generic_iterators.h"
 #include "olap/row_block.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/schema.h"
-#include "olap/delete_handler.h"
 
 namespace doris {
 
@@ -51,18 +51,29 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     read_options.conditions = read_context->conditions;
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
-            read_options.key_ranges.emplace_back(
-                read_context->lower_bound_keys->at(i),
-                read_context->is_lower_keys_included->at(i),
-                read_context->upper_bound_keys->at(i),
-                read_context->is_upper_keys_included->at(i));
+            read_options.key_ranges.emplace_back(read_context->lower_bound_keys->at(i),
+                                                 read_context->is_lower_keys_included->at(i),
+                                                 read_context->upper_bound_keys->at(i),
+                                                 read_context->is_upper_keys_included->at(i));
         }
     }
     if (read_context->delete_handler != nullptr) {
         read_context->delete_handler->get_delete_conditions_after_version(_rowset->end_version(),
-                &read_options.delete_conditions);
+                &read_options.delete_conditions, read_options.delete_condition_predicates.get());
     }
-    read_options.column_predicates = read_context->predicates;
+    if (read_context->predicates != nullptr) {
+        read_options.column_predicates.insert(read_options.column_predicates.end(),
+                                              read_context->predicates->begin(),
+                                              read_context->predicates->end());
+    }
+    // if unique table with rowset [0-x] or [0-1] [2-y] [...],
+    // value column predicates can be pushdown on rowset [0-x] or [2-y]
+    if (read_context->value_predicates != nullptr && _rowset->keys_type() == UNIQUE_KEYS &&
+        (_rowset->start_version() == 0 || _rowset->start_version() == 2)) {
+        read_options.column_predicates.insert(read_options.column_predicates.end(),
+                                              read_context->value_predicates->begin(),
+                                              read_context->value_predicates->end());
+    }
     read_options.use_page_cache = read_context->use_page_cache;
 
     // create iterator for each segment

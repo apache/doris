@@ -18,8 +18,8 @@
 #include "exec/es/es_scan_reader.h"
 
 #include <map>
-#include <string>
 #include <sstream>
+#include <string>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -29,26 +29,29 @@
 namespace doris {
 
 // hits.hits._id used for obtain ES document `_id`
-const std::string SOURCE_SCROLL_SEARCH_FILTER_PATH = "filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id";
+const std::string SOURCE_SCROLL_SEARCH_FILTER_PATH =
+        "filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id";
 // hits.hits._score used for processing field not exists in one batch
-const std::string DOCVALUE_SCROLL_SEARCH_FILTER_PATH = "filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields";
+const std::string DOCVALUE_SCROLL_SEARCH_FILTER_PATH =
+        "filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields";
 
 const std::string REQUEST_SCROLL_PATH = "_scroll";
 const std::string REQUEST_PREFERENCE_PREFIX = "&preference=_shards:";
 const std::string REQUEST_SEARCH_SCROLL_PATH = "/_search/scroll";
 const std::string REQUEST_SEPARATOR = "/";
 
-ESScanReader::ESScanReader(const std::string& target, const std::map<std::string, std::string>& props, bool doc_value_mode) : 
-        _scroll_keep_alive(config::es_scroll_keepalive), 
-        _http_timeout_ms(config::es_http_timeout_ms), 
-        _doc_value_mode(doc_value_mode) {
+ESScanReader::ESScanReader(const std::string& target,
+                           const std::map<std::string, std::string>& props, bool doc_value_mode)
+        : _scroll_keep_alive(config::es_scroll_keepalive),
+          _http_timeout_ms(config::es_http_timeout_ms),
+          _doc_value_mode(doc_value_mode) {
     _target = target;
     _index = props.at(KEY_INDEX);
     _type = props.at(KEY_TYPE);
     if (props.find(KEY_USER_NAME) != props.end()) {
         _user_name = props.at(KEY_USER_NAME);
     }
-    if (props.find(KEY_PASS_WORD) != props.end()){
+    if (props.find(KEY_PASS_WORD) != props.end()) {
         _passwd = props.at(KEY_PASS_WORD);
     }
     if (props.find(KEY_SHARD) != props.end()) {
@@ -60,35 +63,34 @@ ESScanReader::ESScanReader(const std::string& target, const std::map<std::string
 
     std::string batch_size_str = props.at(KEY_BATCH_SIZE);
     _batch_size = atoi(batch_size_str.c_str());
-    std::string filter_path = _doc_value_mode ? DOCVALUE_SCROLL_SEARCH_FILTER_PATH : SOURCE_SCROLL_SEARCH_FILTER_PATH;
+    std::string filter_path =
+            _doc_value_mode ? DOCVALUE_SCROLL_SEARCH_FILTER_PATH : SOURCE_SCROLL_SEARCH_FILTER_PATH;
 
     if (props.find(KEY_TERMINATE_AFTER) != props.end()) {
         _exactly_once = true;
         std::stringstream scratch;
         // just send a normal search  against the elasticsearch with additional terminate_after param to achieve terminate early effect when limit take effect
-        scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type << "/_search?"
-                << "terminate_after=" << props.at(KEY_TERMINATE_AFTER)
-                << REQUEST_PREFERENCE_PREFIX << _shards
-                << "&" << filter_path;
+        scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type
+                << "/_search?"
+                << "terminate_after=" << props.at(KEY_TERMINATE_AFTER) << REQUEST_PREFERENCE_PREFIX
+                << _shards << "&" << filter_path;
         _search_url = scratch.str();
     } else {
         _exactly_once = false;
         std::stringstream scratch;
-        // scroll request for scanning 
+        // scroll request for scanning
         // add terminate_after for the first scroll to avoid decompress all postings list
-        scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type << "/_search?"
-                << "scroll=" << _scroll_keep_alive
-                << REQUEST_PREFERENCE_PREFIX << _shards
-                << "&" << filter_path
-                << "&terminate_after=" << batch_size_str;
+        scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type
+                << "/_search?"
+                << "scroll=" << _scroll_keep_alive << REQUEST_PREFERENCE_PREFIX << _shards << "&"
+                << filter_path << "&terminate_after=" << batch_size_str;
         _init_scroll_url = scratch.str();
         _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + filter_path;
     }
     _eos = false;
 }
 
-ESScanReader::~ESScanReader() {
-}
+ESScanReader::~ESScanReader() {}
 
 Status ESScanReader::open() {
     _is_first = true;
@@ -109,7 +111,7 @@ Status ESScanReader::open() {
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
-    VLOG(1) << "open _cached response: " << _cached_response;
+    VLOG_CRITICAL << "open _cached response: " << _cached_response;
     return Status::OK();
 }
 
@@ -133,25 +135,27 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
         _network_client.set_content_type("application/json");
         _network_client.set_timeout_ms(_http_timeout_ms);
         RETURN_IF_ERROR(_network_client.execute_post_request(
-                        ESScrollQueryBuilder::build_next_scroll_body(_scroll_id, _scroll_keep_alive), &response));
+                ESScrollQueryBuilder::build_next_scroll_body(_scroll_id, _scroll_keep_alive),
+                &response));
         long status = _network_client.get_http_status();
         if (status == 404) {
-            LOG(WARNING) << "request scroll search failure 404[" 
+            LOG(WARNING) << "request scroll search failure 404["
                          << ", response: " << (response.empty() ? "empty response" : response);
             return Status::InternalError("No search context found for " + _scroll_id);
         }
         if (status != 200) {
-            LOG(WARNING) << "request scroll search failure[" 
+            LOG(WARNING) << "request scroll search failure["
                          << "http status" << status
                          << ", response: " << (response.empty() ? "empty response" : response);
-            return Status::InternalError("request scroll search failure: " + (response.empty() ? "empty response" : response));        
+            return Status::InternalError("request scroll search failure: " +
+                                         (response.empty() ? "empty response" : response));
         }
     }
 
     scroll_parser.reset(new ScrollParser(_doc_value_mode));
-    VLOG(1) << "get_next request ES, returned response: " << response;
+    VLOG_CRITICAL << "get_next request ES, returned response: " << response;
     Status status = scroll_parser->parse(response, _exactly_once);
-    if (!status.ok()){
+    if (!status.ok()) {
         _eos = true;
         LOG(WARNING) << status.get_error_msg();
         return status;
@@ -185,11 +189,12 @@ Status ESScanReader::close() {
     _network_client.set_content_type("application/json");
     _network_client.set_timeout_ms(5 * 1000);
     std::string response;
-    RETURN_IF_ERROR(_network_client.execute_delete_request(ESScrollQueryBuilder::build_clear_scroll_body(_scroll_id), &response));
+    RETURN_IF_ERROR(_network_client.execute_delete_request(
+            ESScrollQueryBuilder::build_clear_scroll_body(_scroll_id), &response));
     if (_network_client.get_http_status() == 200) {
         return Status::OK();
     } else {
         return Status::InternalError("es_scan_reader delete scroll context failure");
     }
 }
-}
+} // namespace doris

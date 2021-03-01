@@ -32,8 +32,8 @@
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "util/condition_variable.h"
-#include "util/mutex.h"
 #include "util/countdown_latch.h"
+#include "util/mutex.h"
 #include "util/thread.h"
 
 namespace doris {
@@ -73,38 +73,60 @@ public:
     };
 
     inline const std::string TYPE_STRING(TaskWorkerType type) {
-        switch(type) {
-            case CREATE_TABLE: return "CREATE_TABLE";
-            case DROP_TABLE: return "DROP_TABLE";
-            case PUSH: return "PUSH";
-            case REALTIME_PUSH: return "REALTIME_PUSH";
-            case PUBLISH_VERSION: return "PUBLISH_VERSION";
-            case CLEAR_ALTER_TASK: return "CLEAR_ALTER_TASK";
-            case CLEAR_TRANSACTION_TASK: return "CLEAR_TRANSACTION_TASK";
-            case DELETE: return "DELETE";
-            case ALTER_TABLE: return "ALTER_TABLE";
-            case QUERY_SPLIT_KEY: return "QUERY_SPLIT_KEY";
-            case CLONE: return "CLONE";
-            case STORAGE_MEDIUM_MIGRATE: return "STORAGE_MEDIUM_MIGRATE";
-            case CHECK_CONSISTENCY: return "CHECK_CONSISTENCY";
-            case REPORT_TASK: return "REPORT_TASK";
-            case REPORT_DISK_STATE: return "REPORT_DISK_STATE";
-            case REPORT_OLAP_TABLE: return "REPORT_OLAP_TABLE";
-            case UPLOAD: return "UPLOAD";
-            case DOWNLOAD: return "DOWNLOAD";
-            case MAKE_SNAPSHOT: return "MAKE_SNAPSHOT";
-            case RELEASE_SNAPSHOT: return "RELEASE_SNAPSHOT";
-            case MOVE: return "MOVE";
-            case RECOVER_TABLET: return "RECOVER_TABLET";
-            case UPDATE_TABLET_META_INFO:  return "UPDATE_TABLET_META_INFO";
-            default: return "Unknown";
+        switch (type) {
+        case CREATE_TABLE:
+            return "CREATE_TABLE";
+        case DROP_TABLE:
+            return "DROP_TABLE";
+        case PUSH:
+            return "PUSH";
+        case REALTIME_PUSH:
+            return "REALTIME_PUSH";
+        case PUBLISH_VERSION:
+            return "PUBLISH_VERSION";
+        case CLEAR_ALTER_TASK:
+            return "CLEAR_ALTER_TASK";
+        case CLEAR_TRANSACTION_TASK:
+            return "CLEAR_TRANSACTION_TASK";
+        case DELETE:
+            return "DELETE";
+        case ALTER_TABLE:
+            return "ALTER_TABLE";
+        case QUERY_SPLIT_KEY:
+            return "QUERY_SPLIT_KEY";
+        case CLONE:
+            return "CLONE";
+        case STORAGE_MEDIUM_MIGRATE:
+            return "STORAGE_MEDIUM_MIGRATE";
+        case CHECK_CONSISTENCY:
+            return "CHECK_CONSISTENCY";
+        case REPORT_TASK:
+            return "REPORT_TASK";
+        case REPORT_DISK_STATE:
+            return "REPORT_DISK_STATE";
+        case REPORT_OLAP_TABLE:
+            return "REPORT_OLAP_TABLE";
+        case UPLOAD:
+            return "UPLOAD";
+        case DOWNLOAD:
+            return "DOWNLOAD";
+        case MAKE_SNAPSHOT:
+            return "MAKE_SNAPSHOT";
+        case RELEASE_SNAPSHOT:
+            return "RELEASE_SNAPSHOT";
+        case MOVE:
+            return "MOVE";
+        case RECOVER_TABLET:
+            return "RECOVER_TABLET";
+        case UPDATE_TABLET_META_INFO:
+            return "UPDATE_TABLET_META_INFO";
+        default:
+            return "Unknown";
         }
     }
 
-    TaskWorkerPool(
-            const TaskWorkerType task_worker_type,
-            ExecEnv* env,
-            const TMasterInfo& master_info);
+    TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
+                   const TMasterInfo& master_info);
     virtual ~TaskWorkerPool();
 
     // Start the task worker thread pool
@@ -127,7 +149,7 @@ private:
     void _remove_task_info(const TTaskType::type task_type, int64_t signature);
     void _finish_task(const TFinishTaskRequest& finish_task_request);
     uint32_t _get_next_task_index(int32_t thread_count, std::deque<TAgentTaskRequest>& tasks,
-            TPriority::type priority);
+                                  TPriority::type priority);
 
     void _create_tablet_worker_thread_callback();
     void _drop_tablet_worker_thread_callback();
@@ -148,25 +170,18 @@ private:
     void _move_dir_thread_callback();
     void _update_tablet_meta_worker_thread_callback();
 
-    void _alter_tablet(
-            const TAgentTaskRequest& alter_tablet_request,
-            int64_t signature,
-            const TTaskType::type task_type,
-            TFinishTaskRequest* finish_task_request);
+    void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
+                       const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
 
-    AgentStatus _get_tablet_info(
-            const TTabletId tablet_id,
-            const TSchemaHash schema_hash,
-            int64_t signature,
-            TTabletInfo* tablet_info);
+    AgentStatus _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
+                                 int64_t signature, TTabletInfo* tablet_info);
 
-    AgentStatus _move_dir(
-            const TTabletId tablet_id,
-            const TSchemaHash schema_hash,
-            const std::string& src,
-            int64_t job_id,
-            bool overwrite,
-            std::vector<std::string>* error_msgs);
+    AgentStatus _move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
+                          const std::string& src, int64_t job_id, bool overwrite,
+                          std::vector<std::string>* error_msgs);
+
+    OLAPStatus _check_migrate_requset(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
+                                      DataDir** dest_store);
 
 private:
     std::string _name;
@@ -196,6 +211,6 @@ private:
     static std::map<TTaskType::type, std::set<int64_t>> _s_task_signatures;
 
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
-};  // class TaskWorkerPool
-}  // namespace doris
-#endif  // DORIS_BE_SRC_TASK_WORKER_POOL_H
+}; // class TaskWorkerPool
+} // namespace doris
+#endif // DORIS_BE_SRC_TASK_WORKER_POOL_H

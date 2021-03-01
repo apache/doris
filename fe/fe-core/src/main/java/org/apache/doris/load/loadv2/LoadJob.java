@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
@@ -28,8 +27,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -66,6 +65,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -95,16 +95,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     // the auth info could be null when load job is created before commit named 'Persist auth info in load job'
     protected AuthorizationInfo authorizationInfo;
 
-    // optional properties
-    // timeout second need to be reset in constructor of subclass
-    protected long timeoutSecond = Config.broker_load_default_timeout_second;
-    protected long execMemLimit = 2147483648L; // 2GB;
-    protected double maxFilterRatio = Config.default_max_filter_ratio;
-    protected boolean strictMode = false; // default is false
-    protected String timezone = TimeUtils.DEFAULT_TIME_ZONE;
-    @Deprecated
-    protected boolean deleteFlag = false;
-
     protected long createTimestamp = System.currentTimeMillis();
     protected long loadStartTimestamp = -1;
     protected long finishTimestamp = -1;
@@ -131,6 +121,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected TUniqueId requestId;
 
     protected LoadStatistic loadStatistic = new LoadStatistic();
+
+    // This map is used to save job property.
+    private Map<String, Object> jobProperties = Maps.newHashMap();
 
     // only for persistence param. see readFields() for usage
     private boolean isJobTypeRead = false;
@@ -206,11 +199,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    // only for log replay
-    public LoadJob() {
+    public LoadJob(EtlJobType jobType) {
+        this.jobType = jobType;
+        initDefaultJobProperties();
     }
 
-    public LoadJob(long dbId, String label) {
+    public LoadJob(EtlJobType jobType, long dbId, String label) {
+        this(jobType);
         this.id = Catalog.getCurrentCatalog().getNextId();
         this.dbId = dbId;
         this.label = label;
@@ -265,7 +260,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     protected long getDeadlineMs() {
-        return createTimestamp + timeoutSecond * 1000;
+        return createTimestamp + getTimeout() * 1000;
     }
 
     private boolean isTimeout() {
@@ -324,58 +319,59 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return state == JobState.FINISHED || state == JobState.CANCELLED || state == JobState.UNKNOWN;
     }
 
-    protected void setJobProperties(Map<String, String> properties) throws DdlException {
-        // resource info
+    public void setJobProperties(Map<String, String> properties) throws DdlException {
+        initDefaultJobProperties();
+
+        // set property from session variables
         if (ConnectContext.get() != null) {
-            execMemLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
+            jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, ConnectContext.get().getSessionVariable().getMaxExecMemByte());
+            jobProperties.put(LoadStmt.TIMEZONE, ConnectContext.get().getSessionVariable().getTimeZone());
         }
 
-        // job properties
-        if (properties != null) {
-            if (properties.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
-                try {
-                    timeoutSecond = Integer.parseInt(properties.get(LoadStmt.TIMEOUT_PROPERTY));
-                } catch (NumberFormatException e) {
-                    throw new DdlException("Timeout is not INT", e);
-                }
-            }
+        if (properties == null || properties.isEmpty()) {
+            return;
+        }
 
-            if (properties.containsKey(LoadStmt.MAX_FILTER_RATIO_PROPERTY)) {
-                try {
-                    maxFilterRatio = Double.parseDouble(properties.get(LoadStmt.MAX_FILTER_RATIO_PROPERTY));
-                } catch (NumberFormatException e) {
-                    throw new DdlException("Max filter ratio is not DOUBLE", e);
-                }
+        // set property from specified job properties
+        for (String key : LoadStmt.PROPERTIES_MAP.keySet()) {
+            if (!properties.containsKey(key)) {
+                continue;
             }
-
-            if (properties.containsKey(LoadStmt.LOAD_DELETE_FLAG_PROPERTY)) {
-                String flag = properties.get(LoadStmt.LOAD_DELETE_FLAG_PROPERTY);
-                if (flag.equalsIgnoreCase("true") || flag.equalsIgnoreCase("false")) {
-                    deleteFlag = Boolean.parseBoolean(flag);
-                } else {
-                    throw new DdlException("Value of delete flag is invalid");
-                }
-            }
-
-            if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
-                try {
-                    execMemLimit = Long.parseLong(properties.get(LoadStmt.EXEC_MEM_LIMIT));
-                } catch (NumberFormatException e) {
-                    throw new DdlException("Execute memory limit is not Long", e);
-                }
-            }
-
-            if (properties.containsKey(LoadStmt.STRICT_MODE)) {
-                strictMode = Boolean.valueOf(properties.get(LoadStmt.STRICT_MODE));
-            }
-
-            if (properties.containsKey(LoadStmt.TIMEZONE)) {
-                timezone = properties.get(LoadStmt.TIMEZONE);
-            } else if (ConnectContext.get() != null) {
-                // get timezone for session variable
-                timezone = ConnectContext.get().getSessionVariable().getTimeZone();
+            try {
+                jobProperties.put(key, LoadStmt.PROPERTIES_MAP.get(key).apply(properties.get(key)));
+            } catch (Exception e) {
+                throw new DdlException("Failed to set property " + key + ". Error: " + e.getMessage());
             }
         }
+    }
+
+    private void initDefaultJobProperties() {
+        long timeout = Config.broker_load_default_timeout_second;
+        switch (jobType) {
+            case SPARK:
+                timeout = Config.spark_load_default_timeout_second;
+                break;
+            case HADOOP:
+                timeout = Config.hadoop_load_default_timeout_second;
+                break;
+            case BROKER:
+                timeout = Config.broker_load_default_timeout_second;
+                break;
+            case INSERT:
+                timeout = Config.insert_load_default_timeout_second;
+                break;
+            case MINI:
+                timeout = Config.stream_load_default_timeout_second;
+                break;
+            default:
+                break;
+        }
+        jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, timeout);
+        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, 2 * 1024 * 1024 * 1024L);
+        jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, 0.0);
+        jobProperties.put(LoadStmt.STRICT_MODE, false);
+        jobProperties.put(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE);
+        jobProperties.put(LoadStmt.LOAD_PARALLELISM, 1);
     }
 
     public void isJobTypeRead(boolean jobTypeRead) {
@@ -659,6 +655,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
         }
+        // when load job finished, there is no need to hold the tasks which are the biggest memory consumers.
+        idToTasks.clear();
     }
 
     protected boolean checkDataQuality() {
@@ -669,7 +667,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
         long normalNum = Long.parseLong(counters.get(DPP_NORMAL_ALL));
         long abnormalNum = Long.parseLong(counters.get(DPP_ABNORMAL_ALL));
-        if (abnormalNum > (abnormalNum + normalNum) * maxFilterRatio) {
+        if (abnormalNum > (abnormalNum + normalNum) * getMaxFilterRatio()) {
             return false;
         }
 
@@ -731,8 +729,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
 
             // task info
-            jobInfo.add("cluster:" + getResourceName() + "; timeout(s):" + timeoutSecond
-                                + "; max_filter_ratio:" + maxFilterRatio);
+            jobInfo.add("cluster:" + getResourceName() + "; timeout(s):" + getTimeout()
+                                + "; max_filter_ratio:" + getMaxFilterRatio());
 
             // error msg
             if (failMsg == null) {
@@ -968,10 +966,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         out.writeLong(dbId);
         Text.writeString(out, label);
         Text.writeString(out, state.name());
-        out.writeLong(timeoutSecond);
-        out.writeLong(execMemLimit);
-        out.writeDouble(maxFilterRatio);
-        out.writeBoolean(deleteFlag);
         out.writeLong(createTimestamp);
         out.writeLong(loadStartTimestamp);
         out.writeLong(finishTimestamp);
@@ -983,7 +977,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         out.writeInt(progress);
         loadingStatus.write(out);
-        out.writeBoolean(strictMode);
         out.writeLong(transactionId);
         if (authorizationInfo == null) {
             out.writeBoolean(false);
@@ -991,10 +984,20 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             out.writeBoolean(true);
             authorizationInfo.write(out);
         }
-        Text.writeString(out, timezone);
+
+        out.writeInt(this.jobProperties.size());
+        for (Map.Entry<String, Object> entry : jobProperties.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            Text.writeString(out, String.valueOf(entry.getValue()));
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_94) {
+            readFieldOld(in);
+            return;
+        }
+
         if (!isJobTypeRead) {
             jobType = EtlJobType.valueOf(Text.readString(in));
             isJobTypeRead = true;
@@ -1004,14 +1007,65 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         dbId = in.readLong();
         label = Text.readString(in);
         state = JobState.valueOf(Text.readString(in));
+
+        createTimestamp = in.readLong();
+        loadStartTimestamp = in.readLong();
+        finishTimestamp = in.readLong();
+        if (in.readBoolean()) {
+            failMsg = new FailMsg();
+            failMsg.readFields(in);
+        }
+        progress = in.readInt();
+        loadingStatus.readFields(in);
+        transactionId = in.readLong();
+        if (in.readBoolean()) {
+            authorizationInfo = new AuthorizationInfo();
+            authorizationInfo.readFields(in);
+        }
+
+        int size = in.readInt();
+        Map<String, String> tmpProperties = Maps.newHashMap();
+        for (int i = 0; i < size; i++) {
+            String key = Text.readString(in);
+            String val = Text.readString(in);
+            tmpProperties.put(key, val);
+        }
+        // init jobProperties
+        try {
+            setJobProperties(tmpProperties);
+        } catch (Exception e) {
+            // should not happen
+            throw new IOException("failed to replay job property", e);
+        }
+    }
+
+    // This method is to read the old meta, which the job properties are persist one by one.
+    // The new meta will save the job properties into jobProperties map
+    @Deprecated
+    private void readFieldOld(DataInput in) throws IOException {
+        if (!isJobTypeRead) {
+            jobType = EtlJobType.valueOf(Text.readString(in));
+            isJobTypeRead = true;
+        }
+
+        id = in.readLong();
+        dbId = in.readLong();
+        label = Text.readString(in);
+        state = JobState.valueOf(Text.readString(in));
+        long timeoutSecond;
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
             timeoutSecond = in.readLong();
         } else {
             timeoutSecond = in.readInt();
         }
-        execMemLimit = in.readLong();
-        maxFilterRatio = in.readDouble();
-        deleteFlag = in.readBoolean();
+        long execMemLimit = in.readLong();
+        double maxFilterRatio = in.readDouble();
+        // delete flag is never used
+        boolean deleteFlag = in.readBoolean();
+        jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, timeoutSecond);
+        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, execMemLimit);
+        jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio);
+
         createTimestamp = in.readLong();
         loadStartTimestamp = in.readLong();
         finishTimestamp = in.readLong();
@@ -1022,7 +1076,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         progress = in.readInt();
         loadingStatus.readFields(in);
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_54) {
-            strictMode = in.readBoolean();
+            boolean strictMode = in.readBoolean();
+            jobProperties.put(LoadStmt.STRICT_MODE, strictMode);
             transactionId = in.readLong();
         }
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_56) {
@@ -1032,7 +1087,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
         }
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_61) {
-            timezone = Text.readString(in);
+            String timezone = Text.readString(in);
+            jobProperties.put(LoadStmt.TIMEZONE, timezone);
         }
     }
 
@@ -1090,5 +1146,38 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             String json = Text.readString(in);
             return GsonUtils.GSON.fromJson(json, LoadJobStateUpdateInfo.class);
         }
+    }
+
+    // unit: second
+    protected long getTimeout() {
+        return (long) jobProperties.get(LoadStmt.TIMEOUT_PROPERTY);
+    }
+
+    protected void setTimeout(long timeout) {
+        jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, timeout);
+    }
+
+    protected long getExecMemLimit() {
+        return (long) jobProperties.get(LoadStmt.EXEC_MEM_LIMIT);
+    }
+
+    protected double getMaxFilterRatio() {
+        return (double) jobProperties.get(LoadStmt.MAX_FILTER_RATIO_PROPERTY);
+    }
+
+    protected void setMaxFilterRatio(double maxFilterRatio) {
+        jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio);
+    }
+
+    protected boolean isStrictMode() {
+        return (boolean) jobProperties.get(LoadStmt.STRICT_MODE);
+    }
+
+    protected String getTimeZone() {
+        return (String) jobProperties.get(LoadStmt.TIMEZONE);
+    }
+
+    public int getLoadParallelism() {
+        return (int) jobProperties.get(LoadStmt.LOAD_PARALLELISM);
     }
 }

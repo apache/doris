@@ -29,10 +29,14 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TNetworkAddress;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -42,9 +46,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
+import java.io.StringReader;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -97,20 +99,26 @@ public class DataDescription {
     private final ColumnSeparator columnSeparator;
     private final String fileFormat;
     private final boolean isNegative;
-
-    // column names of source files
-    private List<String> fileFieldNames;
     // column names in the path
     private final List<String> columnsFromPath;
     // save column mapping in SET(xxx = xxx) clause
     private final List<Expr> columnMappingList;
+    private final Expr precedingFilterExpr;
     private final Expr whereExpr;
-
     private final String srcTableName;
-
+    // this only used in multi load, all filePaths is file not dir
+    private List<Long> fileSize;
+    // column names of source files
+    private List<String> fileFieldNames;
     // Used for mini load
     private TNetworkAddress beAddr;
     private String lineDelimiter;
+    private String columnDef;
+    private long backendId;
+    private boolean stripOuterArray = false;
+    private String jsonPaths = "";
+    private String jsonRoot = "";
+    private boolean fuzzyParse = false;
 
     private String sequenceCol;
 
@@ -122,12 +130,12 @@ public class DataDescription {
      * For hadoop load, this param is also used to persistence.
      * The function in this param is copied from 'parsedColumnExprList'
      */
-    private Map<String, Pair<String, List<String>>> columnToHadoopFunction = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private final Map<String, Pair<String, List<String>>> columnToHadoopFunction = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     private boolean isHadoopLoad = false;
 
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
-    private Expr deleteCondition;
+    private final Expr deleteCondition;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -138,7 +146,7 @@ public class DataDescription {
                            boolean isNegative,
                            List<Expr> columnMappingList) {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
-                isNegative, columnMappingList, null, LoadTask.MergeType.APPEND, null, null);
+                isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null);
     }
 
     public DataDescription(String tableName,
@@ -150,6 +158,7 @@ public class DataDescription {
                            List<String> columnsFromPath,
                            boolean isNegative,
                            List<Expr> columnMappingList,
+                           Expr fileFilterExpr,
                            Expr whereExpr,
                            LoadTask.MergeType mergeType,
                            Expr deleteCondition,
@@ -163,6 +172,7 @@ public class DataDescription {
         this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = fileFilterExpr;
         this.whereExpr = whereExpr;
         this.srcTableName = null;
         this.mergeType = mergeType;
@@ -188,288 +198,11 @@ public class DataDescription {
         this.columnsFromPath = null;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = null; // external hive table does not support file filter expr
         this.whereExpr = whereExpr;
         this.srcTableName = srcTableName;
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
-    }
-
-    public String getTableName() {
-        return tableName;
-    }
-
-    public PartitionNames getPartitionNames() {
-        return partitionNames;
-    }
-
-    public Expr getWhereExpr(){
-        return whereExpr;
-    }
-
-    public LoadTask.MergeType getMergeType() {
-        if (mergeType == null) {
-            return LoadTask.MergeType.APPEND;
-        }
-        return mergeType;
-    }
-
-    public Expr getDeleteCondition() {
-        return deleteCondition;
-    }
-
-    public List<String> getFilePaths() {
-        return filePaths;
-    }
-
-    public List<String> getFileFieldNames() {
-        if (fileFieldNames == null || fileFieldNames.isEmpty()) {
-            return null;
-        }
-        return fileFieldNames;
-    }
-
-    public String getFileFormat() {
-        return fileFormat;
-    }
-
-    public List<String> getColumnsFromPath() {
-        return columnsFromPath;
-    }
-
-    public String getColumnSeparator() {
-        if (columnSeparator == null) {
-            return null;
-        }
-        return columnSeparator.getColumnSeparator();
-    }
-
-    public boolean isNegative() {
-        return isNegative;
-    }
-
-    public TNetworkAddress getBeAddr() {
-        return beAddr;
-    }
-
-    public void setBeAddr(TNetworkAddress addr) {
-        beAddr = addr;
-    }
-
-    public String getLineDelimiter() {
-        return lineDelimiter;
-    }
-
-    public void setLineDelimiter(String lineDelimiter) {
-        this.lineDelimiter = lineDelimiter;
-    }
-
-    public String getSequenceCol() {
-        return sequenceCol;
-    }
-
-    public boolean hasSequenceCol() {
-        return !Strings.isNullOrEmpty(sequenceCol);
-    }
-
-    @Deprecated
-    public void addColumnMapping(String functionName, Pair<String, List<String>> pair) {
-        if (Strings.isNullOrEmpty(functionName) || pair == null) {
-            return;
-        }
-        columnToHadoopFunction.put(functionName, pair);
-    }
-
-    public Map<String, Pair<String, List<String>>> getColumnToHadoopFunction() {
-        return columnToHadoopFunction;
-    }
-
-    public List<ImportColumnDesc> getParsedColumnExprList() {
-        return parsedColumnExprList;
-    }
-
-    public void setIsHadoopLoad(boolean isHadoopLoad) {
-        this.isHadoopLoad = isHadoopLoad;
-    }
-
-    public boolean isHadoopLoad() {
-        return isHadoopLoad;
-    }
-
-    public String getSrcTableName() {
-        return srcTableName;
-    }
-
-    public boolean isLoadFromTable() {
-        return !Strings.isNullOrEmpty(srcTableName);
-    }
-
-    /*
-     * Analyze parsedExprMap and columnToHadoopFunction from columns, columns from path and columnMappingList
-     * Example: 
-     *      columns (col1, tmp_col2, tmp_col3) 
-     *      columns from path as (col4, col5)
-     *      set (col2=tmp_col2+1, col3=strftime("%Y-%m-%d %H:%M:%S", tmp_col3))
-     *      
-     * Result:
-     *      parsedExprMap = {"col1": null, "tmp_col2": null, "tmp_col3": null, "col4": null, "col5": null,
-     *                       "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
-     *      columnToHadoopFunction = {"col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}                 
-     */
-    private void analyzeColumns() throws AnalysisException {
-        if ((fileFieldNames == null || fileFieldNames.isEmpty()) && (columnsFromPath != null && !columnsFromPath.isEmpty())) {
-            throw new AnalysisException("Can not specify columns_from_path without column_list");
-        }
-
-        // used to check duplicated column name in COLUMNS and COLUMNS FROM PATH
-        Set<String> columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-
-        // merge columns exprs from columns, columns from path and columnMappingList
-        // 1. analyze columns
-        if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
-            for (String columnName : fileFieldNames) {
-                if (!columnNames.add(columnName)) {
-                    throw new AnalysisException("Duplicate column: " + columnName);
-                }
-                ImportColumnDesc importColumnDesc = new ImportColumnDesc(columnName, null);
-                parsedColumnExprList.add(importColumnDesc);
-            }
-        }
-
-        // 2. analyze columns from path
-        if (columnsFromPath != null && !columnsFromPath.isEmpty()) {
-            if (isHadoopLoad) {
-                throw new AnalysisException("Hadoop load does not support specifying columns from path");
-            }
-            for (String columnName : columnsFromPath) {
-                if (!columnNames.add(columnName)) {
-                    throw new AnalysisException("Duplicate column: " + columnName);
-                }
-                ImportColumnDesc importColumnDesc = new ImportColumnDesc(columnName, null);
-                parsedColumnExprList.add(importColumnDesc);
-            }
-        }
-
-        // 3: analyze column mapping
-        if (columnMappingList == null || columnMappingList.isEmpty()) {
-            return;
-        }
-
-        // used to check duplicated column name in SET clause
-        Set<String> columnMappingNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        // Step2: analyze column mapping
-        // the column expr only support the SlotRef or eq binary predicate which's child(0) must be a SloRef.
-        // the duplicate column name of SloRef is forbidden.
-        for (Expr columnExpr : columnMappingList) {
-            if (!(columnExpr instanceof BinaryPredicate)) {
-                throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                        + "Expr: " + columnExpr.toSql());
-            }
-            BinaryPredicate predicate = (BinaryPredicate) columnExpr;
-            if (predicate.getOp() != Operator.EQ) {
-                throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                        + "The mapping operator error, op: " + predicate.getOp());
-            }
-            Expr child0 = predicate.getChild(0);
-            if (!(child0 instanceof SlotRef)) {
-                throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                        + "The mapping column error. column: " + child0.toSql());
-            }
-            String column = ((SlotRef) child0).getColumnName();
-            if (!columnMappingNames.add(column)) {
-                throw new AnalysisException("Duplicate column mapping: " + column);
-            }
-            // hadoop load only supports the FunctionCallExpr
-            Expr child1 = predicate.getChild(1);
-            if (isHadoopLoad && !(child1 instanceof FunctionCallExpr)) {
-                throw new AnalysisException("Hadoop load only supports the designated function. "
-                        + "The error mapping function is:" + child1.toSql());
-            }
-            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, child1);
-            parsedColumnExprList.add(importColumnDesc);
-            if (child1 instanceof FunctionCallExpr) {
-                analyzeColumnToHadoopFunction(column, child1);
-            }
-        }
-    }
-
-    private void analyzeColumnToHadoopFunction(String columnName, Expr child1) throws AnalysisException {
-        Preconditions.checkState(child1 instanceof FunctionCallExpr); 
-        FunctionCallExpr functionCallExpr = (FunctionCallExpr) child1;
-        String functionName = functionCallExpr.getFnName().getFunction();
-        if (!HADOOP_SUPPORT_FUNCTION_NAMES.contains(functionName.toLowerCase())) {
-            return;
-        }
-        List<Expr> paramExprs = functionCallExpr.getParams().exprs();
-        List<String> args = Lists.newArrayList();
-
-        for (Expr paramExpr : paramExprs) {
-            if (paramExpr instanceof SlotRef) {
-                SlotRef slot = (SlotRef) paramExpr;
-                args.add(slot.getColumnName());
-            } else if (paramExpr instanceof StringLiteral) {
-                StringLiteral literal = (StringLiteral) paramExpr;
-                args.add(literal.getValue());
-            } else if (paramExpr instanceof NullLiteral) {
-                args.add(null);
-            } else {
-                if (isHadoopLoad) {
-                    // hadoop function only support slot, string and null parameters
-                    throw new AnalysisException("Mapping function args error, arg: " + paramExpr.toSql());
-                }
-            }
-        }
-
-        Pair<String, List<String>> functionPair = new Pair<String, List<String>>(functionName, args);
-        columnToHadoopFunction.put(columnName, functionPair);
-    }
-
-    private void analyzeSequenceCol(String fullDbName) throws AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            throw new AnalysisException("Database[" + fullDbName + "] does not exist");
-        }
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            throw new AnalysisException("Unknown table " + tableName
-                    + " in database " + db.getFullName());
-        }
-        if (!(table instanceof OlapTable)) {
-            throw new AnalysisException("Table " + table.getName() + " is not OlapTable");
-        }
-        OlapTable olapTable = (OlapTable) table;
-        // no sequence column in load and table schema
-        if (!hasSequenceCol() && !olapTable.hasSequenceCol()) {
-            return;
-        }
-        // check olapTable schema and sequenceCol
-        if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
-            throw new AnalysisException("Table " + table.getName() + " has sequence column, need to specify the sequence column");
-        }
-        if (hasSequenceCol() && !olapTable.hasSequenceCol()) {
-            throw new AnalysisException("There is no sequence column in the table " + table.getName());
-        }
-        // check source sequence column is in parsedColumnExprList or Table base schema
-        boolean hasSourceSequenceCol = false;
-        if (!parsedColumnExprList.isEmpty()) {
-            for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
-                if (importColumnDesc.getColumnName().equals(sequenceCol)) {
-                    hasSourceSequenceCol = true;
-                    break;
-                }
-            }
-        } else {
-            List<Column> columns = olapTable.getBaseSchema();
-            for (Column column : columns) {
-                if (column.getName().equals(sequenceCol)) {
-                    hasSourceSequenceCol = true;
-                    break;
-                }
-            }
-        }
-        if (!hasSourceSequenceCol) {
-            throw new AnalysisException("There is no sequence column " + sequenceCol + " in the " + table.getName()
-                + " or the COLUMNS and SET clause");
-        }
     }
 
     public static void validateMappingFunction(String functionName, List<String> args,
@@ -645,6 +378,371 @@ public class DataDescription {
         }
     }
 
+    public String getTableName() {
+        return tableName;
+    }
+
+    public PartitionNames getPartitionNames() {
+        return partitionNames;
+    }
+
+    public Expr getPrecdingFilterExpr() {
+        return precedingFilterExpr;
+    }
+
+    public Expr getWhereExpr() {
+        return whereExpr;
+    }
+
+    public LoadTask.MergeType getMergeType() {
+        if (mergeType == null) {
+            return LoadTask.MergeType.APPEND;
+        }
+        return mergeType;
+    }
+
+    public Expr getDeleteCondition() {
+        return deleteCondition;
+    }
+
+    public List<String> getFilePaths() {
+        return filePaths;
+    }
+
+    public List<String> getFileFieldNames() {
+        if (fileFieldNames == null || fileFieldNames.isEmpty()) {
+            return null;
+        }
+        return fileFieldNames;
+    }
+
+    public String getFileFormat() {
+        return fileFormat;
+    }
+
+    public List<String> getColumnsFromPath() {
+        return columnsFromPath;
+    }
+
+    public String getColumnSeparator() {
+        if (columnSeparator == null) {
+            return null;
+        }
+        return columnSeparator.getColumnSeparator();
+    }
+
+    public boolean isNegative() {
+        return isNegative;
+    }
+
+    public TNetworkAddress getBeAddr() {
+        return beAddr;
+    }
+
+    public void setBeAddr(TNetworkAddress addr) {
+        beAddr = addr;
+    }
+
+    public String getLineDelimiter() {
+        return lineDelimiter;
+    }
+
+    public void setLineDelimiter(String lineDelimiter) {
+        this.lineDelimiter = lineDelimiter;
+    }
+
+    public String getSequenceCol() {
+        return sequenceCol;
+    }
+
+    public void setColumnDef(String columnDef) {
+        this.columnDef = columnDef;
+    }
+
+    public boolean hasSequenceCol() {
+        return !Strings.isNullOrEmpty(sequenceCol);
+    }
+
+    public List<Long> getFileSize() {
+        return fileSize;
+    }
+
+    public void setFileSize(List<Long> fileSize) {
+        this.fileSize = fileSize;
+    }
+
+    public long getBackendId() {
+        return backendId;
+    }
+
+    public void setBackendId(long backendId) {
+        this.backendId = backendId;
+    }
+
+    public boolean isStripOuterArray() {
+        return stripOuterArray;
+    }
+
+    public void setStripOuterArray(boolean stripOuterArray) {
+        this.stripOuterArray = stripOuterArray;
+    }
+
+    public boolean isFuzzyParse() {
+        return fuzzyParse;
+    }
+
+    public void setFuzzyParse(boolean fuzzyParse) {
+        this.fuzzyParse = fuzzyParse;
+    }
+
+    public String getJsonPaths() {
+        return jsonPaths;
+    }
+
+    public void setJsonPaths(String jsonPaths) {
+        this.jsonPaths = jsonPaths;
+    }
+
+    public String getJsonRoot() {
+        return jsonRoot;
+    }
+
+    public void setJsonRoot(String jsonRoot) {
+        this.jsonRoot = jsonRoot;
+    }
+
+    @Deprecated
+    public void addColumnMapping(String functionName, Pair<String, List<String>> pair) {
+        if (Strings.isNullOrEmpty(functionName) || pair == null) {
+            return;
+        }
+        columnToHadoopFunction.put(functionName, pair);
+    }
+
+    public Map<String, Pair<String, List<String>>> getColumnToHadoopFunction() {
+        return columnToHadoopFunction;
+    }
+
+    public List<ImportColumnDesc> getParsedColumnExprList() {
+        return parsedColumnExprList;
+    }
+
+    public void setIsHadoopLoad(boolean isHadoopLoad) {
+        this.isHadoopLoad = isHadoopLoad;
+    }
+
+    public boolean isHadoopLoad() {
+        return isHadoopLoad;
+    }
+
+    public String getSrcTableName() {
+        return srcTableName;
+    }
+
+    public boolean isLoadFromTable() {
+        return !Strings.isNullOrEmpty(srcTableName);
+    }
+
+    /*
+     * Analyze parsedExprMap and columnToHadoopFunction from columns, columns from path and columnMappingList
+     * Example:
+     *      columns (col1, tmp_col2, tmp_col3)
+     *      columns from path as (col4, col5)
+     *      set (col2=tmp_col2+1, col3=strftime("%Y-%m-%d %H:%M:%S", tmp_col3))
+     *
+     * Result:
+     *      parsedExprMap = {"col1": null, "tmp_col2": null, "tmp_col3": null, "col4": null, "col5": null,
+     *                       "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
+     *      columnToHadoopFunction = {"col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
+     */
+    private void analyzeColumns() throws AnalysisException {
+        if ((fileFieldNames == null || fileFieldNames.isEmpty()) && (columnsFromPath != null && !columnsFromPath.isEmpty())) {
+            throw new AnalysisException("Can not specify columns_from_path without column_list");
+        }
+
+        // used to check duplicated column name in COLUMNS and COLUMNS FROM PATH
+        Set<String> columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+
+        // merge columns exprs from columns, columns from path and columnMappingList
+        // 1. analyze columns
+        if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
+            for (String columnName : fileFieldNames) {
+                if (!columnNames.add(columnName)) {
+                    throw new AnalysisException("Duplicate column: " + columnName);
+                }
+                ImportColumnDesc importColumnDesc = new ImportColumnDesc(columnName, null);
+                parsedColumnExprList.add(importColumnDesc);
+            }
+        }
+
+        // 2. analyze columns from path
+        if (columnsFromPath != null && !columnsFromPath.isEmpty()) {
+            if (isHadoopLoad) {
+                throw new AnalysisException("Hadoop load does not support specifying columns from path");
+            }
+            for (String columnName : columnsFromPath) {
+                if (!columnNames.add(columnName)) {
+                    throw new AnalysisException("Duplicate column: " + columnName);
+                }
+                ImportColumnDesc importColumnDesc = new ImportColumnDesc(columnName, null);
+                parsedColumnExprList.add(importColumnDesc);
+            }
+        }
+
+        // 3: analyze column mapping
+        if (columnMappingList == null || columnMappingList.isEmpty()) {
+            return;
+        }
+
+        // used to check duplicated column name in SET clause
+        Set<String> columnMappingNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        // Step2: analyze column mapping
+        // the column expr only support the SlotRef or eq binary predicate which's child(0) must be a SloRef.
+        // the duplicate column name of SloRef is forbidden.
+        for (Expr columnExpr : columnMappingList) {
+            if (!(columnExpr instanceof BinaryPredicate)) {
+                throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
+                        + "Expr: " + columnExpr.toSql());
+            }
+            BinaryPredicate predicate = (BinaryPredicate) columnExpr;
+            if (predicate.getOp() != Operator.EQ) {
+                throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
+                        + "The mapping operator error, op: " + predicate.getOp());
+            }
+            Expr child0 = predicate.getChild(0);
+            if (!(child0 instanceof SlotRef)) {
+                throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
+                        + "The mapping column error. column: " + child0.toSql());
+            }
+            String column = ((SlotRef) child0).getColumnName();
+            if (!columnMappingNames.add(column)) {
+                throw new AnalysisException("Duplicate column mapping: " + column);
+            }
+            // hadoop load only supports the FunctionCallExpr
+            Expr child1 = predicate.getChild(1);
+            if (isHadoopLoad && !(child1 instanceof FunctionCallExpr)) {
+                throw new AnalysisException("Hadoop load only supports the designated function. "
+                        + "The error mapping function is:" + child1.toSql());
+            }
+            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, child1);
+            parsedColumnExprList.add(importColumnDesc);
+            if (child1 instanceof FunctionCallExpr) {
+                analyzeColumnToHadoopFunction(column, child1);
+            }
+        }
+    }
+
+    private void analyzeMultiLoadColumns() throws AnalysisException {
+        if (columnDef == null || columnDef.isEmpty()) {
+            return;
+        }
+        String columnsSQL = "COLUMNS (" + columnDef + ")";
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
+        ImportColumnsStmt columnsStmt;
+        try {
+            columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
+        } catch (Error e) {
+            LOG.warn("error happens when parsing columns, sql={}", columnsSQL, e);
+            throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
+        } catch (AnalysisException e) {
+            LOG.warn("analyze columns' statement failed, sql={}, error={}",
+                    columnsSQL, parser.getErrorMsg(columnsSQL), e);
+            String errorMessage = parser.getErrorMsg(columnsSQL);
+            if (errorMessage == null) {
+                throw e;
+            } else {
+                throw new AnalysisException(errorMessage, e);
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to parse columns header, sql={}", columnsSQL, e);
+            throw new AnalysisException("parse columns header failed", e);
+        }
+
+        if (columnsStmt.getColumns() != null && !columnsStmt.getColumns().isEmpty()) {
+            parsedColumnExprList = columnsStmt.getColumns();
+        }
+    }
+
+    private void analyzeColumnToHadoopFunction(String columnName, Expr child1) throws AnalysisException {
+        Preconditions.checkState(child1 instanceof FunctionCallExpr);
+        FunctionCallExpr functionCallExpr = (FunctionCallExpr) child1;
+        String functionName = functionCallExpr.getFnName().getFunction();
+        if (!HADOOP_SUPPORT_FUNCTION_NAMES.contains(functionName.toLowerCase())) {
+            return;
+        }
+        List<Expr> paramExprs = functionCallExpr.getParams().exprs();
+        List<String> args = Lists.newArrayList();
+
+        for (Expr paramExpr : paramExprs) {
+            if (paramExpr instanceof SlotRef) {
+                SlotRef slot = (SlotRef) paramExpr;
+                args.add(slot.getColumnName());
+            } else if (paramExpr instanceof StringLiteral) {
+                StringLiteral literal = (StringLiteral) paramExpr;
+                args.add(literal.getValue());
+            } else if (paramExpr instanceof NullLiteral) {
+                args.add(null);
+            } else {
+                if (isHadoopLoad) {
+                    // hadoop function only support slot, string and null parameters
+                    throw new AnalysisException("Mapping function args error, arg: " + paramExpr.toSql());
+                }
+            }
+        }
+
+        Pair<String, List<String>> functionPair = new Pair<String, List<String>>(functionName, args);
+        columnToHadoopFunction.put(columnName, functionPair);
+    }
+
+    private void analyzeSequenceCol(String fullDbName) throws AnalysisException {
+        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
+        if (db == null) {
+            throw new AnalysisException("Database[" + fullDbName + "] does not exist");
+        }
+        Table table = db.getTable(tableName);
+        if (table == null) {
+            throw new AnalysisException("Unknown table " + tableName
+                    + " in database " + db.getFullName());
+        }
+        if (!(table instanceof OlapTable)) {
+            throw new AnalysisException("Table " + table.getName() + " is not OlapTable");
+        }
+        OlapTable olapTable = (OlapTable) table;
+        // no sequence column in load and table schema
+        if (!hasSequenceCol() && !olapTable.hasSequenceCol()) {
+            return;
+        }
+        // check olapTable schema and sequenceCol
+        if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
+            throw new AnalysisException("Table " + table.getName() + " has sequence column, need to specify the sequence column");
+        }
+        if (hasSequenceCol() && !olapTable.hasSequenceCol()) {
+            throw new AnalysisException("There is no sequence column in the table " + table.getName());
+        }
+        // check source sequence column is in parsedColumnExprList or Table base schema
+        boolean hasSourceSequenceCol = false;
+        if (!parsedColumnExprList.isEmpty()) {
+            for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
+                if (importColumnDesc.getColumnName().equals(sequenceCol)) {
+                    hasSourceSequenceCol = true;
+                    break;
+                }
+            }
+        } else {
+            List<Column> columns = olapTable.getBaseSchema();
+            for (Column column : columns) {
+                if (column.getName().equals(sequenceCol)) {
+                    hasSourceSequenceCol = true;
+                    break;
+                }
+            }
+        }
+        if (!hasSourceSequenceCol) {
+            throw new AnalysisException("There is no sequence column " + sequenceCol + " in the " + table.getName()
+                    + " or the COLUMNS and SET clause");
+        }
+    }
+
     private void checkLoadPriv(String fullDbName) throws AnalysisException {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("No table name in load statement.");
@@ -661,10 +759,10 @@ public class DataDescription {
         // check hive table auth
         if (isLoadFromTable()) {
             if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, srcTableName,
-                                                                    PrivPredicate.SELECT)) {
+                    PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
-                                                    ConnectContext.get().getQualifiedUser(),
-                                                    ConnectContext.get().getRemoteIP(), srcTableName);
+                        ConnectContext.get().getQualifiedUser(),
+                        ConnectContext.get().getRemoteIP(), srcTableName);
             }
         }
     }
@@ -705,29 +803,30 @@ public class DataDescription {
         }
 
         analyzeColumns();
+        analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
     }
 
     /*
-     * If user does not specify COLUMNS in load stmt, we fill it here. 
+     * If user does not specify COLUMNS in load stmt, we fill it here.
      * eg1:
      *      both COLUMNS and SET clause is empty. after fill:
      *      (k1,k2,k3)
-     *      
+     *
      * eg2:
      *      COLUMNS is empty, SET is not empty
      *      SET ( k2 = default_value("2") )
      *      after fill:
      *      (k1, k2, k3)
      *      SET ( k2 = default_value("2") )
-     *         
+     *
      * eg3:
      *      COLUMNS is empty, SET is not empty
      *      SET (k2 = strftime("%Y-%m-%d %H:%M:%S", k2)
      *      after fill:
      *      (k1,k2,k3)
      *      SET (k2 = strftime("%Y-%m-%d %H:%M:%S", k2)
-     * 
+     *
      */
     public void fillColumnInfoIfNotSpecified(List<Column> baseSchema) {
         if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
@@ -740,7 +839,7 @@ public class DataDescription {
         for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
             mappingColNames.add(importColumnDesc.getColumnName());
         }
-        
+
         for (Column column : baseSchema) {
             if (!mappingColNames.contains(column.getName())) {
                 parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));

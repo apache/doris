@@ -17,21 +17,14 @@
 
 package org.apache.doris.task;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
-import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -42,8 +35,12 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import java.io.StringReader;
 import java.util.List;
@@ -57,8 +54,10 @@ public class StreamLoadTask implements LoadTaskInfo {
     private TFileType fileType;
     private TFileFormatType formatType;
     private boolean stripOuterArray;
+    private boolean numAsString;
     private String jsonPaths;
     private String jsonRoot;
+    private boolean fuzzyParse;
 
     // optional
     private List<ImportColumnDesc> columnExprDescs = Lists.newArrayList();
@@ -83,6 +82,8 @@ public class StreamLoadTask implements LoadTaskInfo {
         this.jsonPaths = "";
         this.jsonRoot = "";
         this.stripOuterArray = false;
+        this.numAsString = false;
+        this.fuzzyParse = false;
     }
 
     public TUniqueId getId() {
@@ -103,6 +104,10 @@ public class StreamLoadTask implements LoadTaskInfo {
 
     public List<ImportColumnDesc> getColumnExprDescs() {
         return columnExprDescs;
+    }
+
+    public Expr getPrecedingFilter() {
+        return null;
     }
 
     public Expr getWhereExpr() {
@@ -141,8 +146,26 @@ public class StreamLoadTask implements LoadTaskInfo {
         return stripOuterArray;
     }
 
+    @Override
+    public boolean isNumAsString() {
+        return numAsString;
+    }
+
+    @Override
+    public boolean isFuzzyParse() {
+        return fuzzyParse;
+    }
+
+    public void setFuzzyParse(boolean fuzzyParse) {
+        this.fuzzyParse = fuzzyParse;
+    }
+
     public void setStripOuterArray(boolean stripOuterArray) {
         this.stripOuterArray = stripOuterArray;
+    }
+
+    public void setNumAsString(boolean numAsString) {
+        this.numAsString = numAsString;
     }
 
     public String getJsonPaths() {
@@ -172,14 +195,19 @@ public class StreamLoadTask implements LoadTaskInfo {
         return !Strings.isNullOrEmpty(sequenceCol);
     }
 
-    public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request, Database db) throws UserException {
+    @Override
+    public String getSequenceCol() {
+        return sequenceCol;
+    }
+
+    public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                                                            request.getFileType(), request.getFormatType());
-        streamLoadTask.setOptionalFromTSLPutRequest(request, db);
+        streamLoadTask.setOptionalFromTSLPutRequest(request);
         return streamLoadTask;
     }
 
-    private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request, Database db) throws UserException {
+    private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {
         if (request.isSetColumns()) {
             setColumnToColumnExpr(request.getColumns());
         }
@@ -227,6 +255,8 @@ public class StreamLoadTask implements LoadTaskInfo {
                 jsonRoot = request.getJsonRoot();
             }
             stripOuterArray = request.isStripOuterArray();
+            numAsString = request.isNumAsString();
+            fuzzyParse = request.isFuzzyParse();
         }
         if (request.isSetMergeType()) {
             try {
@@ -239,17 +269,10 @@ public class StreamLoadTask implements LoadTaskInfo {
             deleteCondition = parseWhereExpr(request.getDeleteCondition());
         }
         if (negative && mergeType != LoadTask.MergeType.APPEND) {
-            throw new AnalysisException("Negative is only used when merge type is append.");
-        }
-        if (mergeType == LoadTask.MergeType.MERGE) {
-            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
-        }  else if (mergeType == LoadTask.MergeType.DELETE) {
-            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
+            throw new AnalysisException("Negative is only used when merge type is APPEND.");
         }
         if (request.isSetSequenceCol()) {
             sequenceCol = request.getSequenceCol();
-            // add expr for sequence column
-            columnExprDescs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, sequenceCol)));
         }
     }
 
@@ -312,6 +335,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         columnSeparator.analyze();
     }
 
+    @Override
     public long getMemLimit() {
         return execMemLimit;
     }

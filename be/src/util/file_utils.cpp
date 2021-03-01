@@ -17,25 +17,22 @@
 
 #include "util/file_utils.h"
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/mman.h>
 #include <dirent.h>
+#include <openssl/md5.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
-#include <sstream>
 #include <algorithm>
-#include <iomanip>
-
 #include <boost/filesystem.hpp>
 #include <boost/system/error_code.hpp>
+#include <iomanip>
+#include <sstream>
 
-#include <openssl/md5.h>
-
+#include "env/env.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/strip.h"
 #include "gutil/strings/substitute.h"
-
-#include "env/env.h"
 #include "olap/file_helper.h"
 #include "util/defer_op.h"
 
@@ -45,7 +42,7 @@ using strings::Substitute;
 
 Status FileUtils::create_dir(const std::string& path, Env* env) {
     if (path.empty()) {
-        return Status::InvalidArgument(Substitute("Unknown primitive type($0)", path));
+        return Status::InvalidArgument(strings::Substitute("Unknown primitive type($0)", path));
     }
 
     boost::filesystem::path p(path);
@@ -120,8 +117,7 @@ Status FileUtils::remove_paths(const std::vector<std::string>& paths) {
     return Status::OK();
 }
 
-Status FileUtils::list_files(Env* env, const std::string& dir,
-                             std::vector<std::string>* files) {
+Status FileUtils::list_files(Env* env, const std::string& dir, std::vector<std::string>* files) {
     auto cb = [files](const char* name) -> bool {
         if (!is_dot_or_dotdot(name)) {
             files->push_back(name);
@@ -132,13 +128,13 @@ Status FileUtils::list_files(Env* env, const std::string& dir,
 }
 
 Status FileUtils::list_dirs_files(const std::string& path, std::set<std::string>* dirs,
-                             std::set<std::string>* files, Env* env) {
+                                  std::set<std::string>* files, Env* env) {
     auto cb = [path, dirs, files, env](const char* name) -> bool {
         if (is_dot_or_dotdot(name)) {
             return true;
         }
 
-        std::string temp_path =  path + "/" + name;
+        std::string temp_path = path + "/" + name;
         bool is_dir;
 
         auto st = env->is_directory(temp_path, &is_dir);
@@ -228,7 +224,7 @@ Status FileUtils::split_paths(const char* path, std::vector<std::string>* path_v
 }
 
 Status FileUtils::copy_file(const std::string& src_path, const std::string& dest_path) {
-   // open src file
+    // open src file
     FileHandler src_file;
     if (src_file.open(src_path.c_str(), O_RDONLY) != OLAP_SUCCESS) {
         char errmsg[64];
@@ -237,15 +233,15 @@ Status FileUtils::copy_file(const std::string& src_path, const std::string& dest
     }
     // create dest file and overwrite existing file
     FileHandler dest_file;
-    if (dest_file.open_with_mode(dest_path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRWXU)
-        != OLAP_SUCCESS) {
+    if (dest_file.open_with_mode(dest_path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRWXU) !=
+        OLAP_SUCCESS) {
         char errmsg[64];
         LOG(ERROR) << "open file failed: " << dest_path << strerror_r(errno, errmsg, 64);
         return Status::InternalError("Internal Error");
     }
 
     const int64_t BUF_SIZE = 8192;
-    char *buf = new char[BUF_SIZE];
+    char* buf = new char[BUF_SIZE];
     DeferOp free_buf(std::bind<void>(std::default_delete<char[]>(), buf));
     int64_t src_length = src_file.length();
     int64_t offset = 0;
@@ -279,12 +275,12 @@ Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
     void* buf = mmap(0, file_len, PROT_READ, MAP_SHARED, fd, 0);
 
     unsigned char result[MD5_DIGEST_LENGTH];
-    MD5((unsigned char*) buf, file_len, result);
+    MD5((unsigned char*)buf, file_len, result);
     munmap(buf, file_len);
 
     std::stringstream ss;
     for (int32_t i = 0; i < MD5_DIGEST_LENGTH; i++) {
-        ss << std::setfill('0') << std::setw(2) << std::hex << (int) result[i];
+        ss << std::setfill('0') << std::setw(2) << std::hex << (int)result[i];
     }
     ss >> *md5sum;
 
@@ -304,5 +300,4 @@ Status FileUtils::canonicalize(const std::string& path, std::string* real_path) 
     return Env::Default()->canonicalize(path, real_path);
 }
 
-}
-
+} // namespace doris

@@ -18,11 +18,11 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_COLUMN_DATA_WRITER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_COLUMN_DATA_WRITER_H
 
-#include "olap/rowset/segment_group.h"
+#include "gen_cpp/olap_common.pb.h"
 #include "olap/row_block.h"
+#include "olap/rowset/segment_group.h"
 #include "olap/schema.h"
 #include "olap/wrapper_field.h"
-#include "gen_cpp/olap_common.pb.h"
 
 namespace doris {
 class RowBlock;
@@ -33,16 +33,16 @@ public:
     // Factory function
     // 调用者获得新建的对象, 并负责delete释放
     static ColumnDataWriter* create(SegmentGroup* segment_group, bool is_push_write,
-            CompressKind compress_kind, double bloom_filter_fpp);
-    ColumnDataWriter(SegmentGroup* segment_group, bool is_push_write,
-            CompressKind compress_kind, double bloom_filter_fpp);
+                                    CompressKind compress_kind, double bloom_filter_fpp);
+    ColumnDataWriter(SegmentGroup* segment_group, bool is_push_write, CompressKind compress_kind,
+                     double bloom_filter_fpp);
     ~ColumnDataWriter();
     OLAPStatus init();
-    
-    template<typename RowType>
+
+    template <typename RowType>
     OLAPStatus write(const RowType& row);
 
-    template<typename RowType>
+    template <typename RowType>
     void next(const RowType& row);
 
     OLAPStatus finalize();
@@ -66,17 +66,17 @@ private:
     std::vector<std::pair<WrapperField*, WrapperField*>> _zone_maps;
     uint32_t _row_index;
 
-    RowBlock* _row_block;      // 使用RowBlock缓存要写入的数据
+    RowBlock* _row_block; // 使用RowBlock缓存要写入的数据
     RowCursor _cursor;
     SegmentWriter* _segment_writer;
     int64_t _num_rows;
-    uint32_t _block_id;        // 当前Segment内的block编号
+    uint32_t _block_id; // 当前Segment内的block编号
     uint32_t _max_segment_size;
     uint32_t _segment;
     int64_t _all_num_rows;
     bool _new_segment_created;
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_COLUMN_DATA_WRITER_H

@@ -108,8 +108,6 @@ public:
 
     void perform_path_gc_by_tablet();
 
-    OLAPStatus remove_old_meta_and_files();
-
     bool convert_old_data_success();
 
     OLAPStatus set_convert_finished();
@@ -126,7 +124,7 @@ public:
 
     void update_user_data_size(int64_t size);
 
-    std::set<TabletInfo> tablet_set() { return _tablet_set; }
+    size_t tablet_size() const;
 
     void disks_compaction_score_increment(int64_t delta);
 
@@ -144,9 +142,8 @@ private:
     Status _read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
     OLAPStatus _clean_unfinished_converting_data();
-    OLAPStatus _convert_old_tablet();
-    // Check whether has old format (hdr_ start) in olap. When doris updating to current version, 
-    // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true, 
+    // Check whether has old format (hdr_ start) in olap. When doris updating to current version,
+    // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true,
     // process will log fatal.
     OLAPStatus _check_incompatible_old_format_tablet();
 
@@ -180,7 +177,7 @@ private:
     bool _to_be_deleted;
 
     // used to protect _current_shard and _tablet_set
-    std::mutex _mutex;
+    mutable std::mutex _mutex;
     uint64_t _current_shard;
     std::set<TabletInfo> _tablet_set;
 
@@ -190,7 +187,7 @@ private:
     RowsetIdGenerator* _id_generator = nullptr;
 
     std::mutex _check_path_mutex;
-    std::condition_variable _cv;
+    std::condition_variable _check_path_cv;
     std::set<std::string> _all_check_paths;
     std::set<std::string> _all_tablet_schemahash_paths;
 

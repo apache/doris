@@ -15,18 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/aggregate_functions.h"
-#include "exprs/anyval_util.h"
 #include "exprs/bitmap_function.cpp"
+
+#include <gtest/gtest.h>
+
 #include <iostream>
 #include <limits>
 #include <string>
 #include <vector>
+
+#include "exprs/aggregate_functions.h"
+#include "exprs/anyval_util.h"
 #include "testutil/function_utils.h"
 #include "util/bitmap_value.h"
 #include "util/logging.h"
-
-#include <gtest/gtest.h>
 
 namespace doris {
 
@@ -36,9 +38,9 @@ StringVal convert_bitmap_to_string(FunctionContext* ctx, BitmapValue& bitmap) {
     return result;
 }
 
-template<typename T>
+template <typename T>
 StringVal convert_bitmap_intersect_to_string(FunctionContext* ctx, BitmapIntersect<T>& intersect) {
-    StringVal result(ctx,intersect.size());
+    StringVal result(ctx, intersect.size());
     intersect.serialize((char*)result.ptr);
     return result;
 }
@@ -51,9 +53,7 @@ public:
         utils = new FunctionUtils();
         ctx = utils->get_fn_ctx();
     }
-    void TearDown() {
-        delete utils;
-    }
+    void TearDown() { delete utils; }
 
 private:
     FunctionUtils* utils;
@@ -70,7 +70,7 @@ TEST_F(BitmapFunctionsTest, bitmap_empty) {
 }
 
 TEST_F(BitmapFunctionsTest, to_bitmap) {
-    std::vector<uint64_t> values = { 0, 65535, 4294967295, std::numeric_limits<uint64_t>::max() };
+    std::vector<uint64_t> values = {0, 65535, 4294967295, std::numeric_limits<uint64_t>::max()};
     for (auto val : values) {
         StringVal input = AnyValUtil::from_string_temp(ctx, std::to_string(val));
         StringVal result = BitmapFunctions::to_bitmap(ctx, input);
@@ -143,7 +143,6 @@ TEST_F(BitmapFunctionsTest, bitmap_get_value) {
     ASSERT_EQ(BigIntVal(0), null_bitmap);
 }
 
-
 TEST_F(BitmapFunctionsTest, bitmap_union) {
     StringVal dst;
     BitmapFunctions::bitmap_init(ctx, &dst);
@@ -191,7 +190,7 @@ TEST_F(BitmapFunctionsTest, bitmap_intersect) {
     StringVal serialized = BitmapFunctions::bitmap_serialize(ctx, dst);
     BigIntVal result = BitmapFunctions::bitmap_count(ctx, serialized);
     BigIntVal expected(2);
-    ASSERT_EQ(expected, result);    
+    ASSERT_EQ(expected, result);
 }
 
 // test bitmap_intersect with null dst
@@ -202,7 +201,7 @@ TEST_F(BitmapFunctionsTest, bitmap_intersect_empty) {
     StringVal serialized = BitmapFunctions::bitmap_serialize(ctx, dst);
     BigIntVal result = BitmapFunctions::bitmap_count(ctx, serialized);
     BigIntVal expected(0);
-    ASSERT_EQ(expected, result);    
+    ASSERT_EQ(expected, result);
 }
 
 TEST_F(BitmapFunctionsTest, bitmap_count) {
@@ -220,7 +219,7 @@ TEST_F(BitmapFunctionsTest, bitmap_count) {
 }
 
 // test intersect_count
-template<typename ValType, typename ValueType>
+template <typename ValType, typename ValueType>
 void test_bitmap_intersect(FunctionContext* ctx, ValType key1, ValType key2) {
     StringVal bitmap_column("placeholder");
     StringVal filter_column("placeholder");
@@ -236,18 +235,16 @@ void test_bitmap_intersect(FunctionContext* ctx, ValType key1, ValType key2) {
 
     BitmapValue bitmap1({1024, 1025, 1026});
     StringVal src1 = convert_bitmap_to_string(ctx, bitmap1);
-    BitmapFunctions::bitmap_intersect_update<ValueType, ValType>(
-        ctx, src1, key1, 1, nullptr, &dst);
+    BitmapFunctions::bitmap_intersect_update<ValueType, ValType>(ctx, src1, key1, 1, nullptr, &dst);
 
     BitmapValue bitmap2({1024, 1023, 1022});
     StringVal src2 = convert_bitmap_to_string(ctx, bitmap2);
-    BitmapFunctions::bitmap_intersect_update<ValueType, ValType>(
-        ctx, src2, key2, 2, nullptr, &dst);
+    BitmapFunctions::bitmap_intersect_update<ValueType, ValType>(ctx, src2, key2, 2, nullptr, &dst);
 
     StringVal intersect1 = BitmapFunctions::bitmap_intersect_serialize<ValueType>(ctx, dst);
 
     BitmapIntersect<ValueType> intersect2;
-    for(size_t i = 2; i < const_vals.size(); i++) {
+    for (size_t i = 2; i < const_vals.size(); i++) {
         ValType* arg = reinterpret_cast<ValType*>(const_vals[i]);
         intersect2.add_key(detail::get_val<ValType, ValueType>(*arg));
     }
@@ -256,7 +253,7 @@ void test_bitmap_intersect(FunctionContext* ctx, ValType key1, ValType key2) {
     StringVal expected = convert_bitmap_intersect_to_string(ctx, intersect2);
     ASSERT_EQ(expected, intersect1);
 
-    BitmapIntersect<ValueType> intersect2_serde((char *)expected.ptr);
+    BitmapIntersect<ValueType> intersect2_serde((char*)expected.ptr);
     ASSERT_EQ(1, intersect2_serde.intersect_count());
 
     StringVal dst2;
@@ -269,27 +266,20 @@ void test_bitmap_intersect(FunctionContext* ctx, ValType key1, ValType key2) {
 }
 
 TEST_F(BitmapFunctionsTest, test_bitmap_intersect) {
-    test_bitmap_intersect<TinyIntVal, int8_t>(
-        ctx, TinyIntVal(101), TinyIntVal(102));
-    test_bitmap_intersect<SmallIntVal, int16_t>(
-        ctx, SmallIntVal((int16_t)65535), SmallIntVal((int16_t)65534));
-    test_bitmap_intersect<IntVal, int32_t>(
-        ctx, IntVal(20191211), IntVal(20191212));
-    test_bitmap_intersect<BigIntVal, int64_t>(
-        ctx, BigIntVal(20191211), BigIntVal(20191212));
-    test_bitmap_intersect<LargeIntVal, __int128>(
-        ctx, LargeIntVal(20191211), LargeIntVal(20191212));
-    test_bitmap_intersect<FloatVal, float>(
-        ctx, FloatVal(1.01), FloatVal(1.02));
-    test_bitmap_intersect<DoubleVal, double>(
-        ctx, DoubleVal(1.01), DoubleVal(1.02));
+    test_bitmap_intersect<TinyIntVal, int8_t>(ctx, TinyIntVal(101), TinyIntVal(102));
+    test_bitmap_intersect<SmallIntVal, int16_t>(ctx, SmallIntVal((int16_t)65535),
+                                                SmallIntVal((int16_t)65534));
+    test_bitmap_intersect<IntVal, int32_t>(ctx, IntVal(20191211), IntVal(20191212));
+    test_bitmap_intersect<BigIntVal, int64_t>(ctx, BigIntVal(20191211), BigIntVal(20191212));
+    test_bitmap_intersect<LargeIntVal, __int128>(ctx, LargeIntVal(20191211), LargeIntVal(20191212));
+    test_bitmap_intersect<FloatVal, float>(ctx, FloatVal(1.01), FloatVal(1.02));
+    test_bitmap_intersect<DoubleVal, double>(ctx, DoubleVal(1.01), DoubleVal(1.02));
 
     DecimalV2Val v1;
     DecimalV2Value("1.01").to_decimal_val(&v1);
     DecimalV2Val v2;
     DecimalV2Value("1.02").to_decimal_val(&v2);
-    test_bitmap_intersect<DecimalV2Val, DecimalV2Value>(
-        ctx, v1, v2);
+    test_bitmap_intersect<DecimalV2Val, DecimalV2Value>(ctx, v1, v2);
 
     DateTimeVal datetime1;
     DateTimeValue date_time_value;
@@ -298,67 +288,105 @@ TEST_F(BitmapFunctionsTest, test_bitmap_intersect) {
     DateTimeVal datetime2;
     date_time_value.from_date_int64(19880202);
     date_time_value.to_datetime_val(&datetime2);
-    test_bitmap_intersect<DateTimeVal, DateTimeValue>(
-        ctx, datetime1, datetime2);
+    test_bitmap_intersect<DateTimeVal, DateTimeValue>(ctx, datetime1, datetime2);
 
-    test_bitmap_intersect<StringVal, StringValue>(
-        ctx, StringVal("20191211"), StringVal("20191212"));
+    test_bitmap_intersect<StringVal, StringValue>(ctx, StringVal("20191211"),
+                                                  StringVal("20191212"));
 }
 
-TEST_F(BitmapFunctionsTest,bitmap_or) {
+TEST_F(BitmapFunctionsTest, bitmap_or) {
     BitmapValue bitmap1({1024, 1, 2019});
     BitmapValue bitmap2({33, 44, 55});
 
     StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
     StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
 
-    StringVal bitmap_str = BitmapFunctions::bitmap_or(ctx,bitmap_src,bitmap_dst);
-    BigIntVal result = BitmapFunctions::bitmap_count(ctx,bitmap_str);
+    StringVal bitmap_str = BitmapFunctions::bitmap_or(ctx, bitmap_src, bitmap_dst);
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
 
     BigIntVal expected(6);
     ASSERT_EQ(expected, result);
 }
 
-TEST_F(BitmapFunctionsTest,bitmap_and) {
+TEST_F(BitmapFunctionsTest, bitmap_and) {
     BitmapValue bitmap1({1024, 1, 2019});
     BitmapValue bitmap2({33, 44, 2019});
 
     StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
     StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
 
-    StringVal bitmap_str = BitmapFunctions::bitmap_and(ctx,bitmap_src,bitmap_dst);
-    BigIntVal result = BitmapFunctions::bitmap_count(ctx,bitmap_str);
+    StringVal bitmap_str = BitmapFunctions::bitmap_and(ctx, bitmap_src, bitmap_dst);
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
 
     BigIntVal expected(1);
     ASSERT_EQ(expected, result);
 }
-TEST_F(BitmapFunctionsTest,bitmap_contains) {
-    BitmapValue bitmap({4, 5});
-    StringVal bitmap_str = convert_bitmap_to_string(ctx,bitmap);
-    BooleanVal result = BitmapFunctions::bitmap_contains(ctx,bitmap_str,5);
-    BooleanVal expected(true);
-    ASSERT_EQ(expected,result);
 
-    BooleanVal result2 = BitmapFunctions::bitmap_contains(ctx,bitmap_str,10);
-    BooleanVal expected2(false);
-    ASSERT_EQ(expected2,result2);
+TEST_F(BitmapFunctionsTest, bitmap_not) {
+    // result is bitmap
+    BitmapValue bitmap1({1024, 1, 2019});
+    BitmapValue bitmap2({33, 44, 2019});
+
+    StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+    StringVal bitmap_str = BitmapFunctions::bitmap_not(ctx, bitmap_src, bitmap_dst);
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
+    BigIntVal expected(2);
+    ASSERT_EQ(expected, result);
+
+    // result is single
+    bitmap1 = BitmapValue({1024, 1, 2019});
+    bitmap2 = BitmapValue({33, 1024, 2019});
+
+    bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+    bitmap_str = BitmapFunctions::bitmap_not(ctx, bitmap_src, bitmap_dst);
+    result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
+    expected = BigIntVal(1);
+    ASSERT_EQ(expected, result);
+
+    // result is empty
+    bitmap1 = BitmapValue({1024, 1, 2019});
+    bitmap2 = BitmapValue({1, 1024, 2019});
+
+    bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+    bitmap_str = BitmapFunctions::bitmap_not(ctx, bitmap_src, bitmap_dst);
+    result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
+    expected = BigIntVal(0);
+    ASSERT_EQ(expected, result);
 }
 
-TEST_F(BitmapFunctionsTest,bitmap_has_any) {
+TEST_F(BitmapFunctionsTest, bitmap_contains) {
+    BitmapValue bitmap({4, 5});
+    StringVal bitmap_str = convert_bitmap_to_string(ctx, bitmap);
+    BooleanVal result = BitmapFunctions::bitmap_contains(ctx, bitmap_str, 5);
+    BooleanVal expected(true);
+    ASSERT_EQ(expected, result);
+
+    BooleanVal result2 = BitmapFunctions::bitmap_contains(ctx, bitmap_str, 10);
+    BooleanVal expected2(false);
+    ASSERT_EQ(expected2, result2);
+}
+
+TEST_F(BitmapFunctionsTest, bitmap_has_any) {
     BitmapValue bitmap1({4, 5});
     BitmapValue bitmap2({4, 5});
 
-    StringVal lhs = convert_bitmap_to_string(ctx,bitmap1);
-    StringVal rhs = convert_bitmap_to_string(ctx,bitmap2);
-    BooleanVal result = BitmapFunctions::bitmap_has_any(ctx,lhs,rhs);
+    StringVal lhs = convert_bitmap_to_string(ctx, bitmap1);
+    StringVal rhs = convert_bitmap_to_string(ctx, bitmap2);
+    BooleanVal result = BitmapFunctions::bitmap_has_any(ctx, lhs, rhs);
     BooleanVal expected(true);
-    ASSERT_EQ(expected,result);
+    ASSERT_EQ(expected, result);
 
     BitmapValue bitmap3(10);
-    StringVal r3 = convert_bitmap_to_string(ctx,bitmap3);
-    BooleanVal result1 = BitmapFunctions::bitmap_has_any(ctx,lhs,r3);
+    StringVal r3 = convert_bitmap_to_string(ctx, bitmap3);
+    BooleanVal result1 = BitmapFunctions::bitmap_has_any(ctx, lhs, r3);
     BooleanVal expected2(false);
-    ASSERT_EQ(expected2,result1);
+    ASSERT_EQ(expected2, result1);
 }
 
 TEST_F(BitmapFunctionsTest, bitmap_from_string) {
@@ -371,7 +399,6 @@ TEST_F(BitmapFunctionsTest, bitmap_from_string) {
         ASSERT_TRUE(bitmap.contains(0));
         ASSERT_TRUE(bitmap.contains(1));
         ASSERT_TRUE(bitmap.contains(2));
-
     }
     {
         StringVal val = StringVal("a,b,1,2");
@@ -385,7 +412,7 @@ TEST_F(BitmapFunctionsTest, bitmap_from_string) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

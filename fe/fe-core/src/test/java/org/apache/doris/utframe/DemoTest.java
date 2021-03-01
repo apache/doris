@@ -90,15 +90,15 @@ public class DemoTest {
         // 4. get and test the created db and table
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:db1");
         Assert.assertNotNull(db);
-        db.readLock();
+        OlapTable tbl = (OlapTable) db.getTable("tbl1");
+        tbl.readLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable("tbl1");
             Assert.assertNotNull(tbl);
             System.out.println(tbl.getName());
             Assert.assertEquals("Doris", tbl.getEngine());
             Assert.assertEquals(1, tbl.getBaseSchema().size());
         } finally {
-            db.readUnlock();
+            tbl.readUnlock();
         }
         // 5. process a schema change job
         String alterStmtStr = "alter table db1.tbl1 add column k2 int default '1'";
@@ -115,17 +115,17 @@ public class DemoTest {
             System.out.println("alter job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
         }
-        db.readLock();
-        try {
-            OlapTable tbl = (OlapTable) db.getTable("tbl1");
-            Assert.assertEquals(2, tbl.getBaseSchema().size());
 
-            String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
-            Assert.assertEquals(baseIndexName, tbl.getName());
-            MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
+        OlapTable tbl1 = (OlapTable) db.getTable("tbl1");
+        tbl1.readLock();
+        try {
+            Assert.assertEquals(2, tbl1.getBaseSchema().size());
+            String baseIndexName = tbl1.getIndexNameById(tbl.getBaseIndexId());
+            Assert.assertEquals(baseIndexName, tbl1.getName());
+            MaterializedIndexMeta indexMeta = tbl1.getIndexMetaByIndexId(tbl1.getBaseIndexId());
             Assert.assertNotNull(indexMeta);
         } finally {
-            db.readUnlock();
+            tbl1.readUnlock();
         }
         // 7. query
         // TODO: we can not process real query for now. So it has to be a explain query

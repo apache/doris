@@ -18,8 +18,8 @@
 
 #include <iosfwd>
 
-#include "util/slice.h"
 #include "common/status.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace zlib {

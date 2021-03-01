@@ -24,8 +24,7 @@
 
 namespace doris {
 
-class StatusTest : public testing::Test {
-};
+class StatusTest : public testing::Test {};
 
 TEST_F(StatusTest, OK) {
     // default
@@ -75,7 +74,7 @@ TEST_F(StatusTest, Error) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

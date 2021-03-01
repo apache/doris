@@ -18,30 +18,37 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -52,6 +59,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * There are 3 steps in BrokerLoadJob: BrokerPendingTask, LoadLoadingTask, CommitAndPublishTxn.
@@ -63,18 +71,24 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     private static final Logger LOG = LogManager.getLogger(BrokerLoadJob.class);
 
-    // only for log replay
+    // Profile of this load job, including all tasks' profiles
+    private RuntimeProfile jobProfile;
+    // If set to true, the profile of load job with be pushed to ProfileManager
+    private boolean isReportSuccess = false;
+
+    // for log replay and unit test
     public BrokerLoadJob() {
-        super();
-        this.jobType = EtlJobType.BROKER;
+        super(EtlJobType.BROKER);
     }
 
-    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, OriginStatement originStmt)
+    public BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc,
+                         OriginStatement originStmt, UserIdentity userInfo)
             throws MetaNotFoundException {
-        super(dbId, label, originStmt);
-        this.timeoutSecond = Config.broker_load_default_timeout_second;
+        super(EtlJobType.BROKER, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
-        this.jobType = EtlJobType.BROKER;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReportSucc()) {
+            isReportSuccess = true;
+        }
     }
 
     @Override
@@ -83,16 +97,16 @@ public class BrokerLoadJob extends BulkLoadJob {
         MetricRepo.COUNTER_LOAD_ADD.increase(1L);
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
-                                  new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                                  TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
-                                  timeoutSecond);
+                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
+                        getTimeout());
     }
 
     @Override
     protected void unprotectedExecuteJob() {
         LoadTask task = new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc);
         idToTasks.put(task.getSignature(), task);
-        Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
+        Catalog.getCurrentCatalog().getPendingLoadTaskScheduler().submit(task);
     }
 
     /**
@@ -124,18 +138,18 @@ public class BrokerLoadJob extends BulkLoadJob {
             // check if job has been cancelled
             if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is: " + state)
-                                 .build());
+                        .add("state", state)
+                        .add("error_msg", "this task will be ignored when job is: " + state)
+                        .build());
                 return;
             }
 
             if (finishedTaskIds.contains(attachment.getTaskId())) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("task_id", attachment.getTaskId())
-                                 .add("error_msg", "this is a duplicated callback of pending task "
-                                         + "when broker already has loading task")
-                                 .build());
+                        .add("task_id", attachment.getTaskId())
+                        .add("error_msg", "this is a duplicated callback of pending task "
+                                + "when broker already has loading task")
+                        .build());
                 return;
             }
 
@@ -150,9 +164,16 @@ public class BrokerLoadJob extends BulkLoadJob {
             createLoadingTask(db, attachment);
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                             .add("database_id", dbId)
-                             .add("error_msg", "Failed to divide job into loading task.")
-                             .build(), e);
+                    .add("database_id", dbId)
+                    .add("error_msg", "Failed to divide job into loading task.")
+                    .build(), e);
+            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
+            return;
+        } catch (RejectedExecutionException e) {
+            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                    .add("database_id", dbId)
+                    .add("error_msg", "the task queque is full.")
+                    .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
             return;
         }
@@ -161,32 +182,26 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     private void createLoadingTask(Database db, BrokerPendingTaskAttachment attachment) throws UserException {
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
         // divide job into broker loading task by table
-        db.readLock();
+        List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
+        this.jobProfile = new RuntimeProfile("BrokerLoadJob " + id + ". " + label);
+        MetaLockUtils.readLockTables(tableList);
         try {
-            List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
             for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry : fileGroupAggInfo.getAggKeyToFileGroups().entrySet()) {
                 FileGroupAggKey aggKey = entry.getKey();
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
                 OlapTable table = (OlapTable) db.getTable(tableId);
-                if (table == null) {
-                    LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                     .add("database_id", dbId)
-                                     .add("table_id", tableId)
-                                     .add("error_msg", "Failed to divide job into loading task when table not found")
-                                     .build());
-                    throw new MetaNotFoundException("Failed to divide job into loading task when table "
-                                                            + tableId + " not found");
-                }
-
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
-                        brokerFileGroups, getDeadlineMs(), execMemLimit,
-                        strictMode, transactionId, this, timezone, timeoutSecond);
+                        brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
+                        isStrictMode(), transactionId, this, getTimeZone(), getTimeout(),
+                        getLoadParallelism(), isReportSuccess ? jobProfile : null);
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-                task.init(loadId, attachment.getFileStatusByTable(aggKey), attachment.getFileNumByTable(aggKey));
+                task.init(loadId, attachment.getFileStatusByTable(aggKey),
+                        attachment.getFileNumByTable(aggKey), getUserInfo());
                 idToTasks.put(task.getSignature(), task);
                 // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.
                 // use newLoadingTasks to save new created loading tasks and submit them later.
@@ -200,12 +215,12 @@ public class BrokerLoadJob extends BulkLoadJob {
                 }
                 txnState.addTableIndexes(table);
             }
-            // submit all tasks together
-            for (LoadTask loadTask : newLoadingTasks) {
-                Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(loadTask);
-            }
         } finally {
-            db.readUnlock();
+           MetaLockUtils.readUnlockTables(tableList);
+        }
+        // Submit task outside the database lock, cause it may take a while if task queue is full.
+        for (LoadTask loadTask : newLoadingTasks) {
+            Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().submit(loadTask);
         }
     }
 
@@ -215,17 +230,17 @@ public class BrokerLoadJob extends BulkLoadJob {
             // check if job has been cancelled
             if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is: " + state)
-                                 .build());
+                        .add("state", state)
+                        .add("error_msg", "this task will be ignored when job is: " + state)
+                        .build());
                 return;
             }
 
             // check if task has been finished
             if (finishedTaskIds.contains(attachment.getTaskId())) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("task_id", attachment.getTaskId())
-                                 .add("error_msg", "this is a duplicated callback of loading task").build());
+                        .add("task_id", attachment.getTaskId())
+                        .add("error_msg", "this is a duplicated callback of loading task").build());
                 return;
             }
 
@@ -243,8 +258,8 @@ public class BrokerLoadJob extends BulkLoadJob {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
-                              .add("commit_infos", Joiner.on(",").join(commitInfos))
-                              .build());
+                    .add("commit_infos", Joiner.on(",").join(commitInfos))
+                    .build());
         }
 
         // check data quality
@@ -254,46 +269,73 @@ public class BrokerLoadJob extends BulkLoadJob {
             return;
         }
         Database db = null;
+        List<Table> tableList = null;
         try {
             db = getDb();
+            tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
         } catch (MetaNotFoundException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                             .add("database_id", dbId)
-                             .add("error_msg", "db has been deleted when job is loading")
-                             .build(), e);
+                    .add("database_id", dbId)
+                    .add("error_msg", "db has been deleted when job is loading")
+                    .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
             return;
         }
-        db.writeLock();
+        MetaLockUtils.writeLockTables(tableList);
         try {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
-                             .add("txn_id", transactionId)
-                             .add("msg", "Load job try to commit txn")
-                             .build());
+                    .add("txn_id", transactionId)
+                    .add("msg", "Load job try to commit txn")
+                    .build());
             MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
-                    dbId, transactionId, commitInfos,
+                    dbId, tableList, transactionId, commitInfos,
                     new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
-                                              finishTimestamp, state, failMsg));
+                            finishTimestamp, state, failMsg));
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                             .add("database_id", dbId)
-                             .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
-                             .build(), e);
+                    .add("database_id", dbId)
+                    .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
+                    .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
-            return;
         } finally {
-            db.writeUnlock();
+            MetaLockUtils.writeUnlockTables(tableList);
         }
+    }
+
+    private void writeProfile() {
+        if (!isReportSuccess) {
+            return;
+        }
+
+        RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
+        summaryProfile.addInfoString(ProfileManager.QUERY_ID, String.valueOf(id));
+        summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(createTimestamp));
+        summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(finishTimestamp));
+        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(finishTimestamp - createTimestamp));
+
+        summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Load");
+        summaryProfile.addInfoString(ProfileManager.QUERY_STATE, "N/A");
+        summaryProfile.addInfoString(ProfileManager.USER, "N/A");
+        summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, "N/A");
+        summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, "N/A");
+        summaryProfile.addInfoString(ProfileManager.IS_CACHED, "N/A");
+
+        // Add the summary profile to the first
+        jobProfile.addFirstChild(summaryProfile);
+        jobProfile.computeTimeInChildProfile();
+        StringBuilder builder = new StringBuilder();
+        jobProfile.prettyPrint(builder, "");
+        ProfileManager.getInstance().pushProfile(jobProfile);
     }
 
     private void updateLoadingStatus(BrokerLoadingTaskAttachment attachment) {
         loadingStatus.replaceCounter(DPP_ABNORMAL_ALL,
-                                     increaseCounter(DPP_ABNORMAL_ALL, attachment.getCounter(DPP_ABNORMAL_ALL)));
+                increaseCounter(DPP_ABNORMAL_ALL, attachment.getCounter(DPP_ABNORMAL_ALL)));
         loadingStatus.replaceCounter(DPP_NORMAL_ALL,
-                                     increaseCounter(DPP_NORMAL_ALL, attachment.getCounter(DPP_NORMAL_ALL)));
+                increaseCounter(DPP_NORMAL_ALL, attachment.getCounter(DPP_NORMAL_ALL)));
         loadingStatus.replaceCounter(UNSELECTED_ROWS,
-                                     increaseCounter(UNSELECTED_ROWS, attachment.getCounter(UNSELECTED_ROWS)));
+                increaseCounter(UNSELECTED_ROWS, attachment.getCounter(UNSELECTED_ROWS)));
         if (attachment.getTrackingUrl() != null) {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
         }
@@ -313,5 +355,11 @@ public class BrokerLoadJob extends BulkLoadJob {
             value += Long.valueOf(deltaValue);
         }
         return String.valueOf(value);
+    }
+
+    @Override
+    public void afterVisible(TransactionState txnState, boolean txnOperated) {
+        super.afterVisible(txnState, txnOperated);
+        writeProfile();
     }
 }

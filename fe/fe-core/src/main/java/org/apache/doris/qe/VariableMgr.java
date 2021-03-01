@@ -31,14 +31,14 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedMap;
-import com.google.common.collect.Lists;
-
 import org.apache.commons.lang.SerializationUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
+
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.Lists;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -510,6 +510,12 @@ public class VariableMgr {
         // TODO(zhaochun): min and max is not used.
         String minValue() default "0";
         String maxValue() default "0";
+
+        // Set to true if the variables need to be forwarded along with forward statement.
+        boolean needForward() default false;
+
+        // Set to true if the variables need to be set in TQueryOptions
+        boolean isQueryOption() default false;
     }
 
     private static class VarContext {

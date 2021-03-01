@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
-#include <libgen.h>
-
 #include "plugin/plugin_loader.h"
-#include "plugin/plugin.h"
 
+#include <gtest/gtest.h>
+
+#include "plugin/plugin.h"
+#include "test_util/test_util.h"
 #include "util/file_utils.h"
 
 namespace doris {
@@ -39,15 +39,15 @@ private:
 
 int init_plugin(void* ptr) {
     // handler
-    void** p = (void**) ptr;
+    void** p = (void**)ptr;
     *p = new DemoPluginHandler();
-    
+
     return 0;
 }
 
 int close_plugin(void* ptr) {
-    void** p = (void**) ptr;
-    delete (DemoPluginHandler*) (*p);
+    void** p = (void**)ptr;
+    delete (DemoPluginHandler*)(*p);
     LOG(INFO) << "close demo plugin";
     return 1;
 }
@@ -55,14 +55,12 @@ int close_plugin(void* ptr) {
 class PluginLoaderTest : public testing::Test {
 public:
     PluginLoaderTest() {
-        char buf[1024];
-        readlink("/proc/self/exe", buf, 1023);
-        char* dir_path = dirname(buf);
-        _path = std::string(dir_path);
+        _path = GetCurrentRunningDir();
+        EXPECT_FALSE(_path.empty());
     }
 
-    ~PluginLoaderTest() { }
-    
+    ~PluginLoaderTest() {}
+
 public:
     std::string _path;
 };
@@ -70,19 +68,20 @@ public:
 TEST_F(PluginLoaderTest, normal) {
     FileUtils::remove_all(_path + "/plugin_test/target");
 
-    DynamicPluginLoader plugin_loader("PluginExample", PLUGIN_TYPE_STORAGE, _path + "/plugin_test/source/test.zip",
+    DynamicPluginLoader plugin_loader("PluginExample", PLUGIN_TYPE_STORAGE,
+                                      _path + "/plugin_test/source/test.zip",
                                       "libplugin_example.so", _path + "/plugin_test/target");
     ASSERT_TRUE(plugin_loader.install().ok());
-    
+
     ASSERT_TRUE(FileUtils::is_dir(_path + "/plugin_test/target/PluginExample"));
     ASSERT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/PluginExample/"));
-    
+
     std::shared_ptr<Plugin> plugin = plugin_loader.plugin();
-    
+
     ASSERT_EQ(3, plugin->flags);
     ASSERT_EQ(1, plugin->init(nullptr));
     ASSERT_EQ(2, plugin->close(nullptr));
-    
+
     ASSERT_TRUE(plugin->flags & PLUGIN_NOT_DYNAMIC_UNINSTALL);
     ASSERT_FALSE(plugin_loader.uninstall().ok());
 
@@ -93,14 +92,8 @@ TEST_F(PluginLoaderTest, normal) {
 }
 
 TEST_F(PluginLoaderTest, builtin) {
-
     Plugin demoPlugin = {
-            nullptr,
-            &init_plugin,
-            &close_plugin,
-            PLUGIN_DEFAULT_FLAG,
-            nullptr,
-            nullptr,
+            nullptr, &init_plugin, &close_plugin, PLUGIN_DEFAULT_FLAG, nullptr, nullptr,
     };
 
     BuiltinPluginLoader plugin_loader("test", PLUGIN_TYPE_AUDIT, &demoPlugin);
@@ -109,13 +102,13 @@ TEST_F(PluginLoaderTest, builtin) {
     std::shared_ptr<Plugin> plugin = plugin_loader.plugin();
     ASSERT_EQ(PLUGIN_DEFAULT_FLAG, plugin->flags);
 
-    ASSERT_NE(nullptr,plugin->handler);
-    ASSERT_EQ("test",((DemoPluginHandler *)plugin->handler)->hello("test"));
+    ASSERT_NE(nullptr, plugin->handler);
+    ASSERT_EQ("test", ((DemoPluginHandler*)plugin->handler)->hello("test"));
 
     ASSERT_TRUE(plugin_loader.uninstall().ok());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

@@ -100,6 +100,7 @@ public class ConnectProcessorTest {
 
         statistics.scan_bytes = 0L;
         statistics.scan_rows = 0L;
+        statistics.cpu_ms = 0L;
 
         MetricRepo.init();
     }
@@ -310,6 +311,25 @@ public class ConnectProcessorTest {
 
         processor.processOnce();
         Assert.assertEquals(MysqlCommand.COM_QUERY, myContext.getCommand());
+    }
+
+    @Test
+    public void testQueryWithUserInfo(@Mocked StmtExecutor executor) throws Exception {
+        ConnectContext ctx = initMockContext(mockChannel(queryPacket), AccessTestUtil.fetchAdminCatalog());
+
+        ConnectProcessor processor = new ConnectProcessor(ctx);
+
+        // Mock statement executor
+        new Expectations() {
+            {
+                executor.getQueryStatisticsForAuditLog();
+                minTimes = 0;
+                result = statistics;
+            }
+        };
+        processor.processOnce();
+        StmtExecutor er = Deencapsulation.getField(processor, "executor");
+        Assert.assertTrue(er.getParsedStmt().getUserInfo() != null);
     }
 
     @Test

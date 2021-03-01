@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
@@ -276,55 +277,69 @@ public class SelectStmt extends QueryStmt {
     }
 
     @Override
-    public void getDbs(Analyzer analyzer, Map<String, Database> dbs) throws AnalysisException {
-        getWithClauseDbs(analyzer, dbs);
+    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
+        getWithClauseTables(analyzer, tableMap, parentViewNameSet);
         for (TableRef tblRef : fromClause_) {
             if (tblRef instanceof InlineViewRef) {
                 // Inline view reference
                 QueryStmt inlineStmt = ((InlineViewRef) tblRef).getViewStmt();
-                inlineStmt.withClause_ = this.withClause_;
-                inlineStmt.getDbs(analyzer, dbs);
+                inlineStmt.getTables(analyzer, tableMap, parentViewNameSet);
             } else {
                 String dbName = tblRef.getName().getDb();
+                String tableName = tblRef.getName().getTbl();
                 if (Strings.isNullOrEmpty(dbName)) {
                     dbName = analyzer.getDefaultDb();
                 } else {
                     dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), tblRef.getName().getDb());
                 }
-                if(withClause_ != null && isViewTableRef(tblRef)){
+                if (isViewTableRef(tblRef.getName().toString(), parentViewNameSet)) {
                     continue;
                 }
                 if (Strings.isNullOrEmpty(dbName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
                 }
-
+                if (Strings.isNullOrEmpty(tableName)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR);
+                }
                 Database db = analyzer.getCatalog().getDb(dbName);
                 if (db == null) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
                 }
+                Table table = db.getTable(tableName);
+                if (table == null) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+                }
 
                 // check auth
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                        tblRef.getName().getTbl(),
+                        tableName,
                         PrivPredicate.SELECT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                             ConnectContext.get().getQualifiedUser(),
                             ConnectContext.get().getRemoteIP(),
                             tblRef.getName().getTbl());
                 }
-
-                dbs.put(dbName, db);
+                tableMap.put(table.getId(), table);
             }
         }
     }
 
-    private boolean isViewTableRef(TableRef tblRef) {
-        List<View> views = withClause_.getViews();
-        for(View view : views){
-            if(view.getName().equals(tblRef.getName().toString())){
-                return true;
+    // if tableName in parentViewNameSetor tableName in withClause views
+    // means this tableref is inlineview, no need check dbname again
+    private boolean isViewTableRef(String tblName, Set<String> parentViewNameSet) {
+        if (parentViewNameSet.contains(tblName)) {
+            return true;
+        }
+
+        if (withClause_ != null) {
+            List<View> views = withClause_.getViews();
+            for (View view : views) {
+                if (view.getName().equals(tblName)) {
+                    return true;
+                }
             }
         }
+
         return false;
     }
 

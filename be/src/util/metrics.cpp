@@ -102,12 +102,71 @@ std::string labels_to_string(const Labels& entity_labels, const Labels& metric_l
     return ss.str();
 }
 
+void HistogramMetric::clear() {
+    std::lock_guard<SpinLock> l(_lock);
+    _stats.clear();
+}
+
+bool HistogramMetric::is_empty() const {
+    return _stats.is_empty();
+}
+
+void HistogramMetric::add(const uint64_t& value) {
+    _stats.add(value);
+}
+
+void HistogramMetric::merge(const HistogramMetric& other) {
+    std::lock_guard<SpinLock> l(_lock);
+    _stats.merge(other._stats);
+}
+
+double HistogramMetric::median() const {
+    return _stats.median();
+}
+
+double HistogramMetric::percentile(double p) const {
+    return _stats.percentile(p);
+}
+
+double HistogramMetric::average() const {
+    return _stats.average();
+}
+
+double HistogramMetric::standard_deviation() const {
+    return _stats.standard_deviation();
+}
+
+std::string HistogramMetric::to_string() const {
+    return _stats.to_string();
+}
+
+rj::Value HistogramMetric::to_json_value() const {
+    rj::Document document;
+    rj::Document::AllocatorType& allocator = document.GetAllocator();
+    rj::Value json_value(rj::kObjectType);
+
+    json_value.AddMember("total_count", rj::Value(_stats.num()), allocator);
+    json_value.AddMember("min", rj::Value(_stats.min()), allocator);
+    json_value.AddMember("average", rj::Value(_stats.average()), allocator);
+    json_value.AddMember("median", rj::Value(_stats.median()), allocator);
+    json_value.AddMember("percentile_75", rj::Value(_stats.percentile(75.0)), allocator);
+    json_value.AddMember("percentile_95", rj::Value(_stats.percentile(95)), allocator);
+    json_value.AddMember("percentile_99", rj::Value(_stats.percentile(99)), allocator);
+    json_value.AddMember("percentile_99_9", rj::Value(_stats.percentile(99.9)), allocator);
+    json_value.AddMember("percentile_99_99", rj::Value(_stats.percentile(99.99)), allocator);
+    json_value.AddMember("standard_deviation", rj::Value(_stats.standard_deviation()), allocator);
+    json_value.AddMember("max", rj::Value(_stats.max()), allocator);
+    json_value.AddMember("total_sum", rj::Value(_stats.sum()), allocator);
+
+    return json_value;
+}
+
 std::string MetricPrototype::simple_name() const {
     return group_name.empty() ? name : group_name;
 }
 
 std::string MetricPrototype::combine_name(const std::string& registry_name) const {
-    return (registry_name.empty() ? std::string() : registry_name  + "_") + simple_name();
+    return (registry_name.empty() ? std::string() : registry_name + "_") + simple_name();
 }
 
 void MetricEntity::deregister_metric(const MetricPrototype* metric_type) {
@@ -151,10 +210,11 @@ void MetricEntity::trigger_hook_unlocked(bool force) const {
     }
 }
 
-MetricRegistry::~MetricRegistry() {
-}
+MetricRegistry::~MetricRegistry() {}
 
-std::shared_ptr<MetricEntity> MetricRegistry::register_entity(const std::string& name, const Labels& labels, MetricEntityType type) {
+std::shared_ptr<MetricEntity> MetricRegistry::register_entity(const std::string& name,
+                                                              const Labels& labels,
+                                                              MetricEntityType type) {
     std::shared_ptr<MetricEntity> entity = std::make_shared<MetricEntity>(type, name, labels);
     std::lock_guard<SpinLock> l(_lock);
     auto inserted_entity = _entities.insert(std::make_pair(entity, 1));
@@ -178,7 +238,9 @@ void MetricRegistry::deregister_entity(const std::shared_ptr<MetricEntity>& enti
     }
 }
 
-std::shared_ptr<MetricEntity> MetricRegistry::get_entity(const std::string& name, const Labels& labels, MetricEntityType type) {
+std::shared_ptr<MetricEntity> MetricRegistry::get_entity(const std::string& name,
+                                                         const Labels& labels,
+                                                         MetricEntityType type) {
     std::shared_ptr<MetricEntity> dummy = std::make_shared<MetricEntity>(type, name, labels);
 
     std::lock_guard<SpinLock> l(_lock);
@@ -209,10 +271,12 @@ std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
         std::lock_guard<SpinLock> l(entity.first->_lock);
         entity.first->trigger_hook_unlocked(false);
         for (const auto& metric : entity.first->_metrics) {
-            std::pair<MetricEntity*, Metric*> new_elem = std::make_pair(entity.first.get(), metric.second);
+            std::pair<MetricEntity*, Metric*> new_elem =
+                    std::make_pair(entity.first.get(), metric.second);
             auto found = entity_metrics_by_types.find(metric.first);
             if (found == entity_metrics_by_types.end()) {
-                entity_metrics_by_types.emplace(metric.first, std::vector<std::pair<MetricEntity*, Metric*>>({new_elem}));
+                entity_metrics_by_types.emplace(
+                        metric.first, std::vector<std::pair<MetricEntity*, Metric*>>({new_elem}));
             } else {
                 found->second.emplace_back(new_elem);
             }
@@ -221,16 +285,18 @@ std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
     // Output
     std::string last_group_name;
     for (const auto& entity_metrics_by_type : entity_metrics_by_types) {
-        if (last_group_name.empty() || last_group_name != entity_metrics_by_type.first->group_name) {
+        if (last_group_name.empty() ||
+            last_group_name != entity_metrics_by_type.first->group_name) {
             ss << "# TYPE " << entity_metrics_by_type.first->combine_name(_name) << " "
                << entity_metrics_by_type.first->type << "\n"; // metric TYPE line
         }
         last_group_name = entity_metrics_by_type.first->group_name;
         std::string display_name = entity_metrics_by_type.first->combine_name(_name);
         for (const auto& entity_metric : entity_metrics_by_type.second) {
-            ss << display_name                                                                           // metric name
-               << labels_to_string(entity_metric.first->_labels, entity_metrics_by_type.first->labels)   // metric labels
-               << " " << entity_metric.second->to_string() << "\n";                                      // metric value
+            ss << display_name // metric name
+               << labels_to_string(entity_metric.first->_labels,
+                                   entity_metrics_by_type.first->labels) // metric labels
+               << " " << entity_metric.second->to_string() << "\n";      // metric value
         }
     }
 
@@ -251,20 +317,17 @@ std::string MetricRegistry::to_json(bool with_tablet_metrics) const {
             rj::Value metric_obj(rj::kObjectType);
             // tags
             rj::Value tag_obj(rj::kObjectType);
-            tag_obj.AddMember("metric", rj::Value(metric.first->simple_name().c_str(), allocator), allocator);
+            tag_obj.AddMember("metric", rj::Value(metric.first->simple_name().c_str(), allocator),
+                              allocator);
             // MetricPrototype's labels
             for (auto& label : metric.first->labels) {
-                tag_obj.AddMember(
-                        rj::Value(label.first.c_str(), allocator),
-                        rj::Value(label.second.c_str(), allocator),
-                        allocator);
+                tag_obj.AddMember(rj::Value(label.first.c_str(), allocator),
+                                  rj::Value(label.second.c_str(), allocator), allocator);
             }
             // MetricEntity's labels
             for (auto& label : entity.first->_labels) {
-                tag_obj.AddMember(
-                        rj::Value(label.first.c_str(), allocator),
-                        rj::Value(label.second.c_str(), allocator),
-                        allocator);
+                tag_obj.AddMember(rj::Value(label.first.c_str(), allocator),
+                                  rj::Value(label.second.c_str(), allocator), allocator);
             }
             metric_obj.AddMember("tags", tag_obj, allocator);
             // unit
@@ -288,9 +351,10 @@ std::string MetricRegistry::to_core_string() const {
     for (const auto& entity : _entities) {
         std::lock_guard<SpinLock> l(entity.first->_lock);
         entity.first->trigger_hook_unlocked(false);
-        for (const auto &metric : entity.first->_metrics) {
+        for (const auto& metric : entity.first->_metrics) {
             if (metric.first->is_core_metric) {
-                ss << metric.first->combine_name(_name) << " LONG " << metric.second->to_string() << "\n";
+                ss << metric.first->combine_name(_name) << " LONG " << metric.second->to_string()
+                   << "\n";
             }
         }
     }
@@ -298,4 +362,4 @@ std::string MetricRegistry::to_core_string() const {
     return ss.str();
 }
 
-}
+} // namespace doris

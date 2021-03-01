@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include <type_traits>
 #include <string>
+#include <type_traits>
 
 #include "common/status.h"
 #include "gutil/endian.h"
@@ -30,9 +30,10 @@ namespace doris {
 
 using strings::Substitute;
 
-using FullEncodeAscendingFunc = void (*) (const void* value, std::string* buf);
+using FullEncodeAscendingFunc = void (*)(const void* value, std::string* buf);
 using EncodeAscendingFunc = void (*)(const void* value, size_t index_size, std::string* buf);
-using DecodeAscendingFunc = Status (*)(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr, MemPool* pool);
+using DecodeAscendingFunc = Status (*)(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
+                                       MemPool* pool);
 
 // Order-preserving binary encoding for values of a particular type so that
 // those values can be compared by memcpy their encoded bytes.
@@ -40,7 +41,7 @@ using DecodeAscendingFunc = Status (*)(Slice* encoded_key, size_t index_size, ui
 // To obtain instance of this class, use the `get_key_coder(FieldType)` method.
 class KeyCoder {
 public:
-    template<typename TraitsType>
+    template <typename TraitsType>
     KeyCoder(TraitsType traits);
 
     // encode the provided `value` into `buf`.
@@ -54,7 +55,8 @@ public:
         _encode_ascending(value, index_size, buf);
     }
 
-    Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr, MemPool* pool) const {
+    Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
+                            MemPool* pool) const {
         return _decode_ascending(encoded_key, index_size, cell_ptr, pool);
     }
 
@@ -66,30 +68,33 @@ private:
 
 extern const KeyCoder* get_key_coder(FieldType type);
 
-template<FieldType field_type, typename Enable = void>
-class KeyCoderTraits {
-};
+template <FieldType field_type, typename Enable = void>
+class KeyCoderTraits {};
 
-template<FieldType field_type>
-class KeyCoderTraits<field_type,
-      typename std::enable_if<
-        std::is_integral<
-            typename CppTypeTraits<field_type>::CppType>::value>::type> {
+template <FieldType field_type>
+class KeyCoderTraits<field_type, typename std::enable_if<std::is_integral<typename CppTypeTraits<
+                                         field_type>::CppType>::value>::type> {
 public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
     using UnsignedCppType = typename CppTypeTraits<field_type>::UnsignedCppType;
 
 private:
-    // Swap value's endian from/to big endian 
+    // Swap value's endian from/to big endian
     static UnsignedCppType swap_big_endian(UnsignedCppType val) {
         switch (sizeof(UnsignedCppType)) {
-        case 1: return val;
-        case 2: return BigEndian::FromHost16(val);
-        case 4: return BigEndian::FromHost32(val);
-        case 8: return BigEndian::FromHost64(val);
-        case 16: return BigEndian::FromHost128(val);
-        default: LOG(FATAL) << "Invalid type to big endian, type=" << field_type
-                 << ", size=" << sizeof(UnsignedCppType);
+        case 1:
+            return val;
+        case 2:
+            return BigEndian::FromHost16(val);
+        case 4:
+            return BigEndian::FromHost32(val);
+        case 8:
+            return BigEndian::FromHost64(val);
+        case 16:
+            return BigEndian::FromHost128(val);
+        default:
+            LOG(FATAL) << "Invalid type to big endian, type=" << field_type
+                       << ", size=" << sizeof(UnsignedCppType);
         }
     }
 
@@ -99,7 +104,8 @@ public:
         memcpy(&unsigned_val, value, sizeof(unsigned_val));
         // swap MSB to encode integer
         if (std::is_signed<CppType>::value) {
-            unsigned_val ^= (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
+            unsigned_val ^=
+                    (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
         }
         // make it bigendian
         unsigned_val = swap_big_endian(unsigned_val);
@@ -111,18 +117,18 @@ public:
         full_encode_ascending(value, buf);
     }
 
-    static Status decode_ascending(Slice* encoded_key, size_t index_size,
-                                   uint8_t* cell_ptr, MemPool* pool) {
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
+                                   MemPool* pool) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument(
-                Substitute("Key too short, need=$0 vs real=$1",
-                           sizeof(UnsignedCppType), encoded_key->size));
+            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
+                                                      sizeof(UnsignedCppType), encoded_key->size));
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
         unsigned_val = swap_big_endian(unsigned_val);
         if (std::is_signed<CppType>::value) {
-            unsigned_val ^= (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
+            unsigned_val ^=
+                    (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
         }
         memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
         encoded_key->remove_prefix(sizeof(UnsignedCppType));
@@ -130,7 +136,7 @@ public:
     }
 };
 
-template<>
+template <>
 class KeyCoderTraits<OLAP_FIELD_TYPE_DATE> {
 public:
     using CppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType;
@@ -149,12 +155,11 @@ public:
         full_encode_ascending(value, buf);
     }
 
-    static Status decode_ascending(Slice* encoded_key, size_t index_size,
-                                   uint8_t* cell_ptr, MemPool* pool) {
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
+                                   MemPool* pool) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument(
-                Substitute("Key too short, need=$0 vs real=$1",
-                           sizeof(UnsignedCppType), encoded_key->size));
+            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
+                                                      sizeof(UnsignedCppType), encoded_key->size));
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
@@ -165,7 +170,7 @@ public:
     }
 };
 
-template<>
+template <>
 class KeyCoderTraits<OLAP_FIELD_TYPE_DECIMAL> {
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -179,8 +184,8 @@ public:
         full_encode_ascending(value, buf);
     }
 
-    static Status decode_ascending(Slice* encoded_key, size_t index_size,
-                                   uint8_t* cell_ptr, MemPool* pool) {
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
+                                   MemPool* pool) {
         decimal12_t decimal_val;
         RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_BIGINT>::decode_ascending(
                 encoded_key, sizeof(decimal_val.integer), (uint8_t*)&decimal_val.integer, pool));
@@ -191,7 +196,7 @@ public:
     }
 };
 
-template<>
+template <>
 class KeyCoderTraits<OLAP_FIELD_TYPE_CHAR> {
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -201,16 +206,17 @@ public:
 
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         const Slice* slice = (const Slice*)value;
-        CHECK(index_size <= slice->size) << "index size is larger than char size, index=" << index_size << ", char=" << slice->size;
+        CHECK(index_size <= slice->size)
+                << "index size is larger than char size, index=" << index_size
+                << ", char=" << slice->size;
         buf->append(slice->data, index_size);
     }
 
-    static Status decode_ascending(Slice* encoded_key, size_t index_size,
-                                   uint8_t* cell_ptr, MemPool* pool) {
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
+                                   MemPool* pool) {
         if (encoded_key->size < index_size) {
             return Status::InvalidArgument(
-                Substitute("Key too short, need=$0 vs real=$1",
-                           index_size, encoded_key->size));
+                    Substitute("Key too short, need=$0 vs real=$1", index_size, encoded_key->size));
         }
         Slice* slice = (Slice*)cell_ptr;
         slice->data = (char*)pool->allocate(index_size);
@@ -221,7 +227,7 @@ public:
     }
 };
 
-template<>
+template <>
 class KeyCoderTraits<OLAP_FIELD_TYPE_VARCHAR> {
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -235,11 +241,11 @@ public:
         buf->append(slice->data, copy_size);
     }
 
-    static Status decode_ascending(Slice* encoded_key, size_t index_size,
-                                   uint8_t* cell_ptr, MemPool* pool) {
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
+                                   MemPool* pool) {
         CHECK(encoded_key->size <= index_size)
-            << "encoded_key size is larger than index_size, key_size=" << encoded_key->size
-            << ", index_size=" << index_size;
+                << "encoded_key size is larger than index_size, key_size=" << encoded_key->size
+                << ", index_size=" << index_size;
         auto copy_size = encoded_key->size;
         Slice* slice = (Slice*)cell_ptr;
         slice->data = (char*)pool->allocate(copy_size);
@@ -250,4 +256,4 @@ public:
     }
 };
 
-}
+} // namespace doris

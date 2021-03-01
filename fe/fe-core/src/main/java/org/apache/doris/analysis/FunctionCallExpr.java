@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -455,6 +456,30 @@ public class FunctionCallExpr extends Expr {
                 }
             }
         }
+
+        if (fnName.getFunction().equalsIgnoreCase("topn")) {
+            if (children.size() != 2 && children.size() != 3) {
+                throw new AnalysisException("topn(expr, INT [, B]) requires two or three parameters");
+            }
+            if (!getChild(1).isConstant() || !getChild(1).getType().isIntegerType()) {
+                throw new AnalysisException("topn requires second parameter must be a constant Integer Type: "
+                        + this.toSql());
+            }
+            if (getChild(1).getType() != ScalarType.INT) {
+                Expr e = getChild(1).castTo(ScalarType.INT);
+                setChild(1, e);
+            }
+            if (children.size() == 3) {
+                if (!getChild(2).isConstant() || !getChild(2).getType().isIntegerType()) {
+                    throw new AnalysisException("topn requires the third parameter must be a constant Integer Type: "
+                            + this.toSql());
+                }
+                if (getChild(2).getType() != ScalarType.INT) {
+                    Expr e = getChild(2).castTo(ScalarType.INT);
+                    setChild(2, e);
+                }
+            }
+        }
     }
 
     // Provide better error message for some aggregate builtins. These can be
@@ -646,7 +671,46 @@ public class FunctionCallExpr extends Expr {
                 }
             }
         }
-        this.type = fn.getReturnType();
+
+        /**
+         * The return type of str_to_date depends on whether the time part is included in the format.
+         * If included, it is datetime, otherwise it is date.
+         * If the format parameter is not constant, the return type will be datetime.
+         * The above judgment has been completed in the FE query planning stage,
+         * so here we directly set the value type to the return type set in the query plan.
+         *
+         * For example:
+         * A table with one column k1 varchar, and has 2 lines:
+         *     "%Y-%m-%d"
+         *     "%Y-%m-%d %H:%i:%s"
+         * Query:
+         *     SELECT str_to_date("2020-09-01", k1) from tbl;
+         * Result will be:
+         *     2020-09-01 00:00:00
+         *     2020-09-01 00:00:00
+         *
+         * Query:
+         *      SELECT str_to_date("2020-09-01", "%Y-%m-%d");
+         * Return type is DATE
+         *
+         * Query:
+         *      SELECT str_to_date("2020-09-01", "%Y-%m-%d %H:%i:%s");
+         * Return type is DATETIME
+         */
+        if (fn.getFunctionName().getFunction().equals("str_to_date")) {
+            Expr child1Result = getChild(1).getResultValue();
+            if (child1Result instanceof StringLiteral) {
+                if (DateLiteral.hasTimePart(((StringLiteral) child1Result).getStringValue())) {
+                    this.type = Type.DATETIME;
+                } else {
+                    this.type = Type.DATE;
+                }
+            } else {
+                this.type = Type.DATETIME;
+            }
+        } else {
+            this.type = fn.getReturnType();
+        }
     }
 
     @Override
@@ -734,3 +798,4 @@ public class FunctionCallExpr extends Expr {
         return result;
     }
 }
+

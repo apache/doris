@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_COLUMNS_SCANNER_H
 
 #include <string>
+
 #include "exec/schema_scanner.h"
 #include "gen_cpp/FrontendService_types.h"
 
@@ -28,26 +29,26 @@ class SchemaColumnsScanner : public SchemaScanner {
 public:
     SchemaColumnsScanner();
     virtual ~SchemaColumnsScanner();
-    virtual Status start(RuntimeState *state);
-    virtual Status get_next_row(Tuple *tuple, MemPool *pool, bool *eos);
+    virtual Status start(RuntimeState* state);
+    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
 
 private:
     Status get_new_table();
-    Status fill_one_row(Tuple *tuple, MemPool *pool);
+    Status fill_one_row(Tuple* tuple, MemPool* pool);
     Status get_new_desc();
-    Status get_create_table(std::string *result);
-    std::string to_mysql_data_type_string(TColumnDesc &desc);
-    std::string type_to_string(TColumnDesc &desc);
+    Status get_create_table(std::string* result);
+    std::string to_mysql_data_type_string(TColumnDesc& desc);
+    std::string type_to_string(TColumnDesc& desc);
 
     int _db_index;
     int _table_index;
     int _column_index;
-    TGetDbsResult    _db_result;
+    TGetDbsResult _db_result;
     TGetTablesResult _table_result;
     TDescribeTableResult _desc_result;
     static SchemaScanner::ColumnDesc _s_col_columns[];
 };
 
-}
+} // namespace doris
 
 #endif

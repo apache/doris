@@ -21,12 +21,12 @@
 
 namespace doris {
 
-int init(void *) {
+int init(void*) {
     std::cout << "this is init" << std::endl;
     return 1;
 }
 
-int close(void *) {
+int close(void*) {
     std::cout << "this is close" << std::endl;
     return 2;
 }
@@ -34,18 +34,11 @@ int close(void *) {
 #ifdef __cplusplus
 extern "C" {
 #endif
-    
-declare_plugin(PluginExample) {
-    nullptr,
-    &init,
-    &close,
-    3,
-    nullptr,
-    nullptr
-} declare_plugin_end
+
+declare_plugin(PluginExample){nullptr, &init, &close, 3, nullptr, nullptr} declare_plugin_end
 
 #ifdef __cplusplus
 }
 #endif
 
-}
+} // namespace doris

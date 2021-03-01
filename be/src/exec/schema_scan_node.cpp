@@ -20,33 +20,31 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/foreach.hpp>
 
-#include "exec/text_converter.hpp"
 #include "exec/schema_scanner/schema_helper.h"
+#include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
-#include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
-SchemaScanNode::SchemaScanNode(ObjectPool* pool, const TPlanNode& tnode,
-                               const DescriptorTbl& descs)
-    : ScanNode(pool, tnode, descs),
-      _is_init(false),
-      _table_name(tnode.schema_scan_node.table_name),
-      _tuple_id(tnode.schema_scan_node.tuple_id),
-      _src_tuple_desc(NULL),
-      _dest_tuple_desc(NULL),
-      _tuple_idx(0),
-      _slot_num(0),
-      _tuple_pool(NULL),
-      _schema_scanner(NULL),
-      _src_tuple(NULL),
-      _dest_tuple(NULL) {
-}
+SchemaScanNode::SchemaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ScanNode(pool, tnode, descs),
+          _is_init(false),
+          _table_name(tnode.schema_scan_node.table_name),
+          _tuple_id(tnode.schema_scan_node.tuple_id),
+          _src_tuple_desc(NULL),
+          _dest_tuple_desc(NULL),
+          _tuple_idx(0),
+          _slot_num(0),
+          _tuple_pool(NULL),
+          _schema_scanner(NULL),
+          _src_tuple(NULL),
+          _dest_tuple(NULL) {}
 
 SchemaScanNode::~SchemaScanNode() {
     delete[] reinterpret_cast<char*>(_src_tuple);
@@ -68,7 +66,8 @@ Status SchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     if (tnode.schema_scan_node.__isset.current_user_ident) {
-        _scanner_param.current_user_ident = _pool->add(new TUserIdentity(tnode.schema_scan_node.current_user_ident));
+        _scanner_param.current_user_ident =
+                _pool->add(new TUserIdentity(tnode.schema_scan_node.current_user_ident));
     } else {
         if (tnode.schema_scan_node.__isset.user) {
             _scanner_param.user = _pool->add(new std::string(tnode.schema_scan_node.user));
@@ -103,7 +102,7 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::prepare(state));
 
     // new one mem pool
-    _tuple_pool.reset(new(std::nothrow) MemPool(mem_tracker().get()));
+    _tuple_pool.reset(new (std::nothrow) MemPool(mem_tracker().get()));
 
     if (NULL == _tuple_pool.get()) {
         return Status::InternalError("Allocate MemPool failed.");
@@ -119,7 +118,7 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
     _slot_num = _dest_tuple_desc->slots().size();
     // get src tuple desc
     const SchemaTableDescriptor* schema_table =
-        static_cast<const SchemaTableDescriptor*>(_dest_tuple_desc->table_desc());
+            static_cast<const SchemaTableDescriptor*>(_dest_tuple_desc->table_desc());
 
     if (NULL == schema_table) {
         return Status::InternalError("Failed to get schema table descriptor.");
@@ -140,7 +139,7 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("failed to get src schema tuple desc.");
     }
 
-    _src_tuple = reinterpret_cast<Tuple*>(new(std::nothrow) char[_src_tuple_desc->byte_size()]);
+    _src_tuple = reinterpret_cast<Tuple*>(new (std::nothrow) char[_src_tuple_desc->byte_size()]);
 
     if (NULL == _src_tuple) {
         return Status::InternalError("new src tuple failed.");
@@ -160,14 +159,14 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
         int j = 0;
         for (; j < _src_tuple_desc->slots().size(); ++j) {
             if (boost::iequals(_dest_tuple_desc->slots()[i]->col_name(),
-                    _src_tuple_desc->slots()[j]->col_name())) {
+                               _src_tuple_desc->slots()[j]->col_name())) {
                 break;
             }
         }
 
         if (j >= _src_tuple_desc->slots().size()) {
             LOG(WARNING) << "no match column for this column("
-                << _dest_tuple_desc->slots()[i]->col_name() << ")";
+                         << _dest_tuple_desc->slots()[i]->col_name() << ")";
             return Status::InternalError("no match column for this column.");
         }
 
@@ -231,8 +230,7 @@ void SchemaScanNode::copy_one_row() {
     }
 }
 
-Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
-                               bool* eos) {
+Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("GetNext before Init.");
     }
@@ -243,7 +241,6 @@ Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
 
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_TIMER(materialize_tuple_timer());
 
     if (reached_limit()) {
         *eos = true;
@@ -274,8 +271,7 @@ Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
             return Status::OK();
         }
 
-        RETURN_IF_ERROR(_schema_scanner->get_next_row(_src_tuple,
-                        _tuple_pool.get(), &scanner_eos));
+        RETURN_IF_ERROR(_schema_scanner->get_next_row(_src_tuple, _tuple_pool.get(), &scanner_eos));
 
         if (scanner_eos) {
             row_batch->tuple_data_pool()->acquire_data(_tuple_pool.get(), false);
@@ -314,7 +310,7 @@ Status SchemaScanNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-void SchemaScanNode::debug_string(int indentation_level, stringstream* out) const {
+void SchemaScanNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "SchemaScanNode(tupleid=" << _tuple_id << " table=" << _table_name;
     *out << ")" << std::endl;
@@ -324,10 +320,10 @@ void SchemaScanNode::debug_string(int indentation_level, stringstream* out) cons
     }
 }
 
-Status SchemaScanNode::set_scan_ranges(const vector<TScanRangeParams>& scan_ranges) {
+Status SchemaScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     return Status::OK();
 }
 
-}
+} // namespace doris
 
 /* vim: set ts=4 sw=4 sts=4 tw=100 : */

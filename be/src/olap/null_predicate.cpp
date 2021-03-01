@@ -15,17 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/field.h"
 #include "olap/null_predicate.h"
+
+#include "olap/field.h"
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
 
 namespace doris {
 
-NullPredicate::NullPredicate(uint32_t column_id, bool is_null)
-    : ColumnPredicate(column_id), _is_null(is_null) {}
-
-NullPredicate::~NullPredicate() {}
+NullPredicate::NullPredicate(uint32_t column_id, bool is_null, bool opposite)
+        : ColumnPredicate(column_id), _is_null(opposite != is_null) {}
 
 void NullPredicate::evaluate(VectorizedRowBatch* batch) const {
     uint16_t n = batch->size();
@@ -49,7 +48,7 @@ void NullPredicate::evaluate(VectorizedRowBatch* batch) const {
         for (uint16_t j = 0; j != n; ++j) {
             uint16_t i = sel[j];
             sel[new_size] = i;
-            new_size += (null_array[i] == _is_null); 
+            new_size += (null_array[i] == _is_null);
         }
         batch->set_size(new_size);
     } else {
@@ -78,8 +77,33 @@ void NullPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) 
     *size = new_size;
 }
 
-Status NullPredicate::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators,
-    uint32_t num_rows, Roaring* roaring) const {
+void NullPredicate::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const {
+    if (!block->is_nullable() && _is_null) {
+        memset(flags, true, size);
+    } else {
+        for (uint16_t i = 0; i < size; ++i) {
+            if (flags[i]) continue;
+            uint16_t idx = sel[i];
+            flags[i] |= (block->cell(idx).is_null() == _is_null);
+        }
+    }
+}
+
+void NullPredicate::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const {
+    if (!block->is_nullable() && _is_null) {
+        return;
+    } else {
+        for (uint16_t i = 0; i < size; ++i) {
+            if (!flags[i]) continue;
+            uint16_t idx = sel[i];
+            flags[i] &= (block->cell(idx).is_null() == _is_null);
+        }
+    }
+}
+
+Status NullPredicate::evaluate(const Schema& schema,
+                               const std::vector<BitmapIndexIterator*>& iterators,
+                               uint32_t num_rows, Roaring* roaring) const {
     if (iterators[_column_id] != nullptr) {
         Roaring null_bitmap;
         RETURN_IF_ERROR(iterators[_column_id]->read_null_bitmap(&null_bitmap));

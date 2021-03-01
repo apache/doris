@@ -148,7 +148,7 @@ MySQL > desc test_table;
 +-------------+--------------+------+-------+---------+---------+
 ```
 
-2. Import data normally：
+2. Import data normally:
 
 Import the following data
 ```

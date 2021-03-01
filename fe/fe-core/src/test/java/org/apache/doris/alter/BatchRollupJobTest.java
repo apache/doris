@@ -99,7 +99,11 @@ public class BatchRollupJobTest {
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
             ++finishedNum;
             if (finishedNum == 3) {
-                Thread.sleep(100);
+                int i = 3;
+                while (tbl.getState() != OlapTableState.NORMAL && i > 0) {
+                    Thread.sleep(1000);
+                    i--;
+                }
                 Assert.assertEquals(OlapTableState.NORMAL, tbl.getState());
             } else {
                 Assert.assertEquals(OlapTableState.ROLLUP, tbl.getState());
@@ -149,6 +153,12 @@ public class BatchRollupJobTest {
             stmtStr = "cancel alter table rollup from db1.tbl2 (" + Joiner.on(",").join(jobIds) + ")";
             CancelAlterTableStmt cancelStmt = (CancelAlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
             Catalog.getCurrentCatalog().cancelAlter(cancelStmt);
+
+            int i = 3;
+            while (tbl.getState() != OlapTableState.NORMAL && i > 0) {
+                Thread.sleep(1000);
+                i--;
+            }
 
             Assert.assertEquals(OlapTableState.NORMAL, tbl.getState());
             break;

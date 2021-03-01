@@ -17,14 +17,14 @@
 
 #include "runtime/types.h"
 
+#include <boost/foreach.hpp>
 #include <ostream>
 #include <sstream>
-#include <boost/foreach.hpp>
 
 namespace doris {
 
-TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx) : 
-        len(-1), precision(-1), scale(-1) {
+TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
+        : len(-1), precision(-1), scale(-1) {
     DCHECK_GE(*idx, 0);
     DCHECK_LT(*idx, types.size());
     const TTypeNode& node = types[*idx];
@@ -92,9 +92,7 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
                 node.struct_fields.back().name = field_name;
             }
         }
-        BOOST_FOREACH(const TypeDescriptor& child, children) {
-            child.to_thrift(thrift_type);
-        }
+        BOOST_FOREACH (const TypeDescriptor& child, children) { child.to_thrift(thrift_type); }
     } else {
         node.type = TTypeNodeType::SCALAR;
         node.__set_scalar_type(TScalarType());
@@ -128,9 +126,7 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
     }
 }
 
-TypeDescriptor::TypeDescriptor(
-        const google::protobuf::RepeatedPtrField<PTypeNode>& types,
-        int* idx)
+TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNode>& types, int* idx)
         : len(-1), precision(-1), scale(-1) {
     DCHECK_GE(*idx, 0);
     DCHECK_LT(*idx, types.size());
@@ -175,9 +171,8 @@ std::string TypeDescriptor::debug_string() const {
 }
 
 std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type) {
-  os << type.debug_string();
-  return os;
+    os << type.debug_string();
+    return os;
 }
 
-}
-
+} // namespace doris

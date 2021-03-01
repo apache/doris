@@ -19,20 +19,13 @@
 
 #define __DorisMysql MYSQL
 #define __DorisMysqlRes MYSQL_RES
-#include "mysql_scanner.h"
-
-
 #include "common/logging.h"
+#include "mysql_scanner.h"
 
 namespace doris {
 
 MysqlScanner::MysqlScanner(const MysqlScannerParam& param)
-    : _my_param(param),
-      _my_conn(NULL),
-      _my_result(NULL),
-      _is_open(false),
-      _field_num(0) {
-}
+        : _my_param(param), _my_conn(NULL), _my_result(NULL), _is_open(false), _field_num(0) {}
 
 MysqlScanner::~MysqlScanner() {
     if (_my_result) {
@@ -58,14 +51,15 @@ Status MysqlScanner::open() {
         return Status::InternalError("mysql init failed.");
     }
 
-    VLOG(1) << "MysqlScanner::Connect";
+    VLOG_CRITICAL << "MysqlScanner::Connect";
 
     if (NULL == mysql_real_connect(_my_conn, _my_param.host.c_str(), _my_param.user.c_str(),
                                    _my_param.passwd.c_str(), _my_param.db.c_str(),
                                    atoi(_my_param.port.c_str()), NULL, _my_param.client_flag)) {
-        LOG(WARNING) << "connect Mysql: " << "Host: " << _my_param.host
-                     << " user: " << _my_param.user << " passwd: " << _my_param.passwd
-                     << " db: " << _my_param.db << " port: " << _my_param.port;
+        LOG(WARNING) << "connect Mysql: "
+                     << "Host: " << _my_param.host << " user: " << _my_param.user
+                     << " passwd: " << _my_param.passwd << " db: " << _my_param.db
+                     << " port: " << _my_param.port;
 
         return _error_status("mysql real connect failed.");
     }
@@ -147,7 +141,7 @@ Status MysqlScanner::query(const std::string& table, const std::vector<std::stri
     return query(_sql_str);
 }
 
-Status MysqlScanner::get_next_row(char** *buf, unsigned long** lengths, bool* eos) {
+Status MysqlScanner::get_next_row(char*** buf, unsigned long** lengths, bool* eos) {
     if (!_is_open) {
         return Status::InternalError("GetNextRow before open.");
     }
@@ -179,12 +173,12 @@ Status MysqlScanner::get_next_row(char** *buf, unsigned long** lengths, bool* eo
 }
 
 Status MysqlScanner::_error_status(const std::string& prefix) {
-	std::stringstream msg;
-	msg << prefix << " Err: " << mysql_error(_my_conn);
-	LOG(INFO) << msg.str();
-	return Status::InternalError(msg.str());
+    std::stringstream msg;
+    msg << prefix << " Err: " << mysql_error(_my_conn);
+    LOG(INFO) << msg.str();
+    return Status::InternalError(msg.str());
 }
 
-}
+} // namespace doris
 
 /* vim: set ts=4 sw=4 sts=4 tw=100 noet: */

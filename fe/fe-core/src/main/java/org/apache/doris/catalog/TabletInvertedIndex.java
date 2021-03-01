@@ -34,8 +34,10 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Ordering;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
+import com.google.common.collect.TreeMultimap;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -66,10 +68,10 @@ public class TabletInvertedIndex {
 
     // tablet id -> tablet meta
     private Map<Long, TabletMeta> tabletMetaMap = Maps.newHashMap();
-    
+
     // replica id -> tablet id
     private Map<Long, Long> replicaToTabletMap = Maps.newHashMap();
-    
+
     /*
      *  we use this to save memory.
      *  we do not need create TabletMeta instance for each tablet,
@@ -80,7 +82,7 @@ public class TabletInvertedIndex {
      *  partition id -> (index id -> tablet meta)
      */
     private Table<Long, Long, TabletMeta> tabletMetaTable = HashBasedTable.create();
-    
+
     // tablet id -> (backend id -> replica)
     private Table<Long, Long, Replica> replicaMetaTable = HashBasedTable.create();
     // backing replica table, for visiting backend replicas faster.
@@ -112,7 +114,7 @@ public class TabletInvertedIndex {
                              ListMultimap<Long, Long> tabletDeleteFromMeta,
                              Set<Long> foundTabletsWithValidSchema,
                              Map<Long, TTabletInfo> foundTabletsWithInvalidSchema,
-                             ListMultimap<TStorageMedium, Long> tabletMigrationMap, 
+                             ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
@@ -149,7 +151,7 @@ public class TabletInvertedIndex {
                                     // need sync
                                     tabletSyncMap.put(tabletMeta.getDbId(), tabletId);
                                 }
-                                
+
                                 // check and set path
                                 // path info of replica is only saved in Master FE
                                 if (backendTabletInfo.isSetPathHash() &&
@@ -165,8 +167,8 @@ public class TabletInvertedIndex {
 
                                 if (needRecover(replica, tabletMeta.getOldSchemaHash(), backendTabletInfo)) {
                                     LOG.warn("replica {} of tablet {} on backend {} need recovery. "
-                                            + "replica in FE: {}, report version {}-{}, report schema hash: {},"
-                                            + " is bad: {}, is version missing: {}",
+                                                    + "replica in FE: {}, report version {}-{}, report schema hash: {},"
+                                                    + " is bad: {}, is version missing: {}",
                                             replica.getId(), tabletId, backendId, replica,
                                             backendTabletInfo.getVersion(),
                                             backendTabletInfo.getVersionHash(),
@@ -195,7 +197,7 @@ public class TabletInvertedIndex {
                                         TransactionState transactionState = transactionMgr.getTransactionState(tabletMeta.getDbId(), transactionId);
                                         if (transactionState == null || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
                                             transactionsToClear.put(transactionId, tabletMeta.getPartitionId());
-                                            LOG.debug("transaction id [{}] is not valid any more, " 
+                                            LOG.debug("transaction id [{}] is not valid any more, "
                                                     + "clear it from backend [{}]", transactionId, backendId);
                                         } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
                                             TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(tabletMeta.getTableId());
@@ -207,13 +209,13 @@ public class TabletInvertedIndex {
                                                  * 2. FE received report and begin to assemble partitionCommitInfos.
                                                  * 3. At the same time, some of partitions have been dropped, so partitionCommitInfos does not contain these partitions.
                                                  * 4. So we will not able to get partitionCommitInfo here.
-                                                 * 
+                                                 *
                                                  * Just print a log to observe
                                                  */
                                                 LOG.info("failed to find partition commit info. table: {}, partition: {}, tablet: {}, txn id: {}",
                                                         tabletMeta.getTableId(), partitionId, tabletId, transactionState.getTransactionId());
                                             } else {
-                                                TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(tabletMeta.getPartitionId(), 
+                                                TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(tabletMeta.getPartitionId(),
                                                         partitionCommitInfo.getVersion(),
                                                         partitionCommitInfo.getVersionHash());
                                                 ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(transactionState.getDbId());
@@ -237,7 +239,7 @@ public class TabletInvertedIndex {
                                 foundTabletsWithInvalidSchema.put(tabletId, backendTabletInfo);
                             } // end for be tablet info
                         }
-                    }  else {
+                    } else {
                         // 2. (meta - be)
                         // may need delete from meta
                         LOG.debug("backend[{}] does not report tablet[{}-{}]", backendId, tabletId, tabletMeta);
@@ -251,10 +253,10 @@ public class TabletInvertedIndex {
 
         long end = System.currentTimeMillis();
         LOG.info("finished to do tablet diff with backend[{}]. sync: {}. metaDel: {}. foundValid: {}. foundInvalid: {}."
-                         + " migration: {}. found invalid transactions {}. found republish transactions {} " 
-                         + " cost: {} ms", backendId, tabletSyncMap.size(),
-                 tabletDeleteFromMeta.size(), foundTabletsWithValidSchema.size(), foundTabletsWithInvalidSchema.size(),
-                 tabletMigrationMap.size(), transactionsToClear.size(), transactionsToPublish.size(), (end - start));
+                        + " migration: {}. found invalid transactions {}. found republish transactions {} "
+                        + " cost: {} ms", backendId, tabletSyncMap.size(),
+                tabletDeleteFromMeta.size(), foundTabletsWithValidSchema.size(), foundTabletsWithInvalidSchema.size(),
+                tabletMigrationMap.size(), transactionsToClear.size(), transactionsToPublish.size(), (end - start));
     }
 
     public Long getTabletIdByReplica(long replicaId) {
@@ -302,7 +304,7 @@ public class TabletInvertedIndex {
 
         long versionInFe = replicaInFe.getVersion();
         long versionHashInFe = replicaInFe.getVersionHash();
-        
+
         if (backendTabletInfo.getVersion() > versionInFe) {
             // backend replica's version is larger or newer than replica in FE, sync it.
             return true;
@@ -311,10 +313,10 @@ public class TabletInvertedIndex {
             // backend replica's version is equal to replica in FE, but replica in FE is bad, while backend replica is good, sync it
             return true;
         }
-        
+
         return false;
     }
-    
+
     /**
      * Be will set `used' to false for bad replicas and `version_miss' to true for replicas with hole
      * in their version chain. In either case, those replicas need to be fixed by TabletScheduler.
@@ -350,7 +352,7 @@ public class TabletInvertedIndex {
              * 2. BE will report version (X+1, 0), and FE will sync with this version, change to (X+1, 0), too.
              * 3. When restore, BE will restore the replica with version (X, Y) (which is the visible version of partition)
              * 4. BE report the version (X-Y), and than we fall into here
-             * 
+             *
              * Actually, the version (X+1, 0) is a 'virtual' version, so here we ignore this kind of report
              */
             return false;
@@ -455,7 +457,7 @@ public class TabletInvertedIndex {
             writeUnlock();
         }
     }
-    
+
     public Replica getReplica(long tabletId, long backendId) {
         readLock();
         try {
@@ -601,6 +603,97 @@ public class TabletInvertedIndex {
 
     public Map<Long, Long> getReplicaToTabletMap() {
         return replicaToTabletMap;
+    }
+
+    // Only build from available bes, exclude colocate tables
+    public Map<TStorageMedium, TreeMultimap<Long, PartitionBalanceInfo>> buildPartitionInfoBySkew(List<Long> availableBeIds) {
+        readLock();
+
+        // 1. gen <partitionId-indexId, <beId, replicaCount>>
+        // for each replica(all tablets):
+        //      find beId, then replicaCount++
+        Map<TStorageMedium, Table<Long, Long, Map<Long, Long>>> partitionReplicasInfoMaps = Maps.newHashMap();
+        for (TStorageMedium medium : TStorageMedium.values()) {
+            partitionReplicasInfoMaps.put(medium, HashBasedTable.create());
+        }
+        try {
+            // Changes to the returned set will update the underlying table
+            // tablet id -> (backend id -> replica)
+            Set<Table.Cell<Long, Long, Replica>> cells = replicaMetaTable.cellSet();
+            for (Table.Cell<Long, Long, Replica> cell : cells) {
+                Long tabletId = cell.getRowKey();
+                Long beId = cell.getColumnKey();
+                try {
+                    Preconditions.checkState(availableBeIds.contains(beId), "dead be " + beId);
+                    TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
+                    Preconditions.checkNotNull(tabletMeta, "invalid tablet " + tabletId);
+                    Preconditions.checkState(!Catalog.getCurrentColocateIndex().isColocateTable(tabletMeta.getTableId()),
+                            "should not be the colocate table");
+
+                    TStorageMedium medium = tabletMeta.getStorageMedium();
+                    Table<Long, Long, Map<Long, Long>> partitionReplicasInfo = partitionReplicasInfoMaps.get(medium);
+                    Map<Long, Long> countMap = partitionReplicasInfo.get(tabletMeta.getPartitionId(), tabletMeta.getIndexId());
+                    if (countMap == null) {
+                        // If one be doesn't have any replica of one partition, it should be counted too.
+                        countMap = availableBeIds.stream().collect(Collectors.toMap(i -> i, i -> 0L));
+                    }
+
+                    Long count = countMap.get(beId);
+                    countMap.put(beId, count + 1L);
+                    partitionReplicasInfo.put(tabletMeta.getPartitionId(), tabletMeta.getIndexId(), countMap);
+                    partitionReplicasInfoMaps.put(medium, partitionReplicasInfo);
+                } catch (IllegalStateException | NullPointerException e) {
+                    // If the tablet or be has some problem, don't count in
+                    LOG.debug(e.getMessage());
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+
+        // 2. Populate ClusterBalanceInfo::table_info_by_skew
+        // for each PartitionId-MaterializedIndex:
+        //      for each beId: record max_count, min_count(replicaCount)
+        //      put <max_count-min_count, TableBalanceInfo> to table_info_by_skew
+        Map<TStorageMedium, TreeMultimap<Long, PartitionBalanceInfo>> skewMaps = Maps.newHashMap();
+        for (TStorageMedium medium : TStorageMedium.values()) {
+            TreeMultimap<Long, PartitionBalanceInfo> partitionInfoBySkew = TreeMultimap.create(Ordering.natural(), Ordering.arbitrary());
+            Set<Table.Cell<Long, Long, Map<Long, Long>>> mapCells = partitionReplicasInfoMaps.getOrDefault(medium, HashBasedTable.create()).cellSet();
+            for (Table.Cell<Long, Long, Map<Long, Long>> cell : mapCells) {
+                Map<Long, Long> countMap = cell.getValue();
+                Preconditions.checkNotNull(countMap);
+                PartitionBalanceInfo pbi = new PartitionBalanceInfo(cell.getRowKey(), cell.getColumnKey());
+                for (Map.Entry<Long, Long> entry : countMap.entrySet()) {
+                    Long beID = entry.getKey();
+                    Long replicaCount = entry.getValue();
+                    pbi.beByReplicaCount.put(replicaCount, beID);
+                }
+                // beByReplicaCount values are natural ordering
+                long minCount = pbi.beByReplicaCount.keySet().first();
+                long maxCount = pbi.beByReplicaCount.keySet().last();
+                partitionInfoBySkew.put(maxCount - minCount, pbi);
+            }
+            skewMaps.put(medium, partitionInfoBySkew);
+        }
+        return skewMaps;
+    }
+
+    public static class PartitionBalanceInfo {
+        public Long partitionId;
+        public Long indexId;
+        // Natural ordering
+        public TreeMultimap<Long, Long> beByReplicaCount = TreeMultimap.create();
+
+        public PartitionBalanceInfo(Long partitionId, Long indexId) {
+            this.partitionId = partitionId;
+            this.indexId = indexId;
+        }
+
+        public PartitionBalanceInfo(PartitionBalanceInfo info) {
+            this.partitionId = info.partitionId;
+            this.indexId = info.indexId;
+            this.beByReplicaCount = TreeMultimap.create(info.beByReplicaCount);
+        }
     }
 }
 

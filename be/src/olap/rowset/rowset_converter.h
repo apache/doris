@@ -19,12 +19,12 @@
 
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_meta.h"
 
 namespace doris {
@@ -38,20 +38,17 @@ class RowsetConverter {
 public:
     ~RowsetConverter() = default;
 
-    RowsetConverter(const TabletMetaSharedPtr& tablet_meta) : _tablet_meta(tablet_meta) { }
+    RowsetConverter(const TabletMetaSharedPtr& tablet_meta) : _tablet_meta(tablet_meta) {}
 
     OLAPStatus convert_beta_to_alpha(const RowsetMetaSharedPtr& src_rowset_meta,
-                                     const std::string& rowset_path,
-                                     RowsetMetaPB* dst_rs_meta_pb);
+                                     const std::string& rowset_path, RowsetMetaPB* dst_rs_meta_pb);
 
     OLAPStatus convert_alpha_to_beta(const RowsetMetaSharedPtr& src_rowset_meta,
-                                     const std::string& rowset_path,
-                                     RowsetMetaPB* dst_rs_meta_pb);
+                                     const std::string& rowset_path, RowsetMetaPB* dst_rs_meta_pb);
 
 private:
     OLAPStatus _convert_rowset(const RowsetMetaSharedPtr& src_rowset_meta,
-                               const std::string& rowset_path,
-                               RowsetTypePB dst_type,
+                               const std::string& rowset_path, RowsetTypePB dst_type,
                                RowsetMetaPB* dst_rs_meta_pb);
 
 private:

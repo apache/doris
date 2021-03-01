@@ -224,13 +224,16 @@ public class SchemaChangeJob extends AlterJob {
             return;
         }
 
-        db.readLock();
+        OlapTable olapTable = null;
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                LOG.warn("table[{}] does not exist in db[{}]", tableId, dbId);
-                return;
-            }
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
+            return;
+        }
+
+        olapTable.readLock();
+        try {
             // drop all replicas with old schemaHash
             for (Partition partition : olapTable.getPartitions()) {
                 long partitionId = partition.getId();
@@ -252,9 +255,8 @@ public class SchemaChangeJob extends AlterJob {
                 }
             } // end for partitions
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
-        return;
     }
 
     @Override
@@ -321,15 +323,16 @@ public class SchemaChangeJob extends AlterJob {
         }
 
         batchClearAlterTask = new AgentBatchTask();
-        db.readLock();
+        OlapTable olapTable = null;
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                cancelMsg = "could not find table[" + tableId + "] in db [" + dbId + "]";
-                LOG.warn(cancelMsg);
-                return -1;
-            }
-            
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
+            return -1;
+        }
+
+        olapTable.readLock();
+        try {
             boolean allAddSuccess = true;
             LOG.info("sending clear schema change job tasks for table [{}]", tableId);
             OUTER_LOOP:
@@ -360,7 +363,7 @@ public class SchemaChangeJob extends AlterJob {
                 batchClearAlterTask = null;
             }
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         LOG.info("successfully sending clear schema change job [{}]", tableId);
@@ -383,16 +386,17 @@ public class SchemaChangeJob extends AlterJob {
             return false;
         }
 
-        db.readLock();
+        OlapTable olapTable = null;
+        try {
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
+            return false;
+        }
+
+        olapTable.readLock();
         try {
             synchronized (this) {
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                if (olapTable == null) {
-                    cancelMsg = "table[" + tableId + "] does not exist";
-                    LOG.warn(cancelMsg);
-                    return false;
-                }
-
                 Preconditions.checkNotNull(this.unfinishedReplicaIds);
 
                 List<AgentTask> tasks = new LinkedList<AgentTask>();
@@ -489,7 +493,7 @@ public class SchemaChangeJob extends AlterJob {
                 this.state = JobState.RUNNING;
             } // end synchronized block
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         Preconditions.checkState(this.state == JobState.RUNNING);
@@ -499,8 +503,7 @@ public class SchemaChangeJob extends AlterJob {
 
     @Override
     public synchronized void cancel(OlapTable olapTable, String msg) {
-        // make sure to get db write lock before calling this
-
+        // make sure to get table write lock before calling this
         if (olapTable != null) {
             // 1. remove all task and set state
             for (Partition partition : olapTable.getPartitions()) {
@@ -585,12 +588,16 @@ public class SchemaChangeJob extends AlterJob {
         if (db == null) {
             throw new MetaNotFoundException("Cannot find db[" + dbId + "]");
         }
-        db.writeLock();
+
+        OlapTable olapTable = null;
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                throw new MetaNotFoundException("Cannot find table[" + tableId + "]");
-            }
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
+            return;
+        }
+        olapTable.writeLock();
+        try {
             Preconditions.checkState(olapTable.getState() == OlapTableState.SCHEMA_CHANGE);
 
             Partition partition = olapTable.getPartition(partitionId);
@@ -627,11 +634,11 @@ public class SchemaChangeJob extends AlterJob {
                 replica.setPathHash(finishTabletInfo.getPathHash());
             }
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         Catalog.getCurrentSystemInfo().updateBackendReportVersion(schemaChangeTask.getBackendId(),
-                                                                    reportVersion, dbId);
+                                                                    reportVersion, dbId, tableId);
         setReplicaFinished(indexId, replicaId);
 
         LOG.info("finish schema change replica[{}]. index[{}]. tablet[{}], backend[{}]",
@@ -662,18 +669,18 @@ public class SchemaChangeJob extends AlterJob {
             return -1;
         }
 
-        db.writeLock();
+        OlapTable olapTable = null;
+        try {
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
+            return -1;
+        }
+
+        olapTable.writeLock();
         try {
             synchronized (this) {
-                Table table = db.getTable(tableId);
-                if (table == null) {
-                    cancelMsg = String.format("table %d does not exist", tableId);
-                    LOG.warn(cancelMsg);
-                    return -1;
-                }
-
                 boolean hasUnfinishedPartition = false;
-                OlapTable olapTable = (OlapTable) table;
                 for (Partition partition : olapTable.getPartitions()) {
                     long partitionId = partition.getId();
                     short expectReplicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
@@ -778,7 +785,7 @@ public class SchemaChangeJob extends AlterJob {
                     }
 
                     // all table finished in this partition
-                    LOG.info("schema change finished in partition {}, table: {}", partition.getId(), table.getId());
+                    LOG.info("schema change finished in partition {}, table: {}", partition.getId(), olapTable.getId());
                 } // end for partitions
 
                 if (hasUnfinishedPartition) {
@@ -851,7 +858,7 @@ public class SchemaChangeJob extends AlterJob {
 
                 // 3. update base schema if changed
                 if (this.changedIndexIdToSchema.containsKey(olapTable.getBaseIndexId())) {
-                    table.setNewFullSchema(this.changedIndexIdToSchema.get(olapTable.getBaseIndexId()));
+                    olapTable.setNewFullSchema(this.changedIndexIdToSchema.get(olapTable.getBaseIndexId()));
                 }
 
                 // 4. update table bloom filter columns
@@ -863,7 +870,7 @@ public class SchemaChangeJob extends AlterJob {
                 this.transactionId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
             }
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         Catalog.getCurrentCatalog().getEditLog().logFinishingSchemaChange(this);
@@ -880,17 +887,19 @@ public class SchemaChangeJob extends AlterJob {
             return;
         }
 
-        db.writeLock();
+        OlapTable olapTable = null;
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                cancelMsg = String.format("table %d does not exist", tableId);
-                LOG.warn(cancelMsg);
-                return;
-            }
+            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage());
+            return;
+        }
+
+        olapTable.writeLock();
+        try {
             olapTable.setState(OlapTableState.NORMAL);
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         this.finishedTime = System.currentTimeMillis();
@@ -910,10 +919,9 @@ public class SchemaChangeJob extends AlterJob {
 
     @Override
     public void replayInitJob(Database db) {
-        db.writeLock();
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        olapTable.writeLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-
             // change the state of table/partition and replica, then add object to related List and Set
             for (Partition partition : olapTable.getPartitions()) {
                 for (Map.Entry<Long, Integer> entry : changedIndexIdToSchemaHash.entrySet()) {
@@ -947,16 +955,15 @@ public class SchemaChangeJob extends AlterJob {
             // reset status to PENDING for resending the tasks in polling thread
             this.state = JobState.PENDING;
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 
     @Override
     public void replayFinishing(Database db) {
-        db.writeLock();
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        olapTable.writeLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-
             // set the status to normal
             for (Partition partition : olapTable.getPartitions()) {
                 long partitionId = partition.getId();
@@ -1022,7 +1029,7 @@ public class SchemaChangeJob extends AlterJob {
                 olapTable.setBloomFilterInfo(bfColumns, bfFpp);
             } // end for partitions
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         LOG.info("replay finishing schema change job: {}", tableId);
@@ -1035,28 +1042,27 @@ public class SchemaChangeJob extends AlterJob {
             replayFinishing(db);
         }
 
-        db.writeLock();
-        try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable != null) {
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable != null) {
+            olapTable.writeLock();
+            try {
                 olapTable.setState(OlapTableState.NORMAL);
+            } finally {
+                olapTable.writeUnlock();
             }
-        } finally {
-            db.writeUnlock();
         }
-
         LOG.info("replay finish schema change job: {}", tableId);
     }
 
     @Override
     public void replayCancel(Database db) {
-        db.writeLock();
+        // restore partition's state
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            return;
+        }
+        olapTable.writeLock();
         try {
-            // restore partition's state
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                return;
-            }
             for (Partition partition : olapTable.getPartitions()) {
                 long partitionId = partition.getId();
                 for (Long indexId : this.changedIndexIdToSchema.keySet()) {
@@ -1083,13 +1089,13 @@ public class SchemaChangeJob extends AlterJob {
                 } // end for indices
 
                 Preconditions.checkState(partition.getState() == PartitionState.SCHEMA_CHANGE,
-                                         partition.getState());
+                        partition.getState());
                 partition.setState(PartitionState.NORMAL);
             } // end for partitions
 
             olapTable.setState(OlapTableState.NORMAL);
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 
@@ -1142,7 +1148,7 @@ public class SchemaChangeJob extends AlterJob {
                         int tableFinishedReplicaNum = getFinishedReplicaNumByIndexId(indexId);
                         Preconditions.checkState(!(tableReplicaNum == 0 && tableFinishedReplicaNum == -1));
                         Preconditions.checkState(tableFinishedReplicaNum <= tableReplicaNum,
-                                tableFinishedReplicaNum + "/" + tableReplicaNum);
+                            tableFinishedReplicaNum + "/" + tableReplicaNum);
                         totalReplicaNum += tableReplicaNum;
                         finishedReplicaNum += tableFinishedReplicaNum;
                     }
@@ -1183,7 +1189,6 @@ public class SchemaChangeJob extends AlterJob {
                 jobInfo.add(FeConstants.null_string);
             }
             jobInfo.add(Config.alter_table_timeout_second);
-
             jobInfos.add(jobInfo);
         } // end for indexIds
     }

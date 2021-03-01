@@ -18,17 +18,21 @@
 #ifndef DORIS_BE_RUNTIME_PLAN_FRAGMENT_EXECUTOR_H
 #define DORIS_BE_RUNTIME_PLAN_FRAGMENT_EXECUTOR_H
 
-#include <vector>
-#include <boost/scoped_ptr.hpp>
 #include <boost/function.hpp>
+#include <boost/scoped_ptr.hpp>
+#include <vector>
 
-#include "common/status.h"
 #include "common/object_pool.h"
+#include "common/status.h"
+#include "runtime/datetime_value.h"
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
+#include "util/hash_util.hpp"
+#include "util/time.h"
 
 namespace doris {
 
+class QueryFragmentsCtx;
 class HdfsFsCache;
 class ExecNode;
 class RowDescriptor;
@@ -37,6 +41,7 @@ class DataSink;
 class DataStreamMgr;
 class RuntimeProfile;
 class RuntimeState;
+class TNetworkAddress;
 class TPlanExecRequest;
 class TPlanFragment;
 class TPlanFragmentExecParams;
@@ -69,9 +74,8 @@ public:
     // Note: this does not take a const RuntimeProfile&, because it might need to call
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
-    typedef boost::function <
-    void (const Status& status, RuntimeProfile* profile, bool done) >
-    report_status_callback;
+    typedef boost::function<void(const Status& status, RuntimeProfile* profile, bool done)>
+            report_status_callback;
 
     // report_status_cb, if !empty(), is used to report the accumulated profile
     // information periodically during execution (open() or get_next()).
@@ -90,7 +94,9 @@ public:
     // If request.query_options.mem_limit > 0, it is used as an approximate limit on the
     // number of bytes this query can consume at runtime.
     // The query will be aborted (MEM_LIMIT_EXCEEDED) if it goes over that limit.
-    Status prepare(const TExecPlanFragmentParams& request);
+    // If fragments_ctx is not null, some components will be got from fragments_ctx.
+    Status prepare(const TExecPlanFragmentParams& request,
+                   const QueryFragmentsCtx* fragments_ctx = nullptr);
 
     // Start execution. Call this prior to get_next().
     // If this fragment has a sink, open() will send all rows produced
@@ -126,33 +132,23 @@ public:
     void release_thread_token();
 
     // call these only after prepare()
-    RuntimeState* runtime_state() {
-        return _runtime_state.get();
-    }
+    RuntimeState* runtime_state() { return _runtime_state.get(); }
     const RowDescriptor& row_desc();
 
     // Profile information for plan and output sink.
     RuntimeProfile* profile();
 
-    const Status& status() const {
-        return _status;
-    }
+    const Status& status() const { return _status; }
 
-    DataSink* get_sink() {
-        return _sink.get();
-    }
+    DataSink* get_sink() { return _sink.get(); }
 
-    void report_profile_once() {
-        _stop_report_thread_cv.notify_one();
-    }
+    void report_profile_once() { _stop_report_thread_cv.notify_one(); }
 
-    void set_is_report_on_cancel(bool val) {
-        _is_report_on_cancel = val;
-    }
+    void set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
 private:
-    ExecEnv* _exec_env;  // not owned
-    ExecNode* _plan;  // lives in _runtime_state->obj_pool()
+    ExecEnv* _exec_env; // not owned
+    ExecNode* _plan;    // lives in _runtime_state->obj_pool()
     TUniqueId _query_id;
     std::shared_ptr<MemTracker> _mem_tracker;
 
@@ -168,7 +164,7 @@ private:
     // Indicates that profile reporting thread started.
     // Tied to _report_thread_lock.
     boost::condition_variable _report_thread_started_cv;
-    bool _report_thread_active;  // true if we started the thread
+    bool _report_thread_active; // true if we started the thread
 
     // true if _plan->get_next() indicated that it's done
     bool _done;
@@ -210,6 +206,8 @@ private:
     // Number of rows returned by this fragment
     RuntimeProfile::Counter* _rows_produced_counter;
 
+    RuntimeProfile::Counter* _fragment_cpu_timer;
+
     // Average number of thread tokens for the duration of the plan fragment execution.
     // Fragments that do a lot of cpu work (non-coordinator fragment) will have at
     // least 1 token.  Fragments that contain a hdfs scan node will have 1+ tokens
@@ -219,15 +217,13 @@ private:
     // of the execution.
     RuntimeProfile::Counter* _average_thread_tokens;
 
-    // It is shared with BufferControlBlock and will be called in two different 
-    // threads. But their calls are all at different time, there is no problem of 
+    // It is shared with BufferControlBlock and will be called in two different
+    // threads. But their calls are all at different time, there is no problem of
     // multithreaded access.
     std::shared_ptr<QueryStatistics> _query_statistics;
-    bool _collect_query_statistics_with_every_batch;    
+    bool _collect_query_statistics_with_every_batch;
 
-    ObjectPool* obj_pool() {
-        return _runtime_state->obj_pool();
-    }
+    ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 
     // typedef for TPlanFragmentExecParams.per_node_scan_ranges
     typedef std::map<TPlanNodeId, std::vector<TScanRangeParams>> PerNodeScanRanges;
@@ -262,14 +258,57 @@ private:
     // Idempotent.
     void stop_report_thread();
 
-    const DescriptorTbl& desc_tbl() {
-        return _runtime_state->desc_tbl();
-    }
+    const DescriptorTbl& desc_tbl() { return _runtime_state->desc_tbl(); }
 
-    void collect_query_statistics();
-
+    void _collect_query_statistics();
 };
 
-}
+// Save the common components of fragments in a query.
+// Some components like DescriptorTbl may be very large
+// that will slow down each execution of fragments when DeSer them every time.
+class QueryFragmentsCtx {
+public:
+    QueryFragmentsCtx(int total_fragment_num)
+            : fragment_num(total_fragment_num), timeout_second(-1) {
+        _start_time = DateTimeValue::local_time();
+    }
+
+    bool countdown() { return fragment_num.fetch_sub(1) == 1; }
+
+    bool is_timeout(const DateTimeValue& now) const {
+        if (timeout_second <= 0) {
+            return false;
+        }
+        if (now.second_diff(_start_time) > timeout_second) {
+            return true;
+        }
+        return false;
+    }
+
+public:
+    TUniqueId query_id;
+    DescriptorTbl* desc_tbl;
+    bool set_rsc_info = false;
+    std::string user;
+    std::string group;
+    TNetworkAddress coord_addr;
+    TQueryGlobals query_globals;
+
+    /// In the current implementation, for multiple fragments executed by a query on the same BE node,
+    /// we store some common components in QueryFragmentsCtx, and save QueryFragmentsCtx in FragmentMgr.
+    /// When all Fragments are executed, QueryFragmentsCtx needs to be deleted from FragmentMgr.
+    /// Here we use a counter to store the number of Fragments that have not yet been completed,
+    /// and after each Fragment is completed, this value will be reduced by one.
+    /// When the last Fragment is completed, the counter is cleared, and the worker thread of the last Fragment
+    /// will clean up QueryFragmentsCtx.
+    std::atomic<int> fragment_num;
+    int timeout_second;
+    ObjectPool obj_pool;
+
+private:
+    DateTimeValue _start_time;
+};
+
+} // namespace doris
 
 #endif

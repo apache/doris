@@ -545,4 +545,10 @@ public class SelectStmtTest {
         dorisAssert.withoutUseDatabase();
         dorisAssert.query(sql).explainQuery();
     }
+
+    @Test
+    public void testWithInNestedQueryStmt() throws Exception {
+        String sql = "select 1 from (with w as (select 1 from db1.table1) select 1 from w) as tt";
+        dorisAssert.query(sql).explainQuery();
+    }
 }

@@ -21,8 +21,8 @@
 #include <roaring/roaring.hh>
 
 #include "olap/column_block.h"
-#include "olap/selection_vector.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
+#include "olap/selection_vector.h"
 
 using namespace doris::segment_v2;
 
@@ -30,27 +30,33 @@ namespace doris {
 
 class VectorizedRowBatch;
 class Schema;
+class RowBlockV2;
 
 class ColumnPredicate {
 public:
-    explicit ColumnPredicate(uint32_t column_id) : _column_id(column_id) { }
+    explicit ColumnPredicate(uint32_t column_id, bool opposite = false)
+        : _column_id(column_id), _opposite(opposite) {}
 
-    virtual ~ColumnPredicate() {}
+    virtual ~ColumnPredicate() = default;
 
     //evaluate predicate on VectorizedRowBatch
     virtual void evaluate(VectorizedRowBatch* batch) const = 0;
 
     // evaluate predicate on ColumnBlock
     virtual void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const = 0;
+    virtual void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const = 0;
+    virtual void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const = 0;
 
     //evaluate predicate on Bitmap
-    virtual Status evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,
-        uint32_t num_rows, Roaring* roaring) const = 0;
+    virtual Status evaluate(const Schema& schema,
+                            const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows,
+                            Roaring* roaring) const = 0;
 
     uint32_t column_id() const { return _column_id; }
 
 protected:
     uint32_t _column_id;
+    bool _opposite;
 };
 
 } //namespace doris

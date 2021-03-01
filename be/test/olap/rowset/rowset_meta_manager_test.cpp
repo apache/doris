@@ -15,17 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
-#include <sstream>
-#include <fstream>
-
-#include "gtest/gtest.h"
-#include "gmock/gmock.h"
-#include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
-#include "olap/storage_engine.h"
+
+#include <fstream>
+#include <sstream>
+#include <string>
+
 #include "boost/filesystem.hpp"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "json2pb/json_to_pb.h"
+#include "olap/olap_meta.h"
+#include "olap/storage_engine.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -48,10 +49,8 @@ public:
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
-        std::vector<StorePath> paths;
-        paths.emplace_back("_engine_data_path", -1);
         EngineOptions options;
-        options.store_paths = paths;
+        // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
         if (k_engine == nullptr) {
             k_engine = new StorageEngine(options);
@@ -59,7 +58,7 @@ public:
 
         std::string meta_path = "./meta";
         ASSERT_TRUE(boost::filesystem::create_directory(meta_path));
-        _meta = new(std::nothrow) OlapMeta(meta_path);
+        _meta = new (std::nothrow) OlapMeta(meta_path);
         ASSERT_NE(nullptr, _meta);
         OLAPStatus st = _meta->init();
         ASSERT_TRUE(st == OLAP_SUCCESS);
@@ -84,7 +83,7 @@ public:
 private:
     OlapMeta* _meta;
     std::string _json_rowset_meta;
-    TabletUid _tablet_uid {0, 0};
+    TabletUid _tablet_uid{0, 0};
 };
 
 TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
@@ -99,7 +98,8 @@ TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
     ASSERT_TRUE(status == OLAP_SUCCESS);
     ASSERT_TRUE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
     std::string json_rowset_meta_read;
-    status = RowsetMetaManager::get_json_rowset_meta(_meta, _tablet_uid, rowset_id, &json_rowset_meta_read);
+    status = RowsetMetaManager::get_json_rowset_meta(_meta, _tablet_uid, rowset_id,
+                                                     &json_rowset_meta_read);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     ASSERT_EQ(_json_rowset_meta, json_rowset_meta_read);
     status = RowsetMetaManager::remove(_meta, _tablet_uid, rowset_id);
@@ -117,14 +117,15 @@ TEST_F(RowsetMetaManagerTest, TestLoad) {
     ASSERT_TRUE(status == OLAP_SUCCESS);
     ASSERT_TRUE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
     std::string json_rowset_meta_read;
-    status = RowsetMetaManager::get_json_rowset_meta(_meta, _tablet_uid, rowset_id, &json_rowset_meta_read);
+    status = RowsetMetaManager::get_json_rowset_meta(_meta, _tablet_uid, rowset_id,
+                                                     &json_rowset_meta_read);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     ASSERT_EQ(_json_rowset_meta, json_rowset_meta_read);
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

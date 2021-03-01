@@ -161,6 +161,9 @@ struct TStorageMediumMigrateReq {
     1: required Types.TTabletId tablet_id
     2: required Types.TSchemaHash schema_hash
     3: required Types.TStorageMedium storage_medium
+    // if data dir is specified, the storage_medium is meaning less,
+    // Doris will try to migrate the tablet to the specified data dir.
+    4: optional string data_dir
 }
 
 struct TCancelDeleteDataReq {
@@ -183,6 +186,8 @@ struct TUploadReq {
     2: required map<string, string> src_dest_map
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
+    5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
+
 }
 
 struct TDownloadReq {
@@ -190,6 +195,7 @@ struct TDownloadReq {
     2: required map<string, string> src_dest_map
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
+    5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
 }
 
 struct TSnapshotRequest {
@@ -201,6 +207,7 @@ struct TSnapshotRequest {
     6: optional list<Types.TVersion> missing_version
     7: optional bool list_files
     // if all nodes has been upgraded, it can be removed.
+    // Deprecated since version 0.13
     8: optional bool allow_incremental_clone
     9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
 }

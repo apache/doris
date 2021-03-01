@@ -21,28 +21,28 @@
 
 #include "exec/hash_table.hpp"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "exprs/in_predicate.h"
 #include "exprs/slot_ref.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 
-HashJoinNode::HashJoinNode(
-        ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) :
-            ExecNode(pool, tnode, descs),
-            _join_op(tnode.hash_join_node.join_op),
-            _probe_eos(false),
-            _process_build_batch_fn(NULL),
-            _process_probe_batch_fn(NULL),
-           _anti_join_last_pos(NULL) {
+HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ExecNode(pool, tnode, descs),
+          _join_op(tnode.hash_join_node.join_op),
+          _probe_eos(false),
+          _process_build_batch_fn(NULL),
+          _process_probe_batch_fn(NULL),
+          _anti_join_last_pos(NULL) {
     _match_all_probe =
-        (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN);
+            (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN);
     _match_one_build = (_join_op == TJoinOp::LEFT_SEMI_JOIN);
     _match_all_build =
-        (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN);
+            (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN);
     _is_push_down = tnode.hash_join_node.is_push_down;
     _build_unique = _join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN;
 }
@@ -55,7 +55,7 @@ HashJoinNode::~HashJoinNode() {
 Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.hash_join_node);
-    const vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
+    const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
 
     for (int i = 0; i < eq_join_conjuncts.size(); ++i) {
         ExprContext* ctx = NULL;
@@ -63,17 +63,16 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _probe_expr_ctxs.push_back(ctx);
         RETURN_IF_ERROR(Expr::create_expr_tree(_pool, eq_join_conjuncts[i].right, &ctx));
         _build_expr_ctxs.push_back(ctx);
-        if (eq_join_conjuncts[i].__isset.opcode 
-            && eq_join_conjuncts[i].opcode == TExprOpcode::EQ_FOR_NULL) {
+        if (eq_join_conjuncts[i].__isset.opcode &&
+            eq_join_conjuncts[i].opcode == TExprOpcode::EQ_FOR_NULL) {
             _is_null_safe_eq_join.push_back(true);
         } else {
             _is_null_safe_eq_join.push_back(false);
         }
     }
 
-    RETURN_IF_ERROR(
-        Expr::create_expr_trees(_pool, tnode.hash_join_node.other_join_conjuncts,
-                              &_other_join_conjunct_ctxs));
+    RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.hash_join_node.other_join_conjuncts,
+                                            &_other_join_conjunct_ctxs));
 
     if (!_other_join_conjunct_ctxs.empty()) {
         // If LEFT SEMI JOIN/LEFT ANTI JOIN with not equal predicate,
@@ -88,33 +87,26 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
     _build_pool.reset(new MemPool(mem_tracker().get()));
-    _build_timer =
-        ADD_TIMER(runtime_profile(), "BuildTime");
-    _push_down_timer =
-        ADD_TIMER(runtime_profile(), "PushDownTime");
-    _push_compute_timer =
-        ADD_TIMER(runtime_profile(), "PushDownComputeTime");
-    _probe_timer =
-        ADD_TIMER(runtime_profile(), "ProbeTime");
-    _build_rows_counter =
-        ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
-    _build_buckets_counter =
-        ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
-    _probe_rows_counter =
-        ADD_COUNTER(runtime_profile(), "ProbeRows", TUnit::UNIT);
+    _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
+    _push_down_timer = ADD_TIMER(runtime_profile(), "PushDownTime");
+    _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
+    _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
+    _build_rows_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
+    _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
+    _probe_rows_counter = ADD_COUNTER(runtime_profile(), "ProbeRows", TUnit::UNIT);
     _hash_tbl_load_factor_counter =
-        ADD_COUNTER(runtime_profile(), "LoadFactor", TUnit::DOUBLE_VALUE);
+            ADD_COUNTER(runtime_profile(), "LoadFactor", TUnit::DOUBLE_VALUE);
 
     // build and probe exprs are evaluated in the context of the rows produced by our
     // right and left children, respectively
-    RETURN_IF_ERROR(Expr::prepare(
-            _build_expr_ctxs, state, child(1)->row_desc(), expr_mem_tracker()));
-    RETURN_IF_ERROR(Expr::prepare(
-            _probe_expr_ctxs, state, child(0)->row_desc(), expr_mem_tracker()));
+    RETURN_IF_ERROR(
+            Expr::prepare(_build_expr_ctxs, state, child(1)->row_desc(), expr_mem_tracker()));
+    RETURN_IF_ERROR(
+            Expr::prepare(_probe_expr_ctxs, state, child(0)->row_desc(), expr_mem_tracker()));
 
     // _other_join_conjuncts are evaluated in the context of the rows produced by this node
-    RETURN_IF_ERROR(Expr::prepare(
-            _other_join_conjunct_ctxs, state, _row_descriptor, expr_mem_tracker()));
+    RETURN_IF_ERROR(
+            Expr::prepare(_other_join_conjunct_ctxs, state, _row_descriptor, expr_mem_tracker()));
 
     _result_tuple_row_size = _row_descriptor.tuple_descriptors().size() * sizeof(Tuple*);
 
@@ -135,17 +127,16 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_tuple_row_size = num_build_tuples * sizeof(Tuple*);
 
     // TODO: default buckets
-    const bool stores_nulls = _join_op == TJoinOp::RIGHT_OUTER_JOIN
-        || _join_op == TJoinOp::FULL_OUTER_JOIN
-        || _join_op == TJoinOp::RIGHT_ANTI_JOIN
-        || _join_op == TJoinOp::RIGHT_SEMI_JOIN
-        || (std::find(_is_null_safe_eq_join.begin(), _is_null_safe_eq_join.end(),
-                                        true) != _is_null_safe_eq_join.end());
-    _hash_tbl.reset(new HashTable(
-            _build_expr_ctxs, _probe_expr_ctxs, _build_tuple_size,
-            stores_nulls, _is_null_safe_eq_join, id(), mem_tracker(), 1024));
+    const bool stores_nulls =
+            _join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN ||
+            _join_op == TJoinOp::RIGHT_ANTI_JOIN || _join_op == TJoinOp::RIGHT_SEMI_JOIN ||
+            (std::find(_is_null_safe_eq_join.begin(), _is_null_safe_eq_join.end(), true) !=
+             _is_null_safe_eq_join.end());
+    _hash_tbl.reset(new HashTable(_build_expr_ctxs, _probe_expr_ctxs, _build_tuple_size,
+                                  stores_nulls, _is_null_safe_eq_join, id(), mem_tracker(), 1024));
 
-    _probe_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+    _probe_batch.reset(
+            new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
 
     return Status::OK();
 }
@@ -250,8 +241,8 @@ Status HashJoinNode::open(RuntimeState* state) {
         thread_status.set_value(construct_hash_table(state));
     }
 
-    if (_children[0]->type() == TPlanNodeType::EXCHANGE_NODE
-            && _children[1]->type() == TPlanNodeType::EXCHANGE_NODE) {
+    if (_children[0]->type() == TPlanNodeType::EXCHANGE_NODE &&
+        _children[1]->type() == TPlanNodeType::EXCHANGE_NODE) {
         _is_push_down = false;
     }
 
@@ -259,8 +250,8 @@ Status HashJoinNode::open(RuntimeState* state) {
     // The in predicate will filter the null value in child[0] while it is needed in the Null-safe equal join.
     // For example: select * from a join b where a.id<=>b.id
     // the null value in table a should be return by scan node instead of filtering it by In-predicate.
-    if (std::find(_is_null_safe_eq_join.begin(), _is_null_safe_eq_join.end(),
-                                    true) != _is_null_safe_eq_join.end()) {
+    if (std::find(_is_null_safe_eq_join.begin(), _is_null_safe_eq_join.end(), true) !=
+        _is_null_safe_eq_join.end()) {
         _is_push_down = false;
     }
 
@@ -314,7 +305,7 @@ Status HashJoinNode::open(RuntimeState* state) {
                 HashTable::Iterator iter = _hash_tbl->begin();
 
                 while (iter.has_next()) {
-                    TupleRow* row  = iter.get_row();
+                    TupleRow* row = iter.get_row();
                     std::list<ExprContext*>::iterator ctx_iter = _push_down_expr_ctxs.begin();
 
                     for (int i = 0; i < _build_expr_ctxs.size(); ++i, ++ctx_iter) {
@@ -338,7 +329,6 @@ Status HashJoinNode::open(RuntimeState* state) {
         Status open_status = child(0)->open(state);
         RETURN_IF_ERROR(open_status);
     } else {
-
         // Open the probe-side child so that it may perform any initialisation in parallel.
         // Don't exit even if we see an error, we still need to wait for the build thread
         // to finish.
@@ -393,8 +383,8 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
     }
 
     // These cases are simpler and use a more efficient processing loop
-    if (!(_match_all_build || _join_op == TJoinOp::RIGHT_SEMI_JOIN
-            || _join_op == TJoinOp::RIGHT_ANTI_JOIN)) {
+    if (!(_match_all_build || _join_op == TJoinOp::RIGHT_SEMI_JOIN ||
+          _join_op == TJoinOp::RIGHT_ANTI_JOIN)) {
         if (_eos) {
             *eos = true;
             return Status::OK();
@@ -423,8 +413,8 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
             TupleRow* matched_build_row = _hash_tbl_iterator.get_row();
             VLOG_ROW << "matched_build_row: " << matched_build_row->to_string(child(1)->row_desc());
 
-            if ((_join_op == TJoinOp::RIGHT_ANTI_JOIN || _join_op == TJoinOp::RIGHT_SEMI_JOIN)
-                && _hash_tbl_iterator.matched()) {
+            if ((_join_op == TJoinOp::RIGHT_ANTI_JOIN || _join_op == TJoinOp::RIGHT_SEMI_JOIN) &&
+                _hash_tbl_iterator.matched()) {
                 // We have already matched this build row, continue to next match.
                 // _hash_tbl_iterator.next<true>();
                 _hash_tbl_iterator.next<true>();
@@ -439,10 +429,10 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
             // 2. judge if set matched with other join predicates
             // 3. scans hash table to choose row which is't set matched and meets conjuncts
             if (_join_op == TJoinOp::RIGHT_ANTI_JOIN) {
-                create_output_row(out_row,  _current_probe_row,  matched_build_row);
+                create_output_row(out_row, _current_probe_row, matched_build_row);
                 if (eval_conjuncts(other_conjunct_ctxs, num_other_conjunct_ctxs, out_row)) {
                     _hash_tbl_iterator.set_matched();
-                }   
+                }
                 _hash_tbl_iterator.next<true>();
                 continue;
             } else {
@@ -451,13 +441,13 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
                 // 2. check if the row meets other join predicates
                 // 3. check if the row meets conjuncts
                 // right join and full join
-                // 1. find pos in hash table which meets equi-join 
+                // 1. find pos in hash table which meets equi-join
                 // 2. check if the row meets other join predicates
                 // 3. check if the row meets conjuncts
                 // 4. output left and right meeting other predicates and conjuncts
-                // 5. if full join, output left meeting and right no meeting other 
+                // 5. if full join, output left meeting and right no meeting other
                 // join predicates and conjuncts
-                // 6. output left no meeting and right meeting other join predicate 
+                // 6. output left no meeting and right meeting other join predicate
                 // and conjuncts
                 create_output_row(out_row, _current_probe_row, matched_build_row);
             }
@@ -466,7 +456,6 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
                 _hash_tbl_iterator.next<true>();
                 continue;
             }
-
 
             if (_join_op == TJoinOp::RIGHT_SEMI_JOIN) {
                 _hash_tbl_iterator.set_matched();
@@ -626,8 +615,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
     return Status::OK();
 }
 
-Status HashJoinNode::left_join_get_next(RuntimeState* state,
-                                     RowBatch* out_batch, bool* eos) {
+Status HashJoinNode::left_join_get_next(RuntimeState* state, RowBatch* out_batch, bool* eos) {
     *eos = _eos;
 
     ScopedTimer<MonotonicStopWatch> probe_timer(_probe_timer);
@@ -643,12 +631,12 @@ Status HashJoinNode::left_join_get_next(RuntimeState* state,
         // Continue processing this row batch
         if (_process_probe_batch_fn == NULL) {
             _num_rows_returned +=
-                process_probe_batch(out_batch, _probe_batch.get(), max_added_rows);
+                    process_probe_batch(out_batch, _probe_batch.get(), max_added_rows);
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         } else {
             // Use codegen'd function
             _num_rows_returned +=
-                _process_probe_batch_fn(this, out_batch, _probe_batch.get(), max_added_rows);
+                    _process_probe_batch_fn(this, out_batch, _probe_batch.get(), max_added_rows);
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         }
 
@@ -681,7 +669,7 @@ Status HashJoinNode::left_join_get_next(RuntimeState* state,
     return Status::OK();
 }
 
-string HashJoinNode::get_probe_row_output_string(TupleRow* probe_row) {
+std::string HashJoinNode::get_probe_row_output_string(TupleRow* probe_row) {
     std::stringstream out;
     out << "[";
     int* _build_tuple_idx_ptr = &_build_tuple_idx[0];
@@ -692,7 +680,7 @@ string HashJoinNode::get_probe_row_output_string(TupleRow* probe_row) {
         }
 
         int* is_build_tuple =
-            std::find(_build_tuple_idx_ptr, _build_tuple_idx_ptr + _build_tuple_size, i);
+                std::find(_build_tuple_idx_ptr, _build_tuple_idx_ptr + _build_tuple_size, i);
 
         if (is_build_tuple != _build_tuple_idx_ptr + _build_tuple_size) {
             out << Tuple::to_string(NULL, *row_desc().tuple_descriptors()[i]);
@@ -707,13 +695,12 @@ string HashJoinNode::get_probe_row_output_string(TupleRow* probe_row) {
 
 void HashJoinNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
-    *out << "_hashJoin(eos=" << (_eos ? "true" : "false")
-         << " probe_batch_pos=" << _probe_batch_pos
+    *out << "_hashJoin(eos=" << (_eos ? "true" : "false") << " probe_batch_pos=" << _probe_batch_pos
          << " hash_tbl=";
     *out << string(indentation_level * 2, ' ');
     *out << "HashTbl(";
-         // << " build_exprs=" << Expr::debug_string(_build_expr_ctxs)
-         // << " probe_exprs=" << Expr::debug_string(_probe_expr_ctxs);
+    // << " build_exprs=" << Expr::debug_string(_build_expr_ctxs)
+    // << " probe_exprs=" << Expr::debug_string(_probe_expr_ctxs);
     *out << ")";
     ExecNode::debug_string(indentation_level, out);
     *out << ")";
@@ -735,4 +722,4 @@ void HashJoinNode::create_output_row(TupleRow* out, TupleRow* probe, TupleRow* b
     }
 }
 
-}
+} // namespace doris

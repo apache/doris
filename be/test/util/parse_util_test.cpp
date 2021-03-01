@@ -17,10 +17,10 @@
 
 #include "util/parse_util.h"
 
+#include <gtest/gtest.h>
+
 #include <string>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "util/mem_info.h"
 
@@ -72,13 +72,12 @@ TEST(TestParseMemSpec, Bad) {
     bad_values.push_back("1pb");
     bad_values.push_back("1eb");
     bad_values.push_back("%");
-    for (const auto& value: bad_values) {
+    for (const auto& value : bad_values) {
         bool is_percent = false;
         int64_t bytes = ParseUtil::parse_mem_spec(value, &is_percent);
         ASSERT_EQ(-1, bytes);
     }
 }
-
 
 } // namespace doris
 

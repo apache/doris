@@ -20,6 +20,7 @@
 #include <algorithm>
 
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
@@ -31,20 +32,18 @@ namespace doris {
 
 class TupleRowLessThan {
 public:
-    TupleRowLessThan(
-        std::vector<ExprContext*>& lhs_expr_ctxs, std::vector<ExprContext*>& rhs_expr_ctxs);
+    TupleRowLessThan(std::vector<ExprContext*>& lhs_expr_ctxs,
+                     std::vector<ExprContext*>& rhs_expr_ctxs);
     bool operator()(TupleRow* const& lhs, TupleRow* const& rhs) const;
+
 private:
     std::vector<ExprContext*>& _lhs_expr_ctxs;
     std::vector<ExprContext*>& _rhs_expr_ctxs;
 };
 
-TupleRowLessThan::TupleRowLessThan(
-            std::vector<ExprContext*>& lhs_expr_ctxs,
-            std::vector<ExprContext*>& rhs_expr_ctxs) :
-        _lhs_expr_ctxs(lhs_expr_ctxs),
-        _rhs_expr_ctxs(rhs_expr_ctxs) {
-}
+TupleRowLessThan::TupleRowLessThan(std::vector<ExprContext*>& lhs_expr_ctxs,
+                                   std::vector<ExprContext*>& rhs_expr_ctxs)
+        : _lhs_expr_ctxs(lhs_expr_ctxs), _rhs_expr_ctxs(rhs_expr_ctxs) {}
 
 // Return true only when lhs less than rhs
 // nullptr is the positive infinite
@@ -78,14 +77,11 @@ bool TupleRowLessThan::operator()(TupleRow* const& lhs, TupleRow* const& rhs) co
     return false;
 }
 
-QSorter::QSorter(
-            const RowDescriptor& row_desc,
-            const std::vector<ExprContext*>& order_expr_ctxs,
-            RuntimeState* state) :
-        _row_desc(row_desc),
-        _order_expr_ctxs(order_expr_ctxs),
-        _tuple_pool(new MemPool(state->instance_mem_tracker().get())) {
-}
+QSorter::QSorter(const RowDescriptor& row_desc, const std::vector<ExprContext*>& order_expr_ctxs,
+                 RuntimeState* state)
+        : _row_desc(row_desc),
+          _order_expr_ctxs(order_expr_ctxs),
+          _tuple_pool(new MemPool(state->instance_mem_tracker().get())) {}
 
 Status QSorter::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::clone_if_not_exists(_order_expr_ctxs, state, &_lhs_expr_ctxs));
@@ -95,9 +91,8 @@ Status QSorter::prepare(RuntimeState* state) {
 
 // Insert if either not at the limit or it's a new TopN tuple_row
 Status QSorter::insert_tuple_row(TupleRow* input_row) {
-    TupleRow* insert_tuple_row = input_row->deep_copy(
-            _row_desc.tuple_descriptors(),
-            _tuple_pool.get());
+    TupleRow* insert_tuple_row =
+            input_row->deep_copy(_row_desc.tuple_descriptors(), _tuple_pool.get());
     if (insert_tuple_row == NULL) {
         return Status::InternalError("deep copy failed.");
     }
@@ -141,5 +136,4 @@ Status QSorter::close(RuntimeState* state) {
     return Status::OK();
 }
 
-}
-
+} // namespace doris

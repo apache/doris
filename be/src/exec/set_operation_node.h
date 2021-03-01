@@ -43,7 +43,6 @@ public:
     virtual Status close(RuntimeState* state);
     virtual Status open(RuntimeState* state);
 
-
 protected:
     std::string get_row_output_string(TupleRow* row, const RowDescriptor& row_desc);
     void create_output_row(TupleRow* input_row, RowBatch* row_batch, uint8_t* tuple_buf);

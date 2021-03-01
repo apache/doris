@@ -19,38 +19,36 @@
 
 #include <math.h>
 
-#include "olap/rowset/segment_writer.h"
-#include "olap/rowset/segment_group.h"
-#include "olap/row_block.h"
 #include "olap/row.h"
+#include "olap/row_block.h"
+#include "olap/rowset/segment_group.h"
+#include "olap/rowset/segment_writer.h"
 
 namespace doris {
 
 ColumnDataWriter* ColumnDataWriter::create(SegmentGroup* segment_group, bool is_push_write,
-        CompressKind compress_kind, double bloom_filter_fpp) {
-    ColumnDataWriter* writer = new (std::nothrow) ColumnDataWriter(segment_group, is_push_write,
-            compress_kind, bloom_filter_fpp);
+                                           CompressKind compress_kind, double bloom_filter_fpp) {
+    ColumnDataWriter* writer = new (std::nothrow)
+            ColumnDataWriter(segment_group, is_push_write, compress_kind, bloom_filter_fpp);
     return writer;
 }
 
-ColumnDataWriter::ColumnDataWriter(SegmentGroup* segment_group,
-        bool is_push_write, CompressKind compress_kind,
-        double bloom_filter_fpp)
-    : _segment_group(segment_group),
-      _is_push_write(is_push_write),
-      _compress_kind(compress_kind),
-      _bloom_filter_fpp(bloom_filter_fpp),
-      _zone_maps(segment_group->get_num_zone_map_columns(), KeyRange(NULL, NULL)),
-      _row_index(0),
-      _row_block(NULL),
-      _segment_writer(NULL),
-      _num_rows(0),
-      _block_id(0),
-      _max_segment_size(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE),
-      _segment(0),
-      _all_num_rows(0),
-      _new_segment_created(false)
-{ }
+ColumnDataWriter::ColumnDataWriter(SegmentGroup* segment_group, bool is_push_write,
+                                   CompressKind compress_kind, double bloom_filter_fpp)
+        : _segment_group(segment_group),
+          _is_push_write(is_push_write),
+          _compress_kind(compress_kind),
+          _bloom_filter_fpp(bloom_filter_fpp),
+          _zone_maps(segment_group->get_num_zone_map_columns(), KeyRange(NULL, NULL)),
+          _row_index(0),
+          _row_block(NULL),
+          _segment_writer(NULL),
+          _num_rows(0),
+          _block_id(0),
+          _max_segment_size(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE),
+          _segment(0),
+          _all_num_rows(0),
+          _new_segment_created(false) {}
 
 ColumnDataWriter::~ColumnDataWriter() {
     for (size_t i = 0; i < _zone_maps.size(); ++i) {
@@ -79,7 +77,7 @@ OLAPStatus ColumnDataWriter::init() {
     size *= OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE;
     _max_segment_size = static_cast<uint32_t>(lround(size));
 
-    _row_block = new(std::nothrow) RowBlock(&(_segment_group->get_tablet_schema()));
+    _row_block = new (std::nothrow) RowBlock(&(_segment_group->get_tablet_schema()));
 
     if (NULL == _row_block) {
         LOG(WARNING) << "fail to new RowBlock.";
@@ -88,11 +86,11 @@ OLAPStatus ColumnDataWriter::init() {
 
     res = _cursor.init(_segment_group->get_tablet_schema());
     if (OLAP_SUCCESS != res) {
-        LOG(WARNING) << "fail to initiate row cursor. [res=" <<  res << "]";
+        LOG(WARNING) << "fail to initiate row cursor. [res=" << res << "]";
         return res;
     }
 
-    VLOG(3) << "init ColumnData writer. segment_group_id=" << _segment_group->segment_group_id()
+    VLOG_NOTICE << "init ColumnData writer. segment_group_id=" << _segment_group->segment_group_id()
             << ", block_row_number=" << _segment_group->get_num_rows_per_row_block();
     RowBlockInfo block_info(0U, _segment_group->get_num_rows_per_row_block());
     block_info.null_supported = true;
@@ -104,13 +102,13 @@ OLAPStatus ColumnDataWriter::init() {
 OLAPStatus ColumnDataWriter::_init_segment() {
     OLAPStatus res = _add_segment();
     if (OLAP_SUCCESS != res) {
-        LOG(WARNING) << "fail to add segment. [res=" <<  res << "]";
+        LOG(WARNING) << "fail to add segment. [res=" << res << "]";
         return res;
     }
 
     res = _segment_group->add_segment();
     if (OLAP_SUCCESS != res) {
-        LOG(WARNING) << "fail to add index segment. [res=" <<  res << "]";
+        LOG(WARNING) << "fail to add index segment. [res=" << res << "]";
         return res;
     }
 
@@ -118,7 +116,7 @@ OLAPStatus ColumnDataWriter::_init_segment() {
     return res;
 }
 
-template<typename RowType>
+template <typename RowType>
 OLAPStatus ColumnDataWriter::write(const RowType& row) {
     // copy input row to row block
     _row_block->get_row(_row_index, &_cursor);
@@ -134,7 +132,7 @@ OLAPStatus ColumnDataWriter::write(const RowType& row) {
     return OLAP_SUCCESS;
 }
 
-template<typename RowType>
+template <typename RowType>
 void ColumnDataWriter::next(const RowType& row) {
     for (size_t cid = 0; cid < _segment_group->get_num_zone_map_columns(); ++cid) {
         auto field = row.schema()->column(cid);
@@ -180,8 +178,7 @@ OLAPStatus ColumnDataWriter::finalize() {
 
     res = _finalize_segment();
     if (OLAP_SUCCESS != res) {
-        LOG(WARNING) << "fail to finalize segment. res=" << res
-                     << ", _row_index=" << _row_index
+        LOG(WARNING) << "fail to finalize segment. res=" << res << ", _row_index=" << _row_index
                      << ", _all_num_rows=" << _all_num_rows;
         return res;
     }
@@ -200,13 +197,14 @@ OLAPStatus ColumnDataWriter::_flush_row_block(bool finalize) {
         RETURN_NOT_OK(_init_segment());
     }
 
-    if (_row_index < 1) { return OLAP_SUCCESS; }
+    if (_row_index < 1) {
+        return OLAP_SUCCESS;
+    }
     // 与OLAPDataWriter不同,这里不是真的写RowBlock,所以并不需要finalize RowBlock
     // 但考虑到兼容Row Block的使用方式,还是调用了finalize
     OLAPStatus res = _row_block->finalize(_row_index);
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to finalize row block. [num_rows=%u res=%d]",
-                _row_index, res);
+        OLAP_LOG_WARNING("fail to finalize row block. [num_rows=%u res=%d]", _row_index, res);
         return OLAP_ERR_WRITER_ROW_BLOCK_ERROR;
     }
 
@@ -240,8 +238,9 @@ OLAPStatus ColumnDataWriter::_add_segment() {
     }
 
     file_name = _segment_group->construct_data_file_path(_segment);
-    _segment_writer = new(std::nothrow) SegmentWriter(file_name, _segment_group,
-            OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, _compress_kind, _bloom_filter_fpp);
+    _segment_writer = new (std::nothrow)
+            SegmentWriter(file_name, _segment_group, OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE,
+                          _compress_kind, _bloom_filter_fpp);
 
     if (NULL == _segment_writer) {
         OLAP_LOG_WARNING("fail to allocate SegmentWriter");
@@ -252,8 +251,7 @@ OLAPStatus ColumnDataWriter::_add_segment() {
     if (_is_push_write) {
         res = _segment_writer->init(config::push_write_mbytes_per_sec);
     } else {
-        res = _segment_writer->init(
-                config::base_compaction_write_mbytes_per_sec);
+        res = _segment_writer->init(config::base_compaction_write_mbytes_per_sec);
     }
 
     if (OLAP_SUCCESS != res) {
@@ -287,7 +285,7 @@ OLAPStatus ColumnDataWriter::_finalize_segment() {
     OLAPStatus res = OLAP_SUCCESS;
     uint32_t data_segment_size;
 
-    if ((res =  _segment_writer->finalize(&data_segment_size)) != OLAP_SUCCESS) {
+    if ((res = _segment_writer->finalize(&data_segment_size)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to finish segment from olap_data.");
         return res;
     }
@@ -320,4 +318,4 @@ template OLAPStatus ColumnDataWriter::write<ContiguousRow>(const ContiguousRow& 
 template void ColumnDataWriter::next<RowCursor>(const RowCursor& row);
 template void ColumnDataWriter::next<ContiguousRow>(const ContiguousRow& row);
 
-}  // namespace doris
+} // namespace doris
