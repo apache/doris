@@ -299,7 +299,7 @@ public class QueryPlanTest {
 
         createTable("CREATE TABLE test.`bucket_shuffle2` (\n" +
                 "  `k1` int NULL COMMENT \"\",\n" +
-                "  `k2` smallint(6) NULL COMMENT \"\"\n" +
+                "  `k2` int(6) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "COMMENT \"OLAP\"\n" +
                 "PARTITION BY RANGE(`k1`)\n" +
@@ -1110,6 +1110,17 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
+        // left table is colocate table, should be bucket shuffle
+        queryStr = "explain select * from test.colocate1 t1, test.bucket_shuffle2 t2 where t1.k1 = t2.k1 and t1.k1 = t2.k2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
+
+        // support recurse of bucket shuffle join
+        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3 " +
+                "on t2.k1 = t3.k1 and t2.k2 = t3.k2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t3`.`k1`, `t3`.`k2`"));
         // disable bucket shuffle join again
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
     }
