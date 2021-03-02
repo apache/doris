@@ -44,7 +44,7 @@ static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
 static int64_t calc_job_max_load_memory(int64_t mem_limit_in_req, int64_t total_mem_limit) {
     // default mem limit is used to be compatible with old request.
     // new request should be set load_mem_limit.
-    const int64_t default_load_mem_limit = 2 * 1024 * 1024 * 1024L; // 2GB
+    constexpr int64_t default_load_mem_limit = 2 * 1024 * 1024 * 1024L; // 2GB
     int64_t load_mem_limit = default_load_mem_limit;
     if (mem_limit_in_req != -1) {
         // mem-limit of a certain load should between config::write_buffer_size
