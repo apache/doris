@@ -358,6 +358,15 @@ TEST_F(BitmapFunctionsTest, bitmap_not) {
     result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
     expected = BigIntVal(0);
     ASSERT_EQ(expected, result);
+
+    bitmap1 = BitmapValue({1});
+    bitmap2 = BitmapValue({2, 1});
+
+    bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+    bitmap_str = BitmapFunctions::bitmap_not(ctx, bitmap_src, bitmap_dst);
+    result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
+    ASSERT_EQ(expected, result);
 }
 
 TEST_F(BitmapFunctionsTest, bitmap_contains) {
