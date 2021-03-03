@@ -35,7 +35,8 @@ public class AuditEvent {
         CONNECTION,
         DISCONNECTION,
         BEFORE_QUERY,
-        AFTER_QUERY
+        AFTER_QUERY,
+        LOAD_SUCCEED
     }
 
     @Retention(RetentionPolicy.RUNTIME)
