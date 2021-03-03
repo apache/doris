@@ -39,7 +39,7 @@ import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.FoldConstantsRule;
-import org.apache.doris.rewrite.FromUnixTimeRule;
+import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
@@ -256,7 +256,7 @@ public class Analyzer {
             // pushdown and Parquet row group pruning based on min/max statistics.
             rules.add(NormalizeBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
-            rules.add(FromUnixTimeRule.INSTANCE);
+            rules.add(RewriteFromUnixTimeRule.INSTANCE);
             exprRewriter_ = new ExprRewriter(rules);
             // init mv rewriter
             List<ExprRewriteRule> mvRewriteRules = Lists.newArrayList();
