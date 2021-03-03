@@ -3775,6 +3775,11 @@ public class Catalog {
             }
 
             if (result.second) {
+                if (getColocateTableIndex().isColocateTable(tableId)) {
+                    // if this is a colocate join table, its table id is already added to colocate group
+                    // so we should remove the tableId here
+                    getColocateTableIndex().removeTable(tableId);
+                }
                 LOG.info("duplicate create table[{};{}], skip next steps", tableName, tableId);
             } else {
                 // we have added these index to memory, only need to persist here
