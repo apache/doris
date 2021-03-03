@@ -946,9 +946,9 @@ OLAPStatus TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
     return res;
 }
 
-OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
+OLAPStatus TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
     DCHECK(tablets_info != nullptr);
-    LOG(INFO) << "begin to report all tablets info";
+    LOG(INFO) << "begin to build all report tablets info";
 
     // build the expired txn map first, outside the tablet map lock
     std::map<TabletInfo, std::vector<int64_t>> expire_txn_map;
@@ -985,7 +985,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
             }
         }
     }
-    LOG(INFO) << "success to report all tablets info. tablet_count=" << tablets_info->size();
+    LOG(INFO) << "success to build all report tablets info. tablet_count=" << tablets_info->size();
     return OLAP_SUCCESS;
 }
 
