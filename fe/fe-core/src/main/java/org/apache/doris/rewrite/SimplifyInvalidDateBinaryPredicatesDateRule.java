@@ -30,8 +30,8 @@ import org.apache.doris.common.AnalysisException;
  * Examples:
  * date = "2020-10-32" => FALSE
  */
-public class BinaryPredicatesDateRule implements ExprRewriteRule {
-    public static ExprRewriteRule INSTANCE = new BinaryPredicatesDateRule();
+public class SimplifyInvalidDateBinaryPredicatesDateRule implements ExprRewriteRule {
+    public static ExprRewriteRule INSTANCE = new SimplifyInvalidDateBinaryPredicatesDateRule();
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
