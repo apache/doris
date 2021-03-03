@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LoadStmt;
@@ -39,6 +40,8 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.LoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -360,5 +363,45 @@ public abstract class BulkLoadJob extends LoadJob {
 
     public UserIdentity getUserInfo() {
         return userInfo;
+    }
+
+    @Override
+    protected void auditFinishedLoadJob() {
+        try {
+            String dbName = getDb().getFullName();
+            String tableListName = StringUtils.join(getTableNames(), ",");
+            List<String> filePathList = Lists.newArrayList();
+            for (List<BrokerFileGroup> brokerFileGroups : fileGroupAggInfo.getAggKeyToFileGroups().values()) {
+                for (BrokerFileGroup brokerFileGroup : brokerFileGroups) {
+                    filePathList.add("(" + StringUtils.join(brokerFileGroup.getFilePaths(), ",") + ")");
+                }
+            }
+            String filePathListName = StringUtils.join(filePathList, ",");
+            String brokerUserName = getBrokerUserName();
+            AuditEvent auditEvent = new LoadAuditEvent.AuditEventBuilder().setEventType(AuditEvent.EventType.LOAD_SUCCEED)
+                    .setJobId(id).setLabel(label).setLoadType(jobType.name()).setDb(dbName).setTableList(tableListName)
+                    .setFilePathList(filePathListName).setBrokerUser(brokerUserName).setTimestamp(createTimestamp)
+                    .setLoadStartTime(loadStartTimestamp).setLoadFinishTime(finishTimestamp)
+                    .setScanRows(loadStatistic.getScannedRows()).setScanBytes(loadStatistic.totalFileSizeB)
+                    .setFileNumber(loadStatistic.fileNum)
+                    .build();
+            Catalog.getCurrentCatalog().getAuditEventProcessor().handleAuditEvent(auditEvent);
+        } catch (Exception e) {
+            LOG.warn("audit finished load job info failed", e);
+        }
+    }
+
+    private String getBrokerUserName() {
+        Map<String, String> properties = brokerDesc.getProperties();
+        if (properties.containsKey("kerberos_principal")) {
+            return properties.get("kerberos_principal");
+        } else if (properties.containsKey("username")) {
+            return properties.get("username");
+        } else if (properties.containsKey("bos_accesskey")) {
+            return properties.get("bos_accesskey");
+        } else if (properties.containsKey("fs.s3a.access.key")) {
+            return properties.get("fs.s3a.access.key");
+        }
+        return null;
     }
 }

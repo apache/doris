@@ -103,7 +103,7 @@ public class Config extends ConfigBase {
      */
     @ConfField public static String audit_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
     @ConfField public static int audit_log_roll_num = 90;
-    @ConfField public static String[] audit_log_modules = {"slow_query", "query"};
+    @ConfField public static String[] audit_log_modules = {"slow_query", "query", "load"};
     @ConfField(mutable = true) public static long qe_slow_log_ms = 5000;
     @ConfField public static String audit_log_roll_interval = "DAY";
     @ConfField public static String audit_log_delete_age = "30d";
