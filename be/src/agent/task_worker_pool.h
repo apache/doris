@@ -72,6 +72,12 @@ public:
         UPDATE_TABLET_META_INFO
     };
 
+    enum ReportType {
+        TASK,
+        DISK,
+        TABLET
+    };
+
     inline const std::string TYPE_STRING(TaskWorkerType type) {
         switch (type) {
         case CREATE_TABLE:
@@ -125,6 +131,19 @@ public:
         }
     }
 
+    inline const std::string TYPE_STRING(ReportType type) {
+        switch (type) {
+        case TASK:
+            return "TASK";
+        case DISK:
+            return "DISK";
+        case TABLET:
+            return "TABLET";
+        default:
+            return "Unknown";
+        }
+    }
+
     TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                    const TMasterInfo& master_info);
     virtual ~TaskWorkerPool();
@@ -172,6 +191,7 @@ private:
 
     void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
                        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
+    void _handle_report(TReportRequest& request, ReportType type);
 
     AgentStatus _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
                                  int64_t signature, TTabletInfo* tablet_info);
