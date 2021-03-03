@@ -33,8 +33,15 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
-public class FromUnixTimeRule implements ExprRewriteRule {
-    public static FromUnixTimeRule INSTANCE = new FromUnixTimeRule();
+/*
+* rewrite sql: select * from table where from_unixtime(query_time) > '2021-03-02 12:12:23'
+* into: select * from table where query_time > 1614658343
+* query_time is integer type
+* 1614658343 is the timestamp of 2021-03-02 12:12:23
+* this rewrite can improve the query performance, because from_unixtime is cpu-exhausted
+* */
+public class RewriteFromUnixTimeRule implements ExprRewriteRule {
+    public static RewriteFromUnixTimeRule INSTANCE = new RewriteFromUnixTimeRule();
     @Override
     public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
         if (!(expr instanceof BinaryPredicate)) {
@@ -53,7 +60,7 @@ public class FromUnixTimeRule implements ExprRewriteRule {
         if (params == null) {
             return expr;
         }
-        //from_unixtime(INT unix_timestamp[, VARCHAR string_format)])
+        //definition: from_unixtime(int, format)
         if (params.exprs().size() != 1 && params.exprs().size() != 2) {
             return expr;
         }
@@ -73,18 +80,20 @@ public class FromUnixTimeRule implements ExprRewriteRule {
         SimpleDateFormat format =   new SimpleDateFormat( "yyyy-MM-dd" );
         //default format is "yyyy-MM-dd HH:mm:ss"
         if (params.exprs().size() == 1) {
-            format =   new SimpleDateFormat( "yyyy-MM-dd HH:mm:ss" );
+            format = new SimpleDateFormat( "yyyy-MM-dd HH:mm:ss" );
         } else {
             LiteralExpr fm = (LiteralExpr) params.exprs().get(1);
             format = new SimpleDateFormat(fm.getStringValue());
         }
         try {
             Date date = format.parse(le.getStringValue());
+            //it is better to add low bound 0, because when a field contains negative data like -100, it will be queried as a result
             if (bp.getOp() == BinaryPredicate.Operator.LT || bp.getOp() == BinaryPredicate.Operator.LE) {
                 BinaryPredicate r = new BinaryPredicate(bp.getOp(), sr, LiteralExpr.create(String.valueOf(date.getTime() / 1000), Type.BIGINT));
                 BinaryPredicate l = new BinaryPredicate(BinaryPredicate.Operator.GE, sr, LiteralExpr.create("0", Type.BIGINT));
                 return new CompoundPredicate(CompoundPredicate.Operator.AND, r, l);
             } else if (bp.getOp() == BinaryPredicate.Operator.GT || bp.getOp() == BinaryPredicate.Operator.GE) {
+                //also it is need to add upper bound 253402271999, because from_unixtime support time range is [1970-01-01 00:00:00 ~ 9999-12-31 23:59:59]
                 BinaryPredicate l = new BinaryPredicate(bp.getOp(), sr, LiteralExpr.create(String.valueOf(date.getTime() / 1000), Type.BIGINT));
                 BinaryPredicate r = new BinaryPredicate(BinaryPredicate.Operator.LE, sr, LiteralExpr.create("253402271999", Type.BIGINT));
                 return new CompoundPredicate(CompoundPredicate.Operator.AND, r, l);
