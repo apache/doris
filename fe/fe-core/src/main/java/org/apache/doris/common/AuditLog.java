@@ -25,6 +25,7 @@ public class AuditLog {
 
     public static final AuditLog SLOW_AUDIT = new AuditLog("audit.slow_query");
     public static final AuditLog QUERY_AUDIT = new AuditLog("audit.query");
+    public static final AuditLog LOAD_AUDIT = new AuditLog("audit.load");
 
     private Logger logger;
 
@@ -34,6 +35,10 @@ public class AuditLog {
 
     public static AuditLog getSlowAudit() {
         return SLOW_AUDIT;
+    }
+
+    public static AuditLog getLoadAudit() {
+        return LOAD_AUDIT;
     }
 
     public AuditLog(String auditName) {
