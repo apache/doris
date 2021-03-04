@@ -1420,6 +1420,46 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | 4"));
     }
+
+    @Test
+    public void testFromUnixTimeRewrite() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        //default format
+        String sql = "select * from test1 where from_unixtime(query_time) > '2021-03-02 10:01:28'";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
+        //format yyyy-MM-dd HH:mm:ss
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH:mm:ss') > '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
+        //format yyyy-MM-dd HH:mm
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH:mm') > '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650460"));
+        //format yyyy-MM-dd HH
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH') > '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650400"));
+        //format yyyy-MM-dd
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd') > '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
+        //format yyyy-MM
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM') > '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614528000"));
+        //format yyyy
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy') > '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1609430400"));
+
+        //format less than
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd') < '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println("wangxixu-explain:"+explainString);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` < 1614614400, `query_time` >= 0"));
+        
+    }
 }
 
 
