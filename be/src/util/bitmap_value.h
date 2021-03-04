@@ -1035,7 +1035,9 @@ public:
                     case EMPTY:
                         break;
                     case SINGLE:
-                        remove(rhs._sv);
+                        if (rhs._bitmap.contains(_sv)) {
+                            _type = EMPTY;
+                        }
                         break;
                     case BITMAP:
                         _bitmap -= rhs._bitmap;
