@@ -33,4 +33,7 @@ bool AllowSlowTests();
 // Empty string if get errors.
 std::string GetCurrentRunningDir();
 
+// Initialize config file.
+void InitConfig();
+
 } // namespace doris
