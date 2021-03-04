@@ -46,7 +46,7 @@ TEST_F(PlainTextLineReaderTest, uncompressed_normal_use) {
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(decompressor == nullptr);
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, -1, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, -1, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -98,7 +98,7 @@ TEST_F(PlainTextLineReaderTest, uncompressed_no_newline) {
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(decompressor == nullptr);
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, -1, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, -1, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -133,7 +133,7 @@ TEST_F(PlainTextLineReaderTest, uncompressed_test_limit) {
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(decompressor == nullptr);
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 8, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 8, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -170,7 +170,7 @@ TEST_F(PlainTextLineReaderTest, uncompressed_test_limit2) {
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(decompressor == nullptr);
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 6, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 6, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -196,7 +196,7 @@ TEST_F(PlainTextLineReaderTest, uncompressed_test_limit3) {
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(decompressor == nullptr);
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -227,7 +227,7 @@ TEST_F(PlainTextLineReaderTest, uncompressed_test_limit4) {
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(decompressor == nullptr);
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -258,7 +258,7 @@ TEST_F(PlainTextLineReaderTest, uncompressed_test_limit5) {
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(decompressor == nullptr);
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 0, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 0, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -280,7 +280,7 @@ TEST_F(PlainTextLineReaderTest, uncompressed_test_empty) {
     ASSERT_TRUE(decompressor == nullptr);
 
     // set min length larger than 0 to test
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 10, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 10, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;

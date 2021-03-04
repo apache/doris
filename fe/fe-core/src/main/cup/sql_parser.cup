@@ -439,7 +439,7 @@ nonterminal List<String> opt_col_list, opt_dup_keys, opt_columns_from_path;
 nonterminal List<ColWithComment> opt_col_with_comment_list, col_with_comment_list;
 nonterminal ColWithComment col_with_comment;
 nonterminal List<Expr> opt_col_mapping_list;
-nonterminal ColumnSeparator opt_field_term, column_separator;
+nonterminal Separator opt_field_term, separator;
 nonterminal String opt_user_role;
 nonterminal TablePattern tbl_pattern;
 nonterminal ResourcePattern resource_pattern;
@@ -1444,14 +1444,14 @@ opt_field_term ::=
     :}
     | KW_COLUMNS KW_TERMINATED KW_BY STRING_LITERAL:sep
     {:
-        RESULT = new ColumnSeparator(sep);
+        RESULT = new Separator(sep);
     :}
     ;
 
-column_separator ::=
+separator ::=
     KW_COLUMNS KW_TERMINATED KW_BY STRING_LITERAL:sep
     {:
-        RESULT = new ColumnSeparator(sep);
+        RESULT = new Separator(sep);
     :}
     ;
 
@@ -1597,7 +1597,7 @@ opt_load_property_list ::=
     ;
 
 load_property ::=
-    column_separator:colSep
+    separator:colSep
     {:
         RESULT = colSep;
     :}

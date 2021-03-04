@@ -46,7 +46,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_normal_use) {
     st = Decompressor::create_decompressor(CompressType::BZIP2, &decompressor);
     ASSERT_TRUE(st.ok());
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, -1, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, -1, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -97,7 +97,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit) {
     st = Decompressor::create_decompressor(CompressType::BZIP2, &decompressor);
     ASSERT_TRUE(st.ok());
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 8, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 8, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -134,7 +134,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit2) {
     st = Decompressor::create_decompressor(CompressType::BZIP2, &decompressor);
     ASSERT_TRUE(st.ok());
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 6, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 6, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -158,7 +158,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit3) {
     st = Decompressor::create_decompressor(CompressType::BZIP2, &decompressor);
     ASSERT_TRUE(st.ok());
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -188,7 +188,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit4) {
     st = Decompressor::create_decompressor(CompressType::BZIP2, &decompressor);
     ASSERT_TRUE(st.ok());
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -218,7 +218,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit5) {
     st = Decompressor::create_decompressor(CompressType::BZIP2, &decompressor);
     ASSERT_TRUE(st.ok());
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 0, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 0, "\n");
     const uint8_t* ptr;
     size_t size;
     bool eof;
