@@ -136,7 +136,7 @@ Status MysqlScanNode::write_text_slot(char* value, int value_length, SlotDescrip
     if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
                                      _tuple_pool.get())) {
         std::stringstream ss;
-        ss << "fail to convert mysql value '" << value << "' TO " << slot->type();
+        ss << "Fail to convert mysql value:'" << value << "' to " << slot->type() << " on column:`" << slot->col_name() + "`";
         return Status::InternalError(ss.str());
     }
 
