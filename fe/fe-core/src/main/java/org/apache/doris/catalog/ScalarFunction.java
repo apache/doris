@@ -236,7 +236,7 @@ public class ScalarFunction extends Function {
             Type returnType, boolean isVariadic,
             String objectFile, String symbol, String prepareFnSymbol, String closeFnSymbol) {
         ScalarFunction fn = new ScalarFunction(name, args, returnType, isVariadic);
-        fn.setBinaryType(TFunctionBinaryType.HIVE);
+        fn.setBinaryType(TFunctionBinaryType.NATIVE);
         fn.setUserVisible(true);
         fn.symbolName = symbol;
         fn.prepareFnSymbol = prepareFnSymbol;
