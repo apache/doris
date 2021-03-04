@@ -36,7 +36,7 @@ In Doris, data is logically described in the form of a table.
 
 A table includes rows (rows) and columns (columns). Row is a row of data for the user. Column is used to describe different fields in a row of data.
 
-Column can be divided into two broad categories: Key and Value. From a business perspective, Key and Value can correspond to dimension columns and metric columns, respectively. From the perspective of the aggregation model, the same row of Key columns will be aggregated into one row. The way the Value column is aggregated is specified by the user when the table is built. For an introduction to more aggregation models, see the [Doris Data Model] (./data-model-rollup.md).
+Column can be divided into two broad categories: Key and Value. From a business perspective, Key and Value can correspond to dimension columns and metric columns, respectively. From the perspective of the aggregation model, the same row of Key columns will be aggregated into one row. The way the Value column is aggregated is specified by the user when the table is built. For an introduction to more aggregation models, see the [Doris Data Model](./data-model-rollup.md).
 
 ### Tablet & Partition
 
@@ -90,7 +90,7 @@ PROPERTIES
 
 ### Column Definition
 
-Here we only use the AGGREGATE KEY data model as an example. See the [Doris Data Model] (./data-model-rollup.md) for more data models.
+Here we only use the AGGREGATE KEY data model as an example. See the [Doris Data Model](./data-model-rollup.md) for more data models.
 
 The basic type of column can be viewed by executing `HELP CREATE TABLE;` in mysql-client.
 
