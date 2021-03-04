@@ -234,9 +234,9 @@ set enable_odbc_transcation = true;
 
     没有在每一个BE上安装好对应数据的Driver，或者是没有在be/conf/odbcinst.ini配置正确的路径，亦或是建表是Driver名与be/conf/odbcinst.ini不同
 
-7. 报错 `fail to convert odbc value 'PALO ' TO INT`
+7. 报错 `Fail to convert odbc value 'PALO ' TO INT on column:'A'`
 
-    类型转换出错，需要修改列的类型映射
+    ODBC外表的A列类型转换出错，说明外表的实际列与ODBC的映射列的数据类型不同，需要修改列的类型映射
     
 8. 同时使用旧的MySQL表与ODBC外表的Driver时出现程序Crash
 
