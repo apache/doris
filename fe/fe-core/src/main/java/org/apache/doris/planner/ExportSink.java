@@ -48,6 +48,9 @@ public class ExportSink extends DataSink {
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder sb = new StringBuilder();
         sb.append(prefix + "EXPORT SINK\n");
+        if (explainLevel == TExplainLevel.BRIEF) {
+            return sb.toString();
+        }
         sb.append(prefix + "  path=" + exportPath + "\n");
         sb.append(prefix + "  columnSeparator="
                 + StringEscapeUtils.escapeJava(columnSeparator) + "\n");

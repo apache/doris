@@ -34,12 +34,12 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -94,10 +94,13 @@ public class OdbcScanNode extends ScanNode {
     }
 
     @Override
-    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
         output.append(prefix).append("TABLE: ").append(tblName).append("\n");
         output.append(prefix).append("TABLE TYPE: ").append(odbcType.toString()).append("\n");
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return output.toString();
+        }
         output.append(prefix).append("QUERY: ").append(getOdbcQueryStr()).append("\n");
         return output.toString();
     }

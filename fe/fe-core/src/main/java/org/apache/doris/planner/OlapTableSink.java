@@ -134,6 +134,9 @@ public class OlapTableSink extends DataSink {
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
         strBuilder.append(prefix + "OLAP TABLE SINK\n");
+        if (explainLevel == TExplainLevel.BRIEF) {
+            return strBuilder.toString();
+        }
         strBuilder.append(prefix + "  TUPLE ID: " + tupleDescriptor.getId() + "\n");
         strBuilder.append(prefix + "  " + DataPartition.RANDOM.getExplainString(explainLevel));
         return strBuilder.toString();

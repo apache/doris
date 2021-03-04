@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -36,7 +37,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TExplainLevel;
 
 import org.apache.commons.lang.StringUtils;
 import org.junit.Assert;
@@ -169,7 +169,7 @@ public class DorisAssert {
                 }
             }
             Planner planner = stmtExecutor.planner();
-            String explainString = planner.getExplainString(planner.getFragments(), TExplainLevel.NORMAL);
+            String explainString = planner.getExplainString(planner.getFragments(), new ExplainOptions(false, false));
             System.out.println(explainString);
             return explainString;
         }

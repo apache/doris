@@ -24,12 +24,12 @@ import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TUnit;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.Comparator;
@@ -47,7 +47,7 @@ import java.util.TreeSet;
  */
 public class RuntimeProfile {
     private static final Logger LOG = LogManager.getLogger(RuntimeProfile.class);
-    private static String ROOT_COUNTER = "";
+    public static String ROOT_COUNTER = "";
     private Counter counterTotalTime;
     private double localTimePercent;
 
@@ -62,7 +62,7 @@ public class RuntimeProfile {
     private LinkedList<Pair<RuntimeProfile, Boolean>> childList = Lists.newLinkedList();
 
     private String name;
-    
+
     public RuntimeProfile(String name) {
         this();
         this.name = name;
@@ -73,7 +73,11 @@ public class RuntimeProfile {
         this.localTimePercent = 0;
         this.counterMap.put("TotalTime", counterTotalTime);
     }
-    
+
+    public String getName() {
+        return name;
+    }
+
     public Counter getCounterTotalTime() {
         return counterTotalTime;
     }
@@ -86,12 +90,20 @@ public class RuntimeProfile {
         return childList;
     }
 
-    public Map<String, RuntimeProfile> getChildMap () {
+    public Map<String, RuntimeProfile> getChildMap() {
         return childMap;
     }
 
+    public Map<String, TreeSet<String>> getChildCounterMap() {
+        return childCounterMap;
+    }
+
+    public double getLocalTimePercent() {
+        return localTimePercent;
+    }
+
     public Counter addCounter(String name, TUnit type, String parentCounterName) {
-        Counter counter = this.counterMap.get(name); 
+        Counter counter = this.counterMap.get(name);
         if (counter != null) {
             return counter;
         } else {

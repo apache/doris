@@ -238,7 +238,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_ELSE, KW_ENABLE, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXCEPT, KW_EXCLUDE,
     KW_EXISTS, KW_EXPORT, KW_EXTERNAL, KW_EXTRACT,
     KW_FALSE, KW_FEATURE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FILE, KW_FILTER, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORCE, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION, KW_FUNCTIONS,
-    KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP, KW_GROUPING,
+    KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GRAPH, KW_GROUP, KW_GROUPING,
     KW_HASH, KW_HAVING, KW_HDFS, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HOUR, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE, KW_INSTALL,
     KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERSECT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL, KW_ISOLATION,
@@ -252,7 +252,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_PARTITION, KW_PARTITIONS, KW_PASSWORD, KW_PATH, KW_PAUSE, KW_PIPE, KW_PRECEDING,
     KW_PLUGIN, KW_PLUGINS,
     KW_PRIMARY,
-    KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROPERTIES, KW_PROPERTY,
+    KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROFILE, KW_PROPERTIES, KW_PROPERTY,
     KW_QUERY, KW_QUOTA,
     KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
     KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESOURCES, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
@@ -478,7 +478,7 @@ nonterminal IndexDef.IndexType opt_index_type;
 
 nonterminal ShowAlterStmt.AlterType opt_alter_type;
 nonterminal Boolean opt_builtin;
-nonterminal Boolean opt_verbose;
+nonterminal ExplainOptions opt_explain_options;
 
 nonterminal Boolean opt_tmp;
 
@@ -2494,6 +2494,10 @@ show_param ::=
     {:
         RESULT = new ShowTransactionStmt(dbName, parser.where);
     :}
+    | KW_QUERY KW_PROFILE STRING_LITERAL:queryIdPath
+    {:
+        RESULT = new ShowQueryProfileStmt(queryIdPath);
+    :}
     ;
 
 opt_tmp ::=
@@ -2633,13 +2637,17 @@ opt_builtin ::=
     :}
     ;
 
-opt_verbose ::=
+opt_explain_options ::=
     {:
-        RESULT = false;
+        RESULT = new ExplainOptions(false, false);
     :}
     | KW_VERBOSE
     {:
-        RESULT = true;
+        RESULT = new ExplainOptions(true, false);
+    :}
+    | KW_GRAPH
+    {:
+        RESULT = new ExplainOptions(false, true);
     :}
     ;
 
@@ -2653,14 +2661,14 @@ describe_stmt ::=
     {:
         RESULT = new DescribeStmt(table, true);
     :}
-    | describe_command opt_verbose:isVerbose query_stmt:query
+    | describe_command opt_explain_options:options query_stmt:query
     {:
-        query.setIsExplain(true, isVerbose);
+        query.setIsExplain(options);
         RESULT = query;
     :}   
     | describe_command insert_stmt:stmt
     {:
-        stmt.getQueryStmt().setIsExplain(true);
+        stmt.getQueryStmt().setIsExplain(new ExplainOptions(true, false));
         RESULT = stmt;
     :}
     ;
@@ -4735,6 +4743,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_PATH:id
     {: RESULT = id; :}
+    | KW_PROFILE:id
+    {: RESULT = id; :}
     | KW_FUNCTION:id
     {: RESULT = id; :}
     | KW_END:id
@@ -4752,6 +4762,8 @@ keyword ::=
     | KW_EXTERNAL:id
     {: RESULT = id; :}
     | KW_GLOBAL:id
+    {: RESULT = id; :}
+    | KW_GRAPH:id
     {: RESULT = id; :}
     | KW_HASH:id
     {: RESULT = id; :}
