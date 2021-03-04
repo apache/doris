@@ -246,7 +246,7 @@ OpenPGP Public Key Primary Fingerprint:
 #### 生成 keys
 
 ```
-svn co //dist.apache.org/repos/dist/dev/incubator/doris/
+svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
 # edit doris/KEY file
 gpg --list-sigs [用户 ID] >> doris/KEYS
 gpg --armor --export [用户 ID] >> doris/KEYS

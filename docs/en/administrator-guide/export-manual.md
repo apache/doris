@@ -177,7 +177,7 @@ Usually, a query plan for an Export job has only two parts `scan`- `export`, and
 * During the operation of the Export job, if FE restarts or cuts the master, the Export job will fail, requiring the user to resubmit.
 * If the Export job fails, the `__doris_export_tmp_xxx` temporary directory generated in the remote storage and the generated files will not be deleted, requiring the user to delete them manually.
 * If the Export job runs successfully, the `__doris_export_tmp_xxx` directory generated in the remote storage may be retained or cleared according to the file system semantics of the remote storage. For example, in Baidu Object Storage (BOS), after removing the last file in a directory through rename operation, the directory will also be deleted. If the directory is not cleared, the user can clear it manually.
-* When the Export runs successfully or fails, the FE reboots or cuts, then some information of the jobs displayed by `SHOW EXPORT` will be lost and can not be viewed.
+* When the Export runs successfully or fails, the FE reboots or cuts, then some information of the jobs displayed by `SHOW EXPORT` will be lost and cannot be viewed.
 * Export jobs only export data from Base tables, not Rollup Index.
 * Export jobs scan data and occupy IO resources, which may affect the query latency of the system.
 

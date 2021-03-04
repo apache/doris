@@ -103,7 +103,7 @@ public class Config extends ConfigBase {
      */
     @ConfField public static String audit_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
     @ConfField public static int audit_log_roll_num = 90;
-    @ConfField public static String[] audit_log_modules = {"slow_query", "query"};
+    @ConfField public static String[] audit_log_modules = {"slow_query", "query", "load"};
     @ConfField(mutable = true) public static long qe_slow_log_ms = 5000;
     @ConfField public static String audit_log_roll_interval = "DAY";
     @ConfField public static String audit_log_delete_age = "30d";
@@ -392,7 +392,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_version_timeout_second = 30; // 30 seconds
-    
+
     /**
      * minimal intervals between two publish version action
      */
@@ -1337,4 +1337,16 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_fe_heartbeat_by_thrift = false;
+
+    /**
+     * If set to true, FE will be started in BDBJE debug mode
+     */
+    @ConfField
+    public static boolean enable_bdbje_debug_mode = false;
+
+    /**
+     * This config is used to try skip broker when access bos or other cloud storage via broker
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_access_file_without_broker = false;
 }

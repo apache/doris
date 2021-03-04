@@ -186,6 +186,8 @@ struct TUploadReq {
     2: required map<string, string> src_dest_map
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
+    5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
+
 }
 
 struct TDownloadReq {
@@ -193,6 +195,7 @@ struct TDownloadReq {
     2: required map<string, string> src_dest_map
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
+    5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
 }
 
 struct TSnapshotRequest {

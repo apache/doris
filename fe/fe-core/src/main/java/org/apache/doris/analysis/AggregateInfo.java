@@ -745,8 +745,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         materializedSlots_.clear();
         List<Expr> exprs = Lists.newArrayList();
         exprs.addAll(groupingExprs_);
-     
-        boolean hasCountStar = false;
+        
         int aggregateExprsSize = aggregateExprs_.size();
         int groupExprsSize = groupingExprs_.size();
         boolean isDistinctAgg = isDistinctAgg();
@@ -761,10 +760,6 @@ public final class AggregateInfo extends AggregateInfoBase {
                 intermediateSlotDesc.setIsMaterialized(true);
             }
             
-            if (functionCallExpr.isCountStar()) {
-                hasCountStar = true;
-            }
-            
             if (!slotDesc.isMaterialized()) continue;
             
             intermediateSlotDesc.setIsMaterialized(true);
@@ -773,14 +768,6 @@ public final class AggregateInfo extends AggregateInfoBase {
         }
         
         List<Expr> resolvedExprs = Expr.substituteList(exprs, smap, analyzer, false);
-        
-        // In order to meet the requirements materialize slots In the top-down phase 
-        // over query statements, if aggregate functions contain count(*), now 
-        // materialize all slots this SelectStmt maps.
-        // chenhao added.
-        if (hasCountStar && smap != null && smap.size() > 0) {
-            resolvedExprs.addAll(smap.getRhs());
-        } 
         analyzer.materializeSlots(resolvedExprs);
 
         if (isDistinctAgg()) {

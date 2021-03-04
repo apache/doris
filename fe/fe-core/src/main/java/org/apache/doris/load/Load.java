@@ -37,6 +37,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.backup.BlobStorage;
@@ -2222,7 +2223,7 @@ public class Load {
             properties.remove("path");
 
             // check if broker info is invalid
-            BlobStorage blobStorage = new BlobStorage(brokerName, properties);
+            BlobStorage blobStorage = BlobStorage.create(brokerName, StorageBackend.StorageType.BROKER, properties);
             Status st = blobStorage.checkPathExist(path);
             if (!st.ok()) {
                 throw new DdlException("failed to visit path: " + path + ", err: " + st.getErrMsg());

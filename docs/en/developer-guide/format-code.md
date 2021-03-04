@@ -75,7 +75,7 @@ clang-format in settings.
 Open the vs code configuration page and search `clang_format`, fill the box as follows.
 
 ```
-"clang_format_path":  "$clang-format path$",
+"clang_format_path": "$clang-format path$",
 "clang_format_style": "file"
 ```
 Then, right click the file and choose `Format Document`.

@@ -19,6 +19,7 @@ package org.apache.doris.backup;
 
 import mockit.*;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
@@ -309,7 +310,7 @@ public class RepositoryTest {
         properties.put("bos_endpoint", "http://gz.bcebos.com");
         properties.put("bos_accesskey", "a");
         properties.put("bos_secret_accesskey", "b");
-        BlobStorage storage = new BlobStorage(brokerName, properties);
+        BlobStorage storage = BlobStorage.create(brokerName, StorageBackend.StorageType.BROKER, properties);
         repo = new Repository(10000, "repo", false, location, storage);
 
         File file = new File("./Repository");

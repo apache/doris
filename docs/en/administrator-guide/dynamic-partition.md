@@ -289,8 +289,8 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 ```
     
 * LastUpdateTime: The last time of modifying dynamic partition properties 
-* LastSchedulerTime:   The last time of performing dynamic partition scheduling
-* State:    The state of the last execution of dynamic partition scheduling
+* LastSchedulerTime: The last time of performing dynamic partition scheduling
+* State: The state of the last execution of dynamic partition scheduling
 * LastCreatePartitionMsg: Error message of the last time to dynamically add partition scheduling
 * LastDropPartitionMsg: Error message of the last execution of dynamic deletion partition scheduling
 
@@ -302,11 +302,11 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
     Whether to enable Doris's dynamic partition feature. The default value is false, which is off. This parameter only affects the partitioning operation of dynamic partition tables, not normal tables. You can modify the parameters in `fe.conf` and restart FE to take effect. You can also execute the following commands at runtime to take effect:
     
-    MySQL protocol：
+    MySQL protocol:
     
     `ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true")`
     
-    HTTP protocol：
+    HTTP protocol:
     
     `curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_enable=true`
     
@@ -316,11 +316,11 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
     The execution frequency of dynamic partition threads defaults to 3600 (1 hour), that is, scheduling is performed every 1 hour. You can modify the parameters in `fe.conf` and restart FE to take effect. You can also modify the following commands at runtime:
     
-    MySQL protocol：
+    MySQL protocol:
 
     `ADMIN SET FRONTEND CONFIG ("dynamic_partition_check_interval_seconds" = "7200")`
     
-    HTTP protocol：
+    HTTP protocol:
     
     `curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_check_interval_seconds=432000`
     
