@@ -106,6 +106,7 @@ Export 的详细命令可以通过 `HELP EXPORT;` 。举例如下：
 ```
 EXPORT TABLE db1.tbl1 
 PARTITION (p1,p2)
+WHERE [expr]
 TO "hdfs://host/path/to/export/" 
 PROPERTIES
 (
