@@ -17,9 +17,10 @@
 
 #include "test_util/test_util.h"
 
+#include <common/configbase.h>
 #include <libgen.h>
 #include <linux/limits.h>
-#include <stdlib.h>
+#include <cstdlib>
 #include <strings.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -63,6 +64,14 @@ std::string GetCurrentRunningDir() {
     exe[r] = 0;
     char* dir = dirname(exe);
     return std::string(dir);
+}
+
+void InitConfig() {
+    std::string conf_file = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+    if (!config::init(conf_file.c_str(), false)) {
+        fprintf(stderr, "Init config file failed, path %s\n", conf_file.c_str());
+        exit(-1);
+    }
 }
 
 } // namespace doris
