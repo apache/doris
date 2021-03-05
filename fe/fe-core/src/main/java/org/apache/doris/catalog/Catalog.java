@@ -1439,13 +1439,13 @@ public class Catalog {
                 response = sb.toString();
             }
 
-			// For http v2, the response body for "/info" api changed from
-			// StorageInfo to StorageInfoV2.
-			// So we need to make it compatible with old api.
+            // For http v2, the response body for "/info" api changed from
+            // StorageInfo to StorageInfoV2.
+            // So we need to make it compatible with old api.
             try {
                 return mapper.readValue(response, StorageInfo.class);
             } catch (Exception e) {
-				// try new response body
+                // try new response body
                 return mapper.readValue(response, StorageInfoV2.class).data;
             }
         } finally {
