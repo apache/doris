@@ -1251,11 +1251,15 @@ public class Coordinator {
             boolean fragmentContainsColocateJoin = isColocateJoin(scanNode.getFragment().getPlanRoot());
             boolean fragmentContainsBucketShuffleJoin = bucketShuffleJoinController.isBucketShuffleJoin(scanNode.getFragmentId().asInt(), scanNode.getFragment().getPlanRoot());
 
+            // A fragment may contain both colocate join and bucket shuffle join
+            // on need both compute scanRange to init basic data for query coordinator
             if (fragmentContainsColocateJoin) {
                 computeScanRangeAssignmentByColocate((OlapScanNode) scanNode);
-            } else if (fragmentContainsBucketShuffleJoin) {
+            }
+            if (fragmentContainsBucketShuffleJoin) {
                 bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode, idToBackend, addressToBackendID);
-            } else {
+            }
+            if (!(fragmentContainsColocateJoin | fragmentContainsBucketShuffleJoin)) {
                 computeScanRangeAssignmentByScheduler(scanNode, locations, assignment, assignedBytesPerHost);
             }
         }
