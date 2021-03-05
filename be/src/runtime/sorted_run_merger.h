@@ -68,7 +68,7 @@ public:
 
     // Called to finalize a merge when deep_copy is false. Transfers resources from
     // all input batches to the specified output batch.
-	void transfer_all_resources(RowBatch* transfer_resource_batch);
+    void transfer_all_resources(RowBatch* transfer_resource_batch);
 
 protected:
     class BatchedRowSupplier;

@@ -26,6 +26,7 @@
 #include "runtime/sorter.h"
 #include "runtime/tuple_row.h"
 #include "util/debug_util.h"
+#include "util/defer_op.h"
 #include "util/runtime_profile.h"
 
 using std::vector;
@@ -142,12 +143,12 @@ public:
             // release the mem of child merge
             delete _input_row_batch;
 
-			std::unique_lock<std::mutex> lock(_mutex);
+            std::unique_lock<std::mutex> lock(_mutex);
             _batch_prepared_cv.wait(lock, [this](){ return _backup_ready.load(); });
 
             // switch input_row_batch_backup to _input_row_batch
             _input_row_batch = _input_row_batch_backup;
-			_input_row_batch_index = 0;
+            _input_row_batch_index = 0;
             _input_row_batch_backup = nullptr;
             _backup_ready = false;
             DCHECK(_input_row_batch == nullptr || _input_row_batch->num_rows() > 0);
@@ -175,15 +176,6 @@ private:
     // signal of new batch or the eos/cancelled condition
     std::condition_variable _batch_prepared_cv;
 
-    struct NotifyCondition {
-    	explicit NotifyCondition(std::condition_variable& batch_prepared_cv) :
-    		_condition(batch_prepared_cv) {}
-    	~NotifyCondition() {
-    		_condition.notify_one();
-    	}
-    	std::condition_variable& _condition;
-    };
-
     void process_sorted_run_task() {
         std::unique_lock<std::mutex> lock(_mutex);
         while (true) {
@@ -195,8 +187,9 @@ private:
             // do merge from sender queue data
             _status_backup = _sorted_run(&_input_row_batch_backup);
             _backup_ready = true;
-            std::unique_ptr<NotifyCondition> notify_condition(
-                    new NotifyCondition(_batch_prepared_cv));
+            DeferOp defer_op([this]() {
+                _batch_prepared_cv.notify_one();
+            });
 
             if (!_status_backup.ok() || _input_row_batch_backup == nullptr || _cancel) {
                 if (!_status_backup.ok()) _input_row_batch_backup = nullptr;
@@ -236,9 +229,9 @@ SortedRunMerger::SortedRunMerger(const TupleRowComparator& compare_less_than,
                                  bool deep_copy_input)
         : _compare_less_than(compare_less_than),
           _input_row_desc(row_desc),
-		  _deep_copy_input(deep_copy_input) {
-	_get_next_timer =  ADD_TIMER(profile, "MergeGetNext");
-	_get_next_batch_timer = ADD_TIMER(profile, "MergeGetNextBatch");
+          _deep_copy_input(deep_copy_input) {
+    _get_next_timer = ADD_TIMER(profile, "MergeGetNext");
+    _get_next_batch_timer = ADD_TIMER(profile, "MergeGetNextBatch");
 }
 
 Status SortedRunMerger::prepare(const vector<RunBatchSupplier>& input_runs, bool parallel) {
@@ -273,7 +266,7 @@ void SortedRunMerger::transfer_all_resources(class doris::RowBatch * transfer_re
 }
 
 Status SortedRunMerger::get_next(RowBatch* output_batch, bool* eos) {
-	ScopedTimer<MonotonicStopWatch> timer(_get_next_timer);
+    ScopedTimer<MonotonicStopWatch> timer(_get_next_timer);
     if (_min_heap.empty()) {
         *eos = true;
         return Status::OK();
