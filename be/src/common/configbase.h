@@ -148,8 +148,9 @@ public:
     // Find the config value by key from `file_conf_map`.
     // If found, set `retval` to the config value,
     // or set `retval` to `defstr`
+    // if retval is not set(in case defstr is nullptr), set is_retval_set to false
     template <typename T>
-    bool get_or_default(const char* key, const char* defstr, T& retval) const;
+    bool get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set) const;
 
     void set(const std::string& key, const std::string& val);
 
