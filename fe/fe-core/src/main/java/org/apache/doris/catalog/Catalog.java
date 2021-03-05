@@ -185,6 +185,7 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
+import org.apache.doris.persist.StorageInfoV2;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
@@ -236,12 +237,14 @@ import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
@@ -1394,7 +1397,7 @@ public class Catalog {
                 MetaHelper.complete(filename, dir);
             }
         } catch (Exception e) {
-            return;
+            throw new IOException(e);
         }
     }
 
@@ -1425,7 +1428,26 @@ public class Catalog {
             connection = (HttpURLConnection) url.openConnection();
             connection.setConnectTimeout(HTTP_TIMEOUT_SECOND * 1000);
             connection.setReadTimeout(HTTP_TIMEOUT_SECOND * 1000);
-            return mapper.readValue(connection.getInputStream(), StorageInfo.class);
+
+            String response;
+            try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                String line;
+                StringBuilder sb = new StringBuilder();
+                while ((line = bufferedReader.readLine()) != null) {
+                    sb.append(line);
+                }
+                response = sb.toString();
+            }
+
+            // For http v2, the response body for "/info" api changed from
+            // StorageInfo to StorageInfoV2.
+            // So we need to make it compatible with old api.
+            try {
+                return mapper.readValue(response, StorageInfo.class);
+            } catch (Exception e) {
+                // try new response body
+                return mapper.readValue(response, StorageInfoV2.class).data;
+            }
         } finally {
             if (connection != null) {
                 connection.disconnect();
