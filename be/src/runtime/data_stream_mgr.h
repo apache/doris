@@ -88,6 +88,7 @@ public:
 
 private:
     friend class DataStreamRecvr;
+    friend class DataStreamSender;
 
     // protects all fields below
     boost::mutex _lock;

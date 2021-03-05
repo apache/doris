@@ -193,13 +193,7 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
         // take ownership of tuple data of build_batch
         _build_pool->acquire_data(build_batch.tuple_data_pool(), false);
         RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
-
-        // Call codegen version if possible
-        if (_process_build_batch_fn == NULL) {
-            process_build_batch(&build_batch);
-        } else {
-            _process_build_batch_fn(this, &build_batch);
-        }
+        process_build_batch(&build_batch);
 
         VLOG_ROW << _hash_tbl->debug_string(true, &child(1)->row_desc());
 
