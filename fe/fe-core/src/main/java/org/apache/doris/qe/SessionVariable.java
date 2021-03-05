@@ -78,7 +78,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_PARTITION_CACHE = "enable_partition_cache";
-    public static final String ENABLE_RESULT_CACHE = "enable_result_cache";
+    public static final String ENABLE_RESULT_CACHE_TTL = "enable_result_cache_ttl";
 
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
@@ -234,7 +234,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_CACHE)
     private boolean enablePartitionCache = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_RESULT_CACHE)
+    @VariableMgr.VarAttr(name = ENABLE_RESULT_CACHE_TTL)
     private boolean enableResultCache = false;
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)

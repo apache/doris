@@ -56,14 +56,14 @@ public class SimpleLocalCache implements Cache {
 
     // Used in testing
     public static Cache create(final Executor executor) {
-        LOG.info("Instance cache with expiration " + Config.result_cache_expire_after_in_milliseconds
-                + " milliseconds, max size " + Config.result_cache_size_in_bytes + " bytes");
+        LOG.info("Instance cache with expiration " + Config.result_cache_ttl_expire_after_in_milliseconds
+                + " milliseconds, max size " + Config.result_cache_ttl_size_in_bytes + " bytes");
         Caffeine<Object, Object> builder = Caffeine.newBuilder().recordStats();
-        if (Config.result_cache_expire_after_in_milliseconds >= 0) {
+        if (Config.result_cache_ttl_expire_after_in_milliseconds >= 0) {
             builder.expireAfterWrite(Config.result_cache_expire_after_in_milliseconds, TimeUnit.MILLISECONDS);
         }
-        if (Config.result_cache_size_in_bytes >= 0) {
-            builder.maximumWeight(Config.result_cache_size_in_bytes);
+        if (Config.result_cache_ttl_size_in_bytes >= 0) {
+            builder.maximumWeight(Config.result_cache_ttl_size_in_bytes);
         } else {
             builder.maximumWeight(Math.min(MAX_DEFAULT_BYTES, Runtime.getRuntime().maxMemory() / 10));
         }
@@ -87,9 +87,9 @@ public class SimpleLocalCache implements Cache {
     @Override
     public void put(NamedKey key, byte[] value) {
         final byte[] compresssize = compress(value);
-        if (compresssize.length > Config.result_cache_size_per_query_in_bytes) {
-            LOG.debug(" result size more than result_cache_size_per_query_in_bytes: "
-                    + Config.result_cache_size_per_query_in_bytes + " so not storage in cache");
+        if (compresssize.length > Config.result_cache_ttl_size_per_query_in_bytes) {
+            LOG.debug(" result size more than result_cache_ttl_size_per_query_in_bytes: "
+                    + Config.result_cache_ttl_size_per_query_in_bytes + " so not storage in cache");
             return;
         }
         cache.put(key, compresssize);

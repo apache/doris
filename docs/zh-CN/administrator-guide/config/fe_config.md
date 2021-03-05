@@ -679,6 +679,21 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 
 默认为 false。
 
+### `enable_result_cache_ttl`
 
+result_cache_ttl 变量设置在用户Session中，用户可自定义是否开启,通过ttl时间来确定用户的sql是否使用缓存，`这里数据变更时不保证数据的正确性`
+按照 用户 connectid,和查询的sql 来存储和获取缓存，超过缓存失效时间则命中不了缓存，该缓存也会被清理
+
+### `result_cache_ttl_expire_after_in_milliseconds`
+
+enable_result_cache_ttl 失效销毁间隔
+
+### `result_cache_ttl_size_in_bytes`
+
+enable_result_cache_ttl 缓存大小
+
+### `result_cache_ttl_size_per_query_in_bytes`
+
+enable_result_cache_ttl 单个query结果，最大缓存大小
 
 

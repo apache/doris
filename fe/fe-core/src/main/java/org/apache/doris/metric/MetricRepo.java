@@ -85,13 +85,13 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ERROR_ROWS;
 
     // Metrics for the result cache
-    public static LongCounterMetric COUNTER_RESULT_CACHE_HITS;
-    public static LongCounterMetric COUNTER_RESULT_CACHE_MISSES;
-    public static GaugeMetric<Long> GAUGE_RESULT_CACHE_ENTRIES;
-    public static GaugeMetric<Long> GAUGE_RESULT_CACHE_SIZE_IN_BYTES;
-    public static LongCounterMetric COUNTER_RESULT_CACHE_EVICTIONS;
-    public static LongCounterMetric COUNTER_RESULT_CACHE_TIMEOUTS;
-    public static LongCounterMetric COUNTER_RESULT_CACHE_ERRORS;
+    public static LongCounterMetric COUNTER_RESULT_CACHE_TTL_HITS;
+    public static LongCounterMetric COUNTER_RESULT_CACHE_TTL_MISSES;
+    public static GaugeMetric<Long> GAUGE_RESULT_CACHE_TTL_ENTRIES;
+    public static GaugeMetric<Long> GAUGE_RESULT_CACHE_TTL_SIZE_IN_BYTES;
+    public static LongCounterMetric COUNTER_RESULT_CACHE_TTL_EVICTIONS;
+    public static LongCounterMetric COUNTER_RESULT_CACHE_TTL_TIMEOUTS;
+    public static LongCounterMetric COUNTER_RESULT_CACHE_TTL_ERRORS;
 
     public static Histogram HISTO_QUERY_LATENCY;
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
@@ -278,20 +278,20 @@ public final class MetricRepo {
                 "total error rows of routine load");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_ROUTINE_LOAD_ERROR_ROWS);
 
-        COUNTER_RESULT_CACHE_HITS = new LongCounterMetric("result_cache_hits",  MetricUnit.NOUNIT,"Accumulated number of cache hits");
-        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_RESULT_CACHE_HITS);
-        COUNTER_RESULT_CACHE_MISSES = new LongCounterMetric("result_cache_misses", MetricUnit.NOUNIT,"Accumulated number of cache misses");
-        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_RESULT_CACHE_MISSES);
-        GAUGE_RESULT_CACHE_ENTRIES = new GaugeMetric("result_cache_entries", MetricUnit.NOUNIT,"Accumulated number of cache size by entries");
-        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_RESULT_CACHE_ENTRIES);
-        GAUGE_RESULT_CACHE_SIZE_IN_BYTES = new GaugeMetric("result_cache_size_in_bytes", MetricUnit.BYTES,"Accumulated number of cache size by bytes");
-        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_RESULT_CACHE_SIZE_IN_BYTES);
-        COUNTER_RESULT_CACHE_EVICTIONS = new LongCounterMetric("result_cache_evictions", MetricUnit.NOUNIT,"Accumulated number of cache evictions");
-        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_RESULT_CACHE_EVICTIONS);
-        COUNTER_RESULT_CACHE_TIMEOUTS = new LongCounterMetric("result_cache_timeouts", MetricUnit.NOUNIT,"Accumulated number of cache timeouts");
-        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_RESULT_CACHE_TIMEOUTS);
-        COUNTER_RESULT_CACHE_ERRORS= new LongCounterMetric("result_cache_errors", MetricUnit.NOUNIT,"Accumulated number of cache errors");
-        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_RESULT_CACHE_ERRORS);
+        COUNTER_RESULT_CACHE_TTL_HITS = new LongCounterMetric("result_cache_ttl_hits",  MetricUnit.NOUNIT,"Accumulated number of cache hits");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_RESULT_CACHE_TTL_HITS);
+        COUNTER_RESULT_CACHE_TTL_MISSES = new LongCounterMetric("result_cache_ttl_misses", MetricUnit.NOUNIT,"Accumulated number of cache misses");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_RESULT_CACHE_TTL_MISSES);
+        GAUGE_RESULT_CACHE_TTL_ENTRIES = new GaugeMetric("result_cache_ttl_entries", MetricUnit.NOUNIT,"Accumulated number of cache size by entries");
+        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_RESULT_CACHE_TTL_ENTRIES);
+        GAUGE_RESULT_CACHE_TTL_SIZE_IN_BYTES = new GaugeMetric("result_cache_ttl_size_in_bytes", MetricUnit.BYTES,"Accumulated number of cache size by bytes");
+        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_RESULT_CACHE_TTL_SIZE_IN_BYTES);
+        COUNTER_RESULT_CACHE_TTL_EVICTIONS = new LongCounterMetric("result_cache_ttl_evictions", MetricUnit.NOUNIT,"Accumulated number of cache evictions");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_RESULT_CACHE_TTL_EVICTIONS);
+        COUNTER_RESULT_CACHE_TTL_TIMEOUTS = new LongCounterMetric("result_cache_ttl_timeouts", MetricUnit.NOUNIT,"Accumulated number of cache timeouts");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_RESULT_CACHE_TTL_TIMEOUTS);
+        COUNTER_RESULT_CACHE_TTL_ERRORS= new LongCounterMetric("result_cache_ttl_errors", MetricUnit.NOUNIT,"Accumulated number of cache errors");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_RESULT_CACHE_TTL_ERRORS);
 
         // 3. histogram
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("query", "latency", "ms"));

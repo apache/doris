@@ -1302,28 +1302,28 @@ public class Config extends ConfigBase {
     public static boolean recover_with_empty_tablet = false;
 
     /**
-     * Sql_result_cache
-     * Whether or not the result cache is enabled in Fe level, it can be overwritten with connection/session
+     * enable_result_cache_ttl
+     * Whether or not the result cache ttl is enabled in Fe level, it can be overwritten with connection/session
      * level setting in Context.
      */
     @ConfField(mutable = true)
-    public static boolean enable_result_cache = false;
+    public static boolean enable_result_cache_ttl = false;
 
     /**
      * Specify how long an entry will be expired in milliseconds, 10000 by default.
      */
     @ConfField(mutable = true)
-    public static long result_cache_expire_after_in_milliseconds = 10 * 1000;
+    public static long result_cache_ttl_expire_after_in_milliseconds = 10 * 1000;
 
     /**
      * Specify the overall threshold of local cache in bytes, 1G bytes by default.
      */
     @ConfField(mutable = true)
-    public static long result_cache_size_in_bytes = 1024 * 1024 * 1024;
+    public static long result_cache_ttl_size_in_bytes = 1024 * 1024 * 1024;
 
     /**
      * Max Result Size per query
      */
     @ConfField(mutable = true)
-    public static long result_cache_size_per_query_in_bytes = 1024 * 1024;
+    public static long result_cache_ttl_size_per_query_in_bytes = 1024 * 1024;
 }

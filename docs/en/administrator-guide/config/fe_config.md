@@ -682,3 +682,22 @@ In some very special circumstances, such as code bugs, or human misoperation, et
 Set to true so that Doris will automatically use blank replicas to fill tablets which all replicas have been damaged or missing.
 
 Default is false.
+
+
+#### `enable_result_cache_ttl`
+
+enable_result_ cache_ ttl  variable is set in the user session. The user can customize whether to turn it on or not. The TTL time is used to determine whether the user's SQL uses cache. The correctness of the data is not guaranteed when the data is changed`
+
+The cache is stored and retrieved according to the user connected and the query SQL. If it exceeds the cache expiration time, the cache will not be hit and the cache will be cleaned
+
+### `result_cache_ttl_expire_after_in_milliseconds`
+
+enable_result_cache_ttl cache time
+
+### `result_cache_ttl_size_in_bytes`
+
+enable_result_cache_ttl cache size
+
+### `result_cache_ttl_size_per_query_in_bytes`
+
+enable_result_cache_ttl single query result max cache size

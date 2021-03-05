@@ -106,8 +106,8 @@ public class PaloFe {
             Catalog.getCurrentCatalog().initialize(args);
             Catalog.getCurrentCatalog().waitForReady();
             // Initialize the result cache if enabled
-            LOG.debug("result cache is " + (Config.enable_result_cache ? "enabled" : "disabled"));
-            if (Config.enable_result_cache) {
+            LOG.debug("result cache is " + (Config.enable_result_cache_ttl ? "enabled" : "disabled"));
+            if (Config.enable_result_cache_ttl) {
                 CacheFactory.getUniversalCache();
             }
 
