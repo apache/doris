@@ -36,7 +36,7 @@ Bucket Shuffle Join 是在 Doris 0.14 版本中正式加入的新功能。旨在
 * 右表：Join查询时，右边的表。进行Build操作。可被Join Reorder调整顺序。
 
 ## 原理
-除了Bucket Shuffle Join, Doris 支持3种类型的join: `Shuffle Join, Broadcast Join, Colocate Join`。除了`Colocate Join`, 其他类型的join都会导致较大的网络和内存的开销。
+Doris支持的常规分布式Join方式包括了shuffle join 和broadcast join。这两种join都会导致不小的网络开销:
 
 举个例子，当前存在A表与B表的Join查询，它的Join方式为HashJoin，不同Join类型的开销如下：
 * **Broadcast Join**: 如果根据数据分布，查询规划出A表有3个执行的HashJoinNode，那么需要将B表全量的发送到3个HashJoinNode，那么它的网络开销是`3B`，它的内存开销也是`3B`。 

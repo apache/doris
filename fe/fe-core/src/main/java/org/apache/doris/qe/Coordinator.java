@@ -1180,7 +1180,11 @@ public class Coordinator {
                 }
             }
 
-            // set bucket for scanrange
+            // set bucket for scanRange, the pair is <bucket_num, map<scanNode_id, list<scanRange>>>>
+            // we should make sure
+            // 1. same bucket in some address be
+            // 2. different scanNode id scan different scanRange which belong to the scanNode id
+            // 3. split how many scanRange one instance should scan, same bucket do not spilt to different instance
             Pair<Integer, Map<Integer, List<TScanRangeParams>>> filteredScanRanges = Pair.create(scanRanges.getKey(), filteredNodeScanRanges);
 
             if (!addressToScanRanges.containsKey(address)) {
@@ -1202,7 +1206,7 @@ public class Coordinator {
             List<List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> perInstanceScanRanges = ListUtil.splitBySize(scanRange,
                     expectedInstanceNum);
 
-            // 3.constuct instanceExecParam add the scanRange should be scan by instance
+            // 3.construct instanceExecParam add the scanRange should be scan by instance
             for (List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>> perInstanceScanRange : perInstanceScanRanges) {
                 FInstanceExecParam instanceParam = new FInstanceExecParam(null, addressScanRange.getKey(), 0, params);
 
@@ -1249,11 +1253,9 @@ public class Coordinator {
 
             if (fragmentContainsColocateJoin) {
                 computeScanRangeAssignmentByColocate((OlapScanNode) scanNode);
-            }
-            if (fragmentContainsBucketShuffleJoin) {
+            } else if (fragmentContainsBucketShuffleJoin) {
                 bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode, idToBackend, addressToBackendID);
-            }
-            if (!(fragmentContainsColocateJoin | fragmentContainsBucketShuffleJoin)) {
+            } else {
                 computeScanRangeAssignmentByScheduler(scanNode, locations, assignment, assignedBytesPerHost);
             }
         }

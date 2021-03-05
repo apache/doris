@@ -39,7 +39,7 @@ It's design, implementation can be referred to [ISSUE 4394](https://github.com/a
 * Right table: the right table in join query. Perform build expr The order can be adjusted by join reorder.
 
 ## Principle
-In addition to bucket shuffle join, Doris supports three types of join: `Shuffle Join, Broadcast Join, Colocate Join`.  Except `colorate join`, other types of join will lead to some network overhead.
+The conventional distributed join methods supported by Doris is: `Shuffle Join, Broadcast Join`. Both of these join will lead to some network overhead.
 
 For example, there are join queries for table A and table B. the join method is hashjoin. The cost of different join types is as follows：
 * **Broadcast Join**: If table a has three executing hashjoinnodes according to the data distribution, table B needs to be sent to the three HashJoinNode. Its network overhead is `3B `, and its memory overhead is `3B`. 

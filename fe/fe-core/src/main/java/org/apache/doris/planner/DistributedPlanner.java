@@ -378,10 +378,9 @@ public class DistributedPlanner {
         // Push down the predicates constructed by the right child when the
         // join op is inner join or left semi join.
         // Colocate join, Bucket Shuffle join, Broadcast join support local rumtime filter
+        // For Shuffle join, set is push down false after this code in line:475
         if (node.getJoinOp().isInnerJoin() || node.getJoinOp().isLeftSemiJoin()) {
             node.setIsPushDown(true);
-        } else {
-            node.setIsPushDown(false);
         }
 
         List<String> reason = Lists.newArrayList();
@@ -472,7 +471,7 @@ public class DistributedPlanner {
             rightChildFragment.setDestination(rhsExchange);
             rightChildFragment.setOutputPartition(rhsJoinPartition);
 
-            // only shuffle join do not enable local runtime filter
+            // Before we support global runtime filter, only shuffle join do not enable local runtime filter
             node.setIsPushDown(false);
             return joinFragment;
         }
@@ -506,7 +505,7 @@ public class DistributedPlanner {
 
         if (leftRoot instanceof HashJoinNode && rightRoot instanceof OlapScanNode) {
             while (leftRoot instanceof HashJoinNode) {
-                if (((HashJoinNode)leftRoot).isColocate()) {
+                if (!((HashJoinNode)leftRoot).isShuffleJoin()) {
                     leftRoot = leftRoot.getChild(0);
                 } else {
                     cannotReason.add("left hash join node can not do colocate");
@@ -538,11 +537,11 @@ public class DistributedPlanner {
             return canBucketShuffleJoin(node, leftRoot, rhsHashExprs);
         }
 
-        // 2.leftRoot be colocate hashjoin node or bucket shuffle join node
+        // 2.leftRoot be hashjoin node and not shuffle join
         PlanNode rightRoot = rightChildFragment.getPlanRoot();
         if (leftRoot instanceof HashJoinNode) {
             while (leftRoot instanceof HashJoinNode) {
-                if (((HashJoinNode)leftRoot).isColocate() || ((HashJoinNode)leftRoot).isBucketShuffle()) {
+                if (!((HashJoinNode)leftRoot).isShuffleJoin()) {
                     leftRoot = leftRoot.getChild(0);
                 } else {
                     return false;
