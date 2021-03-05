@@ -191,6 +191,9 @@ static const volatile long double twom10000 = 0x1p-10000L;
 static long double reducl(long double);
 static long double powil(long double, int);
 
+long double __polevll(long double x, const long double *P, int n);
+long double __p1evll(long double x, const long double *P, int n);
+
 long double powl(long double x, long double y)
 {
 	/* double F, Fa, Fb, G, Ga, Gb, H, Ha, Hb */
@@ -199,7 +202,7 @@ long double powl(long double x, long double y)
 	volatile long double z=0;
 	long double w=0, W=0, Wa=0, Wb=0, ya=0, yb=0, u=0;
 
-	/* make sure no invalid exception is raised by nan comparision */
+	/* make sure no invalid exception is raised by nan comparison */
 	if (isnan(x)) {
 		if (!isnan(y) && y == 0.0)
 			return 1.0;
