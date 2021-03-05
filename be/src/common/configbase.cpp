@@ -292,7 +292,7 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
 
 #define SET_FIELD(FIELD, TYPE, FILL_CONF_MAP, SET_TO_DEFAULT)                                                 \
     if (strcmp((FIELD).type, #TYPE) == 0) {                                                                   \
-        TYPE new_value;                                                                                       \
+        TYPE new_value = TYPE();                                                                              \
         bool is_newval_set = false;                                                                           \
         if (!props.get_or_default((FIELD).name,                                                               \
                 ((SET_TO_DEFAULT) ? (FIELD).defval : nullptr), new_value, &is_newval_set)) {                  \
