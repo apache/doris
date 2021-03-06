@@ -3346,7 +3346,8 @@ public class Catalog {
                     }
                 }
             }
-            olapTable.dropPartition(db.getId(), partitionName, clause.isForceDrop());
+            olapTable.dropPartition(db.getId(), partitionName, clause.isForceDrop(),
+                    clause.isForceDrop() /* If force, then drop tablet too, if not, keey the tablet too.*/);
         }
 
         // log
@@ -3364,7 +3365,7 @@ public class Catalog {
             if (info.isTempPartition()) {
                 olapTable.dropTempPartition(info.getPartitionName(), true);
             } else {
-                olapTable.dropPartition(info.getDbId(), info.getPartitionName(), info.isForceDrop());
+                olapTable.dropPartition(info.getDbId(), info.getPartitionName(), info.isForceDrop(), info.isForceDrop());
             }
         } finally {
             olapTable.writeUnlock();

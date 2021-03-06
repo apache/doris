@@ -52,15 +52,15 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -667,7 +667,10 @@ public class OlapTable extends Table {
         nameToPartition.put(partition.getName(), partition);
     }
 
-    public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop) {
+    public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop, boolean reserveTablets) {
+        Preconditions.checkState((isForceDrop && reserveTablets)
+                || (!isForceDrop && !reserveTablets)
+                || (isForceDrop && !reserveTablets));
         Partition partition = nameToPartition.get(partitionName);
         if (partition != null) {
             idToPartition.remove(partition.getId());
@@ -675,15 +678,15 @@ public class OlapTable extends Table {
 
             Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE);
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-            
+
             if (!isForceDrop) {
                 // recycle partition
                 Catalog.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
-                                          rangePartitionInfo.getRange(partition.getId()),
-                                          rangePartitionInfo.getDataProperty(partition.getId()),
-                                          rangePartitionInfo.getReplicationNum(partition.getId()),
-                                          rangePartitionInfo.getIsInMemory(partition.getId()));
-            } else {
+                        rangePartitionInfo.getRange(partition.getId()),
+                        rangePartitionInfo.getDataProperty(partition.getId()),
+                        rangePartitionInfo.getReplicationNum(partition.getId()),
+                        rangePartitionInfo.getIsInMemory(partition.getId()));
+            } else if (!reserveTablets) {
                 Catalog.getCurrentCatalog().onErasePartition(partition);
             }
 
@@ -693,54 +696,58 @@ public class OlapTable extends Table {
         return partition;
     }
 
-    public Partition dropPartitionForBackup(String partitionName) {
-        return dropPartition(-1, partitionName, true);
+    public Partition dropPartitionForSelectiveCopy(String partitionName) {
+        // For selective copy, it only need to drop the information of the partition,
+        // But DO NOT drop the tablets of these partitions.
+        // Because these tablets belong to the origin table, it we drop them,
+        // the data of the origin table will be lost.
+        return dropPartition(-1, partitionName, true, true);
     }
 
     /*
      * A table may contain both formal and temporary partitions.
      * There are several methods to get the partition of a table.
      * Typically divided into two categories:
-     * 
+     *
      * 1. Get partition by id
      * 2. Get partition by name
-     * 
+     *
      * According to different requirements, the caller may want to obtain
      * a formal partition or a temporary partition. These methods are
      * described below in order to obtain the partition by using the correct method.
-     * 
+     *
      * 1. Get by name
-     * 
+     *
      * This type of request usually comes from a user with partition names. Such as
      * `select * from tbl partition(p1);`.
      * This type of request has clear information to indicate whether to obtain a
      * formal or temporary partition.
      * Therefore, we need to get the partition through this method:
-     * 
+     *
      * `getPartition(String partitionName, boolean isTemp)`
-     * 
+     *
      * To avoid modifying too much code, we leave the `getPartition(String
      * partitionName)`, which is same as:
-     * 
+     *
      * `getPartition(partitionName, false)`
-     * 
+     *
      * 2. Get by id
-     * 
+     *
      * This type of request usually means that the previous step has obtained
      * certain partition ids in some way,
      * so we only need to get the corresponding partition through this method:
-     * 
+     *
      * `getPartition(long partitionId)`.
-     * 
+     *
      * This method will try to get both formal partitions and temporary partitions.
-     * 
+     *
      * 3. Get all partition instances
-     * 
+     *
      * Depending on the requirements, the caller may want to obtain all formal
      * partitions,
      * all temporary partitions, or all partitions. Therefore we provide 3 methods,
      * the caller chooses according to needs.
-     * 
+     *
      * `getPartitions()`
      * `getTempPartitions()`
      * `getAllPartitions()`
@@ -1248,7 +1255,7 @@ public class OlapTable extends Table {
         
         for (String partName : partNames) {
             if (!reservedPartitions.contains(partName)) {
-                copied.dropPartitionForBackup(partName);
+                copied.dropPartitionForSelectiveCopy(partName);
             }
         }
         
@@ -1557,7 +1564,7 @@ public class OlapTable extends Table {
         // 1. drop old partitions
         List<Partition> droppedPartitions = Lists.newArrayList();
         for (String partitionName : partitionNames) {
-            Partition partition = dropPartition(-1, partitionName, true);
+            Partition partition = dropPartition(-1, partitionName, true, true);
             droppedPartitions.add(partition);
         }
 

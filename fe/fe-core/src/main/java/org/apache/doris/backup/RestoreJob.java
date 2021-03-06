@@ -623,7 +623,9 @@ public class RestoreJob extends AbstractJob {
                     for (String partName : allPartNames) {
                         if (!tblInfo.containsPart(partName)) {
                             remoteOlapTbl.dropPartition(-1 /* db id is useless here */, partName,
-                                    true /* act like replay to disable recycle bin action */);
+                                    true /* act like replay to disable recycle bin action */,
+                                    true /* Reserve the tablet. Although the tablet of remote table
+                                    does not exist in Local TabletInvertedIndex, but for safe reason, just not do it. */);
                         }
                     }
 
@@ -1567,7 +1569,7 @@ public class RestoreJob extends AbstractJob {
                         restoreTbl.getName(), entry.second.getName());
                 restoreTbl.writeLock();
                 try {
-                    restoreTbl.dropPartition(dbId, entry.second.getName(), true /* is restore */);
+                    restoreTbl.dropPartition(dbId, entry.second.getName(), true /* force drop */, false);
                 } finally {
                     restoreTbl.writeUnlock();
                 }
