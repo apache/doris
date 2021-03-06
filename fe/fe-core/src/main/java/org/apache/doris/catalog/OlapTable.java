@@ -52,15 +52,15 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-
-import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -667,14 +667,15 @@ public class OlapTable extends Table {
         nameToPartition.put(partition.getName(), partition);
     }
 
-    public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop, boolean reserveTablets) {
-        // reserveTablets is usually same as isForceDrop, which means if we want to "force" drop partition,
-        // we also want to drop tablets directly, otherwise, we will reserve tablets.
-        // But there is an exception for Restore job that isForceDrop is true but reserveTablets is false.
-        // This is because in that case, we only want to modify the partition meta but leave tablets info unchange,
-        // for safe reason.
-        Preconditions.checkState((isForceDrop == reserveTablets)
-                || (isForceDrop && !reserveTablets));
+    // This is a private methid.
+    // Call public "dropPartitionAndReserveTablet" and "dropPartition"
+    private Partition dropPartition(long dbId, String partitionName, boolean isForceDrop, boolean reserveTablets) {
+        // 1. If "isForceDrop" is false, the partition will be added to the Catalog Recyle bin, and all tablets of this
+        //    partition will not be deleted.
+        // 2. If "ifForceDrop" is true, the partition will be dropped the immediately, but whether to drop the tablets
+        //    of this partition depends on "reserveTablets"
+        //    If "reserveTablets" is true, the tablets of this partition will not to deleted.
+        //    Otherwise, the tablets of this partition will be deleted immediately.
         Partition partition = nameToPartition.get(partitionName);
         if (partition != null) {
             idToPartition.remove(partition.getId());
@@ -700,12 +701,12 @@ public class OlapTable extends Table {
         return partition;
     }
 
-    public Partition dropPartitionForSelectiveCopy(String partitionName) {
-        // For selective copy, it only need to drop the information of the partition,
-        // But DO NOT drop the tablets of these partitions.
-        // Because these tablets belong to the origin table, if we drop them,
-        // the data of the origin table will be lost.
+    public Partition dropPartitionAndReserveTablet(String partitionName) {
         return dropPartition(-1, partitionName, true, true);
+    }
+
+    public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop) {
+        return dropPartition(dbId, partitionName, isForceDrop, !isForceDrop);
     }
 
     /*
@@ -1259,7 +1260,7 @@ public class OlapTable extends Table {
         
         for (String partName : partNames) {
             if (!reservedPartitions.contains(partName)) {
-                copied.dropPartitionForSelectiveCopy(partName);
+                copied.dropPartitionAndReserveTablet(partName);
             }
         }
         
@@ -1566,10 +1567,9 @@ public class OlapTable extends Table {
         
         // begin to replace
         // 1. drop old partitions
-        List<Partition> droppedPartitions = Lists.newArrayList();
         for (String partitionName : partitionNames) {
-            Partition partition = dropPartition(-1, partitionName, true, true);
-            droppedPartitions.add(partition);
+            // This will also drop all tablets of the partition from TabletInvertedIndex
+            dropPartition(-1, partitionName, true);
         }
 
         // 2. add temp partitions' range info to rangeInfo, and remove them from tempPartitionInfo
@@ -1581,15 +1581,6 @@ public class OlapTable extends Table {
             tempPartitions.dropPartition(partitionName, false);
             // move the range from idToTempRange to idToRange
             rangeInfo.moveRangeFromTempToFormal(partition.getId());
-        }
-
-        // 3. delete old partition's tablets in inverted index
-        for (Partition partition : droppedPartitions) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                for (Tablet tablet : index.getTablets()) {
-                    Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
-                }
-            }
         }
 
         // change the name so that after replacing, the partition name remain unchanged

@@ -25,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -49,7 +50,8 @@ public class DropPartitionTest {
         String createDbStmtStr = "create database test;";
         String createTablleStr = "create table test.tbl1(d1 date, k1 int, k2 bigint) duplicate key(d1, k1) "
                 + "PARTITION BY RANGE(d1) (PARTITION p20210201 VALUES [('2021-02-01'), ('2021-02-02')),"
-                + "PARTITION p20210202 VALUES [('2021-02-02'), ('2021-02-03'))) distributed by hash(k1) "
+                + "PARTITION p20210202 VALUES [('2021-02-02'), ('2021-02-03')),"
+                + "PARTITION p20210203 VALUES [('2021-02-03'), ('2021-02-04'))) distributed by hash(k1) "
                 + "buckets 1 properties('replication_num' = '1');";
         createDb(createDbStmtStr);
         createTable(createTablleStr);
@@ -113,5 +115,18 @@ public class DropPartitionTest {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "No partition named p20210202 in table tbl1",
                 () -> Catalog.getCurrentCatalog().recoverPartition(recoverPartitionStmt));
+    }
+
+    @Test
+    public void testDropPartitionAndReserveTablets() throws Exception {
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        OlapTable table = (OlapTable) db.getTable("tbl1");
+        Partition partition = table.getPartition("p20210203");
+        long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
+        table.dropPartitionAndReserveTablet("p20210203");
+        List<Replica> replicaList = Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
+        partition = table.getPartition("p20210203");
+        Assert.assertEquals(1, replicaList.size());
+        Assert.assertNull(partition);
     }
 }
