@@ -28,7 +28,7 @@ under the License.
 
 Colocation Join is a new feature introduced in Doris 0.9. The purpose of this paper is to provide local optimization for some Join queries to reduce data transmission time between nodes and speed up queries.
 
-The original design, implementation and effect can be referred to [ISSUE 245] (https://github.com/apache/incubator-doris/issues/245).
+The original design, implementation and effect can be referred to [ISSUE 245](https://github.com/apache/incubator-doris/issues/245).
 
 The Colocation Join function has undergone a revision, and its design and use are slightly different from the original design. This document mainly introduces Colocation Join's principle, implementation, usage and precautions.
 
