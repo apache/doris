@@ -668,8 +668,12 @@ public class OlapTable extends Table {
     }
 
     public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop, boolean reserveTablets) {
-        Preconditions.checkState((isForceDrop && reserveTablets)
-                || (!isForceDrop && !reserveTablets)
+        // reserveTablets is usually same as isForceDrop, which means if we want to "force" drop partition,
+        // we also want to drop tablets directly, otherwise, we will reserve tablets.
+        // But there is an exception for Restore job that isForceDrop is true but reserveTablets is false.
+        // This is because in that case, we only want to modify the partition meta but leave tablets info unchange,
+        // for safe reason.
+        Preconditions.checkState((isForceDrop == reserveTablets)
                 || (isForceDrop && !reserveTablets));
         Partition partition = nameToPartition.get(partitionName);
         if (partition != null) {
