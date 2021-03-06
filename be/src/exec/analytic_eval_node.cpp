@@ -753,7 +753,8 @@ Status AnalyticEvalNode::get_next_output_batch(RuntimeState* state, RowBatch* ou
         // CopyRow works as expected: input_batch tuples form a prefix of output_batch
         // tuples.
         TupleRow* dest = output_batch->get_row(output_batch->add_row());
-        input_batch.copy_row(input_batch.get_row(i), dest);
+        input_batch.get_row(i)->deep_copy(dest, child(0)->row_desc().tuple_descriptors(),
+                                          output_batch->tuple_data_pool(), false);
         dest->set_tuple(num_child_tuples, _result_tuples.front().second);
 
         if (ExecNode::eval_conjuncts(ctxs, num_ctxs, dest)) {

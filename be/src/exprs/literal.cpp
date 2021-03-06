@@ -141,7 +141,7 @@ FloatVal Literal::get_float_val(ExprContext* context, TupleRow* row) {
 }
 
 DoubleVal Literal::get_double_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_DOUBLE) << _type;
+    DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME) << _type;
     return DoubleVal(_value.double_val);
 }
 

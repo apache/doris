@@ -345,9 +345,12 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
 }
 
 Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    int first_row_idx = row_batch->num_rows();
-    RETURN_IF_ERROR(GetNextInternal(state, row_batch, eos));
-    RETURN_IF_ERROR(HandleOutputStrings(row_batch, first_row_idx));
+    DCHECK_EQ(row_batch->num_rows(), 0);
+    RowBatch batch(row_batch->row_desc(), row_batch->capacity(), _mem_tracker.get());
+    int first_row_idx = batch.num_rows();
+    RETURN_IF_ERROR(GetNextInternal(state, &batch, eos));
+    RETURN_IF_ERROR(HandleOutputStrings(&batch, first_row_idx));
+    batch.deep_copy_to(row_batch);
     return Status::OK();
 }
 
