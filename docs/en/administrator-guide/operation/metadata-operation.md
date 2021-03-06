@@ -55,7 +55,7 @@ Let's assume that the path of `meta_dir` specified in fe.conf is `path/to/palo-m
 
 1. bdb
 
-	We use [bdbje] (https://www.oracle.com/technetwork/database/berkeleydb/overview/index-093405.html) as a distributed kV system to store metadata journal. This BDB directory is equivalent to the "data directory" of bdbje.
+	We use [bdbje](https://www.oracle.com/technetwork/database/berkeleydb/overview/index-093405.html) as a distributed kV system to store metadata journal. This BDB directory is equivalent to the "data directory" of bdbje.
 
 	The `.jdb` suffix is the data file of bdbje. These data files will increase with the increasing number of metadata journals. When Doris regularly completes the image, the old log is deleted. So normally, the total size of these data files varies from several MB to several GB (depending on how Doris is used, such as import frequency). When the total size of the data file is larger than 10GB, you may need to wonder whether the image failed or the historical journals that failed to distribute the image could not be deleted.
 
@@ -136,7 +136,7 @@ Single node FE is the most basic deployment mode. A complete Doris cluster requi
 
 ### Add FE
 
-Adding FE processes is described in detail in the [Deployment and Upgrade Documents] (https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade) and will not be repeated. Here are some points for attention, as well as common problems.
+Adding FE processes is described in detail in the [Deployment and Upgrade Documents](https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade) and will not be repeated. Here are some points for attention, as well as common problems.
 
 1. Notes
 

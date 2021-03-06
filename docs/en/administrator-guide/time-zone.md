@@ -93,6 +93,6 @@ Time zone values can be given in several formats, case-insensitive:
 
 ## Time zone format list
 
-[List of TZ database time zones] (https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
+[List of TZ database time zones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
 
 [Edit on GitHub](https://github.com/apache/incubator-doris/blob/master/docs/documentation/en/administrator-guide/time-zone_EN.md)

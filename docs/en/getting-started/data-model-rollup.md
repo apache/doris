@@ -523,7 +523,7 @@ The ROLLUP table is preferred because the prefix index of ROLLUP matches better.
 * The query execution plan can be obtained by `EXPLAIN your_sql;` command, and in the execution plan, whether ROLLUP has been hit or not can be checked.
 * Base tables and all created ROLLUP can be displayed by `DESC tbl_name ALL;` statement.
 
-In this document, you can see [Query how to hit Rollup] (hit-the-rollup)
+In this document, you can see [Query how to hit Rollup](hit-the-rollup)
 
 ## Limitations of aggregation model
 
