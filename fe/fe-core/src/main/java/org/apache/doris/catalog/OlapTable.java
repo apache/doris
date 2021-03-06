@@ -703,7 +703,7 @@ public class OlapTable extends Table {
     public Partition dropPartitionForSelectiveCopy(String partitionName) {
         // For selective copy, it only need to drop the information of the partition,
         // But DO NOT drop the tablets of these partitions.
-        // Because these tablets belong to the origin table, it we drop them,
+        // Because these tablets belong to the origin table, if we drop them,
         // the data of the origin table will be lost.
         return dropPartition(-1, partitionName, true, true);
     }
