@@ -82,6 +82,10 @@ TEST_F(BitmapFunctionsTest, to_bitmap) {
     }
 }
 
+TEST_F(BitmapFunctionsTest, bitmap_hash64) {
+
+}
+
 TEST_F(BitmapFunctionsTest, to_bitmap_null) {
     StringVal input = StringVal::null();
     StringVal result = BitmapFunctions::to_bitmap(ctx, input);
@@ -410,6 +414,14 @@ TEST_F(BitmapFunctionsTest, bitmap_from_string) {
         auto bitmap_str = BitmapFunctions::bitmap_from_string(utils.get_fn_ctx(), val);
         ASSERT_TRUE(bitmap_str.is_null);
     }
+}
+
+TEST_F(BitmapFunctionsTest, bitmap_max) {
+
+}
+
+TEST_F(BitmapFunctionsTest, bitmap_min) {
+
 }
 
 } // namespace doris
