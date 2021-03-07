@@ -328,6 +328,63 @@ This term does not match any term in the dictionary, and will not return any res
 
 The type of `k4.keyword` is `keyword`, and writing data into ES is a complete term, so it can be matched
 
+### Enable ES node discovery(es\_nodes\_discovery=true)
+
+```
+CREATE EXTERNAL TABLE `test` (
+  `k1` bigint(20) COMMENT "",
+  `k2` datetime COMMENT "",
+  `k3` varchar(20) COMMENT "",
+  `k4` varchar(100) COMMENT "",
+  `k5` float COMMENT ""
+) ENGINE=ELASTICSEARCH
+PROPERTIES (
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"index" = "test”,
+"type" = "doc",
+"user" = "root",
+"password" = "root",
+
+"es_nodes_discovery" = "true"
+);
+```
+
+Parameter Description：
+
+Parameter | Description
+---|---
+**es\_nodes\_discovery** | Whether or not to enable ES node discovery. the default is true
+
+When enabled, Doris will find all available nodes from ES. If you only want Doris to access some nodes, you can turn this configuration off
+
+### Use SSL authentication(es\_net\_ssl=true)
+
+```
+CREATE EXTERNAL TABLE `test` (
+  `k1` bigint(20) COMMENT "",
+  `k2` datetime COMMENT "",
+  `k3` varchar(20) COMMENT "",
+  `k4` varchar(100) COMMENT "",
+  `k5` float COMMENT ""
+) ENGINE=ELASTICSEARCH
+PROPERTIES (
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"index" = "test”,
+"type" = "doc",
+"user" = "root",
+"password" = "root",
+
+"es_net_ssl" = "true"
+);
+```
+
+Parameter Description：
+
+Parameter | Description
+---|---
+**es\_net\_ssl** | SSL authentication is enabled when supporting HTTPS, the default is false
+
+The current FE/BE implementation is to trust all, this is a temporary solution, and the real user configuration certificate will be used later
 
 ### Query usage
 

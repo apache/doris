@@ -325,6 +325,64 @@ POST /_analyze
 
 `k4.keyword` 的类型是`keyword`，数据写入ES中是一个完整的term，所以可以匹配
 
+### 开启es节点发现(es\_nodes\_discovery=true)
+
+```
+CREATE EXTERNAL TABLE `test` (
+  `k1` bigint(20) COMMENT "",
+  `k2` datetime COMMENT "",
+  `k3` varchar(20) COMMENT "",
+  `k4` varchar(100) COMMENT "",
+  `k5` float COMMENT ""
+) ENGINE=ELASTICSEARCH
+PROPERTIES (
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"index" = "test”,
+"type" = "doc",
+"user" = "root",
+"password" = "root",
+
+"es_nodes_discovery" = "true"
+);
+```
+
+参数说明：
+
+参数 | 说明
+---|---
+**es\_nodes\_discovery** | 是否开启es节点发现，默认为true
+
+开启后Doris会从ES发现所有可用节点，如果只希望Doris访问部分节点，可以关闭此配置
+
+### 使用ssl方式认证(es\_net\_ssl=true)
+
+```
+CREATE EXTERNAL TABLE `test` (
+  `k1` bigint(20) COMMENT "",
+  `k2` datetime COMMENT "",
+  `k3` varchar(20) COMMENT "",
+  `k4` varchar(100) COMMENT "",
+  `k5` float COMMENT ""
+) ENGINE=ELASTICSEARCH
+PROPERTIES (
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"index" = "test”,
+"type" = "doc",
+"user" = "root",
+"password" = "root",
+
+"es_net_ssl" = "true"
+);
+```
+
+参数说明：
+
+参数 | 说明
+---|---
+**es\_net\_ssl** | 是否使用ssl，默认为false，当需要支持https时，需要开启此配置
+
+目前会fe/be实现方式为信任所有，这是临时解决方案，后续会使用真实的用户配置证书
+
 ### 查询用法
 
 完成在Doris中建立ES外表后，除了无法使用Doris中的数据模型(rollup、预聚合、物化视图等)外并无区别
