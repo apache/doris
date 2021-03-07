@@ -134,6 +134,9 @@ fi
 if [[ -z ${WITH_MYSQL} ]]; then
     WITH_MYSQL=OFF
 fi
+if [[ -z ${GLIBC_COMPATIBILITY} ]]; then
+    GLIBC_COMPATIBILITY=OFF
+fi
 if [[ -z ${WITH_LZO} ]]; then
     WITH_LZO=OFF
 fi
@@ -147,6 +150,7 @@ echo "Get params:
     RUN_UT              -- $RUN_UT
     WITH_MYSQL          -- $WITH_MYSQL
     WITH_LZO            -- $WITH_LZO
+    GLIBC_COMPATIBILITY -- $GLIBC_COMPATIBILITY
 "
 
 # Clean and build generated code
@@ -171,8 +175,9 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     fi
     mkdir -p ${CMAKE_BUILD_DIR}
     cd ${CMAKE_BUILD_DIR}
-    ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DMAKE_TEST=OFF -DWITH_MYSQL=${WITH_MYSQL} -DWITH_LZO=${WITH_LZO} ../
-    ${BUILD_SYSTEM} -j${PARALLEL}
+    ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DMAKE_TEST=OFF \
+     -DWITH_MYSQL=${WITH_MYSQL} -DWITH_LZO=${WITH_LZO} -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
+    ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install
     cd ${DORIS_HOME}
 fi
