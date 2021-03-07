@@ -371,6 +371,17 @@ StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx,
     return serialize(ctx, &bitmap);
 }
 
+StringVal BitmapFuntions::bitmap_hash64(doris_udf::FunctionContext* ctx,
+                                         const doris_udf::StringVal& src) {
+    BitmapValue bitmap;
+    if (!src.is_null) {
+        uint64_t hash_value = 
+                HashUtil::murmur_hash2_64(src.ptr, src.len, HashUtil::MURMUR3_64_SEED);
+        bitmap.add(hash_value);
+    }
+    return serialize(ctx, &bitmap);
+}
+
 StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {
         return src;
@@ -497,25 +508,6 @@ StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs
     return serialize(ctx, &bitmap);
 }
 
-StringVal BitmapFunctions::bitmap_not(FunctionContext* ctx, const StringVal& lhs,
-                                      const StringVal& rhs) {
-    if (lhs.is_null || rhs.is_null) {
-        return StringVal::null();
-    }
-    BitmapValue bitmap;
-    if (lhs.len == 0) {
-        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
-    } else {
-        bitmap |= BitmapValue((char*)lhs.ptr);
-    }
-
-    if (rhs.len == 0) {
-        bitmap -= *reinterpret_cast<BitmapValue*>(rhs.ptr);
-    } else {
-        bitmap -= BitmapValue((char*)rhs.ptr);
-    }
-    return serialize(ctx, &bitmap);
-}
 
 StringVal BitmapFunctions::bitmap_to_string(FunctionContext* ctx, const StringVal& input) {
     if (input.is_null) {
@@ -546,6 +538,35 @@ StringVal BitmapFunctions::bitmap_from_string(FunctionContext* ctx, const String
     BitmapValue bitmap(bits);
     return serialize(ctx, &bitmap);
 }
+
+
+BigIntVal BitmapFunctions::bitmap_max(FunctionContext* ctx, const StringVal& src) const {
+    if (src.is_null) {
+        return 0;
+    }
+    BitmapValue bitmap;
+    // zero size means the src input is a agg object
+    if (src.len == 0) {
+        auto bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
+        return {bitmap->_bitmap.maximum()};
+    } 
+    return {BitmapValue::_bitmap.maximun()};
+}
+
+BigIntVal BitmapFunctions::bitmap_min(FunctionContext* ctx, const StringVal& src) const {
+    if (src.is_null) {
+        return 0;
+    }
+    BitmapValue bitmap;
+    // zero size means the src input is a agg object
+    if (src.len == 0) {
+        auto bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
+        return {bitmap->_bitmap.minimum()};
+    } 
+    return {BitmapValue::_bitmap.minimum()};
+}
+
+
 
 BooleanVal BitmapFunctions::bitmap_contains(FunctionContext* ctx, const StringVal& src,
                                             const BigIntVal& input) {
