@@ -232,12 +232,13 @@ bool Properties::load(const char* conf_file, bool must_exist) {
 }
 
 template <typename T>
-bool Properties::get_or_default(const char* key, const char* defstr, T& retval) const {
+bool Properties::get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set) const {
     const auto& it = file_conf_map.find(std::string(key));
     std::string valstr;
     if (it == file_conf_map.end()) {
         if (defstr == nullptr) {
             // Not found in conf map, and no default value need to be set, just return
+            *is_retval_set = false;
             return true;
         } else {
             valstr = std::string(defstr);
@@ -245,6 +246,7 @@ bool Properties::get_or_default(const char* key, const char* defstr, T& retval) 
     } else {
         valstr = it->second;
     }
+    *is_retval_set = true;
     return convert(valstr, retval);
 }
 
@@ -290,10 +292,15 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
 
 #define SET_FIELD(FIELD, TYPE, FILL_CONF_MAP, SET_TO_DEFAULT)                                                 \
     if (strcmp((FIELD).type, #TYPE) == 0) {                                                                   \
-        TYPE new_value;                                                                                       \
-        if (!props.get_or_default((FIELD).name, ((SET_TO_DEFAULT) ? (FIELD).defval : nullptr), new_value)) {  \
+        TYPE new_value = TYPE();                                                                              \
+        bool is_newval_set = false;                                                                           \
+        if (!props.get_or_default((FIELD).name,                                                               \
+                ((SET_TO_DEFAULT) ? (FIELD).defval : nullptr), new_value, &is_newval_set)) {                  \
             std::cerr << "config field error: " << (FIELD).name << std::endl;                                 \
             return false;                                                                                     \
+        }                                                                                                     \
+        if (!is_newval_set) {                                                                                 \
+            continue;                                                                                         \
         }                                                                                                     \
         TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                                     \
         TYPE old_value = ref_conf_value;                                                                      \
