@@ -111,6 +111,7 @@ public:
 
     // refer to https://github.com/apache/commons-codec/blob/master/src/main/java/org/apache/commons/codec/digest/MurmurHash3.java
     static const uint32_t MURMUR3_32_SEED = 104729;
+    static const uint64_t MURMUR3_64_SEED = 104729;
 
     ALWAYS_INLINE static uint32_t rotl32(uint32_t x, int8_t r) {
         return (x << r) | (x >> (32 - r));
