@@ -253,12 +253,10 @@ public class DateLiteral extends LiteralExpr {
     }
 
     private void init(String s, Type type) throws AnalysisException {
-        //if s contains micro seconds, split it and only maintain second part
+        // if s contains micro seconds, split it and only maintain second part
+        // because BE only save a datetime with second part
         if (s.length() > 19) {
-            String[] arr = s.split("\\.");
-            if (arr.length == 2) {
-                s = arr[0];
-            }
+            s = s.substring(0, 19);
         }
         try {
             Preconditions.checkArgument(type.isDateType());
