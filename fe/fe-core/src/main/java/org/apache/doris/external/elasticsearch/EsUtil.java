@@ -87,7 +87,7 @@ public class EsUtil {
         }
     }
     
-    public static boolean getBooleanProperty(Map<String, String> properties, String name) throws DdlException {
+    public static boolean getBoolean(Map<String, String> properties, String name) throws DdlException {
         String property = properties.get(name).trim();
         try {
             return Boolean.parseBoolean(property);

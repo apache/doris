@@ -101,11 +101,8 @@ public class EsNodeInfo {
         }
     }
 
-    public EsNodeInfo(String id, String seed, boolean useSslClient) {
+    public EsNodeInfo(String id, String seed) {
         this.id = id;
-        if (!seed.startsWith("http")) {
-            seed = useSslClient ? "https://" + seed : "http://" + seed;
-        }
         String[] scratch = seed.split(":");
         int port = 80;
         if (scratch.length == 3) {

@@ -43,9 +43,8 @@ public class PartitionPhase implements SearchPhase {
         } else {
             nodesInfo = new HashMap<>();
             String[] seeds = context.esTable().getSeeds();
-            boolean useSSL = context.esTable().isUseSslClient();
             for (int i = 0; i < seeds.length; i++) {
-                nodesInfo.put(String.valueOf(i), new EsNodeInfo(String.valueOf(i), seeds[i], useSSL));
+                nodesInfo.put(String.valueOf(i), new EsNodeInfo(String.valueOf(i), seeds[i]));
             }
         }
     }

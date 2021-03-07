@@ -4151,7 +4151,7 @@ public class Catalog {
             sb.append("\"max_docvalue_fields\" = \"").append(esTable.maxDocValueFields()).append("\",\n");
             sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isKeywordSniffEnable()).append("\"\n");
             sb.append("\"es_nodes_discovery\" = \"").append(esTable.isEsNodesDiscovery()).append("\"\n");
-            sb.append("\"use_ssl_client\" = \"").append(esTable.isUseSslClient()).append("\"\n");
+            sb.append("\"es_net_ssl\" = \"").append(esTable.isEsNetSsl()).append("\"\n");
             sb.append(")");
         } else if (table.getType() == TableType.HIVE) {
             HiveTable hiveTable = (HiveTable) table;

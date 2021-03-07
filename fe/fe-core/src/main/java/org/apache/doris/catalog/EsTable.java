@@ -65,7 +65,7 @@ public class EsTable extends Table {
     public static final String KEYWORD_SNIFF = "enable_keyword_sniff";
     public static final String MAX_DOCVALUE_FIELDS = "max_docvalue_fields";
     public static final String ES_NODES_DISCOVERY = "es_nodes_discovery";
-    public static final String USE_SSL_CLIENT = "use_ssl_client";
+    public static final String ES_NET_SSL = "es_net_ssl";
 
     private String hosts;
     private String[] seeds;
@@ -92,7 +92,7 @@ public class EsTable extends Table {
 
     private boolean esNodesDiscovery = true;
 
-    private boolean useSslClient = false;
+    private boolean esNetSsl = false;
 
     // Solr doc_values vs stored_fields performance-smackdown indicate:
     // It is possible to notice that retrieving an high number of fields leads
@@ -149,8 +149,8 @@ public class EsTable extends Table {
         return esNodesDiscovery;
     }
 
-    public boolean isUseSslClient() {
-        return useSslClient;
+    public boolean isEsNetSsl() {
+        return esNetSsl;
     }
 
     private void validate(Map<String, String> properties) throws DdlException {
@@ -199,26 +199,26 @@ public class EsTable extends Table {
 
         // enable doc value scan for Elasticsearch
         if (properties.containsKey(DOC_VALUE_SCAN)) {
-            enableDocValueScan = EsUtil.getBooleanProperty(properties, DOC_VALUE_SCAN);
+            enableDocValueScan = EsUtil.getBoolean(properties, DOC_VALUE_SCAN);
         }
 
         if (properties.containsKey(KEYWORD_SNIFF)) {
-            enableKeywordSniff = EsUtil.getBooleanProperty(properties, KEYWORD_SNIFF);
+            enableKeywordSniff = EsUtil.getBoolean(properties, KEYWORD_SNIFF);
         }
 
         if (properties.containsKey(ES_NODES_DISCOVERY)) {
-            esNodesDiscovery = EsUtil.getBooleanProperty(properties, ES_NODES_DISCOVERY);
+            esNodesDiscovery = EsUtil.getBoolean(properties, ES_NODES_DISCOVERY);
         }
 
-        if (properties.containsKey(USE_SSL_CLIENT)) {
-            useSslClient = EsUtil.getBooleanProperty(properties, USE_SSL_CLIENT);
+        if (properties.containsKey(ES_NET_SSL)) {
+            esNetSsl = EsUtil.getBoolean(properties, ES_NET_SSL);
             // check protocol
             for (String seed : seeds) {
-                if (useSslClient && seed.startsWith("http://")) {
-                    throw new DdlException("if use_ssl_client is true, the https protocol must be used");
+                if (esNetSsl && seed.startsWith("http://")) {
+                    throw new DdlException("if es_net_ssl is true, the https protocol must be used");
                 }
-                if (!useSslClient && seed.startsWith("https://")) {
-                    throw new DdlException("if use_ssl_client is false, the http protocol must be used");
+                if (!esNetSsl && seed.startsWith("https://")) {
+                    throw new DdlException("if es_net_ssl is false, the http protocol must be used");
                 }
             }
         }
@@ -260,7 +260,7 @@ public class EsTable extends Table {
         tableContext.put("enableKeywordSniff", String.valueOf(enableKeywordSniff));
         tableContext.put("maxDocValueFields", String.valueOf(maxDocValueFields));
         tableContext.put(ES_NODES_DISCOVERY, String.valueOf(esNodesDiscovery));
-        tableContext.put(USE_SSL_CLIENT, String.valueOf(useSslClient));
+        tableContext.put(ES_NET_SSL, String.valueOf(esNetSsl));
     }
 
     public TTableDescriptor toThrift() {
@@ -348,10 +348,10 @@ public class EsTable extends Table {
             } else {
                 esNodesDiscovery = true;
             }
-            if (tableContext.containsKey(USE_SSL_CLIENT)) {
-                useSslClient = Boolean.parseBoolean(tableContext.get(USE_SSL_CLIENT));
+            if (tableContext.containsKey(ES_NET_SSL)) {
+                esNetSsl = Boolean.parseBoolean(tableContext.get(ES_NET_SSL));
             } else {
-                useSslClient = false;
+                esNetSsl = false;
             }
             PartitionType partType = PartitionType.valueOf(Text.readString(in));
             if (partType == PartitionType.UNPARTITIONED) {
@@ -387,7 +387,7 @@ public class EsTable extends Table {
             tableContext.put("enableDocValueScan", "false");
             tableContext.put(KEYWORD_SNIFF, "true");
             tableContext.put(ES_NODES_DISCOVERY, "true");
-            tableContext.put(USE_SSL_CLIENT, "false");
+            tableContext.put(ES_NET_SSL, "false");
         }
     }
 

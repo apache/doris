@@ -60,8 +60,8 @@ ESScanReader::ESScanReader(const std::string& target,
     if (props.find(KEY_QUERY) != props.end()) {
         _query = props.at(KEY_QUERY);
     }
-    if (props.find(KEY_USE_SSL_CLIENT) != props.end()) {
-        std::istringstream(props.at(KEY_USE_SSL_CLIENT)) >> std::boolalpha >> _use_ssl_client;
+    if (props.find(KEY_ES_NET_SSL) != props.end()) {
+        std::istringstream(props.at(KEY_ES_NET_SSL)) >> std::boolalpha >> _use_ssl_client;
     }
 
     std::string batch_size_str = props.at(KEY_BATCH_SIZE);

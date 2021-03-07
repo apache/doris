@@ -57,7 +57,7 @@ public class EsRestClient {
         mapper.configure(SerializationConfig.Feature.USE_ANNOTATIONS, false);
     }
 
-    private static OkHttpClient networkClient;
+    private OkHttpClient networkClient;
 
     private Request.Builder builder;
     private String[] nodes;
