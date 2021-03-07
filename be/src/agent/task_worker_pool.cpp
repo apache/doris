@@ -1084,21 +1084,7 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
             lock_guard<Mutex> task_signatures_lock(_s_task_signatures_lock);
             request.__set_tasks(_s_task_signatures);
         }
-
-        DorisMetrics::instance()->report_task_requests_total->increment(1);
-        TMasterResult result;
-        AgentStatus status = _master_client->report(request, &result);
-
-        if (status != DORIS_SUCCESS) {
-            DorisMetrics::instance()->report_task_requests_failed->increment(1);
-            LOG(WARNING) << "report task failed. status: " << status
-                         << ", master host: " << _master_info.network_address.hostname
-                         << "port: " << _master_info.network_address.port;
-        } else {
-            LOG(INFO) << "finish report task. master host: "
-                      << _master_info.network_address.hostname
-                      << " port: " << _master_info.network_address.port;
-        }
+        _handle_report(request, ReportType::TASK);
     } while (!_stop_background_threads_latch.wait_for(
             MonoDelta::FromSeconds(config::report_task_interval_seconds)));
 }
@@ -1142,21 +1128,7 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disks[root_path_info.path] = disk;
         }
         request.__set_disks(disks);
-
-        DorisMetrics::instance()->report_disk_requests_total->increment(1);
-        TMasterResult result;
-        AgentStatus status = _master_client->report(request, &result);
-
-        if (status != DORIS_SUCCESS) {
-            DorisMetrics::instance()->report_disk_requests_failed->increment(1);
-            LOG(WARNING) << "report disk state failed. status: " << status
-                         << ", master host: " << _master_info.network_address.hostname
-                         << ", port: " << _master_info.network_address.port;
-        } else {
-            LOG(INFO) << "finish report disk state. master host: "
-                      << _master_info.network_address.hostname
-                      << ", port: " << _master_info.network_address.port;
-        }
+        _handle_report(request, ReportType::DISK);
     }
     StorageEngine::instance()->deregister_report_listener(this);
 }
@@ -1185,12 +1157,12 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
         }
 
         request.tablets.clear();
-        OLAPStatus report_all_tablets_info_status =
-                StorageEngine::instance()->tablet_manager()->report_all_tablets_info(
+        OLAPStatus build_all_report_tablets_info_status =
+                StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
                         &request.tablets);
-        if (report_all_tablets_info_status != OLAP_SUCCESS) {
-            LOG(WARNING) << "report get all tablets info failed. status: "
-                         << report_all_tablets_info_status;
+        if (build_all_report_tablets_info_status != OLAP_SUCCESS) {
+            LOG(WARNING) << "build all report tablets info failed. status: "
+                         << build_all_report_tablets_info_status;
             continue;
         }
         int64_t max_compaction_score =
@@ -1198,19 +1170,7 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
                          DorisMetrics::instance()->tablet_base_max_compaction_score->value());
         request.__set_tablet_max_compaction_score(max_compaction_score);
         request.__set_report_version(_s_report_version);
-
-        TMasterResult result;
-        AgentStatus status = _master_client->report(request, &result);
-        if (status != DORIS_SUCCESS) {
-            DorisMetrics::instance()->report_all_tablets_requests_failed->increment(1);
-            LOG(WARNING) << "report tablets failed. status: " << status
-                         << ", master host: " << _master_info.network_address.hostname
-                         << ", port:" << _master_info.network_address.port;
-        } else {
-            LOG(INFO) << "finish report tablets. master host: "
-                      << _master_info.network_address.hostname
-                      << ", port: " << _master_info.network_address.port;
-        }
+        _handle_report(request, ReportType::TABLET);
     }
     StorageEngine::instance()->deregister_report_listener(this);
 }
@@ -1564,6 +1524,54 @@ AgentStatus TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHa
     }
 
     return DORIS_SUCCESS;
+}
+
+void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
+    TMasterResult result;
+    AgentStatus status = _master_client->report(request, &result);
+    bool is_report_success = false;
+    if (status != DORIS_SUCCESS) {
+        LOG(WARNING) << "report " << TYPE_STRING(type)  << " failed. status: " << status
+                     << ", master host: " << _master_info.network_address.hostname
+                     << ", port:" << _master_info.network_address.port;
+    } else if  (result.status.status_code != TStatusCode::OK) {
+        std::stringstream ss;
+        if (!result.status.error_msgs.empty()) {
+            ss << result.status.error_msgs[0];
+            for (int i = 1; i < result.status.error_msgs.size(); i++) {
+                ss << "," << result.status.error_msgs[i];
+            }
+        }
+        LOG(WARNING) << "finish report " << TYPE_STRING(type) << " failed. status:" << result.status.status_code
+                     << ", error msg:" << ss.str();
+    } else {
+        is_report_success = true;
+        LOG(INFO) << "finish report " << TYPE_STRING(type) << ". master host: "
+                  << _master_info.network_address.hostname
+                  << ", port: " << _master_info.network_address.port;
+    }
+    switch (type) {
+    case TASK:
+        DorisMetrics::instance()->report_task_requests_total->increment(1);
+        if (!is_report_success) {
+            DorisMetrics::instance()->report_task_requests_failed->increment(1);
+        }
+        break;
+    case DISK:
+        DorisMetrics::instance()->report_disk_requests_total->increment(1);
+        if (!is_report_success) {
+            DorisMetrics::instance()->report_disk_requests_failed->increment(1);
+        }
+        break;
+    case TABLET:
+        DorisMetrics::instance()->report_tablet_requests_total->increment(1);
+        if (!is_report_success) {
+            DorisMetrics::instance()->report_tablet_requests_failed->increment(1);
+        }
+        break;
+    default:
+        break;
+    }
 }
 
 } // namespace doris

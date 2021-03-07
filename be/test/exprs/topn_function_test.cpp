@@ -113,7 +113,7 @@ void test_topn_accuracy(FunctionContext* ctx, int key_space, int space_expand_ra
     std::uniform_int_distribution<> dist(0, PARALLEL-1);
     for (uint32_t i = 0; i < TOTAL_RECORDS; ++i) {
         // generate zipf_distribution
-        uint32_t index = zf(gen);
+        uint32_t index = zf(gen) - 1;
         // choose one single topn to update
         topn_single(ctx, random_strs[index], single_dst_str[dist(random_gen)], accuracy_map);
     }

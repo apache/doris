@@ -501,8 +501,11 @@ else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
 
+add_subdirectory(${SRC_DIR}/glibc-compatibility)
+
 set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    -lrt -lbfd -liberty -lc -lm -ldl -pthread
+    -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
+    glibc-compatibility
 )
 
 # Set libraries for test
