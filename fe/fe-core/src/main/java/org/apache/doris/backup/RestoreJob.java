@@ -71,6 +71,9 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -81,9 +84,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
 import com.google.common.collect.Table.Cell;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -622,8 +622,7 @@ public class RestoreJob extends AbstractJob {
                     Set<String> allPartNames = remoteOlapTbl.getPartitionNames();
                     for (String partName : allPartNames) {
                         if (!tblInfo.containsPart(partName)) {
-                            remoteOlapTbl.dropPartition(-1 /* db id is useless here */, partName,
-                                    true /* act like replay to disable recycle bin action */);
+                            remoteOlapTbl.dropPartitionAndReserveTablet(partName);
                         }
                     }
 
@@ -1567,7 +1566,7 @@ public class RestoreJob extends AbstractJob {
                         restoreTbl.getName(), entry.second.getName());
                 restoreTbl.writeLock();
                 try {
-                    restoreTbl.dropPartition(dbId, entry.second.getName(), true /* is restore */);
+                    restoreTbl.dropPartition(dbId, entry.second.getName(), true /* force drop */);
                 } finally {
                     restoreTbl.writeUnlock();
                 }
