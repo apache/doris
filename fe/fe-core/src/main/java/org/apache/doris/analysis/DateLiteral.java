@@ -144,6 +144,8 @@ public class DateLiteral extends LiteralExpr {
 
     //Regex used to determine if the TIME field exists int date_format
     private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsTp]+.*$");
+    // max length of datetime string
+    int MAX_DATETIME_VALUE_LENGTH = new String("yyyy-MM-dd hh:mm:ss").length();
     //Date Literal persist type in meta
     private enum  DateLiteralType {
         DATETIME(0),
@@ -255,8 +257,8 @@ public class DateLiteral extends LiteralExpr {
     private void init(String s, Type type) throws AnalysisException {
         // if s contains micro seconds, split it and only maintain second part
         // because BE only save a datetime with second part
-        if (s.length() > 19) {
-            s = s.substring(0, 19);
+        if (s.length() > MAX_DATETIME_VALUE_LENGTH) {
+            s = s.substring(0, MAX_DATETIME_VALUE_LENGTH);
         }
         try {
             Preconditions.checkArgument(type.isDateType());

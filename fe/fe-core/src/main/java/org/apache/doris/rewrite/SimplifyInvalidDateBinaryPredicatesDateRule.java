@@ -21,12 +21,16 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.common.AnalysisException;
 
 /**
  * this rule try to convert date expression, if date is invalid, it will be
- * converted into bool literal to avoid to scan all partitions
+ * converted into null literal to avoid to scan all partitions
+ * In Classs DateLiteral, FE uses joda time library to parse a date value.
+ * FE only supports 'yyyy-MM-dd hh:mm:ss' && 'yyyy-MM-dd' && 'yyyyMMdd'format,
+ * so if FE unchecked cast fail,
+ * it also builds CastExpr for BE. Therefore, if a Expr is CastExpr, it should be invalid date value.
  * Examples:
  * date = "2020-10-32" => FALSE
  */
@@ -43,7 +47,7 @@ public class SimplifyInvalidDateBinaryPredicatesDateRule implements ExprRewriteR
         Expr valueExpr = expr.getChild(1);
         if(valueExpr.getType().isDateType() && valueExpr.isConstant()
                 && valueExpr instanceof CastExpr) {
-            return new BoolLiteral(false);
+            return new NullLiteral();
         }
         return expr;
     }
