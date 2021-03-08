@@ -15,18 +15,11 @@
 # specific language governing permissions and limitations
 # under the License.
 
-FROM centos:centos7.5.1804
+FROM centos:centos7.5.1804 AS builder
 
 LABEL maintainer=tangxiaoqing214445
 
 ENV DEFAULT_DIR /var/local
-
-# install nodejs
-COPY ./node-v14.8.0-linux-x64.tar.xz /tmp/
-RUN tar xf /tmp/node-v14.8.0-linux-x64.tar.xz -C ${DEFAULT_DIR}/ \
-    && rm /tmp/node-v14.8.0-linux-x64.tar.xz
-
-ENV PATH ${DEFAULT_DIR}/node-v14.8.0-linux-x64/bin:$PATH
 
 ARG GCC_VERSION=7.3.0
 ARG GCC_URL=https://mirrors.ustc.edu.cn/gnu/gcc/gcc-${GCC_VERSION}
@@ -37,6 +30,9 @@ RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake l
   && yum -y clean all \
   && rm -rf /var/cache/yum \
   && mkdir -p  /var/local/gcc \
+  && curl -fsSL -o /tmp/node-v14.16.0-linux-x64.tar.xz https://nodejs.org/dist/v14.16.0/node-v14.16.0-linux-x64.tar.xz \
+  && tar xf /tmp/node-v14.16.0-linux-x64.tar.xz -C ${DEFAULT_DIR}/ \
+  && rm /tmp/node-v14.16.0-linux-x64.tar.xz
   && curl -fsSL -o /tmp/gcc.tar.gz  ${GCC_URL}/gcc-${GCC_VERSION}.tar.gz \
   && tar -xzf /tmp/gcc.tar.gz -C /var/local/gcc --strip-components=1 \
   && cd /var/local/gcc \
@@ -46,6 +42,8 @@ RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake l
   && make -j$[$(nproc)/4+1] && make install \
   && rm -rf /var/local/gcc \
   && rm -f /tmp/gcc.tar.gz
+
+ENV PATH ${DEFAULT_DIR}/node-v14.16.0-linux-x64/bin:$PATH
 
 # build cmake
 ARG CMAKE_VERSION=3.12.3
@@ -61,7 +59,8 @@ RUN mkdir -p /tmp/cmake && curl -fsSL -o /tmp/cmake.tar.gz ${CMAKE_DOWNLOAD_URL}
 
 # install jdk
 COPY ./jdk.rpm ./
-RUN touch  ${DEFAULT_DIR}/install_jdk.sh \
+RUN wget --no-cookies --no-check-certificate --header "Cookie: oraclelicense=accept-securebackup-cookie" https://javadl.oracle.com/webapps/download/GetFile/1.8.0_281-b09/89d678f2be164786b292527658ca1605/linux-i586/jdk-8u281-linux-x64.rpm -O jdk.rpm \
+    && touch  ${DEFAULT_DIR}/install_jdk.sh \
     && echo '#!/bin/bash' >> ${DEFAULT_DIR}/install_jdk.sh \
     && echo 'rpm -Uvh jdk.rpm > /dev/null 2>&1' >>  ${DEFAULT_DIR}/install_jdk.sh \
     && echo 'mv /usr/java/jdk* /usr/java/jdk' >>  ${DEFAULT_DIR}/install_jdk.sh \
@@ -107,5 +106,13 @@ RUN cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.s
     && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/ \
     && rm -rf ${DEFAULT_DIR}/incubator-doris
 
+FROM scratch
+COPY --from=builder / /
+
+ENV DEFAULT_DIR /var/local
+ENV PATH ${DEFAULT_DIR}/node-v14.8.0-linux-x64/bin:$PATH
+ENV JAVA_HOME /usr/java/jdk
+ENV MAVEN_HOME /usr/share/maven
 ENV DORIS_THIRDPARTY /var/local/thirdparty
 WORKDIR /root
+CMD ["/bin/bash"]

@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-FROM centos:7
+FROM centos:7 AS builder
 
 # install gcc-10 repo
 RUN echo $'\
@@ -95,5 +95,23 @@ RUN cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.s
     && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/ \
     && rm -rf ${DEFAULT_DIR}/incubator-doris
 
+
+FROM scratch
+
+COPY --from=builder / /
+ENV JAVA_HOME="/usr/lib/jvm/java-11"
+ENV MAVEN_HOME /usr/share/maven
+
+ENV BASH_ENV=/opt/rh/devtoolset-10/enable  \
+    ENV=/opt/rh/devtoolset-10/enable  \
+    PROMPT_COMMAND=". /opt/rh/devtoolset-10/enable"
+
+ENV REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+ENV DEFAULT_DIR /var/local
+
+
 ENV DORIS_THIRDPARTY /var/local/thirdparty
 WORKDIR /root
+
+CMD ["/bin/bash"]
+~
