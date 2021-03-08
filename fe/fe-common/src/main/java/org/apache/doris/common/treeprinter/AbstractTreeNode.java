@@ -43,10 +43,10 @@ public abstract class AbstractTreeNode implements TreeNode {
 
     @Override
     public boolean equals(Object obj) {
-        if (!(obj instanceof AbstractTreeNodeDecorator)) {
+        if (!(obj instanceof AbstractTreeNode)) {
             return false;
         }
-        return this.getContent().equals(((AbstractTreeNodeDecorator) obj).getContent());
+        return this.getContent().equals(((AbstractTreeNode) obj).getContent());
     }
 
     @Override
