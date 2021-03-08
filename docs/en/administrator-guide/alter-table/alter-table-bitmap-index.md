@@ -42,7 +42,7 @@ create/drop index syntax
 
     Please refer to [CREATE INDEX](../../sql-reference/sql-statements/Data%20Definition/CREATE%20INDEX.html) 
     or [ALTER TABLE](../../sql-reference/sql-statements/Data%20Definition/ALTER%20TABLE.html),
-    You can also specify a bitmap index when creating a table，Please refer to [CREATE TABLE](../../sql-reference/sql-statements/Data%20Definition/CREATE%20TABLE.html)
+    You can also specify a bitmap index when creating a table, Please refer to [CREATE TABLE](../../sql-reference/sql-statements/Data%20Definition/CREATE%20TABLE.html)
 
 2. Show Index
 

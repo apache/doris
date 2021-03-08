@@ -192,15 +192,15 @@ public class PartitionInfo implements Writable {
         buff.append("type: ").append(type.typeString).append("; ");
 
         for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
-            buff.append(entry.getKey()).append("is HDD: ");;
+            buff.append(entry.getKey()).append(" is HDD: ");
             if (entry.getValue().equals(new DataProperty(TStorageMedium.HDD))) {
                 buff.append(true);
             } else {
                 buff.append(false);
-
             }
-            buff.append("data_property: ").append(entry.getValue().toString());
-            buff.append("replica number: ").append(idToReplicationNum.get(entry.getKey()));
+            buff.append("; ");
+            buff.append("data_property: ").append(entry.getValue().toString()).append("; ");;
+            buff.append("replica number: ").append(idToReplicationNum.get(entry.getKey())).append("; ");;
             buff.append("in memory: ").append(idToInMemory.get(entry.getKey()));
         }
 

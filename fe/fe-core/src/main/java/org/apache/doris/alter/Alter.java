@@ -230,16 +230,6 @@ public class Alter {
         List<AlterClause> alterClauses = Lists.newArrayList();
         // some operations will take long time to process, need to be done outside the table lock
         boolean needProcessOutsideTableLock = false;
-
-        // check conflict alter ops first
-        AlterOperations currentAlterOps = new AlterOperations();
-        currentAlterOps.checkConflict(alterClauses);
-        // check cluster capacity and db quota outside table lock to escape dead lock, only need to check once.
-        if (currentAlterOps.needCheckCapacity()) {
-            Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
-            db.checkQuota();
-        }
-
         switch (table.getType()) {
             case OLAP:
                 OlapTable olapTable = (OlapTable) table;

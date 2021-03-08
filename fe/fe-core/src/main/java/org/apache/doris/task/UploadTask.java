@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResourceInfo;
@@ -32,14 +33,17 @@ public class UploadTask extends AgentTask {
     private Map<String, String> srcToDestPath;
     private FsBroker broker;
     private Map<String, String> brokerProperties;
+    private StorageBackend.StorageType storageType;
 
     public UploadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, Long dbId,
-            Map<String, String> srcToDestPath, FsBroker broker, Map<String, String> brokerProperties) {
+            Map<String, String> srcToDestPath, FsBroker broker, Map<String, String> brokerProperties,
+            StorageBackend.StorageType storageType) {
         super(resourceInfo, backendId, TTaskType.UPLOAD, dbId, -1, -1, -1, -1, signature);
         this.jobId = jobId;
         this.srcToDestPath = srcToDestPath;
         this.broker = broker;
         this.brokerProperties = brokerProperties;
+        this.storageType = storageType;
     }
 
     public long getJobId() {
@@ -62,6 +66,7 @@ public class UploadTask extends AgentTask {
         TNetworkAddress address = new TNetworkAddress(broker.ip, broker.port);
         TUploadReq request = new TUploadReq(jobId, srcToDestPath, address);
         request.setBrokerProp(brokerProperties);
+        request.setStorageBackend(storageType.toThrift());
         return request;
     }
 }

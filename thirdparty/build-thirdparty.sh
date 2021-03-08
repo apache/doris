@@ -398,7 +398,7 @@ build_curl() {
     LDFLAGS="-L${TP_LIB_DIR}" LIBS="-lcrypto -lssl -lcrypto -ldl" \
     CFLAGS="-fPIC" \
     ./configure --prefix=$TP_INSTALL_DIR --disable-shared --enable-static \
-    --without-librtmp --with-ssl=${TP_INSTALL_DIR} --without-libidn2 --disable-ldap --enable-ipv6
+    --without-librtmp --without-libssh2 --without-nghttp2 --with-ssl=${TP_INSTALL_DIR} --without-libidn2 --disable-ldap --enable-ipv6
     make -j$PARALLEL && make install
 }
 
@@ -813,13 +813,13 @@ build_croaringbitmap
 build_orc
 build_cctz
 build_tsan_header
-# build_aws_c_common
-# build_aws_s2n
-# build_aws_c_cal
-# build_aws_c_io
-# build_aws_checksums
-# build_aws_c_event_stream
-# build_aws_sdk
+build_aws_c_common
+build_aws_s2n
+build_aws_c_cal
+build_aws_c_io
+build_aws_checksums
+build_aws_c_event_stream
+build_aws_sdk
 build_js_and_css
 
-echo "Finihsed to build all thirdparties"
+echo "Finished to build all thirdparties"

@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-cmake_minimum_required(VERSION 2.8.10)
+cmake_minimum_required(VERSION 3.12.0)
 
 # set CMAKE_C_COMPILER, this must set before project command
 if (DEFINED ENV{DORIS_GCC_HOME})
@@ -27,6 +27,31 @@ else()
 endif()
 
 project(doris CXX C)
+
+# set platforms
+
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64")
+    set (ARCH_AMD64 1)
+endif ()
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)")
+    set (ARCH_AARCH64 1)
+endif ()
+if (ARCH_AARCH64 OR CMAKE_SYSTEM_PROCESSOR MATCHES "arm")
+    set (ARCH_ARM 1)
+endif ()
+if (CMAKE_LIBRARY_ARCHITECTURE MATCHES "i386")
+    set (ARCH_I386 1)
+endif ()
+if ((ARCH_ARM AND NOT ARCH_AARCH64) OR ARCH_I386)
+    message (FATAL_ERROR "32bit platforms are not supported")
+endif ()
+
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(ppc64le.*|PPC64LE.*)")
+    set (ARCH_PPC64LE 1)
+endif ()
+
+option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
+message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
 
 # set CMAKE_BUILD_TYPE
 if (NOT CMAKE_BUILD_TYPE)
@@ -240,29 +265,30 @@ set_target_properties(orc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/lib
 add_library(cctz STATIC IMPORTED)
 set_target_properties(cctz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcctz.a)
 
-# add_library(aws-sdk-core STATIC IMPORTED)
-# set_target_properties(aws-sdk-core PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-core.a)
+add_library(aws-sdk-core STATIC IMPORTED)
+set_target_properties(aws-sdk-core PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-core.a)
 
-# add_library(aws-sdk-s3 STATIC IMPORTED)
-# set_target_properties(aws-sdk-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-s3.a)
+add_library(aws-sdk-s3 STATIC IMPORTED)
+set_target_properties(aws-sdk-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-s3.a)
 
-# add_library(aws-c-cal STATIC IMPORTED)
-# set_target_properties(aws-c-cal PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-cal.a)
+add_library(aws-c-cal STATIC IMPORTED)
+set_target_properties(aws-c-cal PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-cal.a)
 
-# add_library(aws-c-common STATIC IMPORTED)
-# set_target_properties(aws-c-common PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-common.a)
+add_library(aws-c-common STATIC IMPORTED)
+set_target_properties(aws-c-common PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-common.a)
 
-# add_library(aws-c-event-stream STATIC IMPORTED)
-# set_target_properties(aws-c-event-stream PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-event-stream.a)
+add_library(aws-c-event-stream STATIC IMPORTED)
+set_target_properties(aws-c-event-stream PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-event-stream.a)
 
-# add_library(aws-c-io STATIC IMPORTED)
-# set_target_properties(aws-c-io PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-io.a)
+add_library(aws-c-io STATIC IMPORTED)
+set_target_properties(aws-c-io PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-io.a)
 
-# add_library(aws-checksums STATIC IMPORTED)
-# set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-checksums.a)
+add_library(aws-checksums STATIC IMPORTED)
+set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-checksums.a)
 
-# add_library(aws-s2n STATIC IMPORTED)
-# set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
+add_library(aws-s2n STATIC IMPORTED)
+set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
+
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
@@ -387,7 +413,7 @@ include_directories(
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
 
-# set(AWS_LIBS aws-sdk-s3 aws-sdk-core aws-checksums aws-c-io aws-c-event-stream aws-c-common aws-c-cal aws-s2n)
+set(AWS_LIBS aws-sdk-s3 aws-sdk-core aws-checksums aws-c-io aws-c-event-stream aws-c-common aws-c-cal aws-s2n)
 
 # Set Palo libraries
 set(DORIS_LINK_LIBS
@@ -454,7 +480,7 @@ set(DORIS_DEPENDENCIES
     orc
     odbc
     cctz
-    # ${AWS_LIBS}
+    ${AWS_LIBS}
     ${WL_END_GROUP}
 )
 
@@ -501,8 +527,13 @@ else()
 endif()
 
 set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    -lrt -lbfd -liberty -lc -lm -ldl -pthread
+    -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
 )
+
+if (GLIBC_COMPATIBILITY)
+    add_subdirectory(${SRC_DIR}/glibc-compatibility)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} glibc-compatibility)
+endif()
 
 # Set libraries for test
 set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}

@@ -27,6 +27,7 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -211,7 +212,11 @@ public class ExportJob implements Writable {
 
     private void genExecFragment() throws UserException {
         registerToDesc();
-        String tmpExportPathStr = getExportPath() + "/__doris_export_tmp_" + id + "/";
+        String tmpExportPathStr = getExportPath();
+        // broker will upload file to tp path and than rename to the final file
+        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
+            tmpExportPathStr = tmpExportPathStr + "/__doris_export_tmp_" + id + "/";
+        }
         try {
             URI uri = new URI(tmpExportPathStr);
             tmpExportPathStr = uri.normalize().toString();

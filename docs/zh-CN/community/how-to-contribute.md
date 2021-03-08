@@ -47,7 +47,7 @@ under the License.
 
 ## Doris 的代码和文档
 
-正如您在 [GitHub] (https://github.com/apache/incubator-doris) 上看到的，Apache Doris (incubating) 的代码库主要包括三部分：Frontend (FE), Backend (BE) 和 Broker (为了支持 HDFS 等外部存储系统上的文件读取)。文档主要是 Doris 网站和 GitHub 上的 wiki，还有运行 Doris 的时候的在线帮助手册。这些组件的详细情况参见下表：
+正如您在 [GitHub](https://github.com/apache/incubator-doris) 上看到的，Apache Doris (incubating) 的代码库主要包括三部分：Frontend (FE), Backend (BE) 和 Broker (为了支持 HDFS 等外部存储系统上的文件读取)。文档主要是 Doris 网站和 GitHub 上的 wiki，还有运行 Doris 的时候的在线帮助手册。这些组件的详细情况参见下表：
 
 | 组件名称 | 组件描述 | 相关语言 |
 |--------|----------------------------|----------|
@@ -66,7 +66,7 @@ under the License.
 
 如果您对改进文档的质量感兴趣，不论是修订一个页面的地址、更正一个链接、以及写一篇更优秀的入门文档，我们都非常欢迎！
 
-我们的文档大多数是使用 markdown 格式编写的，您可以直接通过在 [GitHub] (https://github.com/apache/incubator-doris) 中的 `docs/` 中修改并提交文档变更。如果提交代码变更，可以参阅 [Pull Request](./pull-request.md)。
+我们的文档大多数是使用 markdown 格式编写的，您可以直接通过在 [GitHub](https://github.com/apache/incubator-doris) 中的 `docs/` 中修改并提交文档变更。如果提交代码变更，可以参阅 [Pull Request](./pull-request.md)。
 
 ## 如果发现了一个 Bug 或问题
 

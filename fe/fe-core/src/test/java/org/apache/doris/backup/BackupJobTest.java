@@ -18,6 +18,7 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.analysis.BackupStmt;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.BackupJob.BackupJobState;
@@ -116,7 +117,7 @@ public class BackupJobTest {
     private EditLog editLog;
 
     private Repository repo = new Repository(repoId, "repo", false, "my_repo",
-            new BlobStorage("broker", Maps.newHashMap()));
+            BlobStorage.create("broker", StorageBackend.StorageType.BROKER, Maps.newHashMap()));
 
     @BeforeClass
     public static void start() {

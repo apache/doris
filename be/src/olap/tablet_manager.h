@@ -115,7 +115,7 @@ public:
     //        OLAP_ERR_INPUT_PARAMETER_ERROR, if tables is null
     OLAPStatus report_tablet_info(TTabletInfo* tablet_info);
 
-    OLAPStatus report_all_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
+    OLAPStatus build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
 
     OLAPStatus start_trash_sweep();
     // Prevent schema change executed concurrently.

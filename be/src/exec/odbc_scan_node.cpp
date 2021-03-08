@@ -115,7 +115,7 @@ Status OdbcScanNode::write_text_slot(char* value, int value_length, SlotDescript
     if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
                                      _tuple_pool.get())) {
         std::stringstream ss;
-        ss << "fail to convert odbc value '" << value << "' TO " << slot->type();
+		ss << "Fail to convert odbc value:'" << value << "' to " << slot->type() << " on column:`" << slot->col_name() + "`";
         return Status::InternalError(ss.str());
     }
 

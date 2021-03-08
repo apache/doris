@@ -40,7 +40,7 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 
 ## Testing FE Metadata Compatibility
 
-0. **Important! Exceptional metadata compatibility is likely to cause data can not be restored!!**
+0. **Important! Exceptional metadata compatibility is likely to cause data cannot be restored!!**
 1. Deploy a test FE process (such as your own local developer) using the new version alone.
 2. Modify the FE configuration file fe.conf for testing and set all ports to **different from online**.
 3. Add configuration in fe.conf: cluster_id=123456
