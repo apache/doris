@@ -43,7 +43,7 @@ public class EsNodeInfo {
 
     private static final Logger LOG = LogManager.getLogger(EsNodeInfo.class);
 
-    public EsNodeInfo(String id, Map<String, Object> map) {
+    public EsNodeInfo(String id, Map<String, Object> map, boolean useSslClient) {
         this.id = id;
         EsMajorVersion version = EsMajorVersion.parse((String) map.get("version"));
         this.name = (String) map.get("name");
@@ -71,7 +71,7 @@ public class EsNodeInfo {
             String address = (String) httpMap.get("publish_address");
             if (address != null) {
                 String[] scratch = address.split(":");
-                this.publishAddress = new TNetworkAddress(scratch[0], Integer.valueOf(scratch[1]));
+                this.publishAddress = new TNetworkAddress((useSslClient ? "https://" : "") + scratch[0], Integer.parseInt(scratch[1]));
                 this.hasHttp = true;
             } else {
                 this.publishAddress = null;

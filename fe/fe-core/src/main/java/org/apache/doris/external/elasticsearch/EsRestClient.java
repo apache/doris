@@ -57,12 +57,15 @@ public class EsRestClient {
         mapper.configure(SerializationConfig.Feature.USE_ANNOTATIONS, false);
     }
 
-    private OkHttpClient networkClient;
+    private static OkHttpClient networkClient;
+    
+    private static OkHttpClient sslNetworkClient;
 
     private Request.Builder builder;
     private String[] nodes;
     private String currentNode;
     private int currentNodeIndex = 0;
+    private boolean useSslClient;
 
     public EsRestClient(String[] nodes, String authUser, String authPassword, boolean useSslClient) {
         this.nodes = nodes;
@@ -72,17 +75,15 @@ public class EsRestClient {
                     Credentials.basic(authUser, authPassword));
         }
         this.currentNode = nodes[currentNodeIndex];
-        if (useSslClient) {
-            networkClient = new OkHttpClient.Builder()
-                    .readTimeout(10, TimeUnit.SECONDS)
-                    .sslSocketFactory(createSSLSocketFactory(), new TrustAllCerts())
-                    .hostnameVerifier(new TrustAllHostnameVerifier())
-                    .build();
-        } else {
-            networkClient = new OkHttpClient.Builder()
-                    .readTimeout(10, TimeUnit.SECONDS)
-                    .build();
-        }
+        this.useSslClient = useSslClient;
+        sslNetworkClient = new OkHttpClient.Builder()
+                .readTimeout(10, TimeUnit.SECONDS)
+                .sslSocketFactory(createSSLSocketFactory(), new TrustAllCerts())
+                .hostnameVerifier(new TrustAllHostnameVerifier())
+                .build();
+        networkClient = new OkHttpClient.Builder()
+                .readTimeout(10, TimeUnit.SECONDS)
+                .build();
     }
 
     private void selectNextNode() {
@@ -94,14 +95,14 @@ public class EsRestClient {
         currentNode = nodes[currentNodeIndex];
     }
 
-    public Map<String, EsNodeInfo> getHttpNodes() throws DorisEsException {
+    public Map<String, EsNodeInfo> getHttpNodes(boolean useSslClient) throws DorisEsException {
         Map<String, Map<String, Object>> nodesData = get("_nodes/http", "nodes");
         if (nodesData == null) {
             return Collections.emptyMap();
         }
         Map<String, EsNodeInfo> nodesMap = new HashMap<>();
         for (Map.Entry<String, Map<String, Object>> entry : nodesData.entrySet()) {
-            EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue());
+            EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue(), useSslClient);
             if (node.hasHttp()) {
                 nodesMap.put(node.getId(), node);
             }
@@ -169,6 +170,12 @@ public class EsRestClient {
     private String execute(String path) throws DorisEsException {
         int retrySize = nodes.length;
         DorisEsException scratchExceptionForThrow = null;
+        OkHttpClient httpClient;
+        if (useSslClient) {
+            httpClient = sslNetworkClient;
+        } else {
+            httpClient = networkClient;
+        }
         for (int i = 0; i < retrySize; i++) {
             // maybe should add HTTP schema to the address
             // actually, at this time we can only process http protocol
@@ -188,7 +195,7 @@ public class EsRestClient {
                 LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
             }
             try {
-                response = networkClient.newCall(request).execute();
+                response = httpClient.newCall(request).execute();
                 if (response.isSuccessful()) {
                     return response.body().string();
                 }

@@ -39,7 +39,7 @@ public class PartitionPhase implements SearchPhase {
     public void execute(SearchContext context) throws DorisEsException {
         shardPartitions = client.searchShards(context.sourceIndex());
         if (context.esNodesDiscovery()) {
-            nodesInfo = client.getHttpNodes();
+            nodesInfo = client.getHttpNodes(context.esTable().isEsNetSsl());
         } else {
             nodesInfo = new HashMap<>();
             String[] seeds = context.esTable().getSeeds();
