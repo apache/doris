@@ -135,7 +135,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableSpilling = false;
 
     @VariableMgr.VarAttr(name = ENABLE_EXCHANGE_NODE_PARALLEL_MERGE)
-    public boolean enableExchangeNodeParallelMerge = true;
+    public boolean enableExchangeNodeParallelMerge = false;
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
