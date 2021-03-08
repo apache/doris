@@ -3780,6 +3780,9 @@ public class Catalog {
                     // so we should remove the tableId here
                     getColocateTableIndex().removeTable(tableId);
                 }
+                for (Long tabletId : tabletIdSet) {
+                    Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
+                }
                 LOG.info("duplicate create table[{};{}], skip next steps", tableName, tableId);
             } else {
                 // we have added these index to memory, only need to persist here
