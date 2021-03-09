@@ -71,7 +71,7 @@ under the License.
         "password" = "password"
         );
 
-    4. 创建名为 s3_repo 的仓库，直接链接云存储，而不通过broker.
+    4. 创建名为 s3_repo 的仓库, 直接链接云存储, 而不通过broker.
         CREATE REPOSITORY `s3_repo`
         WITH S3
         ON LOCATION "s3://s3-repo"

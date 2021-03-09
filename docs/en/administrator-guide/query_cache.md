@@ -84,7 +84,7 @@ If multiple tables are joined, the latest partition ID and the latest version nu
 
 ### 2 `partition_cache`
 
-1. SQL can be split in parallel，Q = Q1 ∪ Q2 ... ∪ Qn，R= R1 ∪ R2 ... ∪ Rn，Q is the query statement and R is the result set
+1. SQL can be split in parallel, Q = Q1 ∪ Q2 ... ∪ Qn, R= R1 ∪ R2 ... ∪ Rn, Q is the query statement and R is the result set
 2. Split into read-only partition and updatable partition, read-only partition cache, update partition not cache
 
 ## 5 usage

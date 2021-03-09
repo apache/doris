@@ -81,7 +81,7 @@ The following shows how the two resources are used.
 
 ##### Spark Parameters:
 
-`spark.master`: required, currently supported yarn，spark://host:port.
+`spark.master`: required, currently supported yarn, spark://host:port.
 
 `spark.submit.deployMode`: The deployment mode of spark. required. It supports cluster and client.
 
