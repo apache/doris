@@ -161,6 +161,11 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     Controls whether the [Colocation Join](./colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
     
+
+* `enable_bucket_shuffle_join`
+
+    Controls whether the [Bucket Shuffle Join] (./bucket-shuffle-join.md) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
+
 * `disable_streaming_preaggregations`
 
     Controls whether streaming pre-aggregation is turned on. The default is false, which is enabled. Currently not configurable and enabled by default.

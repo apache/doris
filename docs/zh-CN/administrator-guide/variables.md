@@ -160,6 +160,10 @@ SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
 * `disable_colocate_join`
 
     控制是否启用 [Colocation Join](./colocation-join.md) 功能。默认为 false，表示启用该功能。true 表示禁用该功能。当该功能被禁用后，查询规划将不会尝试执行 Colocation Join。
+
+* `enable_bucket_shuffle_join`
+
+    控制是否启用 [Bucket Shuffle Join](./bucket-shuffle-join.md) 功能。默认为 true，表示启用该功能。false 表示禁用该功能。当该功能被禁用后，查询规划将不会尝试执行 Bucket Shuffle Join。
     
 * `disable_streaming_preaggregations`
 
