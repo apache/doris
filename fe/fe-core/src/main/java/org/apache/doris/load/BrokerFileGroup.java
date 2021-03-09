@@ -17,7 +17,7 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.ColumnSeparator;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
@@ -110,8 +110,8 @@ public class BrokerFileGroup implements Writable {
     // Used for broker table, no need to parse
     public BrokerFileGroup(BrokerTable table) throws AnalysisException {
         this.tableId = table.getId();
-        this.valueSeparator = ColumnSeparator.convertSeparator(table.getColumnSeparator());
-        this.lineDelimiter = table.getLineDelimiter();
+        this.valueSeparator = Separator.convertSeparator(table.getColumnSeparator());
+        this.lineDelimiter = Separator.convertSeparator(table.getLineDelimiter());
         this.isNegative = false;
         this.filePaths = table.getPaths();
         this.fileFormat = table.getFileFormat();

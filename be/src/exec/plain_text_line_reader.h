@@ -29,7 +29,8 @@ class Status;
 class PlainTextLineReader : public LineReader {
 public:
     PlainTextLineReader(RuntimeProfile* profile, FileReader* file_reader,
-                        Decompressor* decompressor, size_t length, uint8_t line_delimiter);
+                        Decompressor* decompressor, size_t length,
+                        const std::string& line_delimiter, size_t line_delimiter_length);
 
     virtual ~PlainTextLineReader();
 
@@ -61,7 +62,8 @@ private:
     Decompressor* _decompressor;
     size_t _min_length;
     size_t _total_read_bytes;
-    uint8_t _line_delimiter;
+    std::string _line_delimiter;
+    size_t _line_delimiter_length;
 
     // save the data read from file reader
     uint8_t* _input_buf;
