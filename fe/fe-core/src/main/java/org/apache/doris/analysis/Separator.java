@@ -23,18 +23,18 @@ import com.google.common.base.Strings;
 
 import java.io.StringWriter;
 
-public class ColumnSeparator implements ParseNode {
+public class Separator implements ParseNode {
     private static final String HEX_STRING = "0123456789ABCDEF";
 
     private final String oriSeparator;
     private String separator;
 
-    public ColumnSeparator(String separator) {
+    public Separator(String separator) {
         this.oriSeparator = separator;
         this.separator = null;
     }
 
-    public String getColumnSeparator() {
+    public String getSeparator() {
         return separator;
     }
 
@@ -69,7 +69,8 @@ public class ColumnSeparator implements ParseNode {
         }
 
         if (originStr.toUpperCase().startsWith("\\X")) {
-            String hexStr = originStr.substring(2);
+            // convert \x01\x02\x0a to 01020a
+            String hexStr = originStr.replaceAll("(?i)\\\\X", "");
             // check hex str
             if (hexStr.isEmpty()) {
                 throw new AnalysisException("Hex str is empty");
