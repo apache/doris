@@ -46,8 +46,6 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.doris.analysis.OutFileClause.LOCAL_FILE_PREFIX;
-
 // EXPORT statement, export data to dirs by broker.
 //
 // syntax:
@@ -251,9 +249,9 @@ public class ExportStmt extends StatementBase {
             } else if (type == StorageBackend.StorageType.LOCAL) {
                 if (schema != null && !schema.equalsIgnoreCase("file")) {
                     throw new AnalysisException("Invalid export path. please use valid '"
-                            + LOCAL_FILE_PREFIX + "' path.");
+                            + OutFileClause.LOCAL_FILE_PREFIX + "' path.");
                 }
-                path = path.substring(LOCAL_FILE_PREFIX.length() - 1);
+                path = path.substring(OutFileClause.LOCAL_FILE_PREFIX.length() - 1);
             }
         } catch (URISyntaxException e) {
             throw new AnalysisException("Invalid path format. " + e.getMessage());

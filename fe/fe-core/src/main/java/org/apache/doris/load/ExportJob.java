@@ -25,6 +25,7 @@ import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
@@ -98,8 +99,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.apache.doris.analysis.OutFileClause.LOCAL_FILE_PREFIX;
 
 // NOTE: we must be carefully if we send next request
 //       as soon as receiving one instance's report from one BE,
@@ -483,7 +482,7 @@ public class ExportJob implements Writable {
     public String getShowExportPath() {
         if (brokerDesc.getFileType() == TFileType.FILE_LOCAL) {
             StringBuilder sb = new StringBuilder();
-            sb.append(LOCAL_FILE_PREFIX.substring(0, LOCAL_FILE_PREFIX.length() - 1));
+            sb.append(OutFileClause.LOCAL_FILE_PREFIX.substring(0, OutFileClause.LOCAL_FILE_PREFIX.length() - 1));
             sb.append(exportPath);
             return sb.toString();
         }
