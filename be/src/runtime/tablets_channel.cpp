@@ -260,7 +260,6 @@ Status TabletsChannel::cancel() {
     for (auto& it : _tablet_writers) {
         it.second->cancel();
     }
-    DCHECK_EQ(_mem_tracker->consumption(), 0);
     _state = kFinished;
     return Status::OK();
 }
