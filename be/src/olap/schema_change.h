@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_OLAP_SCHEMA_CHANGE_H
 
 #include <deque>
+#include <functional>
 #include <queue>
 #include <vector>
 
@@ -245,6 +246,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeHandler);
 };
 
+using RowBlockDeleter = std::function<void(RowBlock*)>;
 } // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_SCHEMA_CHANGE_H
