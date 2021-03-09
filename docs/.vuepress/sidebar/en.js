@@ -172,6 +172,7 @@ module.exports = [
       "backup-restore",
       "broker",
       "colocation-join",
+      "bucket-shuffle-join",
       "dynamic-partition",
       "export-manual",
       "outfile",
