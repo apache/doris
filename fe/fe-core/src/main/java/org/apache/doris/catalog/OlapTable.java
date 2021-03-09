@@ -667,7 +667,15 @@ public class OlapTable extends Table {
         nameToPartition.put(partition.getName(), partition);
     }
 
-    public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop) {
+    // This is a private methid.
+    // Call public "dropPartitionAndReserveTablet" and "dropPartition"
+    private Partition dropPartition(long dbId, String partitionName, boolean isForceDrop, boolean reserveTablets) {
+        // 1. If "isForceDrop" is false, the partition will be added to the Catalog Recyle bin, and all tablets of this
+        //    partition will not be deleted.
+        // 2. If "ifForceDrop" is true, the partition will be dropped the immediately, but whether to drop the tablets
+        //    of this partition depends on "reserveTablets"
+        //    If "reserveTablets" is true, the tablets of this partition will not to deleted.
+        //    Otherwise, the tablets of this partition will be deleted immediately.
         Partition partition = nameToPartition.get(partitionName);
         if (partition != null) {
             idToPartition.remove(partition.getId());
@@ -675,15 +683,15 @@ public class OlapTable extends Table {
 
             Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE);
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-            
+
             if (!isForceDrop) {
                 // recycle partition
                 Catalog.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
-                                          rangePartitionInfo.getRange(partition.getId()),
-                                          rangePartitionInfo.getDataProperty(partition.getId()),
-                                          rangePartitionInfo.getReplicationNum(partition.getId()),
-                                          rangePartitionInfo.getIsInMemory(partition.getId()));
-            } else {
+                        rangePartitionInfo.getRange(partition.getId()),
+                        rangePartitionInfo.getDataProperty(partition.getId()),
+                        rangePartitionInfo.getReplicationNum(partition.getId()),
+                        rangePartitionInfo.getIsInMemory(partition.getId()));
+            } else if (!reserveTablets) {
                 Catalog.getCurrentCatalog().onErasePartition(partition);
             }
 
@@ -693,54 +701,58 @@ public class OlapTable extends Table {
         return partition;
     }
 
-    public Partition dropPartitionForBackup(String partitionName) {
-        return dropPartition(-1, partitionName, true);
+    public Partition dropPartitionAndReserveTablet(String partitionName) {
+        return dropPartition(-1, partitionName, true, true);
+    }
+
+    public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop) {
+        return dropPartition(dbId, partitionName, isForceDrop, !isForceDrop);
     }
 
     /*
      * A table may contain both formal and temporary partitions.
      * There are several methods to get the partition of a table.
      * Typically divided into two categories:
-     * 
+     *
      * 1. Get partition by id
      * 2. Get partition by name
-     * 
+     *
      * According to different requirements, the caller may want to obtain
      * a formal partition or a temporary partition. These methods are
      * described below in order to obtain the partition by using the correct method.
-     * 
+     *
      * 1. Get by name
-     * 
+     *
      * This type of request usually comes from a user with partition names. Such as
      * `select * from tbl partition(p1);`.
      * This type of request has clear information to indicate whether to obtain a
      * formal or temporary partition.
      * Therefore, we need to get the partition through this method:
-     * 
+     *
      * `getPartition(String partitionName, boolean isTemp)`
-     * 
+     *
      * To avoid modifying too much code, we leave the `getPartition(String
      * partitionName)`, which is same as:
-     * 
+     *
      * `getPartition(partitionName, false)`
-     * 
+     *
      * 2. Get by id
-     * 
+     *
      * This type of request usually means that the previous step has obtained
      * certain partition ids in some way,
      * so we only need to get the corresponding partition through this method:
-     * 
+     *
      * `getPartition(long partitionId)`.
-     * 
+     *
      * This method will try to get both formal partitions and temporary partitions.
-     * 
+     *
      * 3. Get all partition instances
-     * 
+     *
      * Depending on the requirements, the caller may want to obtain all formal
      * partitions,
      * all temporary partitions, or all partitions. Therefore we provide 3 methods,
      * the caller chooses according to needs.
-     * 
+     *
      * `getPartitions()`
      * `getTempPartitions()`
      * `getAllPartitions()`
@@ -1248,7 +1260,7 @@ public class OlapTable extends Table {
         
         for (String partName : partNames) {
             if (!reservedPartitions.contains(partName)) {
-                copied.dropPartitionForBackup(partName);
+                copied.dropPartitionAndReserveTablet(partName);
             }
         }
         
@@ -1555,10 +1567,9 @@ public class OlapTable extends Table {
         
         // begin to replace
         // 1. drop old partitions
-        List<Partition> droppedPartitions = Lists.newArrayList();
         for (String partitionName : partitionNames) {
-            Partition partition = dropPartition(-1, partitionName, true);
-            droppedPartitions.add(partition);
+            // This will also drop all tablets of the partition from TabletInvertedIndex
+            dropPartition(-1, partitionName, true);
         }
 
         // 2. add temp partitions' range info to rangeInfo, and remove them from tempPartitionInfo
@@ -1570,15 +1581,6 @@ public class OlapTable extends Table {
             tempPartitions.dropPartition(partitionName, false);
             // move the range from idToTempRange to idToRange
             rangeInfo.moveRangeFromTempToFormal(partition.getId());
-        }
-
-        // 3. delete old partition's tablets in inverted index
-        for (Partition partition : droppedPartitions) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                for (Tablet tablet : index.getTablets()) {
-                    Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
-                }
-            }
         }
 
         // change the name so that after replacing, the partition name remain unchanged

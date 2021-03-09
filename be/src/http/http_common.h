@@ -28,6 +28,7 @@ static const std::string HTTP_FORMAT_KEY = "format";
 static const std::string HTTP_COLUMNS = "columns";
 static const std::string HTTP_WHERE = "where";
 static const std::string HTTP_COLUMN_SEPARATOR = "column_separator";
+static const std::string HTTP_LINE_DELIMITER = "line_delimiter";
 static const std::string HTTP_MAX_FILTER_RATIO = "max_filter_ratio";
 static const std::string HTTP_TIMEOUT = "timeout";
 static const std::string HTTP_PARTITIONS = "partitions";

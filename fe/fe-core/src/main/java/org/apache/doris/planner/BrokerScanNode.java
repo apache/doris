@@ -200,6 +200,10 @@ public class BrokerScanNode extends LoadScanNode {
         BrokerFileGroup fileGroup = context.fileGroup;
         params.setColumnSeparator(fileGroup.getValueSeparator().getBytes(Charset.forName("UTF-8"))[0]);
         params.setLineDelimiter(fileGroup.getLineDelimiter().getBytes(Charset.forName("UTF-8"))[0]);
+        params.setColumnSeparatorStr(fileGroup.getValueSeparator());
+        params.setLineDelimiterStr(fileGroup.getLineDelimiter());
+        params.setColumnSeparatorLength(fileGroup.getValueSeparator().getBytes(Charset.forName("UTF-8")).length);
+        params.setLineDelimiterLength(fileGroup.getLineDelimiter().getBytes(Charset.forName("UTF-8")).length);
         params.setStrictMode(strictMode);
         params.setProperties(brokerDesc.getProperties());
         deleteCondition = fileGroup.getDeleteCondition();

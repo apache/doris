@@ -26,4 +26,4 @@ add_library(Test_util STATIC
     ${TEST_UTIL_FILES}
 )
 
-target_link_libraries(Test_util Gutil glog gflags)
+target_link_libraries(Test_util Common Util Gutil ${Boost_LIBRARIES} glog gflags protobuf)

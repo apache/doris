@@ -38,7 +38,7 @@ Welcome to provide better dashboard.
 
 ## Components
 
-Doris uses [Prometheus] (https://prometheus.io/) and [Grafana] (https://grafana.com/) to collect and display input monitoring items.
+Doris uses [Prometheus](https://prometheus.io/) and [Grafana](https://grafana.com/) to collect and display input monitoring items.
 
 ![](/images/dashboard_overview.png)
 
@@ -102,7 +102,7 @@ Users will see the following monitoring item results (for example, FE partial mo
     ...
     ```
     
-This is a monitoring data presented in [Prometheus Format] (https://prometheus.io/docs/practices/naming/). We take one of these monitoring items as an example to illustrate:
+This is a monitoring data presented in [Prometheus Format](https://prometheus.io/docs/practices/naming/). We take one of these monitoring items as an example to illustrate:
 
 ```
 # HELP  jvm_heap_size_bytes jvm heap stat
@@ -112,7 +112,7 @@ jvm_heap_size_bytes{type="committed"} 19785285632
 jvm_heap_size_bytes{type="used"} 10113221064
 ```
 
-1. Behavior commentary line at the beginning of "#". HELP is the description of the monitored item; TYPE represents the data type of the monitored item, and Gauge is the scalar data in the example. There are also Counter, Histogram and other data types. Specifically, you can see [Prometheus Official Document] (https://prometheus.io/docs/practices/instrumentation/#counter-vs.-gauge,-summary-vs.-histogram).
+1. Behavior commentary line at the beginning of "#". HELP is the description of the monitored item; TYPE represents the data type of the monitored item, and Gauge is the scalar data in the example. There are also Counter, Histogram and other data types. Specifically, you can see [Prometheus Official Document](https://prometheus.io/docs/practices/instrumentation/#counter-vs.-gauge,-summary-vs.-histogram).
 2. `jvm_heap_size_bytes` is the name of the monitored item (Key); `type= "max"` is a label named `type`, with a value of `max`. A monitoring item can have multiple Labels.
 3. The final number, such as `41661235200`, is the monitored value.
 
@@ -122,8 +122,8 @@ The entire monitoring architecture is shown in the following figure:
 
 ![](/images/monitor_arch.png)
 
-1. The yellow part is Prometheus related components. Prometheus Server is the main process of Prometheus. At present, Prometheus accesses the monitoring interface of Doris node by Pull, and then stores the time series data in the time series database TSDB (TSDB is included in the Prometheus process, and need not be deployed separately). Prometheus also supports building [Push Gateway] (https://github.com/prometheus/pushgateway) to allow monitored data to be pushed to Push Gateway by Push by monitoring system, and then data from Push Gateway by Prometheus Server through Pull.
-2. [Alert Manager] (https://github.com/prometheus/alertmanager) is a Prometheus alarm component, which needs to be deployed separately (no solution is provided yet, but can be built by referring to official documents). Through Alert Manager, users can configure alarm strategy, receive mail, short messages and other alarms.
+1. The yellow part is Prometheus related components. Prometheus Server is the main process of Prometheus. At present, Prometheus accesses the monitoring interface of Doris node by Pull, and then stores the time series data in the time series database TSDB (TSDB is included in the Prometheus process, and need not be deployed separately). Prometheus also supports building [Push Gateway](https://github.com/prometheus/pushgateway) to allow monitored data to be pushed to Push Gateway by Push by monitoring system, and then data from Push Gateway by Prometheus Server through Pull.
+2. [Alert Manager](https://github.com/prometheus/alertmanager) is a Prometheus alarm component, which needs to be deployed separately (no solution is provided yet, but can be built by referring to official documents). Through Alert Manager, users can configure alarm strategy, receive mail, short messages and other alarms.
 3. The green part is Grafana related components. Grafana Server is the main process of Grafana. After startup, users can configure Grafana through Web pages, including data source settings, user settings, Dashboard drawing, etc. This is also where end users view monitoring data.
 
 
@@ -133,11 +133,11 @@ Please start building the monitoring system after you have completed the deploym
 
 Prometheus
 
-1. Download the latest version of Prometheus on the [Prometheus Website] (https://prometheus.io/download/). Here we take version 2.3.2-linux-amd64 as an example.
+1. Download the latest version of Prometheus on the [Prometheus Website](https://prometheus.io/download/). Here we take version 2.3.2-linux-amd64 as an example.
 2. Unzip the downloaded tar file on the machine that is ready to run the monitoring service.
 3. Open the configuration file prometheus.yml. Here we provide an example configuration and explain it (the configuration file is in YML format, pay attention to uniform indentation and spaces):
 
-	Here we use the simplest way of static files to monitor configuration. Prometheus supports a variety of [service discovery] (https://prometheus.io/docs/prometheus/latest/configuration/configuration/), which can dynamically sense the addition and deletion of nodes.
+	Here we use the simplest way of static files to monitor configuration. Prometheus supports a variety of [service discovery](https://prometheus.io/docs/prometheus/latest/configuration/configuration/), which can dynamically sense the addition and deletion of nodes.
 
     ```
     # my global config
@@ -196,11 +196,11 @@ Prometheus
 
 	Prometheus can be easily accessed through web pages. The page of Prometheus can be accessed by opening port 8181 through browser. Click on the navigation bar, `Status` -> `Targets`, and you can see all the monitoring host nodes of the grouped Jobs. Normally, all nodes should be `UP`, indicating that data acquisition is normal. Click on an `Endpoint` to see the current monitoring value. If the node state is not UP, you can first access Doris's metrics interface (see previous article) to check whether it is accessible, or query Prometheus related documents to try to resolve.
 
-7. So far, a simple Prometheus has been built and configured. For more advanced usage, see [Official Documents] (https://prometheus.io/docs/introduction/overview/)
+7. So far, a simple Prometheus has been built and configured. For more advanced usage, see [Official Documents](https://prometheus.io/docs/introduction/overview/)
 
 ### Grafana
 
-1. Download the latest version of Grafana on [Grafana's official website] (https://grafana.com/grafana/download). Here we take version 5.2.1.linux-amd64 as an example.
+1. Download the latest version of Grafana on [Grafana's official website](https://grafana.com/grafana/download). Here we take version 5.2.1.linux-amd64 as an example.
 
 2. Unzip the downloaded tar file on the machine that is ready to run the monitoring service.
 
@@ -255,7 +255,7 @@ Prometheus
 	8. After importing, you can name Dashboard by default `Doris Overview`. At the same time, you need to select the data source, where you select the `doris_monitor_data_source` you created earlier.
 	9. Click `Import` to complete the import. Later, you can see Doris's dashboard display.
 
-8. So far, a simple Grafana has been built and configured. For more advanced usage, see [Official Documents] (http://docs.grafana.org/)
+8. So far, a simple Grafana has been built and configured. For more advanced usage, see [Official Documents](http://docs.grafana.org/)
 
 
 ## Dashboard

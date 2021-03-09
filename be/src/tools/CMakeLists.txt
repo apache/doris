@@ -26,7 +26,7 @@ add_executable(meta_tool
 )
 
 # This permits libraries loaded by dlopen to link to the symbols in the program.
-# set_target_properties(doris_be PROPERTIES LINK_FLAGS -pthread)
+set_target_properties(meta_tool PROPERTIES ENABLE_EXPORTS 1)
 
 target_link_libraries(meta_tool
     ${DORIS_LINK_LIBS}

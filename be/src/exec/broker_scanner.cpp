@@ -49,16 +49,28 @@ BrokerScanner::BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
         : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
-          // _splittable(params.splittable),
-          _value_separator(static_cast<char>(params.column_separator)),
-          _line_delimiter(static_cast<char>(params.line_delimiter)),
           _cur_file_reader(nullptr),
           _cur_line_reader(nullptr),
           _cur_decompressor(nullptr),
           _next_range(0),
           _cur_line_reader_eof(false),
           _scanner_eof(false),
-          _skip_next_line(false) {}
+          _skip_next_line(false) {
+    if (params.__isset.column_separator_length && params.column_separator_length > 1) {
+        _value_separator = params.column_separator_str;
+        _value_separator_length = params.column_separator_length;
+    } else {
+        _value_separator.push_back(static_cast<char>(params.column_separator));
+        _value_separator_length = 1;
+    }
+    if (params.__isset.line_delimiter_length && params.line_delimiter_length > 1) {
+        _line_delimiter = params.line_delimiter_str;
+        _line_delimiter_length = params.line_delimiter_length;
+    } else {
+        _line_delimiter.push_back(static_cast<char>(params.line_delimiter));
+        _line_delimiter_length = 1;
+    }
+}
 
 BrokerScanner::~BrokerScanner() {
     close();
@@ -255,7 +267,7 @@ Status BrokerScanner::open_line_reader() {
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_CSV_DEFLATE:
         _cur_line_reader = new PlainTextLineReader(_profile, _cur_file_reader, _cur_decompressor,
-                                                   size, _line_delimiter);
+                                                   size, _line_delimiter, _line_delimiter_length);
         break;
     default: {
         std::stringstream ss;
@@ -292,16 +304,24 @@ void BrokerScanner::close() {
 }
 
 void BrokerScanner::split_line(const Slice& line, std::vector<Slice>* values) {
-    // line-begin char and line-end char are considered to be 'delimiter'
     const char* value = line.data;
-    const char* ptr = line.data;
-    for (size_t i = 0; i < line.size; ++i, ++ptr) {
-        if (*ptr == _value_separator) {
-            values->emplace_back(value, ptr - value);
-            value = ptr + 1;
+    size_t i = 0;
+    // TODO improve the performance
+    while (i < line.size) {
+        if (i + _value_separator_length <= line.size) {
+            if (_value_separator.compare(0, _value_separator_length, line.data + i,
+                                         _value_separator_length) == 0) {
+                values->emplace_back(value, line.data + i - value);
+                value = line.data + i + _value_separator_length;
+                i += _value_separator_length;
+            } else {
+                ++i;
+            }
+        } else {
+            break;
         }
     }
-    values->emplace_back(value, ptr - value);
+    values->emplace_back(value, line.data + i - value);
 }
 
 void BrokerScanner::fill_fix_length_string(const Slice& value, MemPool* pool, char** new_value_p,
@@ -413,7 +433,9 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
     if (values.size() + columns_from_path.size() < _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is less than schema column number. "
-                  << "actual number: " << values.size() << " sep: " << _value_separator << ", "
+                  << "actual number: " << values.size() << " column separator: ["
+                  << _value_separator << "], "
+                  << "line delimiter: [" << _line_delimiter << "], "
                   << "schema number: " << _src_slot_descs.size() << "; ";
         _state->append_error_msg_to_file(std::string(line.data, line.size), error_msg.str());
         _counter->num_rows_filtered++;
@@ -421,7 +443,9 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
     } else if (values.size() + columns_from_path.size() > _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is more than schema column number. "
-                  << "actual number: " << values.size() << " sep: " << _value_separator << ", "
+                  << "actual number: " << values.size() << " column separator: ["
+                  << _value_separator << "], "
+                  << "line delimiter: [" << _line_delimiter << "], "
                   << "schema number: " << _src_slot_descs.size() << "; ";
         _state->append_error_msg_to_file(std::string(line.data, line.size), error_msg.str());
         _counter->num_rows_filtered++;

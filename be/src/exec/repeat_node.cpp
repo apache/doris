@@ -90,6 +90,7 @@ Status RepeatNode::get_repeated_batch(RowBatch* child_row_batch, int repeat_id_i
              ++src_it, ++dst_it, ++j) {
             Tuple* src_tuple = src_row->get_tuple(j);
             if (src_tuple == NULL) {
+                dst_row->set_tuple(j, NULL);
                 continue;
             }
 

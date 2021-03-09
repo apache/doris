@@ -238,9 +238,9 @@ Currently, Doris only adapts to MySQL and Oracle. The adaptation of other databa
 
    The driver for the corresponding data is not installed on each BE, or it is not installed in the be/conf/odbcinst.ini configure the correct path, or create the table with the driver namebe/conf/odbcinst.ini different
 
-7. Report Errors: `fail to convert odbc value 'PALO ' TO INT`
+7. Report Errors: `Fail to convert odbc value 'PALO ' TO INT on column:'A'`
 
-    Type conversion error, type mapping of column needs to be modified
+    Type conversion error, type of column `A` mapping of actual column type is different, needs to be modified
 
 8. BE crash occurs when using old MySQL table and ODBC external driver at the same time
 

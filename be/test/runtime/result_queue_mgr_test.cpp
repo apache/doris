@@ -22,6 +22,7 @@
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 #include <gtest/gtest.h>
+#include <test_util/test_util.h>
 
 #include <memory>
 
@@ -138,12 +139,8 @@ TEST_F(ResultQueueMgrTest, cancel_no_block) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    // doris::init_glog("be-test");
+    doris::InitConfig();
+
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();

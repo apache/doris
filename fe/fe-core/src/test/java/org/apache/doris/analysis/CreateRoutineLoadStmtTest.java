@@ -94,7 +94,7 @@ public class CreateRoutineLoadStmtTest {
         List<String> partitionNameString = Lists.newArrayList();
         partitionNameString.add("p1");
         PartitionNames partitionNames = new PartitionNames(false, partitionNameString);
-        ColumnSeparator columnSeparator = new ColumnSeparator(",");
+        Separator columnSeparator = new Separator(",");
 
         // duplicate load property
         List<ParseNode> loadPropertyList = new ArrayList<>();
@@ -142,7 +142,7 @@ public class CreateRoutineLoadStmtTest {
         List<String> partitionNameString = Lists.newArrayList();
         partitionNameString.add("p1");
         PartitionNames partitionNames = new PartitionNames(false, partitionNameString);
-        ColumnSeparator columnSeparator = new ColumnSeparator(",");
+        Separator columnSeparator = new Separator(",");
 
         // duplicate load property
         TableName tableName = new TableName(dbName, tableNameString);

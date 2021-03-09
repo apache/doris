@@ -348,6 +348,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!http_req->header(HTTP_COLUMN_SEPARATOR).empty()) {
         request.__set_columnSeparator(http_req->header(HTTP_COLUMN_SEPARATOR));
     }
+    if (!http_req->header(HTTP_LINE_DELIMITER).empty()) {
+        request.__set_line_delimiter(http_req->header(HTTP_LINE_DELIMITER));
+    }
     if (!http_req->header(HTTP_PARTITIONS).empty()) {
         request.__set_partitions(http_req->header(HTTP_PARTITIONS));
         request.__set_isTempPartition(false);

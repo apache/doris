@@ -248,17 +248,23 @@ CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
 // size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring
 // lower write amplification, trading off read amplification and space amplification.
 CONF_String(cumulative_compaction_policy, "size_based");
+CONF_Validator(cumulative_compaction_policy, [](const std::string config) -> bool {
+  return config == "size_based" || config == "num_based";
+});
 
 // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 CONF_mInt64(cumulative_size_based_promotion_size_mbytes, "1024");
+
 // In size_based policy, output rowset of cumulative compaction total disk size exceed this config ratio of
 // base rowset's total disk size, this rowset will be given to base compaction. The value must be between
 // 0 and 1.
 CONF_mDouble(cumulative_size_based_promotion_ratio, "0.05");
+
 // In size_based policy, the smallest size of rowset promotion. When the rowset is less than this config, this
 // rowset will be not given to base compaction. The unit is m byte.
 CONF_mInt64(cumulative_size_based_promotion_min_size_mbytes, "64");
+
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
 CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
