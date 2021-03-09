@@ -28,7 +28,7 @@ under the License.
 ## description
     This statement is used to view some information about columns of a table.
 
-    Syntax：
+    Syntax:
         SHOW FULL COLUMNS FROM tbl;
         
 ## example

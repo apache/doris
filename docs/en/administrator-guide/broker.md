@@ -164,7 +164,7 @@ Authentication information is usually provided as a Key-Value in the Property Ma
 
     Simple authentication means that Hadoop configures `hadoop.security.authentication` to` simple`.
 
-    Use system users to access HDFS. Or add in the environment variable started by Broker：```HADOOP_USER_NAME```.
+    Use system users to access HDFS. Or add in the environment variable started by Broker: ```HADOOP_USER_NAME```.
     
     ```
     (
