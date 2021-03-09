@@ -144,12 +144,24 @@ public class StreamLoadScanNode extends LoadScanNode {
         createDefaultSmap(analyzer);
 
         if (taskInfo.getColumnSeparator() != null) {
-            String sep = taskInfo.getColumnSeparator().getColumnSeparator();
+            String sep = taskInfo.getColumnSeparator().getSeparator();
+            params.setColumnSeparatorStr(sep);
+            params.setColumnSeparatorLength(sep.getBytes(Charset.forName("UTF-8")).length);
             params.setColumnSeparator(sep.getBytes(Charset.forName("UTF-8"))[0]);
         } else {
             params.setColumnSeparator((byte) '\t');
+            params.setColumnSeparatorLength(1);
+            params.setColumnSeparatorStr("\t");
         }
-        params.setLineDelimiter((byte) '\n');
+        if (taskInfo.getLineDelimiter() != null) {
+            String sep = taskInfo.getLineDelimiter().getSeparator();
+            params.setLineDelimiterStr(sep);
+            params.setLineDelimiterLength(sep.getBytes(Charset.forName("UTF-8")).length);
+            params.setLineDelimiter(sep.getBytes(Charset.forName("UTF-8"))[0]);
+        } else {
+            params.setLineDelimiter((byte) '\n');
+            params.setLineDelimiterLength(1);
+        }
         params.setDestTupleId(desc.getId().asInt());
         brokerScanRange.setParams(params);
 

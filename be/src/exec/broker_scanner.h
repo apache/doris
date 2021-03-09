@@ -98,8 +98,10 @@ private:
 
     std::unique_ptr<TextConverter> _text_converter;
 
-    char _value_separator;
-    char _line_delimiter;
+    std::string _value_separator;
+    std::string _line_delimiter;
+    int _value_separator_length;
+    int _line_delimiter_length;
 
     // Reader
     FileReader* _cur_file_reader;

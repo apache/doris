@@ -96,7 +96,7 @@ public class DataDescription {
     private final String tableName;
     private final PartitionNames partitionNames;
     private final List<String> filePaths;
-    private final ColumnSeparator columnSeparator;
+    private final Separator columnSeparator;
     private final String fileFormat;
     private final boolean isNegative;
     // column names in the path
@@ -112,7 +112,7 @@ public class DataDescription {
     private List<String> fileFieldNames;
     // Used for mini load
     private TNetworkAddress beAddr;
-    private String lineDelimiter;
+    private Separator lineDelimiter;
     private String columnDef;
     private long backendId;
     private boolean stripOuterArray = false;
@@ -141,7 +141,7 @@ public class DataDescription {
                            PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
-                           ColumnSeparator columnSeparator,
+                           Separator columnSeparator,
                            String fileFormat,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
@@ -153,7 +153,7 @@ public class DataDescription {
                            PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
-                           ColumnSeparator columnSeparator,
+                           Separator columnSeparator,
                            String fileFormat,
                            List<String> columnsFromPath,
                            boolean isNegative,
@@ -428,7 +428,7 @@ public class DataDescription {
         if (columnSeparator == null) {
             return null;
         }
-        return columnSeparator.getColumnSeparator();
+        return columnSeparator.getSeparator();
     }
 
     public boolean isNegative() {
@@ -444,10 +444,13 @@ public class DataDescription {
     }
 
     public String getLineDelimiter() {
-        return lineDelimiter;
+        if (lineDelimiter == null) {
+            return null;
+        }
+        return lineDelimiter.getSeparator();
     }
 
-    public void setLineDelimiter(String lineDelimiter) {
+    public void setLineDelimiter(Separator lineDelimiter) {
         this.lineDelimiter = lineDelimiter;
     }
 

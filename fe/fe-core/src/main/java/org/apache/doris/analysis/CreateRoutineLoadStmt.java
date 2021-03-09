@@ -345,7 +345,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     }
 
     public void checkLoadProperties() throws UserException {
-        ColumnSeparator columnSeparator = null;
+        Separator columnSeparator = null;
+        // TODO(yangzhengguo01): add line delimiter to properties
+        Separator lineDelimiter = null;
         ImportColumnsStmt importColumnsStmt = null;
         ImportWhereStmt precedingImportWhereStmt = null;
         ImportWhereStmt importWhereStmt = null;
@@ -354,12 +356,12 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         ImportDeleteOnStmt importDeleteOnStmt = null;
         if (loadPropertyList != null) {
             for (ParseNode parseNode : loadPropertyList) {
-                if (parseNode instanceof ColumnSeparator) {
+                if (parseNode instanceof Separator) {
                     // check column separator
                     if (columnSeparator != null) {
                         throw new AnalysisException("repeat setting of column separator");
                     }
-                    columnSeparator = (ColumnSeparator) parseNode;
+                    columnSeparator = (Separator) parseNode;
                     columnSeparator.analyze(null);
                 } else if (parseNode instanceof ImportColumnsStmt) {
                     // check columns info
@@ -403,7 +405,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 }
             }
         }
-        routineLoadDesc = new RoutineLoadDesc(columnSeparator, importColumnsStmt, precedingImportWhereStmt, importWhereStmt,
+        routineLoadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
+                        precedingImportWhereStmt, importWhereStmt,
                         partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
                         importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }

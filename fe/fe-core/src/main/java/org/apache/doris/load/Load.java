@@ -22,7 +22,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CastExpr;
-import org.apache.doris.analysis.ColumnSeparator;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -258,9 +258,9 @@ public class Load {
         // partitions | column names | separator | line delimiter
         List<String> partitionNames = null;
         List<String> columnNames = null;
-        ColumnSeparator columnSeparator = null;
+        Separator columnSeparator = null;
         List<String> hllColumnPairList = null;
-        String lineDelimiter = null;
+        Separator lineDelimiter = null;
         String formatType = null;
         if (params != null) {
             String specifiedPartitions = params.get(LoadStmt.KEY_IN_PARAM_PARTITIONS);
@@ -282,14 +282,25 @@ public class Load {
                 if (columnSeparatorStr.isEmpty()) {
                     columnSeparatorStr = "\t";
                 }
-                columnSeparator = new ColumnSeparator(columnSeparatorStr);
+                columnSeparator = new Separator(columnSeparatorStr);
                 try {
                     columnSeparator.analyze();
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }
             }
-            lineDelimiter = params.get(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER);
+            String lineDelimiterStr = params.get(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER);
+            if (lineDelimiterStr != null) {
+                if (lineDelimiterStr.isEmpty()) {
+                    lineDelimiterStr = "\n";
+                }
+                lineDelimiter = new Separator(lineDelimiterStr);
+                try {
+                    lineDelimiter.analyze();
+                } catch (AnalysisException e) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
             formatType = params.get(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE);
         }
 
