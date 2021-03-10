@@ -605,6 +605,7 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
     const time_t local_now = mktime(&local_tm_now); //得到当地日历时间
 
     for (DataDirInfo& info : data_dir_infos) {
+        LOG(INFO) << "Start to sweep path " << info.path;
         if (!info.is_used) {
             continue;
         }
