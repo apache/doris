@@ -312,7 +312,7 @@ PROPERTIES
 
 Broker 导入是异步命令。以上命令执行成功只表示提交任务成功。导入是否成功需要通过 `SHOW LOAD;` 查看。如：
 
-`SHOW LOAD WHERE LABLE = "table1_20170708";`
+`SHOW LOAD WHERE LABEL = "table1_20170708";`
 
 返回结果中，`State` 字段为 FINISHED 则表示导入成功。
 
