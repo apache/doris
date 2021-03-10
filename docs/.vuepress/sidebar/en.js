@@ -534,6 +534,7 @@ module.exports = [
     children: [
         "debug-tool",
         "fe-eclipse-dev",
+        "fe-idea-dev",
         "format-code",
     ],
   },
