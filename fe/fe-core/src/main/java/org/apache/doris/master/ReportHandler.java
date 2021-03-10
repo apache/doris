@@ -949,7 +949,7 @@ public class ReportHandler extends Daemon {
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
         TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-        if (tabletMeta == null) {
+        if (tabletMeta == null || tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
             throw new MetaNotFoundException("tablet meta[" + tabletMeta + "] does not exist in tablet inverted index");
         }
 
