@@ -50,7 +50,6 @@ public class ClusterStatePublisher {
         this.clusterInfoService = clusterInfoService;
     }
 
-    // Fuck singleton.
     public static ClusterStatePublisher getInstance() {
         if (INSTANCE == null) {
             INSTANCE = new ClusterStatePublisher(Catalog.getCurrentSystemInfo());
