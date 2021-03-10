@@ -239,7 +239,7 @@ FE currently has the following ports
 
 * Ed_log_port: bdbje's communication port
 * http_port: http port, also used to push image
-* rpc_port: FE 的 thrift server port
+* rpc_port:  thrift server port of Frontend
 * query_port: Mysql connection port
 
 1. edit_log_port
