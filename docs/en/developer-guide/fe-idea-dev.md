@@ -31,7 +31,7 @@ under the License.
 * Git
 * JDK1.8+
 * IntelliJ IDEA
-* Maven (Optional, IDEA shipped embeded Maven3)
+* Maven (Optional, IDEA shipped embedded Maven3)
 
 ## Clone Code
 
@@ -39,13 +39,17 @@ Git clone codebase from https://github.com/apache/incubator-doris.git
 
 ## Code Generation
 
-If your are only intersting in FE module, and for some reason you can't or don't want to compile full thirdparty libraries, the minimize required tools of FE module is `thrift`, so you can manually install `thrift` and copy or create a link of the execuatable `thrift` command to `./thirdparty/installed/bin`.
+If your are only interested in FE module, and for some reason you can't or don't want to compile full thirdparty libraries, 
+the minimum tool required for FE module is `thrift`, so you can manually install `thrift` and copy or create a link of 
+the executable `thrift` command to `./thirdparty/installed/bin`.
 
 Doris build against `thrift` 0.9.3, and `thrift` 0.9.3.1 should also work well, but the newer version will not.
 
-If your are using macOS, try `brew install thrift@0.9` and will get `thrift` 0.9.3.1 installed at `/usr/local/opt/thrift@0.9/bin/thrift`, then create a soft link to `./thirdparty/installed/bin/thrift`.
+If your are using macOS, try `brew install thrift@0.9` and will get `thrift` 0.9.3.1 installed at `/usr/local/opt/thrift@0.9/bin/thrift`, 
+then create a soft link to `./thirdparty/installed/bin/thrift`.
         
-For Windows users, download `thrift` 0.9.3 from `http://archive.apache.org/dist/thrift/0.9.3/thrift-0.9.3.exe`, and put it into `thirdparty/installed/bin/` folder.
+For Windows users, download `thrift` 0.9.3 from `http://archive.apache.org/dist/thrift/0.9.3/thrift-0.9.3.exe`, 
+and put it into `thirdparty/installed/bin/` folder.
 
 Go to `./fe` folder and run the following maven command to generate sources.
 
@@ -59,11 +63,12 @@ If fails, run following command first to try to install modules into maven local
 mvn install -DskipTests
 ```
 
-You can also using IDE embeded GUI tools to run maven command to generate sources
+You can also use IDE embedded GUI tools to run maven command to generate sources
 
 ![](/images/gen_code.png)
 
-If you are devepling on the OS which lack of support to run `shell script` and `make` such as Windows, a workround here is generate codes in Linux and copy them back. Using Docker should also be an option.
+If you are developing on the OS which lack of support to run `shell script` and `make` such as Windows, a workround here 
+is generate codes in Linux and copy them back. Using Docker should also be an option.
 
 ## Import into IDEA
 
