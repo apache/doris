@@ -39,6 +39,7 @@
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "http/utils.h"
+#include "olap/storage_engine.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -48,6 +49,7 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/stream_load/stream_load_pipe.h"
+#include "runtime/stream_load/stream_load_record.h"
 #include "util/byte_buffer.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -143,7 +145,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
                          << ", errmsg=" << ctx->status.get_error_msg();
         }
     }
-    ctx->load_cost_nanos = MonotonicNanos() - ctx->start_nanos;
+    ctx->load_cost_micros = UnixMicros() - ctx->start_micros;
 
     if (!ctx->status.ok() && ctx->status.code() != TStatusCode::PUBLISH_TIMEOUT) {
         if (ctx->need_rollback) {
@@ -160,9 +162,11 @@ void StreamLoadAction::handle(HttpRequest* req) {
     str = str + '\n';
     HttpChannel::send_reply(req, str);
 
+    _sava_stream_load_record(ctx, str);
+
     // update statstics
     streaming_load_requests_total->increment(1);
-    streaming_load_duration_ms->increment(ctx->load_cost_nanos / 1000000);
+    streaming_load_duration_ms->increment(ctx->load_cost_micros / 1000);
     streaming_load_bytes->increment(ctx->receive_bytes);
     streaming_load_current_processing->increment(-1);
 }
@@ -228,7 +232,9 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         // add new line at end
         str = str + '\n';
         HttpChannel::send_reply(req, str);
-        streaming_load_current_processing->increment(-1);
+
+        _sava_stream_load_record(ctx, str);
+
         return -1;
     }
     return 0;
@@ -531,6 +537,19 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
     ss << prefix << "/" << req->param(HTTP_TABLE_KEY) << "." << buf << "." << tv.tv_usec;
     *file_path = ss.str();
     return Status::OK();
+}
+
+void StreamLoadAction::_sava_stream_load_record(StreamLoadContext* ctx, const std::string& str) {
+    auto stream_load_record = StorageEngine::instance()->get_stream_load_record();
+    if (stream_load_record != nullptr) {
+        std::string key = ToStringFromUnixMicros(ctx->start_micros + ctx->load_cost_micros) + "_" + ctx->label;
+        auto st = stream_load_record->put(key, str);
+        if (st.ok()) {
+            LOG(INFO) << "put stream_load_record rocksdb successfully. label: " << ctx->label << ", key: " << key;
+        }
+    } else {
+        LOG(WARNING) << "put stream_load_record rocksdb failed. stream_load_record is null.";
+    }
 }
 
 } // namespace doris

@@ -120,7 +120,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
           _memtable_flush_executor(nullptr),
           _default_rowset_type(ALPHA_ROWSET),
-          _heartbeat_flags(nullptr) {
+          _heartbeat_flags(nullptr),
+          _stream_load_record(nullptr) {
     if (_s_instance == nullptr) {
         _s_instance = this;
     }
@@ -223,6 +224,29 @@ Status StorageEngine::_init_store_map() {
 
     for (auto store : tmp_stores) {
         _store_map.emplace(store->path(), store);
+    }
+
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_stream_load_record(), "init StreamLoadRecord failed");
+
+    return Status::OK();
+}
+
+Status StorageEngine::_init_stream_load_record() {
+    std::string stream_load_record_path = config::stream_load_record_path;
+    LOG(INFO) << "stream load record path: " << stream_load_record_path;
+
+    // init stream load record rocksdb
+    _stream_load_record.reset(new StreamLoadRecord(stream_load_record_path));
+    if (_stream_load_record == nullptr) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::MemoryAllocFailed("allocate memory for StreamLoadRecord failed"),
+                "new StreamLoadRecord failed");
+    }
+    auto st = _stream_load_record->init();
+    if (!st.ok()) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError(Substitute("open StreamLoadRecord rocksdb failed, path=$0", stream_load_record_path)),
+                "init StreamLoadRecord failed");
     }
     return Status::OK();
 }

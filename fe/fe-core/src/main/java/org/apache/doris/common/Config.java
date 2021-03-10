@@ -103,7 +103,7 @@ public class Config extends ConfigBase {
      */
     @ConfField public static String audit_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
     @ConfField public static int audit_log_roll_num = 90;
-    @ConfField public static String[] audit_log_modules = {"slow_query", "query", "load"};
+    @ConfField public static String[] audit_log_modules = {"slow_query", "query", "load", "stream_load"};
     @ConfField(mutable = true) public static long qe_slow_log_ms = 5000;
     @ConfField public static String audit_log_roll_interval = "DAY";
     @ConfField public static String audit_log_delete_age = "30d";
@@ -584,7 +584,13 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int desired_max_waiting_jobs = 100;
-  
+
+    /**
+     * fetch stream load record interval.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int fetch_stream_load_record_interval_second = 120;
+
     /**
      * maximum concurrent running txn num including prepare, commit txns under a single db
      * txn manager will reject coming txns

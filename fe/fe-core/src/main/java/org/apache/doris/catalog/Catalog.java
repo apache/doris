@@ -157,6 +157,7 @@ import org.apache.doris.load.loadv2.LoadTimeoutChecker;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
+import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.meta.MetaContext;
@@ -297,6 +298,7 @@ public class Catalog {
 
     private Load load;
     private LoadManager loadManager;
+    private StreamLoadRecordMgr streamLoadRecordMgr;
     private RoutineLoadManager routineLoadManager;
     private ExportMgr exportMgr;
     private Alter alter;
@@ -546,6 +548,7 @@ public class Catalog {
                 Config.async_loading_load_task_pool_size / 5, !isCheckpointCatalog);
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
+        this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager", Config.fetch_stream_load_record_interval_second * 1000);
         this.loadTimeoutChecker = new LoadTimeoutChecker(loadManager);
         this.loadEtlChecker = new LoadEtlChecker(loadManager);
         this.loadLoadingChecker = new LoadLoadingChecker(loadManager);
@@ -1294,6 +1297,7 @@ public class Catalog {
         dynamicPartitionScheduler.start();
         // start daemon thread to update db used data quota for db txn manager periodly
         updateDbUsedDataQuotaDaemon.start();
+        streamLoadRecordMgr.start();
     }
 
     // start threads that should running on all FE
@@ -4783,6 +4787,10 @@ public class Catalog {
 
     public LoadManager getLoadManager() {
         return loadManager;
+    }
+
+    public StreamLoadRecordMgr getStreamLoadRecordMgr() {
+        return streamLoadRecordMgr;
     }
 
     public MasterTaskExecutor getPendingLoadTaskScheduler() {
