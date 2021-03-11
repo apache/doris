@@ -322,24 +322,72 @@ void DataStreamRecvr::SenderQueue::close() {
 
 Status DataStreamRecvr::create_merger(const TupleRowComparator& less_than) {
     DCHECK(_is_merging);
-    vector<SortedRunMerger::RunBatchSupplier> input_batch_suppliers;
-    input_batch_suppliers.reserve(_sender_queues.size());
-
+    vector<SortedRunMerger::RunBatchSupplier> child_input_batch_suppliers;
     // Create the merger that will a single stream of sorted rows.
     _merger.reset(new SortedRunMerger(less_than, &_row_desc, _profile, false));
 
     for (int i = 0; i < _sender_queues.size(); ++i) {
-        input_batch_suppliers.push_back(
+        child_input_batch_suppliers.emplace_back(
                 bind(mem_fn(&SenderQueue::get_batch), _sender_queues[i], _1));
     }
-    RETURN_IF_ERROR(_merger->prepare(input_batch_suppliers));
+    RETURN_IF_ERROR(_merger->prepare(child_input_batch_suppliers));
+    return Status::OK();
+}
+
+Status DataStreamRecvr::create_parallel_merger(const TupleRowComparator& less_than, uint32_t batch_size, MemTracker* mem_tracker) {
+    DCHECK(_is_merging);
+    vector<SortedRunMerger::RunBatchSupplier> child_input_batch_suppliers;
+
+    // Create the merger that will a single stream of sorted rows.
+    _merger.reset(new SortedRunMerger(less_than, &_row_desc, _profile, false));
+
+    // There we chose parallel merge, we should make thread execute more parallel
+    // to minimized the computation of top merger
+    // top merger: have child merger to supplier data
+    //	child merger: have sender queue to supplier data, each merger start a thread to merge data firstly
+    //		sender queue: the data from other node
+    // Before parallel merge, if we have 81 sender queue, data is 1000, the computation is 1000 * log(81)
+    // After parallel merge, the computation is MAX(1000 * log(2), 500 * log(41))
+    // Now we only support max 3 merge child, because:
+    // we have N _sender_queue, M merge child. the best way is log(N / M) = M * log(M)
+    // So if N = 8, M = 2
+    // 	     N = 81, M = 3
+    //       N = 1024, M = 4
+    // normally the N is lower than 1024, so we chose 8 <= N < 81, M = 2
+    // N >= 81, M = 3
+    auto parallel_thread = _sender_queues.size() < 81 ? 2 : 3;
+    auto step = _sender_queues.size() / parallel_thread + 1;
+    for (int i = 0; i < _sender_queues.size(); i += step) {
+        // Create the merger that will a single stream of sorted rows.
+        std::unique_ptr<SortedRunMerger> child_merger(new ChildSortedRunMerger(
+                less_than, &_row_desc, _profile, mem_tracker, batch_size, false));
+        vector<SortedRunMerger::RunBatchSupplier> input_batch_suppliers;
+        for (int j = i; j < std::min((size_t)i + step, _sender_queues.size()); ++j) {
+            input_batch_suppliers.emplace_back(
+                    bind(mem_fn(&SenderQueue::get_batch), _sender_queues[j], _1));
+        }
+        child_merger->prepare(input_batch_suppliers);
+
+        child_input_batch_suppliers.emplace_back(
+                bind(mem_fn(&SortedRunMerger::get_batch), child_merger.get(), _1));
+        _child_mergers.emplace_back(std::move(child_merger));
+    }
+    RETURN_IF_ERROR(_merger->prepare(child_input_batch_suppliers, true));
+
     return Status::OK();
 }
 
 void DataStreamRecvr::transfer_all_resources(RowBatch* transfer_batch) {
-    BOOST_FOREACH (SenderQueue* sender_queue, _sender_queues) {
-        if (sender_queue->current_batch() != NULL) {
-            sender_queue->current_batch()->transfer_resource_ownership(transfer_batch);
+    // _child_mergers is not empty, means use parallel merge need transfer resource from
+    // _sender queue.
+    // the need transfer resources from child_merger input_row_batch
+    if (!_child_mergers.empty()) {
+        _merger->transfer_all_resources(transfer_batch);
+    } else {
+        BOOST_FOREACH (SenderQueue* sender_queue, _sender_queues) {
+            if (sender_queue->current_batch() != NULL) {
+                sender_queue->current_batch()->transfer_resource_ownership(transfer_batch);
+            }
         }
     }
 }

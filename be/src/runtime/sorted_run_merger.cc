@@ -17,6 +17,7 @@
 
 #include "runtime/sorted_run_merger.h"
 
+#include <condition_variable>
 #include <vector>
 
 #include "exprs/expr.h"
@@ -25,6 +26,7 @@
 #include "runtime/sorter.h"
 #include "runtime/tuple_row.h"
 #include "util/debug_util.h"
+#include "util/defer_op.h"
 #include "util/runtime_profile.h"
 
 using std::vector;
@@ -46,10 +48,10 @@ public:
               _input_row_batch_index(-1),
               _parent(parent) {}
 
-    ~BatchedRowSupplier() {}
+    virtual ~BatchedRowSupplier() = default;
 
     // Retrieves the first batch of sorted rows from the run.
-    Status init(bool* done) {
+    virtual Status init(bool* done) {
         *done = false;
         RETURN_IF_ERROR(_sorted_run(&_input_row_batch));
         if (_input_row_batch == NULL) {
@@ -62,7 +64,7 @@ public:
 
     // Increment the current row index. If the current input batch is exhausted fetch the
     // next one from the sorted run. Transfer ownership to transfer_batch if not NULL.
-    Status next(RowBatch* transfer_batch, bool* done) {
+    virtual Status next(RowBatch* transfer_batch, bool* done) {
         DCHECK(_input_row_batch != NULL);
         ++_input_row_batch_index;
         if (_input_row_batch_index < _input_row_batch->num_rows()) {
@@ -83,7 +85,9 @@ public:
 
     TupleRow* current_row() const { return _input_row_batch->get_row(_input_row_batch_index); }
 
-private:
+    RowBatch* get_row_batch() const { return _input_row_batch; }
+
+protected:
     friend class SortedRunMerger;
 
     // The run from which this object supplies rows.
@@ -97,6 +101,102 @@ private:
 
     // The parent merger instance.
     SortedRunMerger* _parent;
+};
+
+class SortedRunMerger::ParallelBatchedRowSupplier : public SortedRunMerger::BatchedRowSupplier {
+public:
+    // Construct an instance from a sorted input run.
+    ParallelBatchedRowSupplier(SortedRunMerger* parent, const RunBatchSupplier& sorted_run)
+            : BatchedRowSupplier(parent, sorted_run) {}
+
+    ~ParallelBatchedRowSupplier() {
+        // when have the limit clause need to wait the _pull_task_thread join terminate
+        _cancel = true;
+        _backup_ready = false;
+        _batch_prepared_cv.notify_one();
+        _pull_task_thread.join();
+
+        delete _input_row_batch;
+        delete _input_row_batch_backup;
+    }
+
+    // Retrieves the first batch of sorted rows from the run.
+    Status init(bool* done) override {
+        *done = false;
+        _pull_task_thread = std::thread(&SortedRunMerger::ParallelBatchedRowSupplier::process_sorted_run_task, this);
+
+        RETURN_IF_ERROR(next(NULL, done));
+        return Status::OK();
+    }
+
+    // Increment the current row index. If the current input batch is exhausted fetch the
+    // next one from the sorted run. Transfer ownership to transfer_batch if not NULL.
+    Status next(RowBatch* transfer_batch, bool* done) override {
+        ++_input_row_batch_index;
+        if (_input_row_batch && _input_row_batch_index < _input_row_batch->num_rows()) {
+            *done = false;
+        } else {
+            ScopedTimer<MonotonicStopWatch> timer(_parent->_get_next_batch_timer);
+            if (_input_row_batch && transfer_batch != NULL) {
+                _input_row_batch->transfer_resource_ownership(transfer_batch);
+            }
+            // release the mem of child merge
+            delete _input_row_batch;
+
+            std::unique_lock<std::mutex> lock(_mutex);
+            _batch_prepared_cv.wait(lock, [this](){ return _backup_ready.load(); });
+
+            // switch input_row_batch_backup to _input_row_batch
+            _input_row_batch = _input_row_batch_backup;
+            _input_row_batch_index = 0;
+            _input_row_batch_backup = nullptr;
+            _backup_ready = false;
+            DCHECK(_input_row_batch == nullptr || _input_row_batch->num_rows() > 0);
+
+            *done = _input_row_batch == nullptr;
+            _batch_prepared_cv.notify_one();
+        }
+        return Status::OK();
+    }
+
+private:
+    // The backup row batch input be backup batch from _sort_run.
+    RowBatch* _input_row_batch_backup;
+
+    std::atomic_bool _backup_ready{false};
+
+    std::atomic_bool _cancel{false};
+
+    std::thread _pull_task_thread;
+
+    Status _status_backup;
+
+    std::mutex _mutex;
+
+    // signal of new batch or the eos/cancelled condition
+    std::condition_variable _batch_prepared_cv;
+
+    void process_sorted_run_task() {
+        std::unique_lock<std::mutex> lock(_mutex);
+        while (true) {
+            _batch_prepared_cv.wait(lock, [this]() { return !_backup_ready.load(); });
+            if (_cancel) {
+                break;
+            }
+
+            // do merge from sender queue data
+            _status_backup = _sorted_run(&_input_row_batch_backup);
+            _backup_ready = true;
+            DeferOp defer_op([this]() {
+                _batch_prepared_cv.notify_one();
+            });
+
+            if (!_status_backup.ok() || _input_row_batch_backup == nullptr || _cancel) {
+                if (!_status_backup.ok()) _input_row_batch_backup = nullptr;
+                break;
+            }
+        }
+    }
 };
 
 void SortedRunMerger::heapify(int parent_index) {
@@ -134,11 +234,12 @@ SortedRunMerger::SortedRunMerger(const TupleRowComparator& compare_less_than,
     _get_next_batch_timer = ADD_TIMER(profile, "MergeGetNextBatch");
 }
 
-Status SortedRunMerger::prepare(const vector<RunBatchSupplier>& input_runs) {
+Status SortedRunMerger::prepare(const vector<RunBatchSupplier>& input_runs, bool parallel) {
     DCHECK_EQ(_min_heap.size(), 0);
     _min_heap.reserve(input_runs.size());
     BOOST_FOREACH (const RunBatchSupplier& input_run, input_runs) {
-        BatchedRowSupplier* new_elem = _pool.add(new BatchedRowSupplier(this, input_run));
+        BatchedRowSupplier* new_elem = _pool.add(
+        	parallel ? new ParallelBatchedRowSupplier(this, input_run) : new BatchedRowSupplier(this, input_run));
         DCHECK(new_elem != NULL);
         bool empty = false;
         RETURN_IF_ERROR(new_elem->init(&empty));
@@ -153,6 +254,15 @@ Status SortedRunMerger::prepare(const vector<RunBatchSupplier>& input_runs) {
         heapify(i);
     }
     return Status::OK();
+}
+
+void SortedRunMerger::transfer_all_resources(class doris::RowBatch * transfer_resource_batch) {
+    for (BatchedRowSupplier* batched_row_supplier : _min_heap) {
+        auto row_batch = batched_row_supplier->get_row_batch();
+        if (row_batch != nullptr) {
+            row_batch->transfer_resource_ownership(transfer_resource_batch);
+        }
+    }
 }
 
 Status SortedRunMerger::get_next(RowBatch* output_batch, bool* eos) {
@@ -192,6 +302,37 @@ Status SortedRunMerger::get_next(RowBatch* output_batch, bool* eos) {
     }
 
     *eos = _min_heap.empty();
+    return Status::OK();
+}
+
+ChildSortedRunMerger::ChildSortedRunMerger(const TupleRowComparator& compare_less_than,
+        RowDescriptor* row_desc,
+        RuntimeProfile* profile,
+        MemTracker* parent,
+        uint32_t row_batch_size,
+        bool deep_copy_input):
+        SortedRunMerger(compare_less_than, row_desc, profile, deep_copy_input),
+        _eos(false),
+        _parent(parent),
+        _row_batch_size(row_batch_size) {
+	_get_next_timer = ADD_TIMER(profile, "ChildMergeGetNext");
+	_get_next_batch_timer = ADD_TIMER(profile, "ChildMergeGetNextBatch");
+}
+
+Status ChildSortedRunMerger::get_batch(RowBatch** output_batch) {
+    *output_batch = nullptr;
+    if (_eos) {
+        return Status::OK();
+    }
+
+    _current_row_batch.reset(new RowBatch(*_input_row_desc, _row_batch_size, _parent));
+
+    bool eos = false;
+    RETURN_IF_ERROR(get_next(_current_row_batch.get(), &eos));
+    *output_batch =
+            UNLIKELY(_current_row_batch->num_rows() == 0) ? nullptr : _current_row_batch.release();
+    _eos = eos;
+
     return Status::OK();
 }
 

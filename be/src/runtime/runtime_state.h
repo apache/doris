@@ -342,6 +342,8 @@ public:
 
     bool enable_spill() const { return _query_options.enable_spilling; }
 
+    bool enable_exchange_node_parallel_merge() const { return _query_options.enable_enable_exchange_node_parallel_merge; }
+
     // the following getters are only valid after Prepare()
     InitialReservations* initial_reservations() const { return _initial_reservations; }
 

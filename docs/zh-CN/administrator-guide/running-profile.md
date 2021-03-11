@@ -115,6 +115,10 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
 
 #### `EXCHANGE_NODE`
   - BytesReceived: 通过网络接收的数据量大小
+  - MergeGetNext: 当下层节点存在排序时，会在EXCHANGE NODE进行统一的归并排序，输出有序结果。该指标记录了Merge排序的总耗时，包含了MergeGetNextBatch耗时。
+  - MergeGetNextBatch：Merge节点取数据的耗时，如果为单层Merge排序，则取数据的对象为网络队列。若为多层Merge排序取数据对象为Child Merger。
+  - ChildMergeGetNext: 当下层的发送数据的Sender过多时，单线程的Merge会成为性能瓶颈，Doris会启动多个Child Merge线程并行归并排序。记录了Child Merge的排序耗时  该数值是多个线程的累加值。
+  - ChildMergeGetNextBatch: Child Merge节点从取数据的耗时，如果耗时过大，可能的瓶颈为下层的数据发送节点。 
   - DataArrivalWaitTime: 等待Sender发送数据的总时间
   - FirstBatchArrivalWaitTime: 等待第一个batch从Sender获取的时间
   - DeserializeRowBatchTimer: 反序列化网络数据的耗时
