@@ -56,7 +56,6 @@ public class ColocatePlanTest {
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
 
-
     @AfterClass
     public static void tearDown() {
         File file = new File(runningDir);
