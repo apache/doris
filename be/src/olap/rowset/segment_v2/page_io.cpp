@@ -50,6 +50,9 @@ Status PageIO::compress_page_body(const BlockCompressionCodec* codec, double min
         double space_saving = 1.0 - static_cast<double>(buf.size()) / uncompressed_size;
         // return compressed body only when it saves more than min_space_saving
         if (space_saving > 0 && space_saving >= min_space_saving) {
+            // shrink the buf to fit the len size to avoid taking
+            // up the memory of the size MAX_COMPRESSED_SIZE
+            buf.shrink_to_fit();
             *compressed_body = buf.build();
             return Status::OK();
         }
