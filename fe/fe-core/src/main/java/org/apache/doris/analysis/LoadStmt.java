@@ -321,9 +321,8 @@ public class LoadStmt extends DdlStmt {
                 for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
                     dataDescription.getFilePaths().set(i,
                         brokerDesc.convertPathToS3(dataDescription.getFilePaths().get(i)));
-                }
-                for (String path : dataDescription.getFilePaths()) {
-                    ExportStmt.checkPath(path, brokerDesc.getStorageType());
+                    dataDescription.getFilePaths().set(i,
+                        ExportStmt.checkPath(dataDescription.getFilePaths().get(i), brokerDesc.getStorageType()));
                 }
             }
         }

@@ -25,59 +25,72 @@ under the License.
 -->
 
 # EXPORT
-Description
+## Description
 
-This statement is used to export data from a specified table to a specified location.
-This function is implemented by broker process. For different purpose storage systems, different brokers need to be deployed. Deployed brokers can be viewed through SHOW BROKER.
-This is an asynchronous operation, which returns if the task is submitted successfully. After execution, you can use the SHOW EXPORT command to view progress.
+    This statement is used to export data from a specified table to a specified location.
+    This function is implemented by broker process. For different purpose storage systems, different brokers need to be deployed. Deployed brokers can be viewed through SHOW BROKER.
+    This is an asynchronous operation, which returns if the task is submitted successfully. After execution, you can use the SHOW EXPORT command to view progress.
 
-Grammar:
-EXPORT TABLE table_name
-[PARTITION (p1 [,p2]]
-TO export_path
-[opt_properties]
-broker;
+    Grammar:
+        EXPORT TABLE table_name
+        [PARTITION (p1 [,p2]]
+        [WHERE [expr]]
+        TO export_path
+        [opt_properties]
+        [broker];
 
-1. table_name
-The table names to be exported currently support the export of tables with engine as OLAP and mysql.
+    1. table_name
+       The table names to be exported currently support the export of tables with engine as OLAP and mysql.
 
-2. partition
-You can export only certain specified partitions of the specified table
+    2. partition
+       You can export only certain specified partitions of the specified table
 
-3. export_path
-The exported path needs to be a directory. At present, it can't be exported to local, so it needs to be exported to broker.
+    3. expr
+       Export rows that meet the where condition, optional. If you leave it blank, all rows are exported by default. 
 
-4. opt_properties
-Used to specify some special parameters.
-Grammar:
-[PROPERTIES ("key"="value", ...)]
+    4. export_path
+       The exported path needs to be a directory. At present, it can't be exported to local, so it needs to be exported to broker.
 
-The following parameters can be specified:
-Column_separator: Specifies the exported column separator, defaulting to t.
-Line_delimiter: Specifies the exported line separator, defaulting to\n.
-Exc_mem_limit: Exports the upper limit of memory usage for a single BE node, defaulting to 2GB in bytes.
-Timeout: The time-out for importing jobs is 1 day by default, in seconds.
-Tablet_num_per_task: The maximum number of tablets that each subtask can allocate.
+    5. opt_properties
+       Used to specify some special parameters.
+       Grammar:
+       [PROPERTIES ("key"="value", ...)]
 
-Five. debris
-Broker used to specify export usage
-Grammar:
-WITH BROKER broker_name ("key"="value"[,...])
-Here you need to specify the specific broker name and the required broker attributes
+        The following parameters can be specified:
+          column_separator: Specifies the exported column separator, defaulting to t. Supports invisible characters, such as'\x07'.
+          line_delimiter: Specifies the exported line separator, defaulting to\n. Supports invisible characters, such as'\x07'.
+          exec_mem_limit: Exports the upper limit of memory usage for a single BE node, defaulting to 2GB in bytes.
+          timeout: The time-out for importing jobs is 1 day by default, in seconds.
+          tablet_num_per_task: The maximum number of tablets that each subtask can allocate.
 
-For brokers corresponding to different storage systems, the input parameters are different. Specific parameters can be referred to: `help broker load', broker required properties.
+     6. broker
+        Broker used to specify export usage
+          Grammar:
+          WITH BROKER broker_name ("key"="value"[,...])
+          Here you need to specify the specific broker name and the required broker attributes
 
-'35;'35; example
+        For brokers corresponding to different storage systems, the input parameters are different. Specific parameters can be referred to: `help broker load', broker required properties.
+        When exporting to local, you do not need to fill in this part.
 
-1. Export all data from the testTbl table to HDFS
-EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
+## example
 
-2. Export partitions P1 and P2 from the testTbl table to HDFS
+    1. Export all data from the testTbl table to HDFS
+       EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
 
-EXPORT TABLE testTbl PARTITION (p1,p2) TO "hdfs://hdfs_host:port/a/b/c" WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
-3. Export all data in the testTbl table to hdfs, using "," as column separator
+    2. Export partitions P1 and P2 from the testTbl table to HDFS
+       EXPORT TABLE testTbl PARTITION (p1,p2) TO "hdfs://hdfs_host:port/a/b/c" WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
 
-EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"=",") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
+    3. Export all data in the testTbl table to hdfs, using "," as column separator
+       EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"=",") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
+
+    4. Export the row meet condition k1 = 1 in the testTbl table to hdfs.
+       EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" WHERE k1=1 WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
+
+    5. Export all data in the testTbl table to the local.
+       EXPORT TABLE testTbl TO "file:///home/data/a";
+
+    6. Export all data in the testTbl table to hdfs, using the invisible character "\x07" as the column and row separator. 
+       EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"="\\x07", "line_delimiter" = "\\x07") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy")
 
 ## keyword
-EXPORT
+    EXPORT
