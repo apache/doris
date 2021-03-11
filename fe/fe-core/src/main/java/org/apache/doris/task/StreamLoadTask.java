@@ -17,7 +17,7 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.analysis.ColumnSeparator;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
@@ -62,7 +62,8 @@ public class StreamLoadTask implements LoadTaskInfo {
     // optional
     private List<ImportColumnDesc> columnExprDescs = Lists.newArrayList();
     private Expr whereExpr;
-    private ColumnSeparator columnSeparator;
+    private Separator columnSeparator;
+    private Separator lineDelimiter;
     private PartitionNames partitions;
     private String path;
     private boolean negative;
@@ -114,8 +115,12 @@ public class StreamLoadTask implements LoadTaskInfo {
         return whereExpr;
     }
 
-    public ColumnSeparator getColumnSeparator() {
+    public Separator getColumnSeparator() {
         return columnSeparator;
+    }
+
+    public Separator getLineDelimiter() {
+        return lineDelimiter;
     }
 
     public PartitionNames getPartitions() {
@@ -216,6 +221,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetColumnSeparator()) {
             setColumnSeparator(request.getColumnSeparator());
+        }
+        if (request.isSetLineDelimiter()) {
+            setLineDelimiter(request.getLineDelimiter());
         }
         if (request.isSetPartitions()) {
             String[] partNames = request.getPartitions().trim().split("\\s*,\\s*");
@@ -331,8 +339,13 @@ public class StreamLoadTask implements LoadTaskInfo {
     }
 
     private void setColumnSeparator(String oriSeparator) throws AnalysisException {
-        columnSeparator = new ColumnSeparator(oriSeparator);
+        columnSeparator = new Separator(oriSeparator);
         columnSeparator.analyze();
+    }
+
+    private void setLineDelimiter(String oriLineDelimiter) throws AnalysisException {
+        lineDelimiter = new Separator(oriLineDelimiter);
+        lineDelimiter.analyze();
     }
 
     @Override

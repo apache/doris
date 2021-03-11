@@ -17,7 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.ColumnSeparator;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.ParseNode;
@@ -82,7 +82,7 @@ public class RoutineLoadManagerTest {
         String tableNameString = "table1";
         TableName tableName = new TableName(dbName, tableNameString);
         List<ParseNode> loadPropertyList = new ArrayList<>();
-        ColumnSeparator columnSeparator = new ColumnSeparator(",");
+        Separator columnSeparator = new Separator(",");
         loadPropertyList.add(columnSeparator);
         Map<String, String> properties = Maps.newHashMap();
         properties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
@@ -152,7 +152,7 @@ public class RoutineLoadManagerTest {
         String tableNameString = "table1";
         TableName tableName = new TableName(dbName, tableNameString);
         List<ParseNode> loadPropertyList = new ArrayList<>();
-        ColumnSeparator columnSeparator = new ColumnSeparator(",");
+        Separator columnSeparator = new Separator(",");
         loadPropertyList.add(columnSeparator);
         Map<String, String> properties = Maps.newHashMap();
         properties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");

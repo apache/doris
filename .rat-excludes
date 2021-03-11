@@ -11,6 +11,7 @@ DISCLAIMER-WIP
 LICENSE
 NOTICE
 gutil/*
+glibc-compatibility/*
 manifest
 patches/*
 data/*

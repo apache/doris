@@ -28,6 +28,7 @@ static const std::string HTTP_FORMAT_KEY = "format";
 static const std::string HTTP_COLUMNS = "columns";
 static const std::string HTTP_WHERE = "where";
 static const std::string HTTP_COLUMN_SEPARATOR = "column_separator";
+static const std::string HTTP_LINE_DELIMITER = "line_delimiter";
 static const std::string HTTP_MAX_FILTER_RATIO = "max_filter_ratio";
 static const std::string HTTP_TIMEOUT = "timeout";
 static const std::string HTTP_PARTITIONS = "partitions";
@@ -46,6 +47,7 @@ static const std::string HTTP_MERGE_TYPE = "merge_type";
 static const std::string HTTP_DELETE_CONDITION = "delete";
 static const std::string HTTP_FUNCTION_COLUMN = "function_column";
 static const std::string HTTP_SEQUENCE_COL = "sequence_col";
+static const std::string HTTP_COMPRESS_TYPE = "compress_type";
 
 static const std::string HTTP_100_CONTINUE = "100-continue";
 
