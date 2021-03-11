@@ -264,7 +264,7 @@ DESC SELECT * FROM tbl1 INNER JOIN tbl2 ON (tbl1.k2 = tbl2.k2);
 +----------------------------------------------------+
 ```
 
-If Colocation Join works, the Hash Join Node will show `colocate: true`。
+If Colocation Join works, the Hash Join Node will show `colocate: true`.
 
 If not, the query plan is as follows:
 

@@ -27,10 +27,10 @@ under the License.
 # SHOW CREATE FUNCTION
 ## description
     The statement is used to show the creation statement of user-defined function
-    grammar：
+    grammar:
         SHOW CREATE FUNTION function_name(arg_type [, ...]) [FROM db_name]];
         
-    Description：
+    Description:
        `function_name`: the name of the function to be displayed
        `arg_type`: the parameter list of the function to be displayed
        If you do not specify db_name, use the current default db

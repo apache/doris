@@ -145,7 +145,7 @@ Adding FE processes is described in detail in the [Deployment and Upgrade Docume
 	* The first time you start a new FE, you must make sure that the `meta_dir` of the FE is created, has correct permissions and is empty.
 	* Starting a new FE and executing the `ALTER SYSTEM ADD FOLLOWER/OBSERVER` statement adds FE to metadata in a sequence that is not required. If a new FE is started first and no statement is executed, the `current node is not added to the group. Please add it first.` in the new FE log. When the statement is executed, it enters the normal process.
 	* Make sure that after the previous FE is added successfully, the next FE is added.
-	* Connect to  MASTER FE and execute `ALTER SYSTEM ADD FOLLOWER/OBSERVER` claus。
+	* Connect to  MASTER FE and execute `ALTER SYSTEM ADD FOLLOWER/OBSERVER` stmt.
 
 2. Common problems
 
@@ -239,7 +239,7 @@ FE currently has the following ports
 
 * Ed_log_port: bdbje's communication port
 * http_port: http port, also used to push image
-* rpc_port：FE 的 thrift server port
+* rpc_port:  thrift server port of Frontend
 * query_port: Mysql connection port
 
 1. edit_log_port

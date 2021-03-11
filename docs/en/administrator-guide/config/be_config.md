@@ -452,7 +452,7 @@ When the concurrency cannot be improved in high concurrency scenarios, try to re
 ### `heartbeat_service_thread_count`
 
 * Type: int32
-* Description: The number of threads that execute the heartbeat service on BE。 the default is 1, it is not recommended to modify
+* Description: The number of threads that execute the heartbeat service on BE. the default is 1, it is not recommended to modify
 * Default value: 1
 
 ### `ignore_broken_disk`

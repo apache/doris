@@ -90,7 +90,7 @@ Syntax:
     );
     ```
 
-2.  Modify `desired_concurrent_number` to 10, modify partition offset, and modify group id。
+2.  Modify `desired_concurrent_number` to 10, modify partition offset, and modify group id.
 
     ```
     ALTER ROUTINE LOAD FOR db1.label1

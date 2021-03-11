@@ -165,7 +165,7 @@ ALTER TABLE session_data ADD ROLLUP rollup_brower(brower,province,ip,url) DUPLIC
 
 ## 2 Schema Change
 
-There are three Schema Change in doris: Sorted Schema Change, Direct Schema Change, Linked Schema Change。
+There are three Schema Change in doris: Sorted Schema Change, Direct Schema Change, Linked Schema Change.
 
 2.1. Sorted Schema Change
 
