@@ -102,6 +102,7 @@ Export's detailed commands can be passed through `HELP EXPORT;` Examples are as 
 ```
 EXPORT TABLE db1.tbl1 
 PARTITION (p1,p2)
+[WHERE [expr]]
 TO "bos://bj-test-cmy/export/" 
 PROPERTIES
 (
@@ -116,8 +117,8 @@ WITH BROKER "hdfs"
 );
 ```
 
-* `column_separator`: Column separator. The default is `\t`.
-* `line_delimiter`: Line separator. The default is `\n`.
+* `column_separator`: Column separator. The default is `\t`. Supports invisible characters, such as'\x07'.
+* `line_delimiter`: Line separator. The default is `\n`. Supports invisible characters, such as'\x07'.
 * `exec_mem_limit`: Represents the memory usage limitation of a query plan on a single BE in an Export job. Default 2GB. Unit bytes.
 * `timeout`: homework timeout. Default 2 hours. Unit seconds.
 * `tablet_num_per_task`: The maximum number of fragments allocated per query plan. The default is 5.
