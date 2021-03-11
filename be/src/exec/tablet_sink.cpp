@@ -447,6 +447,7 @@ OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
     if (!texprs.empty()) {
         *status = Expr::create_expr_trees(_pool, texprs, &_output_expr_ctxs);
     }
+    _name = "OlapTableSink";
 }
 
 OlapTableSink::~OlapTableSink() {
@@ -491,7 +492,8 @@ Status OlapTableSink::prepare(RuntimeState* state) {
 
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
-    _mem_tracker = MemTracker::CreateTracker(-1, "OlapTableSink", state->instance_mem_tracker());
+    _mem_tracker = MemTracker::CreateTracker(-1, "OlapTableSink:" + std::to_string(state->load_job_id()),
+                                             state->instance_mem_tracker());
 
     SCOPED_TIMER(_profile->total_time_counter());
 

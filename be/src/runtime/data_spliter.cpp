@@ -40,7 +40,9 @@
 namespace doris {
 
 DataSpliter::DataSpliter(const RowDescriptor& row_desc)
-        : _obj_pool(new ObjectPool()), _row_desc(row_desc) {}
+        : _obj_pool(new ObjectPool()), _row_desc(row_desc) {
+    _name = "DataSpliter";
+}
 
 DataSpliter::~DataSpliter() {}
 
