@@ -192,7 +192,7 @@ Status BrokerScanner::open_file_reader() {
 }
 
 Status BrokerScanner::create_decompressor(TFileFormatType::type type) {
-    if (_cur_decompressor == nullptr) {
+    if (_cur_decompressor != nullptr) {
         delete _cur_decompressor;
         _cur_decompressor = nullptr;
     }
@@ -220,7 +220,7 @@ Status BrokerScanner::create_decompressor(TFileFormatType::type type) {
         break;
     default: {
         std::stringstream ss;
-        ss << "Unknown format type, type=" << type;
+        ss << "Unknown format type, cannot inference compress type, type=" << type;
         return Status::InternalError(ss.str());
     }
     }
@@ -271,7 +271,7 @@ Status BrokerScanner::open_line_reader() {
         break;
     default: {
         std::stringstream ss;
-        ss << "Unknown format type, type=" << range.format_type;
+        ss << "Unknown format type, cannot init line reader, type=" << range.format_type;
         return Status::InternalError(ss.str());
     }
     }
