@@ -90,7 +90,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
     }
 
     public TFileType getFileType() {
-        if (isMultiLoadBroker()) {
+        if (storageType == StorageBackend.StorageType.LOCAL) {
             return TFileType.FILE_LOCAL;
         }
         if (storageType == StorageBackend.StorageType.BROKER) {
