@@ -180,7 +180,7 @@ Status ExecEnv::_init_mem_tracker() {
     }
 
     _mem_tracker =
-            MemTracker::CreateTracker(bytes_limit, "ExecEnv root", MemTracker::GetRootTracker());
+            MemTracker::CreateTracker(bytes_limit, "ExecEnv", MemTracker::GetRootTracker());
 
     LOG(INFO) << "Using global memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
     RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));

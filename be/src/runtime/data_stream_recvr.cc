@@ -32,6 +32,7 @@
 #include "util/debug_util.h"
 #include "util/logging.h"
 #include "util/runtime_profile.h"
+#include "util/uid_util.h"
 
 using std::list;
 using std::vector;
@@ -358,7 +359,9 @@ DataStreamRecvr::DataStreamRecvr(
           _num_buffered_bytes(0),
           _profile(profile),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    _mem_tracker = MemTracker::CreateTracker(_profile, -1, "DataStreamRecvr", parent_tracker);
+    _mem_tracker = MemTracker::CreateTracker(_profile, -1,
+                                             "DataStreamRecvr:" + print_id(_fragment_instance_id),
+                                             parent_tracker);
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;

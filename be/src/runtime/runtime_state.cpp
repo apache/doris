@@ -213,10 +213,10 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     mem_tracker_counter->set(bytes_limit);
 
     _query_mem_tracker = MemTracker::CreateTracker(
-            bytes_limit, std::string("RuntimeState: query ") + runtime_profile()->name(),
+            bytes_limit, "RuntimeState:query:" + print_id(query_id),
             _exec_env->process_mem_tracker());
     _instance_mem_tracker = MemTracker::CreateTracker(
-            &_profile, -1, std::string("RuntimeState: instance ") + runtime_profile()->name(),
+            &_profile, -1, "RuntimeState:instance:" + print_id(query_id),
             _query_mem_tracker);
 
     /*
@@ -245,7 +245,7 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
 }
 
 Status RuntimeState::init_instance_mem_tracker() {
-    _instance_mem_tracker = MemTracker::CreateTracker(-1);
+    _instance_mem_tracker = MemTracker::CreateTracker(-1, "RuntimeState");
     return Status::OK();
 }
 

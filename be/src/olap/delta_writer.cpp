@@ -44,7 +44,7 @@ DeltaWriter::DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& p
           _tablet_schema(nullptr),
           _delta_written_success(false),
           _storage_engine(storage_engine),
-          _mem_tracker(MemTracker::CreateTracker(-1, "DeltaWriter", parent)) {}
+          _parent_mem_tracker(parent) {}
 
 DeltaWriter::~DeltaWriter() {
     if (_is_init && !_delta_written_success) {
@@ -101,6 +101,8 @@ OLAPStatus DeltaWriter::init() {
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
+    _mem_tracker = MemTracker::CreateTracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()),
+                                             _parent_mem_tracker);
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()

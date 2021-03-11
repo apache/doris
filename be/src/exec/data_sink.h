@@ -88,6 +88,7 @@ protected:
     // close().
     bool _closed;
     std::shared_ptr<MemTracker> _expr_mem_tracker;
+    std::string _name;
 
     // Maybe this will be transferred to BufferControlBlock.
     std::shared_ptr<QueryStatistics> _query_statistics;
