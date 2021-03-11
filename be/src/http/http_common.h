@@ -47,6 +47,7 @@ static const std::string HTTP_MERGE_TYPE = "merge_type";
 static const std::string HTTP_DELETE_CONDITION = "delete";
 static const std::string HTTP_FUNCTION_COLUMN = "function_column";
 static const std::string HTTP_SEQUENCE_COL = "sequence_col";
+static const std::string HTTP_COMPRESS_TYPE = "compress_type";
 
 static const std::string HTTP_100_CONTINUE = "100-continue";
 
