@@ -113,8 +113,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _index_stream_lru_cache(NULL),
           _file_cache(nullptr),
-          _compaction_mem_tracker(
-                  MemTracker::CreateTracker(-1, "compaction mem tracker(unlimited)")),
+          _compaction_mem_tracker(MemTracker::CreateTracker(-1, "Compaction")),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -985,14 +984,14 @@ bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id)
 
 void StorageEngine::create_cumulative_compaction(
         TabletSharedPtr best_tablet, std::shared_ptr<CumulativeCompaction>& cumulative_compaction) {
-    std::string tracker_label = "cumulative compaction " + std::to_string(syscall(__NR_gettid));
+    std::string tracker_label = "StorageEngine:CumulativeCompaction:" + std::to_string(syscall(__NR_gettid));
     cumulative_compaction.reset(
             new CumulativeCompaction(best_tablet, tracker_label, _compaction_mem_tracker));
 }
 
 void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
                                            std::shared_ptr<BaseCompaction>& base_compaction) {
-    std::string tracker_label = "base compaction " + std::to_string(syscall(__NR_gettid));
+    std::string tracker_label = "StorageEngine:BaseCompaction:" + std::to_string(syscall(__NR_gettid));
     base_compaction.reset(new BaseCompaction(best_tablet, tracker_label, _compaction_mem_tracker));
 }
 

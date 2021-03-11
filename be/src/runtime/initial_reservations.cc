@@ -37,7 +37,7 @@ InitialReservations::InitialReservations(ObjectPool* obj_pool,
                                          ReservationTracker* query_reservation,
                                          std::shared_ptr<MemTracker> query_mem_tracker,
                                          int64_t initial_reservation_total_claims)
-        : initial_reservation_mem_tracker_(MemTracker::CreateTracker(-1, "Unclaimed reservations",
+        : initial_reservation_mem_tracker_(MemTracker::CreateTracker(-1, "InitialReservations",
                                                                      query_mem_tracker, false)),
           remaining_initial_reservation_claims_(initial_reservation_total_claims) {
     initial_reservations_.InitChildTracker(nullptr, query_reservation,

@@ -58,7 +58,7 @@ SegmentReader::SegmentReader(const std::string file, SegmentGroup* segment_group
           _is_using_mmap(false),
           _is_data_loaded(false),
           _buffer_size(0),
-          _tracker(MemTracker::CreateTracker(-1, "SegmentReader", parent_tracker)),
+          _tracker(MemTracker::CreateTracker(-1, "SegmentReader:" + file, parent_tracker)),
           _mem_pool(new MemPool(_tracker.get())),
           _shared_buffer(NULL),
           _lru_cache(lru_cache),

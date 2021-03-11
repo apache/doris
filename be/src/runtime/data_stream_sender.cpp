@@ -359,6 +359,7 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
                     _channel_shared_ptrs[fragment_id_to_channel_index[fragment_instance_id.lo]]);
         }
     }
+    _name = "DataStreamSender";
 }
 
 // We use the ParttitionRange to compare here. It should not be a member function of PartitionInfo
@@ -415,7 +416,8 @@ Status DataStreamSender::prepare(RuntimeState* state) {
           << "])";
     _profile = _pool->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker = MemTracker::CreateTracker(_profile, -1, "DataStreamSender",
+    _mem_tracker = MemTracker::CreateTracker(_profile, -1,
+                                             "DataStreamSender:" + print_id(state->fragment_instance_id()),
                                              state->instance_mem_tracker());
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
