@@ -84,7 +84,7 @@ If multiple tables are joined, the latest partition ID and the latest version nu
 
 ### 2 `partition_cache`
 
-1. SQL can be split in parallel，Q = Q1 ∪ Q2 ... ∪ Qn，R= R1 ∪ R2 ... ∪ Rn，Q is the query statement and R is the result set
+1. SQL can be split in parallel, Q = Q1 ∪ Q2 ... ∪ Qn, R= R1 ∪ R2 ... ∪ Rn, Q is the query statement and R is the result set
 2. Split into read-only partition and updatable partition, read-only partition cache, update partition not cache
 
 ## 5 usage
@@ -115,7 +115,7 @@ If multiple tables are joined, the latest partition ID and the latest version nu
 
 1. `cache_max_partition_count`
 - Be maximum number of partitions cache_ max_ partition_ Count refers to the maximum number of partitions corresponding to each SQL. If the partition is based on date, the data can be cached for more than 2 years. If you want to keep the cache for a longer time, please set this parameter larger and modify the cache_ result_ max_ row_ Count parameter.
-- Default value ： 1024
+- Default value : 1024
 
 2. `cache_max_size_in_mb` `cache_elasticity_size_in_mb` 
 - The cache memory setting in backend has two parameters: cache_max_size_In_mb(256) and cache_elasticity_size_In_mb(128), memory exceeds cache_ max_ size_In_mb+cache_elasticity_size_In_mb will clean up and control the memory to cache_max_size_In_mb. These two parameters can be set according to the number of be nodes, the memory size of nodes, and cache hit rate.

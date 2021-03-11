@@ -183,7 +183,7 @@ WITH BROKER `broker_name`
     
     Please Note: 
     1. Paths that do not exist are automatically created.
-    2. These parameters(access.key/secret.key/endpointneed) need to be confirmed with `Tecent Cloud COS`. In particular, the value of endpoint does not need to be filled in bucket_name。
+    2. These parameters(access.key/secret.key/endpointneed) need to be confirmed with `Tecent Cloud COS`. In particular, the value of endpoint does not need to be filled in bucket_name.
 
 ## Return result
 

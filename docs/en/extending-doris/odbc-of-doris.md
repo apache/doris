@@ -253,7 +253,7 @@ This is the compatibility problem between MySQL database ODBC driver and existin
 
 9. Push down the filtering condition
 
-   The current ODBC appearance supports push down under filtering conditions。MySQL external table can support push down under all conditions. The functions of other databases are different from Doris, which will cause the push down query to fail. At present, except for the MySQL, other databases do not support push down of function calls. Whether Doris pushes down the required filter conditions can be confirmed by the 'explain' query statement.
+   The current ODBC appearance supports push down under filtering conditions. MySQL external table can support push down under all conditions. The functions of other databases are different from Doris, which will cause the push down query to fail. At present, except for the MySQL, other databases do not support push down of function calls. Whether Doris pushes down the required filter conditions can be confirmed by the 'explain' query statement.
 
 10. Report Errors: `driver connect Err: xxx`
 
