@@ -83,7 +83,11 @@ Status ExchangeNode::open(RuntimeState* state) {
         TupleRowComparator less_than(_sort_exec_exprs, _is_asc_order, _nulls_first);
         // create_merger() will populate its merging heap with batches from the _stream_recvr,
         // so it is not necessary to call fill_input_row_batch().
-        RETURN_IF_ERROR(_stream_recvr->create_merger(less_than));
+        if (state->enable_exchange_node_parallel_merge()) {
+            RETURN_IF_ERROR(_stream_recvr->create_parallel_merger(less_than, state->batch_size(), mem_tracker().get()));
+        } else {
+            RETURN_IF_ERROR(_stream_recvr->create_merger(less_than));
+        }
     } else {
         RETURN_IF_ERROR(fill_input_row_batch(state));
     }
