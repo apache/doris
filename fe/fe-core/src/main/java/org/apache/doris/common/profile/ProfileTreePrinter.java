@@ -17,9 +17,9 @@
 
 package org.apache.doris.common.profile;
 
-import org.apache.doris.common.treeprinter.BorderTreeNodeDecorator;
-import org.apache.doris.common.treeprinter.SimpleTreeNode;
-import org.apache.doris.common.treeprinter.TraditionalTreePrinter;
+import hu.webarticum.treeprinter.BorderTreeNodeDecorator;
+import hu.webarticum.treeprinter.SimpleTreeNode;
+import hu.webarticum.treeprinter.TraditionalTreePrinter;
 
 public class ProfileTreePrinter {
 
