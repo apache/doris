@@ -74,7 +74,7 @@ Doris, as an open source MPP architecture OLAP database, can run on most mainstr
 
 > Note 2: Number of FE nodes
 > 
-> 1. FE roles are divided into Follower and Observer. (Leader is an elected role in the Follower group, hereinafter referred to as Follower, for the specific meaning, see [Metadata Design Document] (./internal/metadata-design).)
+> 1. FE roles are divided into Follower and Observer. (Leader is an elected role in the Follower group, hereinafter referred to as Follower, for the specific meaning, see [Metadata Design Document](./internal/metadata-design).)
 > 2. FE node data is at least 1 (1 Follower). When one Follower and one Observer are deployed, high read availability can be achieved. When three Followers are deployed, read-write high availability (HA) can be achieved.
 > 3. The number of Followers **must be** odd, and the number of Observers is arbitrary.
 > 4. According to past experience, when cluster availability requirements are high (e.g. providing online services), three Followers and one to three Observers can be deployed. For offline business, it is recommended to deploy 1 Follower and 1-3 Observers.
@@ -116,7 +116,7 @@ Priority\_networks is a configuration that both FE and BE have, and the configur
 
 `priority_networks=10.1.3.0/24`
 
-This is a representation of [CIDR] (https://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing). FE or BE will find the matching IP based on this configuration item as their own local IP.
+This is a representation of [CIDR](https://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing). FE or BE will find the matching IP based on this configuration item as their own local IP.
 
 **Note**: When priority networks is configured and FE or BE is started, only the correct IP binding of FE or BE is ensured. In ADD BACKEND or ADD FRONTEND statements, you also need to specify IP matching priority networks configuration, otherwise the cluster cannot be established. Give an example:
 
@@ -217,7 +217,7 @@ Broker is deployed as a plug-in, independent of Doris. If you need to import dat
 
 	Connect any booted FE using mysql-client and execute the following command to view Broker status: `SHOW PROC '/brokers';`
 
-**Note: In production environments, daemons should be used to start all instances to ensure that processes are automatically pulled up after they exit, such as [Supervisor] (http://supervisord.org/). For daemon startup, in 0.9.0 and previous versions, you need to modify the start_xx.sh scripts to remove the last & symbol**. Starting with version 0.10.0, call `sh start_xx.sh` directly to start. Also refer to [here] (https://www.cnblogs.com/lenmom/p/9973401.html)
+**Note: In production environments, daemons should be used to start all instances to ensure that processes are automatically pulled up after they exit, such as [Supervisor](http://supervisord.org/). For daemon startup, in 0.9.0 and previous versions, you need to modify the start_xx.sh scripts to remove the last & symbol**. Starting with version 0.10.0, call `sh start_xx.sh` directly to start. Also refer to [here](https://www.cnblogs.com/lenmom/p/9973401.html)
 
 ## Expansion and contraction
 
@@ -292,7 +292,7 @@ You can also view the BE node through the front-end page connection: ``http://fe
 
 All of the above methods require Doris's root user rights.
 
-The expansion and scaling process of BE nodes does not affect the current system operation and the tasks being performed, and does not affect the performance of the current system. Data balancing is done automatically. Depending on the amount of data available in the cluster, the cluster will be restored to load balancing in a few hours to a day. For cluster load, see the [Tablet Load Balancing Document] (../administrator-guide/operation/tablet-repair-and-balance.md).
+The expansion and scaling process of BE nodes does not affect the current system operation and the tasks being performed, and does not affect the performance of the current system. Data balancing is done automatically. Depending on the amount of data available in the cluster, the cluster will be restored to load balancing in a few hours to a day. For cluster load, see the [Tablet Load Balancing Document](../administrator-guide/operation/tablet-repair-and-balance.md).
 
 #### Add BE nodes
 
@@ -404,7 +404,7 @@ Broker is a stateless process that can be started or stopped at will. Of course,
 
 	> **priority\_network**
 	>
-	> priority network is that both FE and BE have a configuration. Its main purpose is to assist FE or BE to identify their own IP addresses in the case of multi-network cards. Priority network is represented by CIDR: [RFC 4632] (https://tools.ietf.org/html/rfc4632)
+	> priority network is that both FE and BE have a configuration. Its main purpose is to assist FE or BE to identify their own IP addresses in the case of multi-network cards. Priority network is represented by CIDR: [RFC 4632](https://tools.ietf.org/html/rfc4632)
 	>
 	> When the connectivity of FE and BE is confirmed to be normal, if the table Timeout still occurs, and the FE log has an error message with the words `backend does not find. host:xxxx.xxx.XXXX`. This means that there is a problem with the IP address that Doris automatically identifies and that priority\_network parameters need to be set manually.
 	>

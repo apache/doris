@@ -135,7 +135,7 @@ public class StringLiteral extends LiteralExpr {
 
     @Override
     public String toSqlImpl() {
-        return "'" + value + "'";
+        return "'" + value.replaceAll("'", "''") + "'";
     }
 
     @Override

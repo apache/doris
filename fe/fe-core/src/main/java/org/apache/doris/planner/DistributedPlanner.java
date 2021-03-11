@@ -375,6 +375,14 @@ public class DistributedPlanner {
             doBroadcast = false;
         }
 
+        // Push down the predicates constructed by the right child when the
+        // join op is inner join or left semi join.
+        // Colocate join, Bucket Shuffle join, Broadcast join support local rumtime filter
+        // For Shuffle join, set is push down false after this code in line:475
+        if (node.getJoinOp().isInnerJoin() || node.getJoinOp().isLeftSemiJoin()) {
+            node.setIsPushDown(true);
+        }
+
         List<String> reason = Lists.newArrayList();
         if (canColocateJoin(node, leftChildFragment, rightChildFragment, reason)) {
             node.setColocate(true, "");
@@ -391,7 +399,7 @@ public class DistributedPlanner {
         // bucket shuffle join is better than broadcast and shuffle join
         // it can reduce the network cost of join, so doris chose it first
         List<Expr> rhsPartitionxprs = Lists.newArrayList();
-        if (canBucketShuffleJoin(node, leftChildFragment, rhsPartitionxprs)) {
+        if (canBucketShuffleJoin(node, leftChildFragment, rightChildFragment, rhsPartitionxprs)) {
             node.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
             DataPartition rhsJoinPartition =
                     new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, rhsPartitionxprs);
@@ -419,13 +427,6 @@ public class DistributedPlanner {
             connectChildFragment(node, 1, leftChildFragment, rightChildFragment);
             leftChildFragment.setPlanRoot(node);
 
-            // Push down the predicates constructed by the right child when the
-            // join op is inner join or left semi join.
-            if (node.getJoinOp().isInnerJoin() || node.getJoinOp().isLeftSemiJoin()) {
-                node.setIsPushDown(true);
-            } else {
-                node.setIsPushDown(false);
-            }  
             return leftChildFragment;
         } else {
             node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
@@ -470,6 +471,8 @@ public class DistributedPlanner {
             rightChildFragment.setDestination(rhsExchange);
             rightChildFragment.setOutputPartition(rhsJoinPartition);
 
+            // Before we support global runtime filter, only shuffle join do not enable local runtime filter
+            node.setIsPushDown(false);
             return joinFragment;
         }
     }
@@ -502,7 +505,7 @@ public class DistributedPlanner {
 
         if (leftRoot instanceof HashJoinNode && rightRoot instanceof OlapScanNode) {
             while (leftRoot instanceof HashJoinNode) {
-                if (((HashJoinNode)leftRoot).isColocate()) {
+                if (!((HashJoinNode)leftRoot).isShuffleJoin()) {
                     leftRoot = leftRoot.getChild(0);
                 } else {
                     cannotReason.add("left hash join node can not do colocate");
@@ -518,7 +521,7 @@ public class DistributedPlanner {
         return false;
     }
 
-    private boolean canBucketShuffleJoin(HashJoinNode node, PlanFragment leftChildFragment,
+    private boolean canBucketShuffleJoin(HashJoinNode node, PlanFragment leftChildFragment, PlanFragment rightChildFragment,
                                    List<Expr> rhsHashExprs) {
         if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
             return false;
@@ -529,9 +532,24 @@ public class DistributedPlanner {
         }
 
         PlanNode leftRoot = leftChildFragment.getPlanRoot();
-        // leftRoot should be OlapScanNode
+        // 1.leftRoot be OlapScanNode
         if (leftRoot instanceof OlapScanNode) {
             return canBucketShuffleJoin(node, leftRoot, rhsHashExprs);
+        }
+
+        // 2.leftRoot be hashjoin node and not shuffle join
+        PlanNode rightRoot = rightChildFragment.getPlanRoot();
+        if (leftRoot instanceof HashJoinNode) {
+            while (leftRoot instanceof HashJoinNode) {
+                if (!((HashJoinNode)leftRoot).isShuffleJoin()) {
+                    leftRoot = leftRoot.getChild(0);
+                } else {
+                    return false;
+                }
+            }
+            if (leftRoot instanceof OlapScanNode) {
+                return canBucketShuffleJoin(node, leftRoot, rhsHashExprs);
+            }
         }
 
         return false;
@@ -541,9 +559,13 @@ public class DistributedPlanner {
     private boolean canBucketShuffleJoin(HashJoinNode node, PlanNode leftRoot,
                                     List<Expr> rhsJoinExprs) {
         OlapScanNode leftScanNode = ((OlapScanNode) leftRoot);
+        OlapTable leftTable = leftScanNode.getOlapTable();
 
-        //1 the left table must be only one partition
+        //1 the left table has more than one partition or left table is not a stable colocate table
         if (leftScanNode.getSelectedPartitionIds().size() != 1) {
+            ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
+            if (!leftTable.isColocateTable() ||
+                    colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTable.getId())))
             return false;
         }
 

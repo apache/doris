@@ -578,6 +578,7 @@ struct TStreamLoadPutRequest {
     29: optional string sequence_col
     30: optional bool num_as_string
     31: optional bool fuzzy_parse
+    32: optional string line_delimiter
 }
 
 struct TStreamLoadPutResult {

@@ -92,7 +92,7 @@ public class StorageBackend extends StorageDesc implements ParseNode {
         if (Strings.isNullOrEmpty(location)) {
             throw new AnalysisException("You must specify a location on the repository");
         }
-        ExportStmt.checkPath(location, storageType);
+        location = ExportStmt.checkPath(location, storageType);
     }
 
     @Override

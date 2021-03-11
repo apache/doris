@@ -106,6 +106,7 @@ Export 的详细命令可以通过 `HELP EXPORT;` 。举例如下：
 ```
 EXPORT TABLE db1.tbl1 
 PARTITION (p1,p2)
+[WHERE [expr]]
 TO "hdfs://host/path/to/export/" 
 PROPERTIES
 (
@@ -120,8 +121,8 @@ WITH BROKER "hdfs"
 );
 ```
 
-* `column_separator`：列分隔符。默认为 `\t`。
-* `line_delimiter`：行分隔符。默认为 `\n`。
+* `column_separator`：列分隔符。默认为 `\t`。支持不可见字符，比如 '\x07'。
+* `line_delimiter`：行分隔符。默认为 `\n`。支持不可见字符，比如 '\x07'。
 * `exec_mem_limit`： 表示 Export 作业中，一个查询计划在单个 BE 上的内存使用限制。默认 2GB。单位字节。
 * `timeout`：作业超时时间。默认 2小时。单位秒。
 * `tablet_num_per_task`：每个查询计划分配的最大分片数。默认为 5。

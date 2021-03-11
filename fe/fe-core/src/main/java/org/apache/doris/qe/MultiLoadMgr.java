@@ -19,7 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.ColumnSeparator;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportWhereStmt;
@@ -456,7 +456,7 @@ public class MultiLoadMgr {
                     fileSizes.add(pair.second);
                 });
             }
-            ColumnSeparator columnSeparator = null;
+            Separator columnSeparator = null;
             PartitionNames partitionNames = null;
             String fileFormat = properties.get(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE);
             boolean isNegative = properties.get(LoadStmt.KEY_IN_PARAM_NEGATIVE) == null ? false :
@@ -475,7 +475,7 @@ public class MultiLoadMgr {
                 colString = properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
                 String columnSeparatorStr = properties.get(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR);
                 if (columnSeparatorStr != null) {
-                    columnSeparator = new ColumnSeparator(columnSeparatorStr);
+                    columnSeparator = new Separator(columnSeparatorStr);
                     try {
                         columnSeparator.analyze();
                     } catch (AnalysisException e) {

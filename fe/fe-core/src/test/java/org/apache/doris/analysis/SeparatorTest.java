@@ -22,47 +22,47 @@ import org.apache.doris.common.AnalysisException;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class ColumnSeparatorTest {
+public class SeparatorTest {
     @Test
     public void testNormal() throws AnalysisException {
         // \t
-        ColumnSeparator separator = new ColumnSeparator("\t");
+        Separator separator = new Separator("\t");
         separator.analyze();
         Assert.assertEquals("'\t'", separator.toSql());
-        Assert.assertEquals("\t", separator.getColumnSeparator());
+        Assert.assertEquals("\t", separator.getSeparator());
 
         // \x01
-        separator = new ColumnSeparator("\\x01");
+        separator = new Separator("\\x01");
         separator.analyze();
         Assert.assertEquals("'\\x01'", separator.toSql());
-        Assert.assertEquals("\1", separator.getColumnSeparator());
+        Assert.assertEquals("\1", separator.getSeparator());
 
         // \x00 \x01
-        separator = new ColumnSeparator("\\x0001");
+        separator = new Separator("\\x0001");
         separator.analyze();
         Assert.assertEquals("'\\x0001'", separator.toSql());
-        Assert.assertEquals("\0\1", separator.getColumnSeparator());
+        Assert.assertEquals("\0\1", separator.getSeparator());
 
-        separator = new ColumnSeparator("|");
+        separator = new Separator("|");
         separator.analyze();
         Assert.assertEquals("'|'", separator.toSql());
-        Assert.assertEquals("|", separator.getColumnSeparator());
+        Assert.assertEquals("|", separator.getSeparator());
 
-        separator = new ColumnSeparator("\\|");
+        separator = new Separator("\\|");
         separator.analyze();
         Assert.assertEquals("'\\|'", separator.toSql());
-        Assert.assertEquals("\\|", separator.getColumnSeparator());
+        Assert.assertEquals("\\|", separator.getSeparator());
     }
 
     @Test(expected = AnalysisException.class)
     public void testHexFormatError() throws AnalysisException {
-        ColumnSeparator separator = new ColumnSeparator("\\x0g");
+        Separator separator = new Separator("\\x0g");
         separator.analyze();
     }
 
     @Test(expected = AnalysisException.class)
     public void testHexLengthError() throws AnalysisException {
-        ColumnSeparator separator = new ColumnSeparator("\\x011");
+        Separator separator = new Separator("\\x011");
         separator.analyze();
     }
 }

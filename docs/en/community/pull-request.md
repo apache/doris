@@ -26,11 +26,11 @@ under the License.
 
 # Code Submission Guide
 
-[Pull Request (PR)] (https://help.github.com/articles/about-pull-requests/) can be easily submitted on [Github] (https://github.com/apache/incubator-doris). The PR method of Doris project is described below.
+[Pull Request (PR)](https://help.github.com/articles/about-pull-requests/) can be easily submitted on [Github](https://github.com/apache/incubator-doris). The PR method of Doris project is described below.
 
 ## Fork Repository
 
-Go to the [github page] (https://github.com/apache/incubator-doris) of apache/incubator-doris , and click the button `Fork` in the upper right corner for Fork.
+Go to the [github page](https://github.com/apache/incubator-doris) of apache/incubator-doris , and click the button `Fork` in the upper right corner for Fork.
 
 ![Fork](/images/fork-repo.png)
 
@@ -80,7 +80,7 @@ git commit -a -m "<you_commit_message>"
 git push origin <your_branch_name>
 ```
 
-For more git usage, please visit: [git usage] (https://www.atlassian.com/git/tutorials/set-up-a-repository), not to mention here.
+For more git usage, please visit: [git usage](https://www.atlassian.com/git/tutorials/set-up-a-repository), not to mention here.
 
 ### 3. Create PR
 

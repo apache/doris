@@ -18,7 +18,7 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
-import org.apache.doris.analysis.ColumnSeparator;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
@@ -158,7 +158,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected List<ImportColumnDesc> columnDescs; // optional
     protected Expr precedingFilter; // optional
     protected Expr whereExpr; // optional
-    protected ColumnSeparator columnSeparator; // optional
+    protected Separator columnSeparator; // optional
+    protected Separator lineDelimiter;
     protected int desireTaskConcurrentNum; // optional
     protected JobState state = JobState.NEED_SCHEDULE;
     protected LoadDataSourceType dataSourceType;
@@ -362,6 +363,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             if (routineLoadDesc.getColumnSeparator() != null) {
                 columnSeparator = routineLoadDesc.getColumnSeparator();
             }
+            if (routineLoadDesc.getLineDelimiter() != null) {
+                lineDelimiter = routineLoadDesc.getLineDelimiter();
+            }
             if (routineLoadDesc.getPartitionNames() != null) {
                 partitions = routineLoadDesc.getPartitionNames();
             }
@@ -485,8 +489,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return whereExpr;
     }
 
-    public ColumnSeparator getColumnSeparator() {
+    public Separator getColumnSeparator() {
         return columnSeparator;
+    }
+
+    public Separator getLineDelimiter() {
+        return lineDelimiter;
     }
 
     public boolean isStrictMode() {
@@ -1350,6 +1358,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             jobProperties.put("dataFormat", "json");
         } else {
             jobProperties.put("columnSeparator", columnSeparator == null ? "\t" : columnSeparator.toString());
+            jobProperties.put("lineDelimiter", lineDelimiter == null ? "\n" : lineDelimiter.toString());
         }
         jobProperties.put("maxErrorNum", String.valueOf(maxErrorNum));
         jobProperties.put("maxBatchIntervalS", String.valueOf(maxBatchIntervalS));

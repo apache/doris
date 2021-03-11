@@ -65,7 +65,7 @@ If you are a new Release Manager, you can read up on the process from the follow
 
 Release manager needs Mr. A to sign his own public key before publishing and upload it to the public key 
 server. Then he can use this public key to sign the package ready for publication.
-If your key already exists in [key] (https://dist.apache.org/repos/dist/dev/initiator/doris/keys), you can skip this step.
+If your key already exists in [key](https://dist.apache.org/repos/dist/dev/initiator/doris/keys), you can skip this step.
 
 
 #### Installation and configuration of signature software GnuPG
