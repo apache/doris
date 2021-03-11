@@ -104,9 +104,9 @@ In the existing Doris import process, the data structure of global dictionary is
 
 ### Build process
 
-1. Read the data from the upstream data source and generate a hive temporary table, which is recorded as `hive_table`。
+1. Read the data from the upstream data source and generate a hive temporary table, which is recorded as `hive_table`.
 
-2. Extract the de duplicated values of the fields to be de duplicated from the `hive_table`, and generate a new hive table, which is marked as `distinct_value_table`。
+2. Extract the de duplicated values of the fields to be de duplicated from the `hive_table`, and generate a new hive table, which is marked as `distinct_value_table`.
 
 3. Create a new global dictionary table named `dict_table`; one column is the original value, and the other is the encoded value.
 
@@ -122,7 +122,7 @@ In the existing Doris import process, the data structure of global dictionary is
 
 1. Read data from the data source. The upstream data source can be HDFS file or hive table.
 
-2. Map the read data, calculate the expression, and generate the bucket field `bucket_id` according to the partition information。
+2. Map the read data, calculate the expression, and generate the bucket field `bucket_id` according to the partition information.
 
 3. Generate rolluptree according to rollup metadata of Doris table.
 
@@ -179,7 +179,7 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 
 - Spark related parameters are as follows:
 
-  - `spark.master`: required, yarn is supported at present, `spark://host:port`。
+  - `spark.master`: required, yarn is supported at present, `spark://host:port`.
 
   - `spark.submit.deployMode`: the deployment mode of Spark Program. It is required and supports cluster and client.
 
@@ -189,7 +189,7 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 
   - Other parameters are optional, refer to `http://spark.apache.org/docs/latest/configuration.html`
 
-- `working_dir`: directory used by ETL. Spark is required when used as an ETL resource. For example: `hdfs://host :port/tmp/doris`。
+- `working_dir`: directory used by ETL. Spark is required when used as an ETL resource. For example: `hdfs://host :port/tmp/doris`.
 
 - `broker`: the name of the broker. Spark is required when used as an ETL resource. You need to use the 'alter system add broker' command to complete the configuration in advance.
 
@@ -545,7 +545,7 @@ The path of the packaged spark dependent file (empty by default).
 
 + `spark_launcher_log_dir`
 
-The directory where the spark client's commit log is stored (`Fe/log/spark)_launcher_log`）。
+The directory where the spark client's commit log is stored (`Fe/log/spark)_launcher_log`）.
 
 + `yarn_client_path`
 
