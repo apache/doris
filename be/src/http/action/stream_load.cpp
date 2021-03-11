@@ -69,18 +69,46 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
 
-static TFileFormatType::type parse_format(const std::string& format_str) {
-    if (boost::iequals(format_str, "CSV")) {
-        return TFileFormatType::FORMAT_CSV_PLAIN;
-    } else if (boost::iequals(format_str, "JSON")) {
-        return TFileFormatType::FORMAT_JSON;
+static TFileFormatType::type parse_format(const std::string& format_str,
+                                          const std::string& compress_type) {
+    if (format_str.empty()) {
+        return parse_format("CSV", compress_type);
     }
-    return TFileFormatType::FORMAT_UNKNOWN;
+    TFileFormatType::type format_type = TFileFormatType::FORMAT_UNKNOWN;
+    if (boost::iequals(format_str, "CSV")) {
+        if (compress_type.empty()) {
+            format_type = TFileFormatType::FORMAT_CSV_PLAIN;
+        }
+        if (boost::iequals(compress_type, "GZ")) {
+            format_type = TFileFormatType::FORMAT_CSV_GZ;
+        } else if (boost::iequals(compress_type, "LZO")) {
+            format_type = TFileFormatType::FORMAT_CSV_LZO;
+        } else if (boost::iequals(compress_type, "BZ2")) {
+            format_type = TFileFormatType::FORMAT_CSV_BZ2;
+        } else if (boost::iequals(compress_type, "LZ4FRAME")) {
+            format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
+        } else if (boost::iequals(compress_type, "LZOP")) {
+            format_type = TFileFormatType::FORMAT_CSV_LZOP;
+        } else if (boost::iequals(compress_type, "DEFLATE")) {
+            format_type = TFileFormatType::FORMAT_CSV_DEFLATE;
+        }
+    } else if (boost::iequals(format_str, "JSON")) {
+        if (compress_type.empty()) {
+            format_type = TFileFormatType::FORMAT_JSON;
+        }
+    }
+    return format_type;
 }
 
 static bool is_format_support_streaming(TFileFormatType::type format) {
     switch (format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_CSV_BZ2:
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+    case TFileFormatType::FORMAT_CSV_GZ:
+    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSV_LZO:
+    case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_JSON:
         return true;
     default:
@@ -214,15 +242,15 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     }
 
     // get format of this put
-    if (http_req->header(HTTP_FORMAT_KEY).empty()) {
-        ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
-    } else {
-        ctx->format = parse_format(http_req->header(HTTP_FORMAT_KEY));
-        if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
-            std::stringstream ss;
-            ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
-            return Status::InternalError(ss.str());
-        }
+    if (!http_req->header(HTTP_COMPRESS_TYPE).empty() && boost::iequals(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
+        return Status::InternalError("compress data of JSON format is not supported.");
+    }
+    ctx->format =
+            parse_format(http_req->header(HTTP_FORMAT_KEY), http_req->header(HTTP_COMPRESS_TYPE));
+    if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
+        std::stringstream ss;
+        ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
+        return Status::InternalError(ss.str());
     }
 
     // check content length

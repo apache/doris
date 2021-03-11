@@ -105,7 +105,7 @@ enum TFileFormatType {
     FORMAT_PARQUET,
     FORMAT_CSV_DEFLATE,
     FORMAT_ORC,
-    FORMAT_JSON
+    FORMAT_JSON,
 }
 
 // One broker range information.
