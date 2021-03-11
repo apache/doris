@@ -23,11 +23,6 @@
 
 namespace doris {
 
-class MemTrackerTest : public testing::Test {
-public:
-    MemTrackerTest() {}
-};
-
 TEST(MemTrackerTest, SingleTrackerNoLimit) {
     auto t = MemTracker::CreateTracker();
     EXPECT_FALSE(t->has_limit());
