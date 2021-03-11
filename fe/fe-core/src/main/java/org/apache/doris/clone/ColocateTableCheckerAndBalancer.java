@@ -53,24 +53,23 @@ import java.util.stream.IntStream;
 /**
  * ColocateTableBalancer is responsible for tablets' repair and balance of colocated tables.
  */
-public class ColocateTableBalancer extends MasterDaemon {
-    private static final Logger LOG = LogManager.getLogger(ColocateTableBalancer.class);
+public class ColocateTableCheckerAndBalancer extends MasterDaemon {
+    private static final Logger LOG = LogManager.getLogger(ColocateTableCheckerAndBalancer.class);
 
     private static final long CHECK_INTERVAL_MS = 20 * 1000L; // 20 second
 
-    private ColocateTableBalancer(long intervalMs) {
+    private ColocateTableCheckerAndBalancer(long intervalMs) {
         super("colocate group clone checker", intervalMs);
     }
 
-    private static volatile ColocateTableBalancer INSTANCE = null;
-    public static ColocateTableBalancer getInstance() {
+    private static volatile ColocateTableCheckerAndBalancer INSTANCE = null;
+    public static ColocateTableCheckerAndBalancer getInstance() {
         if (INSTANCE == null) {
-            synchronized (ColocateTableBalancer.class) {
+            synchronized (ColocateTableCheckerAndBalancer.class) {
                 if (INSTANCE == null) {
-                    INSTANCE = new ColocateTableBalancer(CHECK_INTERVAL_MS);
+                    INSTANCE = new ColocateTableCheckerAndBalancer(CHECK_INTERVAL_MS);
                 }
-            }
-        }
+            } }
         return INSTANCE;
     }
 

@@ -781,10 +781,16 @@ public class Config extends ConfigBase {
     public static int query_colocate_join_memory_limit_penalty_factor = 1;
 
     /**
-     * Deprecated after 0.10
+     * This configs can set to true to disable the automatic colocate tables's relocate and balance.
+     * If 'disable_colocate_balance' is set to true,
+     *   ColocateTableBalancer will not relocate and balance colocate tables.
+     * Attention:
+     *   Under normal circumstances, there is no need to turn off balance at all.
+     *   Because once the balance is turned off, the unstable colocate table may not be restored
+     *   Eventually the colocate plan cannot be used when querying.
      */
-    @ConfField
-    public static boolean disable_colocate_join = false;
+    @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
+
     /**
      * The default user resource publishing timeout.
      */
@@ -1093,14 +1099,6 @@ public class Config extends ConfigBase {
      * Save small files
      */
     @ConfField public static String small_file_dir = PaloFe.DORIS_HOME_DIR + "/small_files";
-    
-    /**
-     * The following 2 configs can set to true to disable the automatic colocate tables's relocate and balance.
-     * if 'disable_colocate_relocate' is set to true, ColocateTableBalancer will not relocate colocate tables when Backend unavailable.
-     * if 'disable_colocate_balance' is set to true, ColocateTableBalancer will not balance colocate tables.
-     */
-    @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_relocate = false;
-    @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
 
     /**
      * If set to true, the insert stmt with processing error will still return a label to user.
