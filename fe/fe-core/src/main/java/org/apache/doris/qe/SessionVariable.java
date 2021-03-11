@@ -77,6 +77,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
+    public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
@@ -132,6 +133,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_EXCHANGE_NODE_PARALLEL_MERGE)
+    public boolean enableExchangeNodeParallelMerge = false;
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
@@ -617,7 +621,9 @@ public class SessionVariable implements Serializable, Writable {
         if (maxPushdownConditionsPerColumn > -1) {
             tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
         }
+
         tResult.setEnableSpilling(enableSpilling);
+        tResult.setEnableEnableExchangeNodeParallelMerge(enableExchangeNodeParallelMerge);
         return tResult;
     }
 

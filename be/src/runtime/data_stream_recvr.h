@@ -87,6 +87,7 @@ public:
     // queues. The exprs used in less_than must have already been prepared and opened.
     Status create_merger(const TupleRowComparator& less_than);
 
+    Status create_parallel_merger(const TupleRowComparator& less_than, uint32_t batch_size, MemTracker* mem_tracker);
     // Fill output_batch with the next batch of rows obtained by merging the per-sender
     // input streams. Must only be called if _is_merging is true.
     Status get_next(RowBatch* output_batch, bool* eos);
@@ -164,6 +165,8 @@ private:
 
     // SortedRunMerger used to merge rows from different senders.
     boost::scoped_ptr<SortedRunMerger> _merger;
+
+    std::vector<std::unique_ptr<SortedRunMerger>> _child_mergers;
 
     // Pool of sender queues.
     ObjectPool _sender_queue_pool;
