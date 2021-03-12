@@ -345,6 +345,14 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
 }
 
 Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    // PartitionedAggregationNode is a spill node, GetNextInternal will read tuple from a tuple stream
+    // then copy the pointer to a RowBatch, it can only guarantee that the life cycle is valid in a batch stage.
+    // If the ancestor node is a no-spilling blocking node (such as hash_join_node except_node ...)
+    // these node may acquire a invalid tuple pointer,
+    // so we should use deep_copy, and copy tuple to the tuple_pool, to ensure tuple not finalized.
+    // reference issue #5466
+    // TODO: if ancestor node don't have a no-spilling blocking node, we could avoid a deep_copy
+    // we should a flag indicate this node don't have to deep_copy
     DCHECK_EQ(row_batch->num_rows(), 0);
     RowBatch batch(row_batch->row_desc(), row_batch->capacity(), _mem_tracker.get());
     int first_row_idx = batch.num_rows();
