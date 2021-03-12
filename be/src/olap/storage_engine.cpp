@@ -593,6 +593,7 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
     std::vector<DataDirInfo> data_dir_infos;
     RETURN_NOT_OK_LOG(get_all_data_dir_info(&data_dir_infos, false),
                       "failed to get root path stat info when sweep trash.")
+    std::sort(data_dir_infos.begin(), data_dir_infos.end(), DataDirInfoLessAvailability());
 
     time_t now = time(nullptr); //获取UTC时间
     tm local_tm_now;
@@ -603,6 +604,7 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
     const time_t local_now = mktime(&local_tm_now); //得到当地日历时间
 
     for (DataDirInfo& info : data_dir_infos) {
+        LOG(INFO) << "Start to sweep path " << info.path;
         if (!info.is_used) {
             continue;
         }
