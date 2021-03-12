@@ -40,7 +40,7 @@ For the first time in Doris community, you can:
 
 * Follow [Doris Github](https://github.com/apache/incubator-doris)
 * Subscribe to our [mailing list](./subscribe-mail-list.md);
-* Join Doris Wechat Group (add micro-signal: morningman-cmy, note: join Doris Group) and ask questions at any time.
+* Join Doris Wechat Group (add WeChat-ID: morningman-cmy, note: join Doris Group) and ask questions at any time.
 * Enter Doris's [Gitter](./gitter.md) chat room;
 
 Learn the development trends of Doris project in time and give your opinions on the topics you are concerned about.
