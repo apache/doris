@@ -281,13 +281,17 @@ public class Database extends MetaObject implements Writable {
         checkReplicaQuota();
     }
 
-    public boolean createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
+    public Pair<Boolean, Boolean> createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
         boolean result = true;
+        // if a table is already exists, then edit log won't be executed
+        // some caller of this method may need to know this message
+        boolean isTableExist = false;
         writeLock();
         try {
             String tableName = table.getName();
             if (nameToTable.containsKey(tableName)) {
                 result = setIfNotExist;
+                isTableExist = true;
             } else {
                 idToTable.put(table.getId(), table);
                 nameToTable.put(table.getName(), table);
@@ -301,7 +305,7 @@ public class Database extends MetaObject implements Writable {
                     Catalog.getCurrentCatalog().getEsRepository().registerTable((EsTable)table);
                 }
             }
-            return result;
+            return Pair.create(result, isTableExist);
         } finally {
             writeUnlock();
         }
