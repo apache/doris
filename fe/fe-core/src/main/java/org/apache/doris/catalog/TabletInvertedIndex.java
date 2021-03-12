@@ -695,5 +695,25 @@ public class TabletInvertedIndex {
             this.beByReplicaCount = TreeMultimap.create(info.beByReplicaCount);
         }
     }
+
+    // just for ut
+    public Table<Long, Long, Replica> getReplicaMetaTable() {
+        return replicaMetaTable;
+    }
+
+    // just for ut
+    public Table<Long, Long, Replica> getBackingReplicaMetaTable() {
+        return backingReplicaMetaTable;
+    }
+
+    // just for ut
+    public Table<Long, Long, TabletMeta> getTabletMetaTable() {
+        return tabletMetaTable;
+    }
+
+    // just for ut
+    public Map<Long, TabletMeta> getTabletMetaMap() {
+        return tabletMetaMap;
+    }
 }
 
