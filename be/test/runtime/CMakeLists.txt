@@ -43,7 +43,7 @@ ADD_BE_TEST(fragment_mgr_test)
 
 #ADD_BE_TEST(tmp_file_mgr_test)
 #ADD_BE_TEST(disk_io_mgr_test)
-#ADD_BE_TEST(mem_limit_test)
+ADD_BE_TEST(mem_limit_test)
 #ADD_BE_TEST(buffered_block_mgr2_test)
 #ADD_BE_TEST(buffered_tuple_stream2_test)
 ADD_BE_TEST(stream_load_pipe_test)
