@@ -949,10 +949,14 @@ public class ReportHandler extends Daemon {
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
         TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-        long dbId = tabletMeta != null ? tabletMeta.getDbId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-        long tableId = tabletMeta != null ? tabletMeta.getTableId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-        long partitionId = tabletMeta != null ? tabletMeta.getPartitionId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-        long indexId = tabletMeta != null ? tabletMeta.getIndexId() : TabletInvertedIndex.NOT_EXIST_VALUE;
+        if (tabletMeta == null || tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+            throw new MetaNotFoundException("tablet meta[" + tabletMeta + "] does not exist in tablet inverted index");
+        }
+
+        long dbId = tabletMeta.getDbId();
+        long tableId = tabletMeta.getTableId();
+        long partitionId = tabletMeta.getPartitionId();
+        long indexId = tabletMeta.getIndexId();
 
         int schemaHash = backendTabletInfo.getSchemaHash();
         long version = backendTabletInfo.getVersion();
