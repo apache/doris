@@ -52,16 +52,20 @@ typedef UniqueId TabletUid;
 enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2 };
 
 struct DataDirInfo {
-    DataDirInfo()
-            : path_hash(0), disk_capacity(1), available(0), data_used_capacity(0), is_used(false) {}
-
     std::string path;
-    size_t path_hash;
-    int64_t disk_capacity; // actual disk capacity
-    int64_t available;     // 可用空间，单位字节
-    int64_t data_used_capacity;
-    bool is_used;                        // 是否可用标识
-    TStorageMedium::type storage_medium; // 存储介质类型：SSD|HDD
+    size_t path_hash = 0;
+    int64_t disk_capacity = 1;  // actual disk capacity
+    int64_t available = 0;      // 可用空间，单位字节
+    int64_t data_used_capacity = 0;
+    bool is_used = false;       // 是否可用标识
+    TStorageMedium::type storage_medium = TStorageMedium::HDD; // 存储介质类型：SSD|HDD
+};
+
+// Sort DataDirInfo by available space.
+struct DataDirInfoLessAvailability {
+    bool operator() (const DataDirInfo& left, const DataDirInfo& right) const {
+        return left.available < right.available;
+    }
 };
 
 struct TabletInfo {
