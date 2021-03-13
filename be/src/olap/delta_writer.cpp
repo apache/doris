@@ -164,6 +164,7 @@ OLAPStatus DeltaWriter::init() {
     writer_context.txn_id = _req.txn_id;
     writer_context.load_id = _req.load_id;
     writer_context.segments_overlap = OVERLAPPING;
+    writer_context.parent_mem_tracker = _mem_tracker;
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(writer_context, &_rowset_writer));
 
     _tablet_schema = &(_tablet->tablet_schema());
@@ -307,8 +308,8 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 
     if (_new_tablet != nullptr) {
         LOG(INFO) << "convert version for schema change";
-        SchemaChangeHandler schema_change;
-        res = schema_change.schema_version_convert(_tablet, _new_tablet, &_cur_rowset,
+        auto schema_change_handler = SchemaChangeHandler::instance();
+        res = schema_change_handler->schema_version_convert(_tablet, _new_tablet, &_cur_rowset,
                                                    &_new_rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to convert delta for new tablet in schema change."

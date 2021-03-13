@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/segment_iterator.h"
 
 #include <set>
+#include <utility>
 
 #include "gutil/strings/substitute.h"
 #include "olap/column_predicate.h"
@@ -89,14 +90,17 @@ private:
     bool _eof;
 };
 
-SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema)
+SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema, std::shared_ptr<MemTracker> parent)
         : _segment(std::move(segment)),
           _schema(schema),
           _column_iterators(_schema.num_columns(), nullptr),
           _bitmap_index_iterators(_schema.num_columns(), nullptr),
           _cur_rowid(0),
           _lazy_materialization_read(false),
-          _inited(false) {}
+          _inited(false) {
+    // use for count the mem use of ColumnIterator
+    _mem_tracker = MemTracker::CreateTracker(-1, "SegmentIterator", std::move(parent), 0);
+}
 
 SegmentIterator::~SegmentIterator() {
     for (auto iter : _column_iterators) {
@@ -194,6 +198,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.rblock = _rblock.get();
+            iter_opts.mem_tracker = MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -322,6 +327,7 @@ Status SegmentIterator::_init_return_column_iterators() {
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.rblock = _rblock.get();
+            iter_opts.mem_tracker = MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }

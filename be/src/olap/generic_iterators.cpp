@@ -16,6 +16,7 @@
 // under the License.
 
 #include <queue>
+#include <utility>
 
 #include "olap/iterators.h"
 #include "olap/row.h"
@@ -113,7 +114,7 @@ Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
 class MergeIteratorContext {
 public:
     // This class don't take iter's ownership, client should delete it
-    MergeIteratorContext(RowwiseIterator* iter) : _iter(iter), _block(iter->schema(), 1024) {}
+    MergeIteratorContext(RowwiseIterator* iter, std::shared_ptr<MemTracker> parent) : _iter(iter), _block(iter->schema(), 1024, std::move(parent)) {}
 
     // Initialize this context and will prepare data for current_row()
     Status init(const StorageReadOptions& opts);
@@ -198,7 +199,10 @@ Status MergeIteratorContext::_load_next_block() {
 class MergeIterator : public RowwiseIterator {
 public:
     // MergeIterator takes the ownership of input iterators
-    MergeIterator(std::vector<RowwiseIterator*> iters) : _origin_iters(std::move(iters)) {}
+    MergeIterator(std::vector<RowwiseIterator*> iters, std::shared_ptr<MemTracker> parent) : _origin_iters(std::move(iters)) {
+        // use for count the mem use of Block use in Merge
+        _mem_tracker = MemTracker::CreateTracker(-1, "MergeIterator", parent, false);
+    }
 
     ~MergeIterator() override {
         for (auto iter : _origin_iters) {
@@ -247,7 +251,7 @@ Status MergeIterator::init(const StorageReadOptions& opts) {
     _merge_heap.reset(new MergeHeap);
 
     for (auto iter : _origin_iters) {
-        std::unique_ptr<MergeIteratorContext> ctx(new MergeIteratorContext(iter));
+        std::unique_ptr<MergeIteratorContext> ctx(new MergeIteratorContext(iter, _mem_tracker));
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
@@ -292,7 +296,9 @@ public:
     // Iterators' ownership it transfered to this class.
     // This class will delete all iterators when destructs
     // Client should not use iterators any more.
-    UnionIterator(std::vector<RowwiseIterator*> iters) : _origin_iters(std::move(iters)) {}
+    UnionIterator(std::vector<RowwiseIterator*> iters, std::shared_ptr<MemTracker> parent) : _origin_iters(std::move(iters)) {
+        _mem_tracker = MemTracker::CreateTracker(-1, "UnionIterator", parent, false);
+    }
 
     ~UnionIterator() override {
         for (auto iter : _origin_iters) {
@@ -332,18 +338,18 @@ Status UnionIterator::next_batch(RowBlockV2* block) {
     return Status::EndOfFile("End of UnionIterator");
 }
 
-RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*> inputs) {
+RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*> inputs, std::shared_ptr<MemTracker> parent) {
     if (inputs.size() == 1) {
         return inputs[0];
     }
-    return new MergeIterator(std::move(inputs));
+    return new MergeIterator(std::move(inputs), parent);
 }
 
-RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*> inputs) {
+RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*> inputs, std::shared_ptr<MemTracker> parent) {
     if (inputs.size() == 1) {
         return inputs[0];
     }
-    return new UnionIterator(std::move(inputs));
+    return new UnionIterator(std::move(inputs), parent);
 }
 
 RowwiseIterator* new_auto_increment_iterator(const Schema& schema, size_t num_rows) {

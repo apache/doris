@@ -47,7 +47,7 @@ class ColumnIterator;
 
 class SegmentIterator : public RowwiseIterator {
 public:
-    SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema);
+    SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema, std::shared_ptr<MemTracker> parent);
     ~SegmentIterator() override;
     Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* row_block) override;

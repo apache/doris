@@ -133,6 +133,7 @@ public:
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
+    uint32_t mem_size() const;
 
     inline TabletTypePB tablet_type() const { return _tablet_type; }
     inline TabletUid tablet_uid() const;

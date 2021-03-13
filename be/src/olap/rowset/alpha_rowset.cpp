@@ -29,7 +29,7 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema, std::string rowset_path,
                          RowsetMetaSharedPtr rowset_meta)
         : Rowset(schema, std::move(rowset_path), std::move(rowset_meta)) {}
 
-OLAPStatus AlphaRowset::do_load(bool use_cache) {
+OLAPStatus AlphaRowset::do_load(bool use_cache, std::shared_ptr<MemTracker>) {
     for (auto& segment_group : _segment_groups) {
         // validate segment group
         if (segment_group->validate() != OLAP_SUCCESS) {
