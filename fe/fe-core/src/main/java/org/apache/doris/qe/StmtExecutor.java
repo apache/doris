@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
@@ -87,12 +86,13 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionCommitFailedException;
 import org.apache.doris.transaction.TransactionStatus;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.glassfish.jersey.internal.guava.Sets;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -258,17 +258,9 @@ public class StmtExecutor {
 
         try {
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
-            SessionVariable sessionVariable = context.getSessionVariable();
-            if (parsedStmt != null && parsedStmt instanceof SelectStmt) {
-                SelectStmt selectStmt = (SelectStmt) parsedStmt;
-                Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
-                if(optHints != null) {
-                    for (String key : optHints.keySet()) {
-                        VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
-                    }
-                }
-            }
+            analyzeVariablesInStmt();
             // analyze this query
+            SessionVariable sessionVariable = context.getSessionVariable();
             analyze(sessionVariable.toThrift());
 
             if (isForwardToMaster()) {
@@ -385,6 +377,19 @@ public class StmtExecutor {
 
     }
 
+    private void analyzeVariablesInStmt() throws DdlException {
+        SessionVariable sessionVariable = context.getSessionVariable();
+        if (parsedStmt != null && parsedStmt instanceof SelectStmt) {
+            SelectStmt selectStmt = (SelectStmt) parsedStmt;
+            Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
+            if (optHints != null) {
+                for (String key : optHints.keySet()) {
+                    VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
+                }
+            }
+        }
+    }
+
     private void forwardToMaster() throws Exception {
         boolean isQuery = parsedStmt instanceof QueryStmt;
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery);
@@ -432,6 +437,8 @@ public class StmtExecutor {
                         originStmt, context.getStmtId(), parser.getErrorMsg(originStmt.originStmt), e);
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
+
+            analyzeVariablesInStmt();
         }
         redirectStatus = parsedStmt.getRedirectStatus();
 

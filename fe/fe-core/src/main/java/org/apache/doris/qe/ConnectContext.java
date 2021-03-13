@@ -141,6 +141,11 @@ public class ConnectContext {
         queryDetail = null;
     }
 
+    // Just for unit test
+    public void resetSessionVariables() {
+        sessionVariable = VariableMgr.newSessionVariable();
+    }
+
     public long getStmtId() {
         return stmtId;
     }
