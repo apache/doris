@@ -160,20 +160,22 @@ WITH BROKER `broker_name`
 4. Example 4
 
     Export simple query results to the file `cos://${bucket_name}/path/result.txt`. Specify the export format as CSV.
+    And create a mark file after export finished.
     
     ```
-   select k1,k2,v1 from tbl1 limit 100000
-   into outfile "s3a://my_bucket/export/my_file_"
-   FORMAT AS CSV
-   PROPERTIES
-   (
+    select k1,k2,v1 from tbl1 limit 100000
+    into outfile "s3a://my_bucket/export/my_file_"
+    FORMAT AS CSV
+    PROPERTIES
+    (
        "broker.name" = "hdfs_broker",
        "broker.fs.s3a.access.key" = "xxx",
        "broker.fs.s3a.secret.key" = "xxxx",
        "broker.fs.s3a.endpoint" = "https://cos.xxxxxx.myqcloud.com/",
        "column_separator" = ",",
        "line_delimiter" = "\n",
-       "max_file_size" = "1024MB"
+       "max_file_size" = "1024MB",
+       "success_file_name" = "SUCCESS"
     )
     ```
     
@@ -188,19 +190,30 @@ WITH BROKER `broker_name`
 ## Return result
 
 The command is a synchronization command. The command returns, which means the operation is over.
+At the same time, a row of results will be returned to show the exported execution result.
 
 If it exports and returns normally, the result is as follows:
 
 ```
-mysql> SELECT * FROM tbl INTO OUTFILE ...                                                                                                                                                                                                                                                                  Query OK, 100000 row affected (5.86 sec)
+mysql> select * from tbl1 limit 10 into outfile "file:///home/work/path/result_";
++------------+-----------+----------+--------------+
+| FileNumber | TotalRows | FileSize | URL          |
++------------+-----------+----------+--------------+
+|          1 |         2 |        8 | 192.168.1.10 |
++------------+-----------+----------+--------------+
+1 row in set (0.05 sec)
 ```
 
-`100000 row affected` Indicates the size of the exported result set.
+* FileNumber: The number of files finally generated.
+* TotalRows: The number of rows in the result set.
+* FileSize: The total size of the exported file. Unit byte.
+* URL: If it is exported to a local disk, the Compute Node to which it is exported is displayed here.
 
 If the execution is incorrect, an error message will be returned, such as:
 
 ```
-mysql> SELECT * FROM tbl INTO OUTFILE ...                                                                                                                                                                                                                                                                  ERROR 1064 (HY000): errCode = 2, detailMessage = Open broker writer failed ...
+mysql> SELECT * FROM tbl INTO OUTFILE ...
+ERROR 1064 (HY000): errCode = 2, detailMessage = Open broker writer failed ...
 ```
 
 ## Notice

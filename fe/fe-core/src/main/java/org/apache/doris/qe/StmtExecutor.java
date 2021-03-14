@@ -26,6 +26,7 @@ import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
+import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.SelectStmt;
@@ -41,6 +42,7 @@ import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
@@ -102,6 +104,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 // Do one COM_QUERY process.
 // first: Parse receive byte array to statement struct.
@@ -626,7 +629,7 @@ public class StmtExecutor {
             batch = value.getRowBatch();
             if (!isSend) {
                 // send meta fields before sending first data batch.
-                sendFields(selectStmt.getColLabels(), selectStmt.getResultExprs());
+                sendFields(selectStmt.getColLabels(), exprToType(selectStmt.getResultExprs()));
                 isSend = true;
             }
             for (ByteBuffer row : batch.getBatch().getRows()) {
@@ -640,7 +643,7 @@ public class StmtExecutor {
                 statisticsForAuditLog = batch.getQueryStatistics();
             }
             if (!isSend) {
-                sendFields(selectStmt.getColLabels(), selectStmt.getResultExprs());
+                sendFields(selectStmt.getColLabels(), exprToType(selectStmt.getResultExprs()));
                 isSend = true;
             }
             context.getState().setEof();
@@ -687,7 +690,7 @@ public class StmtExecutor {
             if (batch.getBatch() != null) {
                 cacheAnalyzer.copyRowBatch(batch);
                 if (!isSendFields) {
-                    sendFields(newSelectStmt.getColLabels(), newSelectStmt.getResultExprs());
+                    sendFields(newSelectStmt.getColLabels(), exprToType(newSelectStmt.getResultExprs()));
                     isSendFields = true;
                 }
                 for (ByteBuffer row : batch.getBatch().getRows()) {
@@ -707,7 +710,7 @@ public class StmtExecutor {
         cacheAnalyzer.updateCache();
 
         if (!isSendFields) {
-            sendFields(newSelectStmt.getColLabels(), newSelectStmt.getResultExprs());
+            sendFields(newSelectStmt.getColLabels(), exprToType(newSelectStmt.getResultExprs()));
             isSendFields = true;
         }
 
@@ -765,11 +768,15 @@ public class StmtExecutor {
         while (true) {
             batch = coord.getNext();
             // for outfile query, there will be only one empty batch send back with eos flag
-            if (batch.getBatch() != null && !isOutfileQuery) {
+            if (batch.getBatch() != null) {
                 // For some language driver, getting error packet after fields packet will be recognized as a success result
                 // so We need to send fields after first batch arrived
                 if (!isSendFields) {
-                    sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+                    if (!isOutfileQuery) {
+                        sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
+                    } else {
+                        sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
+                    }
                     isSendFields = true;
                 }
                 for (ByteBuffer row : batch.getBatch().getRows()) {
@@ -781,16 +788,16 @@ public class StmtExecutor {
                 break;
             }
         }
-        if (!isSendFields && !isOutfileQuery) {
-            sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+        if (!isSendFields) {
+            if (!isOutfileQuery) {
+                sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
+            } else {
+                sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
+            }
         }
 
         statisticsForAuditLog = batch.getQueryStatistics();
-        if (!isOutfileQuery) {
-            context.getState().setEof();
-        } else {
-            context.getState().setOk(statisticsForAuditLog.returned_rows, 0, "");
-        }
+        context.getState().setEof();
         plannerProfile.setQueryFetchResultFinishTime();
     }
 
@@ -993,7 +1000,7 @@ public class StmtExecutor {
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
     }
 
-    private void sendFields(List<String> colNames, List<Expr> exprs) throws IOException {
+    private void sendFields(List<String> colNames, List<PrimitiveType> types) throws IOException {
         // sends how many columns
         serializer.reset();
         serializer.writeVInt(colNames.size());
@@ -1001,7 +1008,7 @@ public class StmtExecutor {
         // send field one by one
         for (int i = 0; i < colNames.size(); ++i) {
             serializer.reset();
-            serializer.writeField(colNames.get(i), exprs.get(i).getType().getPrimitiveType());
+            serializer.writeField(colNames.get(i), types.get(i));
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
         // send EOF
@@ -1111,6 +1118,10 @@ public class StmtExecutor {
             statisticsForAuditLog.cpu_ms = 0L;
         }
         return statisticsForAuditLog;
+    }
+
+    private List<PrimitiveType> exprToType(List<Expr> exprs) {
+        return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
     }
 }
 
