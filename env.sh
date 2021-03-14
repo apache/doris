@@ -107,5 +107,10 @@ if ninja --version 2>/dev/null; then
     GENERATOR="Ninja"
     BUILD_SYSTEM="ninja"
 fi
+
+if ccache --version > /dev/null; then
+    CMAKE_USE_CCACHE="-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+fi
+
 export GENERATOR
 export BUILD_SYSTEM
