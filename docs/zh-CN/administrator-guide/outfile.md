@@ -136,6 +136,7 @@ INTO OUTFILE "file_path"
 3. 示例3
 
     将 UNION 语句的查询结果导出到文件 `bos://bucket/result.txt`。指定导出格式为 PARQUET。使用 `my_broker` 并设置 hdfs 高可用信息。PARQUET 格式无需指定列分割符。
+    导出完成后，生成一个标识文件。
     
     ```
     SELECT k1 FROM tbl1 UNION SELECT k2 FROM tbl1
@@ -156,46 +157,59 @@ INTO OUTFILE "file_path"
 
 4. 示例4
 
-   将 select 语句的查询结果导出到文件 `cos://${bucket_name}/path/result.txt`。指定导出格式为 csv。
-   ```
-   select k1,k2,v1 from tbl1 limit 100000
-   into outfile "s3a://my_bucket/export/my_file_"
-   FORMAT AS CSV
-   PROPERTIES
-   (
-       "broker.name" = "hdfs_broker",
-       "broker.fs.s3a.access.key" = "xxx",
-       "broker.fs.s3a.secret.key" = "xxxx",
-       "broker.fs.s3a.endpoint" = "https://cos.xxxxxx.myqcloud.com/",
-       "column_separator" = ",",
-       "line_delimiter" = "\n",
-       "max_file_size" = "1024MB"
+    将 select 语句的查询结果导出到文件 `cos://${bucket_name}/path/result.txt`。指定导出格式为 csv。
+    导出完成后，生成一个标识文件。
+
+    ```
+    select k1,k2,v1 from tbl1 limit 100000
+    into outfile "s3a://my_bucket/export/my_file_"
+    FORMAT AS CSV
+    PROPERTIES
+    (
+        "broker.name" = "hdfs_broker",
+        "broker.fs.s3a.access.key" = "xxx",
+        "broker.fs.s3a.secret.key" = "xxxx",
+        "broker.fs.s3a.endpoint" = "https://cos.xxxxxx.myqcloud.com/",
+        "column_separator" = ",",
+        "line_delimiter" = "\n",
+        "max_file_size" = "1024MB",
+        "success_file_name" = "SUCCESS"
     )
     ```
-   最终生成文件如如果不大于 1GB，则为：`my_file_0.csv`。
+    最终生成文件如如果不大于 1GB，则为：`my_file_0.csv`。
 
-   如果大于 1GB，则可能为 `my_file_0.csv, result_1.csv, ...`。
+    如果大于 1GB，则可能为 `my_file_0.csv, result_1.csv, ...`。
 
-   在cos上验证
-   1. 不存在的path会自动创建
-   2. access.key/secret.key/endpoint需要和cos的同学确认。尤其是endpoint的值，不需要填写bucket_name。
+    在cos上验证
+    1. 不存在的path会自动创建
+    2. access.key/secret.key/endpoint需要和cos的同学确认。尤其是endpoint的值，不需要填写bucket_name。
 
 ## 返回结果
 
-导出命令为同步命令。命令返回，即表示操作结束。
+导出命令为同步命令。命令返回，即表示操作结束。同时会返回一行结果来展示导出的执行结果。
 
 如果正常导出并返回，则结果如下：
 
 ```
-mysql> SELECT * FROM tbl INTO OUTFILE ...                                                                                                                                                                                                                                                                Query OK, 100000 row affected (5.86 sec)
+mysql> select * from tbl1 limit 10 into outfile "file:///home/work/path/result_";
++------------+-----------+----------+--------------+
+| FileNumber | TotalRows | FileSize | URL          |
++------------+-----------+----------+--------------+
+|          1 |         2 |        8 | 192.168.1.10 |
++------------+-----------+----------+--------------+
+1 row in set (0.05 sec)
 ```
 
-其中 `100000 row affected` 表示导出的结果集行数。
+* FileNumber：最终生成的文件个数。
+* TotalRows：结果集行数。
+* FileSize：导出文件总大小。单位字节。
+* URL：如果是导出到本地磁盘，则这里显示具体导出到哪个 Compute Node。
 
 如果执行错误，则会返回错误信息，如：
 
 ```
-mysql> SELECT * FROM tbl INTO OUTFILE ...                                                                                                                                                                                                                                                                  ERROR 1064 (HY000): errCode = 2, detailMessage = Open broker writer failed ...
+mysql> SELECT * FROM tbl INTO OUTFILE ...
+ERROR 1064 (HY000): errCode = 2, detailMessage = Open broker writer failed ...
 ```
 
 ## 注意事项

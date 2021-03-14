@@ -38,7 +38,7 @@ public:
 
     virtual Status close() = 0;
 
-    int64_t get_written_rows() const { return _written_rows; }
+    virtual int64_t get_written_rows() const { return _written_rows; }
 
     static const std::string NULL_IN_CSV;
 
