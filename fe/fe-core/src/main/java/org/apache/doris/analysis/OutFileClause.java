@@ -17,20 +17,25 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -39,12 +44,28 @@ import java.util.stream.Collectors;
 public class OutFileClause {
     private static final Logger LOG = LogManager.getLogger(OutFileClause.class);
 
+    public static final List<String> RESULT_COL_NAMES = Lists.newArrayList();
+    public static final List<PrimitiveType> RESULT_COL_TYPES = Lists.newArrayList();
+
+    static {
+        RESULT_COL_NAMES.add("FileNumber");
+        RESULT_COL_NAMES.add("TotalRows");
+        RESULT_COL_NAMES.add("FileSize");
+        RESULT_COL_NAMES.add("URL");
+
+        RESULT_COL_TYPES.add(PrimitiveType.INT);
+        RESULT_COL_TYPES.add(PrimitiveType.BIGINT);
+        RESULT_COL_TYPES.add(PrimitiveType.BIGINT);
+        RESULT_COL_TYPES.add(PrimitiveType.VARCHAR);
+    }
+
     public static final String LOCAL_FILE_PREFIX = "file:///";
     private static final String BROKER_PROP_PREFIX = "broker.";
     private static final String PROP_BROKER_NAME = "broker.name";
     private static final String PROP_COLUMN_SEPARATOR = "column_separator";
     private static final String PROP_LINE_DELIMITER = "line_delimiter";
     private static final String PROP_MAX_FILE_SIZE = "max_file_size";
+    private static final String PROP_SUCCESS_FILE_NAME = "success_file_name";
 
     private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
     private static final long MIN_FILE_SIZE_BYTES = 5 * 1024 * 1024L; // 5MB
@@ -60,6 +81,10 @@ public class OutFileClause {
     private TFileFormatType fileFormatType;
     private long maxFileSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES;
     private BrokerDesc brokerDesc = null;
+    // True if result is written to local disk.
+    // If set to true, the brokerDesc must be null.
+    private boolean isLocalOutput = false;
+    private String successFileName = "";
 
     public OutFileClause(String filePath, String format, Map<String, String> properties) {
         this.filePath = filePath;
@@ -94,9 +119,7 @@ public class OutFileClause {
     }
 
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(filePath)) {
-            throw new AnalysisException("Must specify file in OUTFILE clause");
-        }
+        analyzeFilePath();
 
         if (!format.equals("csv")) {
             throw new AnalysisException("Only support CSV format");
@@ -105,8 +128,26 @@ public class OutFileClause {
 
         analyzeProperties();
 
-        if (brokerDesc == null) {
+        if (brokerDesc != null && isLocalOutput) {
+            throw new AnalysisException("No need to specify BROKER properties in OUTFILE clause for local file output");
+        } else if (brokerDesc == null && !isLocalOutput) {
             throw new AnalysisException("Must specify BROKER properties in OUTFILE clause");
+        }
+    }
+
+    private void analyzeFilePath() throws AnalysisException {
+        if (Strings.isNullOrEmpty(filePath)) {
+            throw new AnalysisException("Must specify file in OUTFILE clause");
+        }
+
+        if (filePath.startsWith(LOCAL_FILE_PREFIX)) {
+            if (!Config.enable_outfile_to_local) {
+                throw new AnalysisException("Exporting results to local disk is not allowed.");
+            }
+            isLocalOutput = true;
+            filePath = filePath.substring(LOCAL_FILE_PREFIX.length() - 1); // leave last '/'
+        } else {
+            isLocalOutput = false;
         }
     }
 
@@ -117,9 +158,6 @@ public class OutFileClause {
 
         Set<String> processedPropKeys = Sets.newHashSet();
         getBrokerProperties(processedPropKeys);
-        if (brokerDesc == null) {
-            return;
-        }
 
         if (properties.containsKey(PROP_COLUMN_SEPARATOR)) {
             if (!isCsvFormat()) {
@@ -143,6 +181,12 @@ public class OutFileClause {
                 throw new AnalysisException("max file size should between 5MB and 2GB. Given: " + maxFileSizeBytes);
             }
             processedPropKeys.add(PROP_MAX_FILE_SIZE);
+        }
+
+        if (properties.containsKey(PROP_SUCCESS_FILE_NAME)) {
+            successFileName = properties.get(PROP_SUCCESS_FILE_NAME);
+            FeNameFormat.checkCommonName("file name", successFileName);
+            processedPropKeys.add(PROP_SUCCESS_FILE_NAME);
         }
 
         if (processedPropKeys.size() != properties.size()) {
@@ -209,6 +253,9 @@ public class OutFileClause {
             sinkOptions.setBrokerProperties(brokerDesc.getProperties());
             // broker_addresses of sinkOptions will be set in Coordinator.
             // Because we need to choose the nearest broker with the result sink node.
+        }
+        if (!Strings.isNullOrEmpty(successFileName)) {
+            sinkOptions.setSuccessFileName(successFileName);
         }
         return sinkOptions;
     }
