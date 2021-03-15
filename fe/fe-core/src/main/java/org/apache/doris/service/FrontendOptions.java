@@ -19,7 +19,6 @@ package org.apache.doris.service;
 
 import org.apache.doris.common.CIDR;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.NetUtils;
 
 import com.google.common.base.Strings;
@@ -99,18 +98,6 @@ public class FrontendOptions {
 
     public static String getHostname() {
         return localAddr.getHostName();
-    }
-
-    public static String getHostnameByIp(String ip) {
-        String hostName = FeConstants.null_string;
-        try {
-            InetAddress address = InetAddress.getByName(ip);
-            hostName = address.getHostName();
-        } catch (UnknownHostException e) {
-            LOG.info("unknown host for {}", ip, e);
-            hostName = "unknown";
-        }
-        return hostName;
     }
 
     private static void analyzePriorityCidrs() {
