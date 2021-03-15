@@ -28,7 +28,7 @@ import org.apache.logging.log4j.Logger;
 // proc service entry
 public final class ProcService {
     private static final Logger LOG = LogManager.getLogger(ProcService.class);
-    private static ProcService INSTANCE;
+    private static volatile ProcService INSTANCE;
 
     private BaseProcDir root;
 
@@ -154,7 +154,11 @@ public final class ProcService {
 
     public static ProcService getInstance() {
         if (INSTANCE == null) {
-            INSTANCE = new ProcService();
+            synchronized (ProcService.class) {
+                if (INSTANCE == null) {
+                    INSTANCE = new ProcService();
+                }
+            }
         }
         return INSTANCE;
     }
