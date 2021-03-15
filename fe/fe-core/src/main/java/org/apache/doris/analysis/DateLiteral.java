@@ -145,7 +145,7 @@ public class DateLiteral extends LiteralExpr {
     //Regex used to determine if the TIME field exists int date_format
     private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsTp]+.*$");
     // max length of datetime string
-    int MAX_DATETIME_VALUE_LENGTH = new String("yyyy-MM-dd hh:mm:ss").length();
+    private static final int MAX_DATETIME_VALUE_LENGTH = new String("yyyy-MM-dd hh:mm:ss").length();
     //Date Literal persist type in meta
     private enum  DateLiteralType {
         DATETIME(0),
