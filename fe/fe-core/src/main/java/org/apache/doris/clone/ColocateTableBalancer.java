@@ -62,10 +62,14 @@ public class ColocateTableBalancer extends MasterDaemon {
         super("colocate group clone checker", intervalMs);
     }
 
-    private static ColocateTableBalancer INSTANCE = null;
+    private static volatile ColocateTableBalancer INSTANCE = null;
     public static ColocateTableBalancer getInstance() {
         if (INSTANCE == null) {
-            INSTANCE = new ColocateTableBalancer(CHECK_INTERVAL_MS);
+            synchronized (ColocateTableBalancer.class) {
+                if (INSTANCE == null) {
+                    INSTANCE = new ColocateTableBalancer(CHECK_INTERVAL_MS);
+                }
+            }
         }
         return INSTANCE;
     }
