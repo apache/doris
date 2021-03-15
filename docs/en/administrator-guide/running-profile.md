@@ -198,6 +198,8 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms,% non-child: 0.00%)
   - RowsReturnedRate: 6.979K /sec       # RowsReturned/ActiveTime
   - TabletCount: 20                     # The number of Tablets involved in this ScanNode.
   - TotalReadThroughput: 74.70 KB/sec   # BytesRead divided by the total time spent in this node (from Open to Close). For IO bounded queries, this should be very close to the total throughput of all the disks
+  - ScannerBatchWaitTime: 426.886us     # To count the time the transfer thread waits for the scaner thread to return rowbatch.
+  - ScannerWorkerWaitTime: 17.745us     # To count the time that the scanner thread waits for the available worker threads in the thread pool.
   OlapScanner:
     - BlockConvertTime: 8.941us         # The time it takes to convert a vectorized Block into a RowBlock with a row structure. The vectorized Block is VectorizedRowBatch in V1 and RowBlockV2 in V2.
     - BlockFetchTime: 468.974us         # Rowset Reader gets the time of the Block.

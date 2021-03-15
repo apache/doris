@@ -136,6 +136,11 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
+
+    // time of transfer thread to wait for row batch from scan thread
+    _scanner_wait_batch_timer = ADD_TIMER(_runtime_profile, "ScannerBatchWaitTime");
+    // time of scan thread to wait for worker thread of the thread pool
+    _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
@@ -1282,6 +1287,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
             PriorityThreadPool::Task task;
             task.work_function = boost::bind(&OlapScanNode::scanner_thread, this, *iter);
             task.priority = _nice;
+            (*iter)->start_wait_worker_timer();
             if (thread_pool->offer(task)) {
                 olap_scanners.erase(iter++);
             } else {
@@ -1305,6 +1311,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
             // 2 wait when all scanner are running & no result in queue
             while (UNLIKELY(_running_thread == assigned_thread_num && _scan_row_batches.empty() &&
                             !_scanner_done)) {
+                SCOPED_TIMER(_scanner_wait_batch_timer);
                 _scan_batch_added_cv.wait(l);
             }
 
@@ -1345,6 +1352,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
+    int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
     // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
     ThreadCpuStopWatch cpu_watch;
@@ -1452,6 +1460,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     }
 
     _scan_cpu_timer->update(cpu_watch.elapsed_time());
+    _scanner_wait_worker_timer->update(wait_time);
     _scan_batch_added_cv.notify_one();
 
     // The transfer thead will wait for `_running_thread==0`, to make sure all scanner threads won't access class members.
