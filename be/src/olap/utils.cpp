@@ -732,7 +732,7 @@ OLAPStatus read_write_test_file(const string& test_file_path) {
     }
     OLAPStatus res = OLAP_SUCCESS;
     FileHandler file_handler;
-    if ((res = file_handler.open_with_mode(test_file_path.c_str(), O_RDWR | O_CREAT | O_DIRECT,
+    if ((res = file_handler.open_with_mode(test_file_path.c_str(), O_RDWR | O_CREAT | O_SYNC,
                                            S_IRUSR | S_IWUSR)) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to create test file. path=" << test_file_path;
         return res;
