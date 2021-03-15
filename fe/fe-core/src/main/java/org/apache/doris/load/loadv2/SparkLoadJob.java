@@ -699,14 +699,8 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     @Override
-    public void cancelJobWithoutCheck(FailMsg failMsg, boolean abortTxn, boolean needLog) {
-        super.cancelJobWithoutCheck(failMsg, abortTxn, needLog);
-        clearJob();
-    }
-
-    @Override
-    public void cancelJob(FailMsg failMsg) throws DdlException {
-        super.cancelJob(failMsg);
+    protected void unprotectedExecuteCancel(FailMsg failMsg, boolean abortTxn) {
+        super.unprotectedExecuteCancel(failMsg, abortTxn);
         clearJob();
     }
 
