@@ -30,7 +30,7 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label,
                        const std::shared_ptr<MemTracker>& parent_tracker)
         : _mem_tracker(MemTracker::CreateTracker(-1, label, parent_tracker)),
           _readers_tracker(MemTracker::CreateTracker(-1, "CompactionReaderTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker)),
-          _writer_tracker(MemTracker::CreateTracker(-1, "CompationWriterTracker" + std::to_string(tablet->tablet_id()), _mem_tracker)),
+          _writer_tracker(MemTracker::CreateTracker(-1, "CompationWriterTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker)),
           _tablet(tablet),
           _input_rowsets_size(0),
           _input_row_num(0),
