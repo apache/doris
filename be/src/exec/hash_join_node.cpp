@@ -34,6 +34,7 @@ namespace doris {
 HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _join_op(tnode.hash_join_node.join_op),
+          _probe_counter(0),
           _probe_eos(false),
           _process_build_batch_fn(NULL),
           _process_probe_batch_fn(NULL),
@@ -375,6 +376,10 @@ Status HashJoinNode::open(RuntimeState* state) {
 Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eos) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
+    // In most cases, no additional memory overhead will be applied for at this stage, 
+    // but if the expression calculation in this node needs to apply for additional memory, 
+    // it may cause the memory to exceed the limit.
+    RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while execute get_next.");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     if (reached_limit()) {
