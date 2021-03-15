@@ -47,7 +47,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
  */
 public class ProfileManager {
     private static final Logger LOG = LogManager.getLogger(ProfileManager.class);
-    private static ProfileManager INSTANCE = null;
+    private static volatile ProfileManager INSTANCE = null;
     private static final int ARRAY_SIZE = 100;
     // private static final int TOTAL_LEN = 1000 * ARRAY_SIZE ;
     public static final String QUERY_ID = "Query ID";
@@ -80,7 +80,11 @@ public class ProfileManager {
     
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
-            INSTANCE = new ProfileManager();
+            synchronized (ProfileManager.class) {
+                if (INSTANCE == null) {
+                    INSTANCE = new ProfileManager();
+                }
+            }
         }
         return INSTANCE;
     }

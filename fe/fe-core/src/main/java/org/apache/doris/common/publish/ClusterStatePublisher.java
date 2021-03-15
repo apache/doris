@@ -39,7 +39,7 @@ import java.util.concurrent.ExecutorService;
 // This class intend to publish the state of cluster to backends.
 public class ClusterStatePublisher {
     private static final Logger LOG = LogManager.getLogger(ClusterStatePublisher.class);
-    private static ClusterStatePublisher INSTANCE;
+    private static volatile ClusterStatePublisher INSTANCE;
 
     private ExecutorService executor = ThreadPoolManager.newDaemonFixedThreadPool(5, 256, "cluster-state-publisher", true);
 
@@ -52,7 +52,11 @@ public class ClusterStatePublisher {
 
     public static ClusterStatePublisher getInstance() {
         if (INSTANCE == null) {
-            INSTANCE = new ClusterStatePublisher(Catalog.getCurrentSystemInfo());
+            synchronized (ClusterStatePublisher.class) {
+                if (INSTANCE == null) {
+                    INSTANCE = new ClusterStatePublisher(Catalog.getCurrentSystemInfo());
+                }
+            }
         }
         return INSTANCE;
     }
