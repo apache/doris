@@ -186,7 +186,8 @@ OLAPStatus TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id, Schem
     tablet_map[tablet_id].table_arr.push_back(tablet);
     tablet_map[tablet_id].table_arr.sort(_cmp_tablet_by_create_time);
     _add_tablet_to_partition(*tablet);
-    // table schema will copy in tablet, there will be double mem cost
+    // TODO: remove multiply 2 of tablet meta mem size
+    // Because table schema will copy in tablet, there will be double mem cost
     // so here multiply 2
     _mem_tracker->Consume(tablet->tablet_meta()->mem_size() * 2);
 
