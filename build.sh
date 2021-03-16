@@ -135,7 +135,7 @@ if [[ -z ${WITH_MYSQL} ]]; then
     WITH_MYSQL=OFF
 fi
 if [[ -z ${GLIBC_COMPATIBILITY} ]]; then
-    GLIBC_COMPATIBILITY=OFF
+    GLIBC_COMPATIBILITY=ON
 fi
 if [[ -z ${WITH_LZO} ]]; then
     WITH_LZO=OFF
