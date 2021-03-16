@@ -1437,6 +1437,18 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
     for (int i = 0; i < num_cols; ++i) {
         return_columns[i] = i;
     }
+
+    // reader_context is stack variables, it's lifetime should keep the same
+    // with rs_readers
+    RowsetReaderContext reader_context;
+    reader_context.reader_type = READER_ALTER_TABLE;
+    reader_context.tablet_schema = &base_tablet->tablet_schema();
+    reader_context.need_ordered_result = true;
+    reader_context.delete_handler = &delete_handler;
+    reader_context.return_columns = &return_columns;
+    // for schema change, seek_columns is the same to return_columns
+    reader_context.seek_columns = &return_columns;
+
     do {
         // get history data to be converted and it will check if there is hold in base tablet
         res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed);
@@ -1506,15 +1518,6 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
             res = OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS;
             break;
         }
-
-        RowsetReaderContext reader_context;
-        reader_context.reader_type = READER_ALTER_TABLE;
-        reader_context.tablet_schema = &base_tablet->tablet_schema();
-        reader_context.need_ordered_result = true;
-        reader_context.delete_handler = &delete_handler;
-        reader_context.return_columns = &return_columns;
-        // for schema change, seek_columns is the same to return_columns
-        reader_context.seek_columns = &return_columns;
 
         for (auto& rs_reader : rs_readers) {
             rs_reader->init(&reader_context);
