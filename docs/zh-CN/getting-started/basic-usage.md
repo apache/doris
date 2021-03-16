@@ -337,7 +337,7 @@ MySQL> SELECT * FROM table1 LIMIT 3;
 |      5 |        3 | 'helen'  |    3 |
 |      3 |        2 | 'tom'    |    2 |
 +--------+----------+----------+------+
-5 rows in set (0.01 sec)
+3 rows in set (0.01 sec)
 
 MySQL> SELECT * FROM table1 ORDER BY citycode;
 +--------+----------+----------+------+
