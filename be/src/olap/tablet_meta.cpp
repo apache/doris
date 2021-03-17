@@ -499,7 +499,8 @@ void TabletMeta::delete_rs_meta_by_version(const Version& version,
 }
 
 void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
-                                 const std::vector<RowsetMetaSharedPtr>& to_delete) {
+                                 const std::vector<RowsetMetaSharedPtr>& to_delete,
+                                 bool same_version) {
     // Remove to_delete rowsets from _rs_metas
     for (auto rs_to_del : to_delete) {
         auto it = _rs_metas.begin();
@@ -516,8 +517,10 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
             }
         }
     }
-    // put to_delete rowsets in _stale_rs_metas.
-    _stale_rs_metas.insert(_stale_rs_metas.end(), to_delete.begin(), to_delete.end());
+    if (!same_version) {
+        // put to_delete rowsets in _stale_rs_metas.
+        _stale_rs_metas.insert(_stale_rs_metas.end(), to_delete.begin(), to_delete.end());
+    }
     // put to_add rowsets in _rs_metas.
     _rs_metas.insert(_rs_metas.end(), to_add.begin(), to_add.end());
 }
