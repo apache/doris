@@ -284,7 +284,7 @@ void TimestampedVersionTracker::recover_versioned_tracker(
         }
         _path_map_iter++;
     }
-    LOG(INFO) << "recover_versioned_tracker current map info " << _get_current_path_map_str();
+    LOG(INFO) << "recover_versioned_tracker current map info " << get_current_path_map_str();
 }
 
 void TimestampedVersionTracker::add_version(const Version& version) {
@@ -354,7 +354,7 @@ PathVersionListSharedPtr TimestampedVersionTracker::fetch_and_delete_path_by_id(
         return nullptr;
     }
 
-    VLOG_NOTICE << _get_current_path_map_str();
+    VLOG_NOTICE << get_current_path_map_str();
     PathVersionListSharedPtr ptr = fetch_path_version_by_id(path_id);
 
     _stale_version_path_map.erase(path_id);
@@ -365,7 +365,7 @@ PathVersionListSharedPtr TimestampedVersionTracker::fetch_and_delete_path_by_id(
     return ptr;
 }
 
-std::string TimestampedVersionTracker::_get_current_path_map_str() {
+std::string TimestampedVersionTracker::get_current_path_map_str() {
     std::stringstream tracker_info;
     tracker_info << "current expired next_path_id " << _next_path_id << std::endl;
 
