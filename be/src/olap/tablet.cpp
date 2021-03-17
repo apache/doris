@@ -34,6 +34,7 @@
 #include "olap/olap_define.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
@@ -225,7 +226,8 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
             rowsets_to_delete.push_back(it.second);
         }
     }
-    modify_rowsets(std::vector<RowsetSharedPtr>(), rowsets_to_delete);
+    std::vector<RowsetSharedPtr> empty_vec;
+    modify_rowsets(empty_vec, rowsets_to_delete);
 
     if (need_persist) {
         RowsetMetaPB rowset_meta_pb;
@@ -240,20 +242,43 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
     return OLAP_SUCCESS;
 }
 
-void Tablet::modify_rowsets(const std::vector<RowsetSharedPtr>& to_add,
-                            const std::vector<RowsetSharedPtr>& to_delete) {
+void Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
+                            std::vector<RowsetSharedPtr>& to_delete) {
     // the compaction process allow to compact the single version, eg: version[4-4].
     // this kind of "single version compaction" has same "input version" and "output version".
     // which means "to_add->version()" equals to "to_delete->version()".
     // So we should delete the "to_delete" before adding the "to_add",
     // otherwise, the "to_add" will be deleted from _rs_version_map, eventually.
+    //
+    // And if the version of "to_add" and "to_delete" are exactly same. eg:
+    // to_add:      [7-7]
+    // to_delete:   [7-7]
+    // In this case, we no longer need to add the rowset in "to_delete" to
+    // _stale_rs_version_map, but can delete it directly.
+
+    bool same_version = true;
+    std::sort(to_add.begin(), to_add.end(), Rowset::comparator);
+    std::sort(to_delete.begin(), to_delete.end(), Rowset::comparator);
+    if (to_add.size() == to_delete.size()) {
+        for (int i = 0; i < to_add.size(); ++i) {
+            if (to_add[i]->version() != to_delete[i]->version()) {
+                same_version = false;
+                break;
+            } 
+        }
+    } else {
+        same_version = false;
+    }
+
     std::vector<RowsetMetaSharedPtr> rs_metas_to_delete;
     for (auto& rs : to_delete) {
         rs_metas_to_delete.push_back(rs->rowset_meta());
         _rs_version_map.erase(rs->version());
 
-        // put compaction rowsets in _stale_rs_version_map.
-        _stale_rs_version_map[rs->version()] = rs;
+        if (!same_version) {
+            // put compaction rowsets in _stale_rs_version_map.
+            _stale_rs_version_map[rs->version()] = rs;
+        }
     }
 
     std::vector<RowsetMetaSharedPtr> rs_metas_to_add;
@@ -261,14 +286,26 @@ void Tablet::modify_rowsets(const std::vector<RowsetSharedPtr>& to_add,
         rs_metas_to_add.push_back(rs->rowset_meta());
         _rs_version_map[rs->version()] = rs;
 
-        _timestamped_version_tracker.add_version(rs->version());
+        if (!same_version) {
+            // If version are same, then _timestamped_version_tracker
+            // already has this version, no need to add again.
+            _timestamped_version_tracker.add_version(rs->version());
+        }
         ++_newly_created_rowset_num;
     }
 
-    _tablet_meta->modify_rs_metas(rs_metas_to_add, rs_metas_to_delete);
+    _tablet_meta->modify_rs_metas(rs_metas_to_add, rs_metas_to_delete, same_version);
 
-    // add rs_metas_to_delete to tracker
-    _timestamped_version_tracker.add_stale_path_version(rs_metas_to_delete);
+    if (!same_version) {
+        // add rs_metas_to_delete to tracker
+        _timestamped_version_tracker.add_stale_path_version(rs_metas_to_delete);
+    } else {
+        // delete rowset in "to_delete" directly
+        for (auto& rs : to_delete) {
+            LOG(INFO) << "add unused rowset " << rs->rowset_id() << " because of same version";
+            StorageEngine::instance()->add_unused_rowset(rs); 
+        }
+    }
 }
 
 // snapshot manager may call this api to check if version exists, so that
@@ -1002,6 +1039,7 @@ void Tablet::get_compaction_status(std::string* json_result) {
     path_arr.SetArray();
 
     std::vector<RowsetSharedPtr> rowsets;
+    std::vector<RowsetSharedPtr> stale_rowsets;
     std::vector<bool> delete_flags;
     {
         ReadLock rdlock(&_meta_lock);
@@ -1010,6 +1048,12 @@ void Tablet::get_compaction_status(std::string* json_result) {
             rowsets.push_back(it.second);
         }
         std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
+
+        stale_rowsets.reserve(_stale_rs_version_map.size());
+        for (auto& it : _stale_rs_version_map) {
+            stale_rowsets.push_back(it.second);
+        }
+        std::sort(stale_rowsets.begin(), stale_rowsets.end(), Rowset::comparator);
 
         delete_flags.reserve(rowsets.size());
         for (auto& rs : rowsets) {
@@ -1050,13 +1094,30 @@ void Tablet::get_compaction_status(std::string* json_result) {
         std::string disk_size =
                 PrettyPrinter::print(rowsets[i]->rowset_meta()->total_disk_size(), TUnit::BYTES);
         std::string version_str = strings::Substitute(
-                "[$0-$1] $2 $3 $4 $5", ver.first, ver.second, rowsets[i]->num_segments(),
+                "[$0-$1] $2 $3 $4 $5 $6", ver.first, ver.second, rowsets[i]->num_segments(),
                 (delete_flags[i] ? "DELETE" : "DATA"),
-                SegmentsOverlapPB_Name(rowsets[i]->rowset_meta()->segments_overlap()), disk_size);
+                SegmentsOverlapPB_Name(rowsets[i]->rowset_meta()->segments_overlap()),
+                rowsets[i]->rowset_id().to_string(), disk_size);
         value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
     }
     root.AddMember("rowsets", versions_arr, root.GetAllocator());
+
+    // print all stale rowsets' version as an array
+    rapidjson::Document stale_versions_arr;
+    stale_versions_arr.SetArray();
+    for (int i = 0; i < stale_rowsets.size(); ++i) {
+        const Version& ver = stale_rowsets[i]->version();
+        rapidjson::Value value;
+        std::string disk_size =
+                PrettyPrinter::print(stale_rowsets[i]->rowset_meta()->total_disk_size(), TUnit::BYTES);
+        std::string version_str = strings::Substitute(
+                "[$0-$1] $2 $3 $4", ver.first, ver.second, stale_rowsets[i]->num_segments(),
+                stale_rowsets[i]->rowset_id().to_string(), disk_size);
+        value.SetString(version_str.c_str(), version_str.length(), stale_versions_arr.GetAllocator());
+        stale_versions_arr.PushBack(value, stale_versions_arr.GetAllocator());
+    }
+    root.AddMember("stale_rowsets", stale_versions_arr, root.GetAllocator());
 
     // add stale version rowsets
     root.AddMember("stale version path", path_arr, root.GetAllocator());
@@ -1201,12 +1262,8 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
 // there are some rowset meta in local meta store and in in-memory tablet meta
 // but not in tablet meta in local meta store
 void Tablet::generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) const {
-    TabletMetaPB tablet_meta_pb;
-    {
-        ReadLock rdlock(&_meta_lock);
-        _tablet_meta->to_meta_pb(&tablet_meta_pb);
-    }
-    new_tablet_meta->init_from_pb(tablet_meta_pb);
+    ReadLock rdlock(&_meta_lock);
+    generate_tablet_meta_copy_unlocked(new_tablet_meta);
 }
 
 // this is a unlocked version of generate_tablet_meta_copy()
