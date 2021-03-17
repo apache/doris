@@ -123,6 +123,43 @@ public class SlotRef extends Expr {
         this.desc = desc;
     }
 
+    public boolean columnEqual(Expr srcExpr) {
+        Preconditions.checkState(srcExpr instanceof SlotRef);
+        SlotRef srcSlotRef = (SlotRef) srcExpr;
+        if (desc != null && srcSlotRef.desc != null) {
+            return desc.getId().equals(srcSlotRef.desc.getId());
+        }
+        TableName srcTableName = srcSlotRef.tblName;
+        if (srcTableName == null && srcSlotRef.desc != null) {
+            srcTableName = srcSlotRef.getTableName();
+        }
+        TableName thisTableName = tblName;
+        if (thisTableName == null && desc != null) {
+            thisTableName = getTableName();
+        }
+        if ((thisTableName == null) != (srcTableName == null)) {
+            return false;
+        }
+        if (thisTableName != null && !thisTableName.equals(srcTableName)) {
+            return false;
+        }
+        String srcColumnName = srcSlotRef.getColumnName();
+        if (srcColumnName == null && srcSlotRef.desc != null && srcSlotRef.getDesc().getColumn() != null) {
+            srcColumnName = srcSlotRef.desc.getColumn().getName();
+        }
+        String thisColumnName = getColumnName();
+        if (thisColumnName == null && desc != null && desc.getColumn() != null) {
+            thisColumnName = desc.getColumn().getName();
+        }
+        if ((thisColumnName == null) != (srcColumnName == null)) {
+            return false;
+        }
+        if (thisColumnName != null && !thisColumnName.toLowerCase().equals(srcColumnName.toLowerCase())) {
+            return false;
+        }
+        return true;
+    }
+
     @Override
     public void vectorizedAnalyze(Analyzer analyzer) {
         computeOutputColumn(analyzer);

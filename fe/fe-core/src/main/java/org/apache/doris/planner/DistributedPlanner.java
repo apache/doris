@@ -275,10 +275,15 @@ public class DistributedPlanner {
     private PlanFragment createScanFragment(PlanNode node) {
         if (node instanceof MysqlScanNode || node instanceof OdbcScanNode) {
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
-        }  else if (node instanceof SchemaScanNode) {
+        } else if (node instanceof SchemaScanNode) {
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
+        } else if (node instanceof OlapScanNode) {
+            // olap scan node
+            OlapScanNode olapScanNode = (OlapScanNode) node;
+            return new PlanFragment(ctx_.getNextFragmentId(), node,
+                    olapScanNode.constructInputPartitionByDistributionInfo(), DataPartition.RANDOM);
         } else {
-            // es scan node, olap scan node are random partitioned
+            // other scan nodes are random partitioned: es, broker
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.RANDOM);
         }
     }
@@ -850,7 +855,8 @@ public class DistributedPlanner {
         // There is at least one partitioned child fragment.
         // TODO(ML): here
         PlanFragment setOperationFragment = new PlanFragment(ctx_.getNextFragmentId(), setOperationNode,
-                DataPartition.RANDOM);
+                new DataPartition(TPartitionType.HASH_PARTITIONED,
+                        setOperationNode.getMaterializedResultExprLists_().get(0)));
         for (int i = 0; i < childFragments.size(); ++i) {
             PlanFragment childFragment = childFragments.get(i);
             /* if (childFragment.isPartitioned() && childFragment.getPlanRoot().getNumInstances() > 1) {
@@ -969,17 +975,71 @@ public class DistributedPlanner {
         if (isDistinct) {
             return createPhase2DistinctAggregationFragment(node, childFragment, fragments);
         } else {
-            // Check table's distribution. See #4481.
-            PlanNode childPlan = childFragment.getPlanRoot();
-            // TODO(ML): here
-            if (childPlan instanceof OlapScanNode &&
-                    ((OlapScanNode) childPlan).getOlapTable().meetAggDistributionRequirements(node.getAggInfo())) {
+            if (canColocateAgg(node.getAggInfo(), childFragment.getInputDataPartition())) {
                 childFragment.addPlanRoot(node);
                 return childFragment;
             } else {
                 return createMergeAggregationFragment(node, childFragment);
             }
         }
+    }
+
+    /**
+     * Colocate Agg can be performed when the following 2 conditions are met at the same time.
+     * 1. Session variables disable_colocate_plan = true
+     * 2. The input data partition of child fragment < agg node partition exprs
+     */
+    private boolean canColocateAgg(AggregateInfo aggregateInfo, List<DataPartition> childFragmentDataPartition) {
+        // Condition1
+        if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
+            LOG.info("Agg node is not colocate in:" + ConnectContext.get().getQueryDetail().getQueryId()
+                    + ", reason:" + DistributedPlanColocateRule.SESSION_DISABLED);
+            return false;
+        }
+
+        // Condition2
+        List<Expr> aggPartitionExprs = aggregateInfo.getInputPartitionExprs();
+        for (DataPartition childDataPartition : childFragmentDataPartition) {
+            if (dataPartitionMatchAggInfo(childDataPartition, aggPartitionExprs)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The aggPartitionExprs should contains all of data partition columns.
+     * Since aggPartitionExprs may be derived from the transformation of the lower tuple,
+     *   it is necessary to find the source expr of itself firstly.
+     * <p>
+     * For example:
+     * Data Partition: t1.k1, t1.k2
+     * Agg Partition Exprs: t1.k1, t1.k2, t1.k3
+     * Return: true
+     * <p>
+     * Data Partition: t1.k1, t1.k2
+     * Agg Partition Exprs: t1.k1, t2.k2
+     * Return: false
+     */
+    private boolean dataPartitionMatchAggInfo(DataPartition dataPartition, List<Expr> aggPartitionExprs) {
+        TPartitionType partitionType = dataPartition.getType();
+        if (partitionType != TPartitionType.HASH_PARTITIONED) {
+            return false;
+        }
+        List<Expr> dataPartitionExprs = dataPartition.getPartitionExprs();
+        for (Expr dataPartitionExpr : dataPartitionExprs) {
+            boolean match = false;
+            for (Expr aggPartitionExpr : aggPartitionExprs) {
+                if (aggPartitionExpr.comeFrom(dataPartitionExpr)) {
+                    match = true;
+                    break;
+                }
+            }
+            if (!match) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private PlanFragment createRepeatNodeFragment(
