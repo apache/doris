@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-cmake_minimum_required(VERSION 3.12.0)
+cmake_minimum_required(VERSION 3.19.2)
 
 # set CMAKE_C_COMPILER, this must set before project command
 if (DEFINED ENV{DORIS_GCC_HOME})
@@ -137,8 +137,6 @@ if (NOT APPLE)
 else()
     find_package(Boost 1.73.0 COMPONENTS thread regex system filesystem date_time program_options)
 endif()
-include_directories(${Boost_INCLUDE_DIRS})
-message(STATUS ${Boost_LIBRARIES})
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
@@ -450,7 +448,12 @@ set(DORIS_DEPENDENCIES
     librdkafka
     libs2
     snappy
-    ${Boost_LIBRARIES}
+    Boost::regex
+    Boost::system
+    Boost::filesystem
+    Boost::thread
+    Boost::date_time
+    Boost::program_options
     thrift
     thriftnb
     glog

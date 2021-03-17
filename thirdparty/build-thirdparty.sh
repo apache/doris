@@ -241,7 +241,7 @@ build_llvm() {
     rm -rf CMakeCache.txt CMakeFiles/
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ${CMAKE_CMD} -G "${GENERATOR}" -DLLVM_REQUIRES_RTTI:Bool=True -DLLVM_TARGETS_TO_BUILD=${LLVM_TARGET} -DLLVM_ENABLE_TERMINFO=OFF LLVM_BUILD_LLVM_DYLIB:BOOL=OFF -DLLVM_ENABLE_PIC=true -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE="RELEASE" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/llvm ../$LLVM_SOURCE
-    ${BUILD_SYSTEM} -j$PARALLEL REQUIRES_RTTI=1 && ${BUILD_SYSTEM} install
+    ${BUILD_SYSTEM} -j $PARALLEL REQUIRES_RTTI=1 && ${BUILD_SYSTEM} install
 }
 
 # protobuf
@@ -269,7 +269,7 @@ build_gflags() {
     rm -rf CMakeCache.txt CMakeFiles/
     ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_POSITION_INDEPENDENT_CODE=On ../
-    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
 # glog
@@ -297,7 +297,7 @@ build_gtest() {
     rm -rf CMakeCache.txt CMakeFiles/
     ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_POSITION_INDEPENDENT_CODE=On ../
-    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
 # rapidjson
@@ -319,7 +319,7 @@ build_snappy() {
     -DCMAKE_POSITION_INDEPENDENT_CODE=On \
     -DCMAKE_INSTALL_INCLUDEDIR=$TP_INCLUDE_DIR/snappy \
     -DSNAPPY_BUILD_TESTS=0 ../
-    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 
     #build for libarrow.a
     cp $TP_INCLUDE_DIR/snappy/snappy-c.h  $TP_INCLUDE_DIR/snappy-c.h && \
@@ -409,7 +409,7 @@ build_re2() {
     cd $TP_SOURCE_DIR/$RE2_SOURCE
 
     ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR
-    ${BUILD_SYSTEM} -j$PARALLEL install
+    ${BUILD_SYSTEM} -j $PARALLEL install
 }
 
 # boost
@@ -418,7 +418,7 @@ build_boost() {
     cd $TP_SOURCE_DIR/$BOOST_SOURCE
 
     ./bootstrap.sh --prefix=$TP_INSTALL_DIR     
-    ./b2 link=static runtime-link=static -j$PARALLEL --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -g -fPIC -I$TP_INCLUDE_DIR -L$TP_LIB_DIR" install
+    ./b2 link=static runtime-link=static -j $PARALLEL --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -g -fPIC -I$TP_INCLUDE_DIR -L$TP_LIB_DIR" install
 }
 
 # mysql
@@ -438,7 +438,7 @@ build_mysql() {
     -DCMAKE_INCLUDE_PATH=$TP_INCLUDE_DIR -DWITHOUT_SERVER=1 -DWITH_ZLIB=$TP_INSTALL_DIR \
     -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -fabi-version=2 -fno-omit-frame-pointer -fno-strict-aliasing -std=gnu++11" \
     -DDISABLE_SHARED=1 -DBUILD_SHARED_LIBS=0
-    ${BUILD_SYSTEM} -j$PARALLEL mysqlclient
+    ${BUILD_SYSTEM} -j $PARALLEL mysqlclient
 
     # copy headers manually
     rm -rf ../../../installed/include/mysql/
@@ -474,7 +474,7 @@ build_brpc() {
     -DBRPC_WITH_GLOG=ON -DWITH_GLOG=ON -DGFLAGS_LIBRARY=$TP_INSTALL_DIR/lib/libgflags.a -DGLOG_LIB=$TP_INSTALL_DIR/lib \
     -DGFLAGS_INCLUDE_DIR=$TP_INSTALL_DIR/include -DGLOG_LIB=$TP_INSTALL_DIR/lib/libglog.a -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
     -DPROTOBUF_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc .. 
-    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
 # rocksdb
@@ -524,7 +524,7 @@ build_flatbuffers() {
   CXXFLAGS="-fPIC -Wno-class-memaccess" \
   LDFLAGS="-static-libstdc++ -static-libgcc" \
   ${CMAKE_CMD} -G "${GENERATOR}" ..
-  ${BUILD_SYSTEM} -j$PARALLEL
+  ${BUILD_SYSTEM} -j $PARALLEL
   cp flatc  ../../../installed/bin/flatc
   cp -r ../include/flatbuffers  ../../../installed/include/flatbuffers
   cp libflatbuffers.a ../../../installed/lib/libflatbuffers.a
@@ -566,7 +566,7 @@ build_arrow() {
     -Ddouble-conversion_SOURCE=BUNDLED \
     -DThrift_ROOT=$TP_INSTALL_DIR/ ..
 
-    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 
     #copy dep libs	
     cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a $TP_INSTALL_DIR/lib64/libjemalloc.a	
@@ -597,7 +597,7 @@ build_s2() {
     -DGLOG_ROOT_DIR="$TP_INSTALL_DIR/include" \
     -DGFLAGS_LIBRARY=$TP_INSTALL_DIR/lib/libgflags.a \
     -DWITH_GLOG=ON ..
-    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
 # bitshuffle
@@ -662,7 +662,7 @@ build_croaringbitmap() {
     ${CMAKE_CMD} -G "${GENERATOR}" -v -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
     -DENABLE_ROARING_TESTS=OFF ..
-    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 #orc
 build_orc() {
@@ -682,7 +682,7 @@ build_orc() {
     -DBUILD_CPP_TESTS=OFF \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR 
 
-    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
 #cctz
