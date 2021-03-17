@@ -38,6 +38,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import com.clearspring.analytics.util.Lists;
+
 /**
  * PlanFragments form a tree structure via their ExchangeNodes. A tree of fragments
  * connected in that way forms a plan. The output of a plan is produced by the root
@@ -262,6 +264,15 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public DataPartition getDataPartition() {
         return dataPartition;
+    }
+
+    public List<DataPartition> getInputDataPartition() {
+        List<DataPartition> result = Lists.newArrayList();
+        result.add(getDataPartition());
+        for (PlanFragment child : children) {
+            result.add(child.getOutputPartition());
+        }
+        return result;
     }
 
     public DataPartition getOutputPartition() {
