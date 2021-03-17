@@ -305,7 +305,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
 
                 // begin keys
                 // is max partition
-                Range<PartitionKey> range = rangePartitionInfo.getRange(partitionId);
+                Range<PartitionKey> range = rangePartitionInfo.getItem(partitionId).getItems();
                 boolean isMaxPartition = range.upperEndpoint().isMaxValue();
 
                 // start keys

@@ -98,15 +98,22 @@ In the process of using Star Schema, users are advised to use Star Schema to dis
 
 ### 1.3 Partitioning and Bucketing 
 
-Doris supports two-level partitioned storage. The first layer is RANGE partition and the second layer is HASH bucket.
+Doris supports two-level partitioned storage. The first level is partition, which currently supports both RANGE and LIST partition types, and the second layer is HASH bucket.
 
-1.3.1. RANGE Partitioning
+1.3.1. Partitioning
 
-The RANGE partition is used to divide data into different intervals, which can be logically understood as dividing the original table into multiple sub-tables. In business, most users will choose to partition on time, which has the following advantages:
+Partition is used to divide data into different intervals, which can be logically understood as dividing the original table into multiple sub-tables. Data can be easily managed by partition, for example, to delete data more quickly.
+
+1.3.1.1. Range Partitioning
+
+In business, most users will choose to partition on time, which has the following advantages:
 
 * Differentiable heat and cold data
 * Availability of Doris Hierarchical Storage (SSD + SATA)
-* Delete data by partition more quickly
+
+1.3.1.2. List Partitioning
+
+In business,, users can select cities or other enumeration values for partition.
 
 1.3.2. Hash Bucketing
 

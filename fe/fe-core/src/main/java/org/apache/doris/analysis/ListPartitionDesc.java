@@ -19,8 +19,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
@@ -28,27 +29,26 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-// to describe the key range partition's information in create table stmt
-public class RangePartitionDesc extends PartitionDesc {
+// to describe the key list partition's information in create table stmt
+public class ListPartitionDesc extends PartitionDesc {
 
-    public RangePartitionDesc(List<String> partitionColNames,
-                              List<SinglePartitionDesc> singlePartitionDescs) {
+    public ListPartitionDesc(List<String> partitionColNames,
+                             List<SinglePartitionDesc> singlePartitionDescs) {
         super(partitionColNames, singlePartitionDescs);
-        type = org.apache.doris.catalog.PartitionType.RANGE;
+        type = PartitionType.LIST;
     }
 
     @Override
     public void checkPartitionKeyValueType(PartitionKeyDesc partitionKeyDesc) throws AnalysisException {
-        if (partitionKeyDesc.getPartitionType() != PartitionKeyValueType.FIXED &&
-                partitionKeyDesc.getPartitionType() != PartitionKeyValueType.LESS_THAN) {
-            throw new AnalysisException("You can only use fixed or less than values to create range partitions");
+        if (partitionKeyDesc.getPartitionType() != PartitionKeyValueType.IN) {
+            throw new AnalysisException("You can only use in values to create list partitions");
         }
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("PARTITION BY RANGE(");
+        sb.append("PARTITION BY LIST(");
         int idx = 0;
         for (String column : partitionColNames) {
             if (idx != 0) {
@@ -58,7 +58,7 @@ public class RangePartitionDesc extends PartitionDesc {
             idx++;
         }
         sb.append(")\n(\n");
-        
+
         for (int i = 0; i < singlePartitionDescs.size(); i++) {
             if (i != 0) {
                 sb.append(",\n");
@@ -85,7 +85,7 @@ public class RangePartitionDesc extends PartitionDesc {
             for (Column column : schema) {
                 if (column.getName().equalsIgnoreCase(colName)) {
                     try {
-                        RangePartitionInfo.checkPartitionColumn(column);
+                        ListPartitionInfo.checkPartitionColumn(column);
                     } catch (AnalysisException e) {
                         throw new DdlException(e.getMessage());
                     }
@@ -93,7 +93,6 @@ public class RangePartitionDesc extends PartitionDesc {
                     partitionColumns.add(column);
                     find = true;
                     break;
-
                 }
             }
             if (!find) {
@@ -101,23 +100,11 @@ public class RangePartitionDesc extends PartitionDesc {
             }
         }
 
-        /*
-         * validate key range
-         * eg.
-         * VALUE LESS THAN (10, 100, 1000)
-         * VALUE LESS THAN (50, 500)
-         * VALUE LESS THAN (80)
-         *
-         * key range is:
-         * ( {MIN, MIN, MIN},     {10,  100, 1000} )
-         * [ {10,  100, 1000},    {50,  500, MIN } )
-         * [ {50,  500, MIN },    {80,  MIN, MIN } )
-         */
-        RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(partitionColumns);
+        ListPartitionInfo listPartitionInfo = new ListPartitionInfo(partitionColumns);
         for (SinglePartitionDesc desc : singlePartitionDescs) {
             long partitionId = partitionNameToId.get(desc.getPartitionName());
-            rangePartitionInfo.handleNewSinglePartitionDesc(desc, partitionId, isTemp);
+            listPartitionInfo.handleNewSinglePartitionDesc(desc, partitionId, isTemp);
         }
-        return rangePartitionInfo;
+        return listPartitionInfo;
     }
 }

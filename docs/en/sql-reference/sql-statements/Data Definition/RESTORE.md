@@ -42,7 +42,7 @@ Explain:
 2. The ON clause identifies the tables and partitions that need to be restored. If no partition is specified, all partitions of the table are restored by default. The specified tables and partitions must already exist in the warehouse backup.
 3. The backup tables in the warehouse can be restored to new tables through AS statements. But the new table name cannot already exist in the database. Partition name cannot be changed.
 4. The backup tables in the warehouse can be restored and replaced with the same-name tables in the database, but the table structure of the two tables must be completely consistent. Table structure includes: table name, column, partition, Rollup and so on.
-5. Partitions of the recovery table can be specified, and the system checks whether the partition Range matches.
+5. Partitions of the recovery table can be specified, and the system checks whether the partition Range or List matches.
 6. PROPERTIES currently supports the following attributes:
 "Backup_timestamp" = "2018-05-04-16-45-08": specifies which version of the time to restore the corresponding backup must be filled in. This information can be obtained through the `SHOW SNAPSHOT ON repo;'statement.
 "Replication_num" = "3": Specifies the number of replicas of the restored table or partition. The default is 3. If an existing table or partition is restored, the number of copies must be the same as the number of copies of an existing table or partition. At the same time, there must be enough hosts to accommodate multiple copies.

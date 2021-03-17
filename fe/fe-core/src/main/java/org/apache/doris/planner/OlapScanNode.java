@@ -39,9 +39,8 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
@@ -71,7 +70,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -333,22 +331,28 @@ public class OlapScanNode extends ScanNode {
         cardinality = cardinality == -1 ? 0 : cardinality;
     }
 
-    private Collection<Long> partitionPrune(RangePartitionInfo partitionInfo, PartitionNames partitionNames) throws AnalysisException {
-        Map<Long, Range<PartitionKey>> keyRangeById = null;
+    private Collection<Long> partitionPrune(PartitionInfo partitionInfo, PartitionNames partitionNames) throws AnalysisException {
+        PartitionPruner partitionPruner = null;
+        Map<Long, PartitionItem> keyItemMap;
         if (partitionNames != null) {
-            keyRangeById = Maps.newHashMap();
+            keyItemMap = Maps.newHashMap();
             for (String partName : partitionNames.getPartitionNames()) {
-                Partition part = olapTable.getPartition(partName, partitionNames.isTemp());
-                if (part == null) {
+                Partition partition = olapTable.getPartition(partName, partitionNames.isTemp());
+                if (partition == null) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_SUCH_PARTITION, partName);
                 }
-                keyRangeById.put(part.getId(), partitionInfo.getRange(part.getId()));
+                keyItemMap.put(partition.getId(), partitionInfo.getItem(partition.getId()));
             }
         } else {
-            keyRangeById = partitionInfo.getIdToRange(false);
+            keyItemMap = partitionInfo.getIdToItem(false);
         }
-        PartitionPruner partitionPruner = new RangePartitionPruner(keyRangeById,
-                partitionInfo.getPartitionColumns(), columnFilters);
+        if (partitionInfo.getType() == PartitionType.RANGE) {
+            partitionPruner = new RangePartitionPruner(keyItemMap,
+                    partitionInfo.getPartitionColumns(), columnFilters);
+        } else if (partitionInfo.getType() == PartitionType.LIST) {
+            partitionPruner = new ListPartitionPruner(keyItemMap,
+                    partitionInfo.getPartitionColumns(), columnFilters);
+        }
         return partitionPruner.prune();
     }
 
@@ -464,8 +468,8 @@ public class OlapScanNode extends ScanNode {
         // Step1: compute partition ids
         PartitionNames partitionNames = ((BaseTableRef) desc.getRef()).getPartitionNames();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        if (partitionInfo.getType() == PartitionType.RANGE) {
-            selectedPartitionIds = partitionPrune((RangePartitionInfo) partitionInfo, partitionNames);
+        if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
+            selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
         } else {
             selectedPartitionIds = null;
         }

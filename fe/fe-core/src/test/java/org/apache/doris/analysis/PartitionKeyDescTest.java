@@ -17,11 +17,15 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.DdlException;
+
 import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class PartitionKeyDescTest {
@@ -34,8 +38,8 @@ public class PartitionKeyDescTest {
     }
 
     @Test
-    public void testNormal() {
-        PartitionKeyDesc desc = new PartitionKeyDesc(values);
+    public void testNormal() throws DdlException {
+        PartitionKeyDesc desc = PartitionKeyDesc.createLessThan(values);
 
         Assert.assertEquals(values, desc.getUpperValues());
         Assert.assertEquals("('1', 'abc')", desc.toSql());
@@ -47,5 +51,25 @@ public class PartitionKeyDescTest {
 
         Assert.assertNull(desc.getUpperValues());
         Assert.assertEquals("MAXVALUE", desc.toSql());
+    }
+
+    @Test
+    public void testListMulti() {
+        List<List<PartitionValue>> list = new ArrayList<>();
+        list.add(values);
+        list.add(Lists.newArrayList(new PartitionValue("2"), new PartitionValue("cde")));
+        PartitionKeyDesc desc = PartitionKeyDesc.createIn(list);
+        Assert.assertEquals(list, desc.getInValues());
+        Assert.assertEquals("(('1', 'abc'),('2', 'cde'))", desc.toSql());
+    }
+
+    @Test
+    public void testListSingle() {
+        List<List<PartitionValue>> list = new ArrayList<>();
+        list.add(Lists.newArrayList(new PartitionValue("1")));
+        list.add(Lists.newArrayList(new PartitionValue("2")));
+        PartitionKeyDesc desc = PartitionKeyDesc.createIn(list);
+        Assert.assertEquals(list, desc.getInValues());
+        Assert.assertEquals("('1','2')", desc.toSql());
     }
 }

@@ -87,7 +87,9 @@ public class StringLiteral extends LiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
-
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
         // compare string with utf-8 byte array, same with DM,BE,StorageEngine
         byte[] thisBytes = null;
         byte[] otherBytes = null;
@@ -164,6 +166,11 @@ public class StringLiteral extends LiteralExpr {
     @Override
     public double getDoubleValue() {
         return Double.valueOf(value);
+    }
+
+    @Override
+    public String getRealValue() {
+        return getStringValue();
     }
 
     /**

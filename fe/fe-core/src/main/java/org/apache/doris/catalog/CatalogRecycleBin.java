@@ -31,14 +31,14 @@ import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.thrift.TStorageMedium;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -106,7 +106,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     public synchronized boolean recyclePartition(long dbId, long tableId, Partition partition,
-                                                 Range<PartitionKey> range, DataProperty dataProperty,
+                                                 Range<PartitionKey> range, PartitionItem listPartitionItem,
+                                                 DataProperty dataProperty,
                                                  short replicationNum,
                                                  boolean isInMemory) {
         if (idToPartition.containsKey(partition.getId())) {
@@ -119,7 +120,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         // recycle partition
         RecyclePartitionInfo partitionInfo = new RecyclePartitionInfo(dbId, tableId, partition,
-                                                                      range, dataProperty, replicationNum,
+                                                                      range, listPartitionItem, dataProperty, replicationNum,
                                                                       isInMemory);
         idToRecycleTime.put(partition.getId(), System.currentTimeMillis());
         idToPartition.put(partition.getId(), partitionInfo);
@@ -426,22 +427,28 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         if (recoverPartitionInfo == null) {
             throw new DdlException("No partition named " + partitionName + " in table " + table.getName());
         }
-        
-        // check if range is invalid
+
+        PartitionInfo partitionInfo = table.getPartitionInfo();
         Range<PartitionKey> recoverRange = recoverPartitionInfo.getRange();
-        RangePartitionInfo partitionInfo = (RangePartitionInfo) table.getPartitionInfo();
-        if (partitionInfo.getAnyIntersectRange(recoverRange, false) != null) {
-            throw new DdlException("Can not recover partition[" + partitionName + "]. Range conflict.");
+        PartitionItem recoverItem = null;
+        if (partitionInfo.getType() == PartitionType.RANGE) {
+            recoverItem = new RangePartitionItem(recoverRange);
+        } else if (partitionInfo.getType() == PartitionType.LIST) {
+            recoverItem = recoverPartitionInfo.getListPartitionItem();;
+        }
+        // check if partition item is invalid
+        if (partitionInfo.getAnyIntersectItem(recoverItem, false) != null) {
+            throw new DdlException("Can not recover partition[" + partitionName + "]. Partition item conflict.");
         }
 
         // recover partition
         Partition recoverPartition = recoverPartitionInfo.getPartition();
         Preconditions.checkState(recoverPartition.getName().equalsIgnoreCase(partitionName));
         table.addPartition(recoverPartition);
-        
+
         // recover partition info
         long partitionId = recoverPartition.getId();
-        partitionInfo.setRange(partitionId, false, recoverRange);
+        partitionInfo.setItem(partitionId, false, recoverItem);
         partitionInfo.setDataProperty(partitionId, recoverPartitionInfo.getDataProperty());
         partitionInfo.setReplicationNum(partitionId, recoverPartitionInfo.getReplicationNum());
         partitionInfo.setIsInMemory(partitionId, recoverPartitionInfo.isInMemory());
@@ -461,19 +468,25 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, RecyclePartitionInfo> entry = iterator.next();
-            RecyclePartitionInfo partitionInfo = entry.getValue();
-            if (partitionInfo.getPartition().getId() != partitionId) {
+            RecyclePartitionInfo recyclePartitionInfo = entry.getValue();
+            if (recyclePartitionInfo.getPartition().getId() != partitionId) {
                 continue;
             }
 
-            Preconditions.checkState(partitionInfo.getTableId() == table.getId());
+            Preconditions.checkState(recyclePartitionInfo.getTableId() == table.getId());
 
-            table.addPartition(partitionInfo.getPartition());
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) table.getPartitionInfo();
-            rangePartitionInfo.setRange(partitionId, false, partitionInfo.getRange());
-            rangePartitionInfo.setDataProperty(partitionId, partitionInfo.getDataProperty());
-            rangePartitionInfo.setReplicationNum(partitionId, partitionInfo.getReplicationNum());
-            rangePartitionInfo.setIsInMemory(partitionId, partitionInfo.isInMemory());
+            table.addPartition(recyclePartitionInfo.getPartition());
+            PartitionInfo partitionInfo = table.getPartitionInfo();
+            PartitionItem recoverItem = null;
+            if (partitionInfo.getType() == PartitionType.RANGE) {
+                recoverItem = new RangePartitionItem(recyclePartitionInfo.getRange());
+            } else if (partitionInfo.getType() == PartitionType.LIST) {
+                recoverItem = recyclePartitionInfo.getListPartitionItem();
+            }
+            partitionInfo.setItem(partitionId, false, recoverItem);
+            partitionInfo.setDataProperty(partitionId, recyclePartitionInfo.getDataProperty());
+            partitionInfo.setReplicationNum(partitionId, recyclePartitionInfo.getReplicationNum());
+            partitionInfo.setIsInMemory(partitionId, recyclePartitionInfo.isInMemory());
 
             iterator.remove();
             idToRecycleTime.remove(partitionId);
@@ -725,6 +738,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         private long tableId;
         private Partition partition;
         private Range<PartitionKey> range;
+        private PartitionItem listPartitionItem;
         private DataProperty dataProperty;
         private short replicationNum;
         private boolean isInMemory;
@@ -734,12 +748,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         public RecyclePartitionInfo(long dbId, long tableId, Partition partition,
-                                    Range<PartitionKey> range, DataProperty dataProperty, short replicationNum,
+                                    Range<PartitionKey> range, PartitionItem listPartitionItem,
+                                    DataProperty dataProperty, short replicationNum,
                                     boolean isInMemory) {
             this.dbId = dbId;
             this.tableId = tableId;
             this.partition = partition;
             this.range = range;
+            this.listPartitionItem = listPartitionItem;
             this.dataProperty = dataProperty;
             this.replicationNum = replicationNum;
             this.isInMemory = isInMemory;
@@ -761,6 +777,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             return range;
         }
 
+        public PartitionItem getListPartitionItem() {
+            return listPartitionItem;
+        }
+
         public DataProperty getDataProperty() {
             return dataProperty;
         }
@@ -779,6 +799,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             out.writeLong(tableId);
             partition.write(out);
             RangeUtils.writeRange(out, range);
+            listPartitionItem.write(out);
             dataProperty.write(out);
             out.writeShort(replicationNum);
             out.writeBoolean(isInMemory);
@@ -789,6 +810,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             tableId = in.readLong();
             partition = Partition.read(in);
             range = RangeUtils.readRange(in);
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_98) {
+                listPartitionItem = ListPartitionItem.read(in);
+            } else {
+                listPartitionItem = ListPartitionItem.DUMMY_ITEM;
+            }
+
             dataProperty = DataProperty.read(in);
             replicationNum = in.readShort();
             if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
