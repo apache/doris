@@ -77,6 +77,15 @@ RUN wget https://github.com/westes/flex/releases/download/v$FLEX_VERSION/flex-$F
     && rm /tmp/flex-$FLEX_VERSION.tar.gz \
     && rm -rf /tmp/flex-$FLEX_VERSION
 
+# install nodejs
+ARG NODEJS_VERSION=14.16.0
+RUN wget https://nodejs.org/dist/v$NODEJS_VERSION/node-v$NODEJS_VERSION-linux-x64.tar.gz \
+    -q -O /tmp/node-v$NODEJS_VERSION-linux-x64.tar.gz \
+    && cd /tmp/ && tar -xf node-v$NODEJS_VERSION-linux-x64.tar.gz \
+    && cp -r node-v$NODEJS_VERSION-linux-x64/* /usr/local/ \
+    && rm /tmp/node-v$NODEJS_VERSION-linux-x64.tar.gz && rm -rf node-v$NODEJS_VERSION-linux-x64
+
+
 ENV BASH_ENV=/opt/rh/devtoolset-10/enable  \
     ENV=/opt/rh/devtoolset-10/enable  \
     PROMPT_COMMAND=". /opt/rh/devtoolset-10/enable"
