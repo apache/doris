@@ -1348,12 +1348,33 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         List<Expr> sourceExpr = slotDescriptor.getSourceExprs();
         if (sourceExpr == null || sourceExpr.isEmpty()) {
-            return (SlotRef) this;
+            return unwrapSloRef;
         }
         if (sourceExpr.size() > 1) {
             return null;
         }
         return sourceExpr.get(0).getSrcSlotRef();
+    }
+
+    public boolean comeFrom(Expr srcExpr) {
+        SlotRef unwrapSloRef = this.unwrapSlotRef();
+        if (unwrapSloRef == null) {
+            return false;
+        }
+        SlotRef unwrapSrcSlotRef = srcExpr.unwrapSlotRef();
+        if (unwrapSrcSlotRef == null) {
+            return false;
+        }
+        if (unwrapSloRef.columnEqual(unwrapSrcSlotRef)) {
+            return true;
+        }
+        // check source expr
+        SlotDescriptor slotDescriptor = unwrapSloRef.getDesc();
+        if (slotDescriptor == null || slotDescriptor.getSourceExprs() == null
+                || slotDescriptor.getSourceExprs().size() != 1) {
+            return false;
+        }
+        return slotDescriptor.getSourceExprs().get(0).comeFrom(unwrapSrcSlotRef);
     }
 
     /**
