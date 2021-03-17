@@ -35,7 +35,7 @@ public abstract class StatementBase implements ParseNode {
 
     private String clusterName;
 
-    // True if this QueryStmt is the top level query from an EXPLAIN <query>
+    // Set this variable if this QueryStmt is the top level query from an EXPLAIN <query>
     protected ExplainOptions explainOptions = null;
 
     /////////////////////////////////////////

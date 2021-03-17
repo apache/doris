@@ -636,4 +636,13 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             sb.append(")");
         }
     }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
+        sb.append("\nFragment: ").append(getFragmentId().asInt()).append("]");
+        sb.append("\n").append(getNodeExplainString("", TExplainLevel.BRIEF));
+        return sb.toString();
+    }
 }

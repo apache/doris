@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
@@ -29,9 +30,6 @@ import com.clearspring.analytics.util.Lists;
 import java.util.List;
 
 public class PlanTreeBuilder {
-
-    private static final String EXCHANGE_NODE = "EXCHANGE";
-    private static final String MERGING_EXCHANGE_NODE = "MERGING-EXCHANGE";
 
     private List<PlanFragment> fragments;
     private PlanTreeNode treeRoot;
@@ -58,7 +56,7 @@ public class PlanTreeBuilder {
             PlanTreeNode sinkNode = null;
             if (sink != null) {
                 StringBuilder sb = new StringBuilder();
-                sb.append("[").append(sink.getExchNodeId().asInt()).append(": DATA SINK]");
+                sb.append("[").append(sink.getExchNodeId().asInt()).append(": ").append(sink.getClass().getSimpleName()).append("]");
                 sb.append("\nFragment: ").append(fragment.getId().asInt());
                 sb.append("\n").append(sink.getExplainString("", TExplainLevel.BRIEF));
                 sinkNode = new PlanTreeNode(sink.getExchNodeId(), sb.toString());
@@ -104,17 +102,14 @@ public class PlanTreeBuilder {
     }
 
     private void buildForPlanNode(PlanNode planNode, PlanTreeNode parent) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("[" ).append(planNode.getId().asInt()).append(": ").append(planNode.getPlanNodeName()).append("]");
-        sb.append("\nFragment: ").append(planNode.getFragmentId().asInt()).append("]");
-        sb.append("\n").append(planNode.getNodeExplainString("", TExplainLevel.BRIEF));
-        PlanTreeNode node = new PlanTreeNode(planNode.getId(), sb.toString());
+        PlanTreeNode node = new PlanTreeNode(planNode.getId(), planNode.toString());
 
         if (parent != null) {
             parent.addChild(node);
         }
 
-        if (planNode.getPlanNodeName().equals(EXCHANGE_NODE) || planNode.getPlanNodeName().equals(MERGING_EXCHANGE_NODE)) {
+        if (planNode.getPlanNodeName().equals(ExchangeNode.EXCHANGE_NODE)
+                || planNode.getPlanNodeName().equals(ExchangeNode.MERGING_EXCHANGE_NODE)) {
             exchangeNodes.add(node);
         } else {
             // Do not traverse children of exchange node,
