@@ -92,7 +92,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 
 ```
 SELECT /*+ SET_VAR(exec_mem_limit = 8589934592) */ name FROM people ORDER BY name;
-SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
+SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 ```
 
 注意注释必须以/*+ 开头，并且只能跟随在SELECT之后。
