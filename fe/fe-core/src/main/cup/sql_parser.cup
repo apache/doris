@@ -385,7 +385,7 @@ nonterminal InlineViewRef inline_view_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
 nonterminal ArrayList<String> opt_sort_hints;
-nonterminal HashMap<String, String> opt_select_hints;
+nonterminal HashMap<String, String> select_hints_list, opt_select_hints;
 nonterminal Expr sign_chain_expr;
 nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
@@ -467,7 +467,8 @@ nonterminal GroupByClause group_by_clause, grouping_elements;
 //
 nonterminal String keyword, ident, ident_or_text, variable_name, text_or_password,
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
-        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, time_unit;
+        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, time_unit,
+        literal_or_ident;
 
 nonterminal String opt_db, procedure_or_function, opt_comment, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
@@ -3400,11 +3401,34 @@ select_clause ::=
     :}
     ;
 
-opt_select_hints ::=
-    COMMENTED_PLAN_HINT_START KW_SET_VAR LPAREN ident_or_text:k EQUAL literal:v RPAREN COMMENTED_PLAN_HINT_END
+select_hints_list ::=
+    select_hints_list:map COMMA variable_name:k equal literal_or_ident:v
+    {:
+        map.put(k, v);
+        RESULT = map;
+    :}
+    | variable_name:k equal literal_or_ident:v
     {:
         HashMap<String, String> map = new HashMap<String, String>();
-        map.put(k, v.getStringValue());
+        map.put(k, v);
+        RESULT = map;
+    :}
+    ;
+
+literal_or_ident ::=
+    literal:l
+    {:
+        RESULT = l.getStringValue();
+    :}
+    | ident:i
+    {:
+        RESULT = i;
+    :}
+    ;
+
+opt_select_hints ::=
+    COMMENTED_PLAN_HINT_START KW_SET_VAR LPAREN select_hints_list:map RPAREN COMMENTED_PLAN_HINT_END
+    {:
         RESULT = map;
     :}
     | /* empty */
