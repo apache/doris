@@ -363,7 +363,7 @@ public class Table extends MetaObject implements Writable {
             case OLAP:
                 return "BASE TABLE";
             case SCHEMA:
-                return "MEMORY";
+                return "SYSTEM VIEW";
             case INLINE_VIEW:
             case VIEW:
                 return "VIEW";
