@@ -167,8 +167,11 @@ public:
     OLAPStatus add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     void delete_rs_meta_by_version(const Version& version,
                                    std::vector<RowsetMetaSharedPtr>* deleted_rs_metas);
+    // If same_version is true, the rowset in "to_delete" will not be added
+    // to _stale_rs_meta, but to be deleted from rs_meta directly.
     void modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
-                         const std::vector<RowsetMetaSharedPtr>& to_delete);
+                         const std::vector<RowsetMetaSharedPtr>& to_delete,
+                         bool same_version = false);
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
 
     inline const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
