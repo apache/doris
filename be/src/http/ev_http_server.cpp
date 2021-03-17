@@ -128,8 +128,8 @@ void EvHttpServer::stop() {
     {
         std::lock_guard<std::mutex> lock(_event_bases_lock);
         for (int i = 0; i < _num_workers; ++i) {
-            LOG(WARNING) << "event_base_loopexit ret: "
-                         << event_base_loopexit(_event_bases[i].get(), nullptr);
+            LOG(WARNING) << "event_base_loopbreak ret: "
+                         << event_base_loopbreak(_event_bases[i].get());
         }
         _event_bases.clear();
     }

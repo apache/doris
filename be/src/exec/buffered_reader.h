@@ -18,6 +18,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <memory>
 
 #include "common/status.h"
 #include "exec/file_reader.h"
@@ -32,6 +33,7 @@ class BufferedReader : public FileReader {
 public:
     // If the reader need the file size, set it when construct FileReader.
     // There is no other way to set the file size.
+    // buffered_reader will acquire reader
     BufferedReader(FileReader* reader, int64_t = 1024 * 1024);
     virtual ~BufferedReader();
 
@@ -53,7 +55,7 @@ private:
     Status _read_once(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out);
 
 private:
-    FileReader* _reader;
+    std::unique_ptr<FileReader> _reader;
     char* _buffer;
     int64_t _buffer_size;
     int64_t _buffer_offset;

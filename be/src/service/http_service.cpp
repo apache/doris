@@ -55,95 +55,96 @@ Status HttpService::start() {
     add_default_path_handlers(_web_page_handler.get(), _env->process_mem_tracker());
 
     // register load
-    _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_load",
-                                      new MiniLoadAction(_env));
+    MiniLoadAction* miniload_action = _pool.add(new MiniLoadAction(_env));
+    _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_load", miniload_action);
+    StreamLoadAction* streamload_action = _pool.add(new StreamLoadAction(_env));
     _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load",
-                                      new StreamLoadAction(_env));
+                                      streamload_action);
 
     // register download action
     std::vector<std::string> allow_paths;
     for (auto& path : _env->store_paths()) {
         allow_paths.emplace_back(path.path);
     }
-    DownloadAction* download_action = new DownloadAction(_env, allow_paths);
+    DownloadAction* download_action = _pool.add(new DownloadAction(_env, allow_paths));
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_download_load", download_action);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/_download_load", download_action);
 
-    DownloadAction* tablet_download_action = new DownloadAction(_env, allow_paths);
+    DownloadAction* tablet_download_action = _pool.add(new DownloadAction(_env, allow_paths));
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_tablet/_download",
                                       tablet_download_action);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/_tablet/_download",
                                       tablet_download_action);
 
     DownloadAction* error_log_download_action =
-            new DownloadAction(_env, _env->load_path_mgr()->get_load_error_file_dir());
+            _pool.add(new DownloadAction(_env, _env->load_path_mgr()->get_load_error_file_dir()));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/_load_error_log",
                                       error_log_download_action);
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_load_error_log",
                                       error_log_download_action);
 
     // Register BE health action
-    HealthAction* health_action = new HealthAction(_env);
+    HealthAction* health_action = _pool.add(new HealthAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
     // Register Tablets Info action
-    TabletsInfoAction* tablets_info_action = new TabletsInfoAction();
+    TabletsInfoAction* tablets_info_action = _pool.add(new TabletsInfoAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/tablets_json", tablets_info_action);
 
     // Register Tablets Distribution action
-    TabletsDistributionAction* tablets_distribution_action = new TabletsDistributionAction();
+    TabletsDistributionAction* tablets_distribution_action = _pool.add(new TabletsDistributionAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/tablets_distribution", tablets_distribution_action);
 
     // Register tablet migration action
-    TabletMigrationAction* tablet_migration_action = new TabletMigrationAction();
+    TabletMigrationAction* tablet_migration_action = _pool.add(new TabletMigrationAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/tablet_migration", tablet_migration_action);
 
     // register pprof actions
-    PprofActions::setup(_env, _ev_http_server.get());
+    PprofActions::setup(_env, _ev_http_server.get(), _pool);
 
     // register metrics
     {
-        auto action = new MetricsAction(DorisMetrics::instance()->metric_registry());
+        auto action = _pool.add(new MetricsAction(DorisMetrics::instance()->metric_registry()));
         _ev_http_server->register_handler(HttpMethod::GET, "/metrics", action);
     }
 
-    MetaAction* meta_action = new MetaAction(HEADER);
+    MetaAction* meta_action = _pool.add(new MetaAction(HEADER));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/header/{tablet_id}/{schema_hash}",
                                       meta_action);
 
 #ifndef BE_TEST
     // Register BE checksum action
-    ChecksumAction* checksum_action = new ChecksumAction(_env);
+    ChecksumAction* checksum_action = _pool.add(new ChecksumAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/checksum", checksum_action);
 
     // Register BE reload tablet action
-    ReloadTabletAction* reload_tablet_action = new ReloadTabletAction(_env);
+    ReloadTabletAction* reload_tablet_action = _pool.add(new ReloadTabletAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/reload_tablet", reload_tablet_action);
 
-    RestoreTabletAction* restore_tablet_action = new RestoreTabletAction(_env);
+    RestoreTabletAction* restore_tablet_action = _pool.add(new RestoreTabletAction(_env));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/restore_tablet",
                                       restore_tablet_action);
 
     // Register BE snapshot action
-    SnapshotAction* snapshot_action = new SnapshotAction(_env);
+    SnapshotAction* snapshot_action = _pool.add(new SnapshotAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
 #endif
 
     // 2 compaction actions
     CompactionAction* show_compaction_action =
-            new CompactionAction(CompactionActionType::SHOW_INFO);
+            _pool.add(new CompactionAction(CompactionActionType::SHOW_INFO));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/show",
                                       show_compaction_action);
     CompactionAction* run_compaction_action =
-            new CompactionAction(CompactionActionType::RUN_COMPACTION);
+            _pool.add(new CompactionAction(CompactionActionType::RUN_COMPACTION));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/compaction/run",
                                       run_compaction_action);
     CompactionAction* run_status_compaction_action =
-            new CompactionAction(CompactionActionType::RUN_COMPACTION_STATUS);
+            _pool.add(new CompactionAction(CompactionActionType::RUN_COMPACTION_STATUS));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
 
-    UpdateConfigAction* update_config_action = new UpdateConfigAction();
+    UpdateConfigAction* update_config_action = _pool.add(new UpdateConfigAction());
     _ev_http_server->register_handler(HttpMethod::POST, "/api/update_config", update_config_action);
 
     _ev_http_server->start();
@@ -152,6 +153,7 @@ Status HttpService::start() {
 
 void HttpService::stop() {
     _ev_http_server->stop();
+    _pool.clear();
 }
 
 } // namespace doris
