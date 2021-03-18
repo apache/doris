@@ -657,6 +657,48 @@ TEST_F(BrokerScannerTest, normal9) {
     ASSERT_TRUE(eof);
 }
 
+TEST_F(BrokerScannerTest, multi_bytes_1) {
+    std::vector<TBrokerRangeDesc> ranges;
+    TBrokerRangeDesc range;
+    range.path = "./be/test/exec/test_data/broker_scanner/multi_bytes_sep.csv";
+    range.start_offset = 0;
+    range.size = 18;
+    range.splittable = true;
+    range.file_type = TFileType::FILE_LOCAL;
+    range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
+    ranges.push_back(range);
+
+    _params.column_separator_str = "AAAA";
+    _params.line_delimiter_str = "BB";
+    _params.column_separator_length = 4;
+    _params.line_delimiter_length = 2;
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
+    auto st = scanner.open();
+    ASSERT_TRUE(st.ok());
+
+    MemPool tuple_pool(_tracker.get());
+    Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
+    bool eof = false;
+    // 4,5,6
+    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(eof);
+    ASSERT_EQ(4, *(int*)tuple->get_slot(0));
+    ASSERT_EQ(5, *(int*)tuple->get_slot(4));
+    ASSERT_EQ(6, *(int*)tuple->get_slot(8));
+    // 1,2,3
+    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(eof);
+    ASSERT_EQ(1, *(int*)tuple->get_slot(0));
+    ASSERT_EQ(2, *(int*)tuple->get_slot(4));
+    ASSERT_EQ(3, *(int*)tuple->get_slot(8));
+    // end of file
+    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(eof);
+}
+
 } // end namespace doris
 
 int main(int argc, char** argv) {

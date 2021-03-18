@@ -305,23 +305,39 @@ void BrokerScanner::close() {
 
 void BrokerScanner::split_line(const Slice& line, std::vector<Slice>* values) {
     const char* value = line.data;
-    size_t i = 0;
-    // TODO improve the performance
-    while (i < line.size) {
-        if (i + _value_separator_length <= line.size) {
-            if (_value_separator.compare(0, _value_separator_length, line.data + i,
-                                         _value_separator_length) == 0) {
-                values->emplace_back(value, line.data + i - value);
-                value = line.data + i + _value_separator_length;
-                i += _value_separator_length;
-            } else {
-                ++i;
-            }
+    size_t start = 0; // point to the start pos of next col value.
+    size_t curpos= 0; // point to the start pos of separator matching sequence.
+    size_t p1 = 0;    // point to the current pos of separator matching sequence.
+
+    // Separator: AAAA
+    // 
+    //   curpos
+    //     ▼
+    //     AAAA
+    //   1000AAAA2000AAAA
+    //   ▲   ▲
+    // Start │
+    //       p1
+
+    while (curpos < line.size) {
+        if (*(value + curpos + p1) != _value_separator[p1]) {
+            // Not match, move forward:
+            curpos += (p1 == 0 ? 1 : p1);
+            p1 = 0;
         } else {
-            break;
+            p1++;
+            if (p1 == _value_separator_length) {
+                // Match a separator
+                values->emplace_back(value + start, curpos - start);
+                start = curpos + _value_separator_length;
+                curpos = start;
+                p1 = 0;
+            }
         }
     }
-    values->emplace_back(value, line.data + i - value);
+
+    CHECK(curpos == line.size) << curpos << " vs " <<  line.size;
+    values->emplace_back(value + start, curpos - start);
 }
 
 void BrokerScanner::fill_fix_length_string(const Slice& value, MemPool* pool, char** new_value_p,
