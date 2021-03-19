@@ -101,7 +101,7 @@ Status ODBCConnector::open() {
     // Connect to the Database
     ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC,
                  SQLDriverConnect(_dbc, NULL, (SQLCHAR*)_connect_string.c_str(), SQL_NTS, NULL, 0,
-                                  NULL, SQL_DRIVER_COMPLETE_REQUIRED),
+                                  NULL, SQL_DRIVER_NOPROMPT),
                  "driver connect");
 
     LOG(INFO) << "connect success:" << _connect_string.substr(0, _connect_string.find("Pwd="));
