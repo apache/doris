@@ -171,7 +171,7 @@ OLAPStatus AlphaRowset::split_range(const RowCursor& start_key, const RowCursor&
     std::shared_ptr<SegmentGroup> largest_segment_group = _segment_group_with_largest_size();
     if (largest_segment_group == nullptr ||
         largest_segment_group->current_num_rows_per_row_block() == 0) {
-        LOG(WARNING) << "failed to get largest_segment_group. is null: "
+        VLOG_NOTICE << "failed to get largest_segment_group. is null: "
                      << (largest_segment_group == nullptr) << ". version: " << start_version()
                      << "-" << end_version() << ". tablet: " << rowset_meta()->tablet_id();
         ranges->emplace_back(start_key.to_tuple());
