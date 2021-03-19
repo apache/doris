@@ -38,6 +38,8 @@ import org.apache.doris.flink.exception.DorisException;
 import org.apache.doris.flink.rest.models.Schema;
 import org.apache.doris.thrift.TScanBatchResult;
 
+import org.apache.flink.table.data.DecimalData;
+import org.apache.flink.table.data.StringData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,7 +63,7 @@ public class RowBatch {
             this.cols = new ArrayList<>(colCount);
         }
 
-        List<Object> getCols() {
+        public  List<Object> getCols() {
             return cols;
         }
 
@@ -80,6 +82,10 @@ public class RowBatch {
     private List<FieldVector> fieldVectors;
     private RootAllocator rootAllocator;
     private final Schema schema;
+
+    public List<Row> getRowBatch() {
+        return rowBatch;
+    }
 
     public RowBatch(TScanBatchResult nextResult, Schema schema) throws DorisException {
         this.schema = schema;
@@ -185,6 +191,7 @@ public class RowBatch {
                         }
                         break;
                     case "BIGINT":
+
                         Preconditions.checkArgument(mt.equals(Types.MinorType.BIGINT),
                                 typeMismatchMessage(currentType, mt));
                         BigIntVector bigIntVector = (BigIntVector) curFieldVector;
@@ -232,12 +239,12 @@ public class RowBatch {
                                 continue;
                             }
                             BigDecimal value = decimalVector.getObject(rowIndex);
-                            addValueToRow(rowIndex, value.stripTrailingZeros().toPlainString());
+                            addValueToRow(rowIndex, DecimalData.fromBigDecimal(value,value.precision(),value.scale()));
                         }
                         break;
                     case "DATE":
-                    case "DATETIME":
                     case "LARGEINT":
+                    case "DATETIME":
                     case "CHAR":
                     case "VARCHAR":
                         Preconditions.checkArgument(mt.equals(Types.MinorType.VARCHAR),
@@ -249,7 +256,7 @@ public class RowBatch {
                                 continue;
                             }
                             String value = new String(varCharVector.get(rowIndex));
-                            addValueToRow(rowIndex, value);
+                            addValueToRow(rowIndex, StringData.fromString(value));
                         }
                         break;
                     default:
@@ -274,7 +281,7 @@ public class RowBatch {
     }
 
     private String typeMismatchMessage(final String sparkType, final Types.MinorType arrowType) {
-        final String messageTemplate = "Spark type is %1$s, but arrow type is %2$s.";
+        final String messageTemplate = "FLINK type is %1$s, but arrow type is %2$s.";
         return String.format(messageTemplate, sparkType, arrowType.name());
     }
 

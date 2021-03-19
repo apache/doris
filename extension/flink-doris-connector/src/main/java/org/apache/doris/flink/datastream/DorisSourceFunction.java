@@ -16,6 +16,7 @@
 // under the License.
 package org.apache.doris.flink.datastream;
 
+import org.apache.doris.flink.cfg.DorisOptions;
 import org.apache.doris.flink.cfg.FlinkSettings;
 import org.apache.doris.flink.cfg.Settings;
 import org.apache.doris.flink.deserialization.DorisDeserializationSchema;
@@ -37,9 +38,9 @@ import java.util.Map;
  * DorisSource
  **/
 
-public class DorisSource<T> extends RichSourceFunction<T> implements ResultTypeQueryable<T> {
+public class DorisSourceFunction<T> extends RichSourceFunction<T> implements ResultTypeQueryable<T> {
 
-    private  static final Logger logger = LoggerFactory.getLogger(DorisSource.class);
+    private  static final Logger logger = LoggerFactory.getLogger(DorisSourceFunction.class);
 
     private DorisDeserializationSchema deserializer;
     private Settings settings;
@@ -47,19 +48,19 @@ public class DorisSource<T> extends RichSourceFunction<T> implements ResultTypeQ
     private ScalaValueReader scalaValueReader;
 
 
-    public DorisSource(Map<String, String> conf,DorisDeserializationSchema deserializer) throws DorisException {
-        this(new Configuration(),conf,deserializer);
+    public DorisSourceFunction(DorisOptions options, DorisDeserializationSchema deserializer) throws DorisException {
+        this(new Configuration(),options,deserializer);
     }
 
-    public DorisSource(Configuration flinkConf,Map<String, String> conf,DorisDeserializationSchema deserializer) throws DorisException {
-        this.settings = initSetting(flinkConf,conf);
+    public DorisSourceFunction(Configuration flinkConf, DorisOptions options, DorisDeserializationSchema deserializer) throws DorisException {
+        this.settings = initSetting(flinkConf,options);
         this.deserializer = deserializer;
         this.dorisPartitions =  RestService.findPartitions(settings,logger);
     }
 
-    private FlinkSettings initSetting(Configuration flinkConf,Map<String, String> conf){
+    private FlinkSettings initSetting(Configuration flinkConf,DorisOptions options){
         FlinkSettings flinkSettings = new FlinkSettings(flinkConf);
-        flinkSettings.merge(conf);
+        flinkSettings.init(options);
         return flinkSettings;
     }
 

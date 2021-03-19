@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-package org.apache.doris.flink.datastream;
+package org.apache.doris.flink.rest;
 
 import org.apache.doris.flink.rest.models.Field;
 import org.apache.doris.flink.rest.models.Schema;

@@ -24,6 +24,11 @@ import org.apache.flink.configuration.Configuration;
 import java.io.Serializable;
 import java.util.Properties;
 
+import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_FENODES;
+import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_REQUEST_AUTH_PASSWORD;
+import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_REQUEST_AUTH_USER;
+import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_TABLE_IDENTIFIER;
+
 public class FlinkSettings extends Settings implements Serializable {
 
     private final Configuration cfg;
@@ -48,5 +53,12 @@ public class FlinkSettings extends Settings implements Serializable {
     public Properties asProperties() {
         Properties props = new Properties();
         return props;
+    }
+
+    public void init(DorisOptions options){
+        setProperty(DORIS_FENODES,options.getFenodes());
+        setProperty(DORIS_REQUEST_AUTH_USER,options.getUsername());
+        setProperty(DORIS_REQUEST_AUTH_PASSWORD,options.getPassword());
+        setProperty(DORIS_TABLE_IDENTIFIER,options.getTableIdentifier());
     }
 }

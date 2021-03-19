@@ -79,6 +79,10 @@ public class BackendClient {
             transport = new TSocket(routing.getHost(), routing.getPort(), socketTimeout, connectTimeout);
             TProtocol protocol = factory.getProtocol(transport);
             client = new TDorisExternalService.Client(protocol);
+            if (isConnected) {
+                logger.info("Success connect to {}.", routing);
+                return;
+            }
             try {
                 logger.trace("Connect status before open transport to {} is '{}'.", routing, isConnected);
                 if (!transport.isOpen()) {
@@ -89,10 +93,7 @@ public class BackendClient {
                 logger.warn(ErrorMessages.CONNECT_FAILED_MESSAGE, routing, e);
                 ex = e;
             }
-            if (isConnected) {
-                logger.info("Success connect to {}.", routing);
-                break;
-            }
+
         }
         if (!isConnected) {
             logger.error(ErrorMessages.CONNECT_FAILED_MESSAGE, routing);
@@ -103,12 +104,12 @@ public class BackendClient {
     private void close() {
         logger.trace("Connect status before close with '{}' is '{}'.", routing, isConnected);
         isConnected = false;
-        if (null != client) {
-            client = null;
-        }
         if ((transport != null) && transport.isOpen()) {
             transport.close();
             logger.info("Closed a connection to {}.", routing);
+        }
+        if (null != client) {
+            client = null;
         }
     }
 
@@ -195,14 +196,6 @@ public class BackendClient {
      */
     public void closeScanner(TScanCloseParams closeParams) {
         logger.debug("CloseScanner to '{}', parameter is '{}'.", routing, closeParams);
-        if (!isConnected) {
-            try {
-                open();
-            } catch (ConnectedFailedException e) {
-                logger.warn("Cannot connect to Doris BE {} when close scanner.", routing);
-                return;
-            }
-        }
         for (int attempt = 0; attempt < retries; ++attempt) {
             logger.debug("Attempt {} to closeScanner {}.", attempt, routing);
             try {

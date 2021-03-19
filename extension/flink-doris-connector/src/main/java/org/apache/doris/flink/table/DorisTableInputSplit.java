@@ -14,39 +14,31 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+package org.apache.doris.flink.table;
 
-package org.apache.doris.flink.cfg;
+import org.apache.doris.flink.rest.PartitionDefinition;
+import org.apache.flink.core.io.InputSplit;
 
-import com.google.common.base.Preconditions;
+/**
+ * DorisTableInputSplit
+ **/
+public class DorisTableInputSplit implements InputSplit, java.io.Serializable{
 
-import java.util.Properties;
+    /** The number of the split. */
+    private final int splitNumber;
 
-public class PropertiesSettings extends Settings {
+    protected final PartitionDefinition partition;
 
-    protected final Properties props;
-
-    public PropertiesSettings() {
-        this(new Properties());
+    public DorisTableInputSplit(int splitNumber,PartitionDefinition partition) {
+        super();
+        this.splitNumber = splitNumber;
+        this.partition = partition;
     }
 
-    public PropertiesSettings(Properties props) {
-        Preconditions.checkArgument(props != null, "non-null props configuration expected.");
-        this.props = props;
+
+    @Override
+    public int getSplitNumber() {
+        return splitNumber;
     }
 
-    public String getProperty(String name) {
-        return props.getProperty(name);
-    }
-
-    public void setProperty(String name, String value) {
-        props.setProperty(name, value);
-    }
-
-    public Settings copy() {
-        return new PropertiesSettings((Properties) props.clone());
-    }
-
-    public Properties asProperties() {
-        return props;
-    }
 }
