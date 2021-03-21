@@ -107,7 +107,7 @@ if [ ! -d ${CMAKE_BUILD_DIR} ]; then
 fi
 
 if [[ -z ${GLIBC_COMPATIBILITY} ]]; then
-    GLIBC_COMPATIBILITY=OFF
+    GLIBC_COMPATIBILITY=ON
 fi
 
 cd ${CMAKE_BUILD_DIR}
