@@ -79,6 +79,8 @@ public:
     // Refactor so both merging and non-merging exchange use get_next(RowBatch*, bool* eos).
     Status get_batch(RowBatch** next_batch);
 
+    void add_batch(RowBatch* batch, int sender_id, bool use_move);
+
     // Deregister from DataStreamMgr instance, which shares ownership of this instance.
     void close();
 
@@ -105,6 +107,10 @@ public:
         _sub_plan_query_statistics_recvr->insert(statistics, sender_id);
     }
 
+    // Indicate that a particular sender is done. Delegated to the appropriate
+    // sender queue. Called from DataStreamMgr.
+    void remove_sender(int sender_id, int be_number);
+
 private:
     friend class DataStreamMgr;
     class SenderQueue;
@@ -118,10 +124,6 @@ private:
     // If receive queue is full, done is enqueue pending, and return with *done is nullptr
     void add_batch(const PRowBatch& batch, int sender_id, int be_number, int64_t packet_seq,
                    ::google::protobuf::Closure** done);
-
-    // Indicate that a particular sender is done. Delegated to the appropriate
-    // sender queue. Called from DataStreamMgr.
-    void remove_sender(int sender_id, int be_number);
 
     // Empties the sender queues and notifies all waiting consumers of cancellation.
     void cancel_stream();

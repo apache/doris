@@ -153,7 +153,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
             RETURN_IF_CANCELLED(state);
             // copy rows until we hit the limit/capacity or until we exhaust _input_batch
             while (!reached_limit() && !output_batch->at_capacity() && _input_batch != NULL &&
-                   _next_row_idx < _input_batch->capacity()) {
+                   _next_row_idx < _input_batch->num_rows()) {
                 TupleRow* src = _input_batch->get_row(_next_row_idx);
 
                 if (ExecNode::eval_conjuncts(ctxs, num_ctxs, src)) {
