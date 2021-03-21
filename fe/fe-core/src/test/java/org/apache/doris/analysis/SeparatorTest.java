@@ -31,6 +31,18 @@ public class SeparatorTest {
         Assert.assertEquals("'\t'", separator.toSql());
         Assert.assertEquals("\t", separator.getSeparator());
 
+        // \\t
+        separator = new Separator("\\t");
+        separator.analyze();
+        Assert.assertEquals("'\\t'", separator.toSql());
+        Assert.assertEquals("\t", separator.getSeparator());
+
+        // \\\\t
+        separator = new Separator("\\\\t");
+        separator.analyze();
+        Assert.assertEquals("'\\\\t'", separator.toSql());
+        Assert.assertEquals("\\t", separator.getSeparator());
+
         // \x01
         separator = new Separator("\\x01");
         separator.analyze();
