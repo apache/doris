@@ -525,12 +525,17 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
     _rs_metas.insert(_rs_metas.end(), to_add.begin(), to_add.end());
 }
 
+// Use the passing "rs_metas" to replace the rs meta in this tablet meta
+// Also clear the _stale_rs_metas because this tablet meta maybe copyied from
+// an existing tablet before. Add after revise, only the passing "rs_metas"
+// is needed.
 void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
     WriteLock wrlock(&_meta_lock);
     // delete alter task
     _alter_task.reset();
 
     _rs_metas = std::move(rs_metas);
+    _stale_rs_metas.clear();
 }
 
 void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
