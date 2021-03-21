@@ -15,87 +15,84 @@
 # specific language governing permissions and limitations
 # under the License.
 
-FROM centos:centos7.5.1804
+FROM centos:7 AS builder
 
-LABEL maintainer=tangxiaoqing214445
+# install gcc-10 repo
+RUN echo $'\
+[ol7_software_collections]\n\
+name=Software Collection packages for Oracle Linux 7 ($basearch)\n\
+baseurl=http://yum.oracle.com/repo/OracleLinux/OL7/SoftwareCollections/$basearch/\n\
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle\n\
+gpgcheck=1\n\
+enabled=1' >> /etc/yum.repos.d/CentOS-SCLo-scl.ol.repo
 
-ENV DEFAULT_DIR /var/local
+# install dependencies
+RUN yum makecache && yum -y update && yum -y groupinstall 'Development Tools' && \
+    yum install -y byacc automake java-11-openjdk-devel libtool bison binutils-devel zip unzip \
+    ncurses-devel curl git wget python2 glibc-static libstdc++-static which psl libpsl-devel
 
-# install nodejs
-COPY ./node-v14.8.0-linux-x64.tar.xz /tmp/
-RUN tar xf /tmp/node-v14.8.0-linux-x64.tar.xz -C ${DEFAULT_DIR}/ \
-    && rm /tmp/node-v14.8.0-linux-x64.tar.xz
+# install gcc10
+RUN wget http://public-yum.oracle.com/RPM-GPG-KEY-oracle-ol7 -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle && \
+    rpm --import  /etc/pki/rpm-gpg/RPM-GPG-KEY-* && \
+    yum install -y devtoolset-10-gcc* 
 
-ENV PATH ${DEFAULT_DIR}/node-v14.8.0-linux-x64/bin:$PATH
-
-ARG GCC_VERSION=7.3.0
-ARG GCC_URL=https://mirrors.ustc.edu.cn/gnu/gcc/gcc-${GCC_VERSION}
-
-# install dependencies and build gcc
-RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake libtool binutils-devel bison ncurses-devel make mlocate unzip patch which vim-common redhat-lsb-core zip libcurl-devel \
-  && updatedb \
-  && yum -y clean all \
-  && rm -rf /var/cache/yum \
-  && mkdir -p  /var/local/gcc \
-  && curl -fsSL -o /tmp/gcc.tar.gz  ${GCC_URL}/gcc-${GCC_VERSION}.tar.gz \
-  && tar -xzf /tmp/gcc.tar.gz -C /var/local/gcc --strip-components=1 \
-  && cd /var/local/gcc \
-  && sed -i 's/ftp:\/\/gcc.gnu.org\/pub\/gcc\/infrastructure\//http:\/\/mirror.linux-ia64.org\/gnu\/gcc\/infrastructure\//g' contrib/download_prerequisites \
-  && ./contrib/download_prerequisites \
-  && ./configure --disable-multilib --enable-languages=c,c++ --prefix=/usr \
-  && make -j$[$(nproc)/4+1] && make install \
-  && rm -rf /var/local/gcc \
-  && rm -f /tmp/gcc.tar.gz
+ENV JAVA_HOME="/usr/lib/jvm/java-11"
 
 # build cmake
-ARG CMAKE_VERSION=3.12.3
-ARG CMAKE_DOWNLOAD_URL=https://cmake.org/files/v3.12/cmake-${CMAKE_VERSION}.tar.gz
-RUN mkdir -p /tmp/cmake && curl -fsSL -o /tmp/cmake.tar.gz ${CMAKE_DOWNLOAD_URL} \
-    && tar -zxf /tmp/cmake.tar.gz -C /tmp/cmake --strip-components=1 \
-    && cd /tmp/cmake \
-    && ./bootstrap --system-curl \
-    && gmake -j$[$(nproc)/4+1] \
-    && gmake install \
-    && rm -rf /tmp/cmake.tar.gz \
-    && rm -rf /tmp/cmake
-
-# install jdk
-COPY ./jdk.rpm ./
-RUN touch  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo '#!/bin/bash' >> ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'rpm -Uvh jdk.rpm > /dev/null 2>&1' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'mv /usr/java/jdk* /usr/java/jdk' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'export JAVA_HOME=/usr/java/jdk' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'echo "export JAVA_HOME=/usr/java/jdk" >> /etc/environment' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'export JRE_HOME=/usr/java/jdk/jre' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'echo "export JRE_HOME=/usr/java/jdk/jre" >> /etc/environment' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'ls /usr/java/jdk > /dev/null 2>&1' >>  ${DEFAULT_DIR}/install_jdk.sh \
-    && echo 'echo "export JAVA_HOME=/usr/java/jdk" >> /root/.bashrc' >> ${DEFAULT_DIR}/install_jdk.sh \
-    && chmod 777 ${DEFAULT_DIR}/install_jdk.sh \
-    && /bin/bash ${DEFAULT_DIR}/install_jdk.sh \
-    && rm -rf *.rpm \
-    && rm ${DEFAULT_DIR}/install_jdk.sh
-
-ENV JAVA_HOME /usr/java/jdk
+ARG CMAKE_VERSION=3.19.4
+ARG CMAKE_BASE_URL=https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}
+RUN wget ${CMAKE_BASE_URL}/cmake-${CMAKE_VERSION}-Linux-x86_64.sh -q -O /tmp/cmake-install.sh && \
+    chmod u+x /tmp/cmake-install.sh && \
+    /tmp/cmake-install.sh --skip-license --prefix=/usr --exclude-subdir && \
+    rm /tmp/cmake-install.sh
+      
+# build  ninja
+ARG NINJA_VER=1.10.2
+ARG NINJA_BASE_URL=https://github.com/ninja-build/ninja/releases/download/v${NINJA_VER}
+RUN wget -q ${NINJA_BASE_URL}/ninja-linux.zip -O /tmp/ninja-linux.zip && \
+    unzip /tmp/ninja-linux.zip -d /usr/bin/ && \
+    rm /tmp/ninja-linux.zip
 
 # install maven 3.6.3
-ARG SHA=c35a1803a6e70a126e80b2b3ae33eed961f83ed74d18fcd16909b2d44d7dada3203f1ffe726c17ef8dcca2dcaa9fca676987befeadc9b9f759967a8cb77181c0
-ARG MAVEN_URL=http://mirror.bit.edu.cn/apache/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz
-
-RUN mkdir -p /usr/share/maven /usr/share/maven/ref \
-  && curl -fsSL -o /tmp/apache-maven.tar.gz ${MAVEN_URL} \
-  && echo "${SHA} /tmp/apache-maven.tar.gz" | sha512sum -c - \
-  && tar -xzf /tmp/apache-maven.tar.gz -C /usr/share/maven --strip-components=1 \
-  && rm -f /tmp/apache-maven.tar.gz \
-  && ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
+ARG MAVEN_VERSION=3.6.3
+ARG MAVEN_BASE_URL=https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries
+RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
+    curl -fsSL -o /tmp/apache-maven.tar.gz ${MAVEN_BASE_URL}/apache-maven-${MAVEN_VERSION}-bin.tar.gz && \
+    tar -xzf /tmp/apache-maven.tar.gz -C /usr/share/maven --strip-components=1 && \
+    rm -f /tmp/apache-maven.tar.gz && \
+    ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
 
 ENV MAVEN_HOME /usr/share/maven
 
-# build environment
-WORKDIR ${DEFAULT_DIR}
+# build flex
+ARG FLEX_VERSION=2.6.4
+RUN wget https://github.com/westes/flex/releases/download/v$FLEX_VERSION/flex-$FLEX_VERSION.tar.gz \
+    -q -O /tmp/flex-$FLEX_VERSION.tar.gz \
+    && cd /tmp/ \
+    && tar -xf flex-$FLEX_VERSION.tar.gz \
+    && cd flex-$FLEX_VERSION \
+    && ./configure --enable-shared=NO \
+    && make \
+    && make install \
+    && rm /tmp/flex-$FLEX_VERSION.tar.gz \
+    && rm -rf /tmp/flex-$FLEX_VERSION
+
+# install nodejs
+ARG NODEJS_VERSION=14.16.0
+RUN wget https://nodejs.org/dist/v$NODEJS_VERSION/node-v$NODEJS_VERSION-linux-x64.tar.gz \
+    -q -O /tmp/node-v$NODEJS_VERSION-linux-x64.tar.gz \
+    && cd /tmp/ && tar -xf node-v$NODEJS_VERSION-linux-x64.tar.gz \
+    && cp -r node-v$NODEJS_VERSION-linux-x64/* /usr/local/ \
+    && rm /tmp/node-v$NODEJS_VERSION-linux-x64.tar.gz && rm -rf node-v$NODEJS_VERSION-linux-x64
+
+
+ENV BASH_ENV=/opt/rh/devtoolset-10/enable  \
+    ENV=/opt/rh/devtoolset-10/enable  \
+    PROMPT_COMMAND=". /opt/rh/devtoolset-10/enable"
 
 # there is a repo which is included all of thirdparty
 ENV REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+ENV DEFAULT_DIR /var/local
 
 # clone lastest source code, download and build third party
 COPY incubator-doris ${DEFAULT_DIR}/incubator-doris
@@ -107,5 +104,23 @@ RUN cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.s
     && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/ \
     && rm -rf ${DEFAULT_DIR}/incubator-doris
 
+
+FROM scratch
+
+COPY --from=builder / /
+ENV JAVA_HOME="/usr/lib/jvm/java-11"
+ENV MAVEN_HOME /usr/share/maven
+
+ENV BASH_ENV=/opt/rh/devtoolset-10/enable  \
+    ENV=/opt/rh/devtoolset-10/enable  \
+    PROMPT_COMMAND=". /opt/rh/devtoolset-10/enable"
+
+ENV REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+ENV DEFAULT_DIR /var/local
+
+
 ENV DORIS_THIRDPARTY /var/local/thirdparty
 WORKDIR /root
+
+CMD ["/bin/bash"]
+~
