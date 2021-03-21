@@ -60,7 +60,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
         if (this.properties == null) {
             this.properties = Maps.newHashMap();
         }
-        if (this.name.equalsIgnoreCase(BrokerDesc.MULTI_LOAD_BROKER)) {
+        if (isMultiLoadBroker()) {
             this.storageType = StorageBackend.StorageType.LOCAL;
         } else {
             this.storageType = StorageBackend.StorageType.BROKER;
