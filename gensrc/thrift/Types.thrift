@@ -189,6 +189,7 @@ enum TStmtType {
 // level of verboseness for "explain" output
 // TODO: should this go somewhere else?
 enum TExplainLevel {
+  BRIEF,
   NORMAL,
   VERBOSE
 }

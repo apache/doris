@@ -29,12 +29,12 @@ import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -256,16 +256,20 @@ public class AggregationNode extends PlanNode {
     }
 
     @Override
-    protected String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
         String nameDetail = getDisplayLabelDetail();
         if (nameDetail != null) {
             output.append(detailPrefix + nameDetail + "\n");
         }
 
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return output.toString();
+        }
+
         if (aggInfo.getAggregateExprs() != null && aggInfo.getMaterializedAggregateExprs().size() > 0) {
             output.append(detailPrefix + "output: ").append(
-              getExplainString(aggInfo.getAggregateExprs()) + "\n");
+                    getExplainString(aggInfo.getAggregateExprs()) + "\n");
         }
         // TODO: group by can be very long. Break it into multiple lines
         output.append(detailPrefix + "group by: ").append(

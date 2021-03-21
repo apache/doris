@@ -42,7 +42,10 @@ public class MysqlTableSink extends DataSink {
 
     @Override
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
-        return null;
+        StringBuilder sb = new StringBuilder();
+        sb.append("MYSQL TABLE SINK\n");
+        sb.append("host: ").append(host).append("\n");
+        return sb.toString();
     }
 
     @Override
