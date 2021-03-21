@@ -85,7 +85,7 @@ public class SearchContext {
     private EsMajorVersion version;
 
     // whether the nodes needs to be discovered
-    private boolean esNodesDiscovery;
+    private boolean nodesDiscovery;
 
 
     public SearchContext(EsTable table) {
@@ -93,7 +93,7 @@ public class SearchContext {
         fullSchema = table.getFullSchema();
         sourceIndex = table.getIndexName();
         type = table.getMappingType();
-        esNodesDiscovery = table.isEsNodesDiscovery();
+        nodesDiscovery = table.isNodesDiscovery();
     }
 
 
@@ -147,7 +147,7 @@ public class SearchContext {
         return EsTablePartitions.fromShardPartitions(table, shardPartitions);
     }
 
-    public boolean esNodesDiscovery() {
-        return esNodesDiscovery;
+    public boolean nodesDiscovery() {
+        return nodesDiscovery;
     }
 }

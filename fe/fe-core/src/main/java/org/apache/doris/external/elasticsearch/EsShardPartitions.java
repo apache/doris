@@ -94,16 +94,22 @@ public class EsShardPartitions {
         return partitions;
     }
 
-    public void addHttpAddress(Map<String, EsNodeInfo> nodesInfo) {
+    public void addHttpAddress(Map<String, EsNodeInfo> nodesInfo, boolean httpSslEnabled) {
         for (Map.Entry<Integer, List<EsShardRouting>> entry : shardRoutings.entrySet()) {
             List<EsShardRouting> shardRoutings = entry.getValue();
             for (EsShardRouting shardRouting : shardRoutings) {
                 String nodeId = shardRouting.getNodeId();
+                TNetworkAddress httpAddress;
                 if (nodesInfo.containsKey(nodeId)) {
-                    shardRouting.setHttpAddress(nodesInfo.get(nodeId).getPublishAddress());
+                    httpAddress = nodesInfo.get(nodeId).getPublishAddress();
                 } else {
-                    shardRouting.setHttpAddress(randomAddress(nodesInfo));
+                    httpAddress = randomAddress(nodesInfo);
                 }
+                // If ssl is enabled, determine if the https protocol is required
+                if (httpSslEnabled && !httpAddress.getHostname().startsWith("http")) {
+                    httpAddress.setHostname("https://" + httpAddress.getHostname());
+                }
+                shardRouting.setHttpAddress(httpAddress);
             }
         }
     }

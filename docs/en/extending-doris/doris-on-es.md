@@ -345,7 +345,7 @@ PROPERTIES (
 "user" = "root",
 "password" = "root",
 
-"es_nodes_discovery" = "true"
+"nodes_discovery" = "true"
 );
 ```
 
@@ -374,7 +374,7 @@ PROPERTIES (
 "user" = "root",
 "password" = "root",
 
-"es_net_ssl" = "true"
+"http_ssl_enabled" = "true"
 );
 ```
 

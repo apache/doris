@@ -50,7 +50,7 @@ public class PartitionPhaseTest extends EsTestCase {
         Map<String, Map<String, Object>> nodesData = (Map<String, Map<String, Object>>) mapper.readValue(jsonParser, Map.class).get("nodes");
         Map<String, EsNodeInfo> nodesMap = new HashMap<>();
         for (Map.Entry<String, Map<String, Object>> entry : nodesData.entrySet()) {
-            EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue(), false);
+            EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue());
             if (node.hasHttp()) {
                 nodesMap.put(node.getId(), node);
             }
@@ -58,7 +58,7 @@ public class PartitionPhaseTest extends EsTestCase {
 
         new Expectations(client) {
             {
-                client.getHttpNodes(false);
+                client.getHttpNodes();
                 minTimes = 0;
                 result = nodesMap;
 

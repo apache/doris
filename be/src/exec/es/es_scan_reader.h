@@ -40,7 +40,7 @@ public:
     static constexpr const char* KEY_BATCH_SIZE = "batch_size";
     static constexpr const char* KEY_TERMINATE_AFTER = "limit";
     static constexpr const char* KEY_DOC_VALUES_MODE = "doc_values_mode";
-    static constexpr const char* KEY_ES_NET_SSL = "es_net_ssl";
+    static constexpr const char* KEY_HTTP_SSL_ENABLED = "http_ssl_enabled";
     ESScanReader(const std::string& target, const std::map<std::string, std::string>& props,
                  bool doc_value_mode);
     ~ESScanReader();

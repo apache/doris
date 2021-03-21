@@ -57,7 +57,9 @@ public class EsRestClient {
         mapper.configure(SerializationConfig.Feature.USE_ANNOTATIONS, false);
     }
 
-    private static OkHttpClient networkClient;
+    private static OkHttpClient networkClient = new OkHttpClient.Builder()
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build();
     
     private static OkHttpClient sslNetworkClient;
 
@@ -76,14 +78,6 @@ public class EsRestClient {
         }
         this.currentNode = nodes[currentNodeIndex];
         this.useSslClient = useSslClient;
-        sslNetworkClient = new OkHttpClient.Builder()
-                .readTimeout(10, TimeUnit.SECONDS)
-                .sslSocketFactory(createSSLSocketFactory(), new TrustAllCerts())
-                .hostnameVerifier(new TrustAllHostnameVerifier())
-                .build();
-        networkClient = new OkHttpClient.Builder()
-                .readTimeout(10, TimeUnit.SECONDS)
-                .build();
     }
 
     private void selectNextNode() {
@@ -95,14 +89,14 @@ public class EsRestClient {
         currentNode = nodes[currentNodeIndex];
     }
 
-    public Map<String, EsNodeInfo> getHttpNodes(boolean useSslClient) throws DorisEsException {
+    public Map<String, EsNodeInfo> getHttpNodes() throws DorisEsException {
         Map<String, Map<String, Object>> nodesData = get("_nodes/http", "nodes");
         if (nodesData == null) {
             return Collections.emptyMap();
         }
         Map<String, EsNodeInfo> nodesMap = new HashMap<>();
         for (Map.Entry<String, Map<String, Object>> entry : nodesData.entrySet()) {
-            EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue(), useSslClient);
+            EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue());
             if (node.hasHttp()) {
                 nodesMap.put(node.getId(), node);
             }
@@ -172,6 +166,13 @@ public class EsRestClient {
         DorisEsException scratchExceptionForThrow = null;
         OkHttpClient httpClient;
         if (useSslClient) {
+            if (sslNetworkClient == null) {
+                sslNetworkClient = new OkHttpClient.Builder()
+                        .readTimeout(10, TimeUnit.SECONDS)
+                        .sslSocketFactory(createSSLSocketFactory(), new TrustAllCerts())
+                        .hostnameVerifier(new TrustAllHostnameVerifier())
+                        .build();
+            }
             httpClient = sslNetworkClient;
         } else {
             httpClient = networkClient;
