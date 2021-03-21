@@ -20,10 +20,12 @@
 #include <arpa/inet.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <algorithm>
 #include <boost/shared_ptr.hpp>
 #include <boost/thread/thread.hpp>
 #include <iostream>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
@@ -32,6 +34,8 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/client_cache.h"
+#include "runtime/data_stream_mgr.h"
+#include "runtime/data_stream_recvr.h"
 #include "runtime/descriptors.h"
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/exec_env.h"
@@ -43,6 +47,7 @@
 #include "service/backend_options.h"
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
+#include "util/defer_op.h"
 #include "util/debug_util.h"
 #include "util/network_util.h"
 #include "util/ref_count_closure.h"
@@ -79,7 +84,14 @@ public:
               _need_close(false),
               _brpc_dest_addr(brpc_dest),
               _is_transfer_chain(is_transfer_chain),
-              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {}
+              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
+        std::string localhost = BackendOptions::get_localhost();
+        _is_local =
+                _brpc_dest_addr.hostname == localhost && _brpc_dest_addr.port == config::brpc_port;
+        if (_is_local) {
+            LOG(INFO) << "will use local exechange, dest_node_id:" << _dest_node_id;
+        }
+    }
 
     virtual ~Channel() {
         if (_closure != nullptr && _closure->unref()) {
@@ -104,6 +116,10 @@ public:
     // if batch is nullptr, send the eof packet
     Status send_batch(PRowBatch* batch, bool eos = false);
 
+    Status send_local_batch(bool eos);
+
+    Status send_local_batch(RowBatch* batch, bool use_move);
+
     // Flush buffered rows and close channel. This function don't wait the response
     // of close operation, client should call close_wait() to finish channel's close.
     // We split one close operation into two phases in order to make multiple channels
@@ -124,8 +140,11 @@ public:
 
     TUniqueId get_fragment_instance_id() { return _fragment_instance_id; }
 
+    bool is_local() { return _is_local; }
+
 private:
     inline Status _wait_last_brpc() {
+        if (_closure == nullptr) return Status::OK();
         auto cntl = &_closure->cntl;
         brpc::Join(cntl->call_id());
         if (cntl->Failed()) {
@@ -174,6 +193,7 @@ private:
     // whether the dest can be treated as query statistics transfer chain.
     bool _is_transfer_chain;
     bool _send_query_statistics_with_every_batch;
+    bool _is_local;
 };
 
 Status DataStreamSender::Channel::init(RuntimeState* state) {
@@ -198,7 +218,12 @@ Status DataStreamSender::Channel::init(RuntimeState* state) {
     _brpc_request.set_be_number(_be_number);
 
     _brpc_timeout_ms = std::min(3600, state->query_options().query_timeout) * 1000;
-    _brpc_stub = state->exec_env()->brpc_stub_cache()->get_stub(_brpc_dest_addr);
+    if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
+        _brpc_stub =
+                state->exec_env()->brpc_stub_cache()->get_stub("127.0.0.1", _brpc_dest_addr.port);
+    } else {
+        _brpc_stub = state->exec_env()->brpc_stub_cache()->get_stub(_brpc_dest_addr);
+    }
 
     // In bucket shuffle join will set fragment_instance_id (-1, -1)
     // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
@@ -268,6 +293,9 @@ Status DataStreamSender::Channel::add_row(TupleRow* row) {
 }
 
 Status DataStreamSender::Channel::send_current_batch(bool eos) {
+    if (is_local()) {
+        return send_local_batch(eos);
+    }
     {
         SCOPED_TIMER(_parent->_serialize_batch_timer);
         int uncompressed_bytes = _batch->serialize(&_pb_batch);
@@ -276,6 +304,30 @@ Status DataStreamSender::Channel::send_current_batch(bool eos) {
     }
     _batch->reset();
     RETURN_IF_ERROR(send_batch(&_pb_batch, eos));
+    return Status::OK();
+}
+
+Status DataStreamSender::Channel::send_local_batch(bool eos) {
+    boost::shared_ptr<DataStreamRecvr> recvr =
+            _parent->state()->exec_env()->stream_mgr()->find_recvr(_fragment_instance_id,
+                                                                   _dest_node_id);
+    if (recvr != nullptr) {
+        recvr->add_batch(_batch.get(), _parent->_sender_id, true);
+        if (eos) {
+            recvr->remove_sender(_parent->_sender_id, _be_number);
+        }
+    }
+    _batch->reset();
+    return Status::OK();
+}
+
+Status DataStreamSender::Channel::send_local_batch(RowBatch* batch, bool use_move) {
+    boost::shared_ptr<DataStreamRecvr> recvr =
+            _parent->state()->exec_env()->stream_mgr()->find_recvr(_fragment_instance_id,
+                                                                   _dest_node_id);
+    if (recvr != nullptr) {
+        recvr->add_batch(batch, _parent->_sender_id, use_move);
+    }
     return Status::OK();
 }
 
@@ -470,17 +522,38 @@ Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
 
     // Unpartition or _channel size
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
-        RETURN_IF_ERROR(serialize_batch(batch, _current_pb_batch, _channels.size()));
+        int local_size = 0;
         for (auto channel : _channels) {
-            RETURN_IF_ERROR(channel->send_batch(_current_pb_batch));
+            if (channel->is_local()) {
+                local_size++;
+            }
         }
-        _current_pb_batch = (_current_pb_batch == &_pb_batch1 ? &_pb_batch2 : &_pb_batch1);
+        if (local_size == _channels.size()) {
+            // we don't have to serialize
+            for (auto channel : _channels) {
+                RETURN_IF_ERROR(channel->send_local_batch(batch, false));
+            }
+        } else {
+            RETURN_IF_ERROR(serialize_batch(batch, _current_pb_batch, _channels.size()));
+            for (auto channel : _channels) {
+                if (channel->is_local()) {
+                    RETURN_IF_ERROR(channel->send_local_batch(batch, false));
+                } else {
+                    RETURN_IF_ERROR(channel->send_batch(_current_pb_batch));
+                }
+            }
+            _current_pb_batch = (_current_pb_batch == &_pb_batch1 ? &_pb_batch2 : &_pb_batch1);
+        }
     } else if (_part_type == TPartitionType::RANDOM) {
         // Round-robin batches among channels. Wait for the current channel to finish its
         // rpc before overwriting its batch.
         Channel* current_channel = _channels[_current_channel_idx];
-        RETURN_IF_ERROR(serialize_batch(batch, current_channel->pb_batch()));
-        RETURN_IF_ERROR(current_channel->send_batch(current_channel->pb_batch()));
+        if (current_channel->is_local()) {
+            RETURN_IF_ERROR(current_channel->send_local_batch(batch, false));
+        } else {
+            RETURN_IF_ERROR(serialize_batch(batch, current_channel->pb_batch()));
+            RETURN_IF_ERROR(current_channel->send_batch(current_channel->pb_batch()));
+        }
         _current_channel_idx = (_current_channel_idx + 1) % _channels.size();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED) {
         // hash-partition batch's rows across channels
@@ -640,6 +713,8 @@ Status DataStreamSender::compute_range_part_code(RuntimeState* state, TupleRow* 
 Status DataStreamSender::close(RuntimeState* state, Status exec_status) {
     // TODO: only close channels that didn't have any errors
     // make all channels close parallel
+    if (_closed) return Status::OK();
+    _closed = true;
     Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {
         Status st = _channels[i]->close(state);
