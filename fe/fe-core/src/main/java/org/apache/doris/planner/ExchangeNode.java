@@ -50,6 +50,9 @@ import org.apache.logging.log4j.Logger;
 public class ExchangeNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(ExchangeNode.class);
 
+    public static final String EXCHANGE_NODE = "EXCHANGE";
+    public static final String MERGING_EXCHANGE_NODE = "MERGING-EXCHANGE";
+
     // The parameters based on which sorted input streams are merged by this
     // exchange node. Null if this exchange does not merge sorted streams
     private SortInfo mergeInfo;
@@ -64,7 +67,7 @@ public class ExchangeNode extends PlanNode {
      * need to compute the cardinality here.
      */
     public ExchangeNode(PlanNodeId id, PlanNode inputNode, boolean copyConjuncts) {
-        super(id, inputNode, "EXCHANGE");
+        super(id, inputNode, EXCHANGE_NODE);
         offset = 0;
         children.add(inputNode);
         if (!copyConjuncts) {
@@ -101,7 +104,7 @@ public class ExchangeNode extends PlanNode {
     public void setMergeInfo(SortInfo info, long offset) {
         this.mergeInfo = info;
         this.offset = offset;
-        this.planNodeName = "MERGING-EXCHANGE";
+        this.planNodeName = MERGING_EXCHANGE_NODE;
     }
 
     @Override

@@ -51,6 +51,7 @@ import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.ShowPluginsStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
+import org.apache.doris.analysis.ShowQueryProfileStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
@@ -109,10 +110,14 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.RollupProcDir;
 import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.common.proc.TabletsProcDir;
+import org.apache.doris.common.profile.ProfileTreeNode;
+import org.apache.doris.common.profile.ProfileTreePrinter;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
@@ -125,16 +130,18 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgr;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.lang3.tuple.Triple;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -263,6 +270,8 @@ public class ShowExecutor {
             handleShowTransaction();
         } else if (stmt instanceof ShowPluginsStmt) {
             handleShowPlugins();
+        } else if (stmt instanceof ShowQueryProfileStmt) {
+            handleShowQueryProfile();
         } else {
             handleEmtpy();
         }
@@ -1612,6 +1621,54 @@ public class ShowExecutor {
         List<List<String>> rows = Catalog.getCurrentPluginMgr().getPluginShowInfos();
         resultSet = new ShowResultSet(pluginsStmt.getMetaData(), rows);
     }
+
+    private void handleShowQueryProfile() throws AnalysisException {
+        ShowQueryProfileStmt showStmt = (ShowQueryProfileStmt) stmt;
+        ShowQueryProfileStmt.PathType pathType = showStmt.getPathType();
+        List<List<String>> rows = Lists.newArrayList();
+        switch (pathType) {
+            case QUERY_IDS:
+                rows = ProfileManager.getInstance().getAllQueries();
+                break;
+            case FRAGMETNS: {
+                ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(showStmt.getQueryId());
+                if (treeRoot == null) {
+                    throw new AnalysisException("Failed to get fragment tree for query: " + showStmt.getQueryId());
+                }
+                List<String> row = Lists.newArrayList(ProfileTreePrinter.printFragmentTree(treeRoot));
+                rows.add(row);
+                break;
+            }
+            case INSTANCES: {
+                List<Triple<String, String, Long>> instanceList
+                        = ProfileManager.getInstance().getFragmentInstanceList(showStmt.getQueryId(), showStmt.getFragmentId());
+                if (instanceList == null) {
+                    throw new AnalysisException("Failed to get instance list for fragment: " + showStmt.getFragmentId());
+                }
+                for (Triple<String, String, Long> triple : instanceList) {
+                    List<String> row = Lists.newArrayList(triple.getLeft(), triple.getMiddle(),
+                            RuntimeProfile.printCounter(triple.getRight(), TUnit.TIME_NS));
+                    rows.add(row);
+                }
+                break;
+            }
+            case SINGLE_INSTANCE: {
+                ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(showStmt.getQueryId(),
+                        showStmt.getFragmentId(), showStmt.getInstanceId());
+                if (treeRoot == null) {
+                    throw new AnalysisException("Failed to get instance tree for instance: " + showStmt.getInstanceId());
+                }
+                List<String> row = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
+                rows.add(row);
+                break;
+            }
+            default:
+                break;
+        }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
 }
 
 

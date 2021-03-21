@@ -30,8 +30,10 @@ import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TMergeNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
@@ -171,7 +173,10 @@ public class MergeNode extends PlanNode {
     }
 
     @Override
-    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return "";
+        }
         StringBuilder output = new StringBuilder();
         // A MergeNode may have predicates if a union is used inside an inline view,
         // and the enclosing select stmt has predicates referring to the inline view.

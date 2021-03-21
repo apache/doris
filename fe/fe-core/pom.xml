@@ -602,6 +602,11 @@ under the License.
             <artifactId>lombok</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>hu.webarticum</groupId>
+            <artifactId>tree-printer</artifactId>
+        </dependency>
+
     </dependencies>
 
     <build>

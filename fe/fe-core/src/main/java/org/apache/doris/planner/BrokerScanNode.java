@@ -51,13 +51,13 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.Charset;
 import java.util.ArrayList;
@@ -538,13 +538,15 @@ public class BrokerScanNode extends LoadScanNode {
     }
 
     @Override
-    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
         if (!isLoad()) {
             BrokerTable brokerTable = (BrokerTable) targetTable;
             output.append(prefix).append("TABLE: ").append(brokerTable.getName()).append("\n");
-            output.append(prefix).append("PATH: ")
-                    .append(Joiner.on(",").join(brokerTable.getPaths())).append("\",\n");
+            if (detailLevel != TExplainLevel.BRIEF) {
+                output.append(prefix).append("PATH: ")
+                        .append(Joiner.on(",").join(brokerTable.getPaths())).append("\",\n");
+            }
         }
         output.append(prefix).append("BROKER: ").append(brokerDesc.getName()).append("\n");
         return output.toString();

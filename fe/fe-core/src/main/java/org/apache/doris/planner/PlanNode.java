@@ -30,14 +30,14 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanNode;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.math.LongMath;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -112,6 +112,10 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     //  Node should compact data.
     protected boolean compactData;
     protected int numInstances;
+
+    public String getPlanNodeName() {
+        return planNodeName;
+    }
 
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName) {
         this.id = id;
@@ -383,7 +387,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      * Subclass should override this function.
      * Each line should be prefix by detailPrefix.
      */
-    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         return "";
     }
 
@@ -631,5 +635,14 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             }
             sb.append(")");
         }
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
+        sb.append("\nFragment: ").append(getFragmentId().asInt()).append("]");
+        sb.append("\n").append(getNodeExplainString("", TExplainLevel.BRIEF));
+        return sb.toString();
     }
 }
