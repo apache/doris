@@ -72,6 +72,7 @@ import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -1326,10 +1327,13 @@ public class ShowExecutor {
     // Handle show brokers
     private void handleShowBroker() {
         ShowBrokerStmt showStmt = (ShowBrokerStmt) stmt;
-        List<List<String>> rowSet = Catalog.getCurrentCatalog().getBrokerMgr().getBrokersInfo();
+        List<List<String>> brokersInfo = Catalog.getCurrentCatalog().getBrokerMgr().getBrokersInfo();
+        for (List<String> row : brokersInfo) {
+            row.remove(BrokerMgr.HOSTNAME_INDEX);
+        }
 
         // Only success
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), brokersInfo);
     }
 
     // Handle show resources
