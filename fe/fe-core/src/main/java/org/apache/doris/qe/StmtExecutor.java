@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.EnterStmt;
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
@@ -80,7 +81,6 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.LoadEtlTask;
-import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TUniqueId;
@@ -514,9 +514,8 @@ public class StmtExecutor {
     private void analyzeAndGenerateQueryPlan(TQueryOptions tQueryOptions) throws UserException {
         parsedStmt.analyze(analyzer);
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
-            boolean isExplain = parsedStmt.isExplain();
-            boolean isVerbose = parsedStmt.isVerbose();
             // Apply expr and subquery rewrites.
+            ExplainOptions explainOptions = parsedStmt.getExplainOptions();
             boolean reAnalyze = false;
 
             ExprRewriter rewriter = analyzer.getExprRewriter();
@@ -551,7 +550,7 @@ public class StmtExecutor {
                 if (LOG.isTraceEnabled()) {
                     LOG.trace("rewrittenStmt: " + parsedStmt.toSql());
                 }
-                if (isExplain) parsedStmt.setIsExplain(isExplain, isVerbose);
+                if (explainOptions != null) parsedStmt.setIsExplain(explainOptions);
             }
         }
         plannerProfile.setQueryAnalysisFinishTime();
@@ -742,7 +741,7 @@ public class StmtExecutor {
         QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
 
         if (queryStmt.isExplain()) {
-            String explainString = planner.getExplainString(planner.getFragments(), queryStmt.isVerbose() ? TExplainLevel.VERBOSE: TExplainLevel.NORMAL.NORMAL);
+            String explainString = planner.getExplainString(planner.getFragments(), queryStmt.getExplainOptions());
             handleExplainStmt(explainString);
             return;
         }
@@ -827,7 +826,7 @@ public class StmtExecutor {
         }
 
         if (insertStmt.getQueryStmt().isExplain()) {
-            String explainString = planner.getExplainString(planner.getFragments(), TExplainLevel.VERBOSE);
+            String explainString = planner.getExplainString(planner.getFragments(), new ExplainOptions(true, false));
             handleExplainStmt(explainString);
             return;
         }

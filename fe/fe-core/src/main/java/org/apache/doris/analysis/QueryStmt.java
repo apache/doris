@@ -509,12 +509,12 @@ public abstract class QueryStmt extends StatementBase {
         return assertNumRowsElement;
     }
 
-    public void setIsExplain(boolean isExplain) {
-        this.isExplain = isExplain;
+    public void setIsExplain(ExplainOptions options) {
+        this.explainOptions = options;
     }
 
     public boolean isExplain() {
-        return isExplain;
+        return this.explainOptions != null;
     }
 
     public boolean hasLimitClause() {

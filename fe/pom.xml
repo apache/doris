@@ -671,6 +671,13 @@ under the License.
                 <scope>provided</scope>
             </dependency>
 
+            <!-- https://mvnrepository.com/artifact/hu.webarticum/tree-printer -->
+            <dependency>
+                <groupId>hu.webarticum</groupId>
+                <artifactId>tree-printer</artifactId>
+                <version>1.2</version>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 
