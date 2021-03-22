@@ -316,9 +316,10 @@ under the License.
         DROP COLUMN col2
         FROM example_rollup_index;
         
-    7. 修改 base index 的 col1 列的类型为 BIGINT，并移动到 col2 列后面
+    7. 修改 base index 的 key 列 col1 的类型为 BIGINT，并移动到 col2 列后面
+       (*注意，无论是修改 key 列还是 value 列都需要声明完整的 column 信息*) 例如：MODIFY COLUMN xxx COLUMNTYPE [KEY|agg_type] 
         ALTER TABLE example_db.my_table
-        MODIFY COLUMN col1 BIGINT DEFAULT "1" AFTER col2;
+        MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
 
     8. 修改 base index 的 val1 列最大长度。原 val1 为 (val1 VARCHAR(32) REPLACE DEFAULT "abc")
         ALTER TABLE example_db.my_table
