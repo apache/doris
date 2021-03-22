@@ -439,11 +439,11 @@ TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
     }
     std::set<decimal12_t> values;
 
-    decimal12_t value1(4, 4);
+    decimal12_t value1 = {4, 4};
     values.insert(value1);
-    decimal12_t value2(5, 5);
+    decimal12_t value2 = {5, 5};
     values.insert(value2);
-    decimal12_t value3(6, 6);
+    decimal12_t value3 = {6, 6};
     values.insert(value3);
 
     ColumnPredicate* pred = new InListPredicate<decimal12_t>(0, std::move(values));
