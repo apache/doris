@@ -123,4 +123,3 @@ ENV DORIS_THIRDPARTY /var/local/thirdparty
 WORKDIR /root
 
 CMD ["/bin/bash"]
-~
