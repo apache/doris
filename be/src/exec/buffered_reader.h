@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "exec/file_reader.h"
 #include "olap/olap_define.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -35,7 +36,8 @@ public:
     // If the reader need the file size, set it when construct FileReader.
     // There is no other way to set the file size.
     // buffered_reader will acquire reader
-    BufferedReader(FileReader* reader, int64_t buffer_size = 1024 * 1024);
+    // -1 means using config buffered_reader_buffer_size_bytes
+    BufferedReader(RuntimeProfile* profile, FileReader* reader, int64_t = -1L);
     virtual ~BufferedReader();
 
     virtual Status open() override;
@@ -56,12 +58,25 @@ private:
     Status _read_once(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out);
 
 private:
+    RuntimeProfile* _profile;
     std::unique_ptr<FileReader> _reader;
     char* _buffer;
     int64_t _buffer_size;
     int64_t _buffer_offset;
     int64_t _buffer_limit;
     int64_t _cur_offset;
+
+    int64_t _read_count = 0;
+    int64_t _remote_read_count = 0;
+
+    // total time cost in this reader
+    RuntimeProfile::Counter* _read_timer = nullptr;
+    // time cost of "_reader", "remote" because "_reader" is always a remote reader
+    RuntimeProfile::Counter* _remote_read_timer = nullptr;
+    // counter of calling read()
+    RuntimeProfile::Counter* _read_counter = nullptr;
+    // counter of calling "remote read()"
+    RuntimeProfile::Counter* _remote_read_counter = nullptr;
 };
 
 } // namespace doris

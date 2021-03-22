@@ -160,8 +160,7 @@ Status JsonScanner::open_file_reader() {
     }
     case TFileType::FILE_S3: {
         BufferedReader* s3_reader =
-                new BufferedReader(new S3Reader(_params.properties, range.path, start_offset),
-                                   config::remote_storage_read_buffer_mb * 1024 * 1024);
+                new BufferedReader(_profile, new S3Reader(_params.properties, range.path, start_offset));
         RETURN_IF_ERROR(s3_reader->open());
         _cur_file_reader = s3_reader;
         break;
