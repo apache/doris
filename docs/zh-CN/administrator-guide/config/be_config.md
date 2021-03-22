@@ -871,3 +871,18 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 * 描述: 如果一个page中的行数小于这个值就不会创建zonemap，用来减少数据膨胀
 * 默认值: 20
 
+### `aws_log_level`
+
+* 类型: int32
+* 描述: AWS SDK 的日志级别
+  ```
+     Off = 0,
+     Fatal = 1,
+     Error = 2,
+     Warn = 3,
+     Info = 4,
+     Debug = 5,
+     Trace = 6
+  ```
+* 默认值: 3
+
