@@ -17,30 +17,32 @@
 
 package org.apache.doris.flink;
 
-import org.apache.doris.flink.datastream.DorisSource;
+import org.apache.doris.flink.cfg.DorisOptions;
+import org.apache.doris.flink.datastream.DorisSourceFunction;
 import org.apache.doris.flink.deserialization.SimpleListDeserializationSchema;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import java.util.HashMap;
-import java.util.Map;
 
 
 
-public class TestDorisSource {
+public class DorisSourceDataStream {
 
     public static void main(String[] args) throws Exception {
-        Map<String,String> conf = new HashMap<>();
-        conf.put("doris.fenodes","10.220.146.10:8030");
-        conf.put("doris.request.auth.user","root");
-        conf.put("doris.request.auth.password","");
-        conf.put("doris.table.identifier","ods.test_flink_2");
-        conf.put("doris.filter.query","rq >= '2019-04-10 00:00:00' and rq <= '2019-05-10 00:00:00'");
+
+        DorisOptions.Builder options = DorisOptions.builder()
+                .setFenodes("10.220.146.10:8030")
+                .setUsername("root")
+                .setPassword("")
+                .setTableIdentifier("ods.test_flink_2");
 
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(2);
-        env.addSource(new DorisSource(conf,new SimpleListDeserializationSchema())).print();
-
+        env.addSource(new DorisSourceFunction<>(options.build(),new SimpleListDeserializationSchema())).print();
         env.execute("Flink doris test");
+
+//        DataStreamSource<RowData> root = env.createInput(new DorisRowDataInputFormat(options.build())
+//                , TypeExtractor.createTypeInfo(RowData.class)
+//        );
+//        root.print();
+//        env.execute("Flink doris test");
     }
 }
