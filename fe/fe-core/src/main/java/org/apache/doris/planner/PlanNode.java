@@ -647,21 +647,16 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
     
     public ScanNode getScanNodeInOneFragmentByTupleId(TupleId tupleId) {
-        if (this instanceof ScanNode) {
-            if (tupleIds.contains(tupleId)) {
-                return (ScanNode) this;
-            }
-            return null;
-        } else if (this instanceof ExchangeNode) {
-            return null;
-        } else {
+        if (this instanceof ScanNode && tupleIds.contains(tupleId)) {
+            return (ScanNode) this;
+        } else if (!(this instanceof ExchangeNode)) {
             for (PlanNode planNode : children) {
                 ScanNode scanNode = planNode.getScanNodeInOneFragmentByTupleId(tupleId);
                 if (scanNode != null) {
                     return scanNode;
                 }
             }
-            return null;
         }
+        return null;
     }
 }

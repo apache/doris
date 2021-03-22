@@ -543,10 +543,8 @@ public class DistributedPlanner {
         }
     }
 
-    private boolean dataDistributionMatchEqPredicate(Map<Pair<OlapScanNode, OlapScanNode>, List<BinaryPredicate>> scanNodeWithJoinConjuncts,
-                                                     List<String> cannotReason) {
-        // If left table and right table is same table and they select same single partition or no partition
-        // they are naturally colocate relationship no need to check colocate group
+    private boolean dataDistributionMatchEqPredicate(Map<Pair<OlapScanNode, OlapScanNode>,
+            List<BinaryPredicate>> scanNodeWithJoinConjuncts, List<String> cannotReason) {
         for (Map.Entry<Pair<OlapScanNode, OlapScanNode>, List<BinaryPredicate>> entry : scanNodeWithJoinConjuncts.entrySet()) {
             OlapScanNode leftScanNode = entry.getKey().first;
             OlapScanNode rightScanNode = entry.getKey().second;
@@ -571,8 +569,8 @@ public class DistributedPlanner {
         // they are naturally colocate relationship no need to check colocate group
         Collection<Long> leftPartitions = leftRoot.getSelectedPartitionIds();
         Collection<Long> rightPartitions = rightRoot.getSelectedPartitionIds();
-        boolean noNeedCheckColocateGroup = (leftTable.getId() == rightTable.getId()) && (leftPartitions.equals(rightPartitions)) &&
-                (leftPartitions.size() <= 1);
+        boolean noNeedCheckColocateGroup = (leftTable.getId() == rightTable.getId())
+                && (leftPartitions.equals(rightPartitions)) && (leftPartitions.size() <= 1);
 
         if (!noNeedCheckColocateGroup) {
             ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
