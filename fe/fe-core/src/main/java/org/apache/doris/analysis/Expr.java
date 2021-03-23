@@ -1348,7 +1348,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         List<Expr> sourceExpr = slotDescriptor.getSourceExprs();
         if (sourceExpr == null || sourceExpr.isEmpty()) {
-            return (SlotRef) this;
+            return unwrapSloRef;
         }
         if (sourceExpr.size() > 1) {
             return null;
