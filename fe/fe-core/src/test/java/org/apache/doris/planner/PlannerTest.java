@@ -316,7 +316,7 @@ public class PlannerTest {
     }
 
     @Test
-    public void testWithStmtSoltIsAllowNull() throws Exception {
+    public void testWithStmtSlotIsAllowNull() throws Exception {
         // union
         String sql1 = "with a as (select NULL as user_id ), " +
                 "b as ( select '543' as user_id) " +
@@ -326,7 +326,7 @@ public class PlannerTest {
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
         List<PlanFragment> fragments1 = planner1.getFragments();
-        String plan1 = planner1.getExplainString(fragments1, new ExplainOptions(false, false));
+        String plan1 = planner1.getExplainString(fragments1, new ExplainOptions(true, false));
         Assert.assertEquals(3, StringUtils.countMatches(plan1, "nullIndicatorBit=0"));
     }
 
