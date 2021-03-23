@@ -38,7 +38,13 @@ private:
     mutable SpinLock _lock;
     const UniqueId _backend_uid;
     const int64_t _version = 2; // modify it when create new version id generator
+    // A monotonically increasing integer generator,
+    // This integer will be part of a rowset id.
     std::atomic<int64_t> _inc_id;
+    // Save the high part of rowset ids generated since last process startup.
+    // Therefore, we cannot strictly rely on _valid_rowset_id_hi
+    // to determine whether the rowset id is being used.
+    // But to use id_in_use() and release_id() to check it.
     std::unordered_set<int64_t> _valid_rowset_id_hi;
 
     DISALLOW_COPY_AND_ASSIGN(UniqueRowsetIdGenerator);
