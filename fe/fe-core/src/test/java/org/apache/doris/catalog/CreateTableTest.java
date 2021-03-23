@@ -68,7 +68,7 @@ public class CreateTableTest {
     public void testDuplicateCreateTable() throws Exception{
         // test
         Catalog catalog = Catalog.getCurrentCatalog();
-        String sql = "create table if not exists test.tbl1\n" + "(k1 int, k2 int)\n" + "duplicate key(k1)\n"
+        String sql = "create table if not exists test.tbl1_colocate\n" + "(k1 int, k2 int)\n" + "duplicate key(k1)\n"
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1','colocate_with'='test'); ";
         createTable(sql);
         Set<Long> tabletIdSetAfterCreateFirstTable = catalog.getTabletInvertedIndex().getReplicaMetaTable().rowKeySet();
