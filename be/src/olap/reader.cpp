@@ -601,95 +601,95 @@ void Reader::_init_conditions_param(const ReaderParams& read_params) {
     }
 }
 
-#define COMPARISON_PREDICATE_CONDITION_VALUE(NAME, PREDICATE)                              \
-    ColumnPredicate* Reader::_new_##NAME##_pred(const TabletColumn& column, int index,     \
-                                                const std::string& cond, bool opposite) const {           \
-        ColumnPredicate* predicate = nullptr;                                              \
-        switch (column.type()) {                                                           \
-        case OLAP_FIELD_TYPE_TINYINT: {                                                    \
-            std::stringstream ss(cond);                                                    \
-            int32_t value = 0;                                                             \
-            ss >> value;                                                                   \
-            predicate = new PREDICATE<int8_t>(index, value, opposite);                               \
-            break;                                                                         \
-        }                                                                                  \
-        case OLAP_FIELD_TYPE_SMALLINT: {                                                   \
-            std::stringstream ss(cond);                                                    \
-            int16_t value = 0;                                                             \
-            ss >> value;                                                                   \
-            predicate = new PREDICATE<int16_t>(index, value, opposite);                              \
-            break;                                                                         \
-        }                                                                                  \
-        case OLAP_FIELD_TYPE_INT: {                                                        \
-            std::stringstream ss(cond);                                                    \
-            int32_t value = 0;                                                             \
-            ss >> value;                                                                   \
-            predicate = new PREDICATE<int32_t>(index, value, opposite);                              \
-            break;                                                                         \
-        }                                                                                  \
-        case OLAP_FIELD_TYPE_BIGINT: {                                                     \
-            std::stringstream ss(cond);                                                    \
-            int64_t value = 0;                                                             \
-            ss >> value;                                                                   \
-            predicate = new PREDICATE<int64_t>(index, value, opposite);                              \
-            break;                                                                         \
-        }                                                                                  \
-        case OLAP_FIELD_TYPE_LARGEINT: {                                                   \
-            std::stringstream ss(cond);                                                    \
-            int128_t value = 0;                                                            \
-            ss >> value;                                                                   \
-            predicate = new PREDICATE<int128_t>(index, value, opposite);                             \
-            break;                                                                         \
-        }                                                                                  \
-        case OLAP_FIELD_TYPE_DECIMAL: {                                                    \
-            decimal12_t value(0, 0);                                                       \
-            value.from_string(cond);                                                       \
-            predicate = new PREDICATE<decimal12_t>(index, value, opposite);                          \
-            break;                                                                         \
-        }                                                                                  \
-        case OLAP_FIELD_TYPE_CHAR: {                                                       \
-            StringValue value;                                                             \
-            size_t length = std::max(static_cast<size_t>(column.length()), cond.length()); \
-            char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length)); \
-            memset(buffer, 0, length);                                                     \
-            memory_copy(buffer, cond.c_str(), cond.length());                              \
-            value.len = length;                                                            \
-            value.ptr = buffer;                                                            \
-            predicate = new PREDICATE<StringValue>(index, value, opposite);                          \
-            break;                                                                         \
-        }                                                                                  \
-        case OLAP_FIELD_TYPE_VARCHAR: {                                                    \
-            StringValue value;                                                             \
-            int32_t length = cond.length();                                                \
-            char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length)); \
-            memory_copy(buffer, cond.c_str(), length);                                     \
-            value.len = length;                                                            \
-            value.ptr = buffer;                                                            \
-            predicate = new PREDICATE<StringValue>(index, value, opposite);                          \
-            break;                                                                         \
-        }                                                                                  \
-        case OLAP_FIELD_TYPE_DATE: {                                                       \
-            uint24_t value = timestamp_from_date(cond);                                    \
-            predicate = new PREDICATE<uint24_t>(index, value, opposite);                             \
-            break;                                                                         \
-        }                                                                                  \
-        case OLAP_FIELD_TYPE_DATETIME: {                                                   \
-            uint64_t value = timestamp_from_datetime(cond);                                \
-            predicate = new PREDICATE<uint64_t>(index, value, opposite);                             \
-            break;                                                                         \
-        }                                                                                  \
-        case OLAP_FIELD_TYPE_BOOL: {                                                       \
-            std::stringstream ss(cond);                                                    \
-            bool value = false;                                                            \
-            ss >> value;                                                                   \
-            predicate = new PREDICATE<bool>(index, value, opposite);                                 \
-            break;                                                                         \
-        }                                                                                  \
-        default:                                                                           \
-            break;                                                                         \
-        }                                                                                  \
-                                                                                           \
-        return predicate;                                                                  \
+#define COMPARISON_PREDICATE_CONDITION_VALUE(NAME, PREDICATE)                                   \
+    ColumnPredicate* Reader::_new_##NAME##_pred(const TabletColumn& column, int index,          \
+                                                const std::string& cond, bool opposite) const { \
+        ColumnPredicate* predicate = nullptr;                                                   \
+        switch (column.type()) {                                                                \
+        case OLAP_FIELD_TYPE_TINYINT: {                                                         \
+            std::stringstream ss(cond);                                                         \
+            int32_t value = 0;                                                                  \
+            ss >> value;                                                                        \
+            predicate = new PREDICATE<int8_t>(index, value, opposite);                          \
+            break;                                                                              \
+        }                                                                                       \
+        case OLAP_FIELD_TYPE_SMALLINT: {                                                        \
+            std::stringstream ss(cond);                                                         \
+            int16_t value = 0;                                                                  \
+            ss >> value;                                                                        \
+            predicate = new PREDICATE<int16_t>(index, value, opposite);                         \
+            break;                                                                              \
+        }                                                                                       \
+        case OLAP_FIELD_TYPE_INT: {                                                             \
+            std::stringstream ss(cond);                                                         \
+            int32_t value = 0;                                                                  \
+            ss >> value;                                                                        \
+            predicate = new PREDICATE<int32_t>(index, value, opposite);                         \
+            break;                                                                              \
+        }                                                                                       \
+        case OLAP_FIELD_TYPE_BIGINT: {                                                          \
+            std::stringstream ss(cond);                                                         \
+            int64_t value = 0;                                                                  \
+            ss >> value;                                                                        \
+            predicate = new PREDICATE<int64_t>(index, value, opposite);                         \
+            break;                                                                              \
+        }                                                                                       \
+        case OLAP_FIELD_TYPE_LARGEINT: {                                                        \
+            std::stringstream ss(cond);                                                         \
+            int128_t value = 0;                                                                 \
+            ss >> value;                                                                        \
+            predicate = new PREDICATE<int128_t>(index, value, opposite);                        \
+            break;                                                                              \
+        }                                                                                       \
+        case OLAP_FIELD_TYPE_DECIMAL: {                                                         \
+            decimal12_t value = {0, 0};                                                         \
+            value.from_string(cond);                                                            \
+            predicate = new PREDICATE<decimal12_t>(index, value, opposite);                     \
+            break;                                                                              \
+        }                                                                                       \
+        case OLAP_FIELD_TYPE_CHAR: {                                                            \
+            StringValue value;                                                                  \
+            size_t length = std::max(static_cast<size_t>(column.length()), cond.length());      \
+            char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length));      \
+            memset(buffer, 0, length);                                                          \
+            memory_copy(buffer, cond.c_str(), cond.length());                                   \
+            value.len = length;                                                                 \
+            value.ptr = buffer;                                                                 \
+            predicate = new PREDICATE<StringValue>(index, value, opposite);                     \
+            break;                                                                              \
+        }                                                                                       \
+        case OLAP_FIELD_TYPE_VARCHAR: {                                                         \
+            StringValue value;                                                                  \
+            int32_t length = cond.length();                                                     \
+            char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length));      \
+            memory_copy(buffer, cond.c_str(), length);                                          \
+            value.len = length;                                                                 \
+            value.ptr = buffer;                                                                 \
+            predicate = new PREDICATE<StringValue>(index, value, opposite);                     \
+            break;                                                                              \
+        }                                                                                       \
+        case OLAP_FIELD_TYPE_DATE: {                                                            \
+            uint24_t value = timestamp_from_date(cond);                                         \
+            predicate = new PREDICATE<uint24_t>(index, value, opposite);                        \
+            break;                                                                              \
+        }                                                                                       \
+        case OLAP_FIELD_TYPE_DATETIME: {                                                        \
+            uint64_t value = timestamp_from_datetime(cond);                                     \
+            predicate = new PREDICATE<uint64_t>(index, value, opposite);                        \
+            break;                                                                              \
+        }                                                                                       \
+        case OLAP_FIELD_TYPE_BOOL: {                                                            \
+            std::stringstream ss(cond);                                                         \
+            bool value = false;                                                                 \
+            ss >> value;                                                                        \
+            predicate = new PREDICATE<bool>(index, value, opposite);                            \
+            break;                                                                              \
+        }                                                                                       \
+        default:                                                                                \
+            break;                                                                              \
+        }                                                                                       \
+                                                                                                \
+        return predicate;                                                                       \
     }
 
 COMPARISON_PREDICATE_CONDITION_VALUE(eq, EqualPredicate)
@@ -800,7 +800,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
         case OLAP_FIELD_TYPE_DECIMAL: {
             std::set<decimal12_t> values;
             for (auto& cond_val : condition.condition_values) {
-                decimal12_t value;
+                decimal12_t value = {0, 0};
                 value.from_string(cond_val);
                 values.insert(value);
             }
