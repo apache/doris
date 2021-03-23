@@ -331,7 +331,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         }
         Table table = db.getTable(tableName);
         if (table == null) {
-            throw new AnalysisException("table: " + dbName + " not found.");
+            throw new AnalysisException("table: " + tableName + " not found.");
         }
         if (mergeType != LoadTask.MergeType.APPEND
                 && (table.getType() != Table.TableType.OLAP
