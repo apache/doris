@@ -815,8 +815,16 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
                                                         SqlModeHelper.MODE_DEFAULT));
         ConnectContext connectContext = new ConnectContext();
-        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        connectContext.setDatabase(Catalog.getCurrentCatalog().getDb(dbId).getFullName());
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        String clusterName = db.getClusterName();
+        // It's almost impossible that db's cluster name is null, just in case
+        // because before user want to create database, he must first enter a cluster which means that cluster is set to current ConnectContext
+        // then when createDBStmt is executed, cluster name is set to Database
+        if (clusterName == null || clusterName.length() == 0) {
+            clusterName = SystemInfoService.DEFAULT_CLUSTER;
+        }
+        connectContext.setCluster(clusterName);
+        connectContext.setDatabase(db.getFullName());
         Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), connectContext);
         CreateMaterializedViewStmt stmt = null;
         try {
