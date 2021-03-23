@@ -27,16 +27,6 @@ namespace doris {
 
 // the sign of integer must be same as fraction
 struct decimal12_t {
-    decimal12_t() : integer(0), fraction(0) {}
-    decimal12_t(int64_t int_part, int32_t frac_part) {
-        integer = int_part;
-        fraction = frac_part;
-    }
-
-    decimal12_t(const decimal12_t& value) {
-        integer = value.integer;
-        fraction = value.fraction;
-    }
 
     decimal12_t& operator+=(const decimal12_t& value) {
         fraction += value.fraction;
@@ -59,13 +49,6 @@ struct decimal12_t {
 
         //OLAP_LOG_WARNING("agg: int=%ld, frac=%d", integer, fraction);
         //_set_flag();
-        return *this;
-    }
-
-    // call field::copy
-    decimal12_t& operator=(const decimal12_t& value) {
-        integer = value.integer;
-        fraction = value.fraction;
         return *this;
     }
 
@@ -155,6 +138,8 @@ struct decimal12_t {
     int64_t integer;
     int32_t fraction;
 } __attribute__((packed));
+
+static_assert(std::is_trivial<decimal12_t>::value, "decimal12_t should be a POD type");
 
 inline std::ostream& operator<<(std::ostream& os, const decimal12_t& val) {
     os << val.to_string();

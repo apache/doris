@@ -134,7 +134,7 @@ TEST(TypesTest, copy_and_equal) {
     common_test<OLAP_FIELD_TYPE_LARGEINT>(int128_val);
     common_test<OLAP_FIELD_TYPE_FLOAT>(1.11);
     common_test<OLAP_FIELD_TYPE_DOUBLE>(12221.11);
-    decimal12_t decimal_val(123, 2345);
+    decimal12_t decimal_val = {123, 2345};
     common_test<OLAP_FIELD_TYPE_DECIMAL>(decimal_val);
 
     common_test<OLAP_FIELD_TYPE_DATE>((1988 << 9) | (2 << 5) | 1);

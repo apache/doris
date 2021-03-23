@@ -585,7 +585,7 @@ TEST_F(ColumnReaderWriterTest, test_types) {
         bool_vals[i] = i % 2;
         date_vals[i] = i + 33;
         datetime_vals[i] = i + 33;
-        decimal_vals[i] = decimal12_t(i, i); // 1.000000001
+        decimal_vals[i] = {i, i}; // 1.000000001
 
         set_column_value_by_type(OLAP_FIELD_TYPE_VARCHAR, i, (char*)&varchar_vals[i], &_pool);
         set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, i, (char*)&char_vals[i], &_pool, 8);
@@ -665,7 +665,7 @@ TEST_F(ColumnReaderWriterTest, test_default_value) {
     test_read_default_value<OLAP_FIELD_TYPE_DATETIME>(v_datetime, &result_datetime);
 
     std::string v_decimal("102418.000000002");
-    decimal12_t decimal(102418, 2);
+    decimal12_t decimal = {102418, 2};
     test_read_default_value<OLAP_FIELD_TYPE_DECIMAL>(v_decimal, &decimal);
 }
 
