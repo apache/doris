@@ -85,7 +85,8 @@ public class OlapTableSink extends DataSink {
     public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds) {
         this.dstTable = dstTable;
         this.tupleDescriptor = tupleDescriptor;
-        Preconditions.checkState(!CollectionUtils.isEmpty(partitionIds));
+        Preconditions.checkState(!CollectionUtils.isEmpty(partitionIds),
+            "The specified partition ids is empty.");
         this.partitionIds = partitionIds;
     }
 
