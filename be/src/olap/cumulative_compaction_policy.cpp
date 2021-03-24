@@ -95,7 +95,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
             break;
         }
 
-        // include one satuation: When the segment is not deleted, and is singleton delta, and is NONOVERLAPPING, ret_cumulative_point increase 
+        // include one situation: When the segment is not deleted, and is singleton delta, and is NONOVERLAPPING, ret_cumulative_point increase 
         prev_version = rs->version().second;
         *ret_cumulative_point = prev_version + 1;
     }
