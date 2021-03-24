@@ -110,4 +110,16 @@ public class ColocatePlanTest {
         Assert.assertEquals(1, StringUtils.countMatches(plan1, "AGGREGATE"));
         Assert.assertTrue(plan1.contains(COLOCATE_ENABLE));
     }
+
+    // agg
+    // with: select b.k1, b.k2 from (select k1, k2  from test_colocate where k1=1  group by k1, k2) a join [shuffle] test_colocate b where a.k1=b.k1 and a.k2 = b.k2 group by b.k1, b.k2
+    // with: select a.k1, a.k2 from (select k1, k2  from test_colocate where k1=1  group by k1, k2) a, test_colocate b where a.k1=b.k1 and a.k2 = b.k2 group by a.k1, a.k2;
+    // with: select k2  from test_colocate group by k2;
+    // without: select a.k1, b.k1 from (select k1, k2  from test_colocate where k1=1  group by k1, k2) a, test_colocate b group by a.k1, b.k1;
+
+    // analytic sort node
+    // with: explain select k1, sum(k2) over(partition by k1 order by k2) from test_colocate;
+    // with: explain select k1, sum(k2) over(partition by k1, k2 order by k2) from test_colocate;
+    // without:
+
 }

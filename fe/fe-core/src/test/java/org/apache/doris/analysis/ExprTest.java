@@ -24,17 +24,17 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Maps;
 
-import org.junit.Assert;
-import org.junit.Test;
-
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.List;
-import java.util.ArrayList;
 
+import com.clearspring.analytics.util.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Test;
 
 public class ExprTest {
 
@@ -183,5 +183,23 @@ public class ExprTest {
         //list3 not equal list4
         list2.add(r4);
         Assert.assertFalse(Expr.equalSets(list1, list2));
+    }
+
+    @Test
+    public void testSrcSlotRef(@Injectable SlotDescriptor slotDescriptor) {
+        BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new IntLiteral(1), new IntLiteral(1));
+        List<Expr> sourceExprs = Lists.newArrayList();
+        sourceExprs.add(binaryPredicate);
+        new Expectations() {
+            {
+                slotDescriptor.getType();
+                result = Type.INT;
+                slotDescriptor.getSourceExprs();
+                result = sourceExprs;
+            }
+        };
+        SlotRef slotRef = new SlotRef(slotDescriptor);
+        Assert.assertTrue(slotRef.getSrcSlotRef() == null);
     }
 }

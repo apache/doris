@@ -123,6 +123,11 @@ public class SlotRef extends Expr {
         this.desc = desc;
     }
 
+    /**
+     * It is only used to confirm whether two slot refs are specified in the same column.
+     * The reason why the attribute table name and column name cannot be used directly is
+     *   some slot ref attribute information are hidden in desc, while some are directly declared in the attribute.
+     */
     public boolean columnEqual(Expr srcExpr) {
         Preconditions.checkState(srcExpr instanceof SlotRef);
         SlotRef srcSlotRef = (SlotRef) srcExpr;
@@ -144,10 +149,17 @@ public class SlotRef extends Expr {
             return false;
         }
         String srcColumnName = srcSlotRef.getColumnName();
-        if ((col == null) != (srcColumnName == null)) {
+        if (srcColumnName == null && srcSlotRef.desc != null && srcSlotRef.getDesc().getColumn() != null) {
+            srcColumnName = srcSlotRef.desc.getColumn().getName();
+        }
+        String thisColumnName = getColumnName();
+        if (thisColumnName == null && desc != null && desc.getColumn() != null) {
+            thisColumnName = desc.getColumn().getName();
+        }
+        if ((thisColumnName == null) != (srcColumnName == null)) {
             return false;
         }
-        if (col != null && !col.toLowerCase().equals(srcColumnName.toLowerCase())) {
+        if (thisColumnName != null && !thisColumnName.toLowerCase().equals(srcColumnName.toLowerCase())) {
             return false;
         }
         return true;
