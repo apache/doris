@@ -26,10 +26,12 @@ import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.lang.StringUtils;
 
+import java.io.File;
 import java.util.UUID;
 
+import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 public class ColocatePlanTest {
@@ -37,8 +39,8 @@ public class ColocatePlanTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
     private static ConnectContext ctx;
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeClass
+    public static void setUp() throws Exception {
         FeConstants.runningUnitTest = true;
         UtFrameUtils.createMinDorisCluster(runningDir, 2);
         ctx = UtFrameUtils.createDefaultCtx();
@@ -52,6 +54,13 @@ public class ColocatePlanTest {
                 + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
+    }
+
+
+    @AfterClass
+    public static void tearDown() {
+        File file = new File(runningDir);
+        file.delete();
     }
 
     // without
