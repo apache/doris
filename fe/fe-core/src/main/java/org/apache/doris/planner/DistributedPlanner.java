@@ -218,12 +218,12 @@ public class DistributedPlanner {
         } else if (root instanceof SortNode) {
             if (((SortNode) root).isAnalyticSort()) {
                 // don't parallelize this like a regular SortNode
-                result = createAnalyticFragment((SortNode) root, childFragments.get(0), fragments);
+                result = createAnalyticFragment(root, childFragments.get(0));
             } else {
                 result = createOrderByFragment((SortNode) root, childFragments.get(0));
             }
         } else if (root instanceof AnalyticEvalNode) {
-            result = createAnalyticFragment(root, childFragments.get(0), fragments);
+            result = createAnalyticFragment(root, childFragments.get(0));
         } else if (root instanceof EmptySetNode) {
             result = new PlanFragment(ctx_.getNextFragmentId(), root, DataPartition.UNPARTITIONED);
         } else if (root instanceof RepeatNode) {
@@ -972,7 +972,8 @@ public class DistributedPlanner {
         if (isDistinct) {
             return createPhase2DistinctAggregationFragment(node, childFragment, fragments);
         } else {
-            if (canColocateAgg(node.getAggInfo(), childFragment.getInputDataPartition())) {
+            if (canColocateWhenSingleChildFragment(node.getAggInfo().getInputPartitionExprs(),
+                    childFragment.getInputDataPartition(), node.getId())) {
                 childFragment.addPlanRoot(node);
                 return childFragment;
             } else {
@@ -982,22 +983,26 @@ public class DistributedPlanner {
     }
 
     /**
-     * Colocate Agg can be performed when the following 2 conditions are met at the same time.
+     * This function is mainly used to determine whether the colocate operation can be performed
+     * when there is only one child fragment.
+     * Colocate can be performed when the following 2 conditions are met at the same time.
      * 1. Session variables disable_colocate_plan = true
-     * 2. The input data partition of child fragment < agg node partition exprs
+     * 2. The input data partition of child fragment < input partition exprs
      */
-    private boolean canColocateAgg(AggregateInfo aggregateInfo, List<DataPartition> childFragmentDataPartition) {
+    private boolean canColocateWhenSingleChildFragment(List<Expr> inputPartitionExprs,
+                                                       List<DataPartition> childFragmentDataPartition,
+                                                       PlanNodeId planNodeId) {
         // Condition1
         if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
-            LOG.info("Agg node is not colocate in:" + ConnectContext.get().getQueryDetail().getQueryId()
+            LOG.info("node " + planNodeId + " is not colocate in:"
+                    + ConnectContext.get().getQueryDetail().getQueryId()
                     + ", reason:" + DistributedPlanColocateRule.SESSION_DISABLED);
             return false;
         }
 
         // Condition2
-        List<Expr> aggPartitionExprs = aggregateInfo.getInputPartitionExprs();
         for (DataPartition childDataPartition : childFragmentDataPartition) {
-            if (dataPartitionMatchAggInfo(childDataPartition, aggPartitionExprs)) {
+            if (dataPartitionMatchPartitionExprs(childDataPartition, inputPartitionExprs)) {
                 return true;
             }
         }
@@ -1005,28 +1010,28 @@ public class DistributedPlanner {
     }
 
     /**
-     * The aggPartitionExprs should contains all of data partition columns.
-     * Since aggPartitionExprs may be derived from the transformation of the lower tuple,
-     *   it is necessary to find the source expr of itself firstly.
+     * The partitionExprs should contains all of data partition columns.
+     * Since partitionExprs may be derived from the transformation of the lower tuple,
+     * it is necessary to find the source expr of itself firstly.
      * <p>
      * For example:
-     * Data Partition: t1.k1, t1.k2
-     * Agg Partition Exprs: t1.k1, t1.k2, t1.k3
+     * Child data Partition: t1.k1, t1.k2
+     * Partition Exprs: t1.k1, t1.k2, t1.k3
      * Return: true
      * <p>
-     * Data Partition: t1.k1, t1.k2
-     * Agg Partition Exprs: t1.k1, t2.k2
+     * Child Partition: t1.k1, t1.k2
+     * Partition Exprs: t1.k1, t2.k2
      * Return: false
      */
-    private boolean dataPartitionMatchAggInfo(DataPartition dataPartition, List<Expr> aggPartitionExprs) {
-        TPartitionType partitionType = dataPartition.getType();
+    private boolean dataPartitionMatchPartitionExprs(DataPartition childDataPartition, List<Expr> partitionExprs) {
+        TPartitionType partitionType = childDataPartition.getType();
         if (partitionType != TPartitionType.HASH_PARTITIONED) {
             return false;
         }
-        List<Expr> dataPartitionExprs = dataPartition.getPartitionExprs();
+        List<Expr> dataPartitionExprs = childDataPartition.getPartitionExprs();
         for (Expr dataPartitionExpr : dataPartitionExprs) {
             boolean match = false;
-            for (Expr aggPartitionExpr : aggPartitionExprs) {
+            for (Expr aggPartitionExpr : partitionExprs) {
                 if (aggPartitionExpr.comeFrom(dataPartitionExpr)) {
                     match = true;
                     break;
@@ -1231,9 +1236,7 @@ public class DistributedPlanner {
      * The returned fragment is either partitioned on the Partition By exprs or
      * unpartitioned in the absence of such exprs.
      */
-    private PlanFragment createAnalyticFragment(
-            PlanNode node, PlanFragment childFragment, List<PlanFragment> fragments)
-            throws UserException, AnalysisException {
+    private PlanFragment createAnalyticFragment(PlanNode node, PlanFragment childFragment) throws UserException {
         Preconditions.checkState(
                 node instanceof SortNode || node instanceof AnalyticEvalNode);
 
@@ -1263,15 +1266,8 @@ public class DistributedPlanner {
         if (sortNode.getInputPartition() != null) {
             sortNode.getInputPartition().substitute(
                     childFragment.getPlanRoot().getOutputSmap(), ctx_.getRootAnalyzer());
-
-            // Make sure the childFragment's output is partitioned as required by the sortNode.
-            // Even if the fragment and the sort partition exprs are equal, an exchange is
-            // required if the sort partition exprs reference a tuple that is made nullable in
-            // 'childFragment' to bring NULLs from outer-join non-matches together.
-            DataPartition sortPartition = sortNode.getInputPartition();
-            // TODO(ML): here
-            if (!childFragment.getDataPartition().equals(sortPartition)) {
-                // TODO(zc) || childFragment.refsNullableTupleId(sortPartition.getPartitionExprs())) {
+            if (!canColocateWhenSingleChildFragment(sortNode.getSortInfo().getOrderingExprs(),
+                    childFragment.getInputDataPartition(), sortNode.getId())) {
                 analyticFragment = createParentFragment(childFragment, sortNode.getInputPartition());
             }
         }
