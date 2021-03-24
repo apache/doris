@@ -171,14 +171,14 @@ extern const uint8_t* decode_varint64_ptr(const uint8_t* p, const uint8_t* limit
 
 template <typename T>
 inline void put_varint32(T* dst, uint32_t v) {
-    uint8_t buf[5];
+    uint8_t buf[16];
     uint8_t* ptr = encode_varint32(buf, v);
     dst->append((char*)buf, static_cast<size_t>(ptr - buf));
 }
 
 template <typename T>
 inline void put_varint64(T* dst, uint64_t v) {
-    uint8_t buf[10];
+    uint8_t buf[16];
     uint8_t* ptr = encode_varint64(buf, v);
     dst->append((char*)buf, static_cast<size_t>(ptr - buf));
 }
@@ -191,7 +191,7 @@ inline void put_length_prefixed_slice(T* dst, const Slice& value) {
 
 template <typename T>
 inline void put_varint64_varint32(T* dst, uint64_t v1, uint32_t v2) {
-    uint8_t buf[15];
+    uint8_t buf[16];
     uint8_t* ptr = encode_varint64(buf, v1);
     ptr = encode_varint32(ptr, v2);
     dst->append((char*)buf, static_cast<size_t>(ptr - buf));
