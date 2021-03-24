@@ -68,7 +68,7 @@ public class NMysqlChannel extends MysqlChannel {
                 readLen += ret;
             }
         } catch (IOException e) {
-            LOG.warn("Read channel exception, ignore. Exception: " + e.toString());
+            LOG.debug("Read channel exception, ignore.", e);
             return 0;
         }
         return readLen;
