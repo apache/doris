@@ -288,6 +288,8 @@ set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DI
 add_library(aws-s2n STATIC IMPORTED)
 set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
 
+add_library(minzip STATIC IMPORTED)
+set_target_properties(minzip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
@@ -487,6 +489,7 @@ set(DORIS_DEPENDENCIES
     orc
     odbc
     cctz
+    minzip
     ${AWS_LIBS}
     ${WL_END_GROUP}
 )
