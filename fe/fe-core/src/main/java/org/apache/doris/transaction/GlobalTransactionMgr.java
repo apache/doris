@@ -17,7 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import com.google.common.base.Stopwatch;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.doris.catalog.Catalog;
