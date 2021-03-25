@@ -48,7 +48,7 @@ public class DorisSourceExample {
                         ") " +
                         "WITH (\n" +
                         "  'connector' = 'doris',\n" +
-                        "  'fenodes' = '10.220.146.10:8030',\n" +
+                        "  'fenodes' = 'FE_IP:8030',\n" +
                         "  'table.identifier' = 'ods.test_flink_3',\n" +
                         "  'username' = 'root',\n" +
                         "  'password' = ''\n" +

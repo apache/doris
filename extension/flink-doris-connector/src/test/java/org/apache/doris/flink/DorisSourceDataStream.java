@@ -29,7 +29,7 @@ public class DorisSourceDataStream {
     public static void main(String[] args) throws Exception {
 
         DorisOptions.Builder options = DorisOptions.builder()
-                .setFenodes("10.220.146.10:8030")
+                .setFenodes("FE_IP:8030")
                 .setUsername("root")
                 .setPassword("")
                 .setTableIdentifier("ods.test_flink_2");

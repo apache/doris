@@ -39,7 +39,7 @@ public class DorisSourceSinkExample {
                         ") " +
                         "WITH (\n" +
                         "  'connector' = 'doris',\n" +
-                        "  'fenodes' = '10.220.146.10:8030',\n" +
+                        "  'fenodes' = 'FE_IP:8030',\n" +
                         "  'table.identifier' = 'demo.doris_test_source_2',\n" +
                         "  'username' = 'root',\n" +
                         "  'password' = ''" +
@@ -53,7 +53,7 @@ public class DorisSourceSinkExample {
                         ") " +
                         "WITH (\n" +
                         "  'connector' = 'doris',\n" +
-                        "  'fenodes' = '10.220.146.10:8030',\n" +
+                        "  'fenodes' = 'FE_IP:8030',\n" +
                         "  'table.identifier' = 'demo.doris_test_sink_2',\n" +
                         "  'username' = 'root',\n" +
                         "  'password' = ''\n" +

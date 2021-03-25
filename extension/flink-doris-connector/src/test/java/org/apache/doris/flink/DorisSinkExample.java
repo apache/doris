@@ -41,7 +41,7 @@ public class DorisSinkExample {
                         ") " +
                         "WITH (\n" +
                         "  'connector' = 'doris',\n" +
-                        "  'fenodes' = '10.220.146.10:8030',\n" +
+                        "  'fenodes' = 'FE_IP:8030',\n" +
                         "  'table.identifier' = 'ods.doris_test_sink_1',\n" +
                         "  'username' = 'root',\n" +
                         "  'password' = ''\n" +
