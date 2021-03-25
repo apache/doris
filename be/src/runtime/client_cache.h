@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_RUNTIME_CLIENT_CACHE_H
 #define DORIS_BE_RUNTIME_CLIENT_CACHE_H
 
-#include <boost/bind.hpp>
+#include <boost/bind/bind.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/unordered_map.hpp>
 #include <list>
@@ -191,12 +191,12 @@ public:
 
     ClientCache() : _client_cache_helper() {
         _client_factory = boost::bind<ThriftClientImpl*>(boost::mem_fn(&ClientCache::make_client),
-                                                         this, _1, _2);
+                                                         this, boost::placeholders::_1, boost::placeholders::_2);
     }
 
     ClientCache(int max_cache_size) : _client_cache_helper(max_cache_size) {
         _client_factory = boost::bind<ThriftClientImpl*>(boost::mem_fn(&ClientCache::make_client),
-                                                         this, _1, _2);
+                                                         this, boost::placeholders::_1, boost::placeholders::_2);
     }
 
     // Close all clients connected to the supplied address, (e.g., in
