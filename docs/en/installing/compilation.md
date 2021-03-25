@@ -95,34 +95,47 @@ You can also create a Doris development environment mirror yourself, referring s
 You can try to compile Doris directly in your own Linux environment.
 
 1. System Dependence
+    * Before commit [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) will use the dependencies as follows:
 
-    `GCC 10+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.19.2+ Bison 3.0+`
+       `GCC 7.3+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+ Bison 3.0+`
+    
+       If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
+    
+       `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python`
+    
+       If you are using CentOS you can use the following command to install the dependencies
+    
+       `sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk`
+    
+    * After commit [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) will use the dependencies as follows:
 
-    If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
-
-   ```
-   sudo apt install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python
-   sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
-   sudo apt update
-   sudo apt install gcc-10 g++-10 
-   ```    
-    If you are using CentOS you can use the following command to install the dependencies
-
-   ```
-   sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk
-   sudo yum install centos-release-scl
-   sudo yum install devtoolset-10
-   scl enable devtoolset-10 bash
-   ```
-   If devtoolset-10 is not found in current repo. Oracle has already rebuilt the devtoolset-10 packages. You can use this repo file:
-   ```
-   [ol7_software_collections]
-   name=Software Collection packages for Oracle Linux 7 ($basearch)
-   baseurl=http://yum.oracle.com/repo/OracleLinux/OL7/SoftwareCollections/$basearch/
-   gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
-   gpgcheck=1
-   enabled=1
-   ```
+       `GCC 10+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.19.2+ Bison 3.0+`
+    
+       If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
+    
+       ```
+       sudo apt install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python
+       sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
+       sudo apt update
+       sudo apt install gcc-10 g++-10 
+       ```    
+        If you are using CentOS you can use the following command to install the dependencies
+    
+       ```
+       sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk
+       sudo yum install centos-release-scl
+       sudo yum install devtoolset-10
+       scl enable devtoolset-10 bash
+       ```
+       If devtoolset-10 is not found in current repo. Oracle has already rebuilt the devtoolset-10 packages. You can use this repo file:
+       ```
+       [ol7_software_collections]
+       name=Software Collection packages for Oracle Linux 7 ($basearch)
+       baseurl=http://yum.oracle.com/repo/OracleLinux/OL7/SoftwareCollections/$basearch/
+       gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+       gpgcheck=1
+       enabled=1
+        ```
     After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
 
 2. Compile Doris
