@@ -54,6 +54,7 @@ Note: For different versions of Oris, you need to download the corresponding mir
 | apachedoris/doris-dev:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x or later |
 | apachedoris/doris-dev:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | 0.14.x or later |
 
+Doris 0.14.0 will use apachedoris/doris-dev:build-env-1.2
 
 2. Running Mirror
 
@@ -137,6 +138,7 @@ You can try to compile Doris directly in your own Linux environment.
        enabled=1
         ```
     After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
+    Doris 0.14.0 will use gcc7 env to compile.
 
 2. Compile Doris
 
