@@ -104,7 +104,7 @@ private:
     // less-than ordering for pair<TUniqueId, PlanNodeId>
     struct ComparisonOp {
         bool operator()(const std::pair<doris::TUniqueId, PlanNodeId>& a,
-                        const std::pair<doris::TUniqueId, PlanNodeId>& b) {
+                        const std::pair<doris::TUniqueId, PlanNodeId>& b) const {
             if (a.first.hi < b.first.hi) {
                 return true;
             } else if (a.first.hi > b.first.hi) {

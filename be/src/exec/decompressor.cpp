@@ -63,7 +63,7 @@ std::string Decompressor::debug_info() {
 
 // Gzip
 GzipDecompressor::GzipDecompressor(bool is_deflate)
-        : Decompressor(_is_deflate ? CompressType::DEFLATE : CompressType::GZIP),
+        : Decompressor(is_deflate ? CompressType::DEFLATE : CompressType::GZIP),
           _is_deflate(is_deflate) {}
 
 GzipDecompressor::~GzipDecompressor() {

@@ -87,7 +87,7 @@ void test_topn_accuracy(FunctionContext* ctx, int key_space, int space_expand_ra
         random_strs[i] = gen_random(10);
     }
 
-    zipf_distribution<uint64_t, double> zf(key_space, zipf_distribution_exponent);
+    zipf_distribution<uint64_t, double> zf(key_space - 1, zipf_distribution_exponent);
     std::random_device rd;
     std::mt19937 gen(rd());
 
@@ -113,7 +113,7 @@ void test_topn_accuracy(FunctionContext* ctx, int key_space, int space_expand_ra
     std::uniform_int_distribution<> dist(0, PARALLEL-1);
     for (uint32_t i = 0; i < TOTAL_RECORDS; ++i) {
         // generate zipf_distribution
-        uint32_t index = zf(gen) - 1;
+        uint32_t index = zf(gen);
         // choose one single topn to update
         topn_single(ctx, random_strs[index], single_dst_str[dist(random_gen)], accuracy_map);
     }

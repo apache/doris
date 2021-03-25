@@ -161,7 +161,7 @@ AgentStatus EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, stri
         boost::system::error_code error_code;
         boost::filesystem::create_directories(*download_path, error_code);
 
-        if (0 != error_code) {
+        if (error_code.failed()) {
             status = DORIS_ERROR;
             LOG(WARNING) << "create download dir failed.path: " << *download_path
                          << ", error code: " << error_code;

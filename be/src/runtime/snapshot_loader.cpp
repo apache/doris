@@ -298,7 +298,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             status = FileUtils::md5sum(full_local_file, &downloaded_md5sum);
             if (!status.ok()) {
                 std::stringstream ss;
-                ss << "failed to get md5sum of file: " << full_local_file;
+                ss << "failed to get md5sum of file: " << full_local_file << ", err: " << status.get_error_msg();
                 LOG(WARNING) << ss.str();
                 return Status::InternalError(ss.str());
             }

@@ -781,7 +781,7 @@ Status BufferedBlockMgr2::write_unpinned_block(Block* block) {
         }
         disk_id %= _io_mgr->num_local_disks();
         DiskIoMgr::WriteRange::WriteDoneCallback callback =
-                bind(mem_fn(&BufferedBlockMgr2::write_complete), this, block, _1);
+                bind(mem_fn(&BufferedBlockMgr2::write_complete), this, block, boost::placeholders::_1);
         block->_write_range = _obj_pool.add(
                 new DiskIoMgr::WriteRange(tmp_file->path(), file_offset, disk_id, callback));
         block->_tmp_file = tmp_file;

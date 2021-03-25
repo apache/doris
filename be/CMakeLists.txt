@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-cmake_minimum_required(VERSION 3.12.0)
+cmake_minimum_required(VERSION 3.19.2)
 
 # set CMAKE_C_COMPILER, this must set before project command
 if (DEFINED ENV{DORIS_GCC_HOME})
@@ -130,14 +130,13 @@ endif()
 set(Boost_DEBUG FALSE)
 set(Boost_USE_MULTITHREADED ON)
 set(BOOST_ROOT ${THIRDPARTY_DIR})
+set(Boost_NO_BOOST_CMAKE OFF)
 
 if (NOT APPLE)
-    find_package(Boost 1.55.0 REQUIRED COMPONENTS thread regex filesystem system date_time program_options)
+    find_package(Boost 1.73.0 REQUIRED COMPONENTS regex system filesystem thread date_time program_options)
 else()
-    find_package(Boost 1.55.0 COMPONENTS thread regex filesystem system date_time program_options)
+    find_package(Boost 1.73.0 COMPONENTS thread regex system filesystem date_time program_options)
 endif()
-include_directories(${Boost_INCLUDE_DIRS})
-message(STATUS ${Boost_LIBRARIES})
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
@@ -313,10 +312,13 @@ check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fno-strict-aliasing -fno-omit-frame-pointer")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++11 -D__STDC_FORMAT_MACROS")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
+# https://github.com/boostorg/uuid/issues/92
+# We need to avoid using SYS_getrandom system calls
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1")
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
 endif()
@@ -344,7 +346,7 @@ set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
 # Debug information is stored as dwarf2 to be as compatible as possible
 #   -Werror: compile warnings should be errors when using the toolchain compiler.
 # Only enable for debug builds because this is what we test in pre-commit tests.
-set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Werror -ggdb3 -O0 -gdwarf-2")
+set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2")
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
@@ -449,7 +451,12 @@ set(DORIS_DEPENDENCIES
     librdkafka
     libs2
     snappy
-    ${Boost_LIBRARIES}
+    Boost::regex
+    Boost::system
+    Boost::filesystem
+    Boost::thread
+    Boost::date_time
+    Boost::program_options
     thrift
     thriftnb
     glog
