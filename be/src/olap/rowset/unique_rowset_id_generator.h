@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "olap/rowset/rowset_id_generator.h"
 #include "util/spinlock.h"
 #include "util/uid_util.h"

@@ -597,6 +597,7 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
 
     time_t now = time(nullptr); //获取UTC时间
     tm local_tm_now;
+    local_tm_now.tm_isdst = 0;
     if (localtime_r(&now, &local_tm_now) == nullptr) {
         LOG(WARNING) << "fail to localtime_r time. time=" << now;
         return OLAP_ERR_OS_ERROR;
@@ -721,6 +722,7 @@ OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local
             string dir_name = item->path().filename().string();
             string str_time = dir_name.substr(0, dir_name.find('.'));
             tm local_tm_create;
+            local_tm_create.tm_isdst = 0;
             if (strptime(str_time.c_str(), "%Y%m%d%H%M%S", &local_tm_create) == nullptr) {
                 LOG(WARNING) << "fail to strptime time. [time=" << str_time << "]";
                 res = OLAP_ERR_OS_ERROR;
