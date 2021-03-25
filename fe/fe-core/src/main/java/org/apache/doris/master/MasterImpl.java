@@ -94,7 +94,10 @@ public class MasterImpl {
         // check task status
         // retry task by report process
         TStatus taskStatus = request.getTaskStatus();
-        LOG.debug("get task report: {}", request);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get task report: {}", request);
+        }
+
         if (taskStatus.getStatusCode() != TStatusCode.OK) {
             LOG.warn("finish task reports bad. request: {}", request);
         }
