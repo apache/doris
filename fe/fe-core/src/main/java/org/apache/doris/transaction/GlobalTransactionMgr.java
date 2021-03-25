@@ -204,7 +204,11 @@ public class GlobalTransactionMgr implements Writable {
         stopWatch.stop();
         long publishTimeoutMillis = timeoutMillis - stopWatch.getTime();
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(db.getId());
-        return dbTransactionMgr.publishTransaction(db, transactionId, publishTimeoutMillis > 0 ? publishTimeoutMillis : 0);
+        if (publishTimeoutMillis <= 0) {
+            // here commit transaction successfully cost too much time than timeoutMillis, we just return false to indicate publish timeout
+            return false;
+        }
+        return dbTransactionMgr.publishTransaction(db, transactionId, publishTimeoutMillis);
    }
 
     public void abortTransaction(long dbId, long transactionId, String reason) throws UserException {
