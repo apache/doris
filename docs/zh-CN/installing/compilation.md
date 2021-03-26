@@ -46,11 +46,14 @@ under the License.
     
 注: 针对不同的 Doris 版本，需要下载对应的镜像版本
 
-| image version | commit id | release version |
+| 镜像版本 | commit id | doris 版本 |
 |---|---|---|
 | apachedoris/doris-dev:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
-| apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) | 0.10.x, 0.11.x |
-| apachedoris/doris-dev:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x or later
+| apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.10.x, 0.11.x |
+| apachedoris/doris-dev:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) | 0.12.x, 0.13 |
+| apachedoris/doris-dev:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) | 0.14.x 或更新版本 |
+
+注意: doris 0.14.0 版本仍然使用apachedoris/doris-dev:build-env-1.2 编译，之后的代码将使用apachedoris/doris-dev:build-env-1.3
 
 2. 运行镜像
 
@@ -92,19 +95,50 @@ under the License.
 你可以在自己的 linux 环境中直接尝试编译 Doris。
 
 1. 系统依赖
+不同的版本依赖也不相同 
+   * 在 [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) 之前版本依赖如下：
 
-    `GCC 7.3+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+     Bison 3.0+`
+      `GCC 7.3+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+     Bison 3.0+`
+   
+      如果使用Ubuntu 16.04 及以上系统 可以执行以下命令来安装依赖
+   
+      `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python`
+   
+      如果是CentOS 可以执行以下命令
+   
+      `sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk`
 
-    如果使用Ubuntu 16.04 及以上系统 可以执行以下命令来安装依赖
-    
-    `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python`
+   * 在 [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) 之后版本依赖如下：
 
-    如果是CentOS 可以执行以下命令
+      `GCC 10+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.19.2+ Bison 3.0+`
 
-    `sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk`
+      如果使用Ubuntu 16.04 及以上系统 可以执行以下命令来安装依赖
+      ```
+      sudo apt install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python
+      sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
+      sudo apt update
+      sudo apt install gcc-10 g++-10 
+      ```
+   
+      如果是CentOS 可以执行以下命令
+      ```
+      sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk
+      sudo yum install centos-release-scl
+      sudo yum install devtoolset-10
+      scl enable devtoolset-10 bash
+      ```
+      如果当前仓库没有提供devtoolset-10 可以添加如下repo 使用oracle 提供 package
+      ```
+      [ol7_software_collections]
+      name=Software Collection packages for Oracle Linux 7 ($basearch)
+      baseurl=http://yum.oracle.com/repo/OracleLinux/OL7/SoftwareCollections/$basearch/
+      gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+      gpgcheck=1
+      enabled=1
+      ```
 
     安装完成后，自行设置环境变量 `PATH`, `JAVA_HOME` 等。
-    
+    注意： Doris 0.14.0 的版本仍然使用gcc7 的依赖编译，之后的代码将使用gcc10 的依赖
 2. 编译 Doris
 
     ```
