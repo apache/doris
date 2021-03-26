@@ -17,12 +17,9 @@
 package org.apache.doris.flink.table;
 
 import org.apache.doris.flink.cfg.DorisOptions;
-import org.apache.doris.flink.cfg.FlinkSettings;
 import org.apache.doris.flink.cfg.Settings;
 import org.apache.doris.flink.datastream.ScalaValueReader;
-import org.apache.doris.flink.exception.DorisException;
 import org.apache.doris.flink.rest.PartitionDefinition;
-import org.apache.doris.flink.rest.RestService;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.io.DefaultInputSplitAssigner;
 import org.apache.flink.api.common.io.InputFormat;
@@ -34,8 +31,6 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.io.InputSplitAssigner;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.sql.PreparedStatement;
@@ -49,7 +44,7 @@ import java.util.List;
 public class DorisRowDataInputFormat extends RichInputFormat<RowData, DorisTableInputSplit> implements ResultTypeQueryable<RowData> {
 
 	private static final long serialVersionUID = 1L;
-	private static final Logger LOG = LoggerFactory.getLogger(DorisRowDataInputFormat.class);
+
 	private DorisOptions options;
 	private List<PartitionDefinition>  dorisPartitions;
 	private TypeInformation<RowData> rowDataTypeInfo;
@@ -58,11 +53,9 @@ public class DorisRowDataInputFormat extends RichInputFormat<RowData, DorisTable
 	private ScalaValueReader scalaValueReader;
 	private transient boolean hasNext;
 
-	public DorisRowDataInputFormat(DorisOptions options) {
+	public DorisRowDataInputFormat(DorisOptions options,List<PartitionDefinition>  dorisPartitions,Settings settings) {
 		this.options = options;
-		Configuration conf = new Configuration();
-		FlinkSettings settings = new FlinkSettings(conf);
-		settings.init(options);
+		this.dorisPartitions = dorisPartitions;
 		this.settings = settings;
 	}
 
@@ -157,11 +150,6 @@ public class DorisRowDataInputFormat extends RichInputFormat<RowData, DorisTable
 	@Override
 	public DorisTableInputSplit[] createInputSplits(int minNumSplits) throws IOException {
 		System.out.println("createInputSplits");
-		try {
-			dorisPartitions = RestService.findPartitions(settings,LOG);
-		} catch (DorisException e) {
-			throw new RuntimeException("can not fecth partitions");
-		}
 		List<DorisTableInputSplit> dorisSplits = new ArrayList<>();
 		int splitNum = 0;
 		for (PartitionDefinition partition : dorisPartitions) {
@@ -189,6 +177,8 @@ public class DorisRowDataInputFormat extends RichInputFormat<RowData, DorisTable
 	 */
 	public static class Builder {
 		private DorisOptions.Builder optionsBuilder;
+		private List<PartitionDefinition> partitions;
+		private Settings settings;
 
 
 		public Builder() {
@@ -215,9 +205,19 @@ public class DorisRowDataInputFormat extends RichInputFormat<RowData, DorisTable
 			return this;
 		}
 
+		public Builder setPartitions(List<PartitionDefinition> partitions) {
+			this.partitions = partitions;
+			return this;
+		}
+
+		public Builder setSettings(Settings settings) {
+			this.settings = settings;
+			return this;
+		}
+
 		public DorisRowDataInputFormat build() {
 			return new DorisRowDataInputFormat(
-					optionsBuilder.build()
+					optionsBuilder.build(),partitions,settings
 				 );
 		}
 	}

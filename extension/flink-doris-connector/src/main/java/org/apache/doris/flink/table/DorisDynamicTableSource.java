@@ -18,7 +18,12 @@
 package org.apache.doris.flink.table;
 
 import org.apache.doris.flink.cfg.DorisOptions;
+import org.apache.doris.flink.cfg.FlinkSettings;
+import org.apache.doris.flink.exception.DorisException;
+import org.apache.doris.flink.rest.PartitionDefinition;
+import org.apache.doris.flink.rest.RestService;
 import org.apache.flink.api.common.serialization.DeserializationSchema;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.connector.ChangelogMode;
@@ -29,6 +34,10 @@ import org.apache.flink.table.connector.source.ScanTableSource;
 import org.apache.flink.table.connector.source.abilities.SupportsFilterPushDown;
 import org.apache.flink.table.connector.source.abilities.SupportsProjectionPushDown;
 import org.apache.flink.table.data.RowData;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.List;
 
 /**
  * The {@link DorisDynamicTableSource} is used during planning.
@@ -42,6 +51,7 @@ public final class DorisDynamicTableSource implements ScanTableSource ,LookupTab
 
 	private final DorisOptions options;
 	private TableSchema physicalSchema;
+	private static final Logger LOG = LoggerFactory.getLogger(DorisRowDataInputFormat.class);
 
 	public DorisDynamicTableSource(DorisOptions options,TableSchema physicalSchema) {
 		 this.options = options;
@@ -57,12 +67,22 @@ public final class DorisDynamicTableSource implements ScanTableSource ,LookupTab
 
 	@Override
 	public ScanRuntimeProvider getScanRuntimeProvider(ScanContext runtimeProviderContext) {
+		List<PartitionDefinition> dorisPartitions ;
+		Configuration conf = new Configuration();
+		FlinkSettings settings = new FlinkSettings(conf);
+		settings.init(options);
+		try {
+			dorisPartitions = RestService.findPartitions(settings,LOG);
+		} catch (DorisException e) {
+			throw new RuntimeException("can not fecth partitions");
+		}
 		DorisRowDataInputFormat.Builder builder = DorisRowDataInputFormat.builder()
 				.setFenodes(options.getFenodes())
 				.setUsername(options.getUsername())
 				.setPassword(options.getPassword())
-				.setTableIdentifier(options.getTableIdentifier());
-
+				.setTableIdentifier(options.getTableIdentifier())
+				.setPartitions(dorisPartitions)
+				.setSettings(settings);
 		return InputFormatProvider.of(builder.build());
 	}
 

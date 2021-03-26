@@ -23,7 +23,6 @@ import org.apache.doris.flink.deserialization.SimpleListDeserializationSchema;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 
-
 public class DorisSourceDataStream {
 
     public static void main(String[] args) throws Exception {
@@ -38,11 +37,5 @@ public class DorisSourceDataStream {
         env.setParallelism(2);
         env.addSource(new DorisSourceFunction<>(options.build(),new SimpleListDeserializationSchema())).print();
         env.execute("Flink doris test");
-
-//        DataStreamSource<RowData> root = env.createInput(new DorisRowDataInputFormat(options.build())
-//                , TypeExtractor.createTypeInfo(RowData.class)
-//        );
-//        root.print();
-//        env.execute("Flink doris test");
     }
 }
