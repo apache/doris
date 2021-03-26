@@ -467,7 +467,8 @@ public class Coordinator {
                 int instanceNum = params.instanceExecParams.size();
                 Preconditions.checkState(instanceNum > 0);
                 List<TExecPlanFragmentParams> tParams = params.toThrift(backendIdx);
-                List<Pair<BackendExecState, Future<PExecPlanFragmentResult>>> futures = Lists.newArrayList();
+                List<Pair<BackendExecState, Future<InternalService.PExecPlanFragmentResult>>> futures =
+                        Lists.newArrayList();
 
                 // update memory limit for colocate join
                 if (colocateFragmentIds.contains(fragment.getFragmentId().asInt())) {
@@ -1208,7 +1209,6 @@ public class Coordinator {
             for (List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>> perInstanceScanRange : perInstanceScanRanges) {
                 FInstanceExecParam instanceParam = new FInstanceExecParam(null, addressScanRange.getKey(), 0, params);
 
-
                 for (Pair<Integer, Map<Integer, List<TScanRangeParams>>> nodeScanRangeMap : perInstanceScanRange) {
                     instanceParam.bucketSeqSet.add(nodeScanRangeMap.first);
                     for (Map.Entry<Integer, List<TScanRangeParams>> nodeScanRange : nodeScanRangeMap.second.entrySet()) {
@@ -1690,7 +1690,6 @@ public class Coordinator {
             }
         }
     }
-
 
     private BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
     private Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentIdToSeqToAddressMap = Maps.newHashMap();

@@ -281,6 +281,12 @@ under the License.
             <artifactId>mysql-connector-java</artifactId>
         </dependency>
 
+        <!-- https://mvnrepository.com/artifact/io.netty/netty-all -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+        </dependency>
+
         <!-- https://mvnrepository.com/artifact/org.objenesis/objenesis -->
         <dependency>
             <groupId>org.objenesis</groupId>
