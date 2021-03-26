@@ -67,6 +67,10 @@ public class ListPartitionInfo extends PartitionInfo{
             for (List<PartitionValue> values : partitionKeyDesc.getInValues()) {
                 PartitionKey partitionKey = PartitionKey.createListPartitionKey(values, partitionColumns);
                 checkNewPartitionKey(partitionKey, partitionKeyDesc, isTemp);
+                if (partitionKeys.contains(partitionKey)) {
+                    throw new AnalysisException("The partition key[" + partitionKeyDesc.toSql() + "] has duplicate item ["
+                            + partitionKey.toSql() + "].");
+                }
                 partitionKeys.add(partitionKey);
             }
         } catch (AnalysisException e) {
@@ -83,8 +87,11 @@ public class ListPartitionInfo extends PartitionInfo{
         // check new partition key not exists.
         for (Map.Entry<Long, PartitionItem> entry : id2Item.entrySet()) {
             if (((ListPartitionItem)entry.getValue()).getItems().contains(newKey)) {
-                throw new AnalysisException("The partition key[" + keyDesc.toSql() + "] is overlap with current " +
-                        entry.getValue().toString());
+                StringBuilder sb = new StringBuilder();
+                sb.append("The partition key[").append(newKey.toSql()).append("] in partition item[")
+                        .append(keyDesc.toSql()).append("] is conflict with current partitionKeys[")
+                        .append(((ListPartitionItem) entry.getValue()).toSql()).append("]");
+                throw new AnalysisException(sb.toString());
             }
         }
     }

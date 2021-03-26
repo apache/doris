@@ -135,8 +135,13 @@ public class ListPartitionItem extends PartitionItem {
             sb.append("(");
         }
 
+        int i = 0;
         for (PartitionKey partitionKey : partitionKeys) {
             sb.append(partitionKey.toSql());
+            if (i < partitionKeys.size() - 1) {
+                sb.append(",");
+            }
+            i++;
         }
 
         if (size > 1) {
