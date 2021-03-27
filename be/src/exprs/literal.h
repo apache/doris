@@ -25,7 +25,7 @@ namespace doris {
 
 class TExprNode;
 
-class Literal : public Expr {
+class Literal final : public Expr {
 public:
     virtual ~Literal();
 

@@ -27,7 +27,7 @@ namespace doris {
 // We inline this here in order for Expr::get_value() to be able
 // to reference SlotRef::compute_fn() directly.
 // Splitting it up into separate .h files would require circular #includes.
-class SlotRef : public Expr {
+class SlotRef final : public Expr {
 public:
     SlotRef(const TExprNode& node);
     SlotRef(const SlotDescriptor* desc);
