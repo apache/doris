@@ -37,7 +37,7 @@ under the License.
         [WHERE [expr]]
         TO export_path
         [opt_properties]
-        [broker];
+        [broker|S3];
 
     1. table_name
       当前要导出的表的表名，目前支持engine为olap和mysql的表的导出。
@@ -63,11 +63,11 @@ under the License.
             timeout：导入作业的超时时间，默认为1天，单位是秒。
             tablet_num_per_task：每个子任务能分配的最大 Tablet 数量。
 
-    6. broker
-      用于指定导出使用的broker
+    6. broker|s3
+      指定使用broker导出或者通过S3协议导出
           语法：
-          WITH BROKER broker_name ("key"="value"[,...])
-          这里需要指定具体的broker name, 以及所需的broker属性
+          WITH [BROKER broker_name | S3] ("key"="value"[,...])
+          这里需要指定具体的broker name, 以及所需的broker属性, 如果使用S3协议则无需指定broker name
 
       对于不同存储系统对应的 broker，这里需要输入的参数不同。具体参数可以参阅：`help broker load` 中 broker 所需属性。
       导出到本地时，不需要填写这部分。

@@ -574,8 +574,19 @@ CONF_String(thrift_server_type_of_fe, "THREAD_POOL");
 // disable zone map index when page row is too few
 CONF_mInt32(zone_map_row_num_threshold, "20");
 
+// aws sdk log level
+//    Off = 0,
+//    Fatal = 1,
+//    Error = 2,
+//    Warn = 3,
+//    Info = 4,
+//    Debug = 5,
+//    Trace = 6
+CONF_Int32(aws_log_level, "3");
+
 } // namespace config
 
 } // namespace doris
 
 #endif // DORIS_BE_SRC_COMMON_CONFIG_H
+

@@ -270,7 +270,7 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     TopNFunctions::init();
     // disable EC2 metadata service
     setenv("AWS_EC2_METADATA_DISABLED", "true", false);
-    Aws::Utils::Logging::LogLevel logLevel = Aws::Utils::Logging::LogLevel::Info;
+    Aws::Utils::Logging::LogLevel logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
     aws_options.loggingOptions.logLevel = logLevel;
     aws_options.loggingOptions.logger_create_fn = [logLevel] {
         return std::make_shared<DorisAWSLogger>(logLevel);
