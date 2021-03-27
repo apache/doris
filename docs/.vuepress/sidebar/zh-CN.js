@@ -58,6 +58,7 @@ module.exports = [
           "sequence-column-manual",
           "spark-load-manual",
           "stream-load-manual",
+          "s3-load-manual",
           "delete-manual",
           "insert-into-manual",
           "load-json-format",

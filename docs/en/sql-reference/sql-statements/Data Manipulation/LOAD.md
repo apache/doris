@@ -33,6 +33,7 @@ Palo currently supports the following four import methods:
 2. Broker Load: Use broker to import data.
 3. Mini Load: Upload files through HTTP protocol for batch data import.
 4. Stream Load: Stream data import through HTTP protocol.
+5. S3 Load: Directly access the storage system supporting the S3 protocol for data import through the S3 protocol. The import syntax is basically the same as that of Broker Load.
 
 This help mainly describes the first import method, namely Hadoop Load related help information. The rest of the import methods can use the following commands to view help:
 
