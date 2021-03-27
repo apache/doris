@@ -83,8 +83,8 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
 
         bool is_delete = tablet->version_for_delete_predicate(rs->version());
 
-        // break the loop if segments in this rowset is overlapping, or is a singleton.
-        if (!is_delete && (rs->is_segments_overlapping() || rs->is_singleton_delta())) {
+        // break the loop if segments in this rowset is overlapping.
+        if (!is_delete && rs->is_segments_overlapping()) {
             *ret_cumulative_point = rs->version().first;
             break;
         }
@@ -95,6 +95,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
             break;
         }
 
+        // include one situation: When the segment is not deleted, and is singleton delta, and is NONOVERLAPPING, ret_cumulative_point increase 
         prev_version = rs->version().second;
         *ret_cumulative_point = prev_version + 1;
     }
