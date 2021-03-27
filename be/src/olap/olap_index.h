@@ -47,8 +47,6 @@ class WrapperField;
 typedef uint32_t data_file_offset_t;
 
 struct OLAPIndexFixedHeader {
-    OLAPIndexFixedHeader() : data_length(0), num_rows(0) {}
-
     uint32_t data_length;
     uint64_t num_rows;
 };

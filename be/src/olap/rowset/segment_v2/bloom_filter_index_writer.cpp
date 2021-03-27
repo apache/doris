@@ -85,11 +85,11 @@ public:
         const CppType* v = (const CppType*)values;
         for (int i = 0; i < count; ++i) {
             if (_values.find(*v) == _values.end()) {
-                if (_is_slice_type()) {
+                if constexpr (_is_slice_type()) {
                     CppType new_value;
                     _typeinfo->deep_copy(&new_value, v, &_pool);
                     _values.insert(new_value);
-                } else if (_is_int128()) {
+                } else if constexpr (_is_int128()) {
                     PackedInt128 new_value;
                     memcpy(&new_value.value, v, sizeof(PackedInt128));
                     _values.insert((*reinterpret_cast<CppType*>(&new_value)));
@@ -109,7 +109,7 @@ public:
         RETURN_IF_ERROR(bf->init(_values.size(), _bf_options.fpp, _bf_options.strategy));
         bf->set_has_null(_has_null);
         for (auto& v : _values) {
-            if (_is_slice_type()) {
+            if constexpr (_is_slice_type()) {
                 Slice* s = (Slice*)&v;
                 bf->add_bytes(s->data, s->size);
             } else {
@@ -155,11 +155,11 @@ public:
 
 private:
     // supported slice types are: OLAP_FIELD_TYPE_CHAR|OLAP_FIELD_TYPE_VARCHAR
-    bool _is_slice_type() const {
+    static constexpr bool _is_slice_type() {
         return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR;
     }
 
-    bool _is_int128() const { return field_type == OLAP_FIELD_TYPE_LARGEINT; }
+    static constexpr bool _is_int128() { return field_type == OLAP_FIELD_TYPE_LARGEINT; }
 
 private:
     BloomFilterOptions _bf_options;
