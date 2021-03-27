@@ -193,7 +193,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
                 if (boost::filesystem::exists(local_path)) {
                     boost::filesystem::remove_all(local_path);
                 }
-            } catch (boost::filesystem::filesystem_error e) {
+            } catch (boost::filesystem::filesystem_error &e) {
                 // Ignore the error, OLAP will delete it
                 LOG(WARNING) << "clone delete useless dir failed. "
                              << " error: " << e.what() << " local dir: " << local_data_path.c_str()
