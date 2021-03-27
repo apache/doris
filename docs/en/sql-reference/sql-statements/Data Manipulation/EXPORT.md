@@ -37,7 +37,7 @@ under the License.
         [WHERE [expr]]
         TO export_path
         [opt_properties]
-        [broker];
+        [broker｜S3];
 
     1. table_name
        The table names to be exported currently support the export of tables with engine as OLAP and mysql.
@@ -63,11 +63,11 @@ under the License.
           timeout: The time-out for importing jobs is 1 day by default, in seconds.
           tablet_num_per_task: The maximum number of tablets that each subtask can allocate.
 
-     6. broker
-        Broker used to specify export usage
+     6. broker|S3
+        Specify to use broker export or export through S3 protocol
           Grammar:
-          WITH BROKER broker_name ("key"="value"[,...])
-          Here you need to specify the specific broker name and the required broker attributes
+          WITH [BROKER broker_name| S3] ("key"="value"[,...])
+          Here you need to specify the specific broker name and the required broker attributes, If you use the S3 protocol, you do not need to specify the broker name
 
         For brokers corresponding to different storage systems, the input parameters are different. Specific parameters can be referred to: `help broker load', broker required properties.
         When exporting to local, you do not need to fill in this part.

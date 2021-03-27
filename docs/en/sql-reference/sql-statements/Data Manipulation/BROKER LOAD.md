@@ -36,6 +36,7 @@ under the License.
     2. Baidu AFS: afs for Baidu. Only be used inside Baidu.
     3. Baidu Object Storage(BOS): BOS on Baidu Cloud.
     4. Apache HDFS.
+    5. Amazon S3：Amazon S3。
 
 ### Syntax:
 
@@ -43,8 +44,8 @@ under the License.
     (
     data_desc1[, data_desc2, ...]
     )
-    WITH BROKER broker_name
-    [broker_properties]
+    WITH [BROKER broker_name | S3]
+    [load_properties]
     [opt_properties];
 
     1. load_label
@@ -136,7 +137,7 @@ under the License.
 
         The name of the Broker used can be viewed through the `show broker` command.
 
-    4. broker_properties
+    4. load_properties
 
         Used to provide Broker access to data sources. Different brokers, and different access methods, need to provide different information.
 
@@ -174,6 +175,19 @@ under the License.
             dfs.ha.namenodes.xxx: Customize the name of a namenode, separated by commas. XXX is a custom name in dfs. name services, such as "dfs. ha. namenodes. my_ha" = "my_nn"
             dfs.namenode.rpc-address.xxx.nn: Specify RPC address information for namenode, where NN denotes the name of the namenode configured in dfs.ha.namenodes.xxxx, such as: "dfs.namenode.rpc-address.my_ha.my_nn"= "host:port"
             dfs.client.failover.proxy.provider: Specify the provider that client connects to namenode by default: org. apache. hadoop. hdfs. server. namenode. ha. Configured Failover ProxyProvider.
+        4. Amazon S3
+
+            fs.s3a.access.key：AmazonS3的access key
+            fs.s3a.secret.key：AmazonS3的secret key
+            fs.s3a.endpoint：AmazonS3的endpoint 
+        5. If using the S3 protocol to directly connect to the remote storage, you need to specify the following attributes 
+
+            (
+                "AWS_ENDPOINT" = "",
+                "AWS_ACCESS_KEY" = "",
+                "AWS_SECRET_KEY"="",
+                "AWS_REGION" = ""
+            )
 
     4. opt_properties
 
