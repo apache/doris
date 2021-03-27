@@ -25,7 +25,7 @@ fi
 
 # check OS type
 if [[ ! -z "$OSTYPE" ]]; then
-    if [[ "$OSTYPE" != "linux-gnu" ]]; then
+    if [[ ${OSTYPE} != "linux-gnu" ]] && [[ ${OSTYPE:0:6} != "darwin" ]]; then
         echo "Error: Unsupported OS type: $OSTYPE"
         exit 1
     fi
