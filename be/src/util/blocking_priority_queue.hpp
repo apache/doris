@@ -140,7 +140,10 @@ public:
 
     // Shut down the queue. Wakes up all threads waiting on blocking_get or blocking_put.
     void shutdown() {
-        _shutdown = true;
+        {
+            boost::unique_lock<boost::mutex> l(_lock);
+            _shutdown = true;
+        }
         _get_cv.notify_all();
         _put_cv.notify_all();
     }
