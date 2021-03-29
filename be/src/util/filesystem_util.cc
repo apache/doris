@@ -39,7 +39,7 @@ Status FileSystemUtil::create_directory(const string& directory) {
     bool exists = std::filesystem::exists(directory, errcode);
     // Need to check for no_such_file_or_directory error case - Boost's exists() sometimes
     // returns an error when it should simply return false.
-    if (errcode&& errcode != std::errc::no_such_file_or_directory) {
+    if (errcode && errcode != std::errc::no_such_file_or_directory) {
         std::stringstream error_msg;
         error_msg << "Encountered error checking existence of directory: " << directory << ": "
                   << errcode.message();
