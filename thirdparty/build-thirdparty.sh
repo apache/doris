@@ -596,7 +596,7 @@ build_s2() {
     -DGFLAGS_ROOT_DIR="$TP_INSTALL_DIR/include" \
     -DWITH_GFLAGS=ON \
     -DGLOG_ROOT_DIR="$TP_INSTALL_DIR/include" \
-    -DGFLAGS_LIBRARY=$TP_INSTALL_DIR/lib/libgflags.a \
+    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib" \
     -DWITH_GLOG=ON ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
