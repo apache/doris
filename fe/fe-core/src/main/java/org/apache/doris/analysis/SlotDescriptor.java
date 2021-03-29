@@ -208,7 +208,6 @@ public class SlotDescriptor {
 
     public String getLabel() { return label_; }
     public void setLabel(String label) { label_ = label; }
-    public void setSourceExprs(List<Expr> exprs) { sourceExprs_ = exprs; }
     public void setSourceExpr(Expr expr) { sourceExprs_ = Collections.singletonList(expr); }
     public void addSourceExpr(Expr expr) { sourceExprs_.add(expr); }
     public List<Expr> getSourceExprs() { return sourceExprs_; }

@@ -264,10 +264,12 @@ public class PlanFragment extends TreeNode<PlanFragment> {
      * Returns true if this fragment is partitioned.
      */
     public boolean isPartitioned() {
-        return (dataPartition.getType() != TPartitionType.UNPARTITIONED);
+        return (dataPartition.getType() != TPartitionType.UNPARTITIONED) && planRoot.getNumInstances() > 1;
     }
 
-    public PlanFragmentId getId() { return fragmentId; }
+    public PlanFragmentId getId() {
+        return fragmentId;
+    }
 
     public PlanFragment getDestFragment() {
         if (destNode == null) return null;
@@ -292,6 +294,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public DataPartition getDataPartition() {
         return dataPartition;
+    }
+
+    public DataPartition getDataPartitionForThrift() {
+        return dataPartitionForThrift;
     }
 
     public DataPartition getOutputPartition() {

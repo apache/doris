@@ -80,11 +80,6 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.commons.collections.map.HashedMap;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultiset;
@@ -93,6 +88,11 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.collections.map.HashedMap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -1045,10 +1045,10 @@ public class Coordinator {
             }
 
             int parallelExecInstanceNum = fragment.getParallelExecNum();
-            //for ColocateJoin fragment
-            if ((isColocateJoin(fragment.getPlanRoot()) && fragmentIdToSeqToAddressMap.containsKey(fragment.getFragmentId())
+            // for Colocate fragment
+            if ((isColocate(fragment.getPlanRoot()) && fragmentIdToSeqToAddressMap.containsKey(fragment.getFragmentId())
                     && fragmentIdToSeqToAddressMap.get(fragment.getFragmentId()).size() > 0)) {
-                computeColocateJoinInstanceParam(fragment.getFragmentId(), parallelExecInstanceNum, params);
+                computeColocateInstanceParam(fragment.getFragmentId(), parallelExecInstanceNum, params);
             } else if (bucketShuffleJoinController.isBucketShuffleJoin(fragment.getFragmentId().asInt())) {
                 bucketShuffleJoinController.computeInstanceParam(fragment.getFragmentId(), parallelExecInstanceNum, params);
             } else {
@@ -1095,7 +1095,7 @@ public class Coordinator {
     }
 
     // One fragment could only have one HashJoinNode
-    private boolean isColocateJoin(PlanNode node) {
+    private boolean isColocate(PlanNode node) {
         // TODO(cmy): some internal process, such as broker load task, do not have ConnectContext.
         // Any configurations needed by the Coordinator should be passed in Coordinator initialization.
         // Refine this later.
@@ -1106,7 +1106,7 @@ public class Coordinator {
             }
         }
 
-        //cache the colocateFragmentIds
+        // cache the colocateFragmentIds
         if (colocateFragmentIds.contains(node.getFragmentId().asInt())) {
             return true;
         }
@@ -1119,8 +1119,16 @@ public class Coordinator {
             }
         }
 
+        if (node instanceof SetOperationNode) {
+            SetOperationNode setOperationNode = (SetOperationNode) node;
+            if (setOperationNode.isColocate()) {
+                colocateFragmentIds.add(setOperationNode.getFragmentId().asInt());
+                return true;
+            }
+        }
+
         for (PlanNode childNode : node.getChildren()) {
-            return isColocateJoin(childNode);
+            return isColocate(childNode);
         }
 
         return false;
@@ -1158,7 +1166,7 @@ public class Coordinator {
         return value;
     }
 
-    private void computeColocateJoinInstanceParam(PlanFragmentId fragmentId, int parallelExecInstanceNum, FragmentExecParams params) {
+    private void computeColocateInstanceParam(PlanFragmentId fragmentId, int parallelExecInstanceNum, FragmentExecParams params) {
         Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(fragmentId);
         Set<Integer> scanNodeIds = fragmentIdToScanNodeIds.get(fragmentId);
 
@@ -1244,18 +1252,18 @@ public class Coordinator {
             scanNodeIds.add(scanNode.getId().asInt());
 
             FragmentScanRangeAssignment assignment = fragmentExecParamsMap.get(scanNode.getFragmentId()).scanRangeAssignment;
-            boolean fragmentContainsColocateJoin = isColocateJoin(scanNode.getFragment().getPlanRoot());
+            boolean fragmentContainsColocate = isColocate(scanNode.getFragment().getPlanRoot());
             boolean fragmentContainsBucketShuffleJoin = bucketShuffleJoinController.isBucketShuffleJoin(scanNode.getFragmentId().asInt(), scanNode.getFragment().getPlanRoot());
 
             // A fragment may contain both colocate join and bucket shuffle join
             // on need both compute scanRange to init basic data for query coordinator
-            if (fragmentContainsColocateJoin) {
+            if (fragmentContainsColocate) {
                 computeScanRangeAssignmentByColocate((OlapScanNode) scanNode);
             }
             if (fragmentContainsBucketShuffleJoin) {
                 bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode, idToBackend, addressToBackendID);
             }
-            if (!(fragmentContainsColocateJoin | fragmentContainsBucketShuffleJoin)) {
+            if (!(fragmentContainsColocate | fragmentContainsBucketShuffleJoin)) {
                 computeScanRangeAssignmentByScheduler(scanNode, locations, assignment, assignedBytesPerHost);
             }
         }

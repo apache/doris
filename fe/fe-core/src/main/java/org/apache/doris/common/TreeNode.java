@@ -96,6 +96,14 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
         for (NodeType child: children) child.collect(cl, matches);
     }
 
+    public <C extends TreeNode<NodeType>, D extends C>  void collectSubclass(Class cl, Collection<D> matches) {
+        if (cl.isAssignableFrom(this.getClass())) {
+            matches.add((D) this);
+            return;
+        }
+        for (NodeType child: children) child.collectSubclass(cl, matches);
+    }
+
     /**
      * Add all nodes in the tree that satisfy 'predicate' to the list 'matches'
      * This node is checked first, followed by its children in order. All nodes

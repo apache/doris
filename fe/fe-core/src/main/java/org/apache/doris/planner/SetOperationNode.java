@@ -17,11 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -36,17 +31,18 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TUnionNode;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import org.apache.commons.collections.CollectionUtils;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Node that merges the results of its child plans, Normally, this is done by
@@ -86,6 +82,8 @@ public abstract class SetOperationNode extends PlanNode {
 
     protected final TupleId tupleId_;
 
+    private boolean canColocate;
+
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName) {
         super(id, tupleId.asList(), planNodeName);
         setOpResultExprs_ = Lists.newArrayList();
@@ -99,6 +97,14 @@ public abstract class SetOperationNode extends PlanNode {
         setOpResultExprs_ = setOpResultExprs;
         tupleId_ = tupleId;
         isInSubplan_ = isInSubplan;
+    }
+
+    public boolean isColocate() {
+        return canColocate;
+    }
+
+    public void setCanColocate(boolean canColocate) {
+        this.canColocate = canColocate;
     }
 
     public void addConstExprList(List<Expr> exprs) {
@@ -381,6 +387,9 @@ public abstract class SetOperationNode extends PlanNode {
                     output.append(result).append(Joiner.on(",").join(passThroughNodeIds)).append("\n");
                 }
             }
+        }
+        if (canColocate) {
+            output.append(prefix).append("colocate=").append(canColocate).append("\n");
         }
         return output.toString();
     }

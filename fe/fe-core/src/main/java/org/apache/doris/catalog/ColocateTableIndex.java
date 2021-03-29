@@ -288,6 +288,25 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
+    public GroupId findTheSameGroup(Set<Long> tableIds) {
+        readLock();
+        try {
+            GroupId theSameGroupId = null;
+            for (long tableId: tableIds) {
+                GroupId groupId = table2Group.get(tableId);
+                if (theSameGroupId == null) {
+                    theSameGroupId = groupId;
+                }
+                if (groupId == null || !groupId.equals(theSameGroupId)){
+                    return null;
+                }
+            }
+            return theSameGroupId;
+        } finally {
+            readUnlock();
+        }
+    }
+
     public Set<GroupId> getUnstableGroupIds() {
         readLock();
         try {

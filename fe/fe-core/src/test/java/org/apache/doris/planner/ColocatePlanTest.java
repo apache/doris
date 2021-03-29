@@ -122,4 +122,16 @@ public class ColocatePlanTest {
     // with: explain select k1, sum(k2) over(partition by k1, k2 order by k2) from test_colocate;
     // without:
 
+    // set operation node
+    // with: select k1, k2 from test_colocate union select k1, k2 from test_colocate group by k1,k2  union select k1, k2 from test_colocate;
+    // with: select k1, k2 from test_colocate union select k1, k2 from test_colocate union select k1, k2 from test_colocate;
+    // with: select k1 from t1 union select k1 from t2 union select k1 from t3; (empty table)
+    // with: select k1 from t1 union select k1 from t2 union select k1 from t3; (with data)
+    // without: select id from t1 union all select id from t2 union all select k1 from test_colocate;
+    // with: select id from t1 intersect select id from t2 intersect select id from t3;
+    // without: explain select id from t1 intersect select id from t2 intersect select value from t3;
+    // with:  explain select id from t1 except select id from t2 except select id from t3;
+    // without: explain  select id from t1 except select id from t2 except select value from t3;
+    
+
 }

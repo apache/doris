@@ -49,8 +49,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import avro.shaded.com.google.common.collect.Maps;
+import org.glassfish.jersey.internal.guava.Sets;
 
 /**
  * The distributed planner is responsible for creating an executable, distributed plan
@@ -105,10 +107,6 @@ public class DistributedPlanner {
         return fragments;
     }
 
-    private boolean isFragmentPartitioned(PlanFragment fragment) {
-        return fragment.isPartitioned() && fragment.getPlanRoot().getNumInstances() > 1;
-    }
-
     PlanFragment createInsertFragment(
             PlanFragment inputFragment, InsertStmt stmt, ArrayList<PlanFragment> fragments)
             throws UserException {
@@ -123,7 +121,7 @@ public class DistributedPlanner {
         //      2. If target table is not partitioned, return inputFragment
         boolean needRepartition = false;
         boolean needMerge = false;
-        if (isFragmentPartitioned(inputFragment)) {
+        if (inputFragment.isPartitioned()) {
             if (targetTable.isPartitioned()) {
                 if (stmt.getDataPartition().getType() == TPartitionType.RANDOM) {
                     return inputFragment;
@@ -238,7 +236,7 @@ public class DistributedPlanner {
         fragments.remove(result);
         fragments.add(result);
 
-        if (!isPartitioned && result.isPartitioned() && result.getPlanRoot().getNumInstances() > 1) {
+        if (!isPartitioned && result.isPartitioned()) {
             result = createMergeFragment(result);
             fragments.add(result);
         }
@@ -528,6 +526,80 @@ public class DistributedPlanner {
         return dataDistributionMatchEqPredicate(scanNodeWithJoinConjuncts, cannotReason);
     }
 
+    private boolean canColocateSetOperation(SetOperationNode node, List<PlanFragment> childFragmentList) {
+        // Condition1
+        if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
+            LOG.info(DistributedPlanColocateRule.SESSION_DISABLED);
+            return false;
+        }
+
+        // Condition2:
+        // If there is no exchange node in child fragment, it will mean that the data hasn't been rehashed.
+        // TODO(ML): In fact, even if the child fragment contains an exchange node,
+        //  it does not mean that this node must have been rehashed.
+        //  But in this case, it is difficult to judge whether it can be colocate, so it is banned firstly.
+        for (PlanFragment childPlanFragment : childFragmentList) {
+            if (childPlanFragment.getChildren().size() > 0) {
+                return false;
+            }
+        }
+
+        // Condition3: Scan node are all in the same colocate group
+        List<ScanNode> childScanNodeList = Lists.newArrayList();
+        for (PlanFragment childPlanFragment : childFragmentList) {
+            childPlanFragment.getPlanRoot().collectSubclass(ScanNode.class, childScanNodeList);
+        }
+
+        if (!checkTableColocateGroup(childScanNodeList)) {
+            return false;
+        }
+
+        // Condition4: the hash partitioned of node > the data partition of child fragment
+        for (int i = 0; i < childFragmentList.size(); i++) {
+            if (!canColocateWhenSingleChildFragment(node.getMaterializedResultExprLists_().get(i),
+                    childFragmentList.get(i).getInputDataPartition(), node.getId())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean checkTableColocateGroup(List<ScanNode> childScanNodeList) {
+        Map<Long, Set<Long>> tableIdToPartitionIds = Maps.newHashMap();
+        for (ScanNode scanNode : childScanNodeList) {
+            if (!(scanNode instanceof OlapScanNode)) {
+                return false;
+            }
+            OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+            long tableId = olapScanNode.getOlapTable().getId();
+            Set<Long> partitionIds = tableIdToPartitionIds.get(tableId);
+            if (partitionIds == null) {
+                partitionIds = Sets.newHashSet();
+                tableIdToPartitionIds.put(tableId, partitionIds);
+            }
+            partitionIds.addAll(olapScanNode.getSelectedPartitionIds());
+        }
+        // 1. only involve a single partition of the same table
+        if (tableIdToPartitionIds.size() == 1 && tableIdToPartitionIds.values().stream().anyMatch(v -> v.size() == 1)) {
+            return true;
+        }
+
+        ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
+        // 2. the table must be colocate
+        GroupId groupId = colocateIndex.findTheSameGroup(tableIdToPartitionIds.keySet());
+        if (groupId == null) {
+            LOG.info(DistributedPlanColocateRule.TABLE_NOT_IN_THE_SAME_GROUP);
+            return false;
+        }
+
+        // 3. the colocate group must be stable
+        if (colocateIndex.isGroupUnstable(groupId)) {
+            LOG.info(DistributedPlanColocateRule.COLOCATE_GROUP_IS_NOT_STABLE);
+            return false;
+        }
+        return true;
+    }
+
     private OlapScanNode genSrcScanNode(Expr expr, PlanFragment planFragment, List<String> cannotReason) {
         SlotRef slotRef = expr.getSrcSlotRef();
         if (slotRef == null) {
@@ -801,13 +873,14 @@ public class DistributedPlanner {
      * Returns a new fragment with a UnionNode as its root. The data partition of the
      * returned fragment and how the data of the child fragments is consumed depends on the
      * data partitions of the child fragments:
-     * - All child fragments are unpartitioned or partitioned: The returned fragment has an
-     *   UNPARTITIONED or RANDOM data partition, respectively. The UnionNode absorbs the
-     *   plan trees of all child fragments.
+     * - All child fragments are unpartitioned: The returned fragment has an
+     * UNPARTITIONED data partition, respectively. The Set operation node absorbs the
+     * plan trees of all child fragments.
+     * - Mixed partitioned/unpartitioned child fragments but can colocate: The returned fragment
+     * is the child0 fragment. The Set operation node absorbs the plan trees of all child fragment.
      * - Mixed partitioned/unpartitioned child fragments: The returned fragment is
-     *   RANDOM partitioned. The plan trees of all partitioned child fragments are absorbed
-     *   into the UnionNode. All unpartitioned child fragments are connected to the
-     *   UnionNode via a RANDOM exchange, and remain unchanged otherwise.
+     * HASH partitioned. The plan trees of all child fragments are connected to the
+     * Set operation node via a exchange. The output partition of child fragment are HASH partitioned.
      */
     private PlanFragment createSetOperationNodeFragment(
             SetOperationNode setOperationNode, ArrayList<PlanFragment> childFragments,
@@ -831,57 +904,54 @@ public class DistributedPlanner {
         // fragment (in the PlanFragment c'tor; we haven't created ExchangeNodes yet)
         setOperationNode.clearChildren();
 
-        // If all child fragments are unpartitioned, return a single unpartitioned fragment
-        // with a UnionNode that merges all child fragments.
+        // - All child fragments are unpartitioned
+        // return a single unpartitioned fragment, with a SetOperationNode that merges all child fragments.
         if (numUnpartitionedChildFragments == childFragments.size()) {
-            PlanFragment setOperationFragment = new PlanFragment(
-                    ctx_.getNextFragmentId(), setOperationNode, DataPartition.UNPARTITIONED);
-            // Absorb the plan trees of all childFragments into unionNode
-            // and fix up the fragment tree in the process.
-            for (int i = 0; i < childFragments.size(); ++i) {
-                setOperationNode.addChild(childFragments.get(i).getPlanRoot());
-                setOperationFragment.setFragmentInPlanTree(setOperationNode.getChild(i));
-                setOperationFragment.addChildren(childFragments.get(i).getChildren());
-            }
+            PlanFragment setOperationFragment = absorbSetOperationNode(setOperationNode, childFragments, fragments);
             setOperationNode.init(ctx_.getRootAnalyzer());
-            // All child fragments have been absorbed into unionFragment.
-            fragments.removeAll(childFragments);
             return setOperationFragment;
         }
 
-        // There is at least one partitioned child fragment.
-        // TODO(ML): here
+        // - Mixed partitioned/unpartitioned child fragments but can colocate
+        if (canColocateSetOperation(setOperationNode, childFragments)) {
+            PlanFragment setOperationFragment = absorbSetOperationNode(setOperationNode, childFragments, fragments);
+            setOperationNode.setCanColocate(true);
+            setOperationNode.init(ctx_.getRootAnalyzer());
+            return setOperationFragment;
+        }
+
+        // - Mixed partitioned/unpartitioned child fragments
         PlanFragment setOperationFragment = new PlanFragment(ctx_.getNextFragmentId(), setOperationNode,
                 new DataPartition(TPartitionType.HASH_PARTITIONED,
                         setOperationNode.getMaterializedResultExprLists_().get(0)));
         for (int i = 0; i < childFragments.size(); ++i) {
             PlanFragment childFragment = childFragments.get(i);
-            /* if (childFragment.isPartitioned() && childFragment.getPlanRoot().getNumInstances() > 1) {
-             *  // absorb the plan trees of all partitioned child fragments into unionNode
-             *  unionNode.addChild(childFragment.getPlanRoot());
-             *  unionFragment.setFragmentInPlanTree(unionNode.getChild(i));
-             *  unionFragment.addChildren(childFragment.getChildren());
-             *  fragments.remove(childFragment);
-             * } else {
-             *  // dummy entry for subsequent addition of the ExchangeNode
-             *  unionNode.addChild(null);
-             *  // Connect the unpartitioned child fragments to unionNode via a random exchange.
-             *  connectChildFragment(unionNode, i, unionFragment, childFragment);
-             *  childFragment.setOutputPartition(DataPartition.RANDOM);
-             * }
-             */
-
             // UnionNode shouldn't be absorbed by childFragment, because it reduce
             // the degree of concurrency.
             // chenhao16 add
             // dummy entry for subsequent addition of the ExchangeNode
             setOperationNode.addChild(null);
-            // Connect the unpartitioned child fragments to SetOperationNode via a random exchange.
+            // Connect the unpartitioned child fragments to SetOperationNode via a exchange.
             connectChildFragment(setOperationNode, i, setOperationFragment, childFragment);
             childFragment.setOutputPartition(
                     DataPartition.hashPartitioned(setOperationNode.getMaterializedResultExprLists_().get(i)));
         }
         setOperationNode.init(ctx_.getRootAnalyzer());
+        return setOperationFragment;
+    }
+
+    private PlanFragment absorbSetOperationNode(SetOperationNode setOperationNode,
+                                                ArrayList<PlanFragment> childFragments,
+                                                ArrayList<PlanFragment> fragments) {
+        Preconditions.checkState(!childFragments.isEmpty());
+        PlanFragment setOperationFragment = new PlanFragment(ctx_.getNextFragmentId(), setOperationNode,
+                childFragments.get(0).getDataPartition(), childFragments.get(0).getDataPartitionForThrift());
+        for (int i = 0; i < childFragments.size(); ++i) {
+            setOperationNode.addChild(childFragments.get(i).getPlanRoot());
+            setOperationFragment.setFragmentInPlanTree(setOperationNode.getChild(i));
+            setOperationFragment.addChildren(childFragments.get(i).getChildren());
+        }
+        fragments.removeAll(childFragments);
         return setOperationFragment;
     }
 
@@ -956,12 +1026,6 @@ public class DistributedPlanner {
             // 'node' is phase 1 of a DISTINCT aggregation; the actual agg fragment
             // will get created in the next createAggregationFragment() call
             // for the parent AggregationNode
-            childFragment.addPlanRoot(node);
-            return childFragment;
-        }
-
-        // check size
-        if (childFragment.getPlanRoot().getNumInstances() <= 1) {
             childFragment.addPlanRoot(node);
             return childFragment;
         }
