@@ -208,8 +208,6 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
     DataDir* data_dir = nullptr;
     if (engine != nullptr) {
         std::filesystem::path tablet_path = std::string_view(_segment_group->rowset_path_prefix());
-        LOG(INFO) << tablet_path.has_parent_path();
-        tablet_path.make_preferred();
         std::filesystem::path data_dir_path =
                 tablet_path.parent_path().parent_path().parent_path().parent_path();
         std::string data_dir_string = data_dir_path.string();
