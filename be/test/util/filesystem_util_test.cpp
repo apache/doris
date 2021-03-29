@@ -20,14 +20,14 @@
 #include <gtest/gtest.h>
 #include <sys/stat.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 
 #include "common/configbase.h"
 #include "util/logging.h"
 
 namespace doris {
 
-namespace filesystem = boost::filesystem;
+namespace filesystem = std::filesystem;
 using filesystem::path;
 
 TEST(FileSystemUtil, rlimit) {
@@ -36,7 +36,8 @@ TEST(FileSystemUtil, rlimit) {
 
 TEST(FileSystemUtil, CreateDirectory) {
     // Setup a temporary directory with one subdir
-    path dir = filesystem::unique_path();
+    std::string dir_name = std::tmpnam(nullptr);
+    path dir{dir_name};
     path subdir1 = dir / "path1";
     path subdir2 = dir / "path2";
     path subdir3 = dir / "a" / "longer" / "path";
@@ -129,12 +130,6 @@ TEST(FilesystemUtil, contain_path) {
 } // end namespace doris
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

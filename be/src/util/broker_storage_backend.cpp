@@ -55,7 +55,7 @@ Status BrokerStorageBackend::download(const std::string& remote, const std::stri
     RETURN_IF_ERROR(broker_reader->open());
 
     // 2. remove the existing local file if exist
-    if (boost::filesystem::remove(local)) {
+    if (std::filesystem::remove(local)) {
         VLOG(2) << "remove the previously exist local file: " << local;
     }
 
