@@ -1,3 +1,0 @@
-#SELECT TIME
-## keyword
-SELECT
