@@ -24,18 +24,35 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 public class DorisOptions extends DorisConnectionOptions{
 
     private static final long serialVersionUID = 1L;
+    public static final Integer DEFAULT_MAX_RETRY_TIMES = 1;
+    public static final Integer DEFAULT_SIZE = 5000;
 
     private String tableIdentifier;
     private String format;
     private Integer parallelism;
 
-    public DorisOptions(String fenodes, String username, String password,String tableIdentifier) {
+    private final Integer batchSize;
+    private final Integer maxRetries;
+
+
+    public DorisOptions(String fenodes, String username, String password,String tableIdentifier,
+                        Integer batchSize,Integer maxRetries) {
         super(fenodes, username, password);
         this.tableIdentifier = tableIdentifier;
+        this.batchSize = batchSize;
+        this.maxRetries = maxRetries;
     }
 
     public String getTableIdentifier() {
         return tableIdentifier;
+    }
+
+    public Integer getBatchSize() {
+        return batchSize;
+    }
+
+    public Integer getMaxRetries() {
+        return maxRetries;
     }
 
     public static Builder builder() {
@@ -51,6 +68,9 @@ public class DorisOptions extends DorisConnectionOptions{
         private String password;
         private String tableIdentifier;
         private Integer parallelism;
+
+        private Integer batchSize = DEFAULT_SIZE;
+        private Integer maxRetries = DEFAULT_MAX_RETRY_TIMES;
 
         /**
          * required, tableIdentifier
@@ -90,10 +110,20 @@ public class DorisOptions extends DorisConnectionOptions{
             return this;
         }
 
+        public Builder setBatchSize(Integer batchSize) {
+            this.batchSize = batchSize;
+            return this;
+        }
+
+        public Builder setMaxRetries(Integer maxRetries) {
+            this.maxRetries = maxRetries;
+            return this;
+        }
+
         public DorisOptions build() {
             checkNotNull(fenodes, "No fenodes supplied.");
             checkNotNull(tableIdentifier, "No tableIdentifier supplied.");
-            return new DorisOptions(fenodes, username, password, tableIdentifier);
+            return new DorisOptions(fenodes, username, password, tableIdentifier,batchSize,maxRetries);
         }
     }
 }

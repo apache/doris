@@ -48,7 +48,9 @@ public class DorisDynamicTableSink implements DynamicTableSink {
                 .setFenodes(options.getFenodes())
                 .setUsername(options.getUsername())
                 .setPassword(options.getPassword())
-                .setTableIdentifier(options.getTableIdentifier());
+                .setTableIdentifier(options.getTableIdentifier())
+                .setBatchSize(options.getBatchSize())
+                .setMaxRetries(options.getMaxRetries());
 
         return OutputFormatProvider.of(builder.build());
     }

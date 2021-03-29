@@ -16,6 +16,9 @@
 // under the License.
 package org.apache.doris.flink.table;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.doris.flink.exception.StreamLoadException;
+import org.apache.doris.flink.rest.models.RespContent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,8 +31,11 @@ import java.io.Serializable;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Calendar;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -37,6 +43,7 @@ import java.util.UUID;
  **/
 public class DorisStreamLoad implements Serializable{
 
+    private final static List<String> DORIS_SUCCESS_STATUS = new ArrayList<>(Arrays.asList("Success", "Publish Timeout"));
     private static String loadUrlPattern = "http://%s/api/%s/%s/_stream_load?";
     private String hostPort;
     private String db;
@@ -93,7 +100,25 @@ public class DorisStreamLoad implements Serializable{
         }
     }
 
-    public LoadResponse loadBatch(String value) {
+    public void load(String value) throws StreamLoadException {
+        LoadResponse loadResponse = loadBatch(value);
+        System.out.println(loadResponse);
+        if(loadResponse.status != 200){
+            throw new StreamLoadException("stream load error: " + loadResponse.respContent);
+        }else{
+            ObjectMapper obj = new ObjectMapper();
+            try {
+                RespContent respContent = obj.readValue(loadResponse.respContent, RespContent.class);
+                if(!DORIS_SUCCESS_STATUS.contains(respContent.getStatus())){
+                    throw new StreamLoadException("stream load error: " + respContent.getMessage());
+                }
+            } catch (IOException e) {
+                throw new StreamLoadException(e);
+            }
+        }
+    }
+
+    private LoadResponse loadBatch(String value) {
         Calendar calendar = Calendar.getInstance();
         String label = String.format("audit_%s%02d%02d_%02d%02d%02d_%s",
                 calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),

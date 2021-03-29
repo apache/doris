@@ -30,6 +30,7 @@ import org.apache.flink.table.factories.FactoryUtil;
 import org.apache.flink.table.types.DataType;
 import org.apache.flink.table.utils.TableSchemaUtils;
 
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -46,6 +47,27 @@ public final class DorisDynamicTableFactory implements  DynamicTableSourceFactor
 	public static final ConfigOption<String> USERNAME = ConfigOptions.key("username").stringType().noDefaultValue().withDescription("the jdbc user name.");
 	public static final ConfigOption<String> PASSWORD = ConfigOptions.key("password").stringType().noDefaultValue().withDescription("the jdbc password.");
 
+	// write config options
+	private static final ConfigOption<Integer> SINK_BUFFER_FLUSH_MAX_ROWS = ConfigOptions
+			.key("sink.batch.size")
+			.intType()
+			.defaultValue(100)
+			.withDescription("the flush max size (includes all append, upsert and delete records), over this number" +
+					" of records, will flush data. The default value is 100.");
+
+	private static final ConfigOption<Duration> SINK_BUFFER_FLUSH_INTERVAL = ConfigOptions
+			.key("sink.flush.interval")
+			.durationType()
+			.defaultValue(Duration.ofSeconds(1))
+			.withDescription("the flush interval mills, over this time, asynchronous threads will flush data. The " +
+					"default value is 1s.");
+	private static final ConfigOption<Integer> SINK_MAX_RETRIES = ConfigOptions
+			.key("sink.max-retries")
+			.intType()
+			.defaultValue(1)
+			.withDescription("the max retry times if writing records to database failed.");
+
+
 	@Override
 	public String factoryIdentifier() {
 		return "doris"; // used for matching to `connector = '...'`
@@ -59,6 +81,8 @@ public final class DorisDynamicTableFactory implements  DynamicTableSourceFactor
 		options.add(USERNAME);
 		options.add(PASSWORD);
 
+		options.add(SINK_BUFFER_FLUSH_MAX_ROWS);
+		options.add(SINK_MAX_RETRIES);
 		return options;
 	}
 
@@ -94,6 +118,9 @@ public final class DorisDynamicTableFactory implements  DynamicTableSourceFactor
 
 		readableConfig.getOptional(USERNAME).ifPresent(builder::setUsername);
 		readableConfig.getOptional(PASSWORD).ifPresent(builder::setPassword);
+
+		builder.setBatchSize(readableConfig.get(SINK_BUFFER_FLUSH_MAX_ROWS));
+		builder.setMaxRetries(readableConfig.get(SINK_MAX_RETRIES));
 		return builder.build();
 	}
 

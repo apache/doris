@@ -56,7 +56,9 @@ public class DorisSourceSinkExample {
                         "  'fenodes' = 'FE_IP:8030',\n" +
                         "  'table.identifier' = 'demo.doris_test_sink_2',\n" +
                         "  'username' = 'root',\n" +
-                        "  'password' = ''\n" +
+                        "  'password' = '',\n" +
+                        "  'sink.batch.size' = '3',\n" +
+                        "  'sink.max-retries' = '4'\n" +
                         ")");
 
         tEnv.executeSql("INSERT INTO doris_test_sink select name,age,price,sale from doris_test");
