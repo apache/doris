@@ -94,9 +94,12 @@ public class MasterImpl {
         // check task status
         // retry task by report process
         TStatus taskStatus = request.getTaskStatus();
-        LOG.debug("get task report: {}", request.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get task report: {}", request);
+        }
+
         if (taskStatus.getStatusCode() != TStatusCode.OK) {
-            LOG.warn("finish task reports bad. request: {}", request.toString());
+            LOG.warn("finish task reports bad. request: {}", request);
         }
 
         // get backend
@@ -109,7 +112,7 @@ public class MasterImpl {
             List<String> errorMsgs = new ArrayList<>();
             errorMsgs.add("backend not exist.");
             tStatus.setErrorMsgs(errorMsgs);
-            LOG.warn("backend does not found. host: {}, be port: {}. task: {}", host, bePort, request.toString());
+            LOG.warn("backend does not found. host: {}, be port: {}. task: {}", host, bePort, request);
             return result;
         }
 
