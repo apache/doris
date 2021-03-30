@@ -277,10 +277,10 @@ CCTZ_SOURCE="cctz-2.3"
 CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
 
 # datatables, bootstrap 3 and jQuery 3
-DATATABLES_DOWNLOAD="https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.23"
+DATATABLES_DOWNLOAD="https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.24"
 DATATABLES_NAME="DataTables.zip"
-DATATABLES_SOURCE="DataTables-1.10.23"
-DATATABLES_MD5SUM="f7f18a9f39d692ec33b5536bff617232"
+DATATABLES_SOURCE="DataTables-1.10.24"
+DATATABLES_MD5SUM="22404292d02cf3c5f4cd9f5a02d4b42c"
 
 # bootstrap table js
 BOOTSTRAP_TABLE_JS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/bootstrap-table.min.js"
@@ -321,8 +321,8 @@ AWS_C_IO_MD5SUM="b95a6f9d20500727231dd726c957276b"
 # aws-s2n
 AWS_S2N_DOWNLOAD="https://github.com/awslabs/s2n/archive/v0.10.0.tar.gz"
 AWS_S2N_NAME="s2n-0.10.0.tar.gz"
-AWS_S2N_SOURCE="s2n-0.10.0"
-AWS_S2N_MD5SUM="9b3b39803b7090c2bd937f9cc73bc03f"
+AWS_S2N_SOURCE="s2n-tls-0.10.0"
+AWS_S2N_MD5SUM="345aa5d2f9e82347bb3e568c22104d0e"
 
 # aws-c-cal
 AWS_C_CAL_DOWNLOAD="https://github.com/awslabs/aws-c-cal/archive/v0.4.5.tar.gz"
