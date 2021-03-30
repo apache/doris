@@ -141,7 +141,7 @@ public class MysqlProto {
         try {
             channel.sendAndFlush(serializer.toByteBuffer());
         } catch (IOException e) {
-            LOG.warn("Send and flush channel exception, ignore. Exception: " + e.toString());
+            LOG.debug("Send and flush channel exception, ignore.", e);
             return false;
         }
         // Server receive authenticate packet from client.

@@ -18,6 +18,7 @@
 package org.apache.doris.transaction;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.StopWatch;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
@@ -189,6 +190,8 @@ public class GlobalTransactionMgr implements Writable {
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
             TxnCommitAttachment txnCommitAttachment)
             throws UserException {
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
         if (!MetaLockUtils.tryWriteLockTables(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
             throw new UserException("get tableList write lock timeout, tableList=(" + StringUtils.join(tableList, ",") + ")");
         }
@@ -197,8 +200,15 @@ public class GlobalTransactionMgr implements Writable {
         } finally {
            MetaLockUtils.writeUnlockTables(tableList);
         }
+        stopWatch.stop();
+        long publishTimeoutMillis = timeoutMillis - stopWatch.getTime();
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(db.getId());
-        return dbTransactionMgr.publishTransaction(db, transactionId, timeoutMillis);
+        if (publishTimeoutMillis < 0) {
+            // here commit transaction successfully cost too much time to cause publisTimeoutMillis is less than zero,
+            // so we just return false to indicate publish timeout
+            return false;
+        }
+        return dbTransactionMgr.publishTransaction(db, transactionId, publishTimeoutMillis);
    }
 
     public void abortTransaction(long dbId, long transactionId, String reason) throws UserException {
