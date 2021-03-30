@@ -344,8 +344,21 @@ Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, T
         break;
     }
     case TExprNodeType::STRING_LITERAL: {
-        *reinterpret_cast<StringValue*>(slot) = StringValue(const_cast<char*>(t_expr.string_literal.value.c_str()),
-                                                                        t_expr.string_literal.value.size());
+        int len = t_expr.string_literal.value.size();
+        const char* str_val = t_expr.string_literal.value.c_str();
+
+        // CHAR is a fixed-length string and needs to use the length in the slot definition,
+        // VARVHAR is a variable-length string and needs to use the length of the string itself
+        // padding 0 to CHAR field
+        if (TYPE_CHAR == slot_desc->type().type && len < slot_desc->type().len) {
+            auto new_ptr = (char*)_mem_pool->allocate(slot_desc->type().len);
+            memset(new_ptr, 0, slot_desc->type().len);
+            memcpy(new_ptr, str_val, len);
+
+            str_val = new_ptr;
+            len = slot_desc->type().len;
+        }
+        *reinterpret_cast<StringValue*>(slot) = StringValue(const_cast<char*>(str_val), len);
         break;
     }
     case TExprNodeType::BOOL_LITERAL: {
