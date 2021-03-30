@@ -437,7 +437,7 @@ build_mysql() {
     ${CMAKE_CMD} -G "${GENERATOR}" ../ -DWITH_BOOST=`pwd`/$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/mysql/ \
     -DCMAKE_INCLUDE_PATH=$TP_INCLUDE_DIR -DWITHOUT_SERVER=1 -DWITH_ZLIB=$TP_INSTALL_DIR \
     -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -fabi-version=2 -fno-omit-frame-pointer -fno-strict-aliasing -std=gnu++11" \
-    -DDISABLE_SHARED=1 -DBUILD_SHARED_LIBS=0
+    -DDISABLE_SHARED=1 -DBUILD_SHARED_LIBS=0 -DZLIB_LIBRARY=$TP_INSTALL_DIR/lib/libz.a
     ${BUILD_SYSTEM} -j $PARALLEL mysqlclient
 
     # copy headers manually
@@ -457,6 +457,7 @@ build_mysql() {
 build_leveldb() {
     check_if_source_exist $LEVELDB_SOURCE
     cd $TP_SOURCE_DIR/$LEVELDB_SOURCE
+    rm -rf out-shared/ out-static/
     CXXFLAGS="-fPIC" make -j $PARALLEL
     cp out-static/libleveldb.a ../../installed/lib/libleveldb.a
     cp -r include/leveldb ../../installed/include/
@@ -470,7 +471,7 @@ build_brpc() {
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
-    ${CMAKE_CMD} -G "${GENERATOR}" -v -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DBRPC_WITH_GLOG=ON -DWITH_GLOG=ON -DGFLAGS_LIBRARY=$TP_INSTALL_DIR/lib/libgflags.a -DGLOG_LIB=$TP_INSTALL_DIR/lib \
     -DGFLAGS_INCLUDE_DIR=$TP_INSTALL_DIR/include -DGLOG_LIB=$TP_INSTALL_DIR/lib/libglog.a -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
     -DPROTOBUF_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc .. 
@@ -589,13 +590,13 @@ build_s2() {
     rm -rf CMakeCache.txt CMakeFiles/
     CXXFLAGS="-O3" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
-    ${CMAKE_CMD} -G "${GENERATOR}" -v -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
     -DBUILD_SHARED_LIBS=OFF \
     -DGFLAGS_ROOT_DIR="$TP_INSTALL_DIR/include" \
     -DWITH_GFLAGS=ON \
     -DGLOG_ROOT_DIR="$TP_INSTALL_DIR/include" \
-    -DGFLAGS_LIBRARY=$TP_INSTALL_DIR/lib/libgflags.a \
+    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib" \
     -DWITH_GLOG=ON ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
@@ -659,7 +660,7 @@ build_croaringbitmap() {
     rm -rf CMakeCache.txt CMakeFiles/
     CXXFLAGS="-O3" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
-    ${CMAKE_CMD} -G "${GENERATOR}" -v -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    ${CMAKE_CMD} -G "${GENERATOR}" -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
     -DENABLE_ROARING_TESTS=OFF ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
@@ -699,7 +700,7 @@ build_js_and_css() {
     check_if_source_exist Bootstrap-3.3.7/
     check_if_source_exist jQuery-3.3.1/
 
-    mkdir $TP_INSTALL_DIR/webroot/
+    mkdir -p $TP_INSTALL_DIR/webroot/
     cd $TP_SOURCE_DIR/
     cp -r $DATATABLES_SOURCE $TP_INSTALL_DIR/webroot/
     cp -r Bootstrap-3.3.7/ $TP_INSTALL_DIR/webroot/
