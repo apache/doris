@@ -49,7 +49,7 @@ OlapMeta::OlapMeta(const std::string& root_path) : _root_path(root_path), _db(nu
 
 OlapMeta::~OlapMeta() {
     if (_db != nullptr) {
-        for (auto handle : _handles) {
+        for (auto& handle : _handles) {
             _db->DestroyColumnFamilyHandle(handle);
             handle = nullptr;
         }
