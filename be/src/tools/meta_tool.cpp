@@ -65,8 +65,6 @@ using doris::segment_v2::ColumnReaderOptions;
 using doris::segment_v2::ColumnIteratorOptions;
 using doris::segment_v2::PageFooterPB;
 
-const std::string HEADER_PREFIX = "tabletmeta_";
-
 DEFINE_string(root_path, "", "storage root path");
 DEFINE_string(operation, "get_meta",
               "valid operation: get_meta, flag, load_meta, delete_meta, show_meta");

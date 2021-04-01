@@ -26,10 +26,6 @@
 
 namespace doris {
 
-const std::string OLD_HEADER_PREFIX = "hdr_";
-
-const std::string HEADER_PREFIX = "tabletmeta_";
-
 // Helper Class for managing tablet headers of one root path.
 class TabletMetaManager {
 public:
@@ -40,18 +36,13 @@ public:
                                     std::string* json_meta);
 
     static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                           TabletMetaSharedPtr tablet_meta,
-                           const string& header_prefix = "tabletmeta_");
-    static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                           const std::string& meta_binary,
-                           const string& header_prefix = "tabletmeta_");
+                           const std::string& meta_binary);
 
-    static OLAPStatus remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                             const string& header_prefix = "tabletmeta_");
+    static OLAPStatus remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash);
 
     static OLAPStatus traverse_headers(
             OlapMeta* meta, std::function<bool(long, long, const std::string&)> const& func,
-            const string& header_prefix = "tabletmeta_");
+            const string& header_prefix);
 
     static OLAPStatus load_json_meta(DataDir* store, const std::string& meta_path);
 };

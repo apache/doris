@@ -32,6 +32,7 @@
 #include "olap/push_handler.h"
 #include "olap/storage_engine.h"
 #include "olap/utils.h"
+#include "test_util/test_util.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
 #include "util/cpu_info.h"
@@ -782,7 +783,6 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
 class TestDeleteHandler : public testing::Test {
 protected:
     void SetUp() {
-        CpuInfo::init();
         // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
@@ -1120,6 +1120,9 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
 }  // namespace doris
 
 int main(int argc, char** argv) {
+    doris::CpuInfo::init();
+    doris::InitConfig();
+
     doris::init_glog("be-test");
     int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);

@@ -75,6 +75,7 @@ static const std::string ERROR_LOG_PREFIX = "/error_log";
 static const std::string PENDING_DELTA_PREFIX = "/pending_delta";
 static const std::string INCREMENTAL_DELTA_PREFIX = "/incremental_delta";
 static const std::string CLONE_PREFIX = "/clone";
+static const std::string META_POSTFIX = "/meta";
 
 static const int32_t OLAP_DATA_VERSION_APPLIED = DORIS_V1;
 
@@ -286,7 +287,7 @@ enum OLAPStatus {
     OLAP_ERR_HEADER_DELETE_VERSION = -1401,
     OLAP_ERR_HEADER_ADD_PENDING_DELTA = -1402,
     OLAP_ERR_HEADER_ADD_INCREMENTAL_VERSION = -1403,
-    OLAP_ERR_HEADER_INVALID_FLAG = -1404,
+    OLAP_ERR_HEADER_INVALID_FLAG = -1404,  // deprecated
     OLAP_ERR_HEADER_PUT = -1405,
     OLAP_ERR_HEADER_DELETE = -1406,
     OLAP_ERR_HEADER_GET = -1407,
@@ -375,25 +376,24 @@ enum OLAPStatus {
 
 enum ColumnFamilyIndex {
     DEFAULT_COLUMN_FAMILY_INDEX = 0,
-    DORIS_COLUMN_FAMILY_INDEX,
+    DORIS_COLUMN_FAMILY_INDEX,        // deprecated
     META_COLUMN_FAMILY_INDEX,
 };
 
-static const char* const HINIS_KEY_SEPARATOR = ";";
-static const char* const HINIS_KEY_PAIR_SEPARATOR = "|";
-static const char* const HINIS_KEY_GROUP_SEPARATOR = "&";
+const std::string OLD_HEADER_PREFIX = "hdr_";  // deprecated, but it will be used to check old data
+const std::string HEADER_PREFIX = "tabletmeta_";
+const std::string ROWSET_PREFIX = "rst_";
 
-static const std::string DEFAULT_COLUMN_FAMILY = "default";
 static const std::string DORIS_COLUMN_FAMILY = "doris";
 static const std::string META_COLUMN_FAMILY = "meta";
 static const std::string END_ROWSET_ID = "end_rowset_id";
 static const std::string CONVERTED_FLAG = "true";
 static const std::string TABLET_CONVERT_FINISHED = "tablet_convert_finished";
-const std::string TABLET_ID_KEY = "tablet_id";
-const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
-const std::string ENABLE_BYTE_TO_BASE64 = "byte_to_base64";
-const std::string TABLET_ID_PREFIX = "t_";
-const std::string ROWSET_ID_PREFIX = "s_";
+static const std::string ENABLE_BYTE_TO_BASE64 = "byte_to_base64";
+static const std::string TABLET_ID_KEY = "tablet_id";
+static const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
+static const std::string TABLET_ID_PREFIX = "t_";
+static const std::string ROWSET_ID_PREFIX = "s_";
 
 #if defined(__GNUC__)
 #define OLAP_LIKELY(x) __builtin_expect((x), 1)

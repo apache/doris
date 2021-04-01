@@ -26,6 +26,8 @@
 #include <string>
 
 #include "olap/olap_define.h"
+#include "test_util/test_util.h"
+#include "util/cpu_info.h"
 #include "util/file_utils.h"
 
 #ifndef BE_TEST
@@ -36,13 +38,13 @@ using std::string;
 
 namespace doris {
 
-// const std::string meta_path = "./be/test/olap/test_data/header.txt";
+const std::string root_path = "./store";
 const std::string meta_path = "./be/test/olap/test_data/header_without_inc_rs.txt";
 
 class TabletMetaManagerTest : public testing::Test {
 public:
     virtual void SetUp() {
-        std::string root_path = "./store";
+        std::filesystem::remove_all(root_path);
         ASSERT_TRUE(std::filesystem::create_directory(root_path));
         _data_dir = new (std::nothrow) DataDir(root_path);
         ASSERT_NE(nullptr, _data_dir);
@@ -62,7 +64,7 @@ public:
 
     virtual void TearDown() {
         delete _data_dir;
-        ASSERT_TRUE(std::filesystem::remove_all("./store"));
+        ASSERT_TRUE(std::filesystem::remove_all(root_path));
     }
 
 private:
@@ -83,7 +85,7 @@ TEST_F(TabletMetaManagerTest, TestSaveAndGetAndRemove) {
     OLAPStatus s = tablet_meta->deserialize(meta_binary);
     ASSERT_EQ(OLAP_SUCCESS, s);
 
-    s = TabletMetaManager::save(_data_dir, tablet_id, schema_hash, tablet_meta);
+    s = TabletMetaManager::save(_data_dir, tablet_id, schema_hash, meta_binary);
     ASSERT_EQ(OLAP_SUCCESS, s);
     std::string json_meta_read;
     s = TabletMetaManager::get_json_meta(_data_dir, tablet_id, schema_hash, &json_meta_read);
@@ -110,6 +112,9 @@ TEST_F(TabletMetaManagerTest, TestLoad) {
 } // namespace doris
 
 int main(int argc, char** argv) {
+    doris::CpuInfo::init();
+    doris::InitConfig();
+
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

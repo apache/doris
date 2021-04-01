@@ -24,6 +24,8 @@
 #include <string>
 
 #include "olap/olap_define.h"
+#include "test_util/test_util.h"
+#include "util/cpu_info.h"
 #include "util/file_utils.h"
 
 #ifndef BE_TEST
@@ -121,6 +123,10 @@ TEST_F(OlapMetaTest, TestIterate) {
 } // namespace doris
 
 int main(int argc, char** argv) {
+    doris::CpuInfo::init();
+    doris::InitConfig();
+
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+

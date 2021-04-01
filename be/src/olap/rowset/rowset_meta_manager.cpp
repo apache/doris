@@ -32,8 +32,6 @@
 
 namespace doris {
 
-const std::string ROWSET_PREFIX = "rst_";
-
 bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
                                           const RowsetId& rowset_id) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();

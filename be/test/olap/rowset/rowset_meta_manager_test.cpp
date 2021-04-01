@@ -27,6 +27,8 @@
 #include "json2pb/json_to_pb.h"
 #include "olap/olap_meta.h"
 #include "olap/storage_engine.h"
+#include "test_util/test_util.h"
+#include "util/cpu_info.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -126,6 +128,9 @@ TEST_F(RowsetMetaManagerTest, TestLoad) {
 } // namespace doris
 
 int main(int argc, char** argv) {
+    doris::CpuInfo::init();
+    doris::InitConfig();
+
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

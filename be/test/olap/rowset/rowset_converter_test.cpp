@@ -35,6 +35,8 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
 #include "runtime/exec_env.h"
+#include "test_util/test_util.h"
+#include "util/cpu_info.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
 
@@ -297,6 +299,9 @@ TEST_F(RowsetConverterTest, TestConvertBetaRowsetToAlpha) {
 } // namespace doris
 
 int main(int argc, char** argv) {
+    doris::CpuInfo::init();
+    doris::InitConfig();
+
     doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

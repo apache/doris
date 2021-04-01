@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_OLAP_OLAP_META_H
-#define DORIS_BE_SRC_OLAP_OLAP_OLAP_META_H
+#pragma once
 
 #include <functional>
 #include <map>
@@ -48,16 +47,15 @@ public:
 
     std::string get_root_path();
 
-    OLAPStatus get_tablet_convert_finished(bool& flag);
-
-    OLAPStatus set_tablet_convert_finished();
-
 private:
+    // All rocksdb instances on this server will share the same block cache.
+    // It's convenient to control the total memory used by this server, and the LRU
+    // algorithm used by the block cache can be more efficient in this way.
+    static std::shared_ptr<rocksdb::Cache> _s_block_cache;
+
     std::string _root_path;
     rocksdb::DB* _db;
     std::vector<rocksdb::ColumnFamilyHandle*> _handles;
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_OLAP_OLAP_META_H

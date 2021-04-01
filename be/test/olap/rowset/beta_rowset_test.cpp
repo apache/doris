@@ -34,6 +34,8 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "test_util/test_util.h"
+#include "util/cpu_info.h"
 #include "util/file_utils.h"
 #include "util/slice.h"
 
@@ -353,6 +355,9 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
 } // namespace doris
 
 int main(int argc, char** argv) {
+    doris::CpuInfo::init();
+    doris::InitConfig();
+
     doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

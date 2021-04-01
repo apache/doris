@@ -246,8 +246,8 @@ CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
 // size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring
 // lower write amplification, trading off read amplification and space amplification.
 CONF_mString(cumulative_compaction_policy, "size_based");
-CONF_Validator(cumulative_compaction_policy, [](const std::string config) -> bool {
-    return config == "size_based" || config == "num_based";
+CONF_Validator(cumulative_compaction_policy, [](const std::string& value) -> bool {
+  return value == "size_based" || value == "num_based";
 });
 
 // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size,
@@ -527,10 +527,23 @@ CONF_Int32(flush_thread_num_per_store, "2");
 CONF_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
 CONF_mInt32(tablet_meta_checkpoint_min_interval_secs, "600");
 CONF_Int32(generate_tablet_meta_checkpoint_tasks_interval_secs, "600");
+// Thread count of RocksDB uses for background flush and compaction, -1 means the number of cores.
+CONF_Int32(rocksdb_thread_count, "-1");
+CONF_Int32(rocksdb_block_cache_mb, "64");
+CONF_Validator(rocksdb_block_cache_mb, [](int value) -> bool {
+  return value > 0;
+});
+CONF_String(rocksdb_compression_type, "LZ4");
+CONF_Validator(rocksdb_compression_type, [](const std::string& value) -> bool {
+  return value == "LZ4" || value == "SNAPPY";
+});
 
 // config for default rowset type
 // Valid configs: ALPHA, BETA
 CONF_String(default_rowset_type, "BETA");
+CONF_Validator(default_rowset_type, [](const std::string& value) -> bool {
+  return value == "ALPHA" || value == "BETA";
+});
 
 // Maximum size of a single message body in all protocols
 CONF_Int64(brpc_max_body_size, "209715200");

@@ -23,9 +23,11 @@
 #include "common/logging.h"
 #include "olap/olap_define.h"
 #include "rocksdb/db.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/slice_transform.h"
+#include "rocksdb/table.h"
+#include "util/cpu_info.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 
@@ -38,12 +40,22 @@ using rocksdb::ReadOptions;
 using rocksdb::WriteOptions;
 using rocksdb::Slice;
 using rocksdb::Iterator;
-using rocksdb::kDefaultColumnFamilyName;
-using rocksdb::NewFixedPrefixTransform;
 
 namespace doris {
-const std::string META_POSTFIX = "/meta";
-const size_t PREFIX_LENGTH = 4;
+
+rocksdb::CompressionType compression_type(const std::string& compression)
+{
+    if (compression == "SNAPPY") {
+        return rocksdb::kSnappyCompression;
+    } else if (compression == "LZ4") {
+        return rocksdb::kLZ4Compression;
+    }
+
+    LOG(FATAL) << "compression type not recognized: " << compression;
+    return rocksdb::kNoCompression;
+}
+
+std::shared_ptr<rocksdb::Cache> OlapMeta::_s_block_cache;
 
 OlapMeta::OlapMeta(const std::string& root_path) : _root_path(root_path), _db(nullptr) {}
 
@@ -61,19 +73,34 @@ OlapMeta::~OlapMeta() {
 OLAPStatus OlapMeta::init() {
     // init db
     DBOptions options;
-    options.IncreaseParallelism();
+    int total_threads = config::rocksdb_thread_count;
+    if (total_threads == -1) {
+        total_threads = CpuInfo::num_cores();
+    }
+    options.IncreaseParallelism(total_threads);
     options.create_if_missing = true;
     options.create_missing_column_families = true;
     std::string db_path = _root_path + META_POSTFIX;
     std::vector<ColumnFamilyDescriptor> column_families;
-    // default column family is required
-    column_families.emplace_back(DEFAULT_COLUMN_FAMILY, ColumnFamilyOptions());
+    // Not used, but we have to open the default column family in order to open all column families
+    column_families.emplace_back(rocksdb::kDefaultColumnFamilyName, ColumnFamilyOptions());
+    // Deprecated, but we have to open it to keep compatible
     column_families.emplace_back(DORIS_COLUMN_FAMILY, ColumnFamilyOptions());
 
-    // meta column family add prefix extractor to improve performance and ensure correctness
-    ColumnFamilyOptions meta_column_family;
-    meta_column_family.prefix_extractor.reset(NewFixedPrefixTransform(PREFIX_LENGTH));
-    column_families.emplace_back(META_COLUMN_FAMILY, meta_column_family);
+    ColumnFamilyOptions column_family_options;
+    column_family_options.compression = compression_type(config::rocksdb_compression_type);
+    column_family_options.memtable_prefix_bloom_size_ratio = 0.02;
+    {
+        rocksdb::BlockBasedTableOptions block_based_options;
+        block_based_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10));
+        static std::once_flag flag;
+        std::call_once(flag, [&]() {
+          _s_block_cache = rocksdb::NewLRUCache(config::rocksdb_block_cache_mb * 1024 * 1024);
+        });
+        block_based_options.block_cache = _s_block_cache;
+        column_family_options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
+    }
+    column_families.emplace_back(META_COLUMN_FAMILY, column_family_options);
     rocksdb::Status s = DB::Open(options, db_path, column_families, &_handles, &_db);
     if (!s.ok() || _db == nullptr) {
         LOG(WARNING) << "rocks db open failed, reason:" << s.ToString();
@@ -193,27 +220,6 @@ OLAPStatus OlapMeta::iterate(
 
 std::string OlapMeta::get_root_path() {
     return _root_path;
-}
-
-OLAPStatus OlapMeta::get_tablet_convert_finished(bool& flag) {
-    // get is_header_converted flag
-    std::string value;
-    std::string key = TABLET_CONVERT_FINISHED;
-    OLAPStatus s = get(DEFAULT_COLUMN_FAMILY_INDEX, key, &value);
-    if (s == OLAP_ERR_META_KEY_NOT_FOUND || value == "false") {
-        flag = false;
-    } else if (value == "true") {
-        flag = true;
-    } else {
-        LOG(WARNING) << "invalid _is_header_converted. _is_header_converted=" << value;
-        return OLAP_ERR_HEADER_INVALID_FLAG;
-    }
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus OlapMeta::set_tablet_convert_finished() {
-    OLAPStatus s = put(DEFAULT_COLUMN_FAMILY_INDEX, TABLET_CONVERT_FINISHED, CONVERTED_FLAG);
-    return s;
 }
 
 } // namespace doris

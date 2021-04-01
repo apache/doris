@@ -31,6 +31,8 @@
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
+#include "test_util/test_util.h"
+#include "util/cpu_info.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -334,6 +336,9 @@ TEST_F(TxnManagerTest, DeleteCommittedTxn) {
 } // namespace doris
 
 int main(int argc, char** argv) {
+    doris::CpuInfo::init();
+    doris::InitConfig();
+
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

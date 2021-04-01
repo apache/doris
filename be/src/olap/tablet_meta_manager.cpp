@@ -80,26 +80,10 @@ OLAPStatus TabletMetaManager::get_json_meta(DataDir* store, TTabletId tablet_id,
     return OLAP_SUCCESS;
 }
 
-// TODO(ygl):
-// 1. if term > 0 then save to remote meta store first using term
-// 2. save to local meta store
 OLAPStatus TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                                   TabletMetaSharedPtr tablet_meta, const string& header_prefix) {
+                                   const std::string& meta_binary) {
     std::stringstream key_stream;
-    key_stream << header_prefix << tablet_id << "_" << schema_hash;
-    std::string key = key_stream.str();
-    std::string value;
-    tablet_meta->serialize(&value);
-    OlapMeta* meta = store->get_meta();
-    LOG(INFO) << "save tablet meta"
-              << ", key:" << key << ", meta length:" << value.length();
-    return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
-}
-
-OLAPStatus TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                                   const std::string& meta_binary, const string& header_prefix) {
-    std::stringstream key_stream;
-    key_stream << header_prefix << tablet_id << "_" << schema_hash;
+    key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
     VLOG_NOTICE << "save tablet meta to meta store: key = " << key;
     OlapMeta* meta = store->get_meta();
@@ -112,10 +96,9 @@ OLAPStatus TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaH
 // TODO(ygl):
 // 1. remove load data first
 // 2. remove from load meta store using term if term > 0
-OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                                     const string& header_prefix) {
+OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash) {
     std::stringstream key_stream;
-    key_stream << header_prefix << tablet_id << "_" << schema_hash;
+    key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
     OlapMeta* meta = store->get_meta();
     LOG(INFO) << "start to remove tablet_meta, key:" << key;

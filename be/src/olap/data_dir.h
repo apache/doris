@@ -108,10 +108,6 @@ public:
 
     void perform_path_gc_by_tablet();
 
-    bool convert_old_data_success();
-
-    OLAPStatus set_convert_finished();
-
     // check if the capacity reach the limit after adding the incoming data
     // return true if limit reached, otherwise, return false.
     // TODO(cmy): for now we can not precisely calculate the capacity Doris used,
@@ -141,11 +137,10 @@ private:
     OLAPStatus _read_and_write_test_file();
     Status _read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
-    OLAPStatus _clean_unfinished_converting_data();
     // Check whether has old format (hdr_ start) in olap. When doris updating to current version,
     // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true,
     // process will log fatal.
-    OLAPStatus _check_incompatible_old_format_tablet();
+    void _check_incompatible_old_format_tablet();
 
     void _process_garbage_path(const std::string& path);
 
@@ -193,9 +188,6 @@ private:
 
     RWMutex _pending_path_mutex;
     std::set<std::string> _pending_path_ids;
-
-    // used in convert process
-    bool _convert_old_data_success;
 
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;
     IntGauge* disks_total_capacity;
