@@ -270,15 +270,6 @@ public class FileSystemManager {
                         int randNumber = random.nextInt(10000);
                         // different kerberos account has different file
                         tmpFilePath = "/tmp/." + principal + "_" + Long.toString(currentTime) + "_" + Integer.toString(randNumber);
-                        // before write keytab content into a tmp file, delete if in case of old file confusion
-                        try {
-                            File file = new File(tmpFilePath);
-                            if(!file.delete()){
-                                logger.warn("delete tmp file:" +  tmpFilePath + " failed");
-                            }
-                        } catch (Exception e) {
-
-                        }
                         FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath);
                         fileOutputStream.write(base64decodedBytes);
                         fileOutputStream.close();
