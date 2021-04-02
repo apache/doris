@@ -399,11 +399,11 @@ std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
                     compaction_type, data_dir, _tablet_submitted_compaction[data_dir], disk_max_score);
             if (tablet != nullptr) {
                 tablets_compaction.emplace_back(tablet);
-                max_compaction_score = disk_max_score > max_compaction_score ? disk_max_score : max_compaction_score;
+                max_compaction_score = std::max(max_compaction_score, disk_max_score);
             }
         }
     }
-    if (tablets_compaction.size() > 0) {
+    if (!tablets_compaction.empty()) {
         if (compaction_type == CompactionType::BASE_COMPACTION) {
             DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(max_compaction_score);
         } else {
