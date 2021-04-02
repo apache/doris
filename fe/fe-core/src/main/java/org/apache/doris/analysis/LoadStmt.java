@@ -161,6 +161,12 @@ public class LoadStmt extends DdlStmt {
                     return Integer.valueOf(s);
                 }
             })
+            .put(CLUSTER_PROPERTY, new Function<String, String>() {
+                @Override
+                public @Nullable String apply(@Nullable String s) {
+                    return s;
+                }
+            })
             .build();
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
