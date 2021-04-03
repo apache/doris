@@ -328,7 +328,7 @@ This term does not match any term in the dictionary, and will not return any res
 
 The type of `k4.keyword` is `keyword`, and writing data into ES is a complete term, so it can be matched
 
-### Enable ES node discovery(es\_nodes\_discovery=true)
+### Enable node discovery mechanism, default is true(es\_nodes\_discovery=true)
 
 ```
 CREATE EXTERNAL TABLE `test` (
@@ -357,7 +357,7 @@ Parameter | Description
 
 When enabled, Doris will find all available nodes from ES. If you only want Doris to access some nodes, you can turn this configuration off
 
-### Use SSL authentication(es\_net\_ssl=true)
+### Enable SSL protocol when making an HTTP request, default is false(http\_ssl\_enable=true)
 
 ```
 CREATE EXTERNAL TABLE `test` (

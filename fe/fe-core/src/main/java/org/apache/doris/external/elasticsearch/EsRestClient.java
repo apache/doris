@@ -67,9 +67,9 @@ public class EsRestClient {
     private String[] nodes;
     private String currentNode;
     private int currentNodeIndex = 0;
-    private boolean useSslClient;
+    private boolean httpSslEnable;
 
-    public EsRestClient(String[] nodes, String authUser, String authPassword, boolean useSslClient) {
+    public EsRestClient(String[] nodes, String authUser, String authPassword, boolean httpSslEnable) {
         this.nodes = nodes;
         this.builder = new Request.Builder();
         if (!Strings.isEmpty(authUser) && !Strings.isEmpty(authPassword)) {
@@ -77,7 +77,7 @@ public class EsRestClient {
                     Credentials.basic(authUser, authPassword));
         }
         this.currentNode = nodes[currentNodeIndex];
-        this.useSslClient = useSslClient;
+        this.httpSslEnable = httpSslEnable;
     }
 
     private void selectNextNode() {
@@ -96,7 +96,7 @@ public class EsRestClient {
         }
         Map<String, EsNodeInfo> nodesMap = new HashMap<>();
         for (Map.Entry<String, Map<String, Object>> entry : nodesData.entrySet()) {
-            EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue());
+            EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue(), httpSslEnable);
             if (node.hasHttp()) {
                 nodesMap.put(node.getId(), node);
             }
@@ -154,6 +154,19 @@ public class EsRestClient {
         }
         return EsShardPartitions.findShardPartitions(indexName, searchShards);
     }
+    
+    /**
+     * init ssl networkClient use lazy way
+     **/
+    private synchronized void initSslNetworkClient() {
+        if (sslNetworkClient == null) {
+            sslNetworkClient = new OkHttpClient.Builder()
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .sslSocketFactory(createSSLSocketFactory(), new TrustAllCerts())
+                    .hostnameVerifier(new TrustAllHostnameVerifier())
+                    .build();
+        }
+    }
 
     /**
      * execute request for specific path，it will try again nodes.length times if it fails
@@ -165,14 +178,8 @@ public class EsRestClient {
         int retrySize = nodes.length;
         DorisEsException scratchExceptionForThrow = null;
         OkHttpClient httpClient;
-        if (useSslClient) {
-            if (sslNetworkClient == null) {
-                sslNetworkClient = new OkHttpClient.Builder()
-                        .readTimeout(10, TimeUnit.SECONDS)
-                        .sslSocketFactory(createSSLSocketFactory(), new TrustAllCerts())
-                        .hostnameVerifier(new TrustAllHostnameVerifier())
-                        .build();
-            }
+        if (httpSslEnable) {
+            initSslNetworkClient();
             httpClient = sslNetworkClient;
         } else {
             httpClient = networkClient;

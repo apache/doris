@@ -54,7 +54,7 @@ public class PartitionPhase implements SearchPhase {
     public void postProcess(SearchContext context) throws DorisEsException {
         context.partitions(shardPartitions);
         if (EsTable.TRANSPORT_HTTP.equals(context.esTable().getTransport())) {
-            context.partitions().addHttpAddress(nodesInfo, context.esTable().isHttpSslEnabled());
+            context.partitions().addHttpAddress(nodesInfo);
         }
     }
 }

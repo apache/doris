@@ -325,7 +325,7 @@ POST /_analyze
 
 `k4.keyword` 的类型是`keyword`，数据写入ES中是一个完整的term，所以可以匹配
 
-### 开启es节点发现(es\_nodes\_discovery=true)
+### 开启节点自动发现, 默认为true(es\_nodes\_discovery=true)
 
 ```
 CREATE EXTERNAL TABLE `test` (
@@ -354,7 +354,7 @@ PROPERTIES (
 
 开启后Doris会从ES发现所有可用节点，如果只希望Doris访问部分节点，可以关闭此配置
 
-### 使用ssl方式认证(es\_net\_ssl=true)
+### 在发起http请求时开启ssl协议, 默认为false(es\_net\_ssl=true)
 
 ```
 CREATE EXTERNAL TABLE `test` (
