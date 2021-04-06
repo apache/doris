@@ -48,11 +48,11 @@ const size_t PREFIX_LENGTH = 4;
 OlapMeta::OlapMeta(const std::string& root_path) : _root_path(root_path), _db(nullptr) {}
 
 OlapMeta::~OlapMeta() {
-    for (auto handle : _handles) {
-        _db->DestroyColumnFamilyHandle(handle);
-        handle = nullptr;
-    }
     if (_db != nullptr) {
+        for (auto& handle : _handles) {
+            _db->DestroyColumnFamilyHandle(handle);
+            handle = nullptr;
+        }
         delete _db;
         _db = nullptr;
     }
