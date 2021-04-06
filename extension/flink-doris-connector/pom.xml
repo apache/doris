@@ -14,6 +14,8 @@
         <libthrift.version>0.9.3</libthrift.version>
         <arrow.version>0.15.1</arrow.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <doris.home>${basedir}/../../</doris.home>
+        <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
     </properties>
 
     <profiles>
@@ -181,6 +183,9 @@
                 <groupId>org.apache.thrift.tools</groupId>
                 <artifactId>maven-thrift-plugin</artifactId>
                 <version>0.1.11</version>
+                <configuration>
+                    <thriftExecutable>${doris.thirdparty}/installed/bin/thrift</thriftExecutable>
+                </configuration>
                 <executions>
                     <execution>
                         <id>thrift-sources</id>
