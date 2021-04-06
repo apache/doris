@@ -24,7 +24,7 @@ import org.apache.doris.flink.backend.BackendClient
 import org.apache.doris.flink.cfg.ConfigurationOptions._
 import org.apache.doris.flink.cfg.Settings
 import org.apache.doris.flink.exception.ShouldNeverHappenException
-import org.apache.doris.flink.rest.PartitionDefinition
+import org.apache.doris.flink.rest.{PartitionDefinition, SchemaUtils}
 import org.apache.doris.flink.rest.models.Schema
 import org.apache.doris.flink.serialization.{Routing, RowBatch}
 import org.apache.doris.flink.util.ErrorMessages
