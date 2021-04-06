@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/stream_load/stream_load_record.h"
+#include "runtime/stream_load/stream_load_recorder.h"
 
 #include "common/config.h"
 #include "common/status.h"
@@ -31,13 +31,13 @@
 namespace doris {
 const std::string STREAM_LOAD_POSTFIX = "/stream_load";
 
-StreamLoadRecord::StreamLoadRecord(const std::string& root_path)
+StreamLoadRecorder::StreamLoadRecorder(const std::string& root_path)
         : _root_path(root_path),
           _db(nullptr),
           _last_compaction_time(UnixMillis()) {
 }
 
-StreamLoadRecord::~StreamLoadRecord() {
+StreamLoadRecorder::~StreamLoadRecorder() {
     if (_db != nullptr) {
         for (auto handle : _handles) {
             _db->DestroyColumnFamilyHandle(handle);
@@ -48,7 +48,7 @@ StreamLoadRecord::~StreamLoadRecord() {
     }
 }
 
-Status StreamLoadRecord::init() {
+Status StreamLoadRecorder::init() {
     // init db
     rocksdb::DBOptions options;
     options.IncreaseParallelism();
@@ -70,7 +70,7 @@ Status StreamLoadRecord::init() {
     return Status::OK();
 }
 
-Status StreamLoadRecord::put(const std::string& key, const std::string& value) {
+Status StreamLoadRecorder::put(const std::string& key, const std::string& value) {
     rocksdb::ColumnFamilyHandle* handle = _handles[1];
     rocksdb::WriteOptions write_options;
     write_options.sync = false;
@@ -90,7 +90,7 @@ Status StreamLoadRecord::put(const std::string& key, const std::string& value) {
     return Status::OK();
 }
 
-Status StreamLoadRecord::get_batch(const std::string& start, const int batch_size, std::map<std::string, std::string>* stream_load_records) {
+Status StreamLoadRecorder::get_batch(const std::string& start, const int batch_size, std::map<std::string, std::string>* stream_load_records) {
     rocksdb::ColumnFamilyHandle* handle = _handles[1];
     std::unique_ptr<rocksdb::Iterator> it(_db->NewIterator(rocksdb::ReadOptions(), handle));
     if (start == "") {

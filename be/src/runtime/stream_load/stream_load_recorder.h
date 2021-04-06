@@ -26,11 +26,11 @@ namespace doris {
 
 class Status;
 
-class StreamLoadRecord {
+class StreamLoadRecorder {
 public:
-    StreamLoadRecord(const std::string& root_path);
+    StreamLoadRecorder(const std::string& root_path);
 
-    virtual ~StreamLoadRecord();
+    virtual ~StreamLoadRecorder();
 
     Status init();
 

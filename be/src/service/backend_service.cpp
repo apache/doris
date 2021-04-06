@@ -315,10 +315,10 @@ void BackendService::close_scanner(TScanCloseResult& result_, const TScanClosePa
 }
 
 void BackendService::get_stream_load_record(TStreamLoadRecordResult& result, const std::string& params) {
-    auto stream_load_record = StorageEngine::instance()->get_stream_load_record();
-    if (stream_load_record != nullptr) {
+    auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
+    if (stream_load_recorder != nullptr) {
         std::map<std::string, std::string> records;
-        auto st = stream_load_record->get_batch(params, config::stream_load_record_batch_size, &records);
+        auto st = stream_load_recorder->get_batch(params, config::stream_load_record_batch_size, &records);
         if (st.ok()) {
             LOG(INFO) << "get_batch stream_load_record rocksdb successfully. records size: " << records.size();
             std::map<std::string, TStreamLoadRecord> stream_load_record_batch;
@@ -331,7 +331,7 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result, con
             result.__set_stream_load_record(stream_load_record_batch);
         }
     } else {
-        LOG(WARNING) << "stream_load_record is null.";
+        LOG(WARNING) << "stream_load_recorder is null.";
     }
 }
 

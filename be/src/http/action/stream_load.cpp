@@ -49,7 +49,7 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/stream_load/stream_load_pipe.h"
-#include "runtime/stream_load/stream_load_record.h"
+#include "runtime/stream_load/stream_load_recorder.h"
 #include "util/byte_buffer.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -540,15 +540,15 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
 }
 
 void StreamLoadAction::_sava_stream_load_record(StreamLoadContext* ctx, const std::string& str) {
-    auto stream_load_record = StorageEngine::instance()->get_stream_load_record();
-    if (stream_load_record != nullptr) {
+    auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
+    if (stream_load_recorder != nullptr) {
         std::string key = ToStringFromUnixMicros(ctx->start_micros + ctx->load_cost_micros) + "_" + ctx->label;
-        auto st = stream_load_record->put(key, str);
+        auto st = stream_load_recorder->put(key, str);
         if (st.ok()) {
             LOG(INFO) << "put stream_load_record rocksdb successfully. label: " << ctx->label << ", key: " << key;
         }
     } else {
-        LOG(WARNING) << "put stream_load_record rocksdb failed. stream_load_record is null.";
+        LOG(WARNING) << "put stream_load_record rocksdb failed. stream_load_recorder is null.";
     }
 }
 

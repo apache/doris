@@ -159,6 +159,6 @@ service BackendService {
     // release the context resource associated with the context_id
     DorisExternalService.TScanCloseResult close_scanner(1: DorisExternalService.TScanCloseParams params);
 
-    TStreamLoadRecordResult get_stream_load_record(1: string params);
+    TStreamLoadRecordResult get_stream_load_record(1: string last_stream_record_time);
 
 }
