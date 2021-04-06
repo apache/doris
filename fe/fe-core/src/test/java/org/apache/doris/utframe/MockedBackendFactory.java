@@ -284,7 +284,7 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public TStreamLoadRecordResult getStreamLoadRecord(String params) throws TException {
+        public TStreamLoadRecordResult getStreamLoadRecord(String last_stream_record_time) throws TException {
             return new TStreamLoadRecordResult(Maps.newHashMap());
         }
     }
