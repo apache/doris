@@ -396,7 +396,7 @@ std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
         if (!data_dir->reach_capacity_limit(0)) {
             uint32_t disk_max_score = 0;
             TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(
-                    compaction_type, data_dir, _tablet_submitted_compaction[data_dir], disk_max_score);
+                    compaction_type, data_dir, _tablet_submitted_compaction[data_dir], &disk_max_score);
             if (tablet != nullptr) {
                 tablets_compaction.emplace_back(tablet);
                 max_compaction_score = std::max(max_compaction_score, disk_max_score);

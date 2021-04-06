@@ -681,7 +681,7 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
-        std::vector<TTabletId>& tablet_submitted_compaction, uint32_t& score) {
+        std::vector<TTabletId>& tablet_submitted_compaction, uint32_t* score) {
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str =
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
@@ -776,7 +776,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 << ", compaction_score=" << compaction_score
                 << ", tablet_scan_frequency=" << tablet_scan_frequency
                 << ", highest_score=" << highest_score;
-        score = compaction_score;
+        *score = compaction_score;
     }
     return best_tablet;
 }
