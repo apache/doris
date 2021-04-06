@@ -79,9 +79,9 @@ std::string StreamLoadContext::to_json() const {
     writer.Key("LoadBytes");
     writer.Int64(receive_bytes);
     writer.Key("StartTime");
-    writer.String(ToStringFromUnixMicros(start_micros).c_str());
+    writer.Int64(start_micros);
     writer.Key("FinishTime");
-    writer.String(ToStringFromUnixMicros(start_micros + load_cost_micros).c_str());
+    writer.Int64(start_micros + load_cost_micros);
     writer.Key("LoadTimeMs");
     writer.Int64(load_cost_micros / 1000);
     writer.Key("BeginTxnTimeMs");
@@ -179,12 +179,12 @@ void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_
 
     if (document.HasMember("StartTime")) {
         const rapidjson::Value& start_time = document["StartTime"];
-        stream_load_item.__set_start_time(start_time.GetString());
+        stream_load_item.__set_start_time(start_time.GetInt64());
     }
 
     if (document.HasMember("FinishTime")) {
         const rapidjson::Value& finish_time = document["FinishTime"];
-        stream_load_item.__set_finish_time(finish_time.GetString());
+        stream_load_item.__set_finish_time(finish_time.GetInt64());
     }
 }
 

@@ -97,8 +97,8 @@ struct TStreamLoadRecord {
     14: required i64 filtered_rows
     15: required i64 unselected_rows
     16: required i64 load_bytes
-    17: required string start_time
-    18: required string finish_time
+    17: required i64 start_time
+    18: required i64 finish_time
 }
 
 struct TStreamLoadRecordResult {
@@ -159,6 +159,6 @@ service BackendService {
     // release the context resource associated with the context_id
     DorisExternalService.TScanCloseResult close_scanner(1: DorisExternalService.TScanCloseParams params);
 
-    TStreamLoadRecordResult get_stream_load_record(1: string last_stream_record_time);
+    TStreamLoadRecordResult get_stream_load_record(1: i64 last_stream_record_time);
 
 }

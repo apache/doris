@@ -221,7 +221,7 @@ public class GenericPoolTest {
         }
 
         @Override
-        public TStreamLoadRecordResult getStreamLoadRecord(String last_stream_record_time) throws TException {
+        public TStreamLoadRecordResult getStreamLoadRecord(long last_stream_record_time) throws TException {
             // TODO Auto-generated method stub
             return null;
         }

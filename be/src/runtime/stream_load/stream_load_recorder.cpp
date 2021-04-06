@@ -93,12 +93,11 @@ Status StreamLoadRecorder::put(const std::string& key, const std::string& value)
 Status StreamLoadRecorder::get_batch(const std::string& start, const int batch_size, std::map<std::string, std::string>* stream_load_records) {
     rocksdb::ColumnFamilyHandle* handle = _handles[1];
     std::unique_ptr<rocksdb::Iterator> it(_db->NewIterator(rocksdb::ReadOptions(), handle));
-    if (start == "") {
+    if (start == "-1") {
         it->SeekToFirst();
     } else {
         it->Seek(start);
-        rocksdb::Status status = it->status();
-        if (status.ok()) {
+        if (it->Valid()) {
             it->Next();
         } else {
             it->SeekToFirst();

@@ -19,7 +19,6 @@ package org.apache.doris.load;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.plugin.AuditEvent;
@@ -53,7 +52,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         ImmutableMap<Long, Backend> backends = Catalog.getCurrentSystemInfo().getIdToBackend();
         long start = System.currentTimeMillis();
         int pullRecordSize = 0;
-        Map<Long, String> beIdToLastStreamLoad = Maps.newHashMap();
+        Map<Long, Long> beIdToLastStreamLoad = Maps.newHashMap();
         for (Backend backend : backends.values()) {
             BackendService.Client client = null;
             TNetworkAddress address = null;
@@ -64,7 +63,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 TStreamLoadRecordResult result = client.getStreamLoadRecord(backend.getLastStreamLoadTime());
                 Map<String, TStreamLoadRecord> streamLoadRecordBatch = result.getStreamLoadRecord();
                 pullRecordSize += streamLoadRecordBatch.size();
-                String lastStreamLoadTime = "";
+                long lastStreamLoadTime = -1;
                 for (Map.Entry<String, TStreamLoadRecord> entry : streamLoadRecordBatch.entrySet()) {
                     TStreamLoadRecord streamLoadItem= entry.getValue();
                     LOG.debug("receive stream load record info from backend: {}. label: {}, db: {}, tbl: {}, user: {}, user_ip: {}," +
@@ -79,13 +78,13 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                             .setLabel(streamLoadItem.getLabel()).setDb(streamLoadItem.getDb()).setTable(streamLoadItem.getTbl())
                             .setUser(streamLoadItem.getUser()).setClientIp(streamLoadItem.getUserIp()).setStatus(streamLoadItem.getStatus())
                             .setMessage(streamLoadItem.getMessage()).setUrl(streamLoadItem.getUrl()).setTotalRows(streamLoadItem.getTotalRows())
-                            .setLoadedRows( streamLoadItem.getLoadedRows()).setFilteredRows(streamLoadItem.getFilteredRows())
+                            .setLoadedRows(streamLoadItem.getLoadedRows()).setFilteredRows(streamLoadItem.getFilteredRows())
                             .setUnselectedRows(streamLoadItem.getUnselectedRows()).setLoadBytes(streamLoadItem.getLoadBytes())
-                            .setStartTime(streamLoadItem.getStartTime()).setFinishTime(streamLoadItem.getFinishTime())
+                            .setStartTime(String.valueOf(streamLoadItem.getStartTime())).setFinishTime(String.valueOf(streamLoadItem.getFinishTime()))
                             .build();
                     Catalog.getCurrentCatalog().getAuditEventProcessor().handleAuditEvent(auditEvent);
-                    if (entry.getKey().compareTo(lastStreamLoadTime) > 0) {
-                        lastStreamLoadTime = entry.getKey();
+                    if (entry.getValue().getFinishTime() > lastStreamLoadTime) {
+                        lastStreamLoadTime = entry.getValue().getFinishTime();
                     }
                 }
                 if (streamLoadRecordBatch.size() > 0) {
@@ -106,7 +105,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 }
             }
         }
-        LOG.info("finished to pull stream load records of all backends. record size: {}, cost: {} ms", pullRecordSize, (System.currentTimeMillis() - start));
+        LOG.info("finished to pull stream load records of all backends. record size: {}, cost: {} ms",
+                                                        pullRecordSize, (System.currentTimeMillis() - start));
         if (pullRecordSize > 0) {
             FetchStreamLoadRecord fetchStreamLoadRecord = new FetchStreamLoadRecord(beIdToLastStreamLoad);
             Catalog.getCurrentCatalog().getEditLog().logFetchStreamLoadRecord(fetchStreamLoadRecord);
@@ -115,10 +115,10 @@ public class StreamLoadRecordMgr extends MasterDaemon {
 
     public void replayFetchStreamLoadRecord(FetchStreamLoadRecord fetchStreamLoadRecord) {
         ImmutableMap<Long, Backend> backends = Catalog.getCurrentSystemInfo().getIdToBackend();
-        Map<Long, String> beIdToLastStreamLoad = fetchStreamLoadRecord.getBeIdToLastStreamLoad();
+        Map<Long, Long> beIdToLastStreamLoad = fetchStreamLoadRecord.getBeIdToLastStreamLoad();
         for (Backend backend : backends.values()) {
-            String lastStreamLoadTime = beIdToLastStreamLoad.get(backend.getId());
-            if (lastStreamLoadTime != null) {
+            if (beIdToLastStreamLoad.containsKey(backend.getId())) {
+                long lastStreamLoadTime = beIdToLastStreamLoad.get(backend.getId());
                 LOG.info("Replay stream load bdbje. backend: {}, last stream load version: {}", backend.getHost(), lastStreamLoadTime);
                 backend.setLastStreamLoadTime(lastStreamLoadTime);
             }
@@ -126,44 +126,44 @@ public class StreamLoadRecordMgr extends MasterDaemon {
     }
 
     public static class FetchStreamLoadRecord implements Writable {
-        private Map<Long, String> beIdToLastStreamLoad;
+        private Map<Long, Long> beIdToLastStreamLoad;
 
-        public FetchStreamLoadRecord(Map<Long, String> beIdToLastStreamLoad) {
+        public FetchStreamLoadRecord(Map<Long, Long> beIdToLastStreamLoad) {
             this.beIdToLastStreamLoad = beIdToLastStreamLoad;
         }
 
-        public void setBeIdToLastStreamLoad(Map<Long, String> beIdToLastStreamLoad) {
+        public void setBeIdToLastStreamLoad(Map<Long, Long> beIdToLastStreamLoad) {
             this.beIdToLastStreamLoad = beIdToLastStreamLoad;
         }
 
-        public Map<Long, String> getBeIdToLastStreamLoad() {
+        public Map<Long, Long> getBeIdToLastStreamLoad() {
             return beIdToLastStreamLoad;
         }
 
         @Override
         public void write(DataOutput out) throws IOException {
-            for (Map.Entry<Long, String> entry : beIdToLastStreamLoad.entrySet()) {
+            for (Map.Entry<Long, Long> entry : beIdToLastStreamLoad.entrySet()) {
                 out.writeBoolean(true);
                 out.writeLong(entry.getKey());
                 out.writeBoolean(true);
-                Text.writeString(out, entry.getValue());
+                out.writeLong(entry.getValue());
                 LOG.debug("Write stream load bdbje. key: {}, value: {} ", entry.getKey(), entry.getValue());
             }
         }
 
         public static FetchStreamLoadRecord read(DataInput in) throws IOException {
-            Map<Long, String> idToLastStreamLoad = Maps.newHashMap();
+            Map<Long, Long> idToLastStreamLoad = Maps.newHashMap();
             int beNum = Catalog.getCurrentSystemInfo().getIdToBackend().size();
             for (int i = 0; i < beNum; i++) {
                 long beId = -1;
-                String lastStreamLoad = null;
+                long lastStreamLoad = -1;
                 if (in.readBoolean()) {
                     beId = in.readLong();
                 }
                 if (in.readBoolean()) {
-                    lastStreamLoad = Text.readString(in);
+                    lastStreamLoad = in.readLong();
                 }
-                if (beId != -1 && lastStreamLoad != null) {
+                if (beId != -1 && lastStreamLoad != -1) {
                     idToLastStreamLoad.put(beId, lastStreamLoad);
                 }
                 LOG.debug("Read stream load bdbje. key: {}, value: {} ", beId, lastStreamLoad);

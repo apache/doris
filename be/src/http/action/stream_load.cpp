@@ -542,7 +542,7 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
 void StreamLoadAction::_sava_stream_load_record(StreamLoadContext* ctx, const std::string& str) {
     auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {
-        std::string key = ToStringFromUnixMicros(ctx->start_micros + ctx->load_cost_micros) + "_" + ctx->label;
+        std::string key = std::to_string(ctx->start_micros + ctx->load_cost_micros) + "_" + ctx->label;
         auto st = stream_load_recorder->put(key, str);
         if (st.ok()) {
             LOG(INFO) << "put stream_load_record rocksdb successfully. label: " << ctx->label << ", key: " << key;
