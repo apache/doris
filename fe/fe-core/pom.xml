@@ -74,7 +74,7 @@ under the License.
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-web</artifactId>
-            <version>2.7</version>
+            <version>2.14.0</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
