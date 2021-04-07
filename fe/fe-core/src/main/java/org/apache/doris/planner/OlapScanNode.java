@@ -65,9 +65,6 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -75,6 +72,9 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -106,6 +106,19 @@ public class OlapScanNode extends ScanNode {
      * Query2: select k1, min(v1) from table group by k1
      * This aggregation function in query is min which different from the schema.
      * So the data stored in storage engine need to be merged firstly before returning to scan node.
+     *
+     * There are currently two places to modify this variable:
+     * 1. The turnOffPreAgg() method of SingleNodePlanner.
+     *      This method will only be called on the left deepest OlapScanNode the plan tree,
+     *      while other nodes are false by default (because the Aggregation operation is executed after Join,
+     *      we cannot judge whether other OlapScanNodes can close the pre-aggregation).
+     *      So even the Duplicate key table, if it is not the left deepest node, it will remain false too.
+     *
+     * 2. After MaterializedViewSelector selects the materialized view, the updateScanRangeInfoByNewMVSelector()\
+     *    method of OlapScanNode may be called to update this variable.
+     *      This call will be executed on all ScanNodes in the plan tree. In this step,
+     *      for the DuplicateKey table, the variable will be set to true.
+     *      See comment of "isPreAggregation" variable in MaterializedViewSelector for details.
      */
     private boolean isPreAggregation = false;
     private String reasonOfPreAggregation = null;
@@ -227,8 +240,7 @@ public class OlapScanNode extends ScanNode {
 
         if (update) {
             this.selectedIndexId = selectedIndexId;
-            this.isPreAggregation = isPreAggregation;
-            this.reasonOfPreAggregation = reasonOfDisable;
+            setIsPreAggregation(isPreAggregation, reasonOfDisable);
             updateColumnType();
             LOG.info("Using the new scan range info instead of the old one. {}, {}", situation ,scanRangeInfo);
         } else {
@@ -630,11 +642,11 @@ public class OlapScanNode extends ScanNode {
         }
         msg.node_type = TPlanNodeType.OLAP_SCAN_NODE;
         msg.olap_scan_node =
-              new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
+                new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         if (null != sortColumn) {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }
-	msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
+        msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
     }
 
     // export some tablets
@@ -647,7 +659,7 @@ public class OlapScanNode extends ScanNode {
         olapScanNode.selectedPartitionNum = 1;
         olapScanNode.selectedTabletsNum = 1;
         olapScanNode.totalTabletsNum = 1;
-        olapScanNode.isPreAggregation = false;
+        olapScanNode.setIsPreAggregation(false, "Export job");
         olapScanNode.isFinalized = true;
         olapScanNode.result.addAll(locationsList);
 
