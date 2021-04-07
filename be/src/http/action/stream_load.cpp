@@ -145,7 +145,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
                          << ", errmsg=" << ctx->status.get_error_msg();
         }
     }
-    ctx->load_cost_micros = UnixMicros() - ctx->start_micros;
+    ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
     if (!ctx->status.ok() && ctx->status.code() != TStatusCode::PUBLISH_TIMEOUT) {
         if (ctx->need_rollback) {
@@ -162,11 +162,12 @@ void StreamLoadAction::handle(HttpRequest* req) {
     str = str + '\n';
     HttpChannel::send_reply(req, str);
 
+    str = ctx->prepare_stream_load_record(str);
     _sava_stream_load_record(ctx, str);
 
     // update statstics
     streaming_load_requests_total->increment(1);
-    streaming_load_duration_ms->increment(ctx->load_cost_micros / 1000);
+    streaming_load_duration_ms->increment(ctx->load_cost_millis);
     streaming_load_bytes->increment(ctx->receive_bytes);
     streaming_load_current_processing->increment(-1);
 }
@@ -233,6 +234,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         str = str + '\n';
         HttpChannel::send_reply(req, str);
 
+        str = ctx->prepare_stream_load_record(str);
         _sava_stream_load_record(ctx, str);
 
         return -1;
@@ -542,7 +544,7 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
 void StreamLoadAction::_sava_stream_load_record(StreamLoadContext* ctx, const std::string& str) {
     auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {
-        std::string key = std::to_string(ctx->start_micros + ctx->load_cost_micros) + "_" + ctx->label;
+        std::string key = std::to_string(ctx->start_millis + ctx->load_cost_millis) + "_" + ctx->label;
         auto st = stream_load_recorder->put(key, str);
         if (st.ok()) {
             LOG(INFO) << "put stream_load_record rocksdb successfully. label: " << ctx->label << ", key: " << key;

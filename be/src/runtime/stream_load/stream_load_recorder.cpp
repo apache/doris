@@ -44,7 +44,7 @@ StreamLoadRecorder::~StreamLoadRecorder() {
             handle = nullptr;
         }
         delete _db;
-        _db= nullptr;
+        _db = nullptr;
     }
 }
 
@@ -58,31 +58,28 @@ Status StreamLoadRecorder::init() {
     std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
     // default column family is required
     column_families.emplace_back(DEFAULT_COLUMN_FAMILY, rocksdb::ColumnFamilyOptions());
-    // stream load column family
-    column_families.emplace_back(STREAM_LOAD_COLUMN_FAMILY, rocksdb::ColumnFamilyOptions());
-    std::vector<int32_t> ttls = {config::stream_load_record_expire_time_secs, config::stream_load_record_expire_time_secs};
+    std::vector<int32_t> ttls = {config::stream_load_record_expire_time_secs};
     rocksdb::Status s = rocksdb::DBWithTTL::Open(options, db_path, column_families, &_handles, &_db, ttls);
-
     if (!s.ok() || _db == nullptr) {
         LOG(WARNING) << "rocks db open failed, reason:" << s.ToString();
-        return Status::InternalError("Stream load record rocksdb open failed");
+        return Status::InternalError("Stream load record rocksdb open failed, reason: " + s.ToString());
     }
     return Status::OK();
 }
 
 Status StreamLoadRecorder::put(const std::string& key, const std::string& value) {
-    rocksdb::ColumnFamilyHandle* handle = _handles[1];
+    rocksdb::ColumnFamilyHandle* handle = _handles[0];
     rocksdb::WriteOptions write_options;
     write_options.sync = false;
     rocksdb::Status s = _db->Put(write_options, handle, rocksdb::Slice(key), rocksdb::Slice(value));
     if (!s.ok()) {
         LOG(WARNING) << "rocks db put key:" << key << " failed, reason:" << s.ToString();
-        return Status::InternalError("Stream load record rocksdb put failed");
+        return Status::InternalError("Stream load record rocksdb put failed, reason: " + s.ToString());
     }
 
     if ((UnixMillis() - _last_compaction_time) / 1000 > config::clean_stream_load_record_interval_secs) {
         rocksdb::CompactRangeOptions options;
-        s = _db->CompactRange(options, _handles[1], nullptr, nullptr);
+        s = _db->CompactRange(options, _handles[0], nullptr, nullptr);
         if (s.ok()) {
             _last_compaction_time = UnixMillis();
         }
@@ -91,7 +88,7 @@ Status StreamLoadRecorder::put(const std::string& key, const std::string& value)
 }
 
 Status StreamLoadRecorder::get_batch(const std::string& start, const int batch_size, std::map<std::string, std::string>* stream_load_records) {
-    rocksdb::ColumnFamilyHandle* handle = _handles[1];
+    rocksdb::ColumnFamilyHandle* handle = _handles[0];
     std::unique_ptr<rocksdb::Iterator> it(_db->NewIterator(rocksdb::ReadOptions(), handle));
     if (start == "-1") {
         it->SeekToFirst();

@@ -320,7 +320,7 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result, con
         std::map<std::string, std::string> records;
         auto st = stream_load_recorder->get_batch(std::to_string(last_stream_record_time), config::stream_load_record_batch_size, &records);
         if (st.ok()) {
-            LOG(INFO) << "get_batch stream_load_record rocksdb successfully. records size: " << records.size() << ", last_timestamp: " << last_stream_record_time;
+            LOG(INFO) << "get_batch stream_load_record rocksdb successfully. records size: " << records.size() << ", last_stream_load_timestamp: " << last_stream_record_time;
             std::map<std::string, TStreamLoadRecord> stream_load_record_batch;
             std::map<std::string, std::string>::iterator it = records.begin();
             for (; it != records.end(); it++) {

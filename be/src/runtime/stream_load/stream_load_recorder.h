@@ -18,6 +18,7 @@
 #include <map>
 #include <string>
 
+#include "olap/utils.h"
 #include "rocksdb/utilities/db_ttl.h"
 
 #pragma once
@@ -43,15 +44,13 @@ private:
     rocksdb::DBWithTTL* _db;
     std::vector<rocksdb::ColumnFamilyHandle*> _handles;
 
-    int64_t _last_compaction_time;
+    AtomicInt64 _last_compaction_time;
 
     enum ColumnFamilyIndex {
         DEFAULT_COLUMN_FAMILY_INDEX = 0,
-        STREAM_LOAD_COLUMN_FAMILY_INDEX
     };
 
     const std::string DEFAULT_COLUMN_FAMILY = "default";
-    const std::string STREAM_LOAD_COLUMN_FAMILY = "stream_load";
 };
 
 } // namespace doris
