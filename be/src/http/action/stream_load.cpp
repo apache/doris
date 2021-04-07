@@ -233,6 +233,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         // add new line at end
         str = str + '\n';
         HttpChannel::send_reply(req, str);
+        streaming_load_current_processing->increment(-1);
 
         str = ctx->prepare_stream_load_record(str);
         _sava_stream_load_record(ctx, str);
