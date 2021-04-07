@@ -17,7 +17,7 @@
 
 #include "olap/olap_snapshot_converter.h"
 
-#include <boost/algorithm/string.hpp>\
+#include <boost/algorithm/string.hpp>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
