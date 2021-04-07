@@ -339,13 +339,12 @@ public class BDBEnvironment {
         
         if (names != null) {
             for (String name : names) {
-                // We don't count epochDB
-                if (name.equals("epochDB")) {
-                    continue;
+                try {
+                    long db = Long.parseLong(name);
+                    ret.add(db);
+                } catch (NumberFormatException e) {
+                    // non-journal db, such as "epochDB", will throw this exception. No need to deal with it.
                 }
-                
-                long db = Long.parseLong(name);
-                ret.add(db);
             }
         }
         
