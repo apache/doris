@@ -344,6 +344,7 @@ public class BDBEnvironment {
                     ret.add(db);
                 } catch (NumberFormatException e) {
                     // non-journal db, such as "epochDB", will throw this exception. No need to deal with it.
+                    LOG.debug("get database names, skipped {}", name);
                 }
             }
         }
