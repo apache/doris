@@ -29,7 +29,6 @@
 #include <map>
 #include <sstream>
 
-#include "boost/filesystem.hpp"
 #include "common/logging.h"
 #include "olap/data_dir.h"
 #include "olap/storage_engine.h"

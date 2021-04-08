@@ -27,7 +27,6 @@
 #include <string>
 
 #include "agent/cgroups_mgr.h"
-#include "boost/filesystem.hpp"
 #include "boost/lexical_cast.hpp"
 #include "gen_cpp/AgentService_types.h"
 #include "http/http_client.h"

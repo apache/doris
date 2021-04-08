@@ -31,6 +31,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "udf/udf.h"
 #include "util/coding.h"
 
 namespace doris {
@@ -1287,14 +1288,14 @@ public:
         return true;
     }
 
-    BigIntVal minimum() {
+    doris_udf::BigIntVal minimum() {
         switch (_type) {
         case SINGLE:
-            return BigIntVal(_sv);
+            return doris_udf::BigIntVal(_sv);
         case BITMAP:
-            return BigIntVal(_bitmap.minimum());
+            return doris_udf::BigIntVal(_bitmap.minimum());
         default:
-            return BigIntVal::null();
+            return doris_udf::BigIntVal::null();
         }
     }
 
