@@ -182,7 +182,10 @@ private:
 
 class SchemaChangeHandler {
 public:
-    static SchemaChangeHandler* instance() { return &_s_instance; }
+    static SchemaChangeHandler* instance() {
+        static SchemaChangeHandler instance;
+        return &instance;
+    }
 
     OLAPStatus schema_version_convert(TabletSharedPtr base_tablet, TabletSharedPtr new_tablet,
                                       RowsetSharedPtr* base_rowset, RowsetSharedPtr* new_rowset);
@@ -242,13 +245,12 @@ private:
                                            const TabletColumn& column_schema,
                                            const std::string& value);
 private:
-    SchemaChangeHandler() : _mem_tracker(MemTracker::CreateTracker(-1, "SchemaChange")) {}
-    virtual ~SchemaChangeHandler() {}
+    SchemaChangeHandler();
+    virtual ~SchemaChangeHandler();
     SchemaChangeHandler(const SchemaChangeHandler&) = delete;
     SchemaChangeHandler& operator=(const SchemaChangeHandler&) = delete;
 
     std::shared_ptr<MemTracker> _mem_tracker;
-    static SchemaChangeHandler _s_instance;
 };
 
 using RowBlockDeleter = std::function<void(RowBlock*)>;

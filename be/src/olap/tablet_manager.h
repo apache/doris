@@ -47,9 +47,7 @@ class DataDir;
 class TabletManager {
 public:
     TabletManager(int32_t tablet_map_lock_shard_size);
-    ~TabletManager() {
-        _mem_tracker->Release(_mem_tracker->consumption());
-    }
+    ~TabletManager();
 
     bool check_tablet_id_exist(TTabletId tablet_id);
 
