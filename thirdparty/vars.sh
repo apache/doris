@@ -258,6 +258,13 @@ CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/v0.2.
 CROARINGBITMAP_NAME=CRoaring-0.2.60.tar.gz
 CROARINGBITMAP_SOURCE=CRoaring-0.2.60
 CROARINGBITMAP_MD5SUM="29602918e6890ffdeed84cb171857046"
+
+# fmt
+FMT_DOWNLOAD="https://github.com/fmtlib/fmt/archive/7.1.3.tar.gz"
+FMT_NAME="fmt-7.1.3.tar.gz"
+FMT_SOURCE="fmt-7.1.3"
+FMT_MD5SUM="2522ec65070c0bda0ca288677ded2831"
+
 # ORC
 ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.5.8/orc-1.5.8.tar.gz"
 ORC_NAME=orc-1.5.8.tar.gz
@@ -377,6 +384,7 @@ ZSTD
 S2
 BITSHUFFLE
 CROARINGBITMAP
+FMT
 ORC
 JEMALLOC
 CCTZ

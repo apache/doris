@@ -671,6 +671,17 @@ build_croaringbitmap() {
     -DENABLE_ROARING_TESTS=OFF ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
+
+# fmt
+build_fmt() {
+    check_if_source_exist $FMT_SOURCE
+    cd $TP_SOURCE_DIR/$FMT_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    rm -rf CMakeCache.txt CMakeFiles/
+    $CMAKE_CMD -G "${GENERATOR}" -v -DBUILD_SHARED_LIBS=FALSE -DFMT_TEST=OFF -DFMT_DOC=OFF -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR ..
+    ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
+}
+
 #orc
 build_orc() {
     check_if_source_exist $ORC_SOURCE
@@ -825,6 +836,7 @@ build_arrow
 build_s2
 build_bitshuffle
 build_croaringbitmap
+build_fmt
 build_orc
 build_cctz
 build_tsan_header
