@@ -47,7 +47,9 @@ class DataDir;
 class TabletManager {
 public:
     TabletManager(int32_t tablet_map_lock_shard_size);
-    ~TabletManager() = default;
+    ~TabletManager() {
+        _mem_tracker->Release(_mem_tracker->consumption());
+    }
 
     bool check_tablet_id_exist(TTabletId tablet_id);
 
@@ -211,6 +213,9 @@ private:
         std::set<int64_t> tablets_under_clone;
         std::set<int64_t> tablets_under_restore;
     };
+
+    // trace the memory use by meta of tablet
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     const int32_t _tablets_shards_size;
     const int32_t _tablets_shards_mask;

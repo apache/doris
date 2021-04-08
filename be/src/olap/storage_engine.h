@@ -298,6 +298,7 @@ private:
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
     std::shared_ptr<MemTracker> _compaction_mem_tracker;
+    std::shared_ptr<MemTracker> _schema_change_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;

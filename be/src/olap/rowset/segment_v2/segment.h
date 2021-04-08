@@ -60,7 +60,7 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 class Segment : public std::enable_shared_from_this<Segment> {
 public:
     static Status open(std::string filename, uint32_t segment_id, const TabletSchema* tablet_schema,
-                       std::shared_ptr<Segment>* output);
+                       std::shared_ptr<MemTracker> parent, std::shared_ptr<Segment>* output);
 
     ~Segment();
 
@@ -104,7 +104,7 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
-    Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema);
+    Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema, std::shared_ptr<MemTracker> parent);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer();
@@ -119,6 +119,7 @@ private:
     uint32_t _segment_id;
     const TabletSchema* _tablet_schema;
 
+    std::shared_ptr<MemTracker> _mem_tracker;
     SegmentFooterPB _footer;
 
     // Map from column unique id to column ordinal in footer's ColumnMetaPB

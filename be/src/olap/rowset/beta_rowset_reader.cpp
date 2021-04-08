@@ -34,7 +34,7 @@ BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset,
 }
 
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
-    RETURN_NOT_OK(_rowset->load());
+    RETURN_NOT_OK(_rowset->load(true, _parent_tracker));
     _context = read_context;
     if (_context->stats != nullptr) {
         // schema change/compaction should use owned_stats
@@ -96,9 +96,9 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     // merge or union segment iterator
     RowwiseIterator* final_iterator;
     if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
-        final_iterator = new_merge_iterator(iterators);
+        final_iterator = new_merge_iterator(iterators, _parent_tracker);
     } else {
-        final_iterator = new_union_iterator(iterators);
+        final_iterator = new_union_iterator(iterators, _parent_tracker);
     }
     auto s = final_iterator->init(read_options);
     if (!s.ok()) {
@@ -108,7 +108,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _iterator.reset(final_iterator);
 
     // init input block
-    _input_block.reset(new RowBlockV2(schema, 1024));
+    _input_block.reset(new RowBlockV2(schema, 1024, _parent_tracker));
 
     // init output block and row
     _output_block.reset(new RowBlock(read_context->tablet_schema, _parent_tracker));

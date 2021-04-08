@@ -40,9 +40,10 @@ const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
 class CompactionAction : public HttpHandler {
 public:
     CompactionAction(CompactionActionType type)
-            : _type(type),
-              _compaction_mem_tracker(
-                      MemTracker::CreateTracker(-1, "CompactionAction")) {}
+            : _type(type) {
+              _compaction_mem_tracker = type == RUN_COMPACTION ?
+                  MemTracker::CreateTracker(-1, "ManualCompaction") : nullptr;
+    }
 
     virtual ~CompactionAction() {}
 

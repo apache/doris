@@ -29,7 +29,8 @@ namespace doris {
 Compaction::Compaction(TabletSharedPtr tablet, const std::string& label,
                        const std::shared_ptr<MemTracker>& parent_tracker)
         : _mem_tracker(MemTracker::CreateTracker(-1, label, parent_tracker)),
-          _readers_tracker(MemTracker::CreateTracker(-1, "Compaction:RowsetReaders:" + std::to_string(tablet->tablet_id()), _mem_tracker)),
+          _readers_tracker(MemTracker::CreateTracker(-1, "CompactionReaderTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker)),
+          _writer_tracker(MemTracker::CreateTracker(-1, "CompationWriterTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker)),
           _tablet(tablet),
           _input_rowsets_size(0),
           _input_row_num(0),
@@ -157,6 +158,7 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     context.version = _output_version;
     context.version_hash = _output_version_hash;
     context.segments_overlap = NONOVERLAPPING;
+    context.parent_mem_tracker = _writer_tracker;
     // The test results show that one rs writer is low-memory-footprint, there is no need to tracker its mem pool
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &_output_rs_writer));
     return OLAP_SUCCESS;

@@ -379,8 +379,8 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
         // 5. Convert data for schema change tables
         VLOG_TRACE << "load to related tables of schema_change if possible.";
         if (new_tablet != nullptr) {
-            SchemaChangeHandler schema_change;
-            res = schema_change.schema_version_convert(cur_tablet, new_tablet, cur_rowset,
+            auto schema_change_handler = SchemaChangeHandler::instance();
+            res = schema_change_handler->schema_version_convert(cur_tablet, new_tablet, cur_rowset,
                                                        new_rowset);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to change schema version for delta."
@@ -540,8 +540,8 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
         // 7. Convert data for schema change tables
         VLOG_TRACE << "load to related tables of schema_change if possible.";
         if (new_tablet != nullptr) {
-            SchemaChangeHandler schema_change;
-            res = schema_change.schema_version_convert(cur_tablet, new_tablet, cur_rowset,
+            auto schema_change_handler = SchemaChangeHandler::instance();
+            res = schema_change_handler->schema_version_convert(cur_tablet, new_tablet, cur_rowset,
                                                        new_rowset);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to change schema version for delta."

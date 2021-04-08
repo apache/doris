@@ -35,6 +35,7 @@ public:
                  int32_t unique_id, size_t length);
     void init_from_pb(const ColumnPB& column);
     void to_schema_pb(ColumnPB* column);
+    uint32_t mem_size() const;
 
     inline int32_t unique_id() const { return _unique_id; }
     inline std::string name() const { return _col_name; }
@@ -114,6 +115,8 @@ public:
     TabletSchema() = default;
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb);
+    uint32_t mem_size() const;
+
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
     const TabletColumn& column(size_t ordinal) const;
