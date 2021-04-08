@@ -386,6 +386,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
         CompactionType compaction_type, std::vector<DataDir*> data_dirs) {
     std::vector<TabletSharedPtr> tablets_compaction;
+    uint32_t max_compaction_score = 0;
     std::random_shuffle(data_dirs.begin(), data_dirs.end());
     for (auto data_dir : data_dirs) {
         std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
@@ -393,11 +394,20 @@ std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
             continue;
         }
         if (!data_dir->reach_capacity_limit(0)) {
+            uint32_t disk_max_score = 0;
             TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(
-                    compaction_type, data_dir, _tablet_submitted_compaction[data_dir]);
+                    compaction_type, data_dir, _tablet_submitted_compaction[data_dir], &disk_max_score);
             if (tablet != nullptr) {
                 tablets_compaction.emplace_back(tablet);
+                max_compaction_score = std::max(max_compaction_score, disk_max_score);
             }
+        }
+    }
+    if (!tablets_compaction.empty()) {
+        if (compaction_type == CompactionType::BASE_COMPACTION) {
+            DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(max_compaction_score);
+        } else {
+            DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(max_compaction_score);
         }
     }
     return tablets_compaction;
