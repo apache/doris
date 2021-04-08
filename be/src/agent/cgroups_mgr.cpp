@@ -173,7 +173,7 @@ AgentStatus CgroupsMgr::_config_disk_throttle(std::string user_name, std::string
     string write_iops_path = cgroups_path + "/blkio.throttle.write_iops_device";
 
     if (!is_file_exist(cgroups_path.c_str())) {
-        if (!boost::filesystem::create_directory(cgroups_path)) {
+        if (!std::filesystem::create_directory(cgroups_path)) {
             LOG(ERROR) << "Create cgroups: " << cgroups_path << " failed";
             return AgentStatus::DORIS_ERROR;
         }
@@ -239,7 +239,7 @@ AgentStatus CgroupsMgr::modify_user_cgroups(const string& user_name,
     // Check if the user's cgroups exists, if not create it
     string user_cgroups_path = this->_root_cgroups_path + "/" + user_name;
     if (!is_file_exist(user_cgroups_path.c_str())) {
-        if (!boost::filesystem::create_directory(user_cgroups_path)) {
+        if (!std::filesystem::create_directory(user_cgroups_path)) {
             LOG(ERROR) << "Create cgroups for user " << user_name << " failed";
             return AgentStatus::DORIS_ERROR;
         }
@@ -267,7 +267,7 @@ AgentStatus CgroupsMgr::modify_user_cgroups(const string& user_name,
             // Check if the level cgroups exist
             string level_cgroups_path = user_cgroups_path + "/" + level_name;
             if (!is_file_exist(level_cgroups_path.c_str())) {
-                if (!boost::filesystem::create_directory(level_cgroups_path)) {
+                if (!std::filesystem::create_directory(level_cgroups_path)) {
                     return AgentStatus::DORIS_ERROR;
                 }
             }
@@ -309,8 +309,8 @@ AgentStatus CgroupsMgr::init_cgroups() {
             return AgentStatus::DORIS_ERROR;
         }
         // If root folder exists, then delete all subfolders under it
-        boost::filesystem::directory_iterator item_begin(this->_root_cgroups_path);
-        boost::filesystem::directory_iterator item_end;
+        std::filesystem::directory_iterator item_begin(this->_root_cgroups_path);
+        std::filesystem::directory_iterator item_end;
         for (; item_begin != item_end; item_begin++) {
             if (is_directory(item_begin->path().string().c_str())) {
                 // Delete the sub folder
@@ -382,8 +382,8 @@ AgentStatus CgroupsMgr::delete_user_cgroups(const string& user_name) {
     string user_cgroups_path = this->_root_cgroups_path + "/" + user_name;
     if (is_file_exist(user_cgroups_path.c_str())) {
         // Delete sub cgroups --> level cgroups
-        boost::filesystem::directory_iterator item_begin(user_cgroups_path);
-        boost::filesystem::directory_iterator item_end;
+        std::filesystem::directory_iterator item_begin(user_cgroups_path);
+        std::filesystem::directory_iterator item_end;
         for (; item_begin != item_end; item_begin++) {
             if (is_directory(item_begin->path().string().c_str())) {
                 string cur_cgroups_path = item_begin->path().string();
@@ -410,7 +410,7 @@ AgentStatus CgroupsMgr::drop_cgroups(const string& deleted_cgroups_path) {
         this->relocate_tasks(deleted_cgroups_path, this->_root_cgroups_path);
         ++i;
 #ifdef BE_TEST
-        boost::filesystem::remove_all(deleted_cgroups_path);
+        std::filesystem::remove_all(deleted_cgroups_path);
 #endif
         if (i == this->_drop_retry_times) {
             LOG(ERROR) << "drop cgroups under path: " << deleted_cgroups_path << " failed.";

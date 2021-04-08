@@ -189,11 +189,11 @@ OLAPStatus EngineCloneTask::_do_clone() {
             LOG(INFO) << "clone failed. want to delete local dir: " << local_data_path
                       << ". signature: " << _signature;
             try {
-                boost::filesystem::path local_path(local_data_path);
-                if (boost::filesystem::exists(local_path)) {
-                    boost::filesystem::remove_all(local_path);
+                std::filesystem::path local_path(local_data_path);
+                if (std::filesystem::exists(local_path)) {
+                    std::filesystem::remove_all(local_path);
                 }
-            } catch (boost::filesystem::filesystem_error &e) {
+            } catch (std::filesystem::filesystem_error &e) {
                 // Ignore the error, OLAP will delete it
                 LOG(WARNING) << "clone delete useless dir failed. "
                              << " error: " << e.what() << " local dir: " << local_data_path.c_str()
@@ -483,7 +483,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
             RETURN_IF_ERROR(client->download(local_file_path));
 
             // Check file length
-            uint64_t local_file_size = boost::filesystem::file_size(local_file_path);
+            uint64_t local_file_size = std::filesystem::file_size(local_file_path);
             if (local_file_size != file_size) {
                 LOG(WARNING) << "download file length error"
                              << ", remote_path=" << remote_file_url << ", file_size=" << file_size
@@ -619,8 +619,8 @@ OLAPStatus EngineCloneTask::_finish_clone(Tablet* tablet, const string& clone_di
     tablet->release_base_compaction_lock();
 
     // clear clone dir
-    boost::filesystem::path clone_dir_path(clone_dir);
-    boost::filesystem::remove_all(clone_dir_path);
+    std::filesystem::path clone_dir_path(clone_dir);
+    std::filesystem::remove_all(clone_dir_path);
     LOG(INFO) << "finish to clone data, clear downloaded data. res=" << res
               << ", tablet=" << tablet->full_name() << ", clone_dir=" << clone_dir;
     return res;

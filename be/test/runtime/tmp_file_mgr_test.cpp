@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <boost/scoped_ptr.hpp>
 #include <cstdlib>
 
@@ -29,7 +29,7 @@
 #include "util/logging.h"
 #include "util/metrics.h"
 
-using boost::filesystem::path;
+using std::filesystem::path;
 using std::string;
 using std::vector;
 using std::set;
@@ -74,12 +74,12 @@ TEST_F(TmpFileMgrTest, TestFileAllocation) {
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(next_offset, offset);
         next_offset = offset + write_sizes[i];
-        EXPECT_EQ(next_offset, boost::filesystem::file_size(file->path()));
+        EXPECT_EQ(next_offset, std::filesystem::file_size(file->path()));
     }
     // Check that cleanup is correct.
     status = file->remove();
     EXPECT_TRUE(status.ok());
-    EXPECT_FALSE(boost::filesystem::exists(file->path()));
+    EXPECT_FALSE(std::filesystem::exists(file->path()));
     // check_metrics(&tmp_file_mgr);
 }
 // Test that we can do initialization with two directories on same device and

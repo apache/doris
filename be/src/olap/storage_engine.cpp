@@ -26,7 +26,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <cstdio>
 #include <new>
 #include <queue>
@@ -62,10 +62,10 @@
 #include "util/trace.h"
 
 using apache::thrift::ThriftDebugString;
-using boost::filesystem::canonical;
-using boost::filesystem::directory_iterator;
-using boost::filesystem::path;
-using boost::filesystem::recursive_directory_iterator;
+using std::filesystem::canonical;
+using std::filesystem::directory_iterator;
+using std::filesystem::path;
+using std::filesystem::recursive_directory_iterator;
 using std::back_inserter;
 using std::copy;
 using std::inserter;
@@ -861,7 +861,7 @@ OLAPStatus StorageEngine::load_header(const string& shard_path, const TCloneReq&
         // TODO(zc)
         try {
             auto store_path =
-                    boost::filesystem::path(shard_path).parent_path().parent_path().string();
+                    std::filesystem::path(shard_path).parent_path().parent_path().string();
             store = get_store(store_path);
             if (store == nullptr) {
                 LOG(WARNING) << "invalid shard path, path=" << shard_path;

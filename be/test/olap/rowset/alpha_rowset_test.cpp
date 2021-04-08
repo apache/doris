@@ -17,11 +17,11 @@
 
 #include "olap/rowset/alpha_rowset.h"
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
 
-#include "boost/filesystem.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "json2pb/json_to_pb.h"

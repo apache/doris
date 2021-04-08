@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <functional>
 #include <iostream>
 
@@ -644,7 +644,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     ASSERT_TRUE(writer.finalize(&file_size, &index_size).ok());
     ASSERT_TRUE(wblock->close().ok());
 
-    file_size = boost::filesystem::file_size(fname);
+    file_size = std::filesystem::file_size(fname);
     LOG(INFO) << "segment file size is:" << file_size;
 
     ASSERT_NE(segment_size, 0);
