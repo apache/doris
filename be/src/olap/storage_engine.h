@@ -341,9 +341,9 @@ private:
 
     CompactionPermitLimiter _permit_limiter;
 
-    std::mutex _tablet_submitted_base_compaction_mutex;
+    RWMutex _tablet_submitted_base_compaction_mutex;
     std::map<DataDir*, std::set<TTabletId>> _tablet_submitted_base_compaction;
-    std::mutex _tablet_submitted_cumulative_compaction_mutex;
+    RWMutex _tablet_submitted_cumulative_compaction_mutex;
     std::map<DataDir*, std::set<TTabletId>> _tablet_submitted_cumulative_compaction;
 
     AtomicInt32 _wakeup_producer_flag;
