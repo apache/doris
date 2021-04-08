@@ -180,7 +180,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeWithSorting);
 };
 
-class SchemaChangeHandler : public boost::noncopyable {
+class SchemaChangeHandler {
 public:
     static SchemaChangeHandler* instance() { return &_s_instance; }
 
@@ -244,6 +244,8 @@ private:
 private:
     SchemaChangeHandler() : _mem_tracker(MemTracker::CreateTracker(-1, "SchemaChange")) {}
     virtual ~SchemaChangeHandler() {}
+    SchemaChangeHandler(const SchemaChangeHandler&) = delete;
+    SchemaChangeHandler& operator=(const SchemaChangeHandler&) = delete;
 
     std::shared_ptr<MemTracker> _mem_tracker;
     static SchemaChangeHandler _s_instance;
