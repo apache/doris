@@ -24,6 +24,8 @@
 #include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
 
+#include <fmt/format.h>
+
 namespace doris {
 
 // the first byte:
@@ -97,6 +99,16 @@ int MysqlRowBuffer::reserve(int size) {
     return 0;
 }
 
+template<typename T>
+static char* add_int(T data, char* pos)
+{
+    auto fi = fmt::format_int(data);
+    int length = fi.size();
+    int1store(pos++, length);
+    memcpy(pos, fi.data(), length);
+    return pos + length;
+}
+
 int MysqlRowBuffer::push_tinyint(int8_t data) {
     // 1 for string trail, 1 for length, 1 for sign, other for digits
     int ret = reserve(3 + MAX_TINYINT_WIDTH);
@@ -106,15 +118,7 @@ int MysqlRowBuffer::push_tinyint(int8_t data) {
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_TINYINT_WIDTH + 2, "%d", data);
-
-    if (length < 0) {
-        LOG(ERROR) << "snprintf failed. data = " << data;
-        return length;
-    }
-
-    int1store(_pos, length);
-    _pos += length + 1;
+    _pos = add_int(data, _pos);
     return 0;
 }
 
@@ -127,15 +131,7 @@ int MysqlRowBuffer::push_smallint(int16_t data) {
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_SMALLINT_WIDTH + 2, "%d", data);
-
-    if (length < 0) {
-        LOG(ERROR) << "snprintf failed. data = " << data;
-        return length;
-    }
-
-    int1store(_pos, length);
-    _pos += length + 1;
+    _pos = add_int(data, _pos);
     return 0;
 }
 
@@ -148,15 +144,7 @@ int MysqlRowBuffer::push_int(int32_t data) {
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_INT_WIDTH + 2, "%d", data);
-
-    if (length < 0) {
-        LOG(ERROR) << "snprintf failed. data = " << data;
-        return length;
-    }
-
-    int1store(_pos, length);
-    _pos += length + 1;
+    _pos = add_int(data, _pos);
     return 0;
 }
 
@@ -169,15 +157,7 @@ int MysqlRowBuffer::push_bigint(int64_t data) {
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_BIGINT_WIDTH + 2, "%ld", data);
-
-    if (length < 0) {
-        LOG(ERROR) << "snprintf failed. data = " << data;
-        return length;
-    }
-
-    int1store(_pos, length);
-    _pos += length + 1;
+    _pos = add_int(data, _pos);
     return 0;
 }
 
