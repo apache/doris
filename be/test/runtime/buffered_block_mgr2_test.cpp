@@ -22,7 +22,7 @@
 
 #include <boost/bind.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread/thread.hpp>
 
@@ -37,8 +37,8 @@
 #include "util/logging.h"
 #include "util/monotime.h"
 
-using boost::filesystem::directory_iterator;
-using boost::filesystem::remove;
+using std::filesystem::directory_iterator;
+using std::filesystem::remove;
 using boost::scoped_ptr;
 using boost::unordered_map;
 using boost::thread;

@@ -394,16 +394,16 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
         return Status::InternalError(ss.str());
     }
 
-    boost::filesystem::path tablet_dir(tablet_path);
-    boost::filesystem::path snapshot_dir(snapshot_path);
-    if (!boost::filesystem::exists(tablet_dir)) {
+    std::filesystem::path tablet_dir(tablet_path);
+    std::filesystem::path snapshot_dir(snapshot_path);
+    if (!std::filesystem::exists(tablet_dir)) {
         std::stringstream ss;
         ss << "tablet path does not exist: " << tablet_path;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
 
-    if (!boost::filesystem::exists(snapshot_dir)) {
+    if (!std::filesystem::exists(snapshot_dir)) {
         std::stringstream ss;
         ss << "snapshot path does not exist: " << snapshot_path;
         LOG(WARNING) << ss.str();
@@ -430,11 +430,11 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
             // This remove seems soft enough, because we already get
             // tablet id and schema hash from this path, which
             // means this path is a valid path.
-            boost::filesystem::remove_all(tablet_dir);
+            std::filesystem::remove_all(tablet_dir);
             VLOG_CRITICAL << "remove dir: " << tablet_dir;
-            boost::filesystem::create_directory(tablet_dir);
+            std::filesystem::create_directory(tablet_dir);
             VLOG_CRITICAL << "re-create dir: " << tablet_dir;
-        } catch (const boost::filesystem::filesystem_error& e) {
+        } catch (const std::filesystem::filesystem_error& e) {
             std::stringstream ss;
             ss << "failed to move tablet path: " << tablet_path << ". err: " << e.what();
             LOG(WARNING) << ss.str();

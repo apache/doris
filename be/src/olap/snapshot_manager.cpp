@@ -24,7 +24,7 @@
 #include <algorithm>
 #include <boost/date_time/gregorian/gregorian.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <iterator>
 #include <map>
 #include <set>
@@ -40,9 +40,8 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/storage_engine.h"
 
-using boost::filesystem::copy_file;
-using boost::filesystem::copy_option;
-using boost::filesystem::path;
+using std::filesystem::copy_file;
+using std::filesystem::path;
 using std::map;
 using std::nothrow;
 using std::set;
