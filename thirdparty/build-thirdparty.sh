@@ -357,6 +357,12 @@ build_zlib() {
     CFLAGS="-fPIC" \
     ./configure --prefix=$TP_INSTALL_DIR --static
     make -j $PARALLEL && make install
+
+    # minizip
+    cd contrib/minizip
+    autoreconf --force --install
+    ./configure --prefix=$TP_INSTALL_DIR --enable-static=yes --enable-shared=no
+    make -j $PARALLEL && make install
 }
 
 # lz4
@@ -512,7 +518,7 @@ build_libunixodbc() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR --with-included-ltdl --enable-static=yes 
+    ./configure --prefix=$TP_INSTALL_DIR --with-included-ltdl --enable-static=yes --enable-shared=no 
     make -j $PARALLEL && make install
 }
   
