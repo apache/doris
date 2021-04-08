@@ -681,7 +681,8 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
-        std::vector<TTabletId>& tablet_submitted_compaction) {
+        std::set<TTabletId>& tablet_submitted_base_compaction,
+        std::set<TTabletId>& tablet_submitted_cumulative_compaction) {
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str =
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
@@ -693,10 +694,13 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         ReadLock rlock(tablets_shard.lock.get());
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             for (const TabletSharedPtr& tablet_ptr : tablet_map.second.table_arr) {
-                std::vector<TTabletId>::iterator it_tablet =
-                        find(tablet_submitted_compaction.begin(), tablet_submitted_compaction.end(),
-                             tablet_ptr->tablet_id());
-                if (it_tablet != tablet_submitted_compaction.end()) {
+                std::set<TTabletId>::iterator it_tablet =
+                        tablet_submitted_base_compaction.find(tablet_ptr->tablet_id());
+                if (it_tablet != tablet_submitted_base_compaction.end()) {
+                    continue;
+                }
+                it_tablet = tablet_submitted_cumulative_compaction.find(tablet_ptr->tablet_id());
+                if (it_tablet != tablet_submitted_cumulative_compaction.end()) {
                     continue;
                 }
                 AlterTabletTaskSharedPtr cur_alter_task = tablet_ptr->alter_task();

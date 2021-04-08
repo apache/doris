@@ -283,8 +283,10 @@ CONF_mInt32(cumulative_compaction_skip_window_seconds, "30");
 CONF_mInt64(min_compaction_failure_interval_sec, "600"); // 10 min
 
 // This config can be set to limit thread number in compaction thread pool.
-CONF_mInt32(min_compaction_threads, "10");
-CONF_mInt32(max_compaction_threads, "10");
+CONF_mInt32(min_base_compaction_threads, "10");
+CONF_mInt32(max_base_compaction_threads, "10");
+CONF_mInt32(min_cumulative_compaction_threads, "10");
+CONF_mInt32(max_cumulative_compaction_threads, "10");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
@@ -293,7 +295,8 @@ CONF_mInt64(total_permits_for_compaction_score, "10000");
 CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10")
 
 // Compaction task number per disk.
-CONF_mInt32(compaction_task_num_per_disk, "2");
+CONF_mInt32(max_base_compaction_task_num_per_disk, "2");
+CONF_mInt32(max_cumulative_compaction_task_num_per_disk, "2");
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");

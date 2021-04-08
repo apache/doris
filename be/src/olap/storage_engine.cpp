@@ -140,8 +140,12 @@ StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(compaction_mem_current_consumption);
     _clear();
 
-    if(_compaction_thread_pool){
-        _compaction_thread_pool->shutdown();
+    if(_base_compaction_thread_pool){
+        _base_compaction_thread_pool->shutdown();
+    }
+
+    if(_cumulative_compaction_thread_pool){
+        _cumulative_compaction_thread_pool->shutdown();
     }
 }
 

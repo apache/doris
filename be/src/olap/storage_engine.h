@@ -239,8 +239,10 @@ private:
     void _compaction_tasks_producer_callback();
     vector<TabletSharedPtr> _compaction_tasks_generator(CompactionType compaction_type,
                                                         std::vector<DataDir*> data_dirs);
-    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet);
-    void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet);
+    void _push_tablet_into_submitted_base_compaction(TabletSharedPtr tablet);
+    void _pop_tablet_from_submitted_base_compaction(TabletSharedPtr tablet);
+    void _push_tablet_into_submitted_cumulative_compaction(TabletSharedPtr tablet);
+    void _pop_tablet_from_submitted_cumulative_compaction(TabletSharedPtr tablet);
 
 private:
     struct CompactionCandidate {
@@ -334,12 +336,15 @@ private:
 
     HeartbeatFlags* _heartbeat_flags;
 
-    std::unique_ptr<ThreadPool> _compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _cumulative_compaction_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
 
-    std::mutex _tablet_submitted_compaction_mutex;
-    std::map<DataDir*, vector<TTabletId>> _tablet_submitted_compaction;
+    std::mutex _tablet_submitted_base_compaction_mutex;
+    std::map<DataDir*, std::set<TTabletId>> _tablet_submitted_base_compaction;
+    std::mutex _tablet_submitted_cumulative_compaction_mutex;
+    std::map<DataDir*, std::set<TTabletId>> _tablet_submitted_cumulative_compaction;
 
     AtomicInt32 _wakeup_producer_flag;
 
