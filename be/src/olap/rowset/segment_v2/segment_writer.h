@@ -28,6 +28,7 @@
 
 namespace doris {
 
+class MemTracker;
 class RowBlock;
 class RowCursor;
 class TabletSchema;
@@ -52,7 +53,7 @@ struct SegmentWriterOptions {
 class SegmentWriter {
 public:
     explicit SegmentWriter(fs::WritableBlock* block, uint32_t segment_id,
-                           const TabletSchema* tablet_schema, const SegmentWriterOptions& opts);
+                           const TabletSchema* tablet_schema, const SegmentWriterOptions& opts, std::shared_ptr<MemTracker> parent = nullptr);
     ~SegmentWriter();
 
     Status init(uint32_t write_mbytes_per_sec);
@@ -89,6 +90,7 @@ private:
     SegmentFooterPB _footer;
     std::unique_ptr<ShortKeyIndexBuilder> _index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
+    std::shared_ptr<MemTracker> _mem_tracker;
     uint32_t _row_count = 0;
 };
 

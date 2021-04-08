@@ -17,6 +17,8 @@
 
 #include "olap/rowset/segment_v2/segment.h"
 
+#include <utility>
+
 #include "common/logging.h" // LOG
 #include "gutil/strings/substitute.h"
 #include "olap/fs/fs_util.h"
@@ -35,17 +37,20 @@ namespace segment_v2 {
 using strings::Substitute;
 
 Status Segment::open(std::string filename, uint32_t segment_id, const TabletSchema* tablet_schema,
-                     std::shared_ptr<Segment>* output) {
-    std::shared_ptr<Segment> segment(new Segment(std::move(filename), segment_id, tablet_schema));
+                     std::shared_ptr<MemTracker> parent, std::shared_ptr<Segment>* output) {
+    std::shared_ptr<Segment> segment(new Segment(std::move(filename), segment_id, tablet_schema, std::move(parent)));
     RETURN_IF_ERROR(segment->_open());
     output->swap(segment);
     return Status::OK();
 }
 
-Segment::Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema)
-        : _fname(std::move(fname)), _segment_id(segment_id), _tablet_schema(tablet_schema) {}
+Segment::Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema, std::shared_ptr<MemTracker> parent)
+        : _fname(std::move(fname)), _segment_id(segment_id),
+          _tablet_schema(tablet_schema), _mem_tracker(MemTracker::CreateTracker(-1, "Segment", std::move(parent), false)) {}
 
-Segment::~Segment() = default;
+Segment::~Segment() {
+    _mem_tracker->Release(_mem_tracker->consumption());
+}
 
 Status Segment::_open() {
     RETURN_IF_ERROR(_parse_footer());
@@ -75,7 +80,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     }
 
     RETURN_IF_ERROR(_load_index());
-    iter->reset(new SegmentIterator(this->shared_from_this(), schema));
+    iter->reset(new SegmentIterator(this->shared_from_this(), schema, _mem_tracker));
     iter->get()->init(read_options);
     return Status::OK();
 }
@@ -109,6 +114,8 @@ Status Segment::_parse_footer() {
         return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < $2",
                                                       _fname, file_size, 12 + footer_length));
     }
+    _mem_tracker->Consume(footer_length);
+
     std::string footer_buf;
     footer_buf.resize(footer_length);
     RETURN_IF_ERROR(rblock->read(file_size - 12 - footer_length, footer_buf));
@@ -151,6 +158,7 @@ Status Segment::_load_index() {
         DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
         DCHECK(footer.has_short_key_page_footer());
 
+        _mem_tracker->Consume(body.get_size());
         _sk_index_decoder.reset(new ShortKeyIndexDecoder);
         return _sk_index_decoder->parse(body, footer.short_key_page_footer());
     });
@@ -192,6 +200,8 @@ Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
                         tablet_column.has_default_value(), tablet_column.default_value(),
                         tablet_column.is_nullable(), type_info, tablet_column.length()));
         ColumnIteratorOptions iter_opts;
+        iter_opts.mem_tracker = MemTracker::CreateTracker(-1, "DefaultColumnIterator", _mem_tracker, false);
+
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
         *iter = default_value_iter.release();
         return Status::OK();

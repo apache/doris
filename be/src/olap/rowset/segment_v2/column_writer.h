@@ -59,6 +59,7 @@ struct ColumnWriterOptions {
            << ", need_bloom_filter" << need_bloom_filter;
         return ss.str();
     }
+    std::shared_ptr<MemTracker> parent = nullptr;
 };
 
 class BitmapIndexWriter;
@@ -136,6 +137,8 @@ public:
 private:
     std::unique_ptr<Field> _field;
     bool _is_nullable;
+protected:
+    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 class FlushPageCallback {

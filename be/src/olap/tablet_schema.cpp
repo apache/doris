@@ -354,6 +354,17 @@ void TabletColumn::to_schema_pb(ColumnPB* column) {
     column->set_visible(_visible);
 }
 
+uint32_t TabletColumn::mem_size() const {
+    auto size = sizeof(TabletColumn);
+    if (_has_default_value) {
+        size += _default_value.size();
+    }
+    for (auto& sub_column : _sub_columns) {
+        size += sub_column.mem_size();
+    }
+    return size;
+}
+
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {
     _sub_columns.push_back(sub_column);
     sub_column._parent = this;
@@ -412,6 +423,19 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
     tablet_meta_pb->set_is_in_memory(_is_in_memory);
     tablet_meta_pb->set_delete_sign_idx(_delete_sign_idx);
     tablet_meta_pb->set_sequence_col_idx(_sequence_col_idx);
+}
+
+uint32_t TabletSchema::mem_size() const {
+    auto size = sizeof(TabletSchema);
+    for (auto& col : _cols) {
+        size += col.mem_size();
+    }
+
+    for (auto& pair : _field_name_to_index) {
+        size += pair.first.size();
+        size += sizeof(pair.second);
+    }
+    return size;
 }
 
 size_t TabletSchema::row_size() const {
