@@ -70,25 +70,8 @@ static std::shared_ptr<MemTracker> root_tracker;
 static GoogleOnceType root_tracker_once = GOOGLE_ONCE_INIT;
 
 void MemTracker::CreateRootTracker() {
-    root_tracker.reset(new MemTracker(-1, "root"));
+    root_tracker.reset(new MemTracker(-1, "Root"));
     root_tracker->Init();
-}
-
-std::shared_ptr<MemTracker> MemTracker::CreateTracker(int64_t byte_limit, const std::string& label,
-                                                      std::shared_ptr<MemTracker> parent,
-                                                      bool log_usage_if_zero) {
-    shared_ptr<MemTracker> real_parent;
-    if (parent) {
-        real_parent = std::move(parent);
-    } else {
-        real_parent = GetRootTracker();
-    }
-    shared_ptr<MemTracker> tracker(
-            new MemTracker(nullptr, byte_limit, label, real_parent, log_usage_if_zero));
-    real_parent->AddChildTracker(tracker);
-    tracker->Init();
-
-    return tracker;
 }
 
 std::shared_ptr<MemTracker> MemTracker::CreateTracker(RuntimeProfile* profile, int64_t byte_limit,
@@ -101,6 +84,23 @@ std::shared_ptr<MemTracker> MemTracker::CreateTracker(RuntimeProfile* profile, i
         real_parent = GetRootTracker();
     }
     shared_ptr<MemTracker> tracker(new MemTracker(profile, byte_limit, label, real_parent, true));
+    real_parent->AddChildTracker(tracker);
+    tracker->Init();
+
+    return tracker;
+}
+
+std::shared_ptr<MemTracker> MemTracker::CreateTracker(int64_t byte_limit, const std::string& label,
+        std::shared_ptr<MemTracker> parent,
+        bool log_usage_if_zero) {
+    shared_ptr<MemTracker> real_parent;
+    if (parent) {
+        real_parent = std::move(parent);
+    } else {
+        real_parent = GetRootTracker();
+    }
+    shared_ptr<MemTracker> tracker(
+            new MemTracker(nullptr, byte_limit, label, real_parent, log_usage_if_zero));
     real_parent->AddChildTracker(tracker);
     tracker->Init();
 

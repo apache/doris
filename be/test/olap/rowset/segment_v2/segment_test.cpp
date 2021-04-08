@@ -136,7 +136,7 @@ protected:
         ASSERT_TRUE(st.ok());
         ASSERT_TRUE(wblock->close().ok());
 
-        st = Segment::open(filename, 0, &query_schema, res);
+        st = Segment::open(filename, 0, &query_schema, MemTracker::CreateTracker(-1, "Segment", nullptr, false), res);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(nrows, (*res)->num_rows());
     }
@@ -817,7 +817,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
     {
         std::shared_ptr<Segment> segment;
-        st = Segment::open(fname, 0, tablet_schema.get(), &segment);
+        st = Segment::open(fname, 0, tablet_schema.get(), MemTracker::CreateTracker(-1, "Segment", nullptr, false), &segment);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*tablet_schema);
