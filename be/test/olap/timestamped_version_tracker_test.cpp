@@ -19,9 +19,9 @@
 #include <gtest/gtest.h>
 
 #include <fstream>
+#include <filesystem>
 #include <sstream>
 
-#include "boost/filesystem.hpp"
 #include "gutil/strings/substitute.h"
 #include "json2pb/json_to_pb.h"
 #include "olap/olap_meta.h"

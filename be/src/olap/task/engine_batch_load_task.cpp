@@ -154,17 +154,17 @@ AgentStatus EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, stri
     *download_path = root_path + DPP_PREFIX;
 
     // Check path exist
-    boost::filesystem::path full_path(*download_path);
+    std::filesystem::path full_path(*download_path);
 
-    if (!boost::filesystem::exists(full_path)) {
+    if (!std::filesystem::exists(full_path)) {
         LOG(INFO) << "download dir not exist: " << *download_path;
-        boost::system::error_code error_code;
-        boost::filesystem::create_directories(*download_path, error_code);
+        std::error_code ec;
+        std::filesystem::create_directories(*download_path, ec);
 
-        if (error_code.failed()) {
+        if (ec) {
             status = DORIS_ERROR;
             LOG(WARNING) << "create download dir failed.path: " << *download_path
-                         << ", error code: " << error_code;
+                         << ", error code: " << ec;
         }
     }
 
@@ -221,7 +221,7 @@ AgentStatus EngineBatchLoadTask::_process() {
             // check file size
             if (_push_req.__isset.http_file_size) {
                 // Check file size
-                uint64_t local_file_size = boost::filesystem::file_size(_local_file_path);
+                uint64_t local_file_size = std::filesystem::file_size(_local_file_path);
                 if (file_size != local_file_size) {
                     LOG(WARNING) << "download_file size error. file_size=" << file_size
                                  << ", local_file_size=" << local_file_size;
@@ -271,7 +271,7 @@ AgentStatus EngineBatchLoadTask::_process() {
     }
 
     // Delete download file
-    if (boost::filesystem::exists(_local_file_path)) {
+    if (std::filesystem::exists(_local_file_path)) {
         if (remove(_local_file_path.c_str()) == -1) {
             LOG(WARNING) << "can not remove file=" << _local_file_path;
         }

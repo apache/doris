@@ -17,7 +17,7 @@
 
 #include "agent/agent_server.h"
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <string>
 
 #include "agent/task_worker_pool.h"
@@ -39,9 +39,9 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     for (auto& path : exec_env->store_paths()) {
         try {
             string dpp_download_path_str = path.path + DPP_PREFIX;
-            boost::filesystem::path dpp_download_path(dpp_download_path_str);
-            if (boost::filesystem::exists(dpp_download_path)) {
-                boost::filesystem::remove_all(dpp_download_path);
+            std::filesystem::path dpp_download_path(dpp_download_path_str);
+            if (std::filesystem::exists(dpp_download_path)) {
+                std::filesystem::remove_all(dpp_download_path);
             }
         } catch (...) {
             LOG(WARNING) << "boost exception when remove dpp download path. path=" << path.path;

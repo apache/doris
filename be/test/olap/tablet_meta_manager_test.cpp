@@ -20,7 +20,7 @@
 #include <gtest/gtest.h>
 #include <json2pb/json_to_pb.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -43,12 +43,12 @@ class TabletMetaManagerTest : public testing::Test {
 public:
     virtual void SetUp() {
         std::string root_path = "./store";
-        ASSERT_TRUE(boost::filesystem::create_directory(root_path));
+        ASSERT_TRUE(std::filesystem::create_directory(root_path));
         _data_dir = new (std::nothrow) DataDir(root_path);
         ASSERT_NE(nullptr, _data_dir);
         Status st = _data_dir->init();
         ASSERT_TRUE(st.ok());
-        ASSERT_TRUE(boost::filesystem::exists(root_path + "/meta"));
+        ASSERT_TRUE(std::filesystem::exists(root_path + "/meta"));
 
         std::ifstream infile(meta_path);
         char buffer[1024];
@@ -62,7 +62,7 @@ public:
 
     virtual void TearDown() {
         delete _data_dir;
-        ASSERT_TRUE(boost::filesystem::remove_all("./store"));
+        ASSERT_TRUE(std::filesystem::remove_all("./store"));
     }
 
 private:

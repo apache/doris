@@ -26,7 +26,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <boost/regex.hpp>
 #include <cstdint>
 #include <cstring>
@@ -583,8 +583,8 @@ OLAPStatus gen_timestamp_string(string* out_string) {
 
 // 两个参数都必须传路径，
 // schema_hash_root用于计算trash位置，file_path用于唯一确定要删的文件
-OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
-                         const boost::filesystem::path& file_path) {
+OLAPStatus move_to_trash(const std::filesystem::path& schema_hash_root,
+                         const std::filesystem::path& file_path) {
     OLAPStatus res = OLAP_SUCCESS;
     string old_file_path = file_path.string();
     string old_file_name = file_path.filename().string();
@@ -800,24 +800,24 @@ bool check_datapath_rw(const string& path) {
 }
 
 OLAPStatus copy_dir(const string& src_dir, const string& dst_dir) {
-    boost::filesystem::path src_path(src_dir.c_str());
-    boost::filesystem::path dst_path(dst_dir.c_str());
+    std::filesystem::path src_path(src_dir);
+    std::filesystem::path dst_path(dst_dir);
 
     try {
         // Check whether the function call is valid
-        if (!boost::filesystem::exists(src_path) || !boost::filesystem::is_directory(src_path)) {
+        if (!std::filesystem::exists(src_path) || !std::filesystem::is_directory(src_path)) {
             OLAP_LOG_WARNING("Source dir not exist or is not a dir.[src_path=%s]",
                              src_path.string().c_str());
             return OLAP_ERR_CREATE_FILE_ERROR;
         }
 
-        if (boost::filesystem::exists(dst_path)) {
+        if (std::filesystem::exists(dst_path)) {
             LOG(WARNING) << "Dst dir already exists.[dst_path=" << dst_path.string() << "]";
             return OLAP_ERR_CREATE_FILE_ERROR;
         }
 
         // Create the destination directory
-        if (!boost::filesystem::create_directory(dst_path)) {
+        if (!std::filesystem::create_directory(dst_path)) {
             LOG(WARNING) << "Unable to create dst dir.[dst_path=" << dst_path.string() << "]";
             return OLAP_ERR_CREATE_FILE_ERROR;
         }
@@ -829,11 +829,11 @@ OLAPStatus copy_dir(const string& src_dir, const string& dst_dir) {
     }
 
     // Iterate through the source directory
-    for (boost::filesystem::directory_iterator file(src_path);
-         file != boost::filesystem::directory_iterator(); ++file) {
+    for (std::filesystem::directory_iterator file(src_path);
+         file != std::filesystem::directory_iterator(); ++file) {
         try {
-            boost::filesystem::path current(file->path());
-            if (boost::filesystem::is_directory(current)) {
+            std::filesystem::path current = file->path();
+            if (std::filesystem::is_directory(current)) {
                 // Found directory: Recursion
                 OLAPStatus res = OLAP_SUCCESS;
                 if (OLAP_SUCCESS !=
@@ -845,7 +845,7 @@ OLAPStatus copy_dir(const string& src_dir, const string& dst_dir) {
                 }
             } else {
                 // Found file: Copy
-                boost::filesystem::copy_file(current, (dst_path / current.filename()).string());
+                std::filesystem::copy_file(current, (dst_path / current.filename()).string());
             }
         } catch (...) {
             OLAP_LOG_WARNING("Fail to copy file.[src_path=%s dst_path=%s]",

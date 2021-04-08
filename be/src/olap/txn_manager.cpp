@@ -25,7 +25,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <cstdio>
 #include <new>
 #include <queue>
@@ -50,10 +50,10 @@
 #include "util/time.h"
 
 using apache::thrift::ThriftDebugString;
-using boost::filesystem::canonical;
-using boost::filesystem::directory_iterator;
-using boost::filesystem::path;
-using boost::filesystem::recursive_directory_iterator;
+using std::filesystem::canonical;
+using std::filesystem::directory_iterator;
+using std::filesystem::path;
+using std::filesystem::recursive_directory_iterator;
 using std::back_inserter;
 using std::copy;
 using std::inserter;

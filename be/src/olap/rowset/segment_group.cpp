@@ -620,8 +620,8 @@ OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_
         string file_path = construct_index_file_path(_num_segments - 1);
         StorageEngine* engine = StorageEngine::instance();
         if (engine != nullptr) {
-            boost::filesystem::path tablet_path(_rowset_path_prefix);
-            boost::filesystem::path data_dir_path =
+            std::filesystem::path tablet_path(_rowset_path_prefix);
+            std::filesystem::path data_dir_path =
                     tablet_path.parent_path().parent_path().parent_path().parent_path();
             std::string data_dir_string = data_dir_path.string();
             DataDir* data_dir = engine->get_store(data_dir_string);

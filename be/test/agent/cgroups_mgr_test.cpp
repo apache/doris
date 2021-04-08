@@ -18,9 +18,9 @@
 #include "agent/cgroups_mgr.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 
-#include "boost/filesystem.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "util/logging.h"
@@ -42,9 +42,9 @@ class CgroupsMgrTest : public testing::Test {
 public:
     // create a mock cgroup folder
     static void SetUpTestCase() {
-        ASSERT_TRUE(boost::filesystem::remove_all(_s_cgroup_path));
+        ASSERT_TRUE(std::filesystem::remove_all(_s_cgroup_path));
         // create a mock cgroup path
-        ASSERT_TRUE(boost::filesystem::create_directory(_s_cgroup_path));
+        ASSERT_TRUE(std::filesystem::create_directory(_s_cgroup_path));
 
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
@@ -56,7 +56,7 @@ public:
     }
 
     // delete the mock cgroup folder
-    static void TearDownTestCase() { ASSERT_TRUE(boost::filesystem::remove_all(_s_cgroup_path)); }
+    static void TearDownTestCase() { ASSERT_TRUE(std::filesystem::remove_all(_s_cgroup_path)); }
 
     // test if a file contains specific number
     static bool does_contain_number(const std::string& file_path, int32_t number) {
@@ -110,13 +110,13 @@ TEST_F(CgroupsMgrTest, TestInitCgroups) {
     outfile.close();
 
     // create a mock user under cgroup path
-    ASSERT_TRUE(boost::filesystem::create_directory(_s_cgroup_path + "/yiguolei"));
+    ASSERT_TRUE(std::filesystem::create_directory(_s_cgroup_path + "/yiguolei"));
     std::ofstream user_out_file(_s_cgroup_path + "/yiguolei/tasks");
     user_out_file << 123 << std::endl;
     user_out_file.close();
 
     // create a mock user group under cgroup path
-    ASSERT_TRUE(boost::filesystem::create_directory(_s_cgroup_path + "/yiguolei/low"));
+    ASSERT_TRUE(std::filesystem::create_directory(_s_cgroup_path + "/yiguolei/low"));
     std::ofstream group_out_file(CgroupsMgrTest::_s_cgroup_path + "/yiguolei/low/tasks");
     group_out_file << 456 << std::endl;
     group_out_file.close();
@@ -136,7 +136,7 @@ TEST_F(CgroupsMgrTest, TestAssignThreadToCgroups) {
     ASSERT_EQ(AgentStatus::DORIS_ERROR, op_status);
     // user cgroup exist
     // create a mock user under cgroup path
-    ASSERT_TRUE(boost::filesystem::create_directory(_s_cgroup_path + "/yiguolei2"));
+    ASSERT_TRUE(std::filesystem::create_directory(_s_cgroup_path + "/yiguolei2"));
     std::ofstream user_out_file(_s_cgroup_path + "/yiguolei2/tasks");
     user_out_file << 123 << std::endl;
     user_out_file.close();
@@ -147,7 +147,7 @@ TEST_F(CgroupsMgrTest, TestAssignThreadToCgroups) {
 
     // user,level cgroup exist
     // create a mock user group under cgroup path
-    ASSERT_TRUE(boost::filesystem::create_directory(_s_cgroup_path + "/yiguolei2/low"));
+    ASSERT_TRUE(std::filesystem::create_directory(_s_cgroup_path + "/yiguolei2/low"));
     std::ofstream group_out_file(_s_cgroup_path + "/yiguolei2/low/tasks");
     group_out_file << 456 << std::endl;
     group_out_file.close();

@@ -18,7 +18,7 @@
 #include "runtime/tmp_file_mgr.h"
 
 #include <boost/algorithm/string.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <boost/foreach.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/thread/locks.hpp>
@@ -38,8 +38,8 @@ using boost::algorithm::is_any_of;
 using boost::algorithm::join;
 using boost::algorithm::split;
 using boost::algorithm::token_compress_on;
-using boost::filesystem::absolute;
-using boost::filesystem::path;
+using std::filesystem::absolute;
+using std::filesystem::path;
 using boost::uuids::random_generator;
 
 using std::string;
@@ -84,8 +84,8 @@ Status TmpFileMgr::init_custom(const vector<string>& tmp_dirs, bool one_dir_per_
     // For each tmp directory, find the disk it is on,
     // so additional tmp directories on the same disk can be skipped.
     for (int i = 0; i < tmp_dirs.size(); ++i) {
-        boost::filesystem::path tmp_path(boost::trim_right_copy_if(tmp_dirs[i], is_any_of("/")));
-        tmp_path = boost::filesystem::absolute(tmp_path);
+        std::filesystem::path tmp_path = std::string_view(boost::trim_right_copy_if(tmp_dirs[i], is_any_of("/")));
+        tmp_path = std::filesystem::absolute(tmp_path);
         path scratch_subdir_path(tmp_path / _s_tmp_sub_dir_name);
         // tmp_path must be a writable directory.
         Status status = FileSystemUtil::verify_is_directory(tmp_path.string());

@@ -42,7 +42,7 @@
 
 #include <algorithm>
 #include <boost/algorithm/string.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -56,7 +56,7 @@
 
 using boost::algorithm::contains;
 using boost::algorithm::trim;
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 using std::max;
 
 DECLARE_bool(abort_on_config_error);
