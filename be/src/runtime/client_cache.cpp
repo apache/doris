@@ -22,7 +22,6 @@
 #include <thrift/transport/TSocket.h>
 #include <thrift/transport/TTransportUtils.h>
 
-#include <boost/foreach.hpp>
 #include <memory>
 #include <sstream>
 
@@ -172,7 +171,7 @@ void ClientCacheHelper::close_connections(const TNetworkAddress& hostport) {
     }
 
     VLOG_RPC << "Invalidating all " << cache_entry->second.size() << " clients for: " << hostport;
-    BOOST_FOREACH (void* client_key, cache_entry->second) {
+    for (void* client_key : cache_entry->second) {
         ClientMap::iterator client_map_entry = _client_map.find(client_key);
         DCHECK(client_map_entry != _client_map.end());
         ThriftClientImpl* info = client_map_entry->second;
@@ -202,7 +201,7 @@ void ClientCacheHelper::test_shutdown() {
     std::vector<TNetworkAddress> hostports;
     {
         boost::lock_guard<boost::mutex> lock(_lock);
-        BOOST_FOREACH (const ClientCacheMap::value_type& i, _client_cache) {
+        for (const ClientCacheMap::value_type& i : _client_cache) {
             hostports.push_back(i.first);
         }
     }

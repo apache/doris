@@ -189,7 +189,7 @@ string DiskIoMgr::debug_string() {
         ss << "  " << (void*)_disk_queues[i] << ":";
         if (!_disk_queues[i]->request_contexts.empty()) {
             ss << " Readers: ";
-            BOOST_FOREACH (RequestContext* req_context, _disk_queues[i]->request_contexts) {
+            for (RequestContext* req_context : _disk_queues[i]->request_contexts) {
                 ss << (void*)req_context;
             }
         }
@@ -404,7 +404,8 @@ Status DiskIoMgr::init(const std::shared_ptr<MemTracker>& process_mem_tracker) {
     return Status::OK();
 }
 
-Status DiskIoMgr::register_context(RequestContext** request_context, std::shared_ptr<MemTracker> mem_tracker) {
+Status DiskIoMgr::register_context(RequestContext** request_context,
+                                   std::shared_ptr<MemTracker> mem_tracker) {
     DCHECK(_request_context_cache) << "Must call init() first.";
     *request_context = _request_context_cache->get_new_context();
     (*request_context)->reset(std::move(mem_tracker));
