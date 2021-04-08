@@ -1287,6 +1287,17 @@ public:
         return true;
     }
 
+    BigIntVal minimum() {
+        switch (_type) {
+        case SINGLE:
+            return BigIntVal(_sv);
+        case BITMAP:
+            return BigIntVal(_bitmap.minimum());
+        default:
+            return BigIntVal::null();
+        }
+    }
+
     // TODO limit string size to avoid OOM
     std::string to_string() const {
         std::stringstream ss;

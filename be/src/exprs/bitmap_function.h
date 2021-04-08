@@ -55,6 +55,7 @@ public:
     static void nullable_bitmap_init(FunctionContext* ctx, StringVal* dst);
     static void bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst);
     static BigIntVal bitmap_count(FunctionContext* ctx, const StringVal& src);
+    static BigIntVal bitmap_min(FunctionContext* ctx, const StringVal& str);
 
     static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
     static StringVal to_bitmap(FunctionContext* ctx, const StringVal& src);
