@@ -312,7 +312,6 @@ public class DistributedPlanner {
         List<String> reason = Lists.newArrayList();
         if (canColocateJoin(node, leftChildFragment, rightChildFragment, reason)) {
             node.setColocate(true, "");
-            //node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
             node.setChild(0, leftChildFragment.getPlanRoot());
             node.setChild(1, rightChildFragment.getPlanRoot());
             leftChildFragment.setPlanRoot(node);
@@ -476,7 +475,7 @@ public class DistributedPlanner {
 
     /**
      * Colocate Join can be performed when the following 4 conditions are met at the same time.
-     * 1. Session variables disable_colocate_plan = true
+     * 1. Session variables disable_colocate_plan = false
      * 2. There is no join hints in HashJoinNode
      * 3. There are no exchange node between source scan node and HashJoinNode.
      * 4. The scan nodes which are related by EqConjuncts in HashJoinNode are colocate and group can be matched.
@@ -536,7 +535,7 @@ public class DistributedPlanner {
             return null;
         }
         if (scanNode instanceof OlapScanNode) {
-            return ((OlapScanNode) scanNode);
+            return (OlapScanNode) scanNode;
         } else {
             cannotReason.add(DistributedPlanColocateRule.SUPPORT_ONLY_OLAP_TABLE);
             return null;
@@ -843,7 +842,6 @@ public class DistributedPlanner {
         }
 
         // There is at least one partitioned child fragment.
-        // TODO(ML): here
         PlanFragment setOperationFragment = new PlanFragment(ctx_.getNextFragmentId(), setOperationNode,
                 DataPartition.RANDOM);
         for (int i = 0; i < childFragments.size(); ++i) {
@@ -966,7 +964,6 @@ public class DistributedPlanner {
         } else {
             // Check table's distribution. See #4481.
             PlanNode childPlan = childFragment.getPlanRoot();
-            // TODO(ML): here
             if (childPlan instanceof OlapScanNode &&
                     ((OlapScanNode) childPlan).getOlapTable().meetAggDistributionRequirements(node.getAggInfo())) {
                 childFragment.addPlanRoot(node);
@@ -1207,7 +1204,6 @@ public class DistributedPlanner {
             // required if the sort partition exprs reference a tuple that is made nullable in
             // 'childFragment' to bring NULLs from outer-join non-matches together.
             DataPartition sortPartition = sortNode.getInputPartition();
-            // TODO(ML): here
             if (!childFragment.getDataPartition().equals(sortPartition)) {
                 // TODO(zc) || childFragment.refsNullableTupleId(sortPartition.getPartitionExprs())) {
                 analyticFragment = createParentFragment(childFragment, sortNode.getInputPartition());
