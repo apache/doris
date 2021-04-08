@@ -218,6 +218,27 @@ TEST_F(BitmapFunctionsTest, bitmap_count) {
     ASSERT_EQ(BigIntVal(0), null_bitmap);
 }
 
+TEST_F(BitmapFunctionsTest, bitmap_min) {
+    BigIntVal result = BitmapFunctions::bitmap_min(ctx, StringVal::null());
+    ASSERT_TRUE(result.is_null());
+
+    StringVal empty_str = convert_bitmap_to_string(ctx, BitmapValue());
+    result = BitmapFunctions::bitmap_min(ctx, empty_str);
+    ASSERT_TRUE(result.is_null());
+
+    StringVal bitmap_str = convert_bitmap_to_string(ctx, BitmapValue(1024));
+    result = BitmapFunctions::bitmap_min(ctx, bitmap_str);
+    ASSERT_EQ(BigIntVal(1024), result);
+
+    bitmap_str = convert_bitmap_to_string(ctx, BitmapValue({1024, 1}));
+    result = BitmapFunctions::bitmap_min(ctx, bitmap_str);
+    ASSERT_EQ(BigIntVal(1), result);
+
+    bitmap_str = convert_bitmap_to_string(ctx, BitmapValue({1024, 3, 2}));
+    result = BitmapFunctions::bitmap_min(ctx, bitmap_str);
+    ASSERT_EQ(BigIntVal(2), result);
+}
+
 // test intersect_count
 template <typename ValType, typename ValueType>
 void test_bitmap_intersect(FunctionContext* ctx, ValType key1, ValType key2) {
