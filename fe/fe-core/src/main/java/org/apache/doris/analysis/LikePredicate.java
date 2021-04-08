@@ -34,7 +34,7 @@ import com.google.common.collect.Lists;
 
 public class LikePredicate extends Predicate {
 
-    enum Operator {
+    public enum Operator {
         LIKE("LIKE"),
         REGEXP("REGEXP");
 
