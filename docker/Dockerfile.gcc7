@@ -32,7 +32,7 @@ RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake l
   && mkdir -p  /var/local/gcc \
   && curl -fsSL -o /tmp/node-v14.16.0-linux-x64.tar.xz https://nodejs.org/dist/v14.16.0/node-v14.16.0-linux-x64.tar.xz \
   && tar xf /tmp/node-v14.16.0-linux-x64.tar.xz -C ${DEFAULT_DIR}/ \
-  && rm /tmp/node-v14.16.0-linux-x64.tar.xz
+  && rm /tmp/node-v14.16.0-linux-x64.tar.xz \
   && curl -fsSL -o /tmp/gcc.tar.gz  ${GCC_URL}/gcc-${GCC_VERSION}.tar.gz \
   && tar -xzf /tmp/gcc.tar.gz -C /var/local/gcc --strip-components=1 \
   && cd /var/local/gcc \
