@@ -17,8 +17,8 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SysVariableDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Type;
@@ -50,6 +50,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -102,6 +103,11 @@ public class VariableMgr {
     public static final int READ_ONLY = 8;
     // Variables with this flag can not be seen with `SHOW VARIABLES` statement.
     public static final int INVISIBLE = 16;
+    // session Origin value
+    private static final Map<Field,String> sessionOriginValue;
+    // check Stmt is or not is(set .....)
+    // if set session value,we needn't collect session origin value
+    private static boolean isSingleSetVar = false;
 
     // Map variable name to variable context which have enough information to change variable value.
     // This map contains info of all session and global variables.
@@ -118,6 +124,8 @@ public class VariableMgr {
 
     // Form map from variable name to its field in Java class.
     static {
+        // create a new session origin value map
+        sessionOriginValue = new HashMap<Field,String>();
         // Session value
         defaultSessionVariable = new SessionVariable();
         ImmutableSortedMap.Builder<String, VarContext> builder =
@@ -206,6 +214,27 @@ public class VariableMgr {
         return true;
     }
 
+    // set issinglesetvar
+    public static void setIsSingleSetVar(boolean issinglesetvar){
+        VariableMgr.isSingleSetVar = issinglesetvar;
+    }
+
+    // reset Session Value,to ensure:
+    // After query,the operator[set_var] on single sql has been reverted;
+    public static void revertSessionValue(Object obj) throws DdlException{
+        if(!sessionOriginValue.isEmpty()) {
+            for (Field field : sessionOriginValue.keySet()) {
+                // reset session value
+                setValue(obj, field, sessionOriginValue.get(field));
+            }
+	}
+    }
+
+    //clear sessionOriginValue map for new query
+    public static void clearMapSessionOriginValue(){
+        sessionOriginValue.clear();
+    }
+
     public static SessionVariable newSessionVariable() {
         wlock.lock();
         try {
@@ -268,7 +297,17 @@ public class VariableMgr {
             }
         } else {
             // set session variable
-            setValue(sessionVariable, ctx.getField(), value);
+            Field field = ctx.getField();
+            //if stmt is "Select /*+ ...*/"
+            if(isSingleSetVar) {
+                try {
+                    sessionOriginValue.put(field, field.get(sessionVariable).toString());
+                } catch (IllegalAccessException e) {
+                    LOG.warn("execute IOException ", e);
+                    //always ok
+                }
+            }
+            setValue(sessionVariable, field, value);
         }
     }
 

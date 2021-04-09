@@ -1477,17 +1477,16 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
         connectContext.resetSessionVariables();
         try {
-            String sql = "select /*+ SET_VAR(query_timeout=1) */ 1;";
-            UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-            Assert.assertEquals(1, connectContext.getSessionVariable().getQueryTimeoutS());
+            int originQuerytimeoutValue = connectContext.getSessionVariable().getQueryTimeoutS();
+            boolean originEnablepartitioncacheValue = connectContext.getSessionVariable().isEnablePartitionCache();
 
+            String sql = "select /*+ SET_VAR(query_timeout=0) */ 1;";
+            UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
             sql = "select /*+ SET_VAR(query_timeout=10, enable_partition_cache=true, prefer_join_method=shuffle," +
                     " sql_mode=STRICT_TRANS_TABLES) */ 1;";
             UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-            Assert.assertEquals(10, connectContext.getSessionVariable().getQueryTimeoutS());
-            Assert.assertEquals(true, connectContext.getSessionVariable().isEnablePartitionCache());
-            Assert.assertEquals("shuffle", connectContext.getSessionVariable().getPreferJoinMethod());
-            Assert.assertEquals(2097152, connectContext.getSessionVariable().getSqlMode());
+            Assert.assertEquals(originQuerytimeoutValue, connectContext.getSessionVariable().getQueryTimeoutS());
+            Assert.assertEquals(originEnablepartitioncacheValue, connectContext.getSessionVariable().isEnablePartitionCache());
         } finally {
             connectContext.resetSessionVariables();
         }

@@ -253,6 +253,8 @@ public class StmtExecutor {
     // Exception:
     //  IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
+        // clear sessionOriginValue map(for reset sessionValue) for new query
+        VariableMgr.clearMapSessionOriginValue();
 
         plannerProfile.setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
@@ -361,6 +363,17 @@ public class StmtExecutor {
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
             }
         } finally {
+            // revert Session Value
+            try {
+                SessionVariable sessionVariable = context.getSessionVariable();
+                VariableMgr.revertSessionValue(sessionVariable);
+                // this query is over
+                // need to revert issinglesetvar
+            } catch (Exception e) {
+                LOG.warn("Revert SessionVar Exception", e);
+                context.getState().setError(e.getMessage());
+            }
+            VariableMgr.setIsSingleSetVar(false);
             if (parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 // The transaction of a insert operation begin at analyze phase.
@@ -386,6 +399,7 @@ public class StmtExecutor {
             SelectStmt selectStmt = (SelectStmt) parsedStmt;
             Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
             if (optHints != null) {
+                VariableMgr.setIsSingleSetVar(true);
                 for (String key : optHints.keySet()) {
                     VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
                 }
@@ -440,7 +454,6 @@ public class StmtExecutor {
                         originStmt, context.getStmtId(), parser.getErrorMsg(originStmt.originStmt), e);
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
-
             analyzeVariablesInStmt();
         }
         redirectStatus = parsedStmt.getRedirectStatus();
