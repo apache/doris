@@ -83,8 +83,14 @@ public class MaterializedViewSelector {
     private Map<Long, Set<String>> columnNamesInQueryOutput = Maps.newHashMap();
 
     private boolean disableSPJGView;
-    private String reasonOfDisable;
+
+    // The Following 2 variables should be reset each time before calling selectBestMV();
+    // Unlike the "isPreAggregation" in OlapScanNode which defaults to false,
+    // it defaults to true here. It is because in this class, we started to choose MV under the premise
+    // that the default base tables are duplicate key tables. For the aggregation key table,
+    // this variable will be set to false compensatively at the end.
     private boolean isPreAggregation = true;
+    private String reasonOfDisable;
 
     public MaterializedViewSelector(SelectStmt selectStmt, Analyzer analyzer) {
         this.selectStmt = selectStmt;
@@ -105,6 +111,7 @@ public class MaterializedViewSelector {
      * @return
      */
     public BestIndexInfo selectBestMV(ScanNode scanNode) throws UserException {
+        resetPreAggregationVariables();
         long start = System.currentTimeMillis();
         Preconditions.checkState(scanNode instanceof OlapScanNode);
         OlapScanNode olapScanNode = (OlapScanNode) scanNode;
@@ -113,9 +120,16 @@ public class MaterializedViewSelector {
             return null;
         }
         long bestIndexId = priorities(olapScanNode, candidateIndexIdToSchema);
-        LOG.debug("The best materialized view is {} for scan node {} in query {}, cost {}",
-                 bestIndexId, scanNode.getId(), selectStmt.toSql(), (System.currentTimeMillis() - start));
+        LOG.debug("The best materialized view is {} for scan node {} in query {}, " +
+                        "isPreAggregation: {}, reasonOfDisable: {}, cost {}",
+                bestIndexId, scanNode.getId(), selectStmt.toSql(), isPreAggregation, reasonOfDisable,
+                (System.currentTimeMillis() - start));
         return new BestIndexInfo(bestIndexId, isPreAggregation, reasonOfDisable);
+    }
+
+    private void resetPreAggregationVariables() {
+        isPreAggregation = true;
+        reasonOfDisable = null;
     }
 
     private Map<Long, List<Column>> predicates(OlapScanNode scanNode) throws AnalysisException {
@@ -448,7 +462,6 @@ public class MaterializedViewSelector {
         for (TupleId tupleId : tupleIds) {
             TupleDescriptor tupleDescriptor = analyzer.getTupleDesc(tupleId);
             tupleDescriptor.getTableIdToColumnNames(columnNamesInQueryOutput);
-
         }
     }
 
