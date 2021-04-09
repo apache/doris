@@ -158,7 +158,7 @@ public class EsRestClient {
     /**
      * init ssl networkClient use lazy way
      **/
-    private synchronized void initSslNetworkClient() {
+    private synchronized OkHttpClient getOrCreateSslNetworkClient() {
         if (sslNetworkClient == null) {
             sslNetworkClient = new OkHttpClient.Builder()
                     .readTimeout(10, TimeUnit.SECONDS)
@@ -166,6 +166,7 @@ public class EsRestClient {
                     .hostnameVerifier(new TrustAllHostnameVerifier())
                     .build();
         }
+        return sslNetworkClient;
     }
 
     /**
@@ -179,8 +180,7 @@ public class EsRestClient {
         DorisEsException scratchExceptionForThrow = null;
         OkHttpClient httpClient;
         if (httpSslEnable) {
-            initSslNetworkClient();
-            httpClient = sslNetworkClient;
+            httpClient = getOrCreateSslNetworkClient();
         } else {
             httpClient = networkClient;
         }
@@ -265,7 +265,7 @@ public class EsRestClient {
             sc.init(null, new TrustManager[]{new TrustAllCerts()}, new SecureRandom());
             ssfFactory = sc.getSocketFactory();
         } catch (Exception e) {
-            throw new DorisEsException("createSSLSocketFactory error");
+            throw new DorisEsException("Errors happens when create ssl socket");
         }
         return ssfFactory;
     }

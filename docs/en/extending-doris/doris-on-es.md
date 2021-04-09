@@ -355,9 +355,9 @@ Parameter | Description
 ---|---
 **es\_nodes\_discovery** | Whether or not to enable ES node discovery. the default is true
 
-When enabled, Doris will find all available nodes from ES. If you only want Doris to access some nodes, you can turn this configuration off
+Doris would find all available related data nodes (shards allocated on)from ES when this is true.  Just set false if address of  ES data nodes are not accessed by Doris BE, eg. the ES cluster is deployed in the intranet which isolated from your public Internet, and users access through a proxy
 
-### Enable SSL protocol when making an HTTP request, default is false(http\_ssl\_enable=true)
+### Whether ES cluster enables https access mode, if enabled should set value with`true`, default is false(http\_ssl\_enable=true)
 
 ```
 CREATE EXTERNAL TABLE `test` (
