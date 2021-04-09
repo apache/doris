@@ -172,6 +172,7 @@ Status OlapScanner::_init_params(const std::vector<OlapScanRange*>& key_ranges,
     if (_aggregation || single_version) {
         _params.return_columns = _return_columns;
     } else {
+        // we need to fetch all key columns to do the right aggregation on storage engine side.
         for (size_t i = 0; i < _tablet->num_key_columns(); ++i) {
             _params.return_columns.push_back(i);
         }
