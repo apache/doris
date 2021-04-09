@@ -458,7 +458,8 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
 OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_QUERY) {
         _return_columns = read_params.return_columns;
-        if (!_delete_handler.empty() && read_params.aggregation) {
+        if (!_delete_handler.empty()) {
+            // We need to fetch columns which there are deletion conditions on them.
             set<uint32_t> column_set(_return_columns.begin(), _return_columns.end());
             for (const auto& conds : _delete_handler.get_delete_conditions()) {
                 for (const auto& cond_column : conds.del_cond->columns()) {
