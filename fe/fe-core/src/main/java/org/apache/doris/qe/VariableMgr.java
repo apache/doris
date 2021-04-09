@@ -298,13 +298,13 @@ public class VariableMgr {
         } else {
             // set session variable
             Field field = ctx.getField();
-            //if stmt is "Select /*+ ...*/"
+            // if stmt is "Select /*+ ...*/"
             if(isSingleSetVar) {
                 try {
                     sessionOriginValue.put(field, field.get(sessionVariable).toString());
                 } catch (IllegalAccessException e) {
                     LOG.warn("execute IOException ", e);
-                    //always ok
+                    // always ok
                 }
             }
             setValue(sessionVariable, field, value);
