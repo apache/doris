@@ -379,7 +379,7 @@ PROPERTIES (
 
 参数 | 说明
 ---|---
-**es\_net\_ssl** | 是否使用ssl，默认为false，当需要支持https时，需要开启此配置
+**http\_ssl\_enabled** | ES集群是否开启https访问模式
 
 目前会fe/be实现方式为信任所有，这是临时解决方案，后续会使用真实的用户配置证书
 

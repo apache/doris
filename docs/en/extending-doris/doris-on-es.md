@@ -382,7 +382,7 @@ Parameter Description：
 
 Parameter | Description
 ---|---
-**es\_net\_ssl** | SSL authentication is enabled when supporting HTTPS, the default is false
+**http\_ssl\_enabled** | Whether ES cluster enables https access mode
 
 The current FE/BE implementation is to trust all, this is a temporary solution, and the real user configuration certificate will be used later
 
