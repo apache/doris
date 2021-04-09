@@ -17,8 +17,8 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SysVariableDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Type;
