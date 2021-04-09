@@ -354,7 +354,7 @@ PROPERTIES (
 
 当配置为true时，Doris将从ES找到所有可用的相关数据节点(在上面分配的分片)。如果ES数据节点的地址没有被Doris BE访问，则设置为false。ES集群部署在与公共Internet隔离的内网，用户通过代理访问
 
-### ES集群是否开启https访问模式，如果开启应设置为`true`，默认为false(es\_net\_ssl=true)
+### ES集群是否开启https访问模式，如果开启应设置为`true`，默认为false(http\_ssl\_enabled=true)
 
 ```
 CREATE EXTERNAL TABLE `test` (
