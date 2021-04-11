@@ -48,7 +48,9 @@ sh build.sh
 After successful compilation, the file `doris-flink-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `jars/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
 ## How to use
-
+The purpose of this step is to register the Doris data source on Flink. 
+This step is operated on Flink.
+There are two ways to use sql and scala. The following are examples to illustrate
 ### SQL
 The purpose of this step is to register the Doris data source on Flink. 
 This step is operated on Flink
