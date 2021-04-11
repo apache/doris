@@ -356,6 +356,7 @@ This variable is a dynamic configuration, and users can modify the configuration
 
 ### `frontend_address`
 
+Status: Deprecated, not recommended use. This parameter may be deleted later
 Type: string
 Description: Explicitly set the IP address of FE instead of using *InetAddress.getByName* to get the IP address. Usually in *InetAddress.getByName* When the expected results cannot be obtained. Only IP address is supported, not hostname.
 Default value: 0.0.0.0

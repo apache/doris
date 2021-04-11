@@ -354,6 +354,8 @@ FE 的配置项有两种方式进行配置：
 
 ### `frontend_address`
 
+状态：已废弃，不建议使用，后续可能删除该参数
+
 类型：string
 
 说明：显式的设置FE的IP地址, 代替使用 *InetAddress.getByName*获取IP地址。通常在*InetAddress.getByName*无法获取预期结果的情况下使用。仅支持IP地址，不支持hostname。
