@@ -24,6 +24,7 @@ import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
@@ -33,7 +34,7 @@ import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
@@ -47,6 +48,9 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+
+import avro.shaded.com.google.common.collect.Maps;
 
 /**
  * The distributed planner is responsible for creating an executable, distributed plan
@@ -294,16 +298,51 @@ public class DistributedPlanner {
     }
 
     /**
-     * Creates either a broadcast join or a repartitioning join, depending on the expected cost. If any of the inputs to
-     * the cost computation is unknown, it assumes the cost will be 0. Costs being equal, it'll favor partitioned over
-     * broadcast joins. If perNodeMemLimit > 0 and the size of the hash table for a broadcast join is expected to exceed
-     * that mem limit, switches to partitioned join instead. TODO: revisit the choice of broadcast as the default TODO:
-     * don't create a broadcast join if we already anticipate that this will exceed the query's memory budget.
+     * There are 4 kinds of distributed hash join methods in Doris:
+     * Colocate, Bucket Shuffle, Broadcast, Shuffle
+     * The priority between these four distributed execution methods is following:
+     * Colocate > Bucket Shuffle > Broadcast > Shuffle
+     * This function is mainly used to choose the most suitable distributed method for the 'node',
+     * and transform it into PlanFragment.
      */
     private PlanFragment createHashJoinFragment(HashJoinNode node, PlanFragment rightChildFragment,
                                                 PlanFragment leftChildFragment, long perNodeMemLimit,
                                                 ArrayList<PlanFragment> fragments)
             throws UserException {
+        List<String> reason = Lists.newArrayList();
+        if (canColocateJoin(node, leftChildFragment, rightChildFragment, reason)) {
+            node.setColocate(true, "");
+            node.setChild(0, leftChildFragment.getPlanRoot());
+            node.setChild(1, rightChildFragment.getPlanRoot());
+            leftChildFragment.setPlanRoot(node);
+            fragments.remove(rightChildFragment);
+            return leftChildFragment;
+        } else {
+            node.setColocate(false, reason.get(0));
+        }
+
+        // bucket shuffle join is better than broadcast and shuffle join
+        // it can reduce the network cost of join, so doris chose it first
+        List<Expr> rhsPartitionxprs = Lists.newArrayList();
+        if (canBucketShuffleJoin(node, leftChildFragment, rightChildFragment, rhsPartitionxprs)) {
+            node.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
+            DataPartition rhsJoinPartition =
+                    new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, rhsPartitionxprs);
+            ExchangeNode rhsExchange =
+                    new ExchangeNode(ctx_.getNextNodeId(), rightChildFragment.getPlanRoot(), false);
+            rhsExchange.setNumInstances(rightChildFragment.getPlanRoot().getNumInstances());
+            rhsExchange.init(ctx_.getRootAnalyzer());
+
+            node.setChild(0, leftChildFragment.getPlanRoot());
+            node.setChild(1, rhsExchange);
+            leftChildFragment.setPlanRoot(node);
+
+            rightChildFragment.setDestination(rhsExchange);
+            rightChildFragment.setOutputPartition(rhsJoinPartition);
+
+            return leftChildFragment;
+        }
+
         // broadcast: send the rightChildFragment's output to each node executing
         // the leftChildFragment; the cost across all nodes is proportional to the
         // total amount of data sent
@@ -366,56 +405,13 @@ public class DistributedPlanner {
             } else if (!node.getInnerRef().isPartitionJoin()
                     && isBroadcastCostSmaller(broadcastCost, partitionCost)
                     && (perNodeMemLimit == 0
-                        || Math.round((double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)) {
+                    || Math.round((double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)) {
                 doBroadcast = true;
             } else {
                 doBroadcast = false;
             }
         } else {
             doBroadcast = false;
-        }
-
-        // Push down the predicates constructed by the right child when the
-        // join op is inner join or left semi join.
-        // Colocate join, Bucket Shuffle join, Broadcast join support local rumtime filter
-        // For Shuffle join, set is push down false after this code in line:475
-        if (node.getJoinOp().isInnerJoin() || node.getJoinOp().isLeftSemiJoin()) {
-            node.setIsPushDown(true);
-        }
-
-        List<String> reason = Lists.newArrayList();
-        if (canColocateJoin(node, leftChildFragment, rightChildFragment, reason)) {
-            node.setColocate(true, "");
-            //node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
-            node.setChild(0, leftChildFragment.getPlanRoot());
-            node.setChild(1, rightChildFragment.getPlanRoot());
-            leftChildFragment.setPlanRoot(node);
-            fragments.remove(rightChildFragment);
-            return leftChildFragment;
-        } else {
-            node.setColocate(false, reason.get(0));
-        }
-
-        // bucket shuffle join is better than broadcast and shuffle join
-        // it can reduce the network cost of join, so doris chose it first
-        List<Expr> rhsPartitionxprs = Lists.newArrayList();
-        if (canBucketShuffleJoin(node, leftChildFragment, rightChildFragment, rhsPartitionxprs)) {
-            node.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
-            DataPartition rhsJoinPartition =
-                    new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, rhsPartitionxprs);
-            ExchangeNode rhsExchange =
-                    new ExchangeNode(ctx_.getNextNodeId(), rightChildFragment.getPlanRoot(), false);
-            rhsExchange.setNumInstances(rightChildFragment.getPlanRoot().getNumInstances());
-            rhsExchange.init(ctx_.getRootAnalyzer());
-
-            node.setChild(0, leftChildFragment.getPlanRoot());
-            node.setChild(1, rhsExchange);
-            leftChildFragment.setPlanRoot(node);
-
-            rightChildFragment.setDestination(rhsExchange);
-            rightChildFragment.setOutputPartition(rhsJoinPartition);
-
-            return leftChildFragment;
         }
 
         if (doBroadcast) {
@@ -471,58 +467,167 @@ public class DistributedPlanner {
             rightChildFragment.setDestination(rhsExchange);
             rightChildFragment.setOutputPartition(rhsJoinPartition);
 
-            // Before we support global runtime filter, only shuffle join do not enable local runtime filter
+            // TODO: Before we support global runtime filter, only shuffle join do not enable local runtime filter
             node.setIsPushDown(false);
             return joinFragment;
         }
     }
 
+    /**
+     * Colocate Join can be performed when the following 4 conditions are met at the same time.
+     * 1. Session variables disable_colocate_plan = false
+     * 2. There is no join hints in HashJoinNode
+     * 3. There are no exchange node between source scan node and HashJoinNode.
+     * 4. The scan nodes which are related by EqConjuncts in HashJoinNode are colocate and group can be matched.
+     */
     private boolean canColocateJoin(HashJoinNode node, PlanFragment leftChildFragment, PlanFragment rightChildFragment,
-            List<String> cannotReason) {
-        if (Config.disable_colocate_join) {
-            cannotReason.add("Disabled");
+                                    List<String> cannotReason) {
+        // Condition1
+        if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
+            cannotReason.add(DistributedPlanColocateRule.SESSION_DISABLED);
             return false;
         }
 
-        if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
-            cannotReason.add("Session disabled");
-            return false;
-        }
-
-        // If user have a join hint to use proper way of join, can not be colocate join
+        // Condition2: If user have a join hint to use proper way of join, can not be colocate join
         if (node.getInnerRef().hasJoinHints()) {
-            cannotReason.add("Has join hint");
+            cannotReason.add(DistributedPlanColocateRule.HAS_JOIN_HINT);
             return false;
         }
 
-        PlanNode leftRoot = leftChildFragment.getPlanRoot();
-        PlanNode rightRoot = rightChildFragment.getPlanRoot();
-
-        //leftRoot should be ScanNode or HashJoinNode, rightRoot should be ScanNode
-        if (leftRoot instanceof OlapScanNode && rightRoot instanceof OlapScanNode) {
-            return canColocateJoin(node, leftRoot, rightRoot, cannotReason);
+        // Condition3:
+        // If there is an exchange node between the HashJoinNode and their real associated ScanNode,
+        //   it means that the data has been rehashed.
+        // The rehashed data can no longer be guaranteed to correspond to the left and right buckets,
+        //   and naturally cannot be colocate
+        Map<Pair<OlapScanNode, OlapScanNode>, List<BinaryPredicate>> scanNodeWithJoinConjuncts = Maps.newHashMap();
+        for (BinaryPredicate eqJoinPredicate : node.getEqJoinConjuncts()) {
+            OlapScanNode leftScanNode = genSrcScanNode(eqJoinPredicate.getChild(0), leftChildFragment, cannotReason);
+            if (leftScanNode == null) {
+                return false;
+            }
+            OlapScanNode rightScanNode = genSrcScanNode(eqJoinPredicate.getChild(1), rightChildFragment, cannotReason);
+            if (rightScanNode == null) {
+                return false;
+            }
+            Pair<OlapScanNode, OlapScanNode> eqPair = new Pair<>(leftScanNode, rightScanNode);
+            List<BinaryPredicate> predicateList = scanNodeWithJoinConjuncts.get(eqPair);
+            if (predicateList == null) {
+                predicateList = Lists.newArrayList();
+                scanNodeWithJoinConjuncts.put(eqPair, predicateList);
+            }
+            predicateList.add(eqJoinPredicate);
         }
 
-        if (leftRoot instanceof HashJoinNode && rightRoot instanceof OlapScanNode) {
-            while (leftRoot instanceof HashJoinNode) {
-                if (!((HashJoinNode)leftRoot).isShuffleJoin()) {
-                    leftRoot = leftRoot.getChild(0);
-                } else {
-                    cannotReason.add("left hash join node can not do colocate");
-                    return false;
+        // Condition4
+        return dataDistributionMatchEqPredicate(scanNodeWithJoinConjuncts, cannotReason);
+    }
+
+    private OlapScanNode genSrcScanNode(Expr expr, PlanFragment planFragment, List<String> cannotReason) {
+        SlotRef slotRef = expr.getSrcSlotRef();
+        if (slotRef == null) {
+            cannotReason.add(DistributedPlanColocateRule.TRANSFORMED_SRC_COLUMN);
+            return null;
+        }
+        ScanNode scanNode = planFragment.getPlanRoot()
+                .getScanNodeInOneFragmentByTupleId(slotRef.getDesc().getParent().getId());
+        if (scanNode == null) {
+            cannotReason.add(DistributedPlanColocateRule.REDISTRIBUTED_SRC_DATA);
+            return null;
+        }
+        if (scanNode instanceof OlapScanNode) {
+            return (OlapScanNode) scanNode;
+        } else {
+            cannotReason.add(DistributedPlanColocateRule.SUPPORT_ONLY_OLAP_TABLE);
+            return null;
+        }
+    }
+
+    private boolean dataDistributionMatchEqPredicate(Map<Pair<OlapScanNode, OlapScanNode>,
+            List<BinaryPredicate>> scanNodeWithJoinConjuncts, List<String> cannotReason) {
+        for (Map.Entry<Pair<OlapScanNode, OlapScanNode>, List<BinaryPredicate>> entry : scanNodeWithJoinConjuncts.entrySet()) {
+            OlapScanNode leftScanNode = entry.getKey().first;
+            OlapScanNode rightScanNode = entry.getKey().second;
+            List<BinaryPredicate> eqPredicates = entry.getValue();
+            if (!dataDistributionMatchEqPredicate(eqPredicates, leftScanNode, rightScanNode, cannotReason)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    //the table must be colocate
+    //the colocate group must be stable
+    //the eqJoinConjuncts must contain the distributionColumns
+    private boolean dataDistributionMatchEqPredicate(List<BinaryPredicate> eqJoinPredicates, OlapScanNode leftRoot,
+                                                     OlapScanNode rightRoot, List<String> cannotReason) {
+        OlapTable leftTable = leftRoot.getOlapTable();
+        OlapTable rightTable = rightRoot.getOlapTable();
+
+        // if left table and right table is same table and they select same single partition or no partition
+        // they are naturally colocate relationship no need to check colocate group
+        Collection<Long> leftPartitions = leftRoot.getSelectedPartitionIds();
+        Collection<Long> rightPartitions = rightRoot.getSelectedPartitionIds();
+        boolean noNeedCheckColocateGroup = (leftTable.getId() == rightTable.getId())
+                && (leftPartitions.equals(rightPartitions)) && (leftPartitions.size() <= 1);
+
+        if (!noNeedCheckColocateGroup) {
+            ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
+
+            //1 the table must be colocate
+            if (!colocateIndex.isSameGroup(leftTable.getId(), rightTable.getId())) {
+                cannotReason.add(DistributedPlanColocateRule.TABLE_NOT_IN_THE_SAME_GROUP);
+                return false;
+            }
+
+            //2 the colocate group must be stable
+            GroupId groupId = colocateIndex.getGroup(leftTable.getId());
+            if (colocateIndex.isGroupUnstable(groupId)) {
+                cannotReason.add(DistributedPlanColocateRule.COLOCATE_GROUP_IS_NOT_STABLE);
+                return false;
+            }
+        }
+
+        DistributionInfo leftDistribution = leftTable.getDefaultDistributionInfo();
+        DistributionInfo rightDistribution = rightTable.getDefaultDistributionInfo();
+
+        if (leftDistribution instanceof HashDistributionInfo && rightDistribution instanceof HashDistributionInfo) {
+            List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
+            List<Column> rightDistributeColumns = ((HashDistributionInfo) rightDistribution).getDistributionColumns();
+
+            List<Column> leftJoinColumns = new ArrayList<>();
+            List<Column> rightJoinColumns = new ArrayList<>();
+            for (BinaryPredicate eqJoinPredicate : eqJoinPredicates) {
+                SlotRef lhsSlotRef = eqJoinPredicate.getChild(0).getSrcSlotRef();
+                SlotRef rhsSlotRef = eqJoinPredicate.getChild(1).getSrcSlotRef();
+                Preconditions.checkState(lhsSlotRef != null);
+                Preconditions.checkState(rhsSlotRef != null);
+
+                Column leftColumn = lhsSlotRef.getDesc().getColumn();
+                Column rightColumn = rhsSlotRef.getDesc().getColumn();
+                int leftColumnIndex = leftDistributeColumns.indexOf(leftColumn);
+                int rightColumnIndex = rightDistributeColumns.indexOf(rightColumn);
+
+                // eqjoinConjuncts column should have the same order like colocate distribute column
+                if (leftColumnIndex == rightColumnIndex && leftColumnIndex != -1) {
+                    leftJoinColumns.add(leftColumn);
+                    rightJoinColumns.add(rightColumn);
                 }
             }
-            if (leftRoot instanceof OlapScanNode) {
-                return canColocateJoin(node, leftRoot, rightRoot, cannotReason);
+
+            //3 the join columns should contains all distribute columns to enable colocate join
+            if (leftJoinColumns.containsAll(leftDistributeColumns)
+                    && rightJoinColumns.containsAll(rightDistributeColumns)) {
+                return true;
             }
         }
 
-        cannotReason.add("Node type not match");
+        cannotReason.add(DistributedPlanColocateRule.INCONSISTENT_DISTRIBUTION_OF_TABLE_AND_QUERY);
         return false;
     }
 
     private boolean canBucketShuffleJoin(HashJoinNode node, PlanFragment leftChildFragment, PlanFragment rightChildFragment,
-                                   List<Expr> rhsHashExprs) {
+                                         List<Expr> rhsHashExprs) {
         if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
             return false;
         }
@@ -538,7 +643,6 @@ public class DistributedPlanner {
         }
 
         // 2.leftRoot be hashjoin node and not shuffle join
-        PlanNode rightRoot = rightChildFragment.getPlanRoot();
         if (leftRoot instanceof HashJoinNode) {
             while (leftRoot instanceof HashJoinNode) {
                 if (!((HashJoinNode)leftRoot).isShuffleJoin()) {
@@ -557,7 +661,7 @@ public class DistributedPlanner {
 
     //the join expr must contian left table distribute column
     private boolean canBucketShuffleJoin(HashJoinNode node, PlanNode leftRoot,
-                                    List<Expr> rhsJoinExprs) {
+                                         List<Expr> rhsJoinExprs) {
         OlapScanNode leftScanNode = ((OlapScanNode) leftRoot);
         OlapTable leftTable = leftScanNode.getOlapTable();
 
@@ -566,7 +670,7 @@ public class DistributedPlanner {
             ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
             if (!leftTable.isColocateTable() ||
                     colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTable.getId())))
-            return false;
+                return false;
         }
 
         DistributionInfo leftDistribution = leftScanNode.getOlapTable().getDefaultDistributionInfo();
@@ -606,80 +710,6 @@ public class DistributedPlanner {
         }
 
         return true;
-    }
-
-    //the table must be colocate
-    //the colocate group must be stable
-    //the eqJoinConjuncts must contain the distributionColumns
-    private boolean canColocateJoin(HashJoinNode node, PlanNode leftRoot, PlanNode rightRoot,
-            List<String> cannotReason) {
-        OlapTable leftTable = ((OlapScanNode) leftRoot).getOlapTable();
-        OlapTable rightTable = ((OlapScanNode) rightRoot).getOlapTable();
-
-        // if left table and right table is same table and they select same single partition or no partition
-        // they are naturally colocate relationship no need to check colocate group
-        Collection<Long> leftPartitions = ((OlapScanNode)leftRoot).getSelectedPartitionIds();
-        Collection<Long> rightPartitions = ((OlapScanNode)rightRoot).getSelectedPartitionIds();
-        boolean noNeedCheckColocateGroup = (leftTable.getId() == rightTable.getId()) && (leftPartitions.equals(rightPartitions)) &&
-                (leftPartitions.size() <= 1);
-
-        if (!noNeedCheckColocateGroup) {
-            ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
-
-            //1 the table must be colocate
-            if (!colocateIndex.isSameGroup(leftTable.getId(), rightTable.getId())) {
-                cannotReason.add("table not in the same group");
-                return false;
-            }
-
-            //2 the colocate group must be stable
-            GroupId groupId = colocateIndex.getGroup(leftTable.getId());
-            if (colocateIndex.isGroupUnstable(groupId)) {
-                cannotReason.add("group is not stable");
-                return false;
-            }
-        }
-
-        DistributionInfo leftDistribution = leftTable.getDefaultDistributionInfo();
-        DistributionInfo rightDistribution = rightTable.getDefaultDistributionInfo();
-
-        if (leftDistribution instanceof HashDistributionInfo && rightDistribution instanceof HashDistributionInfo) {
-            List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
-            List<Column> rightDistributeColumns = ((HashDistributionInfo) rightDistribution).getDistributionColumns();
-
-            List<Column> leftJoinColumns = new ArrayList<>();
-            List<Column> rightJoinColumns = new ArrayList<>();
-            List<BinaryPredicate> eqJoinConjuncts = node.getEqJoinConjuncts();
-            for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
-                Expr lhsJoinExpr = eqJoinPredicate.getChild(0);
-                Expr rhsJoinExpr = eqJoinPredicate.getChild(1);
-                if (lhsJoinExpr.unwrapSlotRef() == null || rhsJoinExpr.unwrapSlotRef() == null) {
-                    continue;
-                }
-
-                SlotDescriptor leftSlot = lhsJoinExpr.unwrapSlotRef().getDesc();
-                SlotDescriptor rightSlot = rhsJoinExpr.unwrapSlotRef().getDesc();
-
-                Column leftColumn = leftSlot.getColumn();
-                Column rightColumn = rightSlot.getColumn();
-                int leftColumnIndex = leftDistributeColumns.indexOf(leftColumn);
-                int rightColumnIndex = rightDistributeColumns.indexOf(rightColumn);
-
-                // eqjoinConjuncts column should have the same order like colocate distribute column
-                if (leftColumnIndex == rightColumnIndex && leftColumnIndex != -1) {
-                    leftJoinColumns.add(leftSlot.getColumn());
-                    rightJoinColumns.add(rightSlot.getColumn());
-                }
-            }
-
-            //3 the join columns should contains all distribute columns to enable colocate join
-            if (leftJoinColumns.containsAll(leftDistributeColumns) && rightJoinColumns.containsAll(rightDistributeColumns)) {
-                return true;
-            }
-        }
-
-        cannotReason.add("column not match");
-        return false;
     }
 
     /**
@@ -932,7 +962,6 @@ public class DistributedPlanner {
         if (isDistinct) {
             return createPhase2DistinctAggregationFragment(node, childFragment, fragments);
         } else {
-
             // Check table's distribution. See #4481.
             PlanNode childPlan = childFragment.getPlanRoot();
             if (childPlan instanceof OlapScanNode &&
@@ -1087,7 +1116,7 @@ public class DistributedPlanner {
                     partitionExprs == null ? DataPartition.UNPARTITIONED : DataPartition.hashPartitioned(partitionExprs);
             // Convert the existing node to a preaggregation.
             AggregationNode preaggNode = (AggregationNode)node.getChild(0);
-            
+
             preaggNode.setIsPreagg(ctx_);
 
             // place a merge aggregation step for the 1st phase in a new fragment
@@ -1176,7 +1205,7 @@ public class DistributedPlanner {
             // 'childFragment' to bring NULLs from outer-join non-matches together.
             DataPartition sortPartition = sortNode.getInputPartition();
             if (!childFragment.getDataPartition().equals(sortPartition)) {
-                    // TODO(zc) || childFragment.refsNullableTupleId(sortPartition.getPartitionExprs())) {
+                // TODO(zc) || childFragment.refsNullableTupleId(sortPartition.getPartitionExprs())) {
                 analyticFragment = createParentFragment(childFragment, sortNode.getInputPartition());
             }
         }
