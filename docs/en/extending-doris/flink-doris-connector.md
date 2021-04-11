@@ -50,7 +50,8 @@ After successful compilation, the file `doris-flink-1.0.0-SNAPSHOT.jar` will be 
 ## How to use
 
 ### SQL
-
+The purpose of this step is to register the Doris data source on Flink. 
+This step is operated on Flink
 ```sql
 CREATE TABLE flink_doris_source (
     name STRING,
