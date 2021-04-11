@@ -45,8 +45,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class ColocateTableBalancerTest {
-    private ColocateTableBalancer balancer = ColocateTableBalancer.getInstance();
+public class ColocateTableCheckerAndBalancerTest {
+    private ColocateTableCheckerAndBalancer balancer = ColocateTableCheckerAndBalancer.getInstance();
 
     private Backend backend1;
     private Backend backend2;

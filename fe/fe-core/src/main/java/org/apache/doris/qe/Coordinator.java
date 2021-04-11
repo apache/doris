@@ -1096,16 +1096,12 @@ public class Coordinator {
 
     // One fragment could only have one HashJoinNode
     private boolean isColocateJoin(PlanNode node) {
-        if (Config.disable_colocate_join) {
-            return false;
-        }
-
         // TODO(cmy): some internal process, such as broker load task, do not have ConnectContext.
         // Any configurations needed by the Coordinator should be passed in Coordinator initialization.
         // Refine this later.
         // Currently, just ignore the session variables if ConnectContext does not exist
         if (ConnectContext.get() != null) {
-            if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
+            if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
                 return false;
             }
         }

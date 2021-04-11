@@ -45,12 +45,12 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
-import java.util.HashMap;
 
 /**
  * Root of the expr node hierarchy.
@@ -1334,7 +1334,34 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     @Override
     public String toString() {
         return MoreObjects.toStringHelper(this.getClass()).add("id", id).add("type", type).add("sel",
-          selectivity).add("#distinct", numDistinctValues).add("scale", outputScale).toString();
+                selectivity).add("#distinct", numDistinctValues).add("scale", outputScale).toString();
+    }
+
+    /**
+     * This method is mainly used to find the original column corresponding to the current expr.
+     * Find the initial slotRef from the current slot ref.
+     * 
+     * If the initial expr is not a slotRef, it returns null directly.
+     * If the current slotRef comes from another expression transformation,
+     *   rather than directly from another slotRef, null will also be returned.
+     */
+    public SlotRef getSrcSlotRef() {
+        SlotRef unwrapSloRef = this.unwrapSlotRef();
+        if (unwrapSloRef == null) {
+            return null;
+        }
+        SlotDescriptor slotDescriptor = unwrapSloRef.getDesc();
+        if (slotDescriptor == null) {
+            return null;
+        }
+        List<Expr> sourceExpr = slotDescriptor.getSourceExprs();
+        if (sourceExpr == null || sourceExpr.isEmpty()) {
+            return unwrapSloRef;
+        }
+        if (sourceExpr.size() > 1) {
+            return null;
+        }
+        return sourceExpr.get(0).getSrcSlotRef();
     }
 
     /**

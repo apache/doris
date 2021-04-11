@@ -645,4 +645,18 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         sb.append("\n").append(getNodeExplainString("", TExplainLevel.BRIEF));
         return sb.toString();
     }
+    
+    public ScanNode getScanNodeInOneFragmentByTupleId(TupleId tupleId) {
+        if (this instanceof ScanNode && tupleIds.contains(tupleId)) {
+            return (ScanNode) this;
+        } else if (!(this instanceof ExchangeNode)) {
+            for (PlanNode planNode : children) {
+                ScanNode scanNode = planNode.getScanNodeInOneFragmentByTupleId(tupleId);
+                if (scanNode != null) {
+                    return scanNode;
+                }
+            }
+        }
+        return null;
+    }
 }
