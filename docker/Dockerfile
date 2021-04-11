@@ -34,7 +34,7 @@ RUN yum makecache && yum -y update && yum -y groupinstall 'Development Tools' &&
 # install gcc10
 RUN wget http://public-yum.oracle.com/RPM-GPG-KEY-oracle-ol7 -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle && \
     rpm --import  /etc/pki/rpm-gpg/RPM-GPG-KEY-* && \
-    yum install -y devtoolset-10-gcc* 
+    yum install -y devtoolset-10-gcc* devtoolset-10-libubsan-devel devtoolset-10-liblsan-devel devtoolset-10-libasan-devel
 
 ENV JAVA_HOME="/usr/lib/jvm/java-11"
 
