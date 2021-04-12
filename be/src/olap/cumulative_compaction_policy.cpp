@@ -438,7 +438,7 @@ void CumulativeCompactionPolicy::pick_candidate_rowsets(
     std::sort(candidate_rowsets->begin(), candidate_rowsets->end(), Rowset::comparator);
 }
 
-std::unique_ptr<CumulativeCompactionPolicy>
+std::shared_ptr<CumulativeCompactionPolicy>
 CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(std::string type) {
     CompactionPolicy policy_type;
     _parse_cumulative_compaction_policy(type, &policy_type);
@@ -451,12 +451,11 @@ CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(std::stri
                 new SizeBasedCumulativeCompactionPolicy());
     }
 
-    return std::unique_ptr<CumulativeCompactionPolicy>(new NumBasedCumulativeCompactionPolicy());
+    return std::shared_ptr<CumulativeCompactionPolicy>(new NumBasedCumulativeCompactionPolicy());
 }
 
 void CumulativeCompactionPolicyFactory::_parse_cumulative_compaction_policy(
         std::string type, CompactionPolicy* policy_type) {
-    boost::to_upper(type);
     if (type == CUMULATIVE_NUM_BASED_POLICY) {
         *policy_type = NUM_BASED_POLICY;
     } else if (type == CUMULATIVE_SIZE_BASED_POLICY) {

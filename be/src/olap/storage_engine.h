@@ -357,6 +357,8 @@ private:
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
 
+    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
+
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
 

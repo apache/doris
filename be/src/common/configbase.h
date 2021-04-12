@@ -116,6 +116,7 @@ public:
 #define CONF_mInt32(name, defaultstr) DEFINE_FIELD(int32_t, name, defaultstr, true)
 #define CONF_mInt64(name, defaultstr) DEFINE_FIELD(int64_t, name, defaultstr, true)
 #define CONF_mDouble(name, defaultstr) DEFINE_FIELD(double, name, defaultstr, true)
+#define CONF_mString(name, defaultstr) DEFINE_FIELD(std::string, name, defaultstr, true)
 #define CONF_Validator(name, validator) DEFINE_VALIDATOR(name, validator)
 
 #else
@@ -136,6 +137,7 @@ public:
 #define CONF_mInt32(name, defaultstr) DECLARE_FIELD(int32_t, name)
 #define CONF_mInt64(name, defaultstr) DECLARE_FIELD(int64_t, name)
 #define CONF_mDouble(name, defaultstr) DECLARE_FIELD(double, name)
+#define CONF_mString(name, defaultstr) DECLARE_FIELD(std::string, name)
 #define CONF_Validator(name, validator) DECLARE_VALIDATOR(name)
 #endif
 
@@ -176,6 +178,8 @@ bool init(const char* conf_file, bool fill_conf_map = false, bool must_exist = t
 Status set_config(const std::string& field, const std::string& value, bool need_persist = false);
 
 bool persist_config(const std::string& field, const std::string& value);
+
+std::mutex* get_mutable_string_config_lock();
 
 } // namespace config
 } // namespace doris
