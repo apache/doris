@@ -24,6 +24,7 @@ import org.apache.doris.external.elasticsearch.EsMajorVersion;
 import org.apache.doris.external.elasticsearch.EsMetaStateTracker;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
+import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -63,6 +64,8 @@ public class EsTable extends Table {
     public static final String DOC_VALUE_SCAN = "enable_docvalue_scan";
     public static final String KEYWORD_SNIFF = "enable_keyword_sniff";
     public static final String MAX_DOCVALUE_FIELDS = "max_docvalue_fields";
+    public static final String NODES_DISCOVERY = "nodes_discovery";
+    public static final String HTTP_SSL_ENABLED = "http_ssl_enabled";
 
     private String hosts;
     private String[] seeds;
@@ -86,6 +89,10 @@ public class EsTable extends Table {
     // if the number of fields which value extracted from `doc_value` exceeding this max limitation
     // would downgrade to extract value from `stored_fields`
     private int maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
+
+    private boolean nodesDiscovery = true;
+
+    private boolean httpSslEnabled = false;
 
     // Solr doc_values vs stored_fields performance-smackdown indicate:
     // It is possible to notice that retrieving an high number of fields leads
@@ -138,6 +145,13 @@ public class EsTable extends Table {
         return enableKeywordSniff;
     }
 
+    public boolean isNodesDiscovery() {
+        return nodesDiscovery;
+    }
+
+    public boolean isHttpSslEnabled() {
+        return httpSslEnabled;
+    }
 
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
@@ -185,36 +199,40 @@ public class EsTable extends Table {
 
         // enable doc value scan for Elasticsearch
         if (properties.containsKey(DOC_VALUE_SCAN)) {
-            try {
-                enableDocValueScan = Boolean.parseBoolean(properties.get(DOC_VALUE_SCAN).trim());
-            } catch (Exception e) {
-                throw new DdlException("fail to parse enable_docvalue_scan, enable_docvalue_scan= "
-                        + properties.get(VERSION).trim() + " ,`enable_docvalue_scan`"
-                        + " should be like 'true' or 'false'， value should be double quotation marks");
-            }
+            enableDocValueScan = EsUtil.getBoolean(properties, DOC_VALUE_SCAN);
         }
 
         if (properties.containsKey(KEYWORD_SNIFF)) {
-            try {
-                enableKeywordSniff = Boolean.parseBoolean(properties.get(KEYWORD_SNIFF).trim());
-            } catch (Exception e) {
-                throw new DdlException("fail to parse enable_keyword_sniff, enable_keyword_sniff= "
-                        + properties.get(VERSION).trim() + " ,`enable_keyword_sniff`"
-                        + " should be like 'true' or 'false'， value should be double quotation marks");
+            enableKeywordSniff = EsUtil.getBoolean(properties, KEYWORD_SNIFF);
+        }
+
+        if (properties.containsKey(NODES_DISCOVERY)) {
+            nodesDiscovery = EsUtil.getBoolean(properties, NODES_DISCOVERY);
+        }
+
+        if (properties.containsKey(HTTP_SSL_ENABLED)) {
+            httpSslEnabled = EsUtil.getBoolean(properties, HTTP_SSL_ENABLED);
+            // check protocol
+            for (String seed : seeds) {
+                if (httpSslEnabled && seed.startsWith("http://")) {
+                    throw new DdlException("if http_ssl_enabled is true, the https protocol must be used");
+                }
+                if (!httpSslEnabled && seed.startsWith("https://")) {
+                    throw new DdlException("if http_ssl_enabled is false, the http protocol must be used");
+                }
             }
-        } else {
-            enableKeywordSniff = true;
         }
 
         if (!Strings.isNullOrEmpty(properties.get(TYPE))
                 && !Strings.isNullOrEmpty(properties.get(TYPE).trim())) {
             mappingType = properties.get(TYPE).trim();
         }
+
         if (!Strings.isNullOrEmpty(properties.get(TRANSPORT))
                 && !Strings.isNullOrEmpty(properties.get(TRANSPORT).trim())) {
             transport = properties.get(TRANSPORT).trim();
             if (!(TRANSPORT_HTTP.equals(transport) || TRANSPORT_THRIFT.equals(transport))) {
-                throw new DdlException("transport of ES table must be http(recommend) or thrift(reserved inner usage),"
+                throw new DdlException("transport of ES table must be http/https(recommend) or thrift(reserved inner usage),"
                         + " but value is " + transport);
             }
         }
@@ -241,6 +259,8 @@ public class EsTable extends Table {
         tableContext.put("enableDocValueScan", String.valueOf(enableDocValueScan));
         tableContext.put("enableKeywordSniff", String.valueOf(enableKeywordSniff));
         tableContext.put("maxDocValueFields", String.valueOf(maxDocValueFields));
+        tableContext.put(NODES_DISCOVERY, String.valueOf(nodesDiscovery));
+        tableContext.put(HTTP_SSL_ENABLED, String.valueOf(httpSslEnabled));
     }
 
     public TTableDescriptor toThrift() {
@@ -323,7 +343,16 @@ public class EsTable extends Table {
                     maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
                 }
             }
-
+            if (tableContext.containsKey(NODES_DISCOVERY)) {
+                nodesDiscovery = Boolean.parseBoolean(tableContext.get(NODES_DISCOVERY));
+            } else {
+                nodesDiscovery = true;
+            }
+            if (tableContext.containsKey(HTTP_SSL_ENABLED)) {
+                httpSslEnabled = Boolean.parseBoolean(tableContext.get(HTTP_SSL_ENABLED));
+            } else {
+                httpSslEnabled = false;
+            }
             PartitionType partType = PartitionType.valueOf(Text.readString(in));
             if (partType == PartitionType.UNPARTITIONED) {
                 partitionInfo = SinglePartitionInfo.read(in);
@@ -357,6 +386,8 @@ public class EsTable extends Table {
             tableContext.put("transport", transport);
             tableContext.put("enableDocValueScan", "false");
             tableContext.put(KEYWORD_SNIFF, "true");
+            tableContext.put(NODES_DISCOVERY, "true");
+            tableContext.put(HTTP_SSL_ENABLED, "false");
         }
     }
 

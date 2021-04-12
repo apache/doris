@@ -24,7 +24,6 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.thrift.TNetworkAddress;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -36,7 +35,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 
 /**
  * save the dynamic info parsed from es cluster state such as shard routing, partition info
@@ -108,22 +106,6 @@ public class EsTablePartitions {
             }
         }
         return esTablePartitions;
-    }
-
-    public void addHttpAddress(Map<String, EsNodeInfo> nodesInfo) {
-        for (EsShardPartitions indexState : partitionedIndexStates.values()) {
-            indexState.addHttpAddress(nodesInfo);
-        }
-        for (EsShardPartitions indexState : unPartitionedIndexStates.values()) {
-            indexState.addHttpAddress(nodesInfo);
-        }
-
-    }
-
-    public TNetworkAddress randomAddress(Map<String, EsNodeInfo> nodesInfo) {
-        int seed = new Random().nextInt() % nodesInfo.size();
-        EsNodeInfo[] nodeInfos = (EsNodeInfo[]) nodesInfo.values().toArray();
-        return nodeInfos[seed].getPublishAddress();
     }
     
     public PartitionInfo getPartitionInfo() {

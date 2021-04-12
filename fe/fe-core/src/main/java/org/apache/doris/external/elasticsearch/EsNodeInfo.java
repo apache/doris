@@ -19,6 +19,9 @@ package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.thrift.TNetworkAddress;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 import java.util.Map;
 
@@ -38,7 +41,9 @@ public class EsNodeInfo {
     private boolean hasThrift;
     private TNetworkAddress thriftAddress;
 
-    public EsNodeInfo(String id, Map<String, Object> map) throws DorisEsException {
+    private static final Logger LOG = LogManager.getLogger(EsNodeInfo.class);
+
+    public EsNodeInfo(String id, Map<String, Object> map, boolean httpSslEnabled) {
         this.id = id;
         EsMajorVersion version = EsMajorVersion.parse((String) map.get("version"));
         this.name = (String) map.get("name");
@@ -66,7 +71,7 @@ public class EsNodeInfo {
             String address = (String) httpMap.get("publish_address");
             if (address != null) {
                 String[] scratch = address.split(":");
-                this.publishAddress = new TNetworkAddress(scratch[0], Integer.valueOf(scratch[1]));
+                this.publishAddress = new TNetworkAddress((httpSslEnabled ? "https://" : "") + scratch[0], Integer.parseInt(scratch[1]));
                 this.hasHttp = true;
             } else {
                 this.publishAddress = null;
@@ -94,6 +99,24 @@ public class EsNodeInfo {
         } else {
             hasThrift = false;
         }
+    }
+
+    public EsNodeInfo(String id, String seed) {
+        this.id = id;
+        String[] scratch = seed.split(":");
+        int port = 80;
+        if (scratch.length == 3) {
+            port = Integer.parseInt(scratch[2]);
+        }
+        String remoteHost = scratch[0] + ":" + scratch[1];
+        this.name = remoteHost;
+        this.host = remoteHost;
+        this.ip = remoteHost;
+        this.isClient = true;
+        this.isData = true;
+        this.isIngest = true;
+        this.publishAddress = new TNetworkAddress(remoteHost, port);
+        this.hasHttp = true;
     }
 
     public boolean hasHttp() {

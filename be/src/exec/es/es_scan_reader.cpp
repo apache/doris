@@ -60,6 +60,9 @@ ESScanReader::ESScanReader(const std::string& target,
     if (props.find(KEY_QUERY) != props.end()) {
         _query = props.at(KEY_QUERY);
     }
+    if (props.find(KEY_HTTP_SSL_ENABLED) != props.end()) {
+        std::istringstream(props.at(KEY_HTTP_SSL_ENABLED)) >> std::boolalpha >> _use_ssl_client;
+    }
 
     std::string batch_size_str = props.at(KEY_BATCH_SIZE);
     _batch_size = atoi(batch_size_str.c_str());
@@ -103,6 +106,9 @@ Status ESScanReader::open() {
     }
     _network_client.set_basic_auth(_user_name, _passwd);
     _network_client.set_content_type("application/json");
+    if (_use_ssl_client) {
+        _network_client.use_untrusted_ssl();
+    }
     // phase open, we cached the first response for `get_next` phase
     Status status = _network_client.execute_post_request(_query, &_cached_response);
     if (!status.ok() || _network_client.get_http_status() != 200) {
@@ -134,6 +140,9 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
         _network_client.set_basic_auth(_user_name, _passwd);
         _network_client.set_content_type("application/json");
         _network_client.set_timeout_ms(_http_timeout_ms);
+        if (_use_ssl_client) {
+            _network_client.use_untrusted_ssl();
+        }
         RETURN_IF_ERROR(_network_client.execute_post_request(
                 ESScrollQueryBuilder::build_next_scroll_body(_scroll_id, _scroll_keep_alive),
                 &response));
@@ -188,6 +197,9 @@ Status ESScanReader::close() {
     _network_client.set_method(DELETE);
     _network_client.set_content_type("application/json");
     _network_client.set_timeout_ms(5 * 1000);
+    if (_use_ssl_client) {
+        _network_client.use_untrusted_ssl();
+    }
     std::string response;
     RETURN_IF_ERROR(_network_client.execute_delete_request(
             ESScrollQueryBuilder::build_clear_scroll_body(_scroll_id), &response));
