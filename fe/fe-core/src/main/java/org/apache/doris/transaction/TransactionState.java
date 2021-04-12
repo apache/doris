@@ -18,7 +18,9 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
@@ -44,9 +46,11 @@ import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class TransactionState implements Writable {
     private static final Logger LOG = LogManager.getLogger(TransactionState.class);
@@ -526,11 +530,23 @@ public class TransactionState implements Writable {
 
     @Override
     public String toString() {
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        String dbName = null;
+        String tableNameList = null;
+        if (db != null) {
+           dbName = db.getFullName();
+           tableNameList = tableIdList.stream()
+                   .map(db::getTable)
+                   .filter(Objects::nonNull)
+                   .map(Table::getName).collect(Collectors.joining(","));
+        }
         StringBuilder sb = new StringBuilder("TransactionState. ");
         sb.append("transaction id: ").append(transactionId);
         sb.append(", label: ").append(label);
         sb.append(", db id: ").append(dbId);
+        sb.append(", db full name: ").append(dbName);
         sb.append(", table id list: ").append(StringUtils.join(tableIdList, ","));
+        sb.append(", table name list: ").append(tableNameList);
         sb.append(", callback id: ").append(callbackId);
         sb.append(", coordinator: ").append(txnCoordinator.toString());
         sb.append(", transaction status: ").append(transactionStatus);
