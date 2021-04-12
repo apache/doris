@@ -984,6 +984,7 @@ OLAPStatus TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTab
         }
     }
     LOG(INFO) << "success to build all report tablets info. tablet_count=" << tablets_info->size();
+    DorisMetrics::instance()->tablet_total_num->set_value(tablets_info->size());
     return OLAP_SUCCESS;
 }
 
