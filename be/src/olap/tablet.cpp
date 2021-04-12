@@ -192,7 +192,7 @@ OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& ro
     }
 
     // reconstruct from tablet meta
-    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
+    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(), _tablet_meta->all_stale_rs_metas());
 
     LOG(INFO) << "finish to revise tablet. res=" << res << ", "
               << "table=" << full_name();
