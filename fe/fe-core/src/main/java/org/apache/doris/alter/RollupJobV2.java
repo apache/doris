@@ -494,7 +494,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             partition.visualiseShadowIndex(rollupIndexId, false);
         }
         tbl.rebuildFullSchema();
-        tbl.setState(OlapTableState.NORMAL);
     }
 
     /**
@@ -537,7 +536,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                         partition.deleteRollupIndex(rollupIndexId);
                     }
                     tbl.deleteIndexInfo(rollupIndexName);
-                    tbl.setState(OlapTableState.NORMAL);
                 } finally {
                     tbl.writeUnlock();
                 }
