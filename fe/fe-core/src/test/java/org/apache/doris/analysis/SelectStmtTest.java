@@ -531,7 +531,6 @@ public class SelectStmtTest {
                 "where datekey=20200726 group by 1";
         planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
         Assert.assertEquals(8589934592L, planner.getPlannerContext().getQueryOptions().mem_limit);
-    	
 	sql = "select /*+ SET_VAR(exec_mem_limit = 8589934592, query_timeout = 1) */ 1 + 2;";
 	planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
 	Assert.assertEquals(1, planner.getPlannerContext().getQueryOptions().query_timeout);

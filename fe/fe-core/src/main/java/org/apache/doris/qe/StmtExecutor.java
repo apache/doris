@@ -253,8 +253,6 @@ public class StmtExecutor {
     // Exception:
     //  IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
-        // clear sessionOriginValue map(for reset sessionValue) for new query
-        VariableMgr.clearMapSessionOriginValue();
 
         plannerProfile.setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
@@ -367,14 +365,13 @@ public class StmtExecutor {
             try {
                 SessionVariable sessionVariable = context.getSessionVariable();
                 VariableMgr.revertSessionValue(sessionVariable);
-                // this query is over
-                // need to revert issinglesetvar
-            } catch (Exception e) {
-                LOG.warn("Revert SessionVar Exception", e);
+            } catch (DdlException e) {
+                LOG.warn("failed to revert Session value.", e);
                 context.getState().setError(e.getMessage());
             }
             VariableMgr.setIsSingleSetVar(false);
-            if (parsedStmt instanceof InsertStmt) {
+            VariableMgr.clearMapSessionOriginValue();
+	    if (parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 // The transaction of a insert operation begin at analyze phase.
                 // So we should abort the transaction at this finally block if it encounter exception.
