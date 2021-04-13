@@ -372,8 +372,6 @@ public class StmtExecutor {
                 LOG.warn("failed to revert Session value.", e);
                 context.getState().setError(e.getMessage());
             }
-            VariableMgr.setIsSingleSetVar(false);
-            VariableMgr.clearMapSessionOriginValue();
             if (parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 // The transaction of a insert operation begin at analyze phase.
