@@ -120,18 +120,37 @@ After successfully building, it will install binary files in the directory `outp
 You should install the following softwares:
 
 ```
-GCC 7.3.0+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.19.2+, Flex 2.6.0+
+GCC 10.2.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.19.2+, Flex 2.6.0+
 ```
 
 Then set them to environment variable PATH and set JAVA_HOME.
 
-If your GCC version is lower than 7.3.0, you can run:
+If your GCC version is lower than 10.2.1, you can run:
 
 ```
-sudo yum install devtoolset-7-toolchain -y
+sudo yum install -y devtoolset-10-gcc* 
 ```
 
-and then, set the path of GCC (e.g `/opt/rh/devtoolset-7/root/usr/bin`) to the environment variable PATH.
+If devtoolset-10 is not found in current repo. Oracle has already rebuilt the devtoolset-10 packages. You can create
+repo file `CentOS-SCLo-scl.ol.repo` in path `/etc/yum.repos.d/`:
+
+```
+[ol7_software_collections]
+name=Software Collection packages for Oracle Linux 7 ($basearch)
+baseurl=http://yum.oracle.com/repo/OracleLinux/OL7/SoftwareCollections/$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+```
+
+and then
+
+```
+wget http://public-yum.oracle.com/RPM-GPG-KEY-oracle-ol7 -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+rpm --import  /etc/pki/rpm-gpg/RPM-GPG-KEY-*
+sudo yum install -y devtoolset-10-gcc*
+```
+Don't forget to set the path of GCC (e.g `/opt/rh/devtoolset-10/root/usr/bin`) to the environment variable PATH.
 
 #### Compile and install
 
