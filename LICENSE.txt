@@ -546,7 +546,7 @@ SOFTWARE.
 
 --------------------------------------------------------------------------------
 
-fe/fe-common/src/test/java/org/apache/doris/common/jmockit/*: MIT license
+fe/fe-common/src/main/java/org/apache/doris/common/jmockit/*: MIT license
 
 Copyright (c) 2006 JMockit developers
 
