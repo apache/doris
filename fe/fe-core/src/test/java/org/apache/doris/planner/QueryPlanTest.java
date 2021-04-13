@@ -1485,7 +1485,7 @@ public class QueryPlanTest {
             sql = "select /*+ SET_VAR(query_timeout=10, enable_partition_cache=true, prefer_join_method=shuffle," +
                     " sql_mode=STRICT_TRANS_TABLES) */ 1;";
             UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-	    Assert.assertEquals(originQuerytimeoutValue, connectContext.getSessionVariable().getQueryTimeoutS());
+            Assert.assertEquals(originQuerytimeoutValue, connectContext.getSessionVariable().getQueryTimeoutS());
             Assert.assertEquals(originEnablepartitioncacheValue, connectContext.getSessionVariable().isEnablePartitionCache());
         } finally {
             connectContext.resetSessionVariables();
