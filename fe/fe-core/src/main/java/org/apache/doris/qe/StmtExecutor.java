@@ -368,10 +368,10 @@ public class StmtExecutor {
             } catch (DdlException e) {
                 LOG.warn("failed to revert Session value.", e);
                 context.getState().setError(e.getMessage());
-	    }
-	    VariableMgr.setIsSingleSetVar(false);
-	    VariableMgr.clearMapSessionOriginValue();
-	    if (parsedStmt instanceof InsertStmt) {
+            }
+            VariableMgr.setIsSingleSetVar(false);
+            VariableMgr.clearMapSessionOriginValue();
+            if (parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 // The transaction of a insert operation begin at analyze phase.
                 // So we should abort the transaction at this finally block if it encounter exception.
@@ -445,15 +445,15 @@ public class StmtExecutor {
                     throw new AnalysisException(syntaxError, e);
                 }
 	    } catch (Exception e) {
-		    // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
-		    // should be removed this try-catch clause future.
-		    LOG.info("unexpected exception happened when parsing stmt {}, id: {}, error: {}",
-				    originStmt, context.getStmtId(), parser.getErrorMsg(originStmt.originStmt), e);
-		    throw new AnalysisException("Unexpected exception: " + e.getMessage());
-	    }
+                // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
+                // should be removed this try-catch clause future.
+                LOG.info("unexpected exception happened when parsing stmt {}, id: {}, error: {}",
+                        originStmt, context.getStmtId(), parser.getErrorMsg(originStmt.originStmt), e);
+                throw new AnalysisException("Unexpected exception: " + e.getMessage());
+            }
 
-	    analyzeVariablesInStmt();
-	}
+            analyzeVariablesInStmt();
+        }
         redirectStatus = parsedStmt.getRedirectStatus();
 
         // yiguolei: insert stmt's grammar analysis will write editlog, so that we check if the stmt should be forward to master here
