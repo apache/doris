@@ -213,12 +213,12 @@ public class VariableMgr {
         return true;
     }
 
-    public static void setIsSingleSetVar(boolean issinglesetvar){
+    public static void setIsSingleSetVar(boolean issinglesetvar) {
         VariableMgr.isSingleSetVar = issinglesetvar;
     }
 
     // revert the operator[set_var] on select/*+ SET_VAR()*/  sql;
-    public static void revertSessionValue(Object obj) throws DdlException{
+    public static void revertSessionValue(Object obj) throws DdlException {
         if(!sessionOriginValue.isEmpty()) {
             for (Field field : sessionOriginValue.keySet()) {
                 // revert session value
@@ -227,7 +227,7 @@ public class VariableMgr {
 	}
     }
 
-    public static void clearMapSessionOriginValue(){
+    public static void clearMapSessionOriginValue() {
         sessionOriginValue.clear();
     }
 
@@ -294,7 +294,7 @@ public class VariableMgr {
         } else {
             // set session variable
             Field field = ctx.getField();
-            // if stmt is "Select /*+ ...*/"
+            // if stmt is "Select /*+ SET_VAR(...)*/"
             if(isSingleSetVar) {
                 try {
                     sessionOriginValue.put(field, field.get(sessionVariable).toString());
