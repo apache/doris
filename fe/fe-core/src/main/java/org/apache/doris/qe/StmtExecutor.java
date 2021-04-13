@@ -254,7 +254,7 @@ public class StmtExecutor {
     //  IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
         // origin value init
-	VariableMgr.setIsSingleSetVar(false);
+        VariableMgr.setIsSingleSetVar(false);
         VariableMgr.clearMapSessionOriginValue();
 	
 	plannerProfile.setQueryBeginTime();
