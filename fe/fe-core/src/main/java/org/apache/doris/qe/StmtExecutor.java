@@ -257,7 +257,7 @@ public class StmtExecutor {
         VariableMgr.setIsSingleSetVar(false);
         VariableMgr.clearMapSessionOriginValue();
 	
-	plannerProfile.setQueryBeginTime();
+        plannerProfile.setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
         context.setQueryId(queryId);
