@@ -250,7 +250,9 @@ public class Config extends ConfigBase {
      * Default is "0.0.0.0", which means not set.
      * CAN NOT set this as a hostname, only IP.
      */
-    @ConfField public static String frontend_address = "0.0.0.0";
+    @Deprecated
+    @ConfField
+    public static String frontend_address = "0.0.0.0";
 
     /**
      * Declare a selection strategy for those servers have many ips.

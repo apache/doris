@@ -43,7 +43,7 @@ There are two ways to view the configuration items of FE:
 1. FE web page
 
     Open the FE web page `http://fe_host:fe_http_port/variable` in the browser. You can see the currently effective FE configuration items in `Configure Info`.
-    
+
 2. View by command
 
     After the FE is started, you can view the configuration items of the FE in the MySQL client with the following command:
@@ -66,7 +66,7 @@ There are two ways to configure FE configuration items:
 1. Static configuration
 
     Add and set configuration items in the `conf/fe.conf` file. The configuration items in `fe.conf` will be read when the FE process starts. Configuration items not in `fe.conf` will use default values.
-    
+
 2. Dynamic configuration via MySQL protocol
 
     After the FE starts, you can set the configuration items dynamically through the following commands. This command requires administrator privilege.
@@ -96,7 +96,7 @@ There are two ways to configure FE configuration items:
     `async_pending_load_task_pool_size = 20`
 
     Then restart the FE process to take effect the configuration.
-    
+
 2. Modify `dynamic_partition_enable`
 
     Through `ADMIN SHOW FRONTEND CONFIG;` you can see that the configuration item can be dynamically configured (`IsMutable` is true). And it is the unique configuration of Master FE. Then first we can connect to any FE and execute the following command to modify the configuration:
@@ -127,7 +127,7 @@ There are two ways to configure FE configuration items:
 This configuration will decide whether to resend agent task when create_time for agent_task is set, only when current_time - create_time > agent_task_resend_wait_time_ms can ReportHandler do resend agent task.     
 
 This configuration is currently mainly used to solve the problem of repeated sending of `PUBLISH_VERSION` agent tasks. The current default value of this configuration is 5000, which is an experimental value.
- 
+
 Because there is a certain time delay between submitting agent tasks to AgentTaskQueue and submitting to be, Increasing the value of this configuration can effectively solve the problem of repeated sending of agent tasks,
 
 But at the same time, it will cause the submission of failed or failed execution of the agent task to be executed again for an extended period of time.
@@ -266,8 +266,6 @@ This configuration is used to set the time interval for updating the value of th
 
 ### `disable_colocate_join`
 
-### `disable_colocate_join`
-
 ### `disable_colocate_relocate`
 
 ### `disable_hadoop_load`
@@ -358,6 +356,11 @@ This variable is a dynamic configuration, and users can modify the configuration
 
 ### `frontend_address`
 
+Status: Deprecated, not recommended use. This parameter may be deleted later
+Type: string
+Description: Explicitly set the IP address of FE instead of using *InetAddress.getByName* to get the IP address. Usually in *InetAddress.getByName* When the expected results cannot be obtained. Only IP address is supported, not hostname.
+Default value: 0.0.0.0
+
 ### `hadoop_load_default_timeout_second`
 
 ### `heartbeat_mgr_blocking_queue_size`
@@ -435,7 +438,7 @@ The max size of allowed HTTP headers. The unit of this configuration is BYTE. De
 ### `max_agent_task_threads_num`
 
 ### `max_allowed_in_element_num_of_delete`
-    
+
 This configuration is used to limit element num of InPredicate in delete statement. The default value is 1024.
 
 ### `max_allowed_packet`
@@ -470,8 +473,6 @@ Can cooperate with `mix_clone_task_timeout_sec` to control the maximum and minim
 ### `max_layout_length_per_row`
 
 ### `max_load_timeout_second`
-
-### `max_mysql_service_task_threads_num`
 
 ### `max_query_retry_time`
 
@@ -519,6 +520,15 @@ This configuration is specifically used to limit timeout setting for stream load
 
 ### `meta_dir`
 
+Type: string
+Description: Doris meta data will be saved here.The storage of this dir is highly recommended as to be:
+
+* High write performance (SSD)
+
+* Safe (RAID）
+
+Default value: DORIS_HOME_DIR + "/doris-meta";
+
 ### `meta_publish_timeout_ms`
 
 ### `min_bytes_per_broker_scanner`
@@ -536,9 +546,23 @@ See the description of `max_clone_task_timeout_sec`.
 
 ### `min_load_timeout_second`
 
+### `mysql_service_nio_enabled`
+
+Type: bool
+Description: Whether FE starts the MySQL server based on NiO model. It is recommended to turn off this option when the query connection is less than 1000 or the concurrency scenario is not high.
+Default value: true
+
 ### `mysql_service_io_threads_num`
 
-### `mysql_service_nio_enabled`
+Type: int
+Description: When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events. Only `mysql_service_nio_enabled` is true takes effect.
+Default value: 4
+
+### `max_mysql_service_task_threads_num`
+
+Type: int
+Description: When FeEstarts the MySQL server based on NIO model, the number of threads responsible for Task events. Only `mysql_service_nio_enabled` is true takes effect.
+Default value: 4096
 
 ### `net_buffer_length`
 
@@ -577,6 +601,10 @@ See the description of `max_clone_task_timeout_sec`.
 ### `query_colocate_join_memory_limit_penalty_factor`
 
 ### `query_port`
+
+Type: int
+Description: FE MySQL server port
+Default value: 9030
 
 ### `query_timeout`
 
@@ -661,7 +689,7 @@ This variable is a session variable, and the session level takes effect.
 ### `thrift_client_timeout_ms`
 
 The connection timeout and socket timeout config for thrift server.
-   
+
 The value for thrift_client_timeout_ms is set to be larger than zero to prevent some hang up problems in java.net.SocketInputStream.socketRead0.
 
 ### `thrift_server_max_worker_threads`
