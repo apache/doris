@@ -444,16 +444,16 @@ public class StmtExecutor {
                 } else {
                     throw new AnalysisException(syntaxError, e);
                 }
-            } catch (Exception e) {
-                // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
-                // should be removed this try-catch clause future.
-                LOG.info("unexpected exception happened when parsing stmt {}, id: {}, error: {}",
-                        originStmt, context.getStmtId(), parser.getErrorMsg(originStmt.originStmt), e);
-                throw new AnalysisException("Unexpected exception: " + e.getMessage());
-            }
-	    
+	    } catch (Exception e) {
+		    // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
+		    // should be removed this try-catch clause future.
+		    LOG.info("unexpected exception happened when parsing stmt {}, id: {}, error: {}",
+				    originStmt, context.getStmtId(), parser.getErrorMsg(originStmt.originStmt), e);
+		    throw new AnalysisException("Unexpected exception: " + e.getMessage());
+	    }
+
 	    analyzeVariablesInStmt();
-        }
+	}
         redirectStatus = parsedStmt.getRedirectStatus();
 
         // yiguolei: insert stmt's grammar analysis will write editlog, so that we check if the stmt should be forward to master here
