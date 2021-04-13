@@ -125,7 +125,7 @@ FE 的配置项有两种方式进行配置：
 ### `agent_task_resend_wait_time_ms`
 
 当代理任务的创建时间被设置的时候，此配置将决定是否重新发送代理任务， 当且仅当当前时间减去创建时间大于 `agent_task_task_resend_wait_time_ms` 时，ReportHandler可以重新发送代理任务。 
-  
+
 该配置目前主要用来解决`PUBLISH_VERSION`代理任务的重复发送问题, 目前该配置的默认值是5000，是个实验值，由于把代理任务提交到代理任务队列和提交到be存在一定的时间延迟，所以调大该配置的值可以有效解决代理任务的重复发送问题，
 
 但同时会导致提交失败或者执行失败的代理任务再次被执行的时间延长。  
@@ -264,8 +264,6 @@ FE 的配置项有两种方式进行配置：
 
 ### `disable_colocate_join`
 
-### `disable_colocate_join`
-
 ### `disable_colocate_relocate`
 
 ### `disable_hadoop_load`
@@ -356,6 +354,14 @@ FE 的配置项有两种方式进行配置：
 
 ### `frontend_address`
 
+状态：已废弃，不建议使用，后续可能删除该参数
+
+类型：string
+
+说明：显式的设置FE的IP地址, 代替使用 *InetAddress.getByName*获取IP地址。通常在*InetAddress.getByName*无法获取预期结果的情况下使用。仅支持IP地址，不支持hostname。
+
+默认值：0.0.0.0
+
 ### `hadoop_load_default_timeout_second`
 
 ### `heartbeat_mgr_blocking_queue_size`
@@ -431,7 +437,7 @@ HTTP服务允许接收请求的Header的最大长度，单位为比特，默认�
 ### `max_agent_task_threads_num`
 
 ### `max_allowed_in_element_num_of_delete`
-    
+
 该配置被用于限制delete语句中谓词in的元素数量。默认值为1024。 
 
 ### `max_allowed_packet`
@@ -464,8 +470,6 @@ HTTP服务允许接收请求的Header的最大长度，单位为比特，默认�
 ### `max_layout_length_per_row`
 
 ### `max_load_timeout_second`
-
-### `max_mysql_service_task_threads_num`
 
 ### `max_query_retry_time`
 
@@ -513,6 +517,15 @@ current running txns on db xxx is xx, larger than limit xx
 
 ### `meta_dir`
 
+类型：string
+
+说明：FE元数据的存储目录，强烈建议该目录应该为：
+
+* 高性能 （如SSD设备）
+* 安全（如RAID）
+
+默认值：DORIS_HOME_DIR + "/doris-meta";
+
 ### `meta_publish_timeout_ms`
 
 ### `min_bytes_per_broker_scanner`
@@ -530,9 +543,31 @@ current running txns on db xxx is xx, larger than limit xx
 
 ### `min_load_timeout_second`
 
+### `mysql_service_nio_enabled`
+
+类型：bool
+说明：FE是否启动基于NIO模型的MySQL服务端。建议在查询连接低于1000或并发场景不高的场景可以关闭该选项。
+默认值：true
+
 ### `mysql_service_io_threads_num`
 
-### `mysql_service_nio_enabled`
+类型：int
+
+说明：当FE启动基于NIO模型的MySQL服务端时，负责IO Event的线程数量，仅在
+
+`mysql_service_nio_enabled`为true时生效。
+
+默认值：4
+
+### `max_mysql_service_task_threads_num`
+
+类型：int
+
+说明：当FE启动基于NIO模型的MySQL服务端时，负责查询Task Event的线程数量，仅在
+
+`mysql_service_nio_enabled`为true时生效。
+
+默认值：4096
 
 ### `net_buffer_length`
 
@@ -571,6 +606,12 @@ current running txns on db xxx is xx, larger than limit xx
 ### `query_colocate_join_memory_limit_penalty_factor`
 
 ### `query_port`
+
+类型：int
+
+说明：FE负责监听MySQL请求的端口。
+
+默认值：9030
 
 ### `query_timeout`
 
@@ -655,7 +696,7 @@ current running txns on db xxx is xx, larger than limit xx
 ### `thrift_client_timeout_ms`
 
 这是 thrift 服务端的关于连接超时和socket读取数据超时的配置。
-   
+
 thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.SocketInputStream.socketRead0的问题.
 
 ### `thrift_server_max_worker_threads`
