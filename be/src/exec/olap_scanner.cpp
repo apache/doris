@@ -166,7 +166,7 @@ Status OlapScanner::_init_params(const std::vector<OlapScanRange*>& key_ranges,
              _params.rs_readers[0]->rowset()->start_version() == 0 &&
              !_params.rs_readers[0]->rowset()->rowset_meta()->is_segments_overlapping()) ||
             (_params.rs_readers.size() == 2 &&
-             _params.rs_readers[1]->rowset()->rowset_meta()->num_rows() == 0 &&
+             _params.rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
              _params.rs_readers[1]->rowset()->start_version() == 2 &&
              !_params.rs_readers[1]->rowset()->rowset_meta()->is_segments_overlapping());
     if (_aggregation || single_version) {
