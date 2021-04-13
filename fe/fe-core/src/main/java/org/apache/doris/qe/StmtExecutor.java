@@ -451,7 +451,8 @@ public class StmtExecutor {
                         originStmt, context.getStmtId(), parser.getErrorMsg(originStmt.originStmt), e);
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
-            analyzeVariablesInStmt();
+            
+	    analyzeVariablesInStmt();
         }
         redirectStatus = parsedStmt.getRedirectStatus();
 
