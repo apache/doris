@@ -444,7 +444,7 @@ public class StmtExecutor {
                 } else {
                     throw new AnalysisException(syntaxError, e);
                 }
-	    } catch (Exception e) {
+            } catch (Exception e) {
                 // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
                 // should be removed this try-catch clause future.
                 LOG.info("unexpected exception happened when parsing stmt {}, id: {}, error: {}",
