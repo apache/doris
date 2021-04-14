@@ -81,16 +81,19 @@ Status StorageEngine::start_bg_threads() {
             &_compaction_tasks_producer_thread));
     LOG(INFO) << "compaction tasks producer thread started";
 
-    // tablet checkpoint thread
-    for (auto data_dir : data_dirs) {
-        scoped_refptr<Thread> tablet_checkpoint_thread;
-        RETURN_IF_ERROR(Thread::create(
-                "StorageEngine", "tablet_checkpoint_thread",
-                [this, data_dir]() { this->_tablet_checkpoint_callback(data_dir); },
-                &tablet_checkpoint_thread));
-        _tablet_checkpoint_threads.emplace_back(tablet_checkpoint_thread);
+    int32_t max_checkpoint_thread_num = config::max_meta_checkpoint_threads;
+    if (max_checkpoint_thread_num < 0) {
+        max_checkpoint_thread_num = data_dirs.size();
     }
-    LOG(INFO) << "tablet checkpoint thread started";
+    ThreadPoolBuilder("TabletMetaCheckpointTaskThreadPool")
+            .set_max_threads(max_checkpoint_thread_num)
+            .build(&_tablet_meta_checkpoint_thread_pool);
+
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "tablet_checkpoint_tasks_producer_thread",
+            [this, data_dirs]() { this->_tablet_checkpoint_callback(data_dirs); },
+            &_tablet_checkpoint_tasks_producer_thread));
+    LOG(INFO) << "tablet checkpoint tasks producer thread started";
 
     // fd cache clean thread
     RETURN_IF_ERROR(Thread::create(
@@ -290,22 +293,24 @@ void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
 }
 
-void StorageEngine::_tablet_checkpoint_callback(DataDir* data_dir) {
+void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
 
-    int64_t interval = config::tablet_meta_checkpoint_min_interval_secs;
+    int64_t interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
     do {
-        LOG(INFO) << "begin to do tablet meta checkpoint:" << data_dir->path();
-        int64_t start_time = UnixMillis();
-        _tablet_manager->do_tablet_meta_checkpoint(data_dir);
-        int64_t used_time = (UnixMillis() - start_time) / 1000;
-        if (used_time < config::tablet_meta_checkpoint_min_interval_secs) {
-            interval = config::tablet_meta_checkpoint_min_interval_secs - used_time;
-        } else {
-            interval = 1;
+        LOG(INFO) << "begin to produce tablet meta checkpoint tasks.";
+        for (auto data_dir : data_dirs) {
+            auto st =_tablet_meta_checkpoint_thread_pool->submit_func([=]() {
+                CgroupsMgr::apply_system_cgroup();
+                _tablet_manager->do_tablet_meta_checkpoint(data_dir);
+            });
+            if (!st.ok()) {
+                LOG(WARNING) << "submit tablet checkpoint tasks failed.";
+            }
         }
+        interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
 }
 

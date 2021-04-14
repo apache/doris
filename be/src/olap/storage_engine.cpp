@@ -144,6 +144,9 @@ StorageEngine::~StorageEngine() {
     if(_compaction_thread_pool){
         _compaction_thread_pool->shutdown();
     }
+    if (_tablet_meta_checkpoint_thread_pool) {
+        _tablet_meta_checkpoint_thread_pool->shutdown();
+    }
 }
 
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
@@ -515,6 +518,7 @@ void StorageEngine::stop() {
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
     THREAD_JOIN(_fd_cache_clean_thread);
+    THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
 #undef THREAD_JOIN
 
 #define THREADS_JOIN(threads)           \
@@ -526,7 +530,6 @@ void StorageEngine::stop() {
 
     THREADS_JOIN(_path_gc_threads);
     THREADS_JOIN(_path_scan_threads);
-    THREADS_JOIN(_tablet_checkpoint_threads);
 #undef THREADS_JOIN
 }
 
