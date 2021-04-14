@@ -49,7 +49,7 @@ import java.util.regex.Pattern;
 public class TimeUtils {
     private static final Logger LOG = LogManager.getLogger(TimeUtils.class);
 
-    public static final String UTC_TIME_ZONE = "Africa/Abidjan";
+    public static final String UTC_TIME_ZONE = "Europe/London"; // This is just a Country to represent UTC offset +00:00
     public static final String DEFAULT_TIME_ZONE = "Asia/Shanghai";
 
     private static final TimeZone TIME_ZONE;
