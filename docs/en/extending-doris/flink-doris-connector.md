@@ -34,7 +34,7 @@ Flink Doris Connector can support reading data stored in Doris through Flink.
 
 | Connector | Flink | Doris  | Java | Scala |
 | --------- | ----- | ------ | ---- | ----- |
-| 1.0.0     | 1.11.2   | 0.14.7  | 8    | 2.12  |
+| 1.0.0     | 1.11.2   | 0.13+  | 8    | 2.12  |
 
 
 ## Build and Install
@@ -50,7 +50,7 @@ After successful compilation, the file `doris-flink-1.0.0-SNAPSHOT.jar` will be 
 ## How to use
 The purpose of this step is to register the Doris data source on Flink. 
 This step is operated on Flink.
-There are two ways to use sql and scala. The following are examples to illustrate
+There are two ways to use sql and java. The following are examples to illustrate
 ### SQL
 The purpose of this step is to register the Doris data source on Flink. 
 This step is operated on Flink
@@ -89,12 +89,12 @@ INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
 ### DataStream
 
 ```scala
-DorisOptions.Builder options = DorisOptions.builder()
-                .setFenodes("$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
-                .setUsername("$YOUR_DORIS_USERNAME")
-                .setPassword("$YOUR_DORIS_PASSWORD")
-                .setTableIdentifier("$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME");
-env.addSource(new DorisSourceFunction<>(options.build(),new SimpleListDeserializationSchema())).print();
+ Properties properties = new Properties();
+ properties.put("fenodes","FE_IP:8030");
+ properties.put("username","root");
+ properties.put("password","");
+ properties.put("table.identifier","db.table");
+ env.addSource(new DorisSourceFunction(new DorisStreamOptions(properties),new SimpleListDeserializationSchema())).print();
 ```
  
 ### General
@@ -105,6 +105,17 @@ env.addSource(new DorisSourceFunction<>(options.build(),new SimpleListDeserializ
 | table.identifier           | --                | Doris table identifier, eg, db1.tbl1                                 |
 | username                            | --            | Doris username                                            |
 | password                        | --            | Doris password                                              |
+| doris.request.retries            | 3                 | Number of retries to send requests to Doris                                    |
+| doris.request.connect.timeout.ms | 30000             | Connection timeout for sending requests to Doris                                |
+| doris.request.read.timeout.ms    | 30000             | Read timeout for sending request to Doris                                |
+| doris.request.query.timeout.s    | 3600              | Query the timeout time of doris, the default is 1 hour, -1 means no timeout limit             |
+| doris.request.tablet.size        | Integer.MAX_VALUE | The number of Doris Tablets corresponding to an RDD Partition. The smaller this value is set, the more partitions will be generated. This will increase the parallelism on the Spark side, but at the same time will cause greater pressure on Doris. |
+| doris.batch.size                 | 1024              | The maximum number of rows to read data from BE at one time. Increasing this value can reduce the number of connections between Spark and Doris. Thereby reducing the extra time overhead caused by network delay. |
+| doris.exec.mem.limit             | 2147483648        | Memory limit for a single query. The default is 2GB, in bytes.                     |
+| doris.deserialize.arrow.async    | false             | Whether to support asynchronous conversion of Arrow format to RowBatch required for spark-doris-connector iteration                 |
+| doris.deserialize.queue.size     | 64                | Asynchronous conversion of the internal processing queue in Arrow format takes effect when doris.deserialize.arrow.async is true        |
+| doris.read.field            | --            | List of column names in the Doris table, separated by commas                  |
+| doris.filter.query          | --            | Filter expression of the query, which is transparently transmitted to Doris. Doris uses this expression to complete source-side data filtering. |
 | sink.batch.size                        | 100            | Maximum number of lines in a single write BE                                             |
 | sink.max-retries                        | 1            | Number of retries after writing BE failed                                              |
   

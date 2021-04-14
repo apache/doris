@@ -51,7 +51,6 @@ ${MVN_CMD} clean package
 
 mkdir -p output/
 cp target/doris-flink-1.0-SNAPSHOT.jar ./output/
-cp target/original-doris-flink-1.0-SNAPSHOT.jar ./output/
 
 echo "*****************************************"
 echo "Successfully build Flink-Doris-Connector"
