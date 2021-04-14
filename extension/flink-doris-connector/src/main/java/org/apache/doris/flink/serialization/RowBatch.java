@@ -17,7 +17,6 @@
 
 package org.apache.doris.flink.serialization;
 
-import com.google.common.base.Preconditions;
 import org.apache.arrow.memory.RootAllocator;
 
 import org.apache.arrow.vector.BigIntVector;
@@ -40,6 +39,7 @@ import org.apache.doris.thrift.TScanBatchResult;
 
 import org.apache.flink.table.data.DecimalData;
 import org.apache.flink.table.data.StringData;
+import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -78,7 +78,7 @@ public class RowBatch {
     private int readRowCount = 0;
     private List<Row> rowBatch = new ArrayList<>();
     private final ArrowStreamReader arrowStreamReader;
-    private final VectorSchemaRoot root;
+    private VectorSchemaRoot root;
     private List<FieldVector> fieldVectors;
     private RootAllocator rootAllocator;
     private final Schema schema;
@@ -87,7 +87,7 @@ public class RowBatch {
         return rowBatch;
     }
 
-    public RowBatch(TScanBatchResult nextResult, Schema schema) throws DorisException {
+    public RowBatch(TScanBatchResult nextResult, Schema schema){
         this.schema = schema;
         this.rootAllocator = new RootAllocator(Integer.MAX_VALUE);
         this.arrowStreamReader = new ArrowStreamReader(
@@ -95,6 +95,9 @@ public class RowBatch {
                 rootAllocator
                 );
         this.offsetInRowBatch = 0;
+    }
+
+    public RowBatch readArrow() throws DorisException {
         try {
             this.root = arrowStreamReader.getVectorSchemaRoot();
             while (arrowStreamReader.loadNextBatch()) {
@@ -116,6 +119,7 @@ public class RowBatch {
                 convertArrowToRowBatch();
                 readRowCount += root.getRowCount();
             }
+            return this;
         } catch (Exception e) {
             logger.error("Read Doris Data failed because: ", e);
             throw new DorisException(e.getMessage());
@@ -238,7 +242,7 @@ public class RowBatch {
                                 addValueToRow(rowIndex, null);
                                 continue;
                             }
-                            BigDecimal value = decimalVector.getObject(rowIndex);
+                            BigDecimal value = decimalVector.getObject(rowIndex).stripTrailingZeros();
                             addValueToRow(rowIndex, DecimalData.fromBigDecimal(value,value.precision(),value.scale()));
                         }
                         break;

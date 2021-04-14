@@ -18,7 +18,7 @@
 package org.apache.doris.flink.backend;
 
 import org.apache.doris.flink.cfg.ConfigurationOptions;
-import org.apache.doris.flink.cfg.Settings;
+import org.apache.doris.flink.cfg.DorisReadOptions;
 import org.apache.doris.flink.exception.ConnectedFailedException;
 import org.apache.doris.flink.exception.DorisException;
 import org.apache.doris.flink.exception.DorisInternalException;
@@ -57,14 +57,11 @@ public class BackendClient {
     private final int socketTimeout;
     private final int connectTimeout;
 
-    public BackendClient(Routing routing, Settings settings) throws ConnectedFailedException {
+    public BackendClient(Routing routing, DorisReadOptions readOptions) throws ConnectedFailedException {
         this.routing = routing;
-        this.connectTimeout = settings.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_CONNECT_TIMEOUT_MS,
-                ConfigurationOptions.DORIS_REQUEST_CONNECT_TIMEOUT_MS_DEFAULT);
-        this.socketTimeout = settings.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_READ_TIMEOUT_MS,
-                ConfigurationOptions.DORIS_REQUEST_READ_TIMEOUT_MS_DEFAULT);
-        this.retries = settings.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_RETRIES,
-                ConfigurationOptions.DORIS_REQUEST_RETRIES_DEFAULT);
+        this.connectTimeout = readOptions.getRequestConnectTimeoutMs() == null ? ConfigurationOptions.DORIS_REQUEST_CONNECT_TIMEOUT_MS_DEFAULT : readOptions.getRequestConnectTimeoutMs();
+        this.socketTimeout = readOptions.getRequestReadTimeoutMs() == null ? ConfigurationOptions.DORIS_REQUEST_READ_TIMEOUT_MS_DEFAULT : readOptions.getRequestReadTimeoutMs();
+        this.retries = readOptions.getRequestRetries() == null ? ConfigurationOptions.DORIS_REQUEST_RETRIES_DEFAULT : readOptions.getRequestRetries();
         logger.trace("connect timeout set to '{}'. socket timeout set to '{}'. retries set to '{}'.",
                 this.connectTimeout, this.socketTimeout, this.retries);
         open();

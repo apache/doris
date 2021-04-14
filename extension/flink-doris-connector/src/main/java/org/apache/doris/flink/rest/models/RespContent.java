@@ -16,8 +16,12 @@
 // under the License.
 package org.apache.doris.flink.rest.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class RespContent {
 
     @JsonProperty(value = "TxnId")
@@ -81,24 +85,12 @@ public class RespContent {
 
     @Override
     public String toString() {
-        return "RespContent{" +
-                "TxnId=" + TxnId +
-                ", Label='" + Label + '\'' +
-                ", Status='" + Status + '\'' +
-                ", ExistingJobStatus='" + ExistingJobStatus + '\'' +
-                ", Message='" + Message + '\'' +
-                ", NumberTotalRows=" + NumberTotalRows +
-                ", NumberLoadedRows=" + NumberLoadedRows +
-                ", NumberFilteredRows=" + NumberFilteredRows +
-                ", NumberUnselectedRows=" + NumberUnselectedRows +
-                ", LoadBytes=" + LoadBytes +
-                ", LoadTimeMs=" + LoadTimeMs +
-                ", BeginTxnTimeMs=" + BeginTxnTimeMs +
-                ", StreamLoadPutTimeMs=" + StreamLoadPutTimeMs +
-                ", ReadDataTimeMs=" + ReadDataTimeMs +
-                ", WriteDataTimeMs=" + WriteDataTimeMs +
-                ", CommitAndPublishTimeMs=" + CommitAndPublishTimeMs +
-                ", ErrorURL='" + ErrorURL + '\'' +
-                '}';
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            return mapper.writeValueAsString(this);
+        } catch (JsonProcessingException e) {
+            return "";
+        }
+
     }
 }

@@ -16,7 +16,9 @@
 // under the License.
 package org.apache.doris.flink.table;
 
+import org.apache.doris.flink.cfg.DorisExecutionOptions;
 import org.apache.doris.flink.cfg.DorisOptions;
+import org.apache.doris.flink.cfg.DorisReadOptions;
 import org.apache.flink.table.connector.ChangelogMode;
 import org.apache.flink.table.connector.sink.DynamicTableSink;
 import org.apache.flink.table.connector.sink.OutputFormatProvider;
@@ -28,9 +30,13 @@ import org.apache.flink.types.RowKind;
 public class DorisDynamicTableSink implements DynamicTableSink {
 
     private final DorisOptions options;
+    private final DorisReadOptions readOptions;
+    private final DorisExecutionOptions executionOptions;
 
-    public DorisDynamicTableSink(DorisOptions options) {
+    public DorisDynamicTableSink(DorisOptions options, DorisReadOptions readOptions, DorisExecutionOptions executionOptions) {
         this.options = options;
+        this.readOptions = readOptions;
+        this.executionOptions = executionOptions;
     }
 
     @Override
@@ -49,15 +55,15 @@ public class DorisDynamicTableSink implements DynamicTableSink {
                 .setUsername(options.getUsername())
                 .setPassword(options.getPassword())
                 .setTableIdentifier(options.getTableIdentifier())
-                .setBatchSize(options.getBatchSize())
-                .setMaxRetries(options.getMaxRetries());
+                .setReadOptions(readOptions)
+                .setExecutionOptions(executionOptions);
 
         return OutputFormatProvider.of(builder.build());
     }
 
     @Override
     public DynamicTableSink copy() {
-        return new DorisDynamicTableSink(options);
+        return new DorisDynamicTableSink(options,readOptions,executionOptions);
     }
 
     @Override

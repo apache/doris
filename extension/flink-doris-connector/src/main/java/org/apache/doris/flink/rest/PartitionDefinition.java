@@ -17,8 +17,7 @@
 
 package org.apache.doris.flink.rest;
 
-import org.apache.doris.flink.cfg.PropertiesSettings;
-import org.apache.doris.flink.cfg.Settings;
+import org.apache.doris.flink.cfg.DorisOptions;
 
 import java.io.Serializable;
 import java.util.Collections;
@@ -27,7 +26,7 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Doris RDD partition info.
+ * Doris  partition info.
  */
 public class PartitionDefinition implements Serializable, Comparable<PartitionDefinition> {
     private final String database;
@@ -39,7 +38,7 @@ public class PartitionDefinition implements Serializable, Comparable<PartitionDe
     private final String serializedSettings;
 
     public PartitionDefinition(String database, String table,
-                               Settings settings, String beAddress, Set<Long> tabletIds, String queryPlan)
+                               DorisOptions settings, String beAddress, Set<Long> tabletIds, String queryPlan)
             throws IllegalArgumentException {
         if (settings != null) {
             this.serializedSettings = settings.save();
@@ -73,11 +72,8 @@ public class PartitionDefinition implements Serializable, Comparable<PartitionDe
         return queryPlan;
     }
 
-    public Settings settings() throws IllegalArgumentException {
-        PropertiesSettings settings = new PropertiesSettings();
-        return serializedSettings != null ? settings.load(serializedSettings) : settings;
-    }
 
+    @Override
     public int compareTo(PartitionDefinition o) {
         int cmp = database.compareTo(o.database);
         if (cmp != 0) {

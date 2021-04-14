@@ -20,11 +20,9 @@ package org.apache.doris.flink;
 import org.apache.flink.table.api.EnvironmentSettings;
 import org.apache.flink.table.api.TableEnvironment;
 
-import static org.apache.flink.table.api.Expressions.$;
-
 public class DorisSourceSinkExample {
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         EnvironmentSettings settings = EnvironmentSettings.newInstance()
                 .useBlinkPlanner()
                 .inStreamingMode()
@@ -40,7 +38,7 @@ public class DorisSourceSinkExample {
                         "WITH (\n" +
                         "  'connector' = 'doris',\n" +
                         "  'fenodes' = 'FE_IP:8030',\n" +
-                        "  'table.identifier' = 'demo.doris_test_source_2',\n" +
+                        "  'table.identifier' = 'db.table',\n" +
                         "  'username' = 'root',\n" +
                         "  'password' = ''" +
                         ")");
@@ -53,12 +51,12 @@ public class DorisSourceSinkExample {
                         ") " +
                         "WITH (\n" +
                         "  'connector' = 'doris',\n" +
-                        "  'fenodes' = 'FE_IP:8030',\n" +
-                        "  'table.identifier' = 'demo.doris_test_sink_2',\n" +
+                        "  'fenodes' = '10.220.146.10:8030',\n" +
+                        "  'table.identifier' = 'db.table',\n" +
                         "  'username' = 'root',\n" +
                         "  'password' = '',\n" +
                         "  'sink.batch.size' = '3',\n" +
-                        "  'sink.max-retries' = '4'\n" +
+                        "  'sink.max-retries' = '2'\n" +
                         ")");
 
         tEnv.executeSql("INSERT INTO doris_test_sink select name,age,price,sale from doris_test");

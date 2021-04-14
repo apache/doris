@@ -19,7 +19,7 @@ package org.apache.doris.flink.cfg;
 
 public interface ConfigurationOptions {
     // doris fe node address
-    String DORIS_FENODES = "doris.fenodes";
+    String DORIS_FENODES = "fenodes";
 
     String DORIS_DEFAULT_CLUSTER = "default_cluster";
 
@@ -28,39 +28,38 @@ public interface ConfigurationOptions {
     String DORIS_READ_FIELD = "doris.read.field";
     String DORIS_FILTER_QUERY = "doris.filter.query";
     String DORIS_FILTER_QUERY_IN_MAX_COUNT = "doris.filter.query.in.max.count";
-    int DORIS_FILTER_QUERY_IN_VALUE_UPPER_LIMIT = 10000;
+    Integer DORIS_FILTER_QUERY_IN_VALUE_UPPER_LIMIT = 10000;
 
-    String DORIS_USER = "doris.user";
+    String DORIS_USER = "username";
+    String DORIS_PASSWORD = "password";
+
     String DORIS_REQUEST_AUTH_USER = "doris.request.auth.user";
-    // use password to save doris.request.auth.password
-    // reuse credentials mask method in spark ExternalCatalogUtils#maskCredentials
-    String DORIS_PASSWORD = "doris.password";
     String DORIS_REQUEST_AUTH_PASSWORD = "doris.request.auth.password";
-
     String DORIS_REQUEST_RETRIES = "doris.request.retries";
     String DORIS_REQUEST_CONNECT_TIMEOUT_MS = "doris.request.connect.timeout.ms";
     String DORIS_REQUEST_READ_TIMEOUT_MS = "doris.request.read.timeout.ms";
     String DORIS_REQUEST_QUERY_TIMEOUT_S = "doris.request.query.timeout.s";
-    int DORIS_REQUEST_RETRIES_DEFAULT = 3;
-    int DORIS_REQUEST_CONNECT_TIMEOUT_MS_DEFAULT = 30 * 1000;
-    int DORIS_REQUEST_READ_TIMEOUT_MS_DEFAULT = 30 * 1000;
-    int DORIS_REQUEST_QUERY_TIMEOUT_S_DEFAULT = 3600;
+    Integer DORIS_REQUEST_RETRIES_DEFAULT = 3;
+    Integer DORIS_REQUEST_CONNECT_TIMEOUT_MS_DEFAULT = 30 * 1000;
+    Integer DORIS_REQUEST_READ_TIMEOUT_MS_DEFAULT = 30 * 1000;
+    Integer DORIS_REQUEST_QUERY_TIMEOUT_S_DEFAULT = 3600;
 
     String DORIS_TABLET_SIZE = "doris.request.tablet.size";
-    int DORIS_TABLET_SIZE_DEFAULT = Integer.MAX_VALUE;
-    int DORIS_TABLET_SIZE_MIN = 1;
+    Integer DORIS_TABLET_SIZE_DEFAULT = Integer.MAX_VALUE;
+    Integer DORIS_TABLET_SIZE_MIN = 1;
 
     String DORIS_BATCH_SIZE = "doris.batch.size";
-    int DORIS_BATCH_SIZE_DEFAULT = 1024;
+    Integer DORIS_BATCH_SIZE_DEFAULT = 1024;
 
     String DORIS_EXEC_MEM_LIMIT = "doris.exec.mem.limit";
-    long DORIS_EXEC_MEM_LIMIT_DEFAULT = 2147483648L;
+    Long DORIS_EXEC_MEM_LIMIT_DEFAULT = 2147483648L;
 
     String DORIS_VALUE_READER_CLASS = "doris.value.reader.class";
 
     String DORIS_DESERIALIZE_ARROW_ASYNC = "doris.deserialize.arrow.async";
-    boolean DORIS_DESERIALIZE_ARROW_ASYNC_DEFAULT = false;
+    Boolean DORIS_DESERIALIZE_ARROW_ASYNC_DEFAULT = false;
 
     String DORIS_DESERIALIZE_QUEUE_SIZE = "doris.deserialize.queue.size";
-    int DORIS_DESERIALIZE_QUEUE_SIZE_DEFAULT = 64;
+    Integer DORIS_DESERIALIZE_QUEUE_SIZE_DEFAULT = 64;
+
 }

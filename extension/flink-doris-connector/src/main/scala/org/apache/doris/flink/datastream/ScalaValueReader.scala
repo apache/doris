@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 import org.apache.doris.flink.backend.BackendClient
 import org.apache.doris.flink.cfg.ConfigurationOptions._
-import org.apache.doris.flink.cfg.Settings
+import org.apache.doris.flink.cfg.{DorisOptions, DorisReadOptions}
 import org.apache.doris.flink.exception.ShouldNeverHappenException
 import org.apache.doris.flink.rest.{PartitionDefinition, SchemaUtils}
 import org.apache.doris.flink.rest.models.Schema
@@ -39,28 +39,28 @@ import scala.util.control.Breaks
 /**
  * read data from Doris BE to array.
  * @param partition Doris RDD partition
- * @param settings request configuration
+ * @param options request configuration
  */
-class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
+class ScalaValueReader(partition: PartitionDefinition, options: DorisOptions, readOptions: DorisReadOptions) {
   protected val logger = Logger.getLogger(classOf[ScalaValueReader])
 
-  protected val client = new BackendClient(new Routing(partition.getBeAddress), settings)
+  protected val client = new BackendClient(new Routing(partition.getBeAddress), readOptions)
   protected var offset = 0
   protected var eos: AtomicBoolean = new AtomicBoolean(false)
   protected var rowBatch: RowBatch = _
   // flag indicate if support deserialize Arrow to RowBatch asynchronously
-  protected var deserializeArrowToRowBatchAsync: Boolean = Try {
-    settings.getProperty(DORIS_DESERIALIZE_ARROW_ASYNC, DORIS_DESERIALIZE_ARROW_ASYNC_DEFAULT.toString).toBoolean
+  protected var deserializeArrowToRowBatchAsync: java.lang.Boolean = Try {
+    if(readOptions.getDeserializeArrowAsync == null ) DORIS_DESERIALIZE_ARROW_ASYNC_DEFAULT else readOptions.getDeserializeArrowAsync
   } getOrElse {
-    logger.warn(ErrorMessages.PARSE_BOOL_FAILED_MESSAGE, DORIS_DESERIALIZE_ARROW_ASYNC, settings.getProperty(DORIS_DESERIALIZE_ARROW_ASYNC))
+    logger.warn(ErrorMessages.PARSE_BOOL_FAILED_MESSAGE, DORIS_DESERIALIZE_ARROW_ASYNC, readOptions.getDeserializeArrowAsync)
     DORIS_DESERIALIZE_ARROW_ASYNC_DEFAULT
   }
 
   protected var rowBatchBlockingQueue: BlockingQueue[RowBatch] = {
     val blockingQueueSize = Try {
-      settings.getProperty(DORIS_DESERIALIZE_QUEUE_SIZE, DORIS_DESERIALIZE_QUEUE_SIZE_DEFAULT.toString).toInt
+      if(readOptions.getDeserializeQueueSize == null) DORIS_DESERIALIZE_QUEUE_SIZE_DEFAULT else readOptions.getDeserializeQueueSize
     } getOrElse {
-      logger.warn(ErrorMessages.PARSE_NUMBER_FAILED_MESSAGE, DORIS_DESERIALIZE_QUEUE_SIZE, settings.getProperty(DORIS_DESERIALIZE_QUEUE_SIZE))
+      logger.warn(ErrorMessages.PARSE_NUMBER_FAILED_MESSAGE, DORIS_DESERIALIZE_QUEUE_SIZE, readOptions.getDeserializeQueueSize)
       DORIS_DESERIALIZE_QUEUE_SIZE_DEFAULT
     }
 
@@ -82,31 +82,31 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
 
     // max row number of one read batch
     val batchSize = Try {
-      settings.getProperty(DORIS_BATCH_SIZE, DORIS_BATCH_SIZE_DEFAULT.toString).toInt
+      if(readOptions.getRequestBatchSize == null)  DORIS_BATCH_SIZE_DEFAULT else readOptions.getRequestBatchSize;
     } getOrElse {
-        logger.warn(ErrorMessages.PARSE_NUMBER_FAILED_MESSAGE, DORIS_BATCH_SIZE, settings.getProperty(DORIS_BATCH_SIZE))
+        logger.warn(ErrorMessages.PARSE_NUMBER_FAILED_MESSAGE, DORIS_BATCH_SIZE, readOptions.getRequestBatchSize)
         DORIS_BATCH_SIZE_DEFAULT
     }
 
     val queryDorisTimeout = Try {
-      settings.getProperty(DORIS_REQUEST_QUERY_TIMEOUT_S, DORIS_REQUEST_QUERY_TIMEOUT_S_DEFAULT.toString).toInt
+      if(readOptions.getRequestQueryTimeoutS == null) DORIS_REQUEST_QUERY_TIMEOUT_S_DEFAULT else readOptions.getRequestQueryTimeoutS
     } getOrElse {
-      logger.warn(ErrorMessages.PARSE_NUMBER_FAILED_MESSAGE, DORIS_REQUEST_QUERY_TIMEOUT_S, settings.getProperty(DORIS_REQUEST_QUERY_TIMEOUT_S))
+      logger.warn(ErrorMessages.PARSE_NUMBER_FAILED_MESSAGE, DORIS_REQUEST_QUERY_TIMEOUT_S, readOptions.getRequestQueryTimeoutS)
       DORIS_REQUEST_QUERY_TIMEOUT_S_DEFAULT
     }
 
     val execMemLimit = Try {
-      settings.getProperty(DORIS_EXEC_MEM_LIMIT, DORIS_EXEC_MEM_LIMIT_DEFAULT.toString).toLong
+      if(readOptions.getExecMemLimit == null) DORIS_EXEC_MEM_LIMIT_DEFAULT else readOptions.getExecMemLimit
     } getOrElse {
-      logger.warn(ErrorMessages.PARSE_NUMBER_FAILED_MESSAGE, DORIS_EXEC_MEM_LIMIT, settings.getProperty(DORIS_EXEC_MEM_LIMIT))
+      logger.warn(ErrorMessages.PARSE_NUMBER_FAILED_MESSAGE, DORIS_EXEC_MEM_LIMIT, readOptions.getExecMemLimit)
       DORIS_EXEC_MEM_LIMIT_DEFAULT
     }
 
     params.setBatch_size(batchSize)
     params.setQuery_timeout(queryDorisTimeout)
     params.setMem_limit(execMemLimit)
-    params.setUser(settings.getProperty(DORIS_REQUEST_AUTH_USER, ""))
-    params.setPasswd(settings.getProperty(DORIS_REQUEST_AUTH_PASSWORD, ""))
+    params.setUser(options.getUsername)
+    params.setPasswd(options.getPassword)
 
     logger.debug(s"Open scan params is, " +
         s"cluster: ${params.getCluster}, " +
@@ -136,7 +136,7 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
         val nextResult = client.getNext(nextBatchParams)
         eos.set(nextResult.isEos)
         if (!eos.get) {
-          val rowBatch = new RowBatch(nextResult, schema)
+          val rowBatch = new RowBatch(nextResult, schema).readArrow()
           offset += rowBatch.getReadRowCount
           rowBatch.close
           rowBatchBlockingQueue.put(rowBatch)
@@ -194,7 +194,7 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
         val nextResult = client.getNext(nextBatchParams)
         eos.set(nextResult.isEos)
         if (!eos.get) {
-          rowBatch = new RowBatch(nextResult, schema)
+          rowBatch = new RowBatch(nextResult, schema).readArrow()
         }
       }
       hasNext = !eos.get
@@ -219,4 +219,5 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
     closeParams.context_id = contextId
     client.closeScanner(closeParams)
   }
+
 }

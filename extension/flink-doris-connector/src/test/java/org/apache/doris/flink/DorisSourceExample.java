@@ -26,13 +26,13 @@ public class DorisSourceExample {
     public static void main(String[] args) throws Exception {
 
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setParallelism(2); // source only supports parallelism of 1
+        env.setParallelism(1); // source only supports parallelism of 1
 
         final StreamTableEnvironment tEnv = StreamTableEnvironment.create(env);
 
         // register a table in the catalog
         tEnv.executeSql(
-                "CREATE TABLE UserScores (" +
+                "CREATE TABLE doris_source (" +
                         "bigint_1 BIGINT," +
                         "char_1 STRING," +
                         "date_1 STRING," +
@@ -49,13 +49,13 @@ public class DorisSourceExample {
                         "WITH (\n" +
                         "  'connector' = 'doris',\n" +
                         "  'fenodes' = 'FE_IP:8030',\n" +
-                        "  'table.identifier' = 'ods.test_flink_3',\n" +
+                        "  'table.identifier' = 'db.table',\n" +
                         "  'username' = 'root',\n" +
                         "  'password' = ''\n" +
                         ")");
 
         // define a dynamic aggregating query
-        final Table result = tEnv.sqlQuery("SELECT char_1,count(1) from UserScores group by char_1");
+        final Table result = tEnv.sqlQuery("SELECT * from doris_source  ");
 
         // print the result to the console
         tEnv.toRetractStream(result, Row.class).print();

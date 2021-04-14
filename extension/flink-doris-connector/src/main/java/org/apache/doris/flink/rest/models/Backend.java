@@ -15,38 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.flink.cfg;
+package org.apache.doris.flink.rest.models;
 
-import com.google.common.base.Preconditions;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.util.Properties;
+import java.util.List;
 
-public class PropertiesSettings extends Settings {
+/**
+ * Be response model
+ **/
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class Backend {
 
-    protected final Properties props;
+    @JsonProperty(value = "rows")
+    private List<BackendRow> rows;
 
-    public PropertiesSettings() {
-        this(new Properties());
+    public List<BackendRow> getRows() {
+        return rows;
     }
 
-    public PropertiesSettings(Properties props) {
-        Preconditions.checkArgument(props != null, "non-null props configuration expected.");
-        this.props = props;
-    }
-
-    public String getProperty(String name) {
-        return props.getProperty(name);
-    }
-
-    public void setProperty(String name, String value) {
-        props.setProperty(name, value);
-    }
-
-    public Settings copy() {
-        return new PropertiesSettings((Properties) props.clone());
-    }
-
-    public Properties asProperties() {
-        return props;
+    public void setRows(List<BackendRow> rows) {
+        this.rows = rows;
     }
 }

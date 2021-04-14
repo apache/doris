@@ -23,6 +23,7 @@ import java.util.List;
 
 public class SimpleListDeserializationSchema implements DorisDeserializationSchema{
 
+    @Override
     public TypeInformation getProducedType() {
         return TypeInformation.of(List.class);
     }

@@ -43,19 +43,19 @@ import java.util.UUID;
  **/
 public class DorisStreamLoad implements Serializable{
 
+    private static final Logger LOG = LoggerFactory.getLogger(DorisStreamLoad.class);
+
     private final static List<String> DORIS_SUCCESS_STATUS = new ArrayList<>(Arrays.asList("Success", "Publish Timeout"));
     private static String loadUrlPattern = "http://%s/api/%s/%s/_stream_load?";
-    private String hostPort;
-    private String db;
-    private String tbl;
     private String user;
     private String passwd;
     private String loadUrlStr;
+    private String hostPort;
+    private String db;
+    private String tbl;
     private String authEncoding;
 
-    private static final Logger LOG = LoggerFactory.getLogger(DorisStreamLoad.class);
-
-    public DorisStreamLoad(String hostPort,String db,String tbl,String user,String passwd) {
+    public DorisStreamLoad(String hostPort, String db, String tbl, String user, String passwd) {
         this.hostPort = hostPort;
         this.db = db;
         this.tbl = tbl;
@@ -64,6 +64,20 @@ public class DorisStreamLoad implements Serializable{
         this.loadUrlStr = String.format(loadUrlPattern, hostPort, db, tbl);
         this.authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
     }
+
+    public String getLoadUrlStr() {
+        return loadUrlStr;
+    }
+
+    public String getHostPort() {
+        return hostPort;
+    }
+
+    public void setHostPort(String hostPort) {
+        this.hostPort = hostPort;
+        this.loadUrlStr = String.format(loadUrlPattern, hostPort, this.db, this.tbl);
+    }
+
 
     private HttpURLConnection getConnection(String urlStr, String label) throws IOException {
         URL url = new URL(urlStr);
@@ -102,7 +116,7 @@ public class DorisStreamLoad implements Serializable{
 
     public void load(String value) throws StreamLoadException {
         LoadResponse loadResponse = loadBatch(value);
-        System.out.println(loadResponse);
+        LOG.info("Streamload Response:{}",loadResponse);
         if(loadResponse.status != 200){
             throw new StreamLoadException("stream load error: " + loadResponse.respContent);
         }else{
@@ -128,26 +142,15 @@ public class DorisStreamLoad implements Serializable{
         HttpURLConnection feConn = null;
         HttpURLConnection beConn = null;
         try {
-            // build request and send to fe
-            feConn = getConnection(loadUrlStr, label);
-            int status = feConn.getResponseCode();
-            // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
-            if (status != 307) {
-                throw new Exception("status is not TEMPORARY_REDIRECT 307, status: " + status);
-            }
-            String location = feConn.getHeaderField("Location");
-            if (location == null) {
-                throw new Exception("redirect location is null");
-            }
             // build request and send to new be location
-            beConn = getConnection(location, label);
+            beConn = getConnection(loadUrlStr, label);
             // send data to be
             BufferedOutputStream bos = new BufferedOutputStream(beConn.getOutputStream());
             bos.write(value.getBytes());
             bos.close();
 
             // get respond
-            status = beConn.getResponseCode();
+            int status = beConn.getResponseCode();
             String respMsg = beConn.getResponseMessage();
             InputStream stream = (InputStream) beConn.getContent();
             BufferedReader br = new BufferedReader(new InputStreamReader(stream));
