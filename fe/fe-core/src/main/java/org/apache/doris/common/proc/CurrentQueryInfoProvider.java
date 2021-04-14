@@ -23,11 +23,10 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Counter;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.RuntimeProfile;
-import org.apache.doris.proto.PTriggerProfileReportResult;
-import org.apache.doris.proto.PUniqueId;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types;
 import org.apache.doris.qe.QueryStatisticsItem;
 import org.apache.doris.rpc.BackendServiceProxy;
-import org.apache.doris.rpc.PTriggerProfileReportRequest;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -203,9 +202,10 @@ public class CurrentQueryInfoProvider {
                 }
                 // specified query instance which will report.
                 if (!allQuery) {
-                    final PUniqueId pUId = new PUniqueId();
-                    pUId.hi = instanceInfo.getInstanceId().hi;
-                    pUId.lo = instanceInfo.getInstanceId().lo;
+                    final Types.PUniqueId pUId = Types.PUniqueId.newBuilder()
+                            .setHi(instanceInfo.getInstanceId().hi)
+                            .setLo(instanceInfo.getInstanceId().lo)
+                            .build();
                     request.addInstanceId(pUId);
                 }
             }
@@ -213,13 +213,13 @@ public class CurrentQueryInfoProvider {
         recvResponse(sendRequest(requests));
     }
 
-    private List<Pair<Request, Future<PTriggerProfileReportResult>>> sendRequest(
+    private List<Pair<Request, Future<InternalService.PTriggerProfileReportResult>>> sendRequest(
             Map<TNetworkAddress, Request> requests) throws AnalysisException {
-        final List<Pair<Request, Future<PTriggerProfileReportResult>>> futures = Lists.newArrayList();
+        final List<Pair<Request, Future<InternalService.PTriggerProfileReportResult>>> futures = Lists.newArrayList();
         for (TNetworkAddress address : requests.keySet()) {
             final Request request = requests.get(address);
-            final PTriggerProfileReportRequest pbRequest =
-                    new PTriggerProfileReportRequest(request.getInstanceIds());
+            final InternalService.PTriggerProfileReportRequest pbRequest = InternalService.PTriggerProfileReportRequest
+                    .newBuilder().addAllInstanceIds(request.getInstanceIds()).build();
             try {
                 futures.add(Pair.create(request, BackendServiceProxy.getInstance().
                         triggerProfileReportAsync(address, pbRequest)));
@@ -230,18 +230,18 @@ public class CurrentQueryInfoProvider {
         return futures;
     }
 
-    private void recvResponse(List<Pair<Request, Future<PTriggerProfileReportResult>>> futures)
+    private void recvResponse(List<Pair<Request, Future<InternalService.PTriggerProfileReportResult>>> futures)
             throws AnalysisException {
         final String reasonPrefix = "Fail to receive result.";
-        for (Pair<Request, Future<PTriggerProfileReportResult>> pair : futures) {
+        for (Pair<Request, Future<InternalService.PTriggerProfileReportResult>> pair : futures) {
             try {
-                final PTriggerProfileReportResult result
+                final InternalService.PTriggerProfileReportResult result
                         = pair.second.get(2, TimeUnit.SECONDS);
-                final TStatusCode code = TStatusCode.findByValue(result.status.status_code);
+                final TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
                 if (code != TStatusCode.OK) {
                     String errMsg = "";
-                    if (result.status.error_msgs != null && !result.status.error_msgs.isEmpty()) {
-                        errMsg = result.status.error_msgs.get(0);
+                    if (!result.getStatus().getErrorMsgsList().isEmpty()) {
+                        errMsg = result.getStatus().getErrorMsgs(0);
                     }
                     throw new AnalysisException(reasonPrefix + " backend:" + pair.first.getAddress()
                             + " reason:" + errMsg);
@@ -347,7 +347,7 @@ public class CurrentQueryInfoProvider {
 
     private static class Request {
         private final TNetworkAddress address;
-        private final List<PUniqueId> instanceIds;
+        private final List<Types.PUniqueId> instanceIds;
 
         public Request(TNetworkAddress address) {
             this.address = address;
@@ -358,11 +358,11 @@ public class CurrentQueryInfoProvider {
             return address;
         }
 
-        public List<PUniqueId> getInstanceIds() {
+        public List<Types.PUniqueId> getInstanceIds() {
             return instanceIds;
         }
 
-        public void addInstanceId(PUniqueId instanceId) {
+        public void addInstanceId(Types.PUniqueId instanceId) {
             this.instanceIds.add(instanceId);
         }
     }

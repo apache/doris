@@ -898,13 +898,6 @@ public class Config extends ConfigBase {
     // All frontends will get tablet stat from all backends at each interval
     @ConfField public static int tablet_stat_update_interval_second = 300;  // 5 min
 
-    // May be necessary to modify the following BRPC configurations in high concurrency scenarios. 
-    // The number of concurrent requests BRPC can processed
-    @ConfField public static int brpc_number_of_concurrent_requests_processed = 4096;
-
-    // BRPC idle wait time (ms)
-    @ConfField public static int brpc_idle_wait_max_time = 10000;
-    
     /**
      * if set to false, auth check will be disable, in case some goes wrong with the new privilege system. 
      */
@@ -1353,4 +1346,11 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static boolean enable_outfile_to_local = false;
+
+    /**
+     * Used to set the initial flow window size of the GRPC client channel, and also used to max message size.
+     * When the result set is large, you may need to increase this value.
+     */
+    @ConfField
+    public static int grpc_max_message_size_bytes = 1 * 1024 * 1024 * 1024; // 1GB
 }

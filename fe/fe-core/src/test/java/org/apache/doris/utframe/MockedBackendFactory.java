@@ -18,18 +18,10 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.common.ClientPool;
-import org.apache.doris.proto.PCancelPlanFragmentRequest;
-import org.apache.doris.proto.PCancelPlanFragmentResult;
-import org.apache.doris.proto.PExecPlanFragmentResult;
-import org.apache.doris.proto.PFetchDataResult;
-import org.apache.doris.proto.PProxyRequest;
-import org.apache.doris.proto.PProxyResult;
-import org.apache.doris.proto.PQueryStatistics;
-import org.apache.doris.proto.PStatus;
-import org.apache.doris.proto.PTriggerProfileReportResult;
-import org.apache.doris.rpc.PExecPlanFragmentRequest;
-import org.apache.doris.rpc.PFetchDataRequest;
-import org.apache.doris.rpc.PTriggerProfileReportRequest;
+import org.apache.doris.proto.Data;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.PBackendServiceGrpc;
+import org.apache.doris.proto.Status;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.HeartbeatService;
@@ -70,9 +62,9 @@ import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.baidu.jprotobuf.pbrpc.ProtobufRPCService;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+import io.grpc.stub.StreamObserver;
 
 import org.apache.thrift.TException;
 
@@ -94,16 +86,10 @@ public class MockedBackendFactory {
     public static final int BE_DEFAULT_BRPC_PORT = 8060;
     public static final int BE_DEFAULT_HTTP_PORT = 8040;
 
-    // create a default mocked backend with 3 default rpc services
-    public static MockedBackend createDefaultBackend() throws IOException {
-        return createBackend(BE_DEFAULT_IP, BE_DEFAULT_HEARTBEAT_PORT, BE_DEFAULT_THRIFT_PORT, BE_DEFAULT_BRPC_PORT, BE_DEFAULT_HTTP_PORT,
-                new DefaultHeartbeatServiceImpl(BE_DEFAULT_THRIFT_PORT, BE_DEFAULT_HTTP_PORT, BE_DEFAULT_BRPC_PORT),
-                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
-    }
-
     // create a mocked backend with customize parameters
     public static MockedBackend createBackend(String host, int heartbeatPort, int thriftPort, int brpcPort, int httpPort,
-            HeartbeatService.Iface hbService, BeThriftService beThriftService, Object pBackendService)
+            HeartbeatService.Iface hbService, BeThriftService beThriftService,
+                                              PBackendServiceGrpc.PBackendServiceImplBase pBackendService)
             throws IOException {
         MockedBackend backend = new MockedBackend(host, heartbeatPort, thriftPort, brpcPort, httpPort, hbService,
                 beThriftService, pBackendService);
@@ -284,54 +270,94 @@ public class MockedBackendFactory {
     }
 
     // The default Brpc service.
-    // TODO(cmy): Currently this service cannot correctly simulate the processing of query requests.
-    public static class DefaultPBackendServiceImpl {
-        @ProtobufRPCService(serviceName = "PBackendService", methodName = "exec_plan_fragment")
-        public PExecPlanFragmentResult exec_plan_fragment(PExecPlanFragmentRequest request) {
+    public static class DefaultPBackendServiceImpl extends PBackendServiceGrpc.PBackendServiceImplBase {
+       @Override
+        public void transmitData(InternalService.PTransmitDataParams request, StreamObserver<InternalService.PTransmitDataResult> responseObserver) {
+           responseObserver.onNext(InternalService.PTransmitDataResult.newBuilder()
+                   .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
+           responseObserver.onCompleted();
+        }
+
+        @Override
+        public void execPlanFragment(InternalService.PExecPlanFragmentRequest request, StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
             System.out.println("get exec_plan_fragment request");
-            PExecPlanFragmentResult result = new PExecPlanFragmentResult();
-            PStatus pStatus = new PStatus();
-            pStatus.status_code = 0;
-            result.status = pStatus;
-            return result;
+            responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
+                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
+            responseObserver.onCompleted();
         }
 
-        @ProtobufRPCService(serviceName = "PBackendService", methodName = "cancel_plan_fragment")
-        public PCancelPlanFragmentResult cancel_plan_fragment(PCancelPlanFragmentRequest request) {
+        @Override
+        public void cancelPlanFragment(InternalService.PCancelPlanFragmentRequest request, StreamObserver<InternalService.PCancelPlanFragmentResult> responseObserver) {
             System.out.println("get cancel_plan_fragment request");
-            PCancelPlanFragmentResult result = new PCancelPlanFragmentResult();
-            PStatus pStatus = new PStatus();
-            pStatus.status_code = 0;
-            result.status = pStatus;
-            return result;
+            responseObserver.onNext(InternalService.PCancelPlanFragmentResult.newBuilder()
+                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
+            responseObserver.onCompleted();
         }
 
-        @ProtobufRPCService(serviceName = "PBackendService", methodName = "fetch_data")
-        public PFetchDataResult fetchDataAsync(PFetchDataRequest request) {
-            System.out.println("get fetch_data");
-            PFetchDataResult result = new PFetchDataResult();
-            PStatus pStatus = new PStatus();
-            pStatus.status_code = 0;
-
-            PQueryStatistics pQueryStatistics = new PQueryStatistics();
-            pQueryStatistics.scan_rows = 0L;
-            pQueryStatistics.scan_bytes = 0L;
-
-            result.status = pStatus;
-            result.packet_seq = 0L;
-            result.query_statistics = pQueryStatistics;
-            result.eos = true;
-            return result;
+        @Override
+        public void fetchData(InternalService.PFetchDataRequest request, StreamObserver<InternalService.PFetchDataResult> responseObserver) {
+            System.out.println("get fetch_data request");
+            responseObserver.onNext(InternalService.PFetchDataResult.newBuilder()
+                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0))
+                    .setQueryStatistics(Data.PQueryStatistics.newBuilder()
+                            .setScanRows(0L)
+                            .setScanBytes(0L))
+                    .setEos(true)
+                    .setPacketSeq(0L)
+                    .build());
+            responseObserver.onCompleted();
         }
 
-        @ProtobufRPCService(serviceName = "PBackendService", methodName = "trigger_profile_report")
-        public PTriggerProfileReportResult triggerProfileReport(PTriggerProfileReportRequest request) {
-            return null;
+        @Override
+        public void tabletWriterOpen(InternalService.PTabletWriterOpenRequest request, StreamObserver<InternalService.PTabletWriterOpenResult> responseObserver) {
+            responseObserver.onNext(null);
+            responseObserver.onCompleted();
         }
 
-        @ProtobufRPCService(serviceName = "PBackendService", methodName = "get_info")
-        public PProxyResult getInfo(PProxyRequest request) {
-            return null;
+        @Override
+        public void tabletWriterAddBatch(InternalService.PTabletWriterAddBatchRequest request, StreamObserver<InternalService.PTabletWriterAddBatchResult> responseObserver) {
+            responseObserver.onNext(null);
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void tabletWriterCancel(InternalService.PTabletWriterCancelRequest request, StreamObserver<InternalService.PTabletWriterCancelResult> responseObserver) {
+            responseObserver.onNext(null);
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void triggerProfileReport(InternalService.PTriggerProfileReportRequest request, StreamObserver<InternalService.PTriggerProfileReportResult> responseObserver) {
+            System.out.println("get triggerProfileReport request");
+            responseObserver.onNext(InternalService.PTriggerProfileReportResult.newBuilder()
+                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void getInfo(InternalService.PProxyRequest request, StreamObserver<InternalService.PProxyResult> responseObserver) {
+            System.out.println("get get_info request");
+            responseObserver.onNext(InternalService.PProxyResult.newBuilder()
+                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void updateCache(InternalService.PUpdateCacheRequest request, StreamObserver<InternalService.PCacheResponse> responseObserver) {
+            responseObserver.onNext(null);
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void fetchCache(InternalService.PFetchCacheRequest request, StreamObserver<InternalService.PFetchCacheResult> responseObserver) {
+            responseObserver.onNext(null);
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void clearCache(InternalService.PClearCacheRequest request, StreamObserver<InternalService.PCacheResponse> responseObserver) {
+            responseObserver.onNext(null);
+            responseObserver.onCompleted();
         }
     }
 }
