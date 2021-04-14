@@ -269,7 +269,7 @@ Status OlapTablePartitionParam::init() {
 bool OlapTablePartitionParam::find_tablet(Tuple* tuple, const OlapTablePartition** partition,
                                           uint32_t* dist_hashes) const {
     const TOlapTablePartition& t_part = _t_param.partitions[0];
-    decltype(_partitions_map->find(tuple)) it;
+    std::map<Tuple*, OlapTablePartition*, OlapTablePartKeyComparator>::iterator it;
     if (t_part.__isset.in_keys) {
         it = _partitions_map->find(tuple);
     } else {

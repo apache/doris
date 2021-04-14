@@ -61,12 +61,12 @@ This section introduces Doris's approach to building tables with an example.
 
 CREATE TABLE IF NOT EXISTS example_db.expamle_range_tbl
 (
-    `user_id` LARGEINT NOT NULL COMMENT "user id",
+    `user_id` LARGEINT NOT NULL COMMENT "User id",
     `date` DATE NOT NULL COMMENT "Data fill in date time",
     `timestamp` DATETIME NOT NULL COMMENT "Timestamp of data being poured",
     `city` VARCHAR(20) COMMENT "The city where the user is located",
-    `age` SMALLINT COMMENT "user age",
-    `sex` TINYINT COMMENT "User Gender",
+    `age` SMALLINT COMMENT "User age",
+    `sex` TINYINT COMMENT "User gender",
     `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "User last visit time",
     `cost` BIGINT SUM DEFAULT "0" COMMENT "Total user consumption",
     `max_dwell_time` INT MAX DEFAULT "0" COMMENT "User maximum dwell time",
@@ -93,16 +93,16 @@ PROPERTIES
 
 CREATE TABLE IF NOT EXISTS example_db.expamle_list_tbl
 (
-    `user_id` LARGEINT NOT NULL COMMENT "用户id",
-    `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-    `timestamp` DATETIME NOT NULL COMMENT "数据灌入的时间戳",
-    `city` VARCHAR(20) COMMENT "用户所在城市",
-    `age` SMALLINT COMMENT "用户年龄",
-    `sex` TINYINT COMMENT "用户性别",
-    `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
-    `cost` BIGINT SUM DEFAULT "0" COMMENT "用户总消费",
-    `max_dwell_time` INT MAX DEFAULT "0" COMMENT "用户最大停留时间",
-    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "用户最小停留时间"
+    `user_id` LARGEINT NOT NULL COMMENT "User id",
+    `date` DATE NOT NULL COMMENT "Data fill in date time",
+    `timestamp` DATETIME NOT NULL COMMENT "Timestamp of data being poured",
+    `city` VARCHAR(20) COMMENT "The city where the user is located",
+    `age` SMALLINT COMMENT "User Age",
+    `sex` TINYINT COMMENT "User gender",
+    `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "User last visit time",
+    `cost` BIGINT SUM DEFAULT "0" COMMENT "Total user consumption",
+    `max_dwell_time` INT MAX DEFAULT "0" COMMENT "User maximum dwell time",
+    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "User minimum dwell time"
 )
 ENGINE=olap
 AGGREGATE KEY(`user_id`, `date`, `timestamp`, `city`, `age`, `sex`)
