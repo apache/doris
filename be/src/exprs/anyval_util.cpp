@@ -43,7 +43,7 @@ Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor
     if (*result == NULL) {
         return pool->mem_tracker()->MemLimitExceeded(state, mem_limit_exceeded_msg, anyval_size);
     }
-    memset(*result, 0, anyval_size);
+    memset(static_cast<void*>(*result), 0, anyval_size);
     return Status::OK();
 }
 

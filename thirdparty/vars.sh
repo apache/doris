@@ -152,10 +152,10 @@ LZO2_SOURCE=lzo-2.10
 LZO2_MD5SUM="39d3f3f9c55c87b1e5d6888e1420f4b5"
 
 # rapidjson
-RAPIDJSON_DOWNLOAD="https://github.com/miloyip/rapidjson/archive/v1.1.0.tar.gz"
-RAPIDJSON_NAME=rapidjson-1.1.0.tar.gz
-RAPIDJSON_SOURCE=rapidjson-1.1.0
-RAPIDJSON_MD5SUM="badd12c511e081fec6c89c43a7027bce"
+RAPIDJSON_DOWNLOAD="https://github.com/Tencent/rapidjson/archive/1a803826f1197b5e30703afe4b9c0e7dd48074f5.zip"
+RAPIDJSON_NAME=rapidjson-1a803826f1197b5e30703afe4b9c0e7dd48074f5.zip
+RAPIDJSON_SOURCE=rapidjson-1a803826f1197b5e30703afe4b9c0e7dd48074f5
+RAPIDJSON_MD5SUM="f2212a77e055a15501477f1e390007ea"
 
 # curl
 CURL_DOWNLOAD="https://curl.haxx.se/download/curl-7.54.1.tar.gz"
