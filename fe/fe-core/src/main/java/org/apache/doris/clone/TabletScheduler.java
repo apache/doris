@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletSchedCtx.Type;
@@ -1053,7 +1054,23 @@ public class TabletScheduler extends MasterDaemon {
 
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         for (TabletSchedCtx tabletCtx : alternativeTablets) {
-            addTablet(tabletCtx, false);
+            TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletCtx.getTabletId());
+            if (tabletMeta == null) {
+                continue;
+            }
+            Database db = Catalog.getCurrentCatalog().getDb(tabletMeta.getDbId());
+            OlapTable table = db == null ? null : (OlapTable) db.getTable(tabletMeta.getTableId());
+            if (table != null) {
+                table.readLock();
+                try {
+                    if (table.getState() == OlapTableState.NORMAL) {
+                        addTablet(tabletCtx, false);
+                    }
+                } finally {
+                    table.readUnlock();
+                }
+            }
+
         }
     }
 
