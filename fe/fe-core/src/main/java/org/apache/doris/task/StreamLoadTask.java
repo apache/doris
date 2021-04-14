@@ -19,7 +19,6 @@ package org.apache.doris.task;
 
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.PartitionNames;
@@ -43,7 +42,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import java.io.StringReader;
-import java.util.List;
 
 public class StreamLoadTask implements LoadTaskInfo {
 
@@ -60,7 +58,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private boolean fuzzyParse;
 
     // optional
-    private List<ImportColumnDesc> columnExprDescs = Lists.newArrayList();
+    private ImportColumnDescs columnExprDescs = new ImportColumnDescs();
     private Expr whereExpr;
     private Separator columnSeparator;
     private Separator lineDelimiter;
@@ -103,7 +101,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         return formatType;
     }
 
-    public List<ImportColumnDesc> getColumnExprDescs() {
+    public ImportColumnDescs getColumnExprDescs() {
         return columnExprDescs;
     }
 
@@ -309,7 +307,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
 
         if (columnsStmt.getColumns() != null && !columnsStmt.getColumns().isEmpty()) {
-            columnExprDescs = columnsStmt.getColumns();
+            columnExprDescs.descs = columnsStmt.getColumns();
         }
     }
 
