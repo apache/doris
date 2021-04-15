@@ -192,7 +192,13 @@ OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& ro
     }
 
     // reconstruct from tablet meta
-    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(), _tablet_meta->all_stale_rs_metas());
+    _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
+    // clear stale rowset
+    for (auto& it : _stale_rs_version_map) {
+        StorageEngine::instance()->add_unused_rowset(it.second);
+    }
+    _stale_rs_version_map.clear();
+    _tablet_meta->clear_stale_rowset();
 
     LOG(INFO) << "finish to revise tablet. res=" << res << ", "
               << "table=" << full_name();
