@@ -17,7 +17,6 @@
 
 #include "exec/schema_scanner/schema_helper.h"
 
-#include <boost/foreach.hpp>
 #include <boost/functional/hash.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/thread.hpp>

@@ -20,7 +20,6 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <boost/date_time/posix_time/posix_time_types.hpp>
-#include <boost/foreach.hpp>
 #include <boost/unordered_map.hpp>
 
 #include "common/logging.h"
@@ -131,10 +130,10 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         bytes_limit = _exec_env->process_mem_tracker()->limit();
     }
     // NOTE: this MemTracker only for olap
-    _mem_tracker = MemTracker::CreateTracker(
-            bytes_limit,
-            "PlanFragmentExecutor:" + print_id(_query_id) + ":" + print_id(params.fragment_instance_id),
-            _exec_env->process_mem_tracker());
+    _mem_tracker = MemTracker::CreateTracker(bytes_limit,
+                                             "PlanFragmentExecutor:" + print_id(_query_id) + ":" +
+                                                     print_id(params.fragment_instance_id),
+                                             _exec_env->process_mem_tracker());
     _runtime_state->set_fragment_mem_tracker(_mem_tracker);
 
     LOG(INFO) << "Using query memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
@@ -167,7 +166,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;
     _plan->collect_nodes(TPlanNodeType::EXCHANGE_NODE, &exch_nodes);
-    BOOST_FOREACH (ExecNode* exch_node, exch_nodes) {
+    for (ExecNode* exch_node : exch_nodes) {
         DCHECK_EQ(exch_node->type(), TPlanNodeType::EXCHANGE_NODE);
         int num_senders = find_with_default(params.per_exch_num_senders, exch_node->id(), 0);
         DCHECK_GT(num_senders, 0);

@@ -19,7 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/foreach.hpp>
 #include <string>
 
 #include "common/object_pool.h"
