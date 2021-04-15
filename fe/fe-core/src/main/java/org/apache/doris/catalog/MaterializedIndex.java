@@ -46,13 +46,13 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
         SHADOW; // index in SHADOW state is visible to load process, but invisible to query
 
         public boolean isVisible() {
-            return this == IndexState.NORMAL || this == IndexState.SCHEMA_CHANGE;
+            return this == IndexState.NORMAL;
         }
     }
     
     public enum IndexExtState {
         ALL,
-        VISIBLE, // index state in NORMAL and SCHEMA_CHANGE
+        VISIBLE, // index state in NORMAL
         SHADOW // index state in SHADOW
     }
 

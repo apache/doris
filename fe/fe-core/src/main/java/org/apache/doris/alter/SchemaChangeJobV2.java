@@ -665,7 +665,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * Should replay all changes before this job's state transfer to PENDING.
      * These changes should be same as changes in SchemaChangeHandler.createJob()
      */
-    private void replayPending(SchemaChangeJobV2 replayedJob) {
+    private void replayCreateJob(SchemaChangeJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             // database may be dropped before replaying this log. just return
@@ -713,7 +713,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * Replay job in WAITING_TXN state.
      * Should replay all changes in runPendingJob()
      */
-    private void replayWaitingTxn(SchemaChangeJobV2 replayedJob) {
+    private void replayPendingJob(SchemaChangeJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             // database may be dropped before replaying this log. just return
@@ -740,9 +740,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     /**
      * Replay job in FINISHED state.
-     * Should replay all changes in runRuningJob()
+     * Should replay all changes in runRunningJob()
      */
-    private void replayFinished(SchemaChangeJobV2 replayedJob) {
+    private void replayRunningJob(SchemaChangeJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db != null) {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
@@ -777,13 +777,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         SchemaChangeJobV2 replayedSchemaChangeJob = (SchemaChangeJobV2) replayedJob;
         switch (replayedJob.jobState) {
             case PENDING:
-                replayPending(replayedSchemaChangeJob);
+                replayCreateJob(replayedSchemaChangeJob);
                 break;
             case WAITING_TXN:
-                replayWaitingTxn(replayedSchemaChangeJob);
+                replayPendingJob(replayedSchemaChangeJob);
                 break;
             case FINISHED:
-                replayFinished(replayedSchemaChangeJob);
+                replayRunningJob(replayedSchemaChangeJob);
                 break;
             case CANCELLED:
                 replayCancelled(replayedSchemaChangeJob);
