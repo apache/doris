@@ -31,8 +31,8 @@
 #include "exec/s3_writer.h"
 
 namespace doris {
-static const std::string AK = "353b8de00d85438c8ea0818704b156d3";
-static const std::string SK = "ea15a18b4409479fa8cca029f78e8d77";
+static const std::string AK = "";
+static const std::string SK = "";
 static const std::string ENDPOINT = "http://s3.bj.bcebos.com";
 static const std::string REGION = "bj";
 static const std::string BUCKET = "s3://yang-repo/";
