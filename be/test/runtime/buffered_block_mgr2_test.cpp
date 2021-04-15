@@ -22,9 +22,9 @@
 
 #include <boost/bind.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
-#include <filesystem>
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread/thread.hpp>
+#include <filesystem>
 
 #include "runtime/disk_io_mgr.h"
 #include "runtime/exec_env.h"
@@ -325,7 +325,9 @@ protected:
         AllocateBlocks(block_mgr, client, max_num_buffers, &blocks);
 
         EXPECT_EQ(block_mgr->bytes_allocated(), max_num_buffers * block_size);
-        BOOST_FOREACH (BufferedBlockMgr2::Block* block, blocks) { block->unpin(); }
+        for (BufferedBlockMgr2::Block* block : blocks) {
+            block->unpin();
+        }
 
         // Re-pinning all blocks
         for (int i = 0; i < blocks.size(); ++i) {
@@ -339,7 +341,9 @@ protected:
         EXPECT_EQ(buffered_pin->value(), buffered_pins_expected);
 
         // Unpin all blocks
-        BOOST_FOREACH (BufferedBlockMgr2::Block* block, blocks) { block->unpin(); }
+        for (BufferedBlockMgr2::Block* block : blocks) {
+            block->unpin();
+        }
         // Get two new blocks.
         AllocateBlocks(block_mgr, client, 2, &blocks);
         // At least two writes must be issued. The first (num_blocks - 2) must be in memory.
@@ -705,7 +709,9 @@ TEST_F(BufferedBlockMgrTest, Deletion) {
     AllocateBlocks(block_mgr, client, max_num_buffers, &blocks);
     EXPECT_TRUE(created_cnt->value() == max_num_buffers);
 
-    BOOST_FOREACH (BufferedBlockMgr2::Block* block, blocks) { block->del(); }
+    for (BufferedBlockMgr2::Block* block : blocks) {
+        block->del();
+    }
     AllocateBlocks(block_mgr, client, max_num_buffers, &blocks);
     EXPECT_TRUE(created_cnt->value() == max_num_buffers);
     EXPECT_TRUE(recycled_cnt->value() == max_num_buffers);

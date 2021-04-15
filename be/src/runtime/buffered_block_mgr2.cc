@@ -587,11 +587,13 @@ BufferedBlockMgr2::~BufferedBlockMgr2() {
     // See IMPALA-1890.
     DCHECK_EQ(_non_local_outstanding_writes, 0) << endl << debug_internal();
     // Delete tmp files.
-    BOOST_FOREACH (TmpFileMgr::File& file, _tmp_files) { file.remove(); }
+    for (TmpFileMgr::File& file : _tmp_files) {
+        file.remove();
+    }
     _tmp_files.clear();
 
     // Free memory resources.
-    BOOST_FOREACH (BufferDescriptor* buffer, _all_io_buffers) {
+    for (BufferDescriptor* buffer : _all_io_buffers) {
         _mem_tracker->Release(buffer->len);
         delete[] buffer->buffer;
     }
@@ -780,8 +782,8 @@ Status BufferedBlockMgr2::write_unpinned_block(Block* block) {
             disk_id = ++next_disk_id;
         }
         disk_id %= _io_mgr->num_local_disks();
-        DiskIoMgr::WriteRange::WriteDoneCallback callback =
-                bind(mem_fn(&BufferedBlockMgr2::write_complete), this, block, boost::placeholders::_1);
+        DiskIoMgr::WriteRange::WriteDoneCallback callback = bind(
+                mem_fn(&BufferedBlockMgr2::write_complete), this, block, boost::placeholders::_1);
         block->_write_range = _obj_pool.add(
                 new DiskIoMgr::WriteRange(tmp_file->path(), file_offset, disk_id, callback));
         block->_tmp_file = tmp_file;
@@ -1152,7 +1154,7 @@ bool BufferedBlockMgr2::validate() const {
         return false;
     }
 
-    BOOST_FOREACH (BufferDescriptor* buffer, _all_io_buffers) {
+    for (BufferDescriptor* buffer : _all_io_buffers) {
         bool is_free = _free_io_buffers.contains(buffer);
         num_free_io_buffers += is_free;
 
