@@ -553,7 +553,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * Should replay all changes before this job's state transfer to PENDING.
      * These changes should be same as changes in RollupHander.processAddRollup()
      */
-    private void replayPending(RollupJobV2 replayedJob) {
+    private void replayCreateJob(RollupJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             // database may be dropped before replaying this log. just return
@@ -602,7 +602,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * Replay job in WAITING_TXN state.
      * Should replay all changes in runPendingJob()
      */
-    private void replayWaitingTxn(RollupJobV2 replayedJob) {
+    private void replayPendingJob(RollupJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             // database may be dropped before replaying this log. just return
@@ -633,7 +633,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * Replay job in FINISHED state.
      * Should replay all changes in runRuningJob()
      */
-    private void replayFinished(RollupJobV2 replayedJob) {
+    private void replayRunningJob(RollupJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db != null) {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
@@ -670,13 +670,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         RollupJobV2 replayedRollupJob = (RollupJobV2) replayedJob;
         switch (replayedJob.jobState) {
             case PENDING:
-                replayPending(replayedRollupJob);
+                replayCreateJob(replayedRollupJob);
                 break;
             case WAITING_TXN:
-                replayWaitingTxn(replayedRollupJob);
+                replayPendingJob(replayedRollupJob);
                 break;
             case FINISHED:
-                replayFinished(replayedRollupJob);
+                replayRunningJob(replayedRollupJob);
                 break;
             case CANCELLED:
                 replayCancelled(replayedRollupJob);

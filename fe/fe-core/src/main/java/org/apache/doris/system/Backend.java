@@ -648,7 +648,7 @@ public class Backend implements Writable {
         } else {
             if (isAlive.compareAndSet(true, false)) {
                 isChanged = true;
-                LOG.info("{} is dead,", this.toString());
+                LOG.warn("{} is dead,", this.toString());
             }
 
             heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
