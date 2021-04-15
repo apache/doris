@@ -25,6 +25,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <util/trace.h>
 
 #include "agent/cgroups_mgr.h"
 #include "boost/lexical_cast.hpp"
@@ -61,11 +62,12 @@ OLAPStatus EngineBatchLoadTask::execute() {
     if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_DELETE ||
         _push_req.push_type == TPushType::LOAD_V2) {
         status = _init();
+        TRACE("task init");
         if (status == DORIS_SUCCESS) {
             uint32_t retry_time = 0;
             while (retry_time < PUSH_MAX_RETRY) {
                 status = _process();
-
+                TRACE("finish process");
                 if (status == DORIS_PUSH_HAD_LOADED) {
                     OLAP_LOG_WARNING(
                             "transaction exists when realtime push, "
@@ -84,6 +86,7 @@ OLAPStatus EngineBatchLoadTask::execute() {
         }
     } else if (_push_req.push_type == TPushType::DELETE) {
         OLAPStatus delete_data_status = _delete_data(_push_req, _tablet_infos);
+        TRACE("finish delete data");
         if (delete_data_status != OLAPStatus::OLAP_SUCCESS) {
             OLAP_LOG_WARNING("delete data failed. status: %d, signature: %ld", delete_data_status,
                              _signature);
@@ -235,6 +238,7 @@ AgentStatus EngineBatchLoadTask::_process() {
         MonotonicStopWatch stopwatch;
         stopwatch.start();
         auto st = HttpClient::execute_with_retry(MAX_RETRY, 1, download_cb);
+        TRACE("download file");
         auto cost = stopwatch.elapsed_time();
         if (cost <= 0) {
             cost = 1;
@@ -260,6 +264,7 @@ AgentStatus EngineBatchLoadTask::_process() {
         // Load delta file
         time_t push_begin = time(NULL);
         OLAPStatus push_status = _push(_push_req, _tablet_infos);
+        TRACE("finish push");
         time_t push_finish = time(NULL);
         LOG(INFO) << "Push finish, cost time: " << (push_finish - push_begin);
         if (push_status == OLAPStatus::OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
@@ -274,6 +279,7 @@ AgentStatus EngineBatchLoadTask::_process() {
         if (remove(_local_file_path.c_str()) == -1) {
             LOG(WARNING) << "can not remove file=" << _local_file_path;
         }
+        TRACE("delete download file");
     }
 
     return status;

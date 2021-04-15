@@ -18,6 +18,7 @@
 #include "olap/task/engine_publish_version_task.h"
 
 #include <map>
+#include <util/trace.h>
 
 #include "olap/data_dir.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -35,7 +36,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
     OLAPStatus res = OLAP_SUCCESS;
     int64_t transaction_id = _publish_version_req.transaction_id;
     LOG(INFO) << "begin to process publish version. transaction_id=" << transaction_id;
-
+    TRACE("begin to finish publish version task");
     // each partition
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
         int64_t partition_id = par_ver_info.partition_id;
@@ -88,6 +89,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
 
             publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
                     partition_id, tablet, transaction_id, version, version_hash);
+            TRACE("publish txn");
             if (publish_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to publish version. rowset_id=" << rowset->rowset_id()
                              << ", tablet_id=" << tablet_info.tablet_id
@@ -99,6 +101,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
 
             // add visible rowset to tablet
             publish_status = tablet->add_inc_rowset(rowset);
+            TRACE("add visible rowset to tablet");
             if (publish_status != OLAP_SUCCESS &&
                 publish_status != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
                 LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id="
@@ -146,8 +149,9 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 }
             }
         }
+        TRACE("check if the related tablet remained all have the version");
     }
-
+    TRACE("finish to finish publish version");
     LOG(INFO) << "finish to publish version on transaction."
               << "transaction_id=" << transaction_id
               << ", error_tablet_size=" << _error_tablet_ids->size();

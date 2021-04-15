@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <iostream>
 #include <sstream>
+#include <util/trace.h>
 
 #include "common/status.h"
 #include "exec/parquet_scanner.h"
@@ -64,7 +65,7 @@ OLAPStatus PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, cons
     std::vector<TabletVars> tablet_vars(1);
     tablet_vars[0].tablet = tablet;
     res = _do_streaming_ingestion(tablet, request, push_type, &tablet_vars, tablet_info_vec);
-
+    TRACE("finish dow streaming ingestion");
     if (res == OLAP_SUCCESS) {
         if (tablet_info_vec != NULL) {
             _get_tablet_infos(tablet_vars, tablet_info_vec);
@@ -96,7 +97,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
     load_id.set_lo(0);
     RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
             request.partition_id, tablet, request.transaction_id, load_id));
-
+    TRACE("prepare txn");
     // prepare txn will be always successful
     // if current tablet is under schema change, origin tablet is successful and
     // new tablet is not successful, it maybe a fatal error because new tablet has
@@ -173,6 +174,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
             tablet_var.tablet->obtain_header_rdlock();
             res = del_cond_handler.generate_delete_predicate(tablet_var.tablet->tablet_schema(),
                                                              request.delete_conditions, &del_pred);
+            TRACE("generate delete predicate");
             del_preds.push(del_pred);
             tablet_var.tablet->release_header_lock();
             if (res != OLAP_SUCCESS) {
@@ -196,10 +198,12 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
     if (push_type == PUSH_NORMAL_V2) {
         res = _convert_v2(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
                           &(tablet_vars->at(0).rowset_to_add), &(tablet_vars->at(1).rowset_to_add));
+        TRACE("finish convert v2");
 
     } else {
         res = _convert(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
                        &(tablet_vars->at(0).rowset_to_add), &(tablet_vars->at(1).rowset_to_add));
+        TRACE("finish convert");
     }
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
@@ -213,6 +217,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
 
             OLAPStatus rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(
                     request.partition_id, tablet_var.tablet, request.transaction_id);
+            TRACE("rollback txn");
             // has to check rollback status to ensure not delete a committed rowset
             if (rollback_status == OLAP_SUCCESS) {
                 // actually, olap_index may has been deleted in delete_transaction()
@@ -235,6 +240,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
         OLAPStatus commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
                 request.partition_id, tablet_var.tablet, request.transaction_id, load_id,
                 tablet_var.rowset_to_add, false);
+        TRACE("commit txn");
         if (commit_status != OLAP_SUCCESS &&
             commit_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
             res = commit_status;
@@ -299,7 +305,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
                          << ", txn_id=" << _request.transaction_id << ", res=" << res;
             break;
         }
-
+        TRACE("init rowset writer");
         // 2. Init PushBrokerReader to read broker file if exist,
         //    in case of empty push this will be skipped.
         std::string path = _request.broker_scan_range.ranges[0].path;
@@ -361,7 +367,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
             reader->print_profile();
             reader->close();
         }
-
+        TRACE("init PushBrokerReader");
         if (rowset_writer->flush() != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to finalize writer";
             break;
@@ -382,6 +388,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
             auto schema_change_handler = SchemaChangeHandler::instance();
             res = schema_change_handler->schema_version_convert(cur_tablet, new_tablet, cur_rowset,
                                                        new_rowset);
+            TRACE("change schema version");
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to change schema version for delta."
                              << "[res=" << res << " new_tablet='" << new_tablet->full_name()

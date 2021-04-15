@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <util/trace.h>
 #include "olap/task/engine_alter_tablet_task.h"
 
 #include "olap/schema_change.h"
@@ -38,7 +39,7 @@ OLAPStatus EngineAlterTabletTask::execute() {
 
     auto schema_change_handler = SchemaChangeHandler::instance();
     OLAPStatus res = schema_change_handler->process_alter_tablet_v2(_alter_tablet_req);
-
+    TRACE("finish process alter table v2");
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to do alter task. res=" << res
                      << " base_tablet_id=" << _alter_tablet_req.base_tablet_id

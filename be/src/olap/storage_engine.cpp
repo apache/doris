@@ -605,6 +605,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
             }
             StorageEngine::instance()->txn_manager()->delete_txn(partition_id, tablet,
                                                                  transaction_id);
+            TRACE("delete txn");
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
@@ -971,11 +972,13 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
                              << tablet_info.tablet_id;
             }
         }
+        TRACE("obtain header wrlock");
         // add write lock to all related tablets
         OLAPStatus prepare_status = task->prepare();
         for (TabletSharedPtr& tablet : related_tablets) {
             tablet->release_header_lock();
         }
+        TRACE("prepare task and release lock");
         if (prepare_status != OLAP_SUCCESS) {
             return prepare_status;
         }
@@ -983,6 +986,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
 
     // do execute work without lock
     OLAPStatus exec_status = task->execute();
+    TRACE("execute task");
     if (exec_status != OLAP_SUCCESS) {
         return exec_status;
     }
@@ -1012,6 +1016,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         for (TabletSharedPtr& tablet : related_tablets) {
             tablet->release_header_lock();
         }
+        TRACE("finish task");
         return fin_status;
     }
 }

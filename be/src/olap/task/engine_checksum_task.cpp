@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <util/trace.h>
 #include "olap/task/engine_checksum_task.h"
 
 #include "olap/reader.h"
@@ -83,6 +84,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     }
 
     res = reader.init(reader_params);
+    TRACE("init reader");
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("initiate reader fail. [res=%d]", res);
         return res;
@@ -118,7 +120,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
         mem_pool->clear();
         agg_object_pool.reset(new ObjectPool());
     }
-
+    TRACE("finsh to compute checksum");
     LOG(INFO) << "success to finish compute checksum. checksum=" << row_checksum;
     *_checksum = row_checksum;
     return OLAP_SUCCESS;

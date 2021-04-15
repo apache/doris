@@ -18,6 +18,7 @@
 #include "olap/task/engine_clone_task.h"
 
 #include <set>
+#include <util/trace.h>
 
 #include "env/env.h"
 #include "gen_cpp/BackendService.h"
@@ -88,7 +89,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
         // try to incremental clone
         std::vector<Version> missed_versions;
         tablet->calc_missed_versions(_clone_req.committed_version, &missed_versions);
-
+        TRACE("calc missed versisons");
         // if missed version size is 0, then it is useless to clone from remote be, it means local data is
         // completed. Or remote be will just return header not the rowset files. clone will failed.
         if (missed_versions.size() == 0) {
@@ -102,7 +103,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
         // and set allow_incremental_clone to false
         status = _make_and_download_snapshots(*(tablet->data_dir()), local_data_path, &src_host, &src_file_path,
                 _error_msgs, &missed_versions, &allow_incremental_clone);
-
+        TRACE("make and download snapshots");
         LOG(INFO) << "tablet exist with number of missing version: " << missed_versions.size()
                   << ", try to incremental clone succeed: " << allow_incremental_clone
                   << ", signature: " << _signature << ", tablet id: " << _clone_req.tablet_id
@@ -147,7 +148,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
             status = _make_and_download_snapshots(*store, tablet_dir_stream.str(), &src_host, &src_file_path,
                                  _error_msgs, nullptr, &allow_incremental_clone);
         }
-
+        TRACE("make and download snapshot when local tablet not exist");
         if (status == DORIS_SUCCESS) {
             LOG(INFO) << "clone copy done. src_host: " << src_host.host
                       << " src_file_path: " << src_file_path;
@@ -283,6 +284,7 @@ AgentStatus EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir, con
         auto st = _make_snapshot(src.host, src.be_port, _clone_req.tablet_id,
                                  _clone_req.schema_hash, timeout_s, missed_versions, snapshot_path,
                                  allow_incremental_clone, &snapshot_version);
+        TRACE("make snapshot");
         if (st.ok()) {
             LOG(INFO) << "success to make snapshot. ip=" << src.host << ", port=" << src.be_port
                       << ", tablet=" << _clone_req.tablet_id
@@ -313,6 +315,7 @@ AgentStatus EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir, con
         }
 
         st = _download_files(&data_dir, remote_url_prefix, local_path);
+        TRACE("download snapshot");
         if (!st.ok()) {
             LOG(WARNING) << "fail to download and convert tablet, remote=" << remote_url_prefix
                          << ", error=" << st.to_string();
@@ -334,6 +337,7 @@ AgentStatus EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir, con
 
         // Release snapshot, if failed, ignore it. OLAP engine will drop useless snapshot
         st = _release_snapshot(src.host, src.be_port, *snapshot_path);
+        TRACE("release snapshot");
         if (st.ok()) {
             LOG(INFO) << "success to release snapshot, ip=" << src.host << ", port=" << src.be_port
                       << ", snapshot_path=" << *snapshot_path;

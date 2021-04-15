@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <vector>
+#include <util/trace.h>
 
 #include "agent/cgroups_mgr.h"
 #include "common/resource_tls.h"
@@ -1374,10 +1375,12 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2&
                      << "base_tablet=" << request.base_tablet_id;
         return OLAP_ERR_TRY_LOCK_FAILED;
     }
-
+    TRACE("get schema change lock");
     OLAPStatus res = _do_process_alter_tablet_v2(request);
+    TRACE("finished alter tablet process");
     LOG(INFO) << "finished alter tablet process, res=" << res;
     StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
+    TRACE("release schema change lock");
     return res;
 }
 
@@ -1410,6 +1413,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
     // check whether the tablet's max continuous version == request.version
     if (new_tablet->tablet_state() != TABLET_NOTREADY) {
         res = _validate_alter_result(new_tablet, request);
+        TRACE("validate alter result");
         LOG(INFO) << "tablet's state=" << new_tablet->tablet_state()
                   << " the convert job already finished, check its version"
                   << " res=" << res;
@@ -1429,7 +1433,6 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
     if (!new_migration_rlock.own_lock()) {
         return OLAP_ERR_RWLOCK_ERROR;
     }
-
     // begin to find deltas to convert from base tablet to new tablet so that
     // obtain base tablet and new tablet's push lock and header write lock to prevent loading data
     base_tablet->obtain_push_lock();
@@ -1469,7 +1472,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
             LOG(WARNING) << "fail to get version to be changed. res=" << res;
             break;
         }
-
+        TRACE("get history data to be converted");
         // should check the max_version >= request.alter_version, if not the convert is useless
         RowsetSharedPtr max_rowset = base_tablet->rowset_with_max_version();
         if (max_rowset == nullptr || max_rowset->end_version() < request.alter_version) {
@@ -1503,6 +1506,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
             // do not call rowset.remove directly, using gc thread to delete it
             StorageEngine::instance()->add_unused_rowset(rowset);
         }
+        TRACE("remove all data from new tablet");
 
         // init one delete handler
         int32_t end_version = -1;
@@ -1536,7 +1540,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         for (auto& rs_reader : rs_readers) {
             rs_reader->init(&reader_context);
         }
-
+        TRACE("init data source readers");
     } while (0);
 
     new_tablet->release_header_lock();
@@ -1586,6 +1590,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         }
 
         res = _convert_historical_rowsets(sc_params);
+        TRACE("convert history rowsets");
         if (res != OLAP_SUCCESS) {
             break;
         }
@@ -1842,6 +1847,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
     // a. 解析Alter请求，转换成内部的表示形式
     OLAPStatus res = _parse_request(sc_params.base_tablet, sc_params.new_tablet, &rb_changer,
                                     &sc_sorting, &sc_directly, sc_params.materialized_params_map);
+    TRACE("parse alter request");
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to parse the request. res=" << res;
         goto PROCESS_ALTER_EXIT;
@@ -1863,7 +1869,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
                   << sc_params.base_tablet->full_name();
         sc_procedure = new (nothrow) LinkedSchemaChange(rb_changer, _mem_tracker);
     }
-
+    TRACE("generate schema change procedure");
     if (sc_procedure == nullptr) {
         LOG(WARNING) << "failed to malloc SchemaChange. "
                      << "malloc_size=" << sizeof(SchemaChangeWithSorting);

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <util/trace.h>
 #include "olap/task/engine_storage_migration_task.h"
 
 #include "olap/snapshot_manager.h"
@@ -114,6 +115,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
 
         // migrate all index and data files but header file
         res = _copy_index_and_data_files(full_path, consistent_rowsets);
+        TRACE("copy index and data files");
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to copy index and data files when migrate. res=" << res;
             break;
@@ -128,6 +130,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
         }
         std::string new_meta_file = full_path + "/" + std::to_string(tablet_id) + ".hdr";
         res = new_tablet_meta->save(new_meta_file);
+        TRACE("generate new tablet meta and save");
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to save meta to path: " << new_meta_file;
             break;
@@ -150,6 +153,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
 
         res = StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
                 _dest_store, tablet_id, schema_hash, full_path, false);
+        TRACE("load tablet from new path");
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to load tablet from new path. tablet_id=" << tablet_id
                          << " schema_hash=" << schema_hash << " path = " << full_path;

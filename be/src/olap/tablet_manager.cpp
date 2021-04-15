@@ -479,9 +479,9 @@ OLAPStatus TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, SchemaHash 
                                                 bool keep_files) {
     LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
     DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
-
     // Fetch tablet which need to be dropped
     TabletSharedPtr to_drop_tablet = _get_tablet_unlocked(tablet_id, schema_hash);
+    TRACE("get tablet from tablet map");
     if (to_drop_tablet == nullptr) {
         LOG(WARNING) << "fail to drop tablet because it does not exist. "
                      << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
@@ -491,6 +491,7 @@ OLAPStatus TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, SchemaHash 
     // Try to get schema change info, we can drop tablet directly if it is not
     // in schema-change state.
     AlterTabletTaskSharedPtr alter_task = to_drop_tablet->alter_task();
+    TRACE("get alter task");
     if (alter_task == nullptr) {
         return _drop_tablet_directly_unlocked(tablet_id, schema_hash, keep_files);
     }
@@ -554,7 +555,8 @@ OLAPStatus TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, SchemaHash 
                      << to_drop_tablet->full_name();
         return res;
     }
-
+    
+    TRACE("finish to drop tablet with schema change info");
     LOG(INFO) << "finish to drop tablet. res=" << res;
     return res;
 }
@@ -606,6 +608,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
                                                     bool include_deleted, string* err) {
     TabletSharedPtr tablet;
     tablet = _get_tablet_unlocked(tablet_id, schema_hash);
+    TRACE("get tablet");
     if (tablet == nullptr && include_deleted) {
         ReadLock rlock(&_shutdown_tablets_lock);
         for (auto& deleted_tablet : _shutdown_tablets) {
@@ -616,6 +619,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
                 break;
             }
         }
+        TRACE("get tablet from deleted tablets");
     }
 
     if (tablet == nullptr) {
@@ -1427,6 +1431,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id,
 
         TabletSharedPtr tablet = *it;
         _remove_tablet_from_partition(*(*it));
+        TRACE("remove tablet from partition");
         it = candidate_tablets.erase(it);
         if (!keep_files) {
             // drop tablet will update tablet meta, should lock
@@ -1445,11 +1450,13 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id,
                 WriteLock wlock(&_shutdown_tablets_lock);
                 _shutdown_tablets.push_back(tablet);
             }
+            TRACE("set tablet to shutdown state and remove it from memory");
         }
     }
 
     dropped_tablet->deregister_tablet_from_dir();
     _mem_tracker->Release(dropped_tablet->tablet_meta()->mem_size() * 2);
+    TRACE("drop tablet finished");
     return OLAP_SUCCESS;
 }
 
