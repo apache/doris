@@ -253,9 +253,6 @@ public class StmtExecutor {
     // Exception:
     //  IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
-        // origin value init
-        VariableMgr.setIsSingleSetVar(false);
-        VariableMgr.clearMapSessionOriginValue();
 	
         plannerProfile.setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
@@ -368,6 +365,9 @@ public class StmtExecutor {
             try {
                 SessionVariable sessionVariable = context.getSessionVariable();
                 VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearMapSessionOriginValue();
             } catch (DdlException e) {
                 LOG.warn("failed to revert Session value.", e);
                 context.getState().setError(e.getMessage());
@@ -397,7 +397,7 @@ public class StmtExecutor {
             SelectStmt selectStmt = (SelectStmt) parsedStmt;
             Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
             if (optHints != null) {
-                VariableMgr.setIsSingleSetVar(true);
+                sessionVariable.setIsSingleSetVar(true);
                 for (String key : optHints.keySet()) {
                     VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
                 }

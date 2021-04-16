@@ -124,6 +124,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
 
+    // session origin value
+    public static final Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
+    // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
+    // if it is setStmt, we needn't collect session origin value
+    public static boolean isSingleSetVar = false;
+
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
@@ -589,6 +595,26 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             this.insertVisibleTimeoutMs = insertVisibleTimeoutMs;
         }
+    }
+
+    public boolean getIsSingleSetVar() {
+        return isSingleSetVar;
+    }
+
+    public void setIsSingleSetVar(boolean issinglesetvar) {
+        this.isSingleSetVar = issinglesetvar;
+    }
+
+    public Map<Field, String> getSessionOriginValue() {
+        return sessionOriginValue;
+    }
+
+    public void addSessionOriginValue(Field key, String value) {
+        sessionOriginValue.put(key, value);
+    }
+
+    public void clearSessionOriginValue() {
+        sessionOriginValue.clear();
     }
 
     public boolean isDeleteWithoutPartition() {

@@ -103,11 +103,6 @@ public class VariableMgr {
     public static final int READ_ONLY = 8;
     // Variables with this flag can not be seen with `SHOW VARIABLES` statement.
     public static final int INVISIBLE = 16;
-    // session origin value
-    private static final Map<Field,String> sessionOriginValue;
-    // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
-    // if it is setStmt, we needn't collect session origin value
-    private static boolean isSingleSetVar = false;
 
     // Map variable name to variable context which have enough information to change variable value.
     // This map contains info of all session and global variables.
@@ -124,7 +119,6 @@ public class VariableMgr {
 
     // Form map from variable name to its field in Java class.
     static {
-        sessionOriginValue = new HashMap<Field,String>();
         // Session value
         defaultSessionVariable = new SessionVariable();
         ImmutableSortedMap.Builder<String, VarContext> builder =
@@ -213,22 +207,15 @@ public class VariableMgr {
         return true;
     }
 
-    public static void setIsSingleSetVar(boolean issinglesetvar) {
-        VariableMgr.isSingleSetVar = issinglesetvar;
-    }
-
     // revert the operator[set_var] on select/*+ SET_VAR()*/  sql;
-    public static void revertSessionValue(Object obj) throws DdlException {
+    public static void revertSessionValue(SessionVariable obj) throws DdlException {
+        Map<Field, String> sessionOriginValue = obj.getSessionOriginValue();
         if(!sessionOriginValue.isEmpty()) {
             for (Field field : sessionOriginValue.keySet()) {
                 // revert session value
                 setValue(obj, field, sessionOriginValue.get(field));
             }
         }
-    }
-
-    public static void clearMapSessionOriginValue() {
-        sessionOriginValue.clear();
     }
 
     public static SessionVariable newSessionVariable() {
@@ -295,10 +282,10 @@ public class VariableMgr {
             // set session variable
             Field field = ctx.getField();
             // if stmt is "Select /*+ SET_VAR(...)*/"
-            if(isSingleSetVar) {
+            if(sessionVariable.getIsSingleSetVar()) {
                 try {
-                    sessionOriginValue.put(field, field.get(sessionVariable).toString());
-                } catch (IllegalAccessException e) {
+                    sessionVariable.addSessionOriginValue(field, field.get(sessionVariable).toString());
+                } catch (Exception e) {
                     LOG.warn("failed to collect origin session value ", e);
                 }
             }
