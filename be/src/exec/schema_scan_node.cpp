@@ -18,7 +18,6 @@
 #include "schema_scan_node.h"
 
 #include <boost/algorithm/string.hpp>
-#include <boost/foreach.hpp>
 
 #include "exec/schema_scanner/schema_helper.h"
 #include "exec/text_converter.hpp"

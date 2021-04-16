@@ -496,7 +496,7 @@ Status SpillSorter::Run::add_batch(RowBatch* batch, int start_index, int* num_pr
 
                 // Sorting of tuples containing array values is not implemented. The planner
                 // combined with projection should guarantee that none are in each tuple.
-                // BOOST_FOREACH(const SlotDescriptor* collection_slot,
+                // for(const SlotDescriptor* collection_slot :
                 //         _sort_tuple_desc->collection_slots()) {
                 //     DCHECK(new_tuple->is_null(collection_slot->null_indicator_offset()));
                 // }
@@ -535,13 +535,13 @@ Status SpillSorter::Run::add_batch(RowBatch* batch, int start_index, int* num_pr
 
 void SpillSorter::Run::transfer_resources(RowBatch* row_batch) {
     DCHECK(row_batch != NULL);
-    BOOST_FOREACH (BufferedBlockMgr2::Block* block, _fixed_len_blocks) {
+    for (BufferedBlockMgr2::Block* block : _fixed_len_blocks) {
         if (block != NULL) {
             row_batch->add_block(block);
         }
     }
     _fixed_len_blocks.clear();
-    BOOST_FOREACH (BufferedBlockMgr2::Block* block, _var_len_blocks) {
+    for (BufferedBlockMgr2::Block* block : _var_len_blocks) {
         if (block != NULL) {
             row_batch->add_block(block);
         }
@@ -554,13 +554,13 @@ void SpillSorter::Run::transfer_resources(RowBatch* row_batch) {
 }
 
 void SpillSorter::Run::delete_all_blocks() {
-    BOOST_FOREACH (BufferedBlockMgr2::Block* block, _fixed_len_blocks) {
+    for (BufferedBlockMgr2::Block* block : _fixed_len_blocks) {
         if (block != NULL) {
             block->del();
         }
     }
     _fixed_len_blocks.clear();
-    BOOST_FOREACH (BufferedBlockMgr2::Block* block, _var_len_blocks) {
+    for (BufferedBlockMgr2::Block* block : _var_len_blocks) {
         if (block != NULL) {
             block->del();
         }
@@ -619,7 +619,9 @@ Status SpillSorter::Run::unpin_all_blocks() {
     }
 
     // Clear _var_len_blocks and replace with it with the contents of sorted_var_len_blocks
-    BOOST_FOREACH (BufferedBlockMgr2::Block* var_block, _var_len_blocks) { var_block->del(); }
+    for (BufferedBlockMgr2::Block* var_block : _var_len_blocks) {
+        var_block->del();
+    }
     _var_len_blocks.clear();
     sorted_var_len_blocks.swap(_var_len_blocks);
     // Set _var_len_copy_block to NULL since it's now in _var_len_blocks and is no longer
@@ -818,7 +820,7 @@ void SpillSorter::Run::collect_non_null_varslots(Tuple* src, vector<StringValue*
                                                  int* total_var_len) {
     string_values->clear();
     *total_var_len = 0;
-    BOOST_FOREACH (const SlotDescriptor* string_slot, _sort_tuple_desc->string_slots()) {
+    for (const SlotDescriptor* string_slot : _sort_tuple_desc->string_slots()) {
         if (!src->is_null(string_slot->null_indicator_offset())) {
             StringValue* string_val =
                     reinterpret_cast<StringValue*>(src->get_slot(string_slot->tuple_offset()));
@@ -852,7 +854,7 @@ Status SpillSorter::Run::try_add_block(vector<BufferedBlockMgr2::Block*>* block_
 }
 
 void SpillSorter::Run::copy_var_len_data(char* dest, const vector<StringValue*>& string_values) {
-    BOOST_FOREACH (StringValue* string_val, string_values) {
+    for (StringValue* string_val : string_values) {
         memcpy(dest, string_val->ptr, string_val->len);
         string_val->ptr = dest;
         dest += string_val->len;
@@ -861,7 +863,7 @@ void SpillSorter::Run::copy_var_len_data(char* dest, const vector<StringValue*>&
 
 void SpillSorter::Run::copy_var_len_data_convert_offset(char* dest, int64_t offset,
                                                         const vector<StringValue*>& string_values) {
-    BOOST_FOREACH (StringValue* string_val, string_values) {
+    for (StringValue* string_val : string_values) {
         memcpy(dest, string_val->ptr, string_val->len);
         string_val->ptr = reinterpret_cast<char*>(offset);
         dest += string_val->len;
@@ -1316,7 +1318,8 @@ Status SpillSorter::create_merger(int num_runs) {
         RETURN_IF_ERROR(run->prepare_read());
         // Run::get_next_batch() is used by the merger to retrieve a batch of rows to merge
         // from this run.
-        merge_runs.push_back(bind<Status>(mem_fn(&Run::get_next_batch), run, boost::placeholders::_1));
+        merge_runs.push_back(
+                bind<Status>(mem_fn(&Run::get_next_batch), run, boost::placeholders::_1));
         _sorted_runs.pop_front();
         _merging_runs.push_back(run);
     }

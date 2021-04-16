@@ -123,7 +123,8 @@ public:
     // Retrieves the first batch of sorted rows from the run.
     Status init(bool* done) override {
         *done = false;
-        _pull_task_thread = std::thread(&SortedRunMerger::ParallelBatchedRowSupplier::process_sorted_run_task, this);
+        _pull_task_thread = std::thread(
+                &SortedRunMerger::ParallelBatchedRowSupplier::process_sorted_run_task, this);
 
         RETURN_IF_ERROR(next(NULL, done));
         return Status::OK();
@@ -144,7 +145,7 @@ public:
             delete _input_row_batch;
 
             std::unique_lock<std::mutex> lock(_mutex);
-            _batch_prepared_cv.wait(lock, [this](){ return _backup_ready.load(); });
+            _batch_prepared_cv.wait(lock, [this]() { return _backup_ready.load(); });
 
             // switch input_row_batch_backup to _input_row_batch
             _input_row_batch = _input_row_batch_backup;
@@ -187,9 +188,7 @@ private:
             // do merge from sender queue data
             _status_backup = _sorted_run(&_input_row_batch_backup);
             _backup_ready = true;
-            DeferOp defer_op([this]() {
-                _batch_prepared_cv.notify_one();
-            });
+            DeferOp defer_op([this]() { _batch_prepared_cv.notify_one(); });
 
             if (!_status_backup.ok() || _input_row_batch_backup == nullptr || _cancel) {
                 if (!_status_backup.ok()) _input_row_batch_backup = nullptr;
@@ -237,9 +236,10 @@ SortedRunMerger::SortedRunMerger(const TupleRowComparator& compare_less_than,
 Status SortedRunMerger::prepare(const vector<RunBatchSupplier>& input_runs, bool parallel) {
     DCHECK_EQ(_min_heap.size(), 0);
     _min_heap.reserve(input_runs.size());
-    BOOST_FOREACH (const RunBatchSupplier& input_run, input_runs) {
-        BatchedRowSupplier* new_elem = _pool.add(
-        	parallel ? new ParallelBatchedRowSupplier(this, input_run) : new BatchedRowSupplier(this, input_run));
+    for (const RunBatchSupplier& input_run : input_runs) {
+        BatchedRowSupplier* new_elem =
+                _pool.add(parallel ? new ParallelBatchedRowSupplier(this, input_run)
+                                   : new BatchedRowSupplier(this, input_run));
         DCHECK(new_elem != NULL);
         bool empty = false;
         RETURN_IF_ERROR(new_elem->init(&empty));
@@ -256,7 +256,7 @@ Status SortedRunMerger::prepare(const vector<RunBatchSupplier>& input_runs, bool
     return Status::OK();
 }
 
-void SortedRunMerger::transfer_all_resources(class doris::RowBatch * transfer_resource_batch) {
+void SortedRunMerger::transfer_all_resources(class doris::RowBatch* transfer_resource_batch) {
     for (BatchedRowSupplier* batched_row_supplier : _min_heap) {
         auto row_batch = batched_row_supplier->get_row_batch();
         if (row_batch != nullptr) {
@@ -306,17 +306,15 @@ Status SortedRunMerger::get_next(RowBatch* output_batch, bool* eos) {
 }
 
 ChildSortedRunMerger::ChildSortedRunMerger(const TupleRowComparator& compare_less_than,
-        RowDescriptor* row_desc,
-        RuntimeProfile* profile,
-        MemTracker* parent,
-        uint32_t row_batch_size,
-        bool deep_copy_input):
-        SortedRunMerger(compare_less_than, row_desc, profile, deep_copy_input),
-        _eos(false),
-        _parent(parent),
-        _row_batch_size(row_batch_size) {
-	_get_next_timer = ADD_TIMER(profile, "ChildMergeGetNext");
-	_get_next_batch_timer = ADD_TIMER(profile, "ChildMergeGetNextBatch");
+                                           RowDescriptor* row_desc, RuntimeProfile* profile,
+                                           MemTracker* parent, uint32_t row_batch_size,
+                                           bool deep_copy_input)
+        : SortedRunMerger(compare_less_than, row_desc, profile, deep_copy_input),
+          _eos(false),
+          _parent(parent),
+          _row_batch_size(row_batch_size) {
+    _get_next_timer = ADD_TIMER(profile, "ChildMergeGetNext");
+    _get_next_batch_timer = ADD_TIMER(profile, "ChildMergeGetNextBatch");
 }
 
 Status ChildSortedRunMerger::get_batch(RowBatch** output_batch) {
