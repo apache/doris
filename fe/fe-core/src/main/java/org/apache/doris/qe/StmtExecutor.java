@@ -889,7 +889,7 @@ public class StmtExecutor {
                 // if no data, just abort txn and return ok
                 Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getDbObj().getId(),
                         insertStmt.getTransactionId(), TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
-                context.getState().setOk();
+                context.getState().setError("No data to be inserted, please check your select clause, tracking_url="+coord.getTrackingUrl());
                 return;
             }
             if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
