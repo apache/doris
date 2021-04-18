@@ -62,6 +62,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     private volatile boolean isClosed = false;
     private volatile boolean isInit = false;
 
+    // the max auditEventQueue size to store audit_event
+    private static final int MAX_AUDIT_EVENT_SIZE = 4096;
+
     @Override
     public void init(PluginInfo info, PluginContext ctx) throws PluginException {
         super.init(info, ctx);
