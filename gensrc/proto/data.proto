@@ -24,6 +24,7 @@ message PQueryStatistics {
     optional int64 scan_rows = 1;
     optional int64 scan_bytes = 2;
     optional int64 returned_rows = 3;
+    optional int64 cpu_ms = 4;
 }
 
 message PRowBatch {

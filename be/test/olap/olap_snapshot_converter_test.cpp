@@ -18,12 +18,12 @@
 #include "olap/olap_snapshot_converter.h"
 
 #include <boost/algorithm/string.hpp>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
 
-#include "boost/filesystem.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "json2pb/json_to_pb.h"
@@ -55,10 +55,8 @@ public:
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
-        std::vector<StorePath> paths;
-        paths.emplace_back("_engine_data_path", -1);
         EngineOptions options;
-        options.store_paths = paths;
+        // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
         if (k_engine == nullptr) {
             k_engine = new StorageEngine(options);
@@ -66,26 +64,26 @@ public:
 
         string test_engine_data_path = "./be/test/olap/test_data/converter_test_data/data";
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
-        boost::filesystem::remove_all(_engine_data_path);
+        std::filesystem::remove_all(_engine_data_path);
         FileUtils::create_dir(_engine_data_path);
 
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();
         _meta_path = "./meta";
         string tmp_data_path = _engine_data_path + "/data";
-        if (boost::filesystem::exists(tmp_data_path)) {
-            boost::filesystem::remove_all(tmp_data_path);
+        if (std::filesystem::exists(tmp_data_path)) {
+            std::filesystem::remove_all(tmp_data_path);
         }
         copy_dir(test_engine_data_path, tmp_data_path);
         _tablet_id = 15007;
         _schema_hash = 368169781;
         _tablet_data_path = tmp_data_path + "/" + std::to_string(0) + "/" +
                             std::to_string(_tablet_id) + "/" + std::to_string(_schema_hash);
-        if (boost::filesystem::exists(_meta_path)) {
-            boost::filesystem::remove_all(_meta_path);
+        if (std::filesystem::exists(_meta_path)) {
+            std::filesystem::remove_all(_meta_path);
         }
-        ASSERT_TRUE(boost::filesystem::create_directory(_meta_path));
-        ASSERT_TRUE(boost::filesystem::exists(_meta_path));
+        ASSERT_TRUE(std::filesystem::create_directory(_meta_path));
+        ASSERT_TRUE(std::filesystem::exists(_meta_path));
         _meta = new (std::nothrow) OlapMeta(_meta_path);
         ASSERT_NE(nullptr, _meta);
         OLAPStatus st = _meta->init();
@@ -95,11 +93,11 @@ public:
     virtual void TearDown() {
         delete _meta;
         delete _data_dir;
-        if (boost::filesystem::exists(_meta_path)) {
-            ASSERT_TRUE(boost::filesystem::remove_all(_meta_path));
+        if (std::filesystem::exists(_meta_path)) {
+            ASSERT_TRUE(std::filesystem::remove_all(_meta_path));
         }
-        if (boost::filesystem::exists(_engine_data_path)) {
-            ASSERT_TRUE(boost::filesystem::remove_all(_engine_data_path));
+        if (std::filesystem::exists(_engine_data_path)) {
+            ASSERT_TRUE(std::filesystem::remove_all(_engine_data_path));
         }
     }
 
@@ -129,7 +127,7 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     ASSERT_TRUE(ret);
     OlapSnapshotConverter converter;
     TabletMetaPB tablet_meta_pb;
-    vector<RowsetMetaPB> pending_rowsets;
+    std::vector<RowsetMetaPB> pending_rowsets;
     OLAPStatus status = converter.to_new_snapshot(header_msg, _tablet_data_path, _tablet_data_path,
                                                   &tablet_meta_pb, &pending_rowsets, true);
     ASSERT_TRUE(status == OLAP_SUCCESS);

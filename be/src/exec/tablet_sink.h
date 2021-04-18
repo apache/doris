@@ -31,9 +31,11 @@
 #include "exec/tablet_info.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "gen_cpp/palo_internal_service.pb.h"
 #include "util/bitmap.h"
+#include "util/countdown_latch.h"
 #include "util/ref_count_closure.h"
+#include "util/spinlock.h"
+#include "util/thread.h"
 #include "util/thrift_util.h"
 
 namespace doris {
@@ -78,7 +80,8 @@ struct AddBatchCounter {
 template <typename T>
 class ReusableClosure : public google::protobuf::Closure {
 public:
-    ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
+    ReusableClosure() : cid(INVALID_BTHREAD_ID) {
+    }
     ~ReusableClosure() {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
@@ -143,7 +146,7 @@ public:
     NodeChannel(OlapTableSink* parent, int64_t index_id, int64_t node_id, int32_t schema_hash);
     ~NodeChannel() noexcept;
 
-    // called before open, used to add tablet loacted in this backend
+    // called before open, used to add tablet located in this backend
     void add_tablet(const TTabletWithPartition& tablet) { _all_tablets.emplace_back(tablet); }
 
     Status init(RuntimeState* state);
@@ -171,12 +174,17 @@ public:
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
                      int64_t* serialize_batch_ns, int64_t* mem_exceeded_block_ns,
-                     int64_t* queue_push_lock_ns, int64_t* actual_consume_ns) {
+                     int64_t* queue_push_lock_ns, int64_t* actual_consume_ns,
+                     int64_t* total_add_batch_exec_time_ns, int64_t* add_batch_exec_time_ns,
+                     int64_t* total_add_batch_num) {
         (*add_batch_counter_map)[_node_id] += _add_batch_counter;
         *serialize_batch_ns += _serialize_batch_ns;
         *mem_exceeded_block_ns += _mem_exceeded_block_ns;
         *queue_push_lock_ns += _queue_push_lock_ns;
         *actual_consume_ns += _actual_consume_ns;
+        *add_batch_exec_time_ns = (_add_batch_counter.add_batch_execution_time_us * 1000);
+        *total_add_batch_exec_time_ns += *add_batch_exec_time_ns;
+        *total_add_batch_num += _add_batch_counter.add_batch_num;
     }
 
     int64_t node_id() const { return _node_id; }
@@ -186,6 +194,7 @@ public:
 
     Status none_of(std::initializer_list<bool> vars);
 
+    // TODO(HW): remove after mem tracker shared
     void clear_all_batches();
 
 private:
@@ -205,11 +214,13 @@ private:
 
     // user cancel or get some errors
     std::atomic<bool> _cancelled{false};
+    SpinLock _cancel_msg_lock;
+    std::string _cancel_msg = "";
 
     // send finished means the consumer thread which send the rpc can exit
     std::atomic<bool> _send_finished{false};
 
-    // add batches finished means the last rpc has be responsed, used to check whether this channel can be closed
+    // add batches finished means the last rpc has be response, used to check whether this channel can be closed
     std::atomic<bool> _add_batches_finished{false};
 
     bool _eos_is_produced{false}; // only for restricting producer behaviors
@@ -224,7 +235,7 @@ private:
     std::queue<AddBatchReq> _pending_batches;
     std::atomic<int> _pending_batches_num{0};
 
-    palo::PInternalService_Stub* _stub = nullptr;
+    PBackendService_Stub* _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
     ReusableClosure<PTabletWriterAddBatchResult>* _add_batch_closure = nullptr;
 
@@ -232,11 +243,10 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
 
     AddBatchCounter _add_batch_counter;
-    int64_t _serialize_batch_ns = 0;
-
-    int64_t _mem_exceeded_block_ns = 0;
-    int64_t _queue_push_lock_ns = 0;
-    int64_t _actual_consume_ns = 0;
+    std::atomic<int64_t> _serialize_batch_ns{0};
+    std::atomic<int64_t> _mem_exceeded_block_ns{0};
+    std::atomic<int64_t> _queue_push_lock_ns{0};
+    std::atomic<int64_t> _actual_consume_ns{0};
 };
 
 class IndexChannel {
@@ -258,6 +268,8 @@ public:
     void mark_as_failed(const NodeChannel* ch) { _failed_channels.insert(ch->node_id()); }
     bool has_intolerable_failure();
 
+    size_t num_node_channels() const { return _node_channels.size(); }
+
 private:
     OlapTableSink* _parent;
     int64_t _index_id;
@@ -273,7 +285,7 @@ private:
 
 // Write data to Olap Table.
 // When OlapTableSink::open() called, there will be a consumer thread running in the background.
-// When you call OlapTableSink::send(), you will be the productor who products pending batches.
+// When you call OlapTableSink::send(), you will be the producer who products pending batches.
 // Join the consumer thread in close().
 class OlapTableSink : public DataSink {
 public:
@@ -308,12 +320,14 @@ private:
 
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
-    // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the productor
+    // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
     void _send_batch_process();
 
 private:
     friend class NodeChannel;
     friend class IndexChannel;
+
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     ObjectPool* _pool;
     const RowDescriptor& _input_row_desc;
@@ -321,12 +335,8 @@ private:
     // unique load id
     PUniqueId _load_id;
     int64_t _txn_id = -1;
-    int64_t _db_id = -1;
-    int64_t _table_id = -1;
-    int _num_repicas = -1;
+    int _num_replicas = -1;
     bool _need_gen_rollup = false;
-    std::string _db_name;
-    std::string _table_name;
     int _tuple_desc_id = -1;
 
     // this is tuple descriptor of destination OLAP table
@@ -350,7 +360,6 @@ private:
     DorisNodesInfo* _nodes_info = nullptr;
 
     RuntimeProfile* _profile = nullptr;
-    MemTracker* _mem_tracker = nullptr;
 
     std::set<int64_t> _partition_ids;
 
@@ -359,7 +368,8 @@ private:
     // index_channel
     std::vector<IndexChannel*> _channels;
 
-    std::thread _sender_thread;
+    CountDownLatch _stop_background_threads_latch;
+    scoped_refptr<Thread> _sender_thread;
 
     std::vector<DecimalValue> _max_decimal_val;
     std::vector<DecimalValue> _min_decimal_val;
@@ -371,7 +381,6 @@ private:
     int64_t _convert_batch_ns = 0;
     int64_t _validate_data_ns = 0;
     int64_t _send_data_ns = 0;
-    int64_t _non_blocking_send_ns = 0;
     int64_t _serialize_batch_ns = 0;
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
@@ -381,18 +390,29 @@ private:
     RuntimeProfile::Counter* _output_rows_counter = nullptr;
     RuntimeProfile::Counter* _filtered_rows_counter = nullptr;
     RuntimeProfile::Counter* _send_data_timer = nullptr;
+    RuntimeProfile::Counter* _wait_mem_limit_timer = nullptr;
     RuntimeProfile::Counter* _convert_batch_timer = nullptr;
     RuntimeProfile::Counter* _validate_data_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _non_blocking_send_timer = nullptr;
+    RuntimeProfile::Counter* _non_blocking_send_work_timer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
+    RuntimeProfile::Counter* _total_add_batch_exec_timer = nullptr;
+    RuntimeProfile::Counter* _max_add_batch_exec_timer = nullptr;
+    RuntimeProfile::Counter* _add_batch_number = nullptr;
+    RuntimeProfile::Counter* _num_node_channels = nullptr;
 
     // load mem limit is for remote load channel
     int64_t _load_mem_limit = -1;
 
     // the timeout of load channels opened by this tablet sink. in second
     int64_t _load_channel_timeout_s = 0;
+
+	// True if this sink has been closed once
+	bool _is_closed = false;
+	// Save the status of close() method
+	Status _close_status;
 };
 
 } // namespace stream_load

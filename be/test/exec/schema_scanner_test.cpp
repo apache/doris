@@ -15,26 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/schema_scanner.h"
+
 #include <gtest/gtest.h>
+
 #include <string>
 
 #include "common/object_pool.h"
-#include "exec/schema_scanner.h"
-#include "runtime/mem_pool.h"
 #include "runtime/descriptors.h"
+#include "runtime/mem_pool.h"
 
 namespace doris {
 
 class SchemaScannerTest : public testing::Test {
 public:
-    SchemaScannerTest() {
-    }
+    SchemaScannerTest() {}
 
     virtual void SetUp() {
         _param.db = &_db;
         _param.table = &_table;
         _param.wild = &_wild;
     }
+
 private:
     ObjectPool _obj_pool;
     MemPool _mem_pool;
@@ -45,16 +47,16 @@ private:
 };
 
 SchemaScanner::ColumnDesc s_test_columns[] = {
-    //   name,       type,          size,           is_null
-    { "Name",     TYPE_VARCHAR, sizeof(StringValue), false },
-    { "Location", TYPE_VARCHAR, sizeof(StringValue), false },
-    { "Comment",  TYPE_VARCHAR, sizeof(StringValue), false },
-    { "is_null",  TYPE_VARCHAR, sizeof(StringValue), true },
+        //   name,       type,          size,           is_null
+        {"Name", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"Location", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"Comment", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"is_null", TYPE_VARCHAR, sizeof(StringValue), true},
 };
 
-char g_tuple_buf[10000];// enougth for tuple
+char g_tuple_buf[10000]; // enough for tuple
 TEST_F(SchemaScannerTest, normal_use) {
-    SchemaScanner scanner(s_test_columns, 
+    SchemaScanner scanner(s_test_columns,
                           sizeof(s_test_columns) / sizeof(SchemaScanner::ColumnDesc));
     Status status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
@@ -71,7 +73,7 @@ TEST_F(SchemaScannerTest, normal_use) {
     ASSERT_TRUE(status.ok());
 }
 TEST_F(SchemaScannerTest, input_fail) {
-    SchemaScanner scanner(s_test_columns, 
+    SchemaScanner scanner(s_test_columns,
                           sizeof(s_test_columns) / sizeof(SchemaScanner::ColumnDesc));
     Status status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
@@ -92,7 +94,7 @@ TEST_F(SchemaScannerTest, invalid_param) {
     ASSERT_FALSE(status.ok());
 }
 TEST_F(SchemaScannerTest, no_init_use) {
-    SchemaScanner scanner(s_test_columns, 
+    SchemaScanner scanner(s_test_columns,
                           sizeof(s_test_columns) / sizeof(SchemaScanner::ColumnDesc));
     Status status = scanner.start((RuntimeState*)1);
     ASSERT_FALSE(status.ok());
@@ -104,7 +106,7 @@ TEST_F(SchemaScannerTest, no_init_use) {
     ASSERT_FALSE(status.ok());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -116,4 +118,3 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

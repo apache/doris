@@ -15,16 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gflags/gflags.h>
+
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <set>
 #include <sstream>
 #include <string>
 
-#include <boost/filesystem.hpp>
-#include <gflags/gflags.h>
-
 #include "common/status.h"
-#include "env/env.h" 
+#include "env/env.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/strings/numbers.h"
@@ -36,14 +37,14 @@
 #include "olap/options.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/column_reader.h"
-#include "olap/tablet_meta_manager.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/file_utils.h"
 
-using boost::filesystem::path;
+using std::filesystem::path;
 using doris::DataDir;
 using doris::OLAP_SUCCESS;
 using doris::OlapMeta;
@@ -67,9 +68,8 @@ using doris::segment_v2::PageFooterPB;
 const std::string HEADER_PREFIX = "tabletmeta_";
 
 DEFINE_string(root_path, "", "storage root path");
-DEFINE_string(
-    operation, "get_meta",
-    "valid operation: get_meta, flag, load_meta, delete_meta, show_meta");
+DEFINE_string(operation, "get_meta",
+              "valid operation: get_meta, flag, load_meta, delete_meta, show_meta");
 DEFINE_int64(tablet_id, 0, "tablet_id for tablet meta");
 DEFINE_int32(schema_hash, 0, "schema_hash for tablet meta");
 DEFINE_string(json_meta_path, "", "absolute json meta file path");
@@ -114,8 +114,8 @@ void show_meta() {
 
 void get_meta(DataDir* data_dir) {
     std::string value;
-    OLAPStatus s = TabletMetaManager::get_json_meta(data_dir, FLAGS_tablet_id,
-                                                    FLAGS_schema_hash, &value);
+    OLAPStatus s =
+            TabletMetaManager::get_json_meta(data_dir, FLAGS_tablet_id, FLAGS_schema_hash, &value);
     if (s == doris::OLAP_ERR_META_KEY_NOT_FOUND) {
         std::cout << "no tablet meta for tablet_id:" << FLAGS_tablet_id
                   << ", schema_hash:" << FLAGS_schema_hash << std::endl;
@@ -126,8 +126,7 @@ void get_meta(DataDir* data_dir) {
 
 void load_meta(DataDir* data_dir) {
     // load json tablet meta into meta
-    OLAPStatus s =
-        TabletMetaManager::load_json_meta(data_dir, FLAGS_json_meta_path);
+    OLAPStatus s = TabletMetaManager::load_json_meta(data_dir, FLAGS_json_meta_path);
     if (s != OLAP_SUCCESS) {
         std::cout << "load meta failed, status:" << s << std::endl;
         return;
@@ -136,12 +135,10 @@ void load_meta(DataDir* data_dir) {
 }
 
 void delete_meta(DataDir* data_dir) {
-    OLAPStatus s =
-        TabletMetaManager::remove(data_dir, FLAGS_tablet_id, FLAGS_schema_hash);
+    OLAPStatus s = TabletMetaManager::remove(data_dir, FLAGS_tablet_id, FLAGS_schema_hash);
     if (s != OLAP_SUCCESS) {
-        std::cout << "delete tablet meta failed for tablet_id:"
-                  << FLAGS_tablet_id << ", schema_hash:" << FLAGS_schema_hash
-                  << ", status:" << s << std::endl;
+        std::cout << "delete tablet meta failed for tablet_id:" << FLAGS_tablet_id
+                  << ", schema_hash:" << FLAGS_schema_hash << ", status:" << s << std::endl;
         return;
     }
     std::cout << "delete meta successfully" << std::endl;
@@ -151,8 +148,8 @@ Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
     std::string root_path;
     Status st = FileUtils::canonicalize(dir, &root_path);
     if (!st.ok()) {
-        std::cout << "invalid root path:" << FLAGS_root_path
-            << ", error: " << st.to_string() << std::endl;
+        std::cout << "invalid root path:" << FLAGS_root_path << ", error: " << st.to_string()
+                  << std::endl;
         return Status::InternalError("invalid root path");
     }
     doris::StorePath path;
@@ -162,7 +159,8 @@ Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
         return Status::InternalError("parse root path failed");
     }
 
-    std::unique_ptr<DataDir> p(new (std::nothrow) DataDir(path.path, path.capacity_bytes, path.storage_medium));
+    std::unique_ptr<DataDir> p(
+            new (std::nothrow) DataDir(path.path, path.capacity_bytes, path.storage_medium));
     if (p == nullptr) {
         std::cout << "new data dir failed" << std::endl;
         return Status::InternalError("new data dir failed");
@@ -191,7 +189,7 @@ void batch_delete_meta(const std::string& tablet_file) {
     std::unordered_map<std::string, std::unique_ptr<DataDir>> dir_map;
     while (std::getline(infile, line)) {
         total_num++;
-        vector<string> v = strings::Split(line, ",");
+        std::vector<string> v = strings::Split(line, ",");
         if (v.size() != 3) {
             std::cout << "invalid line in tablet_file: " << line << std::endl;
             err_num++;
@@ -212,7 +210,7 @@ void batch_delete_meta(const std::string& tablet_file) {
             Status st = init_data_dir(dir, &data_dir_p);
             if (!st.ok()) {
                 std::cout << "invalid root path:" << FLAGS_root_path
-                    << ", error: " << st.to_string() << std::endl;
+                          << ", error: " << st.to_string() << std::endl;
                 err_num++;
                 continue;
             }
@@ -242,17 +240,17 @@ void batch_delete_meta(const std::string& tablet_file) {
 
         OLAPStatus s = TabletMetaManager::remove(data_dir, tablet_id, schema_hash);
         if (s != OLAP_SUCCESS) {
-            std::cout << "delete tablet meta failed for tablet_id:"
-                << tablet_id << ", schema_hash:" << schema_hash
-                << ", status:" << s << std::endl;
+            std::cout << "delete tablet meta failed for tablet_id:" << tablet_id
+                      << ", schema_hash:" << schema_hash << ", status:" << s << std::endl;
             err_num++;
             continue;
         }
-        
+
         delete_num++;
     }
 
-    std::cout << "total: " << total_num << ", delete: " << delete_num << ", error: " << err_num << std::endl;
+    std::cout << "total: " << total_num << ", delete: " << delete_num << ", error: " << err_num
+              << std::endl;
     return;
 }
 
@@ -263,7 +261,8 @@ Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer)
     RETURN_IF_ERROR(input_file->size(&file_size));
 
     if (file_size < 12) {
-        return Status::Corruption(Substitute("Bad segment file $0: file size $1 < 12", file_name, file_size));
+        return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < 12",
+                                                      file_name, file_size));
     }
 
     uint8_t fixed_buf[12];
@@ -271,16 +270,17 @@ Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer)
 
     // validate magic number
     const char* k_segment_magic = "D0R1";
-    const uint32_t k_segment_magic_length = 4; 
+    const uint32_t k_segment_magic_length = 4;
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
-        return Status::Corruption(Substitute("Bad segment file $0: magic number not match", file_name));
+        return Status::Corruption(
+                strings::Substitute("Bad segment file $0: magic number not match", file_name));
     }
 
     // read footer PB
     uint32_t footer_length = doris::decode_fixed32_le(fixed_buf);
     if (file_size < 12 + footer_length) {
-        return Status::Corruption(
-            Substitute("Bad segment file $0: file size $1 < $2", file_name, file_size, 12 + footer_length));
+        return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < $2",
+                                                      file_name, file_size, 12 + footer_length));
     }
     std::string footer_buf;
     footer_buf.resize(footer_length);
@@ -290,14 +290,15 @@ Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer)
     uint32_t expect_checksum = doris::decode_fixed32_le(fixed_buf + 4);
     uint32_t actual_checksum = doris::crc32c::Value(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
-        return Status::Corruption(
-            Substitute("Bad segment file $0: footer checksum not match, actual=$1 vs expect=$2",
-                       file_name, actual_checksum, expect_checksum));
+        return Status::Corruption(strings::Substitute(
+                "Bad segment file $0: footer checksum not match, actual=$1 vs expect=$2", file_name,
+                actual_checksum, expect_checksum));
     }
 
     // deserialize footer PB
     if (!footer->ParseFromString(footer_buf)) {
-        return Status::Corruption(Substitute("Bad segment file $0: failed to parse SegmentFooterPB", file_name));
+        return Status::Corruption(strings::Substitute(
+                "Bad segment file $0: failed to parse SegmentFooterPB", file_name));
     }
     return Status::OK();
 }
@@ -339,7 +340,7 @@ int main(int argc, char** argv) {
         Status st = FileUtils::canonicalize(FLAGS_tablet_file, &tablet_file);
         if (!st.ok()) {
             std::cout << "invalid tablet file: " << FLAGS_tablet_file
-                    << ", error: " << st.to_string() << std::endl;
+                      << ", error: " << st.to_string() << std::endl;
             return -1;
         }
 
@@ -352,8 +353,7 @@ int main(int argc, char** argv) {
         show_segment_footer(FLAGS_file);
     } else {
         // operations that need root path should be written here
-        std::set<std::string> valid_operations = {"get_meta", "load_meta",
-                                                  "delete_meta"};
+        std::set<std::string> valid_operations = {"get_meta", "load_meta", "delete_meta"};
         if (valid_operations.find(FLAGS_operation) == valid_operations.end()) {
             std::cout << "invalid operation:" << FLAGS_operation << std::endl;
             return -1;
@@ -362,8 +362,8 @@ int main(int argc, char** argv) {
         std::unique_ptr<DataDir> data_dir;
         Status st = init_data_dir(FLAGS_root_path, &data_dir);
         if (!st.ok()) {
-            std::cout << "invalid root path:" << FLAGS_root_path
-                      << ", error: " << st.to_string() << std::endl;
+            std::cout << "invalid root path:" << FLAGS_root_path << ", error: " << st.to_string()
+                      << std::endl;
             return -1;
         }
 
@@ -374,8 +374,7 @@ int main(int argc, char** argv) {
         } else if (FLAGS_operation == "delete_meta") {
             delete_meta(data_dir.get());
         } else {
-            std::cout << "invalid operation: " << FLAGS_operation << "\n"
-                      << usage << std::endl;
+            std::cout << "invalid operation: " << FLAGS_operation << "\n" << usage << std::endl;
             return -1;
         }
     }

@@ -57,14 +57,15 @@ under the License.
 
     2. 删除分区
         语法：
-            DROP PARTITION [IF EXISTS] partition_name
+            DROP PARTITION [IF EXISTS] partition_name [FORCE]
         注意：
             1) 使用分区方式的表至少要保留一个分区。
-            2) 执行 DROP PARTITION 一段时间内，可以通过 RECOVER 语句恢复被删除的 partition。详见 RECOVER 语句
+            2) 执行 DROP PARTITION 一段时间内，可以通过 RECOVER 语句恢复被删除的分区。详见 RECOVER 语句
+            3) 如果执行 DROP PARTITION FORCE，则系统不会检查该分区是否存在未完成的事务，分区将直接被删除并且不能被恢复，一般不建议执行此操作
             
     3. 修改分区属性
         语法：
-            MODIFY PARTITION partition_name SET ("key" = "value", ...)
+            MODIFY PARTITION p1|(p1[, p2, ...]) SET ("key" = "value", ...)
         说明：
             1) 当前支持修改分区的下列属性：
                 - storage_medium
@@ -150,12 +151,11 @@ under the License.
             3) 只能修改列的类型，列的其他属性维持原样（即其他属性需在语句中按照原属性显式的写出，参见 example 8）
             4) 分区列不能做任何修改
             5) 目前支持以下类型的转换（精度损失由用户保证）
-                TINYINT/SMALLINT/INT/BIGINT 转换成 TINYINT/SMALLINT/INT/BIGINT/DOUBLE。
+                TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE 类型向范围更大的数字类型转换
                 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL 转换成 VARCHAR
-                LARGEINT 转换成 DOUBLE
                 VARCHAR 支持修改最大长度
-                VARCHAR 转换成 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE
-                VARCHAR 转换成 DATE (目前支持"%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d"六种格式化格式)
+                VARCHAR/CHAR 转换成 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE
+                VARCHAR/CHAR 转换成 DATE (目前支持"%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d"六种格式化格式)
                 DATETIME 转换成 DATE(仅保留年-月-日信息, 例如: `2019-12-09 21:47:05` <--> `2019-12-09`)
                 DATE 转换成 DATETIME(时分秒自动补零， 例如: `2019-12-09` <--> `2019-12-09 00:00:00`)
                 FLOAT 转换成 DOUBLE
@@ -170,12 +170,27 @@ under the License.
         注意：
             1) index 中的所有列都要写出来
             2) value 列在 key 列之后
-            
+
     6. 修改table的属性，目前支持修改bloom filter列, colocate_with 属性和dynamic_partition属性，replication_num和default.replication_num属性
         语法：
             PROPERTIES ("key"="value")
         注意：
             也可以合并到上面的schema change操作中来修改，见下面例子
+    
+    7. 启用批量删除支持
+        语法：
+            ENABLE FEATURE "BATCH_DELETE"
+        注意：
+            1） 只能用在unique 表
+            2) 用于旧表支持批量删除功能，新表创建时已经支持
+    
+    8. 启用按照sequence column的值来保证导入顺序的功能
+        语法:
+            ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")
+        注意：
+            1）只能用在unique表
+            2) sequence_type用来指定sequence列的类型，可以为整型和时间类型
+            3) 只支持新导入数据的有序性，历史数据无法更改
      
 
     rename 支持对以下名称进行修改：
@@ -205,7 +220,7 @@ under the License.
 
     [table]
     1. 修改表的默认副本数量, 新建分区副本数量默认使用此值
-        ATLER TABLE example_db.my_table 
+        ALTER TABLE example_db.my_table 
         SET ("default.replication_num" = "2");
         
     2. 修改单分区表的实际副本数量(只限单分区表)
@@ -230,12 +245,20 @@ under the License.
     4. 修改分区副本数
         ALTER TABLE example_db.my_table
         MODIFY PARTITION p1 SET("replication_num"="1");
+        
+    5. 批量修改指定分区
+        ALTER TABLE example_db.my_table
+        MODIFY PARTITION (p1, p2, p4) SET("in_memory"="true");
+        
+    6. 批量修改所有分区
+        ALTER TABLE example_db.my_table
+        MODIFY PARTITION (*) SET("storage_medium"="HDD");
 
-    5. 删除分区
+    7. 删除分区
         ALTER TABLE example_db.my_table
         DROP PARTITION p1;
         
-    6. 增加一个指定上下界的分区
+    8. 增加一个指定上下界的分区
 
         ALTER TABLE example_db.my_table
         ADD PARTITION p1 VALUES [("2014-01-01"), ("2014-02-01"));
@@ -293,9 +316,10 @@ under the License.
         DROP COLUMN col2
         FROM example_rollup_index;
         
-    7. 修改 base index 的 col1 列的类型为 BIGINT，并移动到 col2 列后面
+    7. 修改 base index 的 key 列 col1 的类型为 BIGINT，并移动到 col2 列后面
+       (*注意，无论是修改 key 列还是 value 列都需要声明完整的 column 信息*) 例如：MODIFY COLUMN xxx COLUMNTYPE [KEY|agg_type] 
         ALTER TABLE example_db.my_table
-        MODIFY COLUMN col1 BIGINT DEFAULT "1" AFTER col2;
+        MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
 
     8. 修改 base index 的 val1 列最大长度。原 val1 为 (val1 VARCHAR(32) REPLACE DEFAULT "abc")
         ALTER TABLE example_db.my_table
@@ -328,14 +352,18 @@ under the License.
         ALTER TABLE example_db.my_table set ("distribution_type" = "hash");
     
     14. 修改表的动态分区属性(支持未添加动态分区属性的表添加动态分区属性)
-        ALTER TABLE example_db.my_table set ("dynamic_partition_enable" = "false");
+        ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
         
         如果需要在未添加动态分区属性的表中添加动态分区属性，则需要指定所有的动态分区属性
-        ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
+        ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
     15. 修改表的 in_memory 属性
 
         ALTER TABLE example_db.my_table set ("in_memory" = "true");
-        
+    16. 启用 批量删除功能
+        ALTER TABLE example_db.my_table ENABLE FEATURE "BATCH_DELETE"
+    17. 启用按照sequence column的值来保证导入顺序的功能
+    
+        ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")
         
     [rename]
     1. 将名为 table1 的表修改为 table2

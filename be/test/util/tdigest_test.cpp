@@ -15,9 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <random>
-#include <gtest/gtest.h>
 #include "util/tdigest.h"
+
+#include <gtest/gtest.h>
+
+#include <random>
+
+#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -74,7 +78,8 @@ static double quantile(const double q, const std::vector<double>& values) {
         } else {
             index -= 0.5;
             const int intIndex = static_cast<int>(index);
-            q1 = values[intIndex + 1] * (index - intIndex) + values[intIndex] * (intIndex + 1 - index);
+            q1 = values[intIndex + 1] * (index - intIndex) +
+                 values[intIndex] * (intIndex + 1 - index);
         }
     }
     return q1;
@@ -84,7 +89,7 @@ TEST_F(TDigestTest, CrashAfterMerge) {
     TDigest digest(1000);
     std::uniform_real_distribution<> reals(0.0, 1.0);
     std::random_device gen;
-    for (int i = 0; i < 100000; i++) {
+    for (int i = 0; i < LOOP_LESS_OR_MORE(100, 100000); i++) {
         digest.add(reals(gen));
     }
     digest.compress();
@@ -122,7 +127,7 @@ TEST_F(TDigestTest, FewValues) {
     std::uniform_int_distribution<> bools(0, 1);
     std::uniform_real_distribution<> qvalue(0.0, 1.0);
 
-    const auto length = 10;//dist(gen);
+    const auto length = 10; //dist(gen);
 
     std::vector<double> values;
     values.reserve(length);
@@ -175,11 +180,10 @@ TEST_F(TDigestTest, MoreThan2BValues) {
 }
 
 TEST_F(TDigestTest, MergeTest) {
-
     TDigest digest1(1000);
     TDigest digest2(1000);
 
-    digest2.add(std::vector<const TDigest *> {&digest1});
+    digest2.add(std::vector<const TDigest*>{&digest1});
 }
 
 TEST_F(TDigestTest, TestSorted) {
@@ -225,13 +229,13 @@ TEST_F(TDigestTest, Montonicity) {
     TDigest digest(1000);
     std::uniform_real_distribution<> reals(0.0, 1.0);
     std::random_device gen;
-    for (int i = 0; i < 100000; i++) {
+    for (int i = 0; i < LOOP_LESS_OR_MORE(10, 100000); i++) {
         digest.add(reals(gen));
     }
 
     double lastQuantile = -1;
     double lastX = -1;
-    for (double z = 0; z <= 1; z += 1e-5) {
+    for (double z = 0; z <= 1; z += LOOP_LESS_OR_MORE(0.1, 1e-5)) {
         double x = digest.quantile(z);
         EXPECT_GE(x, lastX);
         lastX = x;
@@ -242,7 +246,7 @@ TEST_F(TDigestTest, Montonicity) {
     }
 }
 
-}  // namespace stesting
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

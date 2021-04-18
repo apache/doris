@@ -17,22 +17,27 @@
 
 #include "runtime/client_cache.h"
 
-#include <sstream>
-#include <thrift/server/TServer.h>
 #include <thrift/protocol/TBinaryProtocol.h>
+#include <thrift/server/TServer.h>
 #include <thrift/transport/TSocket.h>
 #include <thrift/transport/TTransportUtils.h>
-#include <memory>
 
-#include <boost/foreach.hpp>
+#include <memory>
+#include <sstream>
 
 #include "common/logging.h"
+#include "gen_cpp/FrontendService.h"
 #include "util/container_util.hpp"
+#include "util/doris_metrics.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
-#include "gen_cpp/FrontendService.h"
 
 namespace doris {
+
+DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(thrift_used_clients, MetricUnit::NOUNIT,
+                                   "Number of clients 'checked-out' from the cache");
+DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(thrift_opened_clients, MetricUnit::NOUNIT,
+                                   "Total clients in the cache, including those in use");
 
 ClientCacheHelper::~ClientCacheHelper() {
     for (auto& it : _client_map) {
@@ -40,16 +45,14 @@ ClientCacheHelper::~ClientCacheHelper() {
     }
 }
 
-Status ClientCacheHelper::get_client(
-        const TNetworkAddress& hostport,
-        client_factory factory_method, void** client_key, int timeout_ms) {
+Status ClientCacheHelper::get_client(const TNetworkAddress& hostport, client_factory factory_method,
+                                     void** client_key, int timeout_ms) {
     boost::lock_guard<boost::mutex> lock(_lock);
     //VLOG_RPC << "get_client(" << hostport << ")";
     ClientCacheMap::iterator cache_entry = _client_cache.find(hostport);
 
     if (cache_entry == _client_cache.end()) {
-        cache_entry =
-            _client_cache.insert(std::make_pair(hostport, std::list<void*>())).first;
+        cache_entry = _client_cache.insert(std::make_pair(hostport, std::list<void*>())).first;
         DCHECK(cache_entry != _client_cache.end());
     }
 
@@ -67,14 +70,14 @@ Status ClientCacheHelper::get_client(
     _client_map[*client_key]->set_recv_timeout(timeout_ms);
 
     if (_metrics_enabled) {
-        _used_clients->increment(1);
+        thrift_used_clients->increment(1);
     }
 
     return Status::OK();
 }
 
 Status ClientCacheHelper::reopen_client(client_factory factory_method, void** client_key,
-                                       int timeout_ms) {
+                                        int timeout_ms) {
     boost::lock_guard<boost::mutex> lock(_lock);
     ClientMap::iterator i = _client_map.find(*client_key);
     DCHECK(i != _client_map.end());
@@ -92,20 +95,20 @@ Status ClientCacheHelper::reopen_client(client_factory factory_method, void** cl
     *client_key = NULL;
 
     if (_metrics_enabled) {
-        _opened_clients->increment(-1);
+        thrift_opened_clients->increment(-1);
     }
 
-    RETURN_IF_ERROR(create_client(make_network_address(
-        ipaddress, port), factory_method, client_key, timeout_ms));
+    RETURN_IF_ERROR(create_client(make_network_address(ipaddress, port), factory_method, client_key,
+                                  timeout_ms));
 
     _client_map[*client_key]->set_send_timeout(timeout_ms);
     _client_map[*client_key]->set_recv_timeout(timeout_ms);
     return Status::OK();
 }
 
-Status ClientCacheHelper::create_client(
-        const TNetworkAddress& hostport,
-        client_factory factory_method, void** client_key, int timeout_ms) {
+Status ClientCacheHelper::create_client(const TNetworkAddress& hostport,
+                                        client_factory factory_method, void** client_key,
+                                        int timeout_ms) {
     std::unique_ptr<ThriftClientImpl> client_impl(factory_method(hostport, client_key));
     //VLOG_CONNECTION << "create_client(): adding new client for "
     //                << client_impl->ipaddress() << ":" << client_impl->port();
@@ -123,7 +126,7 @@ Status ClientCacheHelper::create_client(
     _client_map[*client_key] = client_impl.release();
 
     if (_metrics_enabled) {
-        _opened_clients->increment(1);
+        thrift_opened_clients->increment(1);
     }
 
     return Status::OK();
@@ -135,24 +138,25 @@ void ClientCacheHelper::release_client(void** client_key) {
     ClientMap::iterator client_map_entry = _client_map.find(*client_key);
     DCHECK(client_map_entry != _client_map.end());
     ThriftClientImpl* info = client_map_entry->second;
-    ClientCacheMap::iterator j = _client_cache.find(make_network_address(info->ipaddress(), info->port()));
+    ClientCacheMap::iterator j =
+            _client_cache.find(make_network_address(info->ipaddress(), info->port()));
     DCHECK(j != _client_cache.end());
-    
-    if (_max_cache_size_per_host >=0 && j->second.size() >= _max_cache_size_per_host) {
+
+    if (_max_cache_size_per_host >= 0 && j->second.size() >= _max_cache_size_per_host) {
         // cache of this host is full, close this client connection and remove if from _client_map
         info->close();
         _client_map.erase(*client_key);
         delete info;
 
         if (_metrics_enabled) {
-            _opened_clients->increment(-1);
+            thrift_opened_clients->increment(-1);
         }
     } else {
         j->second.push_back(*client_key);
     }
 
     if (_metrics_enabled) {
-        _used_clients->increment(-1);
+        thrift_used_clients->increment(-1);
     }
 
     *client_key = NULL;
@@ -166,9 +170,8 @@ void ClientCacheHelper::close_connections(const TNetworkAddress& hostport) {
         return;
     }
 
-    VLOG_RPC << "Invalidating all " << cache_entry->second.size() << " clients for: "
-             << hostport;
-    BOOST_FOREACH(void * client_key, cache_entry->second) {
+    VLOG_RPC << "Invalidating all " << cache_entry->second.size() << " clients for: " << hostport;
+    for (void* client_key : cache_entry->second) {
         ClientMap::iterator client_map_entry = _client_map.find(client_key);
         DCHECK(client_map_entry != _client_map.end());
         ThriftClientImpl* info = client_map_entry->second;
@@ -180,8 +183,7 @@ void ClientCacheHelper::close_connections(const TNetworkAddress& hostport) {
 
 std::string ClientCacheHelper::debug_string() {
     std::stringstream out;
-    out << "ClientCacheHelper(#hosts=" << _client_cache.size()
-        << " [";
+    out << "ClientCacheHelper(#hosts=" << _client_cache.size() << " [";
 
     for (ClientCacheMap::iterator i = _client_cache.begin(); i != _client_cache.end(); ++i) {
         if (i != _client_cache.begin()) {
@@ -199,33 +201,28 @@ void ClientCacheHelper::test_shutdown() {
     std::vector<TNetworkAddress> hostports;
     {
         boost::lock_guard<boost::mutex> lock(_lock);
-        BOOST_FOREACH(const ClientCacheMap::value_type & i, _client_cache) {
+        for (const ClientCacheMap::value_type& i : _client_cache) {
             hostports.push_back(i.first);
         }
     }
 
     for (std::vector<TNetworkAddress>::iterator it = hostports.begin(); it != hostports.end();
-            ++it) {
+         ++it) {
         close_connections(*it);
     }
 }
 
-void ClientCacheHelper::init_metrics(MetricRegistry* metrics, const std::string& key_prefix) {
-    DCHECK(metrics != NULL);
+void ClientCacheHelper::init_metrics(const std::string& name) {
     // Not strictly needed if init_metrics is called before any cache
     // usage, but ensures that _metrics_enabled is published.
     boost::lock_guard<boost::mutex> lock(_lock);
 
-    _used_clients.reset(new IntGauge(MetricUnit::NOUNIT));
-    metrics->register_metric("thrift_used_clients",
-                             MetricLabels().add("name", key_prefix),
-                             _used_clients.get());
+    _thrift_client_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
+            std::string("thrift_client.") + name, {{"name", name}});
+    INT_GAUGE_METRIC_REGISTER(_thrift_client_metric_entity, thrift_used_clients);
+    INT_GAUGE_METRIC_REGISTER(_thrift_client_metric_entity, thrift_opened_clients);
 
-    _opened_clients.reset(new IntGauge(MetricUnit::NOUNIT));
-    metrics->register_metric("thrift_opened_clients",
-                             MetricLabels().add("name", key_prefix),
-                             _opened_clients.get());
     _metrics_enabled = true;
 }
 
-}
+} // namespace doris

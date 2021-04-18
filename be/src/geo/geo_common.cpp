@@ -51,4 +51,4 @@ std::ostream& operator<<(std::ostream& os, GeoParseStatus status) {
     return os;
 }
 
-}
+} // namespace doris

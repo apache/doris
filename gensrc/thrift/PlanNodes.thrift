@@ -49,7 +49,8 @@ enum TPlanNodeType {
   REPEAT_NODE,
   ASSERT_NUM_ROWS_NODE,
   INTERSECT_NODE,
-  EXCEPT_NODE
+  EXCEPT_NODE,
+  ODBC_SCAN_NODE
 }
 
 // phases of an execution node
@@ -104,7 +105,7 @@ enum TFileFormatType {
     FORMAT_PARQUET,
     FORMAT_CSV_DEFLATE,
     FORMAT_ORC,
-    FORMAT_JSON
+    FORMAT_JSON,
 }
 
 // One broker range information.
@@ -129,6 +130,10 @@ struct TBrokerRangeDesc {
     //  it's usefull when format_type == FORMAT_JSON
     11: optional bool strip_outer_array;
     12: optional string jsonpaths;
+    13: optional string json_root;
+    //  it's usefull when format_type == FORMAT_JSON
+    14: optional bool num_as_string;
+    15: optional bool fuzzy_parse;
 }
 
 struct TBrokerScanRangeParams {
@@ -161,6 +166,12 @@ struct TBrokerScanRangeParams {
     // strictMode is a boolean
     // if strict mode is true, the incorrect data (the result of cast is null) will not be loaded
     10: optional bool strict_mode
+    // for multibytes separators
+    11: optional i32 column_separator_length = 1;
+    12: optional i32 line_delimiter_length = 1;
+    13: optional string column_separator_str;
+    14: optional string line_delimiter_str;
+
 }
 
 // Broker scan range
@@ -197,12 +208,29 @@ struct TMySQLScanNode {
   4: required list<string> filters
 }
 
+struct TOdbcScanNode {
+  1: optional Types.TTupleId tuple_id
+  2: optional string table_name
+
+  //Deprecated
+  3: optional string driver
+  4: optional Types.TOdbcTableType type
+  5: optional list<string> columns
+  6: optional list<string> filters
+
+  //Use now
+  7: optional string connect_string
+  8: optional string query_string
+}
+
+
 struct TBrokerScanNode {
     1: required Types.TTupleId tuple_id
 
     // Partition info used to process partition select in broker load
     2: optional list<Exprs.TExpr> partition_exprs
     3: optional list<Partitions.TRangePartition> partition_infos
+	4: optional list<Exprs.TExpr> pre_filter_exprs
 }
 
 struct TEsScanNode {
@@ -279,6 +307,7 @@ struct TSchemaScanNode {
   9: optional i64 thread_id
   10: optional string user_ip   // deprecated
   11: optional Types.TUserIdentity current_user_ident   // to replace the user and user_ip
+  12: optional bool show_hidden_cloumns = false
 }
 
 struct TMetaScanNode {
@@ -295,7 +324,9 @@ struct TOlapScanNode {
   3: required list<Types.TPrimitiveType> key_column_type
   4: required bool is_preaggregation
   5: optional string sort_column
+  6: optional Types.TKeysType keyType
 }
+
 struct TEqJoinCondition {
   // left-hand side of "<a> = <b>"
   1: required Exprs.TExpr left;
@@ -679,6 +710,7 @@ struct TPlanNode {
   32: optional TAssertNumRowsNode assert_num_rows_node
   33: optional TIntersectNode intersect_node
   34: optional TExceptNode except_node
+  35: optional TOdbcScanNode odbc_scan_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

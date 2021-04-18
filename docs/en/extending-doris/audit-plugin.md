@@ -57,31 +57,32 @@ After deployment is complete, and before installing the plugin, you need to crea
 ```
 create table doris_audit_tbl__
 (
-    query_id varchar (48) comment "Unique query id",
-    time datetime not null comment "Query start time",
-    client_ip varchar (32) comment "Client IP",
-    user varchar (64) comment "User name",
-    db varchar (96) comment "Database of this query",
-    state varchar (8) comment "Query result state. EOF, ERR, OK",
-    query_time bigint comment "Query execution time in millisecond",
-    scan_bytes bigint comment "Total scan bytes of this query",
-    scan_rows bigint comment "Total scan rows of this query",
-    return_rows bigint comment "Returned rows of this query",
-    stmt_id int comment "An incremental id of statement",
-    is_query tinyint comment "Is this statemt a query. 1 or 0",
-    frontend_ip varchar (32) comment "Frontend ip of executing this statement",
-    stmt varchar (2048) comment "The original statement, trimed if longer than 2048 bytes"
-)
-partition by range (time) ()
-distributed by hash (query_id) buckets 1
-properties (
-    "dynamic_partition.time_unit" = "DAY",
-    "dynamic_partition.start" = "-30",
-    "dynamic_partition.end" = "3",
-    "dynamic_partition.prefix" = "p",
-    "dynamic_partition.buckets" = "1",
-    "dynamic_partition.enable" = "true",
-    "replication_num" = "1"
+    query_id varchar(48) comment "Unique query id",
+    time datetime not null comment "Query start time",
+    client_ip varchar(32) comment "Client IP",
+    user varchar(64) comment "User name",
+    db varchar(96) comment "Database of this query",
+    state varchar(8) comment "Query result state. EOF, ERR, OK",
+    query_time bigint comment "Query execution time in millisecond",
+    scan_bytes bigint comment "Total scan bytes of this query",
+    scan_rows bigint comment "Total scan rows of this query",
+    return_rows bigint comment "Returned rows of this query",
+    stmt_id int comment "An incremental id of statement",
+    is_query tinyint comment "Is this statemt a query. 1 or 0",
+    frontend_ip varchar(32) comment "Frontend ip of executing this statement",
+    stmt varchar(5000) comment "The original statement, trimed if longer than 5000 bytes"
+) engine=OLAP
+duplicate key(query_id, time, client_ip)
+partition by range(time) ()
+distributed by hash(query_id) buckets 1
+properties(
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.start" = "-30",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.buckets" = "1",
+    "dynamic_partition.enable" = "true",
+    "replication_num" = "3"
 );
 ```
 

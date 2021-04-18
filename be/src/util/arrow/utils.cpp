@@ -46,4 +46,4 @@ Status arrow_pretty_print(const arrow::Array& arr, std::ostream* os) {
     return to_status(arrow::PrettyPrint(arr, opts, os));
 }
 
-}
+} // namespace doris

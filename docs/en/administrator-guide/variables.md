@@ -53,7 +53,7 @@ SET forward_to_master = true;
 SET time_zone = "Asia/Shanghai";
 ```
 
-For global-level, set by `SET GLOBALE var_name=xxx;`. Such as:
+For global-level, set by `SET GLOBAL var_name=xxx;`. Such as:
 
 ```
 SET GLOBAL exec_mem_limit = 137438953472
@@ -62,7 +62,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 > Note 1: Only ADMIN users can set variable at global-level.
 > Note 2: Global-level variables do not affect variable values in the current session, only variables in new sessions.
 
-Variables that support global-level setting include:
+Variables that support both session-level and global-level setting include:
 
 * `time_zone`
 * `wait_timeout`
@@ -73,6 +73,12 @@ Variables that support global-level setting include:
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
 * `parallel_exchange_instance_num`
+* `allow_partition_column_nullable`
+* `insert_visible_timeout_ms`
+
+Variables that support only global-level setting include:
+
+* `default_rowset_type`
 
 At the same time, variable settings also support constant expressions. Such as:
 
@@ -80,6 +86,18 @@ At the same time, variable settings also support constant expressions. Such as:
 SET exec_mem_limit = 10 * 1024 * 1024 * 1024;
 SET forward_to_master = concat('tr', 'u', 'e');
 ```
+
+### Set variables in the query statement
+
+In some scenarios, we may need to set variables specifically for certain queries.
+The SET_VAR hint sets the session value of a system variable temporarily (for the duration of a single statement). Examples:
+
+```
+SELECT /*+ SET_VAR(exec_mem_limit = 8589934592) */ name FROM people ORDER BY name;
+SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
+```
+
+Note that the comment must start with /*+ and can only follow the SELECT.
 
 ## Supported variables
 
@@ -133,17 +151,28 @@ SET forward_to_master = concat('tr', 'u', 'e');
 
     Used for compatibility with MySQL clients. No practical effect.
 
+* `delete_without_partition`
+
+    When set to true. When using the delete command to delete partition table data, no partition is required. The delete operation will be automatically applied to all partitions.
+
+     Note, however, that the automatic application to all partitions may cause the delete command to take a long time to trigger a large number of subtasks and cause a long time. If it is not necessary, it is not recommended to turn it on.
+
 * `disable_colocate_join`
 
-    Controls whether the [Colocation Join] (./colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
+    Controls whether the [Colocation Join](./colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
     
+
+* `enable_bucket_shuffle_join`
+
+    Controls whether the [Bucket Shuffle Join] (./bucket-shuffle-join.md) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
+
 * `disable_streaming_preaggregations`
 
     Controls whether streaming pre-aggregation is turned on. The default is false, which is enabled. Currently not configurable and enabled by default.
     
 * `enable_insert_strict`
 
-    Used to set the `strict` mode when loadingdata via INSERT statement. The default is false, which means that the `strict` mode is not turned on. For an introduction to this mode, see [here] (./load-data/insert-into-manual.md).
+    Used to set the `strict` mode when loading data via INSERT statement. The default is false, which means that the `strict` mode is not turned on. For an introduction to this mode, see [here](./load-data/insert-into-manual.md).
 
 * `enable_spilling`
 
@@ -155,7 +184,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
 * `exec_mem_limit`
 
-    Used to set the memory limit for a single query. The default is 2GB, in bytes.
+    Used to set the memory limit for a single query. The default is 2GB, you can set it in B/K/KB/M/MB/G/GB/T/TB/P/PB, the default is B.
     
     This parameter is used to limit the memory that can be used by an instance of a single query fragment in a query plan. A query plan may have multiple instances, and a BE node may execute one or more instances. Therefore, this parameter does not accurately limit the memory usage of a query across the cluster, nor does it accurately limit the memory usage of a query on a single BE node. The specific needs need to be judged according to the generated query plan.
     
@@ -165,7 +194,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
 * `forward_to_master`
 
-    The user sets whether to forward some commands to the Master FE node for execution. The default is false, which means no forwarding. There are multiple FE nodes in Doris, one of which is the Master node. Usually users can connect to any FE node for full-featured operation. However, some of detail informationcan only be obtained from the Master FE node.
+    The user sets whether to forward some commands to the Master FE node for execution. The default is false, which means no forwarding. There are multiple FE nodes in Doris, one of which is the Master node. Usually users can connect to any FE node for full-featured operation. However, some of detail information can only be obtained from the Master FE node.
     
     For example, the `SHOW BACKENDS;` command, if not forwarded to the Master FE node, can only see some basic information such as whether the node is alive, and forwarded to the Master FE to obtain more detailed information including the node startup time and the last heartbeat time.
     
@@ -230,7 +259,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `lower_case_table_names`
 
     Used for compatibility with MySQL clients. Cannot be set. Table names in current Doris are case sensitive by default.
-    
+
 * `max_allowed_packet`
 
     Used for compatible JDBC connection pool C3P0. No practical effect.
@@ -289,7 +318,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
 * `sql_mode`
 
-    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here] (./sql-mode.md).
+    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here](./sql-mode.md).
     
 * `sql_safe_updates`
 
@@ -305,7 +334,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
 * `time_zone`
 
-    Used to set the time zone of the current session. The time zone has an effect on the results of certain time functions. For the time zone, see [here] (./time-zone.md).
+    Used to set the time zone of the current session. The time zone has an effect on the results of certain time functions. For the time zone, see [here](./time-zone.md).
     
 * `tx_isolation`
 
@@ -314,6 +343,10 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `version`
 
     Used for compatibility with MySQL clients. No practical effect.
+
+* `performance_schema`
+
+    Used for compatibility with MySQL JDBC 8.0.16 or later version. No practical effect.    
     
 * `version_comment`
 
@@ -334,3 +367,24 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `rewrite_count_distinct_to_bitmap_hll`
 
     Whether to rewrite count distinct queries of bitmap and HLL types as bitmap_union_count and hll_union_agg.
+
+* `prefer_join_method`
+
+    When choosing the join method(broadcast join or shuffle join), if the broadcast join cost and shuffle join cost are equal, which join method should we prefer.
+
+    Currently, the optional values for this variable are "broadcast" or "shuffle".
+
+* `allow_partition_column_nullable`
+
+    Whether to allow the partition column to be NULL when creating the table. The default is true, which means NULL is allowed. false means the partition column must be defined as NOT NULL.
+
+* `insert_visible_timeout_ms`
+
+    When execute insert statement, doris will wait for the transaction to commit and visible after the import is completed.
+    This parameter controls the timeout of waiting for transaction to be visible. The default value is 10000, and the minimum value is 1000.
+
+*  `enable_exchange_node_parallel_merge`
+
+    In a sort query, when an upper level node receives the ordered data of the lower level node, it will sort the corresponding data on the exchange node to ensure that the final data is ordered. However, when a single thread merges multiple channels of data, if the amount of data is too large, it will lead to a single point of exchange node merge bottleneck.
+
+    Doris optimizes this part if there are too many data nodes in the lower layer. Exchange node will start multithreading for parallel merging to speed up the sorting process. This parameter is false by default, which means that exchange node does not adopt parallel merge sort to reduce the extra CPU and memory consumption.

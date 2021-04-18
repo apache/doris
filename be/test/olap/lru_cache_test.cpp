@@ -15,12 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vector>
+#include "olap/lru_cache.h"
 
 #include <gtest/gtest.h>
 
-#include "olap/lru_cache.h"
+#include <vector>
+
 #include "util/logging.h"
+#include "test_util/test_util.h"
 
 using namespace doris;
 using namespace std;
@@ -36,7 +38,7 @@ void PutFixed32(std::string* dst, uint32_t value) {
 uint32_t DecodeFixed32(const char* ptr) {
     // Load the raw bytes
     uint32_t result;
-    memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
+    memcpy(&result, ptr, sizeof(result)); // gcc optimizes this to a plain load
     return result;
 }
 
@@ -71,13 +73,9 @@ public:
     std::vector<int> _deleted_values;
     Cache* _cache;
 
-    CacheTest() : _cache(new_lru_cache(kCacheSize)) {
-        _s_current = this;
-    }
+    CacheTest() : _cache(new_lru_cache("test", kCacheSize)) { _s_current = this; }
 
-    ~CacheTest() {
-        delete _cache;
-    }
+    ~CacheTest() { delete _cache; }
 
     int Lookup(int key) {
         std::string result;
@@ -108,14 +106,9 @@ public:
         _cache->erase(EncodeKey(&result, key));
     }
 
-    void SetUp() {
+    void SetUp() {}
 
-    }
-
-    void TearDown() {
-
-    }
-
+    void TearDown() {}
 };
 CacheTest* CacheTest::_s_current;
 
@@ -124,18 +117,18 @@ TEST_F(CacheTest, HitAndMiss) {
 
     Insert(100, 101, 1);
     ASSERT_EQ(101, Lookup(100));
-    ASSERT_EQ(-1,  Lookup(200));
-    ASSERT_EQ(-1,  Lookup(300));
+    ASSERT_EQ(-1, Lookup(200));
+    ASSERT_EQ(-1, Lookup(300));
 
     Insert(200, 201, 1);
     ASSERT_EQ(101, Lookup(100));
     ASSERT_EQ(201, Lookup(200));
-    ASSERT_EQ(-1,  Lookup(300));
+    ASSERT_EQ(-1, Lookup(300));
 
     Insert(100, 102, 1);
     ASSERT_EQ(102, Lookup(100));
     ASSERT_EQ(201, Lookup(200));
-    ASSERT_EQ(-1,  Lookup(300));
+    ASSERT_EQ(-1, Lookup(300));
 
     ASSERT_EQ(1, _deleted_keys.size());
     ASSERT_EQ(100, _deleted_keys[0]);
@@ -149,14 +142,14 @@ TEST_F(CacheTest, Erase) {
     Insert(100, 101, 1);
     Insert(200, 201, 1);
     Erase(100);
-    ASSERT_EQ(-1,  Lookup(100));
+    ASSERT_EQ(-1, Lookup(100));
     ASSERT_EQ(201, Lookup(200));
     ASSERT_EQ(1, _deleted_keys.size());
     ASSERT_EQ(100, _deleted_keys[0]);
     ASSERT_EQ(101, _deleted_values[0]);
 
     Erase(100);
-    ASSERT_EQ(-1,  Lookup(100));
+    ASSERT_EQ(-1, Lookup(100));
     ASSERT_EQ(201, Lookup(200));
     ASSERT_EQ(1, _deleted_keys.size());
 }
@@ -224,7 +217,8 @@ static void deleter(const CacheKey& key, void* v) {
     std::cout << "delete key " << key.to_string() << std::endl;
 }
 
-static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value, CachePriority priority) {
+static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
+                            CachePriority priority) {
     uint32_t hash = key.hash(key.data(), key.size(), 0);
     cache.release(cache.insert(key, hash, EncodeValue(value), value, &deleter, priority));
 }
@@ -299,7 +293,120 @@ TEST_F(CacheTest, NewId) {
     ASSERT_NE(a, b);
 }
 
-}  // namespace doris
+TEST_F(CacheTest, SimpleBenchmark) {
+    for (int i = 0; i < kCacheSize * LOOP_LESS_OR_MORE(10, 10000); i++) {
+        Insert(1000 + i, 2000 + i, 1);
+        ASSERT_EQ(2000 + i, Lookup(1000 + i));
+    }
+}
+
+TEST(CacheHandleTest, HandleTableTest) {
+    HandleTable ht;
+
+    for (uint32_t i = 0; i < ht._length; ++i) {
+        ASSERT_NE(ht._list[i], nullptr);
+        ASSERT_EQ(ht._list[i]->next_hash, nullptr);
+        ASSERT_EQ(ht._list[i]->prev_hash, nullptr);
+    }
+
+    const int count = 10;
+    CacheKey keys[count] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+    ASSERT_NE(keys[0], keys[1]);
+    LRUHandle* hs[count];
+    for (int i = 0; i < count; ++i) {
+        CacheKey* key = &keys[i];
+        LRUHandle* h = reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key->size()));
+        h->value = nullptr;
+        h->deleter = nullptr;
+        h->charge = 1;
+        h->key_length = key->size();
+        h->hash = 1; // make them in a same hash table linked-list
+        h->refs = 0;
+        h->next = h->prev = nullptr;
+        h->prev_hash = nullptr;
+        h->next_hash = nullptr;
+        h->in_cache = false;
+        h->priority = CachePriority::NORMAL;
+        memcpy(h->key_data, key->data(), key->size());
+
+        LRUHandle* old = ht.insert(h);
+        ASSERT_EQ(ht._elems, i + 1);
+        ASSERT_EQ(old, nullptr); // there is no entry with the same key and hash
+        hs[i] = h;
+    }
+    ASSERT_EQ(ht._elems, count);
+    LRUHandle* h = ht.lookup(CacheKey(std::to_string(count - 1)), 1);
+    LRUHandle* head = ht._list[1 & (ht._length - 1)];
+    ASSERT_EQ(head, h->prev_hash);
+    ASSERT_EQ(head->next_hash, h);
+    int index = count - 1;
+    while (h != nullptr) {
+        ASSERT_EQ(hs[index], h) << index;
+        h = h->next_hash;
+        if (h != nullptr) {
+            ASSERT_EQ(hs[index], h->prev_hash);
+        }
+        --index;
+    }
+
+    for (int i = 0; i < count; ++i) {
+        CacheKey* key = &keys[i];
+        LRUHandle* h = reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key->size()));
+        h->value = nullptr;
+        h->deleter = nullptr;
+        h->charge = 1;
+        h->key_length = key->size();
+        h->hash = 1; // make them in a same hash table linked-list
+        h->refs = 0;
+        h->next = h->prev = nullptr;
+        h->prev_hash = nullptr;
+        h->next_hash = nullptr;
+        h->in_cache = false;
+        h->priority = CachePriority::NORMAL;
+        memcpy(h->key_data, key->data(), key->size());
+
+        ASSERT_EQ(ht.insert(h), hs[i]); // there is an entry with the same key and hash
+        ASSERT_EQ(ht._elems, count);
+        free(hs[i]);
+        hs[i] = h;
+    }
+    ASSERT_EQ(ht._elems, count);
+
+    for (int i = 0; i < count; ++i) {
+        ASSERT_EQ(ht.lookup(keys[i], 1), hs[i]);
+    }
+
+    LRUHandle* old = ht.remove(CacheKey("9"), 1); // first in hash table linked-list
+    ASSERT_EQ(old, hs[9]);
+    ASSERT_EQ(old->prev_hash, head);
+    ASSERT_EQ(old->next_hash, hs[8]); // hs[8] is the new first node
+    ASSERT_EQ(head->next_hash, hs[8]);
+    ASSERT_EQ(hs[8]->prev_hash, head);
+
+    old = ht.remove(CacheKey("0"), 1); // last in hash table linked-list
+    ASSERT_EQ(old, hs[0]);
+    ASSERT_EQ(old->prev_hash, hs[1]); // hs[1] is the new last node
+    ASSERT_EQ(old->prev_hash->next_hash, nullptr);
+
+    old = ht.remove(CacheKey("5"), 1); // middle in hash table linked-list
+    ASSERT_EQ(old, hs[5]);
+    ASSERT_EQ(old->prev_hash, hs[6]);
+    ASSERT_EQ(old->next_hash, hs[4]);
+    ASSERT_EQ(hs[6]->next_hash, hs[4]);
+    ASSERT_EQ(hs[4]->prev_hash, hs[6]);
+
+    ht.remove(hs[4]); // middle in hash table linked-list
+    ASSERT_EQ(hs[6]->next_hash, hs[3]);
+    ASSERT_EQ(hs[3]->prev_hash, hs[6]);
+
+    ASSERT_EQ(ht._elems, count - 4);
+
+    for (int i = 0; i < count; ++i) {
+        free(hs[i]);
+    }
+}
+
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

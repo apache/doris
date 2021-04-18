@@ -19,9 +19,9 @@
 
 #include <gtest/gtest.h>
 
+#include "http/http_channel.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
-#include "http/http_channel.h"
 #include "util/metrics.h"
 
 namespace doris {
@@ -29,73 +29,72 @@ namespace doris {
 // Mock part
 const char* s_expect_response = nullptr;
 
-void HttpChannel::send_reply(
-        HttpRequest* request, HttpStatus status, const std::string& content) {
+void HttpChannel::send_reply(HttpRequest* request, HttpStatus status, const std::string& content) {
     ASSERT_STREQ(s_expect_response, content.c_str());
 }
 
 class MetricsActionTest : public testing::Test {
 public:
-    MetricsActionTest() { }
-    virtual ~MetricsActionTest() {
-    }
-    void SetUp() override {
-        _evhttp_req = evhttp_request_new(nullptr, nullptr);
-    }
+    MetricsActionTest() {}
+    virtual ~MetricsActionTest() {}
+    void SetUp() override { _evhttp_req = evhttp_request_new(nullptr, nullptr); }
     void TearDown() override {
         if (_evhttp_req != nullptr) {
             evhttp_request_free(_evhttp_req);
         }
     }
+
 private:
     evhttp_request* _evhttp_req = nullptr;
 };
 
 TEST_F(MetricsActionTest, prometheus_output) {
-    MetricRegistry registry("test");
-    IntGauge cpu_idle(MetricUnit::PERCENT);
-    cpu_idle.set_value(50);
-    registry.register_metric("cpu_idle", &cpu_idle);
-    IntCounter put_requests_total(MetricUnit::NOUNIT);
-    put_requests_total.increment(2345);
-    registry.register_metric("requests_total",
-                             MetricLabels().add("type", "put").add("path", "/sports"),
-                             &put_requests_total);
+    MetricRegistry metric_registry("test");
+    std::shared_ptr<MetricEntity> entity =
+            metric_registry.register_entity("metrics_action_test.prometheus_output");
+
+    IntGauge* cpu_idle = nullptr;
+    DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cpu_idle, MetricUnit::PERCENT);
+    INT_GAUGE_METRIC_REGISTER(entity, cpu_idle);
+
+    IntCounter* put_requests_total = nullptr;
+    DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(put_requests_total, MetricUnit::NOUNIT, "", requests_total,
+                                         Labels({{"type", "put"}, {"path", "/sports"}}));
+    INT_COUNTER_METRIC_REGISTER(entity, put_requests_total);
+
+    cpu_idle->set_value(50);
+    put_requests_total->increment(2345);
+
     s_expect_response =
-        "# TYPE test_cpu_idle gauge\n"
-        "test_cpu_idle 50\n"
-        "# TYPE test_requests_total counter\n"
-        "test_requests_total{path=\"/sports\",type=\"put\"} 2345\n";
+            "# TYPE test_cpu_idle gauge\n"
+            "test_cpu_idle 50\n"
+            "# TYPE test_requests_total counter\n"
+            "test_requests_total{path=\"/sports\",type=\"put\"} 2345\n";
     HttpRequest request(_evhttp_req);
-    MetricsAction action(&registry);
+    MetricsAction action(&metric_registry);
     action.handle(&request);
 }
 
 TEST_F(MetricsActionTest, prometheus_no_prefix) {
-    MetricRegistry registry("");
-    IntGauge cpu_idle(MetricUnit::PERCENT);
-    cpu_idle.set_value(50);
-    registry.register_metric("cpu_idle", &cpu_idle);
+    MetricRegistry metric_registry("");
+    std::shared_ptr<MetricEntity> entity =
+            metric_registry.register_entity("metrics_action_test.prometheus_no_prefix");
+
+    IntGauge* cpu_idle = nullptr;
+    DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cpu_idle, MetricUnit::PERCENT);
+    INT_GAUGE_METRIC_REGISTER(entity, cpu_idle);
+
+    cpu_idle->set_value(50);
+
     s_expect_response =
-        "# TYPE cpu_idle gauge\n"
-        "cpu_idle 50\n";
+            "# TYPE cpu_idle gauge\n"
+            "cpu_idle 50\n";
     HttpRequest request(_evhttp_req);
-    MetricsAction action(&registry);
+    MetricsAction action(&metric_registry);
     action.handle(&request);
 }
 
-TEST_F(MetricsActionTest, prometheus_no_name) {
-    MetricRegistry registry("test");
-    IntGauge cpu_idle(MetricUnit::PERCENT);
-    cpu_idle.set_value(50);
-    registry.register_metric("", &cpu_idle);
-    s_expect_response = "";
-    HttpRequest request(_evhttp_req);
-    MetricsAction action(&registry);
-    action.handle(&request);
-}
-
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

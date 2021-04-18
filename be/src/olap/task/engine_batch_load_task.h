@@ -20,6 +20,7 @@
 
 #include <utility>
 #include <vector>
+
 #include "agent/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
@@ -36,7 +37,7 @@ const uint32_t MAX_RETRY = 3;
 const uint32_t DEFAULT_DOWNLOAD_TIMEOUT = 3600;
 class StorageEngine;
 
-class EngineBatchLoadTask : public EngineTask{
+class EngineBatchLoadTask : public EngineTask {
 public:
     EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos,
                         int64_t signature, AgentStatus* res_status);
@@ -59,17 +60,15 @@ private:
     // but not actually deleted util delay_delete_time run out.
     //
     // @param [in] request specify tablet and delete conditions
-    // @param [out] tablet_info_vec return tablet lastest status, which
+    // @param [out] tablet_info_vec return tablet last status, which
     //              include version info, row count, data size, etc
     // @return OLAP_SUCCESS if submit delete_data success
-    virtual OLAPStatus _delete_data(const TPushReq& request,
-        vector<TTabletInfo>* tablet_info_vec);
+    virtual OLAPStatus _delete_data(const TPushReq& request, vector<TTabletInfo>* tablet_info_vec);
 
     AgentStatus _get_tmp_file_dir(const std::string& root_path, std::string* local_path);
-    OLAPStatus _push(const TPushReq& request,
-                    std::vector<TTabletInfo>* tablet_info_vec);
+    OLAPStatus _push(const TPushReq& request, std::vector<TTabletInfo>* tablet_info_vec);
     void _get_file_name_from_path(const std::string& file_path, std::string* file_name);
-    
+
     bool _is_init = false;
     TPushReq& _push_req;
     std::vector<TTabletInfo>* _tablet_infos;
@@ -78,6 +77,6 @@ private:
     AgentStatus* _res_status;
     std::string _remote_file_path;
     std::string _local_file_path;
-};  // class Pusher
-}  // namespace doris
-#endif  // DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H
+}; // class Pusher
+} // namespace doris
+#endif // DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H

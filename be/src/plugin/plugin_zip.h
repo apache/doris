@@ -23,13 +23,13 @@
 namespace doris {
 
 class PluginZip {
-
 public:
     PluginZip(std::string source) : _source(source) {}
 
     ~PluginZip();
 
     Status extract(const std::string& target_path, const std::string& plugin_name);
+
 private:
     Status download(const std::string& zip_path);
 
@@ -39,5 +39,5 @@ private:
     std::vector<std::string> _clean_paths;
 };
 
-}
+} // namespace doris
 #endif //DORIS_BE_PLUGIN_PLUGIN_ZIP_H

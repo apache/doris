@@ -21,6 +21,7 @@
 #include <memory>
 #include <vector>
 
+#include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_define.h"
 #include "util/threadpool.h"
 
@@ -35,8 +36,9 @@ class MemTable;
 // use atomic because it may be updated by multi threads
 struct FlushStatistic {
     int64_t flush_time_ns = 0;
-    int64_t flush_count= 0;
+    int64_t flush_count = 0;
     int64_t flush_size_bytes = 0;
+    int64_t flush_disk_size_bytes = 0;
 };
 
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
@@ -50,9 +52,8 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 //    because the entire job will definitely fail;
 class FlushToken {
 public:
-    explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token) :
-            _flush_token(std::move(flush_pool_token)),
-            _flush_status(OLAP_SUCCESS) {  }
+    explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token)
+            : _flush_token(std::move(flush_pool_token)), _flush_status(OLAP_SUCCESS) {}
 
     OLAPStatus submit(const std::shared_ptr<MemTable>& mem_table);
 
@@ -83,23 +84,25 @@ private:
 // Usage Example:
 //      ...
 //      std::shared_ptr<FlushHandler> flush_handler;
-//      memTableFlushExecutor.create_flush_token(path_hash, &flush_handler);
+//      memTableFlushExecutor.create_flush_token(&flush_handler);
 //      ...
 //      flush_token->submit(memtable)
 //      ...
 class MemTableFlushExecutor {
 public:
     MemTableFlushExecutor() {}
-    ~MemTableFlushExecutor() {}
+    ~MemTableFlushExecutor() { _flush_pool->shutdown(); }
 
     // init should be called after storage engine is opened,
     // because it needs path hash of each data dir.
     void init(const std::vector<DataDir*>& data_dirs);
 
-    OLAPStatus create_flush_token(std::unique_ptr<FlushToken>* flush_token);
+    OLAPStatus create_flush_token(
+            std::unique_ptr<FlushToken>* flush_token,
+            RowsetTypePB rowset_type);
 
 private:
     std::unique_ptr<ThreadPool> _flush_pool;
 };
 
-} // end namespace
+} // namespace doris

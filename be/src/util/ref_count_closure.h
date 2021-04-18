@@ -17,19 +17,19 @@
 
 #pragma once
 
-#include <atomic>
-
 #include <google/protobuf/stubs/common.h>
 
+#include <atomic>
+
 #include "service/brpc.h"
- 
+
 namespace doris {
 
-template<typename T>
+template <typename T>
 class RefCountClosure : public google::protobuf::Closure {
 public:
-    RefCountClosure() : _refs(0) { }
-    ~RefCountClosure() { }
+    RefCountClosure() : _refs(0) {}
+    ~RefCountClosure() {}
 
     void ref() { _refs.fetch_add(1); }
 
@@ -42,14 +42,13 @@ public:
         }
     }
 
-    void join() {
-        brpc::Join(cntl.call_id());
-    }
+    void join() { brpc::Join(cntl.call_id()); }
 
     brpc::Controller cntl;
     T result;
+
 private:
     std::atomic<int> _refs;
 };
 
-}
+} // namespace doris

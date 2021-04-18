@@ -41,7 +41,7 @@ Doris supports multiple imports. It is recommended to read this document in full
 
 ## Load mode
 
-To adapt to different data import requirements, Doris system provides five different import methods. Each import mode supports different data sources and has different usage modes (asynchronous, synchronous).
+To adapt to different data import requirements, Doris system provides 6 different import methods. Each import mode supports different data sources and has different usage modes (asynchronous, synchronous).
 
 All import methods support CSV data format. Broker load also supports parquet and orc data format.
 
@@ -66,6 +66,10 @@ For instructions on each import mode, please refer to the operation manual for a
 * Routine load
 
 	Users submit routine import jobs through MySQL protocol, generate a resident thread, read and import data from data sources (such as Kafka) uninterruptedly into Doris.
+
+* Load through S3 protocol
+
+  Users directly load data through the S3 protocol, and the usage is similar to Broker Load
 
 ## Basic Principles
 
@@ -217,3 +221,8 @@ The following configuration belongs to the BE system configuration, which can be
 + label\_keep\_max\_second
 
   The retention time of load job which is FINISHED or CANCELLED. The record of load job will be kept in Doris system for a period of time which is determined by this parameter. The default time of this parameter is 3 days. This parameter is common to all types of load job. 
+
+### Column mapping
+Assuming that the imported data is `1, 2, 3` and the table has three columns of `c1, c2, c3`, if the data is directly imported into the table, you can use the following statement `COLUMNS(c1,c2,c3)` This statement is equivalent to `COLUMNS(tmp_c1,tmp_c2,tmp_c3,c1=tmp_c1,c2=tmp_c2,c3=tmp_c3)`
+If you want to perform transformation or use temporary variables when importing data, the transformation or temporary variables must be specified in the order of use, for example, `COLUMNS(tmp_c1,tmp_c2,tmp_c3, c1 = tmp_c1 +1, c2= c1+1, c3 = c2+1)`, this statement is equivalent to `COLUMNS(tmp_c1,tmp_c2,tmp_c3, c1 = tmp_c1 +1, c2 = tmp_c1 +1+1, c3 =tmp_c1 +1+1+1)`
+When using an expression, this expression must be defined in front. For example, the following statement is not legal `COLUMNS(tmp_c1,tmp_c2,tmp_c3, c1 = c1+1, c2 = temp + 1, temp = tmp_c1 +1, c3 =c2+1)`

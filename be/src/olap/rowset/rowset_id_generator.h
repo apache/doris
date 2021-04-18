@@ -19,8 +19,8 @@
 
 #include <mutex>
 
-#include "olap/olap_define.h"
 #include "olap/olap_common.h"
+#include "olap/olap_define.h"
 
 namespace doris {
 
@@ -28,7 +28,7 @@ class OlapMeta;
 
 // all implementations must be thread-safe
 class RowsetIdGenerator {
-public:    
+public:
     RowsetIdGenerator() {}
     virtual ~RowsetIdGenerator() {}
 

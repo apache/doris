@@ -34,7 +34,7 @@ curl -X GET http://fe_host:fe_http_port/api/connection?connection_id=123
 
 如果connection_id不存在，直接返回404 NOT FOUND错误
 
-如果connection_id存在，会返回当前connectiond_id上一个进行的query_id
+如果connection_id存在，会返回当前connection_id上一个进行的query_id
 ```
 {
     "query_id" : 9133b7efa92a44c8-8ed4b44772ec2a0c

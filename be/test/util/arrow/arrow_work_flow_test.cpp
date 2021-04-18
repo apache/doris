@@ -15,17 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/csv_scan_node.h"
-
-#include <vector>
-#include <arrow/type.h>
 #include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
-#include <boost/scoped_ptr.hpp>
+#include <arrow/type.h>
 #include <gtest/gtest.h>
 
+#include <boost/scoped_ptr.hpp>
+#include <vector>
+
 #include "common/logging.h"
+#include "exec/csv_scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/row.h"
@@ -33,22 +33,22 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/result_queue_mgr.h"
-#include "runtime/thread_resource_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_resource_mgr.h"
 #include "runtime/tuple_row.h"
 #include "util/arrow/row_batch.h"
+#include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
-#include "util/cpu_info.h"
 #include "util/logging.h"
 
 namespace doris {
 
 class ArrowWorkFlowTest : public testing::Test {
 public:
-    ArrowWorkFlowTest(){}
-    ~ArrowWorkFlowTest(){}
+    ArrowWorkFlowTest() {}
+    ~ArrowWorkFlowTest() {}
 
 protected:
     virtual void SetUp() {
@@ -66,7 +66,6 @@ protected:
         system("rm -rf ./test_run");
 
         delete _state;
-        delete _mem_tracker;
     }
 
     void init();
@@ -80,7 +79,7 @@ private:
     TPlanNode _tnode;
     ExecEnv* _exec_env = nullptr;
     RuntimeState* _state = nullptr;
-    MemTracker *_mem_tracker = nullptr;
+    std::shared_ptr<MemTracker> _mem_tracker;
 }; // end class ArrowWorkFlowTest
 
 void ArrowWorkFlowTest::init() {
@@ -100,7 +99,8 @@ void ArrowWorkFlowTest::init_runtime_state() {
     query_id.hi = 100;
     _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _exec_env);
     _state->init_instance_mem_tracker();
-    _mem_tracker = new MemTracker(-1, "ArrowWorkFlowTest", _state->instance_mem_tracker());
+    _mem_tracker =
+            MemTracker::CreateTracker(-1, "ArrowWorkFlowTest", _state->instance_mem_tracker());
     _state->set_desc_tbl(_desc_tbl);
     _state->_load_dir = "./test_run/output/";
     _state->init_mem_trackers(TUniqueId());
@@ -248,10 +248,10 @@ void ArrowWorkFlowTest::init_desc_tbl() {
 
     DescriptorTbl::create(&_obj_pool, _t_desc_table, &_desc_tbl);
 
-    vector<TTupleId> row_tids;
+    std::vector<TTupleId> row_tids;
     row_tids.push_back(0);
 
-    vector<bool> nullable_tuples;
+    std::vector<bool> nullable_tuples;
     nullable_tuples.push_back(false);
 
     // node
@@ -318,7 +318,6 @@ void ArrowWorkFlowTest::init_desc_tbl() {
     _tnode.csv_scan_node.__isset.default_values = true;
     _tnode.csv_scan_node.max_filter_ratio = 0.5;
     _tnode.__isset.csv_scan_node = true;
-
 }
 
 TEST_F(ArrowWorkFlowTest, NormalUse) {
@@ -333,7 +332,7 @@ TEST_F(ArrowWorkFlowTest, NormalUse) {
     status = scan_node.open(_state);
     ASSERT_TRUE(status.ok());
 
-    std::unique_ptr<MemTracker> mem_tracker(new MemTracker(-1));
+    auto mem_tracker = std::make_shared<MemTracker>(-1);
     RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), mem_tracker.get());
     bool eos = false;
 
@@ -347,7 +346,8 @@ TEST_F(ArrowWorkFlowTest, NormalUse) {
         status = convert_to_arrow_schema(scan_node._row_descriptor, &schema);
         ASSERT_TRUE(status.ok());
         std::shared_ptr<arrow::RecordBatch> record_batch;
-        status = convert_to_arrow_batch(row_batch, schema, arrow::default_memory_pool(), &record_batch);
+        status = convert_to_arrow_batch(row_batch, schema, arrow::default_memory_pool(),
+                                        &record_batch);
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(6, record_batch->num_rows());
         ASSERT_EQ(6, record_batch->num_columns());

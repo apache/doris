@@ -10,11 +10,10 @@
 #ifndef BASE_CASTS_H_
 #define BASE_CASTS_H_
 
-#include <assert.h>         // for use with down_cast<>
-#include <string.h>         // for memcpy
-#include <limits.h>         // for enumeration casts and tests
-
+#include <assert.h> // for use with down_cast<>
 #include <common/logging.h>
+#include <limits.h> // for enumeration casts and tests
+#include <string.h> // for memcpy
 
 #include "gutil/macros.h"
 #include "gutil/template_util.h"
@@ -34,18 +33,17 @@
 //
 // base::identity_ is used to make a non-deduced context, which
 // forces all callers to explicitly specify the template argument.
-template<typename To>
+template <typename To>
 inline To implicit_cast(typename base::identity_<To>::type to) {
-  return to;
+    return to;
 }
 
 // This version of implicit_cast is used when two template arguments
 // are specified. It's obsolete and should not be used.
-template<typename To, typename From>
-inline To implicit_cast(typename base::identity_<From>::type const &f) {
-  return f;
+template <typename To, typename From>
+inline To implicit_cast(typename base::identity_<From>::type const& f) {
+    return f;
 }
-
 
 // When you upcast (that is, cast a pointer from type Foo to type
 // SuperclassOfFoo), it's fine to use implicit_cast<>, since upcasts
@@ -65,21 +63,21 @@ inline To implicit_cast(typename base::identity_<From>::type const &f) {
 //    if (dynamic_cast<Subclass2>(foo)) HandleASubclass2Object(foo);
 // You should design the code some other way not to need this.
 
-template<typename To, typename From>     // use like this: down_cast<T*>(foo);
-inline To down_cast(From* f) {                   // so we only accept pointers
-  // Ensures that To is a sub-type of From *.  This test is here only
-  // for compile-time type checking, and has no overhead in an
-  // optimized build at run-time, as it will be optimized away
-  // completely.
+template <typename To, typename From> // use like this: down_cast<T*>(foo);
+inline To down_cast(From* f) {        // so we only accept pointers
+    // Ensures that To is a sub-type of From *.  This test is here only
+    // for compile-time type checking, and has no overhead in an
+    // optimized build at run-time, as it will be optimized away
+    // completely.
 
-  // TODO(user): This should use COMPILE_ASSERT.
-  if (false) {
-    ::implicit_cast<From*, To>(NULL);
-  }
+    // TODO(user): This should use COMPILE_ASSERT.
+    if (false) {
+        ::implicit_cast<From*, To>(NULL);
+    }
 
-  // uses RTTI in dbg and fastbuild. asserts are disabled in opt builds.
-  assert(f == NULL || dynamic_cast<To>(f) != NULL);
-  return static_cast<To>(f);
+    // uses RTTI in dbg and fastbuild. asserts are disabled in opt builds.
+    assert(f == NULL || dynamic_cast<To>(f) != NULL);
+    return static_cast<To>(f);
 }
 
 // Overload of down_cast for references. Use like this: down_cast<T&>(foo).
@@ -90,17 +88,17 @@ inline To down_cast(From* f) {                   // so we only accept pointers
 // There's no need for a special const overload either for the pointer
 // or the reference form. If you call down_cast with a const T&, the
 // compiler will just bind From to const T.
-template<typename To, typename From>
+template <typename To, typename From>
 inline To down_cast(From& f) {
-  COMPILE_ASSERT(base::is_reference<To>::value, target_type_not_a_reference);
-  typedef typename base::remove_reference<To>::type* ToAsPointer;
-  if (false) {
-    // Compile-time check that To inherits from From. See above for details.
-    ::implicit_cast<From*, ToAsPointer>(NULL);
-  }
+    COMPILE_ASSERT(base::is_reference<To>::value, target_type_not_a_reference);
+    typedef typename base::remove_reference<To>::type* ToAsPointer;
+    if (false) {
+        // Compile-time check that To inherits from From. See above for details.
+        ::implicit_cast<From*, ToAsPointer>(NULL);
+    }
 
-  assert(dynamic_cast<ToAsPointer>(&f) != NULL);  // RTTI: debug mode only
-  return static_cast<To>(f);
+    assert(dynamic_cast<ToAsPointer>(&f) != NULL); // RTTI: debug mode only
+    return static_cast<To>(f);
 }
 
 // bit_cast<Dest,Source> is a template function that implements the
@@ -164,15 +162,14 @@ inline To down_cast(From& f) {
 
 template <class Dest, class Source>
 inline Dest bit_cast(const Source& source) {
-  // Compile time assertion: sizeof(Dest) == sizeof(Source)
-  // A compile error here means your Dest and Source have different sizes.
-  COMPILE_ASSERT(sizeof(Dest) == sizeof(Source), VerifySizesAreEqual);
+    // Compile time assertion: sizeof(Dest) == sizeof(Source)
+    // A compile error here means your Dest and Source have different sizes.
+    COMPILE_ASSERT(sizeof(Dest) == sizeof(Source), VerifySizesAreEqual);
 
-  Dest dest;
-  memcpy(&dest, &source, sizeof(dest));
-  return dest;
+    Dest dest;
+    memcpy(&dest, &source, sizeof(dest));
+    return dest;
 }
-
 
 // **** Enumeration Casts and Tests
 //
@@ -235,26 +232,26 @@ inline Dest bit_cast(const Source& source) {
 
 template <typename Enum>
 class enum_limits {
- public:
-  static const Enum min_enumerator = 0;
-  static const Enum max_enumerator = 0;
-  static const bool is_specialized = false;
+public:
+    static const Enum min_enumerator = 0;
+    static const Enum max_enumerator = 0;
+    static const bool is_specialized = false;
 };
 
 // Now we define the macro to define the specialization for enum_limits.
 // The specialization checks that the enumerators fit within an int.
 // This checking relies on integral promotion.
 
-#define MAKE_ENUM_LIMITS(ENUM_TYPE, ENUM_MIN, ENUM_MAX) \
-template <> \
-class enum_limits<ENUM_TYPE> { \
- public: \
-  static const ENUM_TYPE min_enumerator = ENUM_MIN; \
-  static const ENUM_TYPE max_enumerator = ENUM_MAX; \
-  static const bool is_specialized = true; \
-  COMPILE_ASSERT(ENUM_MIN >= INT_MIN, enumerator_too_negative_for_int); \
-  COMPILE_ASSERT(ENUM_MAX <= INT_MAX, enumerator_too_positive_for_int); \
-};
+#define MAKE_ENUM_LIMITS(ENUM_TYPE, ENUM_MIN, ENUM_MAX)                       \
+    template <>                                                               \
+    class enum_limits<ENUM_TYPE> {                                            \
+    public:                                                                   \
+        static const ENUM_TYPE min_enumerator = ENUM_MIN;                     \
+        static const ENUM_TYPE max_enumerator = ENUM_MAX;                     \
+        static const bool is_specialized = true;                              \
+        COMPILE_ASSERT(ENUM_MIN >= INT_MIN, enumerator_too_negative_for_int); \
+        COMPILE_ASSERT(ENUM_MAX <= INT_MAX, enumerator_too_positive_for_int); \
+    };
 
 // The loose enum test/cast is actually the more complicated one,
 // because of the problem of finding the bounds.
@@ -283,110 +280,110 @@ class enum_limits<ENUM_TYPE> { \
 
 template <typename Enum>
 inline bool loose_enum_test(int e_val) {
-  COMPILE_ASSERT(enum_limits<Enum>::is_specialized, missing_MAKE_ENUM_LIMITS);
-  const Enum e_min = enum_limits<Enum>::min_enumerator;
-  const Enum e_max = enum_limits<Enum>::max_enumerator;
-  COMPILE_ASSERT(sizeof(e_val) == 4 || sizeof(e_val) == 8, unexpected_int_size);
+    COMPILE_ASSERT(enum_limits<Enum>::is_specialized, missing_MAKE_ENUM_LIMITS);
+    const Enum e_min = enum_limits<Enum>::min_enumerator;
+    const Enum e_max = enum_limits<Enum>::max_enumerator;
+    COMPILE_ASSERT(sizeof(e_val) == 4 || sizeof(e_val) == 8, unexpected_int_size);
 
-  // Find the unary bounding negative number of e_min and e_max.
+    // Find the unary bounding negative number of e_min and e_max.
 
-  // Find the unary bounding negative number of e_max.
-  // This would be b_min = e_max < 0 ? e_max : ~e_max,
-  // but we want to avoid branches to help the compiler.
-  int e_max_sign = e_max >> (sizeof(e_val)*8 - 1);
-  int b_min = ~e_max_sign ^ e_max;
+    // Find the unary bounding negative number of e_max.
+    // This would be b_min = e_max < 0 ? e_max : ~e_max,
+    // but we want to avoid branches to help the compiler.
+    int e_max_sign = e_max >> (sizeof(e_val) * 8 - 1);
+    int b_min = ~e_max_sign ^ e_max;
 
-  // Find the binary bounding negative of both e_min and e_max.
-  b_min &= e_min;
+    // Find the binary bounding negative of both e_min and e_max.
+    b_min &= e_min;
 
-  // However, if e_min is postive, the result will be positive.
-  // Now clear all bits right of the most significant clear bit,
-  // which is a negative saturation for negative numbers.
-  // In the case of positive numbers, this is flush to zero.
-  b_min &= b_min >> 1;
-  b_min &= b_min >> 2;
-  b_min &= b_min >> 4;
-  b_min &= b_min >> 8;
-  b_min &= b_min >> 16;
+    // However, if e_min is positive, the result will be positive.
+    // Now clear all bits right of the most significant clear bit,
+    // which is a negative saturation for negative numbers.
+    // In the case of positive numbers, this is flush to zero.
+    b_min &= b_min >> 1;
+    b_min &= b_min >> 2;
+    b_min &= b_min >> 4;
+    b_min &= b_min >> 8;
+    b_min &= b_min >> 16;
 #if INT_MAX > 2147483647
-  b_min &= b_min >> 32;
+    b_min &= b_min >> 32;
 #endif
 
-  // Find the unary bounding positive number of e_max.
-  int b_max = e_max_sign ^ e_max;
+    // Find the unary bounding positive number of e_max.
+    int b_max = e_max_sign ^ e_max;
 
-  // Find the binary bounding postive number of that
-  // and the unary bounding positive number of e_min.
-  int e_min_sign = e_min >> (sizeof(e_val)*8 - 1);
-  b_max |= e_min_sign ^ e_min;
+    // Find the binary bounding positive number of that
+    // and the unary bounding positive number of e_min.
+    int e_min_sign = e_min >> (sizeof(e_val) * 8 - 1);
+    b_max |= e_min_sign ^ e_min;
 
-  // Now set all bits right of the most significant set bit,
-  // which is a postive saturation for positive numbers.
-  b_max |= b_max >> 1;
-  b_max |= b_max >> 2;
-  b_max |= b_max >> 4;
-  b_max |= b_max >> 8;
-  b_max |= b_max >> 16;
+    // Now set all bits right of the most significant set bit,
+    // which is a positive saturation for positive numbers.
+    b_max |= b_max >> 1;
+    b_max |= b_max >> 2;
+    b_max |= b_max >> 4;
+    b_max |= b_max >> 8;
+    b_max |= b_max >> 16;
 #if INT_MAX > 2147483647
-  b_max |= b_max >> 32;
+    b_max |= b_max >> 32;
 #endif
 
-  // Finally test the bounds.
-  return b_min <= e_val && e_val <= b_max;
+    // Finally test the bounds.
+    return b_min <= e_val && e_val <= b_max;
 }
 
 template <typename Enum>
 inline bool tight_enum_test(int e_val) {
-  COMPILE_ASSERT(enum_limits<Enum>::is_specialized, missing_MAKE_ENUM_LIMITS);
-  const Enum e_min = enum_limits<Enum>::min_enumerator;
-  const Enum e_max = enum_limits<Enum>::max_enumerator;
-  return e_min <= e_val && e_val <= e_max;
+    COMPILE_ASSERT(enum_limits<Enum>::is_specialized, missing_MAKE_ENUM_LIMITS);
+    const Enum e_min = enum_limits<Enum>::min_enumerator;
+    const Enum e_max = enum_limits<Enum>::max_enumerator;
+    return e_min <= e_val && e_val <= e_max;
 }
 
 template <typename Enum>
 inline bool loose_enum_test_cast(int e_val, Enum* e_var) {
-  if (loose_enum_test<Enum>(e_val)) {
-     *e_var = static_cast<Enum>(e_val);
-     return true;
-  } else {
-     return false;
-  }
+    if (loose_enum_test<Enum>(e_val)) {
+        *e_var = static_cast<Enum>(e_val);
+        return true;
+    } else {
+        return false;
+    }
 }
 
 template <typename Enum>
 inline bool tight_enum_test_cast(int e_val, Enum* e_var) {
-  if (tight_enum_test<Enum>(e_val)) {
-     *e_var = static_cast<Enum>(e_val);
-     return true;
-  } else {
-     return false;
-  }
+    if (tight_enum_test<Enum>(e_val)) {
+        *e_var = static_cast<Enum>(e_val);
+        return true;
+    } else {
+        return false;
+    }
 }
 
 namespace base {
 namespace internal {
 
 inline void WarnEnumCastError(int value_of_int) {
-  LOG(DFATAL) << "Bad enum value " << value_of_int;
+    LOG(DFATAL) << "Bad enum value " << value_of_int;
 }
 
-}  // namespace internal
-}  // namespace base
+} // namespace internal
+} // namespace base
 
 template <typename Enum>
 inline Enum loose_enum_cast(int e_val) {
-  if (!loose_enum_test<Enum>(e_val)) {
-    base::internal::WarnEnumCastError(e_val);
-  }
-  return static_cast<Enum>(e_val);
+    if (!loose_enum_test<Enum>(e_val)) {
+        base::internal::WarnEnumCastError(e_val);
+    }
+    return static_cast<Enum>(e_val);
 }
 
 template <typename Enum>
 inline Enum tight_enum_cast(int e_val) {
-  if (!tight_enum_test<Enum>(e_val)) {
-    base::internal::WarnEnumCastError(e_val);
-  }
-  return static_cast<Enum>(e_val);
+    if (!tight_enum_test<Enum>(e_val)) {
+        base::internal::WarnEnumCastError(e_val);
+    }
+    return static_cast<Enum>(e_val);
 }
 
-#endif  // BASE_CASTS_H_
+#endif // BASE_CASTS_H_

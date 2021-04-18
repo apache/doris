@@ -31,7 +31,8 @@ Grammar:
 DROP DATABASE [IF EXISTS] db_name;
 
 Explain:
-After executing DROP DATABASE for a period of time, the deleted database can be restored through the RECOVER statement. See RECOVER statement for details
+1) After executing DROP DATABASE for a period of time, the deleted database can be restored through the RECOVER statement. See RECOVER statement for details
+2) If DROP DATABASE FORCE is executed, the system will not check whether the database has unfinished transactions, the database will be deleted directly and cannot be recovered, generally this operation is not recommended
 
 ## example
 1. Delete database db_test

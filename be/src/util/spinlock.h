@@ -38,23 +38,15 @@ public:
     }
 
     void unlock() {
-        // Memory barrier here. All updates before the unlock need to be made visible.
-        __sync_synchronize();
-        DCHECK(_locked);
-        _locked = false;
+        __sync_bool_compare_and_swap(&_locked, true, false);
     }
 
     // Tries to acquire the lock
-    inline bool try_lock() {
-        return __sync_bool_compare_and_swap(&_locked, false, true);
-    }
+    inline bool try_lock() { return __sync_bool_compare_and_swap(&_locked, false, true); }
 
-    void dcheck_locked() {
-        DCHECK(_locked);
-    }
+    void dcheck_locked() { DCHECK(_locked); }
 
 private:
-
     // Out-of-line definition of the actual spin loop. The primary goal is to have the
     // actual lock method as short as possible to avoid polluting the i-cache with
     // unnecessary instructions in the non-contested case.

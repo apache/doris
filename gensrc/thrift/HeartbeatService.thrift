@@ -37,6 +37,7 @@ struct TBackendInfo {
     3: optional Types.TPort be_rpc_port
     4: optional Types.TPort brpc_port
     5: optional string version
+    6: optional i64 be_start_time
 }
 
 struct THeartbeatResult {

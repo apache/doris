@@ -55,7 +55,7 @@ under the License.
  
 ## keyword
 
-    CANCEL，LABEL
+    CANCEL, LABEL
 
 
 

@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
-#include "olap/olap_common.h"
 #include "olap/column_predicate.h"
+#include "olap/olap_common.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -47,6 +47,8 @@ struct RowsetReaderContext {
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
     const std::vector<ColumnPredicate*>* predicates = nullptr;
+    // value column predicate in UNIQUE table
+    const std::vector<ColumnPredicate*>* value_predicates = nullptr;
     const std::vector<RowCursor*>* lower_bound_keys = nullptr;
     const std::vector<bool>* is_lower_keys_included = nullptr;
     const std::vector<RowCursor*>* upper_bound_keys = nullptr;

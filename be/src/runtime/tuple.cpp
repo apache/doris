@@ -20,12 +20,13 @@
 #include <vector>
 
 #include "exprs/expr.h"
-#include "util/mem_util.hpp"
+#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
 #include "runtime/raw_value.h"
-#include "runtime/tuple_row.h"
 #include "runtime/string_value.h"
+#include "runtime/tuple_row.h"
+#include "util/mem_util.hpp"
 
 namespace doris {
 
@@ -59,13 +60,12 @@ Tuple* Tuple::deep_copy(const TupleDescriptor& desc, MemPool* pool, bool convert
     return result;
 }
 
-void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool,
-                     bool convert_ptrs) {
+void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool, bool convert_ptrs) {
     memory_copy(dst, this, desc.byte_size());
 
     // allocate in the same pool and then copy all non-null string slots
     for (std::vector<SlotDescriptor*>::const_iterator i = desc.string_slots().begin();
-            i != desc.string_slots().end(); ++i) {
+         i != desc.string_slots().end(); ++i) {
         DCHECK((*i)->type().is_string_type());
 
         if (!dst->is_null((*i)->null_indicator_offset())) {
@@ -121,8 +121,7 @@ int64_t Tuple::release_string(const TupleDescriptor& desc) {
     return bytes;
 }
 
-void Tuple::deep_copy(
-        const TupleDescriptor& desc, char** data, int* offset, bool convert_ptrs) {
+void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int* offset, bool convert_ptrs) {
     Tuple* dst = reinterpret_cast<Tuple*>(*data);
     memory_copy(dst, this, desc.byte_size());
     *data += desc.byte_size();
@@ -141,10 +140,10 @@ void Tuple::deep_copy(
 }
 
 template <bool collect_string_vals>
-void Tuple::materialize_exprs(
-    TupleRow* row, const TupleDescriptor& desc,
-    const std::vector<ExprContext*>& materialize_expr_ctxs, MemPool* pool,
-    std::vector<StringValue*>* non_null_var_len_values, int* total_var_len) {
+void Tuple::materialize_exprs(TupleRow* row, const TupleDescriptor& desc,
+                              const std::vector<ExprContext*>& materialize_expr_ctxs, MemPool* pool,
+                              std::vector<StringValue*>* non_null_var_len_values,
+                              int* total_var_len) {
     if (collect_string_vals) {
         non_null_var_len_values->clear();
         *total_var_len = 0;
@@ -162,9 +161,10 @@ void Tuple::materialize_exprs(
         // TODO: revisit this logic in the FE
         PrimitiveType slot_type = slot_desc->type().type;
         PrimitiveType expr_type = materialize_expr_ctxs[mat_expr_index]->root()->type().type;
-        if ((slot_type == TYPE_CHAR)  || (slot_type == TYPE_VARCHAR) || (slot_type == TYPE_HLL)) {
-            DCHECK((expr_type == TYPE_CHAR) || (expr_type == TYPE_VARCHAR) || (expr_type == TYPE_HLL));
-        } else if ((slot_type == TYPE_DATE)  || (slot_type == TYPE_DATETIME)) {
+        if ((slot_type == TYPE_CHAR) || (slot_type == TYPE_VARCHAR) || (slot_type == TYPE_HLL)) {
+            DCHECK((expr_type == TYPE_CHAR) || (expr_type == TYPE_VARCHAR) ||
+                   (expr_type == TYPE_HLL));
+        } else if ((slot_type == TYPE_DATE) || (slot_type == TYPE_DATETIME)) {
             DCHECK((expr_type == TYPE_DATE) || (expr_type == TYPE_DATETIME));
         } else {
             DCHECK(slot_type == TYPE_NULL || slot_type == expr_type);
@@ -189,13 +189,16 @@ void Tuple::materialize_exprs(
     DCHECK_EQ(mat_expr_index, materialize_expr_ctxs.size());
 }
 
-template void Tuple::materialize_exprs<false>(TupleRow* row, const TupleDescriptor& desc,
-    const std::vector<ExprContext*>& materialize_expr_ctxs, MemPool* pool,
-    std::vector<StringValue*>* non_null_var_values, int* total_var_len);
+template void Tuple::materialize_exprs<false>(
+        TupleRow* row, const TupleDescriptor& desc,
+        const std::vector<ExprContext*>& materialize_expr_ctxs, MemPool* pool,
+        std::vector<StringValue*>* non_null_var_values, int* total_var_len);
 
 template void Tuple::materialize_exprs<true>(TupleRow* row, const TupleDescriptor& desc,
-    const std::vector<ExprContext*>& materialize_expr_ctxs, MemPool* pool,
-    std::vector<StringValue*>* non_null_var_values, int* total_var_len);
+                                             const std::vector<ExprContext*>& materialize_expr_ctxs,
+                                             MemPool* pool,
+                                             std::vector<StringValue*>* non_null_var_values,
+                                             int* total_var_len);
 
 std::string Tuple::to_string(const TupleDescriptor& d) const {
     std::stringstream out;
@@ -216,11 +219,7 @@ std::string Tuple::to_string(const TupleDescriptor& d) const {
             out << "null";
         } else {
             std::string value_str;
-            RawValue::print_value(
-                    get_slot(slot->tuple_offset()),
-                    slot->type(),
-                    -1,
-                    &value_str);
+            RawValue::print_value(get_slot(slot->tuple_offset()), slot->type(), -1, &value_str);
             out << value_str;
         }
     }
@@ -236,4 +235,4 @@ std::string Tuple::to_string(const Tuple* t, const TupleDescriptor& d) {
     return t->to_string(d);
 }
 
-}
+} // namespace doris

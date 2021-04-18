@@ -27,13 +27,13 @@ namespace doris {
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineAlterTabletTask : public EngineTask {
-
 public:
     virtual OLAPStatus execute();
 
 public:
     EngineAlterTabletTask(const TAlterTabletReqV2& alter_tablet_request, int64_t signature,
-        const TTaskType::type task_type, vector<string>* error_msgs, const string& process_name);
+                          const TTaskType::type task_type, vector<string>* error_msgs,
+                          const string& process_name);
     ~EngineAlterTabletTask() {}
 
 private:
@@ -45,5 +45,5 @@ private:
 
 }; // EngineTask
 
-} // doris
+} // namespace doris
 #endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_ALTER_TABLET_TASK_H

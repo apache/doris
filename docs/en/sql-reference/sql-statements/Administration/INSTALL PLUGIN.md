@@ -38,6 +38,8 @@ under the License.
         1. Point to a zip file with absolute path.
         2. Point to a plugin dir with absolute path.
         3. Point to a http/https download link of zip file.
+        
+        PROPERTIES supports setting some configurations of the plugin, such as setting the md5sum value of the zip file.
 
 ## example
 
@@ -49,9 +51,13 @@ under the License.
 
         INSTALL PLUGIN FROM "/home/users/doris/auditdemo/";
 
-    2. Download and install a plugin:
+    3. Download and install a plugin:
 
         INSTALL PLUGIN FROM "http://mywebsite.com/plugin.zip";
+        
+    4. Download and install a plugin, and set the md5sum value of the zip file: 
+               
+        INSTALL PLUGIN FROM "http://mywebsite.com/plugin.zip" PROPERTIES("md5sum" = "73877f6029216f4314d712086a146570"); 
         
 ## keyword
     INSTALL,PLUGIN

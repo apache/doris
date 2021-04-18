@@ -28,8 +28,9 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/dynamic_annotations.h"
-#include "util/bit_util.h"
+#include "olap/olap_define.h"
 #include "runtime/memory/chunk.h"
+#include "util/bit_util.h"
 
 namespace doris {
 
@@ -87,15 +88,14 @@ class MemTracker;
 ///    delete p;
 class MemPool {
 public:
-
     /// 'tracker' tracks the amount of memory allocated by this pool. Must not be NULL.
     MemPool(MemTracker* mem_tracker)
             : current_chunk_idx_(-1),
-            next_chunk_size_(INITIAL_CHUNK_SIZE),
-            total_allocated_bytes_(0),
-            total_reserved_bytes_(0),
-            peak_allocated_bytes_(0),
-            mem_tracker_(mem_tracker) {
+              next_chunk_size_(INITIAL_CHUNK_SIZE),
+              total_allocated_bytes_(0),
+              total_reserved_bytes_(0),
+              peak_allocated_bytes_(0),
+              mem_tracker_(mem_tracker) {
         DCHECK(mem_tracker != nullptr);
     }
 
@@ -106,17 +106,18 @@ public:
     /// Allocates a section of memory of 'size' bytes with DEFAULT_ALIGNMENT at the end
     /// of the the current chunk. Creates a new chunk if there aren't any chunks
     /// with enough capacity.
-    uint8_t* allocate(int64_t size) {
-        return allocate<false>(size, DEFAULT_ALIGNMENT);
+    uint8_t* allocate(int64_t size) { return allocate<false>(size, DEFAULT_ALIGNMENT); }
+
+    /// Same as Allocate() expect add a check when return a nullptr
+    OLAPStatus allocate_safely(int64_t size, uint8_t*& ret) {
+        return allocate_safely<false>(size, DEFAULT_ALIGNMENT, ret);
     }
 
     /// Same as Allocate() except the mem limit is checked before the allocation and
     /// this call will fail (returns NULL) if it does.
     /// The caller must handle the NULL case. This should be used for allocations
     /// where the size can be very big to bound the amount by which we exceed mem limits.
-    uint8_t* try_allocate(int64_t size) {
-        return allocate<true>(size, DEFAULT_ALIGNMENT);
-    }
+    uint8_t* try_allocate(int64_t size) { return allocate<true>(size, DEFAULT_ALIGNMENT); }
 
     /// Same as TryAllocate() except a non-default alignment can be specified. It
     /// should be a power-of-two in [1, alignof(std::max_align_t)].
@@ -147,7 +148,7 @@ public:
     void acquire_data(MemPool* src, bool keep_current);
 
     // Exchange all chunks with input source, including reserved chunks.
-    // This funciton will keep its own MemTracker, and upate it after exchange.
+    // This function will keep its own MemTracker, and update it after exchange.
     // Why we need this other than std::swap? Because swap will swap MemTracker too, which would
     // lead error. We only has MemTracker's pointer, which can be invalid after swap.
     void exchange_data(MemPool* other);
@@ -156,7 +157,7 @@ public:
 
     int64_t total_allocated_bytes() const { return total_allocated_bytes_; }
     int64_t total_reserved_bytes() const { return total_reserved_bytes_; }
-    int64_t peak_allocated_bytes() const { return peak_allocated_bytes_;}
+    int64_t peak_allocated_bytes() const { return peak_allocated_bytes_; }
 
     MemTracker* mem_tracker() { return mem_tracker_; }
 
@@ -175,7 +176,7 @@ private:
         /// bytes allocated via Allocate() in this chunk
         int64_t allocated_bytes;
         explicit ChunkInfo(const Chunk& chunk);
-        ChunkInfo() : allocated_bytes(0) { }
+        ChunkInfo() : allocated_bytes(0) {}
     };
 
     /// A static field used as non-NULL pointer for zero length allocations. NULL is
@@ -209,8 +210,8 @@ private:
 
         if (current_chunk_idx_ != -1) {
             ChunkInfo& info = chunks_[current_chunk_idx_];
-            int64_t aligned_allocated_bytes = BitUtil::RoundUpToPowerOf2(
-                info.allocated_bytes, alignment);
+            int64_t aligned_allocated_bytes =
+                    BitUtil::RoundUpToPowerOf2(info.allocated_bytes, alignment);
             if (aligned_allocated_bytes + size <= info.chunk.size) {
                 // Ensure the requested alignment is respected.
                 int64_t padding = aligned_allocated_bytes - info.allocated_bytes;
@@ -240,6 +241,16 @@ private:
         DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
         peak_allocated_bytes_ = std::max(total_allocated_bytes_, peak_allocated_bytes_);
         return result;
+    }
+
+    template <bool CHECK_LIMIT_FIRST>
+    OLAPStatus ALWAYS_INLINE allocate_safely(int64_t size, int alignment, uint8_t*& ret) {
+        uint8_t* result = allocate<CHECK_LIMIT_FIRST>(size, alignment);
+        if (result == nullptr) {
+            return OLAP_ERR_MALLOC_ERROR;
+        }
+        ret = result;
+        return OLAP_SUCCESS;
     }
 
 private:
@@ -273,6 +284,6 @@ private:
 // Stamp out templated implementations here so they're included in IR module
 template uint8_t* MemPool::allocate<false>(int64_t size, int alignment);
 template uint8_t* MemPool::allocate<true>(int64_t size, int alignment);
-}
+} // namespace doris
 
 #endif

@@ -43,9 +43,8 @@ Specify attributes of logical clusters
 
 PROPERTIES ("instance_num" = "3")
 
-Instancefn Microsoft Yahei
 
-2. Identify by'password'each logical cluster contains a superuser whose password must be specified when creating a logical cluster
+2. Identify by 'password' each logical cluster contains a superuser whose password must be specified when creating a logical cluster
 
 ## example
 

@@ -17,28 +17,27 @@
 
 #pragma once
 
-#include <memory>
-#include <unordered_map>
 #include <functional>
+#include <memory>
 #include <string>
+#include <unordered_map>
 
-#include "olap/olap_common.h"
-#include "olap/types.h"
-#include "olap/rowset/segment_v2/binary_plain_page.h"
-#include "olap/rowset/segment_v2/options.h"
-#include "olap/rowset/segment_v2/common.h"
-#include "olap/column_block.h"
-#include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/hash/string_hash.h"
+#include "olap/column_block.h"
+#include "olap/column_vector.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/binary_plain_page.h"
+#include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/options.h"
+#include "olap/types.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 namespace segment_v2 {
 
-enum {
-    BINARY_DICT_PAGE_HEADER_SIZE = 4
-};
+enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
 
 // This type of page use dictionary encoding for strings.
 // There is only one dictionary page for all the data pages within a column.
@@ -46,7 +45,7 @@ enum {
 // Layout for dictionary encoded page:
 // Either header + embedded codeword page, which can be encoded with any
 //        int PageBuilder, when mode_ = DICT_ENCODING.
-// Or     header + embedded BinaryPlainPage, when mode_ = PLAIN_ENCOING.
+// Or     header + embedded BinaryPlainPage, when mode_ = PLAIN_ENCODING.
 // Data pages start with mode_ = DICT_ENCODING, when the the size of dictionary
 // page go beyond the option_->dict_page_size, the subsequent data pages will switch
 // to string plain page automatically.
@@ -91,7 +90,7 @@ private:
     // used to remember the insertion order of dict keys
     std::vector<Slice> _dict_items;
     // TODO(zc): rethink about this mem pool
-    MemTracker _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
     faststring _buffer;
     faststring _first_value;
@@ -107,13 +106,9 @@ public:
 
     Status next_batch(size_t* n, ColumnBlockView* dst) override;
 
-    size_t count() const override {
-        return _data_page_decoder->count();
-    }
+    size_t count() const override { return _data_page_decoder->count(); }
 
-    size_t current_index() const override {
-        return _data_page_decoder->current_index();
-    }
+    size_t current_index() const override { return _data_page_decoder->current_index(); }
 
     bool is_dict_encoding() const;
 
@@ -126,7 +121,8 @@ private:
     const BinaryPlainPageDecoder* _dict_decoder = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;
-    faststring _code_buf;
+    // use as data buf.
+    std::unique_ptr<ColumnVectorBatch> _batch;
 };
 
 } // namespace segment_v2

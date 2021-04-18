@@ -19,6 +19,7 @@
 #define DORIS_BE_RUNTIME_TUPLE_H
 
 #include <cstring>
+
 #include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
@@ -56,9 +57,7 @@ public:
         return result;
     }
 
-    void init(int size) {
-        bzero(this, size);
-    }
+    void init(int size) { bzero(this, size); }
 
     // The total size of all data represented in this tuple (tuple data and referenced
     // string and collection data).
@@ -111,11 +110,9 @@ public:
     // slots and the total length of the string slots are returned in var_values
     // and total_var_len.
     template <bool collect_string_vals>
-    void materialize_exprs(
-        TupleRow* row, const TupleDescriptor& desc,
-        const std::vector<ExprContext*>& materialize_expr_ctxs, MemPool* pool,
-        std::vector<StringValue*>* non_null_var_len_values,
-        int* total_var_len);
+    void materialize_exprs(TupleRow* row, const TupleDescriptor& desc,
+                           const std::vector<ExprContext*>& materialize_expr_ctxs, MemPool* pool,
+                           std::vector<StringValue*>* non_null_var_len_values, int* total_var_len);
 
     // Turn null indicator bit on.
     // Turn null indicator bit on. For non-nullable slots, the mask will be 0 and
@@ -133,8 +130,7 @@ public:
     }
 
     bool is_null(const NullIndicatorOffset& offset) const {
-        const char* null_indicator_byte =
-            reinterpret_cast<const char*>(this) + offset.byte_offset;
+        const char* null_indicator_byte = reinterpret_cast<const char*>(this) + offset.byte_offset;
         return (*null_indicator_byte & offset.bit_mask) != 0;
     }
 
@@ -144,33 +140,32 @@ public:
     }
 
     const void* get_slot(int offset) const {
-        DCHECK(offset != -1);  // -1 offset indicates non-materialized slot
+        DCHECK(offset != -1); // -1 offset indicates non-materialized slot
         return reinterpret_cast<const char*>(this) + offset;
     }
 
     StringValue* get_string_slot(int offset) {
-        DCHECK(offset != -1);  // -1 offset indicates non-materialized slot
+        DCHECK(offset != -1); // -1 offset indicates non-materialized slot
         return reinterpret_cast<StringValue*>(reinterpret_cast<char*>(this) + offset);
     }
 
     const StringValue* get_string_slot(int offset) const {
-        DCHECK(offset != -1);  // -1 offset indicates non-materialized slot
+        DCHECK(offset != -1); // -1 offset indicates non-materialized slot
         return reinterpret_cast<const StringValue*>(reinterpret_cast<const char*>(this) + offset);
     }
 
     DateTimeValue* get_datetime_slot(int offset) {
-        DCHECK(offset != -1);  // -1 offset indicates non-materialized slot
+        DCHECK(offset != -1); // -1 offset indicates non-materialized slot
         return reinterpret_cast<DateTimeValue*>(reinterpret_cast<char*>(this) + offset);
-
     }
 
     DecimalValue* get_decimal_slot(int offset) {
-        DCHECK(offset != -1);  // -1 offset indicates non-materialized slot
+        DCHECK(offset != -1); // -1 offset indicates non-materialized slot
         return reinterpret_cast<DecimalValue*>(reinterpret_cast<char*>(this) + offset);
     }
 
     DecimalV2Value* get_decimalv2_slot(int offset) {
-        DCHECK(offset != -1);  // -1 offset indicates non-materialized slot
+        DCHECK(offset != -1); // -1 offset indicates non-materialized slot
         return reinterpret_cast<DecimalV2Value*>(reinterpret_cast<char*>(this) + offset);
     }
 
@@ -178,10 +173,11 @@ public:
 
     std::string to_string(const TupleDescriptor& d) const;
     static std::string to_string(const Tuple* t, const TupleDescriptor& d);
+
 private:
     void* _data;
 };
 
-}
+} // namespace doris
 
 #endif

@@ -36,6 +36,6 @@ under the License.
 
     curl -X POST "http://hostname:8088/api/restore_tablet?tablet_id=123456\&schema_hash=1111111"
 
-##keyword
+## keyword
 
     RESTORE,TABLET,RESTORE,TABLET

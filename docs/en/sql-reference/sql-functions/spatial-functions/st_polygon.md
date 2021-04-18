@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'GEOMETRY ST'u Polygon (VARCHAR wkt)'
+'GEOMETRY ST_Polygon (VARCHAR wkt)'
 
 
 Converting a WKT (Well Known Text) into a corresponding polygon memory form
@@ -44,5 +44,5 @@ mysql> SELECT ST_AsText(ST_Polygon("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))"));
 | POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))                          |
 +------------------------------------------------------------------+
 ```
-##keyword
+## keyword
 ST_POLYGON,ST_POLYFROMTEXT,ST_POLYGONFROMTEXT,ST,POLYGON,POLYFROMTEXT,POLYGONFROMTEXT

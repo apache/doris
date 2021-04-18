@@ -31,7 +31,7 @@ add_library(DorisUdf udf.cpp udf_ir.cpp)
 set_target_properties(DorisUdf PROPERTIES COMPILE_FLAGS "-DDORIS_UDF_SDK_BUILD")
 
 # We can't use the normal link list since we want to pick up libDorisUdf (the external
-# library) rather than the interal libUdf.
+# library) rather than the internal libUdf.
 set (UDF_TEST_LINK_LIBS
   -Wl,--start-group
   Common

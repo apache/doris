@@ -61,7 +61,7 @@ PROPERTIES (
 1. Colcoate Table must be an OLAP-type table
 2. The BUCKET number of tables with the same colocate_with attribute must be the same
 3. The number of copies of tables with the same colocate_with attribute must be the same
-4. Data types of DISTRIBUTTED Columns for tables with the same colocate_with attribute must be the same
+4. Data types of DISTRIBUTED Columns for tables with the same colocate_with attribute must be the same
 
 3 Colocate Join's applicable scenario:
 
@@ -91,7 +91,7 @@ A: ALTER TABLE example_db.my_table set ("colocate_with"="target_table");
 
 Q: 229144; colcoate join?
 
-A: set disable_colocate_join = true; 就可以禁用Colocate Join，查询时就会使用Shuffle Join 和Broadcast Join
+A: set disable_colocate_join = true; 就可以禁用Colocate Join, 查询时就会使用Shuffle Join 和Broadcast Join
 
 ## keyword
 

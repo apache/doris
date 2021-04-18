@@ -32,4 +32,4 @@ struct Chunk {
     int core_id;
 };
 
-}
+} // namespace doris

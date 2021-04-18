@@ -22,9 +22,7 @@
 
 namespace doris {
 
-NullLiteral::NullLiteral(const TExprNode& node) : 
-        Expr(node) {
-}
+NullLiteral::NullLiteral(const TExprNode& node) : Expr(node) {}
 
 // NullLiteral::NullLiteral(PrimitiveType type) : Expr(TypeDescriptor(type)) {
 // }
@@ -73,4 +71,4 @@ DecimalV2Val NullLiteral::get_decimalv2_val(ExprContext*, TupleRow*) {
     return DecimalV2Val::null();
 }
 
-}
+} // namespace doris

@@ -174,6 +174,7 @@ UNZIP_CMD="unzip"
 SUFFIX_TGZ="\.(tar\.gz|tgz)$"
 SUFFIX_XZ="\.tar\.xz$"
 SUFFIX_ZIP="\.zip$"
+SUFFIX_BZ2="\.tar\.bz2$"
 for TP_ARCH in ${TP_ARCHIVES[*]}
 do
     NAME=$TP_ARCH"_NAME"
@@ -199,8 +200,13 @@ do
                 exit 1
             fi
         elif [[ "${!NAME}" =~ $SUFFIX_ZIP ]]; then
-            if ! $UNZIP_CMD "$TP_SOURCE_DIR/${!NAME}" -d "$TP_SOURCE_DIR/"; then
+            if ! $UNZIP_CMD -qq "$TP_SOURCE_DIR/${!NAME}" -d "$TP_SOURCE_DIR/"; then
                 echo "Failed to unzip ${!NAME}"
+                exit 1
+            fi
+        elif [[ "${!NAME}" =~ $SUFFIX_BZ2 ]]; then
+            if ! $TAR_CMD xf "$TP_SOURCE_DIR/${!NAME}" -C "$TP_SOURCE_DIR/"; then
+                echo "Failed to untar ${!NAME}"
                 exit 1
             fi
         fi
@@ -245,6 +251,7 @@ echo "Finished patching $RE2_SOURCE"
 cd $TP_SOURCE_DIR/$MYSQL_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
     patch -p0 < $TP_PATCH_DIR/mysql-5.7.18.patch
+    patch -Rp0 < $TP_PATCH_DIR/mysql-5.7.18-boost.patch
     touch $PATCHED_MARK
 fi
 cd -
@@ -296,15 +303,6 @@ if [ ! -f $PATCHED_MARK ]; then
 fi
 cd -
 echo "Finished patching $LZ4_SOURCE"
-
-# brpc patch to disable shared library
-cd $TP_SOURCE_DIR/$BRPC_SOURCE
-if [ ! -f $PATCHED_MARK ] && [ $BRPC_SOURCE == "incubator-brpc-0.9.5" ]; then
-    patch -p0 < $TP_PATCH_DIR/incubator-brpc-0.9.5.patch
-    touch $PATCHED_MARK
-fi
-cd -
-echo "Finished patching $BRPC_SOURCE"
 
 # s2 patch to disable shared library
 cd $TP_SOURCE_DIR/$S2_SOURCE

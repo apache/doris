@@ -40,8 +40,8 @@ public:
     // detect if cgroup is enabled
     static bool enable();
 
-  private:
-    // return the glabal cgroup path of subsystem like 12:memory:/user.slice -> user.slice 
+private:
+    // return the global cgroup path of subsystem like 12:memory:/user.slice -> user.slice
     static Status find_global_cgroup(const std::string& subsystem, std::string* path);
 
     // Returns the absolute path to the CGroup from inside the container.
@@ -56,7 +56,7 @@ public:
     // E.g. /sys/fs/cgroup/memory/kubepods/burstable/pod-<long unique id> may be mounted at
     // /sys/fs/cgroup/memory inside the container. In that case this function would return
     // ("/sys/fs/cgroup/memory", "kubepods/burstable/pod-<long unique id>").
-    static Status find_cgroup_mounts(
-        const std::string& subsystem, std::pair<std::string, std::string>* result);
+    static Status find_cgroup_mounts(const std::string& subsystem,
+                                     std::pair<std::string, std::string>* result);
 };
 } // namespace doris

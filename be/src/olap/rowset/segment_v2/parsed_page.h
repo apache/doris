@@ -35,14 +35,9 @@ namespace segment_v2 {
 // This struct can be reused, client should call reset first before reusing
 // this object
 struct ParsedPage {
-
-    static Status create(PageHandle handle,
-                         const Slice& body,
-                         const DataPageFooterPB& footer,
-                         const EncodingInfo* encoding,
-                         const PagePointer& page_pointer,
-                         uint32_t page_index,
-                         std::unique_ptr<ParsedPage>* result) {
+    static Status create(PageHandle handle, const Slice& body, const DataPageFooterPB& footer,
+                         const EncodingInfo* encoding, const PagePointer& page_pointer,
+                         uint32_t page_index, std::unique_ptr<ParsedPage>* result) {
         std::unique_ptr<ParsedPage> page(new ParsedPage);
         page->page_handle = std::move(handle);
 
@@ -51,8 +46,8 @@ struct ParsedPage {
         page->null_bitmap = Slice(body.data + body.size - null_size, null_size);
 
         if (page->has_null) {
-            page->null_decoder = RleDecoder<bool>(
-                    (const uint8_t*) page->null_bitmap.data, null_size, 1);
+            page->null_decoder =
+                    RleDecoder<bool>((const uint8_t*)page->null_bitmap.data, null_size, 1);
         }
 
         Slice data_slice(body.data, body.size - null_size);
@@ -62,16 +57,17 @@ struct ParsedPage {
 
         page->first_ordinal = footer.first_ordinal();
         page->num_rows = footer.num_values();
+
         page->page_pointer = page_pointer;
         page->page_index = page_index;
+
+        page->next_array_item_ordinal = footer.next_array_item_ordinal();
 
         *result = std::move(page);
         return Status::OK();
     }
 
-    ~ParsedPage() {
-        delete data_decoder;
-    }
+    ~ParsedPage() { delete data_decoder; }
 
     PageHandle page_handle;
 
@@ -84,6 +80,8 @@ struct ParsedPage {
     ordinal_t first_ordinal = 0;
     // number of rows including nulls and not-nulls
     ordinal_t num_rows = 0;
+    // just for array type
+    ordinal_t next_array_item_ordinal = 0;
 
     PagePointer page_pointer;
     uint32_t page_index = 0;
@@ -92,7 +90,9 @@ struct ParsedPage {
     // this means next row we will read
     ordinal_t offset_in_page = 0;
 
-    bool contains(ordinal_t ord) { return ord >= first_ordinal && ord < (first_ordinal + num_rows); }
+    bool contains(ordinal_t ord) {
+        return ord >= first_ordinal && ord < (first_ordinal + num_rows);
+    }
     bool has_remaining() const { return offset_in_page < num_rows; }
     size_t remaining() const { return num_rows - offset_in_page; }
 
@@ -101,5 +101,5 @@ private:
     ParsedPage() = default;
 };
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

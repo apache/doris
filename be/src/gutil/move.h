@@ -118,7 +118,7 @@
 // It is tempting to want to use the RValue type in function parameters, but
 // excluding the limited usage here for the move constructor and move
 // operator=, doing so would mean that the function could take both r-values
-// and l-values equially which is unexpected.  See COMPARED To Boost.Move for
+// and l-values equally which is unexpected.  See COMPARED To Boost.Move for
 // more details.
 //
 // An alternate, and incorrect, implementation of the RValue class used by
@@ -201,18 +201,20 @@
 //
 // The workaround is to explicitly declare your copy constructor.
 //
-#define MOVE_ONLY_TYPE_FOR_CPP_03(type, rvalue_type) \
- private: \
-  struct rvalue_type { \
-    explicit rvalue_type(type* object) : object(object) {} \
-    type* object; \
-  }; \
-  type(type&); \
-  void operator=(type&); \
- public: \
-  operator rvalue_type() { return rvalue_type(this); } \
-  type Pass() { return type(rvalue_type(this)); } \
-  typedef void MoveOnlyTypeForCPP03; \
- private:
+#define MOVE_ONLY_TYPE_FOR_CPP_03(type, rvalue_type)           \
+private:                                                       \
+    struct rvalue_type {                                       \
+        explicit rvalue_type(type* object) : object(object) {} \
+        type* object;                                          \
+    };                                                         \
+    type(type&);                                               \
+    void operator=(type&);                                     \
+                                                               \
+public:                                                        \
+    operator rvalue_type() { return rvalue_type(this); }       \
+    type Pass() { return type(rvalue_type(this)); }            \
+    typedef void MoveOnlyTypeForCPP03;                         \
+                                                               \
+private:
 
-#endif  // BASE_MOVE_H_
+#endif // BASE_MOVE_H_

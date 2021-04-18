@@ -20,15 +20,16 @@
 
 using namespace doris;
 
-uint32_t PartitionedHashTableCtx::GetHashSeed() const { return seeds_[level_]; }
+uint32_t PartitionedHashTableCtx::GetHashSeed() const {
+    return seeds_[level_];
+}
 
 ExprContext* const* PartitionedHashTableCtx::build_expr_evals() const {
-  return build_expr_evals_.data();
+    return build_expr_evals_.data();
 }
 
 ExprContext* const* PartitionedHashTableCtx::probe_expr_evals() const {
-  return probe_expr_evals_.data();
+    return probe_expr_evals_.data();
 }
 
 #endif
-

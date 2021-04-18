@@ -79,8 +79,10 @@ under the License.
 
 * `dynamic_partition.time_unit`
 
-    动态分区调度的单位。可指定为 `DAY`、`WEEK`、`MONTH`。分别表示按天、按星期、按月进行分区创建或删除。
+    动态分区调度的单位。可指定为 `HOUR`、`DAY`、`WEEK`、`MONTH`。分别表示按天、按星期、按月进行分区创建或删除。
     
+    当指定为 `HOUR` 时，动态创建的分区名后缀格式为 `yyyyMMddHH`，例如`2020032501`。小时为单位的分区列数据类型不能为 DATE。
+
     当指定为 `DAY` 时，动态创建的分区名后缀格式为 `yyyyMMdd`，例如`20200325`。
     
     当指定为 `WEEK` 时，动态创建的分区名后缀格式为`yyyy_ww`。即当前日期属于这一年的第几周，例如 `2020-03-25` 创建的分区名后缀为 `2020_13`, 表明目前为2020年第13周。
@@ -106,7 +108,11 @@ under the License.
 * `dynamic_partition.buckets`
 
     动态创建的分区所对应的分桶数量。
-    
+  
+* `dynamic_partition.replication_num`
+
+    动态创建的分区所对应的副本数量，如果不填写，则默认为该表创建时指定的副本数量。
+
 * `dynamic_partition.start_day_of_week`
 
     当 `time_unit` 为 `WEEK` 时，该参数用于指定每周的起始点。取值为 1 到 7。其中 1 表示周一，7 表示周日。默认为 1，即表示每周以周一为起始点。
@@ -115,17 +121,22 @@ under the License.
 
     当 `time_unit` 为 `MONTH` 时，该参数用于指定每月的起始日期。取值为 1 到 28。其中 1 表示每月1号，28 表示每月28号。默认为 1，即表示每月以1号位起始点。暂不支持以29、30、31号为起始日，以避免因闰年或闰月带来的歧义。
   
+### 注意事项 
+ 
+动态分区使用过程中，如果因为一些意外情况导致 `dynamic_partition.start` 和 `dynamic_partition.end` 之间的某些分区丢失，那么当前时间与 `dynamic_partition.end` 之间的丢失分区会被重新创建，`dynamic_partition.start`与当前时间之间的丢失分区不会重新创建。
+    
 ## 示例
 
 1. 表 tbl1 分区列 k1 类型为 DATE，创建一个动态分区规则。按天分区，只保留最近7天的分区，并且预先创建未来3天的分区。
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATE,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",
@@ -153,12 +164,13 @@ under the License.
 2. 表 tbl1 分区列 k1 类型为 DATETIME，创建一个动态分区规则。按星期分区，只保留最近2个星期的分区，并且预先创建未来2个星期的分区。
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATETIME,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",
@@ -197,12 +209,13 @@ under the License.
 3. 表 tbl1 分区列 k1 类型为 DATE，创建一个动态分区规则。按月分区，不删除历史分区，并且预先创建未来2个月的分区。同时设定以每月3号为起始日。
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATE,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",
@@ -244,7 +257,7 @@ ALTER TABLE tbl1 SET
 );
 ```
 
-某些属性的修改可能会可能会产生冲突。假设之前分区粒度为 DAY，并且已经创建了如下分区：
+某些属性的修改可能会产生冲突。假设之前分区粒度为 DAY，并且已经创建了如下分区：
 
 ```
 p20200519: ["2020-05-19", "2020-05-20")
@@ -308,3 +321,29 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
     HTTP 协议：
     
     `curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_check_interval_seconds=432000`
+
+### 动态分区表与手动分区表相互转换
+
+对于一个表来说，动态分区和手动分区可以自由转换，但二者不能同时存在，有且只有一种状态。
+
+#### 手动分区转换为动态分区
+
+如果一个表在创建时未指定动态分区，可以通过 `ALTER TABLE` 在运行时修改动态分区相关属性来转化为动态分区，具体示例可以通过 `HELP ALTER TABLE` 查看。
+
+开启动态分区功能后，Doris 将不再允许用户手动管理分区，会根据动态分区属性来自动管理分区。
+
+**注意**：如果已设定 `dynamic_partition.start`，分区范围在动态分区起始偏移之前的历史分区将会被删除。
+
+#### 动态分区转换为手动分区
+
+通过执行 `ALTER TABLE tbl_name SET ("dynamic_partition.enable" = "false")` 即可关闭动态分区功能，将其转换为手动分区表。
+
+关闭动态分区功能后，Doris 将不再自动管理分区，需要用户手动通过 `ALTER TABLE` 的方式创建或删除分区。
+
+## 常见问题
+
+1. 创建动态分区表后提示 ```Could not create table with dynamic partition when fe config dynamic_partition_enable is false```
+
+	由于动态分区的总开关，也就是 FE 的配置 ```dynamic_partition_enable``` 为 false，导致无法创建动态分区表。
+
+        这时候请修改 FE 的配置文件，增加一行 ```dynamic_partition_enable=true```，并重启 FE。或者执行命令 ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") 将动态分区开关打开即可。

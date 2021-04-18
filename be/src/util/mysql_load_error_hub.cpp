@@ -19,16 +19,13 @@
 
 #define __DorisMysql MYSQL
 #include "mysql_load_error_hub.h"
-
 #include "util/defer_op.h"
 
 namespace doris {
 
-MysqlLoadErrorHub::MysqlLoadErrorHub(const TMysqlErrorHubInfo& info) : _info(info) {
-}
+MysqlLoadErrorHub::MysqlLoadErrorHub(const TMysqlErrorHubInfo& info) : _info(info) {}
 
-MysqlLoadErrorHub::~MysqlLoadErrorHub() {
-}
+MysqlLoadErrorHub::~MysqlLoadErrorHub() {}
 
 Status MysqlLoadErrorHub::prepare() {
     _is_valid = true;
@@ -96,21 +93,17 @@ Status MysqlLoadErrorHub::write_mysql() {
     return Status::OK();
 }
 
-Status MysqlLoadErrorHub::gen_sql(MYSQL* my_conn,
-                                       const LoadErrorHub::ErrorMsg& error_msg,
-                                       std::stringstream* sql_stream) {
+Status MysqlLoadErrorHub::gen_sql(MYSQL* my_conn, const LoadErrorHub::ErrorMsg& error_msg,
+                                  std::stringstream* sql_stream) {
     char* sql_start = &_escape_buff[0];
     char* sql_end = sql_start;
     size_t msg_size = error_msg.msg.size();
     if (msg_size > EXPORTER_MAX_LINE_SIZE) {
         msg_size = EXPORTER_MAX_LINE_SIZE;
     }
-    sql_end += mysql_real_escape_string(my_conn, sql_start,
-                                        error_msg.msg.c_str(),
-                                        msg_size);
+    sql_end += mysql_real_escape_string(my_conn, sql_start, error_msg.msg.c_str(), msg_size);
 
-    (*sql_stream) << "insert into " << _info.table
-                  << " (job_id, error_msg) values("
+    (*sql_stream) << "insert into " << _info.table << " (job_id, error_msg) values("
                   << error_msg.job_id << ", '" << sql_start << "'); ";
     return Status::OK();
 }
@@ -123,14 +116,12 @@ Status MysqlLoadErrorHub::open_mysql_conn(MYSQL** my_conn) {
     }
     VLOG_ROW << "MysqlLoadErrorHub::init";
 
-    if (!mysql_real_connect(*my_conn, _info.host.c_str(), _info.user.c_str(),
-                            _info.passwd.c_str(), _info.db.c_str(),
-                            _info.port, nullptr, CLIENT_MULTI_STATEMENTS)) {
+    if (!mysql_real_connect(*my_conn, _info.host.c_str(), _info.user.c_str(), _info.passwd.c_str(),
+                            _info.db.c_str(), _info.port, nullptr, CLIENT_MULTI_STATEMENTS)) {
         LOG(WARNING) << "fail to connect Mysql: "
-                     << "Host: " << _info.host << " port: " << _info.port
-                     << " user: " << _info.user << " passwd: " << _info.passwd
-                     << " db: " << _info.db;
-        return error_status("loal error mysql real connect failed.", *my_conn);
+                     << "Host: " << _info.host << " port: " << _info.port << " user: " << _info.user
+                     << " passwd: " << _info.passwd << " db: " << _info.db;
+        return error_status("load error mysql real connect failed.", *my_conn);
     }
 
     return Status::OK();
@@ -145,9 +136,8 @@ Status MysqlLoadErrorHub::error_status(const std::string& prefix, MYSQL* my_conn
 
 std::string MysqlLoadErrorHub::debug_string() const {
     std::stringstream out;
-    out << "(tatal_error_num=" << _total_error_num << ")";
+    out << "(total_error_num=" << _total_error_num << ")";
     return out.str();
 }
 
 } // end namespace doris
-

@@ -18,31 +18,33 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
 
+#include <atomic>
 #include <memory>
-#include <vector>
 #include <mutex>
+#include <vector>
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gutil/macros.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
 class DataDir;
+class MemTracker;
 class OlapTuple;
 class RowCursor;
 class Rowset;
 using RowsetSharedPtr = std::shared_ptr<Rowset>;
 class RowsetFactory;
 class RowsetReader;
-class TabletSchema;
 
 // the rowset state transfer graph:
 //    ROWSET_UNLOADED    <--|
 //          ↓               |
 //    ROWSET_LOADED         |
 //          ↓               |
-//    ROWSET_UNLOADING   -->| 
+//    ROWSET_UNLOADING   -->|
 enum RowsetState {
     // state for new created rowset
     ROWSET_UNLOADED,
@@ -54,51 +56,49 @@ enum RowsetState {
 
 class RowsetStateMachine {
 public:
-    RowsetStateMachine() : _rowset_state(ROWSET_UNLOADED) { }
+    RowsetStateMachine() : _rowset_state(ROWSET_UNLOADED) {}
 
     OLAPStatus on_load() {
         switch (_rowset_state) {
-            case ROWSET_UNLOADED:
-                _rowset_state = ROWSET_LOADED;
-                break;
+        case ROWSET_UNLOADED:
+            _rowset_state = ROWSET_LOADED;
+            break;
 
-            default:
-                return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
+        default:
+            return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
         }
         return OLAP_SUCCESS;
     }
 
     OLAPStatus on_close(uint64_t refs_by_reader) {
         switch (_rowset_state) {
-            case ROWSET_LOADED:
-                if (refs_by_reader == 0) {
-                    _rowset_state = ROWSET_UNLOADED;
-                } else {
-                    _rowset_state = ROWSET_UNLOADING;
-                }
-                break;
+        case ROWSET_LOADED:
+            if (refs_by_reader == 0) {
+                _rowset_state = ROWSET_UNLOADED;
+            } else {
+                _rowset_state = ROWSET_UNLOADING;
+            }
+            break;
 
-            default:
-                return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
+        default:
+            return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
         }
         return OLAP_SUCCESS;
     }
 
     OLAPStatus on_release() {
         switch (_rowset_state) {
-            case ROWSET_UNLOADING:
-                _rowset_state = ROWSET_UNLOADED;
-                break;
+        case ROWSET_UNLOADING:
+            _rowset_state = ROWSET_UNLOADED;
+            break;
 
-            default:
-                return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
+        default:
+            return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
         }
         return OLAP_SUCCESS;
     }
 
-    RowsetState rowset_state() {
-        return _rowset_state;
-    }
+    RowsetState rowset_state() { return _rowset_state; }
 
 private:
     RowsetState _rowset_state;
@@ -106,17 +106,21 @@ private:
 
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
-    virtual ~Rowset() { }
+    virtual ~Rowset() {}
 
     // Open all segment files in this rowset and load necessary metadata.
     // - `use_cache` : whether to use fd cache, only applicable to alpha rowset now
     //
     // May be called multiple times, subsequent calls will no-op.
     // Derived class implements the load logic by overriding the `do_load_once()` method.
-    OLAPStatus load(bool use_cache = true);
+    OLAPStatus load(bool use_cache = true, std::shared_ptr<MemTracker> parent = nullptr);
 
     // returns OLAP_ERR_ROWSET_CREATE_READER when failed to create reader
     virtual OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) = 0;
+
+    // Support adding parent tracker, but should be careful about destruction sequence.
+    virtual OLAPStatus create_reader(const std::shared_ptr<MemTracker>& parent_tracker,
+                                     std::shared_ptr<RowsetReader>* result) = 0;
 
     // Split range denoted by `start_key` and `end_key` into sub-ranges, each contains roughly
     // `request_block_row_count` rows. Sub-range is represented by pair of OlapTuples and added to `ranges`.
@@ -126,8 +130,7 @@ public:
     //
     // The first/last tuple must be start_key/end_key.to_tuple(). If we can't divide the input range,
     // the result `ranges` should be [start_key.to_tuple(), end_key.to_tuple()]
-    virtual OLAPStatus split_range(const RowCursor& start_key,
-                                   const RowCursor& end_key,
+    virtual OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
                                    uint64_t request_block_row_count,
                                    std::vector<OlapTuple>* ranges) = 0;
 
@@ -157,6 +160,7 @@ public:
     bool delete_flag() const { return rowset_meta()->delete_flag(); }
     int64_t num_segments() const { return rowset_meta()->num_segments(); }
     void to_rowset_pb(RowsetMetaPB* rs_meta) { return rowset_meta()->to_rowset_pb(rs_meta); }
+    inline KeysType keys_type() { return _schema->keys_type(); }
 
     // remove all files in this rowset
     // TODO should we rename the method to remove_files() to be more specific?
@@ -187,10 +191,9 @@ public:
             LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
             return;
         }
-        VLOG(3) << "rowset is close. rowset state from:" << old_state
-            << " to " << _rowset_state_machine.rowset_state()
-            << ", version:" << start_version() << "-" << end_version()
-            << ", tabletid:" << _rowset_meta->tablet_id();
+        VLOG_NOTICE << "rowset is close. rowset state from:" << old_state << " to "
+                << _rowset_state_machine.rowset_state() << ", version:" << start_version() << "-"
+                << end_version() << ", tabletid:" << _rowset_meta->tablet_id();
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
@@ -205,30 +208,20 @@ public:
     virtual bool check_path(const std::string& path) = 0;
 
     // return an unique identifier string for this rowset
-    std::string unique_id() const {
-        return _rowset_path + "/" + rowset_id().to_string();
-    }
+    std::string unique_id() const { return _rowset_path + "/" + rowset_id().to_string(); }
 
-    bool need_delete_file() const {
-        return _need_delete_file;
-    }
+    bool need_delete_file() const { return _need_delete_file; }
 
-    void set_need_delete_file() {
-        _need_delete_file = true;
-    }
+    void set_need_delete_file() { _need_delete_file = true; }
 
-    bool contains_version(Version version) {
-        return rowset_meta()->version().contains(version);
-    }
+    bool contains_version(Version version) { return rowset_meta()->version().contains(version); }
 
     static bool comparator(const RowsetSharedPtr& left, const RowsetSharedPtr& right) {
         return left->end_version() < right->end_version();
     }
 
     // this function is called by reader to increase reference of rowset
-    void aquire() {
-        ++_refs_by_reader;
-    }
+    void aquire() { ++_refs_by_reader; }
 
     void release() {
         // if the refs by reader is 0 and the rowset is closed, should release the resouce
@@ -237,16 +230,17 @@ public:
             {
                 std::lock_guard<std::mutex> release_lock(_lock);
                 // rejudge _refs_by_reader because we do not add lock in create reader
-                if (_refs_by_reader == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
+                if (_refs_by_reader == 0 &&
+                    _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
                     // first do close, then change state
                     do_close();
                     _rowset_state_machine.on_release();
                 }
             }
             if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
-                VLOG(3) << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
-                    << ", version:" << start_version() << "-" << end_version()
-                    << ", tabletid:" << _rowset_meta->tablet_id();
+                VLOG_NOTICE << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
+                        << ", version:" << start_version() << "-" << end_version()
+                        << ", tabletid:" << _rowset_meta->tablet_id();
             }
         }
     }
@@ -256,15 +250,13 @@ protected:
 
     DISALLOW_COPY_AND_ASSIGN(Rowset);
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
-    Rowset(const TabletSchema* schema,
-           std::string rowset_path,
-           RowsetMetaSharedPtr rowset_meta);
+    Rowset(const TabletSchema* schema, std::string rowset_path, RowsetMetaSharedPtr rowset_meta);
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     virtual OLAPStatus init() = 0;
 
     // The actual implementation of load(). Guaranteed by to called exactly once.
-    virtual OLAPStatus do_load(bool use_cache) = 0;
+    virtual OLAPStatus do_load(bool use_cache, std::shared_ptr<MemTracker> parent = nullptr) = 0;
 
     // release resources in this api
     virtual void do_close() = 0;

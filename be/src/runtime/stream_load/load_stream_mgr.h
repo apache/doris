@@ -30,28 +30,20 @@ namespace doris {
 // used to register all streams in process so that other module can get this stream
 class LoadStreamMgr {
 public:
-    LoadStreamMgr() {
-        // Each StreamLoadPipe has a limited buffer size (default 1M), it's not needed to count the
-        // actual size of all StreamLoadPipe.
-        REGISTER_GAUGE_DORIS_METRIC(stream_load_pipe_count, [this]() {
-            std::lock_guard<std::mutex> l(_lock);
-            return _stream_map.size();
-        });
-    }
-    ~LoadStreamMgr() { }
+    LoadStreamMgr();
+    ~LoadStreamMgr();
 
-    Status put(const UniqueId& id,
-               std::shared_ptr<StreamLoadPipe> stream) {
+    Status put(const UniqueId& id, std::shared_ptr<StreamLoadPipe> stream) {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _stream_map.find(id);
         if (it != std::end(_stream_map)) {
             return Status::InternalError("id already exist");
         }
         _stream_map.emplace(id, stream);
-        VLOG(3) << "put stream load pipe: " << id;
+        VLOG_NOTICE << "put stream load pipe: " << id;
         return Status::OK();
     }
-    
+
     std::shared_ptr<StreamLoadPipe> get(const UniqueId& id) {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _stream_map.find(id);
@@ -68,7 +60,7 @@ public:
         auto it = _stream_map.find(id);
         if (it != std::end(_stream_map)) {
             _stream_map.erase(it);
-            VLOG(3) << "remove stream load pipe: " << id;
+            VLOG_NOTICE << "remove stream load pipe: " << id;
         }
         return;
     }
@@ -78,4 +70,4 @@ private:
     std::unordered_map<UniqueId, std::shared_ptr<StreamLoadPipe>> _stream_map;
 };
 
-}
+} // namespace doris

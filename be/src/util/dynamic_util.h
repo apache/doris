@@ -22,13 +22,13 @@
 
 namespace doris {
 
-// Look up smybols in a dynamically linked library.
+// Look up symbols in a dynamically linked library.
 // handle -- handle to the library. NULL if loading from the current process.
 // symbol -- symbol to lookup.
-// fn_ptr -- pointer tor retun addres of function.
+// fn_ptr -- pointer tor return address of function.
 Status dynamic_lookup(void* handle, const char* symbol, void** fn_ptr);
 
-// Open a dynamicly loaded library.
+// Open a dynamically loaded library.
 // library -- name of the library.  The default paths will be searched.
 //            library can be NULL to get the handle for the current process.
 // handle -- returned handle to the library.
@@ -37,7 +37,6 @@ Status dynamic_open(const char* library, void** handle);
 // Closes the handle.
 void dynamic_close(void* handle);
 
-}
+} // namespace doris
 
 #endif
-

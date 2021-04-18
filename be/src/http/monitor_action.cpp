@@ -18,25 +18,25 @@
 #include "http/monitor_action.h"
 
 #include <sstream>
-#include "http/http_request.h"
-#include "http/http_status.h"
-#include "http/http_channel.h"
-#include "http/http_response.h"
-#include "http/rest_monitor_iface.h"
+
 #include "common/status.h"
+#include "http/http_channel.h"
+#include "http/http_request.h"
+#include "http/http_response.h"
+#include "http/http_status.h"
+#include "http/rest_monitor_iface.h"
 
 namespace doris {
 
 const std::string MODULE_KEY = "module";
 
-MonitorAction::MonitorAction() {
-}
+MonitorAction::MonitorAction() {}
 
 void MonitorAction::register_module(const std::string& name, RestMonitorIface* module) {
     _module_by_name.insert(std::make_pair(name, module));
 }
 
-void MonitorAction::handle(HttpRequest *req) {
+void MonitorAction::handle(HttpRequest* req) {
     LOG(INFO) << req->debug_string();
     const std::string& module = req->param(MODULE_KEY);
     if (module.empty()) {
@@ -46,7 +46,7 @@ void MonitorAction::handle(HttpRequest *req) {
         channel->send_response(response);
 #endif
         HttpChannel::send_reply(req, HttpStatus::OK, err_msg);
-        return ;
+        return;
     }
     if (_module_by_name.find(module) == _module_by_name.end()) {
         std::string err_msg = "Unknown module(";
@@ -56,7 +56,7 @@ void MonitorAction::handle(HttpRequest *req) {
         channel->send_response(response);
 #endif
         HttpChannel::send_reply(req, HttpStatus::OK, err_msg);
-        return ;
+        return;
     }
     std::stringstream ss;
     _module_by_name[module]->debug(ss);
@@ -68,5 +68,4 @@ void MonitorAction::handle(HttpRequest *req) {
     HttpChannel::send_reply(req, HttpStatus::OK, str);
 }
 
-}
-
+} // namespace doris

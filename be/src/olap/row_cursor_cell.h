@@ -20,16 +20,17 @@
 namespace doris {
 
 struct RowCursorCell {
-    RowCursorCell(void* ptr) : _ptr(ptr) { }
-    RowCursorCell(const void* ptr) : _ptr((void*)ptr) { }
+    RowCursorCell(void* ptr) : _ptr(ptr) {}
+    RowCursorCell(const void* ptr) : _ptr((void*)ptr) {}
     bool is_null() const { return *reinterpret_cast<bool*>(_ptr); }
     void set_is_null(bool is_null) const { *reinterpret_cast<bool*>(_ptr) = is_null; }
     void set_null() const { *reinterpret_cast<bool*>(_ptr) = true; }
     void set_not_null() const { *reinterpret_cast<bool*>(_ptr) = false; }
     const void* cell_ptr() const { return (char*)_ptr + 1; }
     void* mutable_cell_ptr() const { return (char*)_ptr + 1; }
+
 private:
     void* _ptr;
 };
 
-}
+} // namespace doris

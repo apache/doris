@@ -18,14 +18,14 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_READER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_READER_H
 
-#include "olap/rowset/rowset_reader.h"
-#include "olap/rowset/segment_group.h"
-#include "olap/rowset/column_data.h"
+#include <queue>
+#include <vector>
+
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
-
-#include <vector>
-#include <queue>
+#include "olap/rowset/column_data.h"
+#include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/segment_group.h"
 
 namespace doris {
 
@@ -47,12 +47,13 @@ struct AlphaMergeContext {
 };
 
 struct AlphaMergeContextComparator {
-    bool operator () (const AlphaMergeContext* x, const AlphaMergeContext* y) const;
+    bool operator()(const AlphaMergeContext* x, const AlphaMergeContext* y) const;
 };
 
 class AlphaRowsetReader : public RowsetReader {
 public:
-    AlphaRowsetReader(int num_rows_per_row_block, AlphaRowsetSharedPtr rowset);
+    AlphaRowsetReader(int num_rows_per_row_block, AlphaRowsetSharedPtr rowset,
+                      const std::shared_ptr<MemTracker>& parent_tracker = nullptr);
 
     ~AlphaRowsetReader() override;
 
@@ -60,6 +61,8 @@ public:
     OLAPStatus init(RowsetReaderContext* read_context) override;
 
     // read next block data
+    // If parent_tracker is not null, the block we get from next_block() will have the parent_tracker.
+    // It's ok, because we only get ref here, the block's owner is this reader.
     OLAPStatus next_block(RowBlock** block) override;
 
     bool delete_flag() override;
@@ -73,7 +76,6 @@ public:
     int64_t filtered_rows() override;
 
 private:
-
     OLAPStatus _init_merge_ctxs(RowsetReaderContext* read_context);
 
     OLAPStatus _union_block(RowBlock** block);
@@ -101,6 +103,7 @@ private:
 private:
     int _num_rows_per_row_block;
     AlphaRowsetSharedPtr _rowset;
+    std::shared_ptr<MemTracker> _parent_tracker;
     std::string _rowset_path;
     AlphaRowsetMeta* _alpha_rowset_meta;
     const std::vector<std::shared_ptr<SegmentGroup>>& _segment_groups;
@@ -124,7 +127,8 @@ private:
     OlapReaderStatistics* _stats = &_owned_stats;
 
     // a priority queue for merging rowsets
-    std::priority_queue<AlphaMergeContext*, vector<AlphaMergeContext*>, AlphaMergeContextComparator> _merge_heap;
+    std::priority_queue<AlphaMergeContext*, vector<AlphaMergeContext*>, AlphaMergeContextComparator>
+            _merge_heap;
 };
 
 } // namespace doris

@@ -34,6 +34,7 @@ struct TColumn {
     6: optional string default_value
     7: optional bool is_bloom_filter_column
     8: optional Exprs.TExpr define_expr
+    9: optional bool visible = true
 }
 
 struct TTabletSchema {
@@ -45,6 +46,8 @@ struct TTabletSchema {
     6: optional double bloom_filter_fpp
     7: optional list<Descriptors.TOlapTableIndex> indexes
     8: optional bool is_in_memory
+    9: optional i32 delete_sign_idx = -1
+    10: optional i32 sequence_col_idx = -1
 }
 
 // this enum stands for different storage format in src_backends
@@ -104,6 +107,13 @@ struct TAlterTabletReqV2 {
     // version of data which this alter task should transform
     5: optional Types.TVersion alter_version
     6: optional Types.TVersionHash alter_version_hash // Deprecated
+    7: optional list<TAlterMaterializedViewParam> materialized_view_params
+}
+
+struct TAlterMaterializedViewParam {
+    1: required string column_name
+    2: optional string origin_column_name
+    3: optional Exprs.TExpr mv_expr
 }
 
 struct TClusterInfo {
@@ -151,6 +161,9 @@ struct TStorageMediumMigrateReq {
     1: required Types.TTabletId tablet_id
     2: required Types.TSchemaHash schema_hash
     3: required Types.TStorageMedium storage_medium
+    // if data dir is specified, the storage_medium is meaning less,
+    // Doris will try to migrate the tablet to the specified data dir.
+    4: optional string data_dir
 }
 
 struct TCancelDeleteDataReq {
@@ -173,6 +186,8 @@ struct TUploadReq {
     2: required map<string, string> src_dest_map
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
+    5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
+
 }
 
 struct TDownloadReq {
@@ -180,6 +195,7 @@ struct TDownloadReq {
     2: required map<string, string> src_dest_map
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
+    5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
 }
 
 struct TSnapshotRequest {
@@ -191,6 +207,7 @@ struct TSnapshotRequest {
     6: optional list<Types.TVersion> missing_version
     7: optional bool list_files
     // if all nodes has been upgraded, it can be removed.
+    // Deprecated since version 0.13
     8: optional bool allow_incremental_clone
     9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
 }

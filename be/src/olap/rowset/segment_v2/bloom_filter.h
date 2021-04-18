@@ -21,17 +21,17 @@
 #include <functional>
 #include <memory>
 
-#include "olap/utils.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "util/murmur_hash3.h"
 #include "common/status.h"
+#include "gen_cpp/segment_v2.pb.h"
 #include "gutil/strings/substitute.h"
+#include "olap/utils.h"
+#include "util/murmur_hash3.h"
 
 namespace doris {
 namespace segment_v2 {
 
 struct BloomFilterOptions {
-    // false positive probablity
+    // false positive probability
     double fpp = 0.05;
     HashStrategyPB strategy = HASH_MURMUR3_X64_64;
 };
@@ -53,11 +53,9 @@ public:
     // Factory function for BloomFilter
     static Status create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<BloomFilter>* bf);
 
-    BloomFilter() : _data(nullptr), _num_bytes(0), _size(0), _has_null(nullptr) { }
+    BloomFilter() : _data(nullptr), _num_bytes(0), _size(0), _has_null(nullptr) {}
 
-    virtual ~BloomFilter() {
-        delete[] _data;
-    }
+    virtual ~BloomFilter() { delete[] _data; }
 
     // for write
     Status init(uint64_t n, double fpp, HashStrategyPB strategy) {
@@ -79,7 +77,7 @@ public:
     }
 
     // for read
-    // use deep copy to aquire the data
+    // use deep copy to acquire the data
     Status init(char* buf, uint32_t size, HashStrategyPB strategy) {
         DCHECK(size > 1);
         if (strategy == HASH_MURMUR3_X64_64) {
@@ -93,14 +91,12 @@ public:
         _data = new char[size];
         memcpy(_data, buf, size);
         _size = size;
-        _num_bytes = _size -1;
+        _num_bytes = _size - 1;
         _has_null = (bool*)(_data + _num_bytes);
         return Status::OK();
     }
 
-    void reset() {
-        memset(_data, 0, _size);
-    }
+    void reset() { memset(_data, 0, _size); }
 
     uint64_t hash(char* buf, uint32_t size) const {
         uint64_t hash_code;
@@ -131,13 +127,9 @@ public:
 
     uint32_t size() const { return _size; }
 
-    void set_has_null(bool has_null) {
-        *_has_null = has_null;
-    }
+    void set_has_null(bool has_null) { *_has_null = has_null; }
 
-    bool has_null() const {
-        return *_has_null;
-    }
+    bool has_null() const { return *_has_null; }
 
     virtual void add_hash(uint64_t hash) = 0;
     virtual bool test_hash(uint64_t hash) const = 0;
@@ -146,7 +138,7 @@ private:
     // Compute the optimal bit number according to the following rule:
     //     m = -n * ln(fpp) / (ln(2) ^ 2)
     // n: expected distinct record number
-    // fpp: false positive probablity
+    // fpp: false positive probability
     // the result will be power of 2
     uint32_t _optimal_bit_num(uint64_t n, double fpp);
 

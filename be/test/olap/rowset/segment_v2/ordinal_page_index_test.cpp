@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/ordinal_page_index.h"
 
 #include <gtest/gtest.h>
+
 #include <iostream>
 #include <memory>
 #include <string>
@@ -25,6 +26,7 @@
 #include "common/logging.h"
 #include "env/env.h"
 #include "olap/fs/fs_util.h"
+#include "olap/page_cache.h"
 #include "util/file_utils.h"
 
 namespace doris {
@@ -60,8 +62,8 @@ TEST_F(OrdinalPageIndexTest, normal) {
     ColumnIndexMetaPB index_meta;
     {
         std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts({ filename });
-        ASSERT_TRUE(fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock).ok());
+        fs::CreateBlockOptions opts({filename});
+        ASSERT_TRUE(fs::fs_util::block_manager()->create_block(opts, &wblock).ok());
 
         ASSERT_TRUE(builder.finish(wblock.get(), &index_meta).ok());
         ASSERT_EQ(ORDINAL_INDEX, index_meta.type());
@@ -101,7 +103,6 @@ TEST_F(OrdinalPageIndexTest, normal) {
         ASSERT_TRUE(iter.valid());
         ASSERT_EQ(4097 + 4096, iter.first_ordinal());
         ASSERT_EQ(PagePointer(2 * 16 * 1024, 16 * 1024), iter.page());
-
     }
     {
         auto iter = index.seek_at_or_before(0);
@@ -153,11 +154,11 @@ TEST_F(OrdinalPageIndexTest, one_data_page) {
     }
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris
 
 int main(int argc, char** argv) {
+    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

@@ -32,16 +32,14 @@ public:
 
     // wait until obtain the lock
     OLAPStatus lock();
-    
+
     // try obtaining the lock
     OLAPStatus trylock();
-    
+
     // unlock is called after lock()
     OLAPStatus unlock();
 
-    pthread_mutex_t* getlock() {
-        return &_lock;
-    }
+    pthread_mutex_t* getlock() { return &_lock; }
 
 private:
     friend class ConditionVariable;
@@ -51,12 +49,11 @@ private:
 };
 
 // Helper class than locks a mutex on construction
-// and unlocks the mutex on descontruction.
+// and unlocks the mutex on deconstruction.
 class MutexLock {
 public:
     // wait until obtain the lock
-    explicit MutexLock(Mutex* mutex, bool try_lock = false)
-        : _mutex(mutex), _locked(false) {
+    explicit MutexLock(Mutex* mutex, bool try_lock = false) : _mutex(mutex), _locked(false) {
         if (try_lock) {
             _locked = (_mutex->trylock() == OLAP_SUCCESS);
         } else {
@@ -129,8 +126,7 @@ private:
 // object goes out of scope.
 class ReadLock {
 public:
-    explicit ReadLock(RWMutex* mutex, bool try_lock = false)
-            : _mutex(mutex), _locked(false) {
+    explicit ReadLock(RWMutex* mutex, bool try_lock = false) : _mutex(mutex), _locked(false) {
         if (try_lock) {
             _locked = this->_mutex->tryrdlock() == OLAP_SUCCESS;
         } else {
@@ -138,9 +134,9 @@ public:
             _locked = true;
         }
     }
-    ~ReadLock() { 
+    ~ReadLock() {
         if (_locked) {
-            this->_mutex->unlock(); 
+            this->_mutex->unlock();
         }
     }
 
@@ -157,8 +153,7 @@ private:
 // object goes out of scope.
 class WriteLock {
 public:
-    explicit WriteLock(RWMutex* mutex, bool try_lock = false)
-            : _mutex(mutex), _locked(false) {
+    explicit WriteLock(RWMutex* mutex, bool try_lock = false) : _mutex(mutex), _locked(false) {
         if (try_lock) {
             _locked = this->_mutex->trywrlock() == OLAP_SUCCESS;
         } else {
@@ -166,10 +161,10 @@ public:
             _locked = true;
         }
     }
-    ~WriteLock() { 
+    ~WriteLock() {
         if (_locked) {
             this->_mutex->unlock();
-        } 
+        }
     }
 
     bool own_lock() { return _locked; }

@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_READER_H
 #define DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_READER_H
 
-#include "olap/stream_index_common.h"
 #include "olap/olap_define.h"
+#include "olap/stream_index_common.h"
 
 namespace doris {
 
@@ -54,19 +54,11 @@ private:
 
 class PositionProvider {
 public:
-    PositionProvider() : _entry(NULL), _index(0) {
-    }
-    explicit PositionProvider(const PositionEntryReader* entry)
-        : _entry(entry),
-          _index(0) {
-    }
+    PositionProvider() : _entry(NULL), _index(0) {}
+    explicit PositionProvider(const PositionEntryReader* entry) : _entry(entry), _index(0) {}
     ~PositionProvider() {}
-    int64_t get_next() {
-        return _entry->positions(_index++);
-    }
-    bool all_null() const {
-        return _entry->all_null();
-    }
+    int64_t get_next() { return _entry->positions(_index++); }
+    bool all_null() const { return _entry->all_null(); }
 
 private:
     const PositionEntryReader* _entry;
@@ -78,8 +70,8 @@ public:
     StreamIndexReader();
     ~StreamIndexReader();
 
-    OLAPStatus init(char* buffer, size_t buffer_size, 
-                    FieldType type, bool is_using_cache, bool null_supported);
+    OLAPStatus init(char* buffer, size_t buffer_size, FieldType type, bool is_using_cache,
+                    bool null_supported);
     const PositionEntryReader& entry(uint64_t entry_id);
     size_t entry_count();
 
@@ -97,5 +89,5 @@ private:
     PositionEntryReader _entry;
 };
 
-}  // namespace doris
+} // namespace doris
 #endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_READER_H

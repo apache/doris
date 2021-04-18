@@ -15,21 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  BE_EXEC_ES_HTTP_SCAN_NODE_H
-#define  BE_EXEC_ES_HTTP_SCAN_NODE_H
+#ifndef BE_EXEC_ES_HTTP_SCAN_NODE_H
+#define BE_EXEC_ES_HTTP_SCAN_NODE_H
 
 #include <atomic>
 #include <condition_variable>
-#include <map>
-#include <string>
-#include <vector>
-#include <mutex>
-#include <thread>
 #include <future>
+#include <map>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
 
 #include "common/status.h"
-#include "exec/scan_node.h"
 #include "exec/es_http_scanner.h"
+#include "exec/scan_node.h"
 #include "gen_cpp/PaloInternalService_types.h"
 
 namespace doris {
@@ -73,13 +73,12 @@ private:
     // Collect all scanners 's status
     Status collect_scanners_status();
 
-    // One scanner worker, This scanner will hanle 'length' ranges start from start_idx
+    // One scanner worker, This scanner will handle 'length' ranges start from start_idx
     void scanner_worker(int start_idx, int length, std::promise<Status>& p_status);
 
     // Scan one range
     Status scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
-                const std::vector<ExprContext*>& conjunct_ctxs, 
-                EsScanCounter* counter);
+                        const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter);
 
     Status build_conjuncts_list();
 
@@ -113,6 +112,6 @@ private:
     std::vector<int> _predicate_to_conjunct;
 };
 
-}
+} // namespace doris
 
 #endif

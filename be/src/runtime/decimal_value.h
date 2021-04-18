@@ -22,15 +22,14 @@
 #include <climits>
 #include <cstdlib>
 #include <cstring>
-
-#include <string>
-#include <sstream>
 #include <iostream>
+#include <sstream>
+#include <string>
 
 #include "common/logging.h"
+#include "gutil/strings/numbers.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
-#include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
 
 namespace doris {
@@ -56,17 +55,14 @@ static const int32_t NOT_FIXED_DEC = 31;
 // digits + 1 position for sign + 1 position for decimal point, no terminator)
 static const int32_t DECIMAL_MAX_STR_LENGTH = (DECIMAL_MAX_POSSIBLE_PRECISION + 2);
 
-static const int32_t DIG_MASK = 100000000; // 10^8
+static const int32_t DIG_MASK = 100000000;  // 10^8
 static const int32_t DIG_BASE = 1000000000; // 10^9
 static const int32_t DIG_MAX = DIG_BASE - 1;
 
-static const int32_t powers10[DIG_PER_DEC1 + 1] =
-        { 1, 10, 100, 1000, 10000,
-        100000, 1000000, 10000000, 100000000, 1000000000};
-static const int32_t frac_max[DIG_PER_DEC1 - 1] =
-        { 900000000, 990000000, 999000000,
-        999900000, 999990000, 999999000,
-        999999900, 999999990 };
+static const int32_t powers10[DIG_PER_DEC1 + 1] = {
+        1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000};
+static const int32_t frac_max[DIG_PER_DEC1 - 1] = {900000000, 990000000, 999000000, 999900000,
+                                                   999990000, 999999000, 999999900, 999999990};
 
 // TODO(lingbin): add to mysql result if we support "show warning" in our mysql protocol?
 enum DecimalError {
@@ -81,16 +77,11 @@ enum DecimalError {
     E_DEC_FATAL_ERROR = 30
 };
 
-enum DecimalRoundMode {
-    HALF_UP = 1,
-    HALF_EVEN = 2,
-    CEILING = 3,
-    FLOOR = 4,
-    TRUNCATE = 5
-};
+enum DecimalRoundMode { HALF_UP = 1, HALF_EVEN = 2, CEILING = 3, FLOOR = 4, TRUNCATE = 5 };
 
 // Type T should be an integer: int8_t, int16_t...
-template<typename T> inline T round_up(T length);
+template <typename T>
+inline T round_up(T length);
 
 // Internally decimal numbers are stored base 10^9 (see DIG_BASE)
 // So one variable of type big_digit_type is limited:
@@ -101,30 +92,16 @@ public:
     friend DecimalValue operator-(const DecimalValue& v1, const DecimalValue& v2);
     friend DecimalValue operator*(const DecimalValue& v1, const DecimalValue& v2);
     friend DecimalValue operator/(const DecimalValue& v1, const DecimalValue& v2);
-    friend int32_t do_add(
-            const DecimalValue& value1,
-            const DecimalValue& value2,
-            DecimalValue* to);
-    friend int32_t do_sub(
-            const DecimalValue& value1,
-            const DecimalValue& value2,
-            DecimalValue* to);
-    friend int do_mul(
-            const DecimalValue& value1,
-            const DecimalValue& value2,
-            DecimalValue* to);
-    friend int do_div_mod(
-            const DecimalValue& value1,
-            const DecimalValue& value2,
-            DecimalValue* to,
-            DecimalValue* mod);
+    friend int32_t do_add(const DecimalValue& value1, const DecimalValue& value2, DecimalValue* to);
+    friend int32_t do_sub(const DecimalValue& value1, const DecimalValue& value2, DecimalValue* to);
+    friend int do_mul(const DecimalValue& value1, const DecimalValue& value2, DecimalValue* to);
+    friend int do_div_mod(const DecimalValue& value1, const DecimalValue& value2, DecimalValue* to,
+                          DecimalValue* mod);
     friend std::istream& operator>>(std::istream& ism, DecimalValue& decimal_value);
 
     friend DecimalValue operator-(const DecimalValue& v);
 
-    DecimalValue() : _buffer_length(DECIMAL_BUFF_LENGTH){
-        set_to_zero();
-    }
+    DecimalValue() : _buffer_length(DECIMAL_BUFF_LENGTH) { set_to_zero(); }
 
     DecimalValue(const std::string& decimal_str) : _buffer_length(DECIMAL_BUFF_LENGTH) {
         parse_from_str(decimal_str.c_str(), decimal_str.size());
@@ -141,22 +118,16 @@ public:
             _sign = false;
         }
 
-        int32_t big_digit_length = copy_int_to_decimal_int(
-                std::abs(int_value),
-                _buffer);
+        int32_t big_digit_length = copy_int_to_decimal_int(std::abs(int_value), _buffer);
         _int_length = big_digit_length * DIG_PER_DEC1;
-        _frac_length = copy_int_to_decimal_frac(
-                std::abs(frac_value),
-                _buffer + big_digit_length);
+        _frac_length = copy_int_to_decimal_frac(std::abs(frac_value), _buffer + big_digit_length);
     }
 
-    DecimalValue(int64_t int_value) : _buffer_length(DECIMAL_BUFF_LENGTH){
+    DecimalValue(int64_t int_value) : _buffer_length(DECIMAL_BUFF_LENGTH) {
         set_to_zero();
         _sign = int_value < 0 ? true : false;
 
-        int32_t big_digit_length = copy_int_to_decimal_int(
-                std::abs(int_value),
-                _buffer);
+        int32_t big_digit_length = copy_int_to_decimal_int(std::abs(int_value), _buffer);
         _int_length = big_digit_length * DIG_PER_DEC1;
         _frac_length = 0;
     }
@@ -224,29 +195,17 @@ public:
         return result;
     }
 
-    operator bool() const {
-        return !is_zero();
-    }
+    operator bool() const { return !is_zero(); }
 
-    operator int8_t() const {
-        return static_cast<char>(operator int64_t());
-    }
+    operator int8_t() const { return static_cast<char>(operator int64_t()); }
 
-    operator int16_t() const {
-        return static_cast<int16_t>(operator int64_t());
-    }
+    operator int16_t() const { return static_cast<int16_t>(operator int64_t()); }
 
-    operator int32_t() const {
-        return static_cast<int32_t>(operator int64_t());
-    }
+    operator int32_t() const { return static_cast<int32_t>(operator int64_t()); }
 
-    operator size_t() const {
-        return static_cast<size_t>(operator int64_t());
-    }
+    operator size_t() const { return static_cast<size_t>(operator int64_t()); }
 
-    operator float() const {
-        return (float)operator double();
-    }
+    operator float() const { return (float)operator double(); }
 
     operator double() const {
         std::string str_buff = to_string();
@@ -258,9 +217,7 @@ public:
 
     // To be Compatible with OLAP
     // ATTN: NO-OVERFLOW should be guaranteed.
-    int64_t int_value() const {
-        return operator int64_t();
-    }
+    int64_t int_value() const { return operator int64_t(); }
 
     // To be Compatible with OLAP
     // NOTE: return a negative value if decimal is negative.
@@ -275,41 +232,23 @@ public:
         return frac_val;
     }
 
-    bool equal(const DecimalValue& other) const {
-        return (*this - other).is_zero();
-    }
+    bool equal(const DecimalValue& other) const { return (*this - other).is_zero(); }
 
-    bool bigger(const DecimalValue& other) const {
-        return (other - *this)._sign;
-    }
+    bool bigger(const DecimalValue& other) const { return (other - *this)._sign; }
 
-    bool smaller(const DecimalValue& other) const {
-        return (*this - other)._sign;
-    }
+    bool smaller(const DecimalValue& other) const { return (*this - other)._sign; }
 
-    bool operator==(const DecimalValue& other) const {
-        return equal(other);
-    }
+    bool operator==(const DecimalValue& other) const { return equal(other); }
 
-    bool operator!=(const DecimalValue& other) const {
-        return !equal(other);
-    }
+    bool operator!=(const DecimalValue& other) const { return !equal(other); }
 
-    bool operator<=(const DecimalValue& other) const {
-        return !bigger(other);
-    }
+    bool operator<=(const DecimalValue& other) const { return !bigger(other); }
 
-    bool operator>=(const DecimalValue& other) const {
-        return !smaller(other);
-    }
+    bool operator>=(const DecimalValue& other) const { return !smaller(other); }
 
-    bool operator<(const DecimalValue& other) const {
-        return smaller(other);
-    }
+    bool operator<(const DecimalValue& other) const { return smaller(other); }
 
-    bool operator>(const DecimalValue& other) const {
-        return bigger(other);
-    }
+    bool operator>(const DecimalValue& other) const { return bigger(other); }
 
     // change to maximum value for given precision and scale
     // precision/scale - see decimal_bin_size() below
@@ -331,7 +270,7 @@ public:
     // @param from - value to convert. Doesn't have to be \0 terminated!
     //               will stop at the fist non-digit char(nor '.' 'e' 'E'),
     //               or reaches the length
-    // @param length - maximum lengnth
+    // @param length - maximum length
     // @return error number.
     //
     // E_DEC_OK/E_DEC_TRUNCATED/E_DEC_OVERFLOW/E_DEC_BAD_NUM/E_DEC_OOM
@@ -344,9 +283,9 @@ public:
     std::string get_debug_info() const {
         std::stringstream ss;
         ss << "_int_length: " << _int_length << "; "
-            << "_frac_length: " << _frac_length << "; "
-            << "_sign: " << _sign << "; "
-            << "_buffer_length: " << _buffer_length << "; ";
+           << "_frac_length: " << _frac_length << "; "
+           << "_sign: " << _sign << "; "
+           << "_buffer_length: " << _buffer_length << "; ";
         ss << "_buffer: [";
         for (int i = 0; i < DIG_PER_DEC1; ++i) {
             ss << _buffer[i] << ", ";
@@ -404,9 +343,7 @@ public:
         _sign = false;
     }
 
-    void to_abs_value() {
-        _sign = false;
-    }
+    void to_abs_value() { _sign = false; }
 
     uint32_t hash_uint(uint32_t value, uint32_t seed) const {
         return HashUtil::hash(&value, sizeof(value), seed);
@@ -435,24 +372,18 @@ public:
         return hash_uint(_sign, seed);
     }
 
-    int32_t precision() const {
-        return _int_length + _frac_length;
-    }
+    int32_t precision() const { return _int_length + _frac_length; }
 
-    int32_t scale() const {
-        return _frac_length;
-    }
+    int32_t scale() const { return _frac_length; }
 
-    int round(DecimalValue *to, int scale, DecimalRoundMode mode);
+    int round(DecimalValue* to, int scale, DecimalRoundMode mode);
 
 private:
-
     friend class MultiDistinctDecimalState;
 
     bool is_zero() const {
         const int32_t* buff = _buffer;
-        const int32_t* end = buff + round_up(_int_length)
-                + round_up(_frac_length);
+        const int32_t* end = buff + round_up(_int_length) + round_up(_frac_length);
         while (buff < end) {
             if (*buff++) {
                 return false;
@@ -462,9 +393,7 @@ private:
     }
 
     // TODO(lingbin): complete this function
-    int shift (int32_t shift) {
-        return 0;
-    }
+    int shift(int32_t shift) { return 0; }
 
     // Invoker make sure buff has enough space.
     // return the number of "big digits".
@@ -502,7 +431,6 @@ DecimalValue operator-(const DecimalValue& v);
 std::ostream& operator<<(std::ostream& os, DecimalValue const& decimal_value);
 std::istream& operator>>(std::istream& ism, DecimalValue& decimal_value);
 
-
 // TODO(lingbin) discard the fraction part?
 int64_t operator&(const DecimalValue& v1, const DecimalValue& v2);
 int64_t operator|(const DecimalValue& v1, const DecimalValue& v2);
@@ -513,8 +441,9 @@ int64_t operator~(const DecimalValue& v1);
 //    e.g. for 1234567891.222 . intg=10, ROUND_UP(10) = 2.
 // It means in decimal_digit_t type buff,
 //     it takes '2' bytes to store integer part
-template<typename T> inline T round_up(T length) {
-    return (T) ((length + DIG_PER_DEC1 - 1) / DIG_PER_DEC1);
+template <typename T>
+inline T round_up(T length) {
+    return (T)((length + DIG_PER_DEC1 - 1) / DIG_PER_DEC1);
 }
 
 inline int DecimalValue::copy_int_to_decimal_int(int64_t int_value, int32_t* buff) {
@@ -528,7 +457,7 @@ inline int DecimalValue::copy_int_to_decimal_int(int64_t int_value, int32_t* buf
     }
 
     int64_t quotient = 0;
-    do{
+    do {
         temp_buff[index++] = dividend % DIG_BASE;
         quotient = dividend / DIG_BASE;
         dividend = quotient;
@@ -562,8 +491,7 @@ inline int32_t DecimalValue::copy_int_to_decimal_frac(int64_t frac_value, int32_
     return frac_len;
 }
 
-inline const int32_t* DecimalValue::get_first_no_zero_index(
-        int32_t* int_digit_num) const {
+inline const int32_t* DecimalValue::get_first_no_zero_index(int32_t* int_digit_num) const {
     int32_t temp_intg = _int_length;
     const int32_t* buff = _buffer;
     int32_t first_big_digit_num = (temp_intg - 1) % DIG_PER_DEC1 + 1;
@@ -596,12 +524,10 @@ std::size_t hash_value(DecimalValue const& value);
 } // end namespace doris
 
 namespace std {
-    template<>
-    struct hash<doris::DecimalValue> {
-        size_t operator()(const doris::DecimalValue& v) const {
-            return doris::hash_value(v);
-        }
-    };
-}
+template <>
+struct hash<doris::DecimalValue> {
+    size_t operator()(const doris::DecimalValue& v) const { return doris::hash_value(v); }
+};
+} // namespace std
 
 #endif // DORIS_BE_SRC_QUERY_RUNTIME_DECIMAL_VALUE_H

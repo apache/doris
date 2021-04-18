@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/logging.h"
+#include "util/spinlock.h"
 
 namespace doris {
 
@@ -30,26 +31,27 @@ struct alignas(CACHE_LINE_SIZE) CoreDataBlock {
     char data[BLOCK_SIZE];
 
     static void* operator new(size_t nbytes) {
-        void *p = nullptr;
+        void* p = nullptr;
         if (posix_memalign(&p, alignof(CoreDataBlock), nbytes) == 0) {
             return p;
         }
         throw std::bad_alloc();
     }
 
-    static void operator delete(void* p) {
-        free(p);
-    }
+    static void operator delete(void* p) { free(p); }
 };
 
-template<size_t ELEMENT_BYTES>
+template <size_t ELEMENT_BYTES>
 class CoreDataAllocatorImpl : public CoreDataAllocator {
 public:
     virtual ~CoreDataAllocatorImpl();
     void* get_or_create(size_t id) override {
         size_t block_id = id / ELEMENTS_PER_BLOCK;
-        if (block_id >= _blocks.size()) {
-            _blocks.resize(block_id + 1);
+        {
+            std::lock_guard<SpinLock> l(_lock);
+            if (block_id >= _blocks.size()) {
+                _blocks.resize(block_id + 1);
+            }
         }
         CoreDataBlock* block = _blocks[block_id];
         if (block == nullptr) {
@@ -59,12 +61,14 @@ public:
         size_t offset = (id % ELEMENTS_PER_BLOCK) * ELEMENT_BYTES;
         return block->at(offset);
     }
+
 private:
     static constexpr int ELEMENTS_PER_BLOCK = BLOCK_SIZE / ELEMENT_BYTES;
+    SpinLock _lock; // lock to protect the modification of _blocks
     std::vector<CoreDataBlock*> _blocks;
 };
 
-template<size_t ELEMENT_BYTES>
+template <size_t ELEMENT_BYTES>
 CoreDataAllocatorImpl<ELEMENT_BYTES>::~CoreDataAllocatorImpl() {
     for (auto block : _blocks) {
         delete block;
@@ -114,4 +118,4 @@ CoreDataAllocatorFactory::~CoreDataAllocatorFactory() {
     }
 }
 
-}
+} // namespace doris

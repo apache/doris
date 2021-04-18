@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Multi-tenancy(Exprimental)",
+    "title": "Multi-tenancy(Experimental)",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Multi-tenancy(Exprimental)
+# Multi-tenancy(Experimental)
 
 This function is experimental and is not recommended for use in production environment.
 
@@ -179,7 +179,7 @@ The concrete structure is as follows:
 
 	Supports selecting multiple instances on the same machine. The general principle of selecting instance is to select be on different machines as much as possible and to make the number of be used on all machines as uniform as possible.
 
-	For use, each user and DB belongs to a cluster (except root). To create user and db, you first need to enter a cluster. When a cluster is created, the system defaults to the manager of the cluster, the superuser account. Supuser has the right to create db, user, and view the number of be nodes in the cluster to which it belongs. All non-root user logins must specify a cluster, namely `user_name@cluster_name`.
+	For use, each user and DB belongs to a cluster (except root). To create user and db, you first need to enter a cluster. When a cluster is created, the system defaults to the manager of the cluster, the superuser account. Superuser has the right to create db, user, and view the number of be nodes in the cluster to which it belongs. All non-root user logins must specify a cluster, namely `user_name@cluster_name`.
 
 	Only root users can view all clusters in the system through `SHOW CLUSTER', and can enter different clusters through @ different cluster names. User clusters are invisible except root.
 
@@ -191,11 +191,11 @@ The concrete structure is as follows:
 
 	The process of cluster expansion is the same as that of cluster creation. BE instance on hosts that are not outside the cluster is preferred. The selected principles are the same as creating clusters.
 
-5. 集群缩容、CLUSTER DECOMMISSION
+5. Cluster and Shrinkage CLUSTER DECOMMISSION
 
 	Users can scale clusters by setting instance num of clusters.
 
-	Cluster shrinkage takes precedence over downlining instances on hosts with the largest number of BE instances.
+	Cluster shrinkage takes precedence over Shrinking instances on hosts with the largest number of BE instances.
 
 	Users can also directly use `ALTER CLUSTER DECOMMISSION BACKEND` to specify BE for cluster scaling.
 

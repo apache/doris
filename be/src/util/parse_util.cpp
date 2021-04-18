@@ -71,8 +71,8 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, bool* is_perc
 
     if (multiplier != -1) {
         // Parse float - MB or GB
-        double limit_val = StringParser::string_to_float<double>(mem_spec_str.data(),
-                           number_str_len, &result);
+        double limit_val =
+                StringParser::string_to_float<double>(mem_spec_str.data(), number_str_len, &result);
 
         if (result != StringParser::PARSE_SUCCESS) {
             return -1;
@@ -81,16 +81,15 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, bool* is_perc
         bytes = multiplier * limit_val;
     } else {
         // Parse int - bytes or percent
-        int64_t limit_val = StringParser::string_to_int<int64_t>(mem_spec_str.data(),
-                            number_str_len, &result);
+        int64_t limit_val =
+                StringParser::string_to_int<int64_t>(mem_spec_str.data(), number_str_len, &result);
 
         if (result != StringParser::PARSE_SUCCESS) {
             return -1;
         }
 
         if (*is_percent) {
-            bytes =
-                (static_cast<double>(limit_val) / 100.0) * MemInfo::physical_mem();
+            bytes = (static_cast<double>(limit_val) / 100.0) * MemInfo::physical_mem();
         } else {
             bytes = limit_val;
         }
@@ -104,4 +103,4 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, bool* is_perc
     return bytes;
 }
 
-}
+} // namespace doris

@@ -20,6 +20,7 @@
 
 namespace doris {
 
+// TODO: this enum should be replaced by Status
 enum AgentStatus {
     DORIS_SUCCESS = 0,
     DORIS_ERROR = -1,
@@ -41,7 +42,7 @@ enum AgentStatus {
     DORIS_PUSH_HAD_LOADED = -504,
     DORIS_TIMEOUT = -901,
     DORIS_INTERNAL_ERROR = -902,
-    DORIS_DISK_REACH_CAPACITY_LIMIT = -903,
+    DORIS_DISK_REACH_CAPACITY_LIMIT = -903
 };
-}  // namespace doris
-#endif  // DORIS_BE_SRC_AGENT_STATUS_H
+} // namespace doris
+#endif // DORIS_BE_SRC_AGENT_STATUS_H

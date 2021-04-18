@@ -20,10 +20,10 @@
 #include <atomic>
 #include <condition_variable>
 #include <map>
-#include <string>
-#include <vector>
 #include <mutex>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include "base_scanner.h"
 #include "common/status.h"
@@ -35,7 +35,7 @@ namespace doris {
 class RuntimeState;
 class PartRangeKey;
 class PartitionInfo;
-class ScannerCounter;
+struct ScannerCounter;
 
 class BrokerScanNode : public ScanNode {
 public:
@@ -45,28 +45,20 @@ public:
     // Called after create this scan node
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
-    // initialize _mysql_scanner, and create _text_converter.
+    // Prepare partition infos & set up timer
     virtual Status prepare(RuntimeState* state) override;
 
-    // Start MySQL scan using _mysql_scanner.
+    // Start broker scan using ParquetScanner or BrokerScanner.
     virtual Status open(RuntimeState* state) override;
 
-    // Fill the next row batch by calling next() on the _mysql_scanner,
-    // converting text data in MySQL cells to binary data.
+    // Fill the next row batch by calling next() on the scanner,
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
 
-    // Close the _mysql_scanner, and report errors.
+    // Close the scanner, and report errors.
     virtual Status close(RuntimeState* state) override;
 
     // No use
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
-
-    // Called by broker scanners to get_partition_id
-    // If there is no partition information, return -1
-    // Return partition id if we find the partition match this row,
-    // return -1, if there is no such partition.
-    int64_t get_partition_id(
-        const std::vector<ExprContext*>& partition_exprs, TupleRow* row) const;
 
 protected:
     // Write debug string of this into out.
@@ -91,15 +83,13 @@ private:
 
     // Scan one range
     Status scanner_scan(const TBrokerScanRange& scan_range,
+                        const std::vector<ExprContext*>& pre_filter_ctxs,
                         const std::vector<ExprContext*>& conjunct_ctxs,
-                        const std::vector<ExprContext*>& partition_expr_ctxs,
                         ScannerCounter* counter);
 
-    // Find partition id with PartRangeKey
-    int64_t binary_find_partition_id(const PartRangeKey& key) const;
-
     std::unique_ptr<BaseScanner> create_scanner(const TBrokerScanRange& scan_range,
-                                                     ScannerCounter* counter);
+                                                const std::vector<ExprContext*>& pre_filter_ctxs,
+                                                ScannerCounter* counter);
 
 private:
     TupleId _tuple_id;
@@ -125,13 +115,9 @@ private:
 
     int _max_buffered_batches;
 
-    // Partition informations
-    std::vector<ExprContext*> _partition_expr_ctxs;
-    std::vector<PartitionInfo*> _partition_infos;
+    std::vector<ExprContext*> _pre_filter_ctxs;
 
-    // Profile information
-    //
     RuntimeProfile::Counter* _wait_scanner_timer;
 };
 
-}
+} // namespace doris

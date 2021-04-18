@@ -28,6 +28,7 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_id_generator.h"
+#include "util/metrics.h"
 #include "util/mutex.h"
 
 namespace doris {
@@ -105,7 +106,7 @@ public:
 
     void perform_path_gc_by_rowsetid();
 
-    OLAPStatus remove_old_meta_and_files();
+    void perform_path_gc_by_tablet();
 
     bool convert_old_data_success();
 
@@ -121,6 +122,14 @@ public:
 
     Status update_capacity();
 
+    void update_user_data_size(int64_t size);
+
+    size_t tablet_size() const;
+
+    void disks_compaction_score_increment(int64_t delta);
+
+    void disks_compaction_num_increment(int64_t delta);
+
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
@@ -133,9 +142,10 @@ private:
     Status _read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
     OLAPStatus _clean_unfinished_converting_data();
-    OLAPStatus _convert_old_tablet();
-
-    void _remove_check_paths_no_lock(const std::set<std::string>& paths);
+    // Check whether has old format (hdr_ start) in olap. When doris updating to current version,
+    // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true,
+    // process will log fatal.
+    OLAPStatus _check_incompatible_old_format_tablet();
 
     void _process_garbage_path(const std::string& path);
 
@@ -167,7 +177,7 @@ private:
     bool _to_be_deleted;
 
     // used to protect _current_shard and _tablet_set
-    std::mutex _mutex;
+    mutable std::mutex _mutex;
     uint64_t _current_shard;
     std::set<TabletInfo> _tablet_set;
 
@@ -177,14 +187,23 @@ private:
     RowsetIdGenerator* _id_generator = nullptr;
 
     std::mutex _check_path_mutex;
-    std::condition_variable _cv;
+    std::condition_variable _check_path_cv;
     std::set<std::string> _all_check_paths;
+    std::set<std::string> _all_tablet_schemahash_paths;
 
     RWMutex _pending_path_mutex;
     std::set<std::string> _pending_path_ids;
 
     // used in convert process
     bool _convert_old_data_success;
+
+    std::shared_ptr<MetricEntity> _data_dir_metric_entity;
+    IntGauge* disks_total_capacity;
+    IntGauge* disks_avail_capacity;
+    IntGauge* disks_data_used_capacity;
+    IntGauge* disks_state;
+    IntGauge* disks_compaction_score;
+    IntGauge* disks_compaction_num;
 };
 
 } // namespace doris

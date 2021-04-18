@@ -19,16 +19,23 @@
 
 #include "util/doris_metrics.h"
 #include "util/spinlock.h"
+#include "util/stack_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(rowset_count_generated_and_in_use, MetricUnit::ROWSETS);
+
 UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(const UniqueId& backend_uid)
         : _backend_uid(backend_uid), _inc_id(0) {
-    REGISTER_GAUGE_DORIS_METRIC(rowset_count_generated_and_in_use, [this]() {
+    REGISTER_HOOK_METRIC(rowset_count_generated_and_in_use, [this]() {
         std::lock_guard<SpinLock> l(_lock);
         return _valid_rowset_id_hi.size();
     });
+}
+
+UniqueRowsetIdGenerator::~UniqueRowsetIdGenerator() {
+    DEREGISTER_HOOK_METRIC(rowset_count_generated_and_in_use);
 }
 
 // generate a unique rowset id and save it in a set to check whether it is valid in the future
@@ -57,6 +64,14 @@ bool UniqueRowsetIdGenerator::id_in_use(const RowsetId& rowset_id) const {
 }
 
 void UniqueRowsetIdGenerator::release_id(const RowsetId& rowset_id) {
+    // Only release the rowsetid generated after this startup.
+    // So we need to check version/mid/low part first
+    if (rowset_id.version < _version) {
+        return;
+    }
+    if ((rowset_id.mi != _backend_uid.hi) || (rowset_id.lo != _backend_uid.lo)) {
+        return;
+    }
     std::lock_guard<SpinLock> l(_lock);
     _valid_rowset_id_hi.erase(rowset_id.hi);
 }

@@ -17,15 +17,15 @@
 
 #include "geo/geo_types.h"
 
-#include <stdio.h>
-#include <sstream>
-#include <iomanip>
-
-#include <s2/s2latlng.h>
 #include <s2/s2cell.h>
 #include <s2/s2earth.h>
+#include <s2/s2latlng.h>
 #include <s2/util/coding/coder.h>
 #include <s2/util/units/length-units.h>
+#include <stdio.h>
+
+#include <iomanip>
+#include <sstream>
 
 #include "geo/wkt_parse.h"
 
@@ -73,16 +73,15 @@ static void remove_duplicate_points(std::vector<S2Point>* points) {
         if ((*points)[rhs] != (*points)[lhs]) {
             lhs++;
             if (lhs != rhs) {
-               (*points)[lhs] = (*points)[rhs];
+                (*points)[lhs] = (*points)[rhs];
             }
         }
     }
     points->resize(lhs + 1);
 }
 
-static GeoParseStatus to_s2loop(const GeoCoordinateList& coords,
-                                std::unique_ptr<S2Loop>* loop) {
-    // 1. covnert all coordinates to points
+static GeoParseStatus to_s2loop(const GeoCoordinateList& coords, std::unique_ptr<S2Loop>* loop) {
+    // 1. convert all coordinates to points
     std::vector<S2Point> points(coords.list.size());
     for (int i = 0; i < coords.list.size(); ++i) {
         auto res = to_s2point(coords.list[i], &points[i]);
@@ -112,7 +111,7 @@ static GeoParseStatus to_s2loop(const GeoCoordinateList& coords,
 
 static GeoParseStatus to_s2polyline(const GeoCoordinateList& coords,
                                     std::unique_ptr<S2Polyline>* polyline) {
-    // 1. covnert all coordinates to points
+    // 1. convert all coordinates to points
     std::vector<S2Point> points(coords.list.size());
     for (int i = 0; i < coords.list.size(); ++i) {
         auto res = to_s2point(coords.list[i], &points[i]);
@@ -326,7 +325,6 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
         }
         return _polygon->MayIntersect(S2Cell(point->point()));
 #endif
-
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
@@ -395,7 +393,6 @@ bool GeoCircle::contains(const GeoShape* rhs) const {
         }
         return _polygon->MayIntersect(S2Cell(point->point()));
 #endif
-
     }
 #if 0
     case GEO_SHAPE_LINE_STRING: {
@@ -517,4 +514,4 @@ bool GeoMultiPolygon::contains(const GeoShape* rhs) {
 }
 #endif
 
-}
+} // namespace doris

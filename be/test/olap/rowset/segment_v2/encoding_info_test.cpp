@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/encoding_info.h"
 
 #include <gtest/gtest.h>
+
 #include <iostream>
 
 #include "common/logging.h"
@@ -29,13 +30,12 @@ namespace segment_v2 {
 
 class EncodingInfoTest : public testing::Test {
 public:
-    EncodingInfoTest() { }
-    virtual ~EncodingInfoTest() {
-    }
+    EncodingInfoTest() {}
+    virtual ~EncodingInfoTest() {}
 };
 
 TEST_F(EncodingInfoTest, normal) {
-    auto type_info = get_type_info(OLAP_FIELD_TYPE_BIGINT);
+    auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_BIGINT);
     const EncodingInfo* encoding_info = nullptr;
     auto status = EncodingInfo::get(type_info, PLAIN_ENCODING, &encoding_info);
     ASSERT_TRUE(status.ok());
@@ -43,17 +43,16 @@ TEST_F(EncodingInfoTest, normal) {
 }
 
 TEST_F(EncodingInfoTest, no_encoding) {
-    auto type_info = get_type_info(OLAP_FIELD_TYPE_BIGINT);
+    auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_BIGINT);
     const EncodingInfo* encoding_info = nullptr;
     auto status = EncodingInfo::get(type_info, DICT_ENCODING, &encoding_info);
     ASSERT_FALSE(status.ok());
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

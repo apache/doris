@@ -24,11 +24,8 @@
 
 namespace doris {
 
-RunLengthIntegerWriter::RunLengthIntegerWriter(OutStream* output, bool is_singed) : 
-        _output(output),
-        _is_signed(is_singed),
-        _fixed_run_length(0),
-        _var_run_length(0) {
+RunLengthIntegerWriter::RunLengthIntegerWriter(OutStream* output, bool is_singed)
+        : _output(output), _is_signed(is_singed), _fixed_run_length(0), _var_run_length(0) {
     _clear();
 }
 
@@ -256,7 +253,7 @@ void RunLengthIntegerWriter::_prepare_patched_blob() {
             prev = i;
             gap_list[gap_idx++] = gap;
 
-            // extract the most significat bits that are over mask bits
+            // extract the most significant bits that are over mask bits
             int64_t patch = ((uint64_t)_base_reduced_literals[i]) >> _br_bits_95p;
             patch_list[patch_idx++] = patch;
 
@@ -323,8 +320,9 @@ OLAPStatus RunLengthIntegerWriter::_write_short_repeat_values() {
     repeat_value = _is_signed ? ser::zig_zag_encode(_literals[0]) : _literals[0];
 
     uint32_t num_bits_repeat_value = ser::find_closet_num_bits(repeat_value);
-    uint32_t num_bytes_repeat_value = num_bits_repeat_value % 8 == 0 ?
-                                      num_bits_repeat_value >> 3 : (num_bits_repeat_value >> 3) + 1;
+    uint32_t num_bytes_repeat_value = num_bits_repeat_value % 8 == 0
+                                              ? num_bits_repeat_value >> 3
+                                              : (num_bits_repeat_value >> 3) + 1;
 
     ShortRepeatHead head;
     head.type = SHORT_REPEAT;
@@ -572,7 +570,7 @@ OLAPStatus RunLengthIntegerWriter::_write_values() {
             break;
 
         default:
-            OLAP_LOG_WARNING("Unknow encoding [encoding=%d]", _encoding);
+            OLAP_LOG_WARNING("Unknown encoding [encoding=%d]", _encoding);
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 
@@ -599,7 +597,7 @@ OLAPStatus RunLengthIntegerWriter::write(int64_t value) {
             _fixed_run_length = 0;
             _var_run_length = 2;
         }
-    } else {  // _num_literals >= 2
+    } else { // _num_literals >= 2
         long current_delta = value - _literals[_num_literals - 1];
 
         if (_prev_delta == 0 && current_delta == 0) {
@@ -668,7 +666,7 @@ OLAPStatus RunLengthIntegerWriter::write(int64_t value) {
                 }
             }
 
-            // after writing values re-intialize
+            // after writing values re-initialize
             if (_num_literals == 0) {
                 _init_literals(value);
             } else {
@@ -729,8 +727,8 @@ void RunLengthIntegerWriter::get_position(PositionEntryWriter* index_entry, bool
 
     if (print) {
         _output->print_position_debug_info();
-        VLOG(10) << "literals=" << _num_literals;
+        VLOG_TRACE << "literals=" << _num_literals;
     }
 }
 
-}  // namespace doris
+} // namespace doris

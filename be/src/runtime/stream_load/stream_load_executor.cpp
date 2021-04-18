@@ -19,6 +19,10 @@
 
 #include "common/status.h"
 #include "common/utils.h"
+#include "gen_cpp/FrontendService.h"
+#include "gen_cpp/FrontendService_types.h"
+#include "gen_cpp/HeartbeatService_types.h"
+#include "gen_cpp/Types_types.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -27,11 +31,6 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
-
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/Types_types.h"
 
 namespace doris {
 
@@ -43,7 +42,7 @@ Status k_stream_load_plan_status;
 #endif
 
 Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
-    DorisMetrics::instance()->txn_exec_plan_total.increment(1);
+    DorisMetrics::instance()->txn_exec_plan_total->increment(1);
 // submit this params
 #ifndef BE_TEST
     ctx->ref();
@@ -79,14 +78,16 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                     }
 
                     if (status.ok()) {
-                        DorisMetrics::instance()->stream_receive_bytes_total.increment(ctx->receive_bytes);
-                        DorisMetrics::instance()->stream_load_rows_total.increment(ctx->number_loaded_rows);
+                        DorisMetrics::instance()->stream_receive_bytes_total->increment(
+                                ctx->receive_bytes);
+                        DorisMetrics::instance()->stream_load_rows_total->increment(
+                                ctx->number_loaded_rows);
                     }
                 } else {
                     LOG(WARNING) << "fragment execute failed"
                                  << ", query_id="
                                  << UniqueId(ctx->put_result.params.params.query_id)
-                                 << ", err_msg=" << status.get_error_msg() << ctx->brief();
+                                 << ", err_msg=" << status.get_error_msg() << ", " << ctx->brief();
                     // cancel body_sink, make sender known it
                     if (ctx->body_sink != nullptr) {
                         ctx->body_sink->cancel();
@@ -120,7 +121,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
 }
 
 Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
-    DorisMetrics::instance()->txn_begin_request_total.increment(1);
+    DorisMetrics::instance()->txn_begin_request_total->increment(1);
 
     TLoadTxnBeginRequest request;
     set_request_auth(&request, ctx->auth);
@@ -161,7 +162,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 }
 
 Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
-    DorisMetrics::instance()->txn_commit_request_total.increment(1);
+    DorisMetrics::instance()->txn_commit_request_total->increment(1);
 
     TLoadTxnCommitRequest request;
     set_request_auth(&request, ctx->auth);
@@ -171,6 +172,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     request.sync = true;
     request.commitInfos = std::move(ctx->commit_infos);
     request.__isset.commitInfos = true;
+    request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
 
     // set attachment if has
     TTxnCommitAttachment attachment;
@@ -209,7 +211,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
 }
 
 void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
-    DorisMetrics::instance()->txn_rollback_request_total.increment(1);
+    DorisMetrics::instance()->txn_rollback_request_total->increment(1);
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnRollbackRequest request;
@@ -280,7 +282,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
         break;
     }
     default:
-        // unknown load type, should not happend
+        // unknown load type, should not happened
         return false;
     }
 
@@ -305,4 +307,4 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
     return false;
 }
 
-} // end namespace
+} // namespace doris

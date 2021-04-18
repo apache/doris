@@ -49,7 +49,7 @@ static std::string to_upper(const std::string& str) {
 //   format 1:   /home/disk1/palo.HDD,50
 //   format 2:   /home/disk1/palo,medium:ssd,capacity:50
 OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
-    vector<string> tmp_vec = strings::Split(root_path, ",", strings::SkipWhitespace());
+    std::vector<string> tmp_vec = strings::Split(root_path, ",", strings::SkipWhitespace());
 
     // parse root path name
     StripWhiteSpace(&tmp_vec[0]);
@@ -80,8 +80,8 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
         // <property>:<value> or <value>
         string property;
         string value;
-        std::pair<string, string> pair = strings::Split(
-                tmp_vec[i], strings::delimiter::Limit(":", 1));
+        std::pair<string, string> pair =
+                strings::Split(tmp_vec[i], strings::delimiter::Limit(":", 1));
         if (pair.second.empty()) {
             // format_1: <value> only supports setting capacity
             property = CAPACITY_UC;
@@ -108,8 +108,8 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
 
     path->capacity_bytes = -1;
     if (!capacity_str.empty()) {
-        if (!valid_signed_number<int64_t>(capacity_str)
-                || strtol(capacity_str.c_str(), NULL, 10) < 0) {
+        if (!valid_signed_number<int64_t>(capacity_str) ||
+            strtol(capacity_str.c_str(), NULL, 10) < 0) {
             LOG(WARNING) << "invalid capacity of store path, capacity=" << capacity_str;
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
@@ -131,8 +131,8 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus parse_conf_store_paths(const string& config_path, vector<StorePath>* paths) {
-    vector<string> path_vec = strings::Split(config_path, ";", strings::SkipWhitespace());
+OLAPStatus parse_conf_store_paths(const string& config_path, std::vector<StorePath>* paths) {
+    std::vector<string> path_vec = strings::Split(config_path, ";", strings::SkipWhitespace());
     for (auto& item : path_vec) {
         StorePath path;
         auto res = parse_root_path(item, &path);
@@ -141,7 +141,6 @@ OLAPStatus parse_conf_store_paths(const string& config_path, vector<StorePath>* 
         } else {
             LOG(WARNING) << "failed to parse store path " << item << ", res=" << res;
         }
-
     }
     if (paths->empty() || (path_vec.size() != paths->size() && !config::ignore_broken_disk)) {
         LOG(WARNING) << "fail to parse storage_root_path config. value=[" << config_path << "]";

@@ -26,8 +26,7 @@ namespace doris {
 using doris_udf::BigIntVal;
 using doris_udf::StringVal;
 
-void HllFunctions::init() {
-}
+void HllFunctions::init() {}
 
 StringVal HllFunctions::hll_hash(FunctionContext* ctx, const StringVal& input) {
     HyperLogLog hll;
@@ -41,7 +40,7 @@ StringVal HllFunctions::hll_hash(FunctionContext* ctx, const StringVal& input) {
     return AnyValUtil::from_string_temp(ctx, buf);
 }
 
-void HllFunctions::hll_init(FunctionContext *, StringVal* dst) {
+void HllFunctions::hll_init(FunctionContext*, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(HyperLogLog);
     dst->ptr = (uint8_t*)new HyperLogLog();
@@ -51,7 +50,7 @@ StringVal HllFunctions::hll_empty(FunctionContext* ctx) {
 }
 
 template <typename T>
-void HllFunctions::hll_update(FunctionContext *, const T &src, StringVal* dst) {
+void HllFunctions::hll_update(FunctionContext*, const T& src, StringVal* dst) {
     if (src.is_null) {
         return;
     }
@@ -76,14 +75,14 @@ void HllFunctions::hll_merge(FunctionContext*, const StringVal& src, StringVal* 
     }
 }
 
-BigIntVal HllFunctions::hll_finalize(FunctionContext*, const StringVal &src) {
+BigIntVal HllFunctions::hll_finalize(FunctionContext*, const StringVal& src) {
     auto* src_hll = reinterpret_cast<HyperLogLog*>(src.ptr);
     BigIntVal result(src_hll->estimate_cardinality());
     delete src_hll;
     return result;
 }
 
-BigIntVal HllFunctions::hll_get_value(FunctionContext*, const StringVal &src) {
+BigIntVal HllFunctions::hll_get_value(FunctionContext*, const StringVal& src) {
     if (src.is_null) {
         return BigIntVal::null();
     }
@@ -102,7 +101,7 @@ BigIntVal HllFunctions::hll_cardinality(FunctionContext* ctx, const StringVal& i
     return hll_finalize(ctx, dst);
 }
 
-StringVal HllFunctions::hll_serialize(FunctionContext *ctx, const StringVal &src) {
+StringVal HllFunctions::hll_serialize(FunctionContext* ctx, const StringVal& src) {
     auto* src_hll = reinterpret_cast<HyperLogLog*>(src.ptr);
     StringVal result(ctx, src_hll->max_serialized_size());
     int size = src_hll->serialize((uint8_t*)result.ptr);
@@ -123,4 +122,4 @@ template void HllFunctions::hll_update(FunctionContext*, const DateTimeVal&, Str
 template void HllFunctions::hll_update(FunctionContext*, const LargeIntVal&, StringVal*);
 template void HllFunctions::hll_update(FunctionContext*, const DecimalVal&, StringVal*);
 template void HllFunctions::hll_update(FunctionContext*, const DecimalV2Val&, StringVal*);
-}
+} // namespace doris

@@ -19,8 +19,8 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_READER_H
 
 #include "olap/file_stream.h"
-#include "olap/rowset/run_length_byte_writer.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/run_length_byte_writer.h"
 
 namespace doris {
 
@@ -52,6 +52,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(RunLengthByteReader);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_READER_H

@@ -43,7 +43,7 @@ public:
     void make_snapshot(TAgentResult& agent_result, const TSnapshotRequest& snapshot_request);
     void release_snapshot(TAgentResult& agent_result, const std::string& snapshot_path);
 
-    // Deprected
+    // Deprecated
     // TODO(lingbin): This method is deprecated, should be removed later.
     void publish_cluster_state(TAgentResult& agent_result, const TAgentPublishRequest& request);
 
@@ -89,7 +89,6 @@ private:
     std::unique_ptr<TopicSubscriber> _topic_subscriber;
 };
 
-}  // end namespace doris
+} // end namespace doris
 
-#endif  // DORIS_BE_SRC_AGENT_AGENT_SERVER_H
-
+#endif // DORIS_BE_SRC_AGENT_AGENT_SERVER_H

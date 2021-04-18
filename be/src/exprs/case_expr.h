@@ -19,19 +19,18 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_CASE_EXPR_H
 
 #include <string>
-#include "expr.h"
+
 #include "common/object_pool.h"
+#include "expr.h"
 
 namespace doris {
 
 class TExprNode;
 
-class CaseExpr: public Expr {
+class CaseExpr : public Expr {
 public:
     virtual ~CaseExpr();
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new CaseExpr(*this)); 
-    }
+    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new CaseExpr(*this)); }
     virtual BooleanVal get_boolean_val(ExprContext* ctx, TupleRow* row);
     virtual TinyIntVal get_tiny_int_val(ExprContext* ctx, TupleRow* row);
     virtual SmallIntVal get_small_int_val(ExprContext* ctx, TupleRow* row);
@@ -52,22 +51,18 @@ protected:
     friend class DecimalV2Operators;
 
     CaseExpr(const TExprNode& node);
-    virtual Status prepare(
-        RuntimeState* state, const RowDescriptor& row_desc, ExprContext* context);
-    virtual Status open(
-        RuntimeState* state, ExprContext* context, FunctionContext::FunctionStateScope scope);
-    virtual void close(
-        RuntimeState* state, ExprContext* context, FunctionContext::FunctionStateScope scope);
+    virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                           ExprContext* context);
+    virtual Status open(RuntimeState* state, ExprContext* context,
+                        FunctionContext::FunctionStateScope scope);
+    virtual void close(RuntimeState* state, ExprContext* context,
+                       FunctionContext::FunctionStateScope scope);
 
     virtual std::string debug_string() const;
 
-    bool has_case_expr() { 
-        return _has_case_expr; 
-    }
+    bool has_case_expr() { return _has_case_expr; }
 
-    bool has_else_expr() { 
-        return _has_else_expr; 
-    }
+    bool has_else_expr() { return _has_else_expr; }
 
 private:
     const bool _has_case_expr;
@@ -81,6 +76,6 @@ private:
     bool any_val_eq(const TypeDescriptor& type, const AnyVal* v1, const AnyVal* v2);
 };
 
-}
+} // namespace doris
 
 #endif

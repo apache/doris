@@ -11,9 +11,8 @@
 
 #include <string>
 
-#include "olap/olap_common.h"
-
 #include "gutil/endian.h"
+#include "olap/olap_common.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -106,14 +105,14 @@ inline uint128_t decode_fixed128_le(const uint8_t* buf) {
 #endif
 }
 
-template<typename T>
+template <typename T>
 inline void put_fixed32_le(T* dst, uint32_t val) {
     uint8_t buf[sizeof(val)];
     encode_fixed32_le(buf, val);
     dst->append((char*)buf, sizeof(buf));
 }
 
-template<typename T>
+template <typename T>
 inline void put_fixed64_le(T* dst, uint64_t val) {
     uint8_t buf[sizeof(val)];
     encode_fixed64_le(buf, val);
@@ -130,7 +129,7 @@ inline int varint_length(uint64_t v) {
     return len;
 }
 
-template<typename T>
+template <typename T>
 inline void put_fixed128_le(T* dst, uint128_t val) {
     uint8_t buf[sizeof(val)];
     encode_fixed128_le(buf, val);
@@ -143,18 +142,21 @@ extern uint8_t* encode_varint64(uint8_t* dst, uint64_t value);
 inline uint8_t* encode_varint64(uint8_t* dst, uint64_t v) {
     static const unsigned int B = 128;
     while (v >= B) {
-        *(dst++) = (v & (B - 1)) | B;
+        // Fetch low seven bits from current v, and the eight bit is marked as compression mark.
+        // v | B is optimised from (v & (B-1)) | B, because result is assigned to uint8_t and other bits
+        // is cleared by implicit conversion.
+        *(dst++) = v | B;
         v >>= 7;
     }
     *(dst++) = static_cast<unsigned char>(v);
     return dst;
 }
 
-extern const uint8_t* decode_varint32_ptr_fallback(
-    const uint8_t* p, const uint8_t* limit, uint32_t* value);
+extern const uint8_t* decode_varint32_ptr_fallback(const uint8_t* p, const uint8_t* limit,
+                                                   uint32_t* value);
 
-inline const uint8_t* decode_varint32_ptr(
-        const uint8_t* ptr, const uint8_t* limit, uint32_t* value) {
+inline const uint8_t* decode_varint32_ptr(const uint8_t* ptr, const uint8_t* limit,
+                                          uint32_t* value) {
     if (ptr < limit) {
         uint32_t result = *ptr;
         if ((result & 128) == 0) {
@@ -166,34 +168,38 @@ inline const uint8_t* decode_varint32_ptr(
 }
 
 extern const uint8_t* decode_varint64_ptr(const uint8_t* p, const uint8_t* limit, uint64_t* value);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
 
-template<typename T>
+template <typename T>
 inline void put_varint32(T* dst, uint32_t v) {
     uint8_t buf[5];
     uint8_t* ptr = encode_varint32(buf, v);
     dst->append((char*)buf, static_cast<size_t>(ptr - buf));
 }
 
-template<typename T>
+template <typename T>
 inline void put_varint64(T* dst, uint64_t v) {
     uint8_t buf[10];
     uint8_t* ptr = encode_varint64(buf, v);
     dst->append((char*)buf, static_cast<size_t>(ptr - buf));
 }
 
-template<typename T>
+template <typename T>
 inline void put_length_prefixed_slice(T* dst, const Slice& value) {
     put_varint32(dst, value.get_size());
     dst->append(value.get_data(), value.get_size());
 }
 
-template<typename T>
+template <typename T>
 inline void put_varint64_varint32(T* dst, uint64_t v1, uint32_t v2) {
     uint8_t buf[15];
     uint8_t* ptr = encode_varint64(buf, v1);
     ptr = encode_varint32(ptr, v2);
     dst->append((char*)buf, static_cast<size_t>(ptr - buf));
 }
+
+#pragma GCC diagnostic pop
 
 // parse a varint32 from the start of `input` into `val`.
 // on success, return true and advance `input` past the parsed value.

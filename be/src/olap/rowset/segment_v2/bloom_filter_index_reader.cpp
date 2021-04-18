@@ -17,8 +17,8 @@
 
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 
-#include "olap/types.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/types.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -36,11 +36,13 @@ Status BloomFilterIndexReader::new_iterator(std::unique_ptr<BloomFilterIndexIter
     return Status::OK();
 }
 
-Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal, std::unique_ptr<BloomFilter>* bf) {
-    Slice value;
-    uint8_t nullmap = 0;
+Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal,
+                                                   std::unique_ptr<BloomFilter>* bf) {
     size_t num_to_read = 1;
-    ColumnBlock block(_reader->type_info(), (uint8_t*)&value, &nullmap, num_to_read, _pool.get());
+    std::unique_ptr<ColumnVectorBatch> cvb;
+    RETURN_IF_ERROR(
+            ColumnVectorBatch::create(num_to_read, false, _reader->type_info(), nullptr, &cvb));
+    ColumnBlock block(cvb.get(), _pool.get());
     ColumnBlockView column_block_view(&block);
 
     RETURN_IF_ERROR(_bloom_filter_iter.seek_to_ordinal(ordinal));
@@ -49,7 +51,9 @@ Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal, std::unique_
     DCHECK(num_to_read == num_read);
     // construct bloom filter
     BloomFilter::create(_reader->_bloom_filter_index_meta->algorithm(), bf);
-    RETURN_IF_ERROR((*bf)->init(value.data, value.size, _reader->_bloom_filter_index_meta->hash_strategy()));
+    const Slice* value_ptr = reinterpret_cast<const Slice*>(block.data());
+    RETURN_IF_ERROR((*bf)->init(value_ptr->data, value_ptr->size,
+                                _reader->_bloom_filter_index_meta->hash_strategy()));
     _pool->clear();
     return Status::OK();
 }

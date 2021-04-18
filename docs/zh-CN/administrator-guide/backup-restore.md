@@ -94,7 +94,7 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
 
 1. CREATE REPOSITORY
 
-    创建一个远端仓库路径，用于备份或恢复。该命令需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](broker.md)
+    创建一个远端仓库路径，用于备份或恢复。该命令需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](broker.md)，也可以直接通过S3 协议备份到支持AWS S3协议的远程存储上去，具体参考 [创建远程仓库文档](../sql-reference/sql-statements/Data Definition/CREATE REPOSITORY.md)
 
 1. BACKUP
 

@@ -17,9 +17,9 @@
 
 #include "runtime/large_int_value.h"
 
-#include "util/string_parser.hpp"
-
 #include <string>
+
+#include "util/string_parser.hpp"
 
 namespace doris {
 
@@ -46,7 +46,7 @@ std::ostream& operator<<(std::ostream& os, __int128 const& value) {
     return os;
 }
 
-std::istream& operator>>(std::istream& is, __int128 & value) {
+std::istream& operator>>(std::istream& is, __int128& value) {
     std::string str;
     is >> str;
     StringParser::ParseResult result;
@@ -61,6 +61,6 @@ std::size_t hash_value(__int128 const& value) {
     return HashUtil::hash(&value, sizeof(value), 0);
 }
 
-}
+} // namespace doris
 
 /* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

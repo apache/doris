@@ -41,35 +41,39 @@ class Merger;
 //  1. pick rowsets satisfied to compact
 //  2. do compaction
 //  3. modify rowsets
-//  4. gc unused rowstes
+//  4. gc output rowset if failed
 class Compaction {
 public:
-    Compaction(TabletSharedPtr tablet);
+    Compaction(TabletSharedPtr tablet, const std::string& label,
+               const std::shared_ptr<MemTracker>& parent_tracker);
     virtual ~Compaction();
 
-    virtual OLAPStatus compact() = 0;
+    // This is only for http CompactionAction
+    OLAPStatus compact();
 
-    static OLAPStatus init(int concurreny);
+    virtual OLAPStatus prepare_compact() = 0;
+    OLAPStatus execute_compact();
+    virtual OLAPStatus execute_compact_impl() = 0;
 
 protected:
     virtual OLAPStatus pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
     virtual ReaderType compaction_type() const = 0;
 
-    OLAPStatus do_compaction();
-    OLAPStatus do_compaction_impl();
+    OLAPStatus do_compaction(int64_t permits);
+    OLAPStatus do_compaction_impl(int64_t permits);
 
     void modify_rowsets();
-    OLAPStatus gc_unused_rowsets();
+    void gc_output_rowset();
 
     OLAPStatus construct_output_rowset_writer();
     OLAPStatus construct_input_rowset_readers();
 
     OLAPStatus check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
     OLAPStatus check_correctness(const Merger::Statistics& stats);
-
-    // semaphore used to limit the concurrency of running compaction tasks
-    static Semaphore _concurrency_sem;
+    OLAPStatus find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
+                                                std::vector<Version>* missing_version);
+    int64_t get_compaction_permits();
 
 private:
     // get num rows from segment group meta of input rowsets.
@@ -77,6 +81,14 @@ private:
     int64_t _get_input_num_rows_from_seg_grps();
 
 protected:
+    // the root tracker for this compaction
+    std::shared_ptr<MemTracker> _mem_tracker;
+
+    // the child of root, only track rowset readers mem
+    std::shared_ptr<MemTracker> _readers_tracker;
+
+    // the child of root, only track rowset writer mem
+    std::shared_ptr<MemTracker> _writer_tracker;
     TabletSharedPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
@@ -87,10 +99,7 @@ protected:
     RowsetSharedPtr _output_rowset;
     std::unique_ptr<RowsetWriter> _output_rs_writer;
 
-    enum CompactionState {
-        INITED = 0,
-        SUCCESS = 1
-    };
+    enum CompactionState { INITED = 0, SUCCESS = 1 };
     CompactionState _state;
 
     Version _output_version;
@@ -99,6 +108,6 @@ protected:
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_COMPACTION_H

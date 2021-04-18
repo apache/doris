@@ -15,11 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <functional>
+#include "util/countdown_latch.h"
+
 #include <gtest/gtest.h>
 
+#include <functional>
+
 #include "gutil/ref_counted.h"
-#include "util/countdown_latch.h"
 #include "util/monotime.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -37,7 +39,6 @@ static void decrement_latch(CountDownLatch* latch, int amount) {
 // Tests that we can decrement the latch by arbitrary amounts, as well
 // as 1 by one.
 TEST(TestCountDownLatch, TestLatch) {
-
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("cdl-test").set_max_threads(1).build(&pool).ok());
 

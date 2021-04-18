@@ -123,8 +123,7 @@ private:
 class DataStreamTest : public testing::Test {
 protected:
     DataStreamTest()
-            : _limit(-1),
-              _dummy_mem_limit(-1),
+            : _limit(new MemTracker(-1)),
               _runtime_state(TUniqueId(), TQueryOptions(), "", &_exec_env),
               _next_val(0) {
         _exec_env.init_for_tests();
@@ -210,20 +209,18 @@ protected:
     static const int NUM_BATCHES = TOTAL_DATA_SIZE / BATCH_CAPACITY / PER_ROW_DATA;
 
     ObjectPool _obj_pool;
-    MemTracker _limit;
-    MemTracker _tracker;
+    std::shared_ptr<MemTracker> _limit;
+    std::shared_ptr<MemTracker> _tracker;
     DescriptorTbl* _desc_tbl;
     const RowDescriptor* _row_desc;
     TupleRowComparator* _less_than;
-    MemTracker _dummy_mem_limit;
-    MemTracker _dummy_mem_tracker;
     ExecEnv _exec_env;
     RuntimeState _runtime_state;
     TUniqueId _next_instance_id;
     string _stmt;
 
     // RowBatch generation
-    scoped_ptr<RowBatch> _batch;
+    boost::scoped_ptr<RowBatch> _batch;
     int _next_val;
     int64_t* _tuple_mem;
 
@@ -235,7 +232,7 @@ protected:
     TDataStreamSink _broadcast_sink;
     TDataStreamSink _random_sink;
     TDataStreamSink _hash_sink;
-    vector<TPlanFragmentDestination> _dest;
+    std::vector<TPlanFragmentDestination> _dest;
 
     struct SenderInfo {
         thread* thread_handle;
@@ -244,7 +241,7 @@ protected:
 
         SenderInfo() : thread_handle(NULL), num_bytes_sent(0) {}
     };
-    vector<SenderInfo> _sender_info;
+    std::vector<SenderInfo> _sender_info;
 
     struct ReceiverInfo {
         TPartitionType::type stream_type;
@@ -270,7 +267,7 @@ protected:
             stream_recvr.reset();
         }
     };
-    vector<ReceiverInfo> _receiver_info;
+    std::vector<ReceiverInfo> _receiver_info;
 
     // Create an instance id and add it to _dest
     void get_next_instance_id(TUniqueId* instance_id) {
@@ -311,10 +308,10 @@ protected:
         EXPECT_TRUE(DescriptorTbl::create(&_obj_pool, thrift_desc_tbl, &_desc_tbl).ok());
         _runtime_state.set_desc_tbl(_desc_tbl);
 
-        vector<TTupleId> row_tids;
+        std::vector<TTupleId> row_tids;
         row_tids.push_back(0);
 
-        vector<bool> nullable_tuples;
+        std::vector<bool> nullable_tuples;
         nullable_tuples.push_back(false);
         _row_desc = _obj_pool.add(new RowDescriptor(*_desc_tbl, row_tids, nullable_tuples));
     }
@@ -336,20 +333,20 @@ protected:
         SlotRef* rhs_slot = _obj_pool.add(new SlotRef(expr_node));
         _rhs_slot_ctx = _obj_pool.add(new ExprContext(rhs_slot));
 
-        _lhs_slot_ctx->prepare(&_runtime_state, *_row_desc, &_tracker);
-        _rhs_slot_ctx->prepare(&_runtime_state, *_row_desc, &_tracker);
+        _lhs_slot_ctx->prepare(&_runtime_state, *_row_desc, _tracker.get());
+        _rhs_slot_ctx->prepare(&_runtime_state, *_row_desc, _tracker.get());
         _lhs_slot_ctx->open(NULL);
         _rhs_slot_ctx->open(NULL);
         SortExecExprs* sort_exprs = _obj_pool.add(new SortExecExprs());
         sort_exprs->init(vector<ExprContext*>(1, _lhs_slot_ctx),
-                         vector<ExprContext*>(1, _rhs_slot_ctx));
-        _less_than = _obj_pool.add(
-                new TupleRowComparator(*sort_exprs, vector<bool>(1, true), vector<bool>(1, false)));
+                         std::vector<ExprContext*>(1, _rhs_slot_ctx));
+        _less_than = _obj_pool.add(new TupleRowComparator(*sort_exprs, std::vector<bool>(1, true),
+                                                          std::vector<bool>(1, false)));
     }
 
     // Create _batch, but don't fill it with data yet. Assumes we created _row_desc.
     RowBatch* create_row_batch() {
-        RowBatch* batch = new RowBatch(*_row_desc, BATCH_CAPACITY, &_limit);
+        RowBatch* batch = new RowBatch(*_row_desc, BATCH_CAPACITY, _limit.get());
         int64_t* tuple_mem =
                 reinterpret_cast<int64_t*>(batch->tuple_data_pool()->allocate(BATCH_CAPACITY * 8));
         bzero(tuple_mem, BATCH_CAPACITY * 8);
@@ -436,8 +433,7 @@ protected:
         if (info->status.is_cancelled()) {
             return;
         }
-        // RowBatch batch(*_row_desc, 1024, &_tracker);
-        RowBatch batch(*_row_desc, 1024, &_limit);
+        RowBatch batch(*_row_desc, 1024, _limit.get());
         VLOG_QUERY << "start reading merging";
         bool eos = false;
         while (!(info->status = info->stream_recvr->get_next(&batch, &eos)).is_cancelled()) {
@@ -566,7 +562,7 @@ protected:
 
         EXPECT_TRUE(sender.prepare(&state).ok());
         EXPECT_TRUE(sender.open(&state).ok());
-        scoped_ptr<RowBatch> batch(create_row_batch());
+        boost::scoped_ptr<RowBatch> batch(create_row_batch());
         SenderInfo& info = _sender_info[sender_num];
         int next_val = 0;
 

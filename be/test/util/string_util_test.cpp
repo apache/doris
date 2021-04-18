@@ -25,9 +25,8 @@ namespace doris {
 
 class StringUtilTest : public testing::Test {
 public:
-    StringUtilTest() { }
-    virtual ~StringUtilTest() {
-    }
+    StringUtilTest() {}
+    virtual ~StringUtilTest() {}
 };
 
 TEST_F(StringUtilTest, normal) {
@@ -88,7 +87,7 @@ TEST_F(StringUtilTest, normal) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

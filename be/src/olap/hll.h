@@ -20,8 +20,10 @@
 
 #include <math.h>
 #include <stdio.h>
-#include <set>
+
 #include <map>
+#include <set>
+#include <string>
 
 #include "gutil/macros.h"
 
@@ -31,7 +33,7 @@ class Slice;
 
 const static int HLL_COLUMN_PRECISION = 14;
 const static int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
-const static int HLL_EXPLICLIT_INT64_NUM = 160;
+const static int HLL_EXPLICIT_INT64_NUM = 160;
 const static int HLL_SPARSE_THRESHOLD = 4096;
 const static int HLL_REGISTERS_COUNT = 16 * 1024;
 // maximum size in byte of serialized HLL: type(1) + registers (2^14)
@@ -54,16 +56,16 @@ const static int HLL_EMPTY_SIZE = 1;
 //
 // HLL_DATA_EXPLICIT: when there is only few values in set, store these values explicit.
 // If the number of hash values is not greater than 160, set is encoded in this format.
-// The max space occupied is (1 + 1 + 160 * 8) = 1282. I don't know why 160 is choosed,
+// The max space occupied is (1 + 1 + 160 * 8) = 1282. I don't know why 160 is chosen,
 // maybe can be other number. If you are interested, you can try other number and see
 // if it will be better.
 //
-// HLL_DATA_SPRASE: only store non-zero registers. If the number of non-zero registers
+// HLL_DATA_SPARSE: only store non-zero registers. If the number of non-zero registers
 // is not greater than 4096, set is encoded in this format. The max space occupied is
 // (1 + 4 + 3 * 4096) = 12293.
 //
 // HLL_DATA_FULL: most space-consuming, store all registers
-// 
+//
 // A HLL value will change in the sequence empty -> explicit -> sparse -> full, and not
 // allow reverse.
 //
@@ -72,23 +74,20 @@ const static int HLL_EMPTY_SIZE = 1;
 enum HllDataType {
     HLL_DATA_EMPTY = 0,
     HLL_DATA_EXPLICIT = 1,
-    HLL_DATA_SPRASE = 2,
+    HLL_DATA_SPARSE = 2,
     HLL_DATA_FULL = 3,
 };
 
 class HyperLogLog {
 public:
-
     HyperLogLog() = default;
-    explicit HyperLogLog(uint64_t hash_value): _type(HLL_DATA_EXPLICIT) {
+    explicit HyperLogLog(uint64_t hash_value) : _type(HLL_DATA_EXPLICIT) {
         _hash_set.emplace(hash_value);
     }
 
     explicit HyperLogLog(const Slice& src);
 
-    ~HyperLogLog() {
-        delete[] _registers;
-    }
+    ~HyperLogLog() { delete[] _registers; }
 
     typedef uint8_t SetTypeValueType;
     typedef int32_t SparseLengthValueType;
@@ -110,7 +109,7 @@ public:
     // Return actual size of serialized binary.
     size_t serialize(uint8_t* dst) const;
 
-    // Now, only empty HLL support this funciton.
+    // Now, only empty HLL support this function.
     bool deserialize(const Slice& slice);
 
     int64_t estimate_cardinality() const;
@@ -125,28 +124,27 @@ public:
 
     // Check if input slice is a valid serialized binary of HyperLogLog.
     // This function only check the encoded type in slice, whose complex
-    // function is O(1). 
+    // function is O(1).
     static bool is_valid(const Slice& slice);
 
     // only for debug
     std::string to_string() {
         switch (_type) {
-            case HLL_DATA_EMPTY:
-                return {};
-            case HLL_DATA_EXPLICIT:
-            case HLL_DATA_SPRASE:
-            case HLL_DATA_FULL:
-                {
-                    std::string str {"hash set size: "};
-                    str.append(std::to_string(_hash_set.size()));
-                    str.append("\ncardinality:\t");
-                    str.append(std::to_string(estimate_cardinality()));
-                    str.append("\ntype:\t");
-                    str.append(std::to_string(_type));
-                    return str;
-                }
-            default:
-                return {};
+        case HLL_DATA_EMPTY:
+            return {};
+        case HLL_DATA_EXPLICIT:
+        case HLL_DATA_SPARSE:
+        case HLL_DATA_FULL: {
+            std::string str{"hash set size: "};
+            str.append(std::to_string(_hash_set.size()));
+            str.append("\ncardinality:\t");
+            str.append(std::to_string(estimate_cardinality()));
+            str.append("\ntype:\t");
+            str.append(std::to_string(_type));
+            return str;
+        }
+        default:
+            return {};
         }
     }
 
@@ -154,7 +152,7 @@ private:
     HllDataType _type = HLL_DATA_EMPTY;
     std::set<uint64_t> _hash_set;
 
-    // This field is much space consumming(HLL_REGISTERS_COUNT), we craete
+    // This field is much space consuming(HLL_REGISTERS_COUNT), we create
     // it only when it is really needed.
     uint8_t* _registers = nullptr;
 
@@ -186,36 +184,33 @@ private:
 // todo(kks): remove this when dpp_sink class was removed
 class HllSetResolver {
 public:
-    HllSetResolver() : _buf_ref(nullptr),
-                       _buf_len(0),
-                       _set_type(HLL_DATA_EMPTY),
-                       _full_value_position(nullptr),
-                       _explicit_value(nullptr),
-                       _explicit_num(0) {}
+    HllSetResolver()
+            : _buf_ref(nullptr),
+              _buf_len(0),
+              _set_type(HLL_DATA_EMPTY),
+              _full_value_position(nullptr),
+              _explicit_value(nullptr),
+              _explicit_num(0) {}
 
     ~HllSetResolver() {}
 
     typedef uint8_t SetTypeValueType;
-    typedef uint8_t ExpliclitLengthValueType;
+    typedef uint8_t ExplicitLengthValueType;
     typedef int32_t SparseLengthValueType;
     typedef uint16_t SparseIndexType;
     typedef uint8_t SparseValueType;
 
     // only save pointer
-    void init(char* buf, int len){
+    void init(char* buf, int len) {
         this->_buf_ref = buf;
         this->_buf_len = len;
     }
 
     // hll set type
-    HllDataType get_hll_data_type() {
-        return _set_type;
-    };
+    HllDataType get_hll_data_type() { return _set_type; };
 
     // explicit value num
-    int get_explicit_count() {
-        return (int)_explicit_num;
-    };
+    int get_explicit_count() { return (int)_explicit_num; };
 
     // get explicit index value 64bit
     uint64_t get_explicit_value(int index) {
@@ -226,24 +221,21 @@ public:
     };
 
     // get full register value
-    char* get_full_value() {
-        return _full_value_position;
-    };
+    char* get_full_value() { return _full_value_position; };
 
     // get (index, value) map
-    std::map<SparseIndexType, SparseValueType>& get_sparse_map() {
-        return _sparse_map;
-    };
+    std::map<SparseIndexType, SparseValueType>& get_sparse_map() { return _sparse_map; };
 
     // parse set , call after copy() or init()
     void parse();
-private :
-    char* _buf_ref;    // set
-    int _buf_len;      // set len
-    HllDataType _set_type;        //set type
+
+private:
+    char* _buf_ref;        // set
+    int _buf_len;          // set len
+    HllDataType _set_type; //set type
     char* _full_value_position;
     uint64_t* _explicit_value;
-    ExpliclitLengthValueType _explicit_num;
+    ExplicitLengthValueType _explicit_num;
     std::map<SparseIndexType, SparseValueType> _sparse_map;
     SparseLengthValueType* _sparse_count;
 };
@@ -251,12 +243,12 @@ private :
 // todo(kks): remove this when dpp_sink class was removed
 class HllSetHelper {
 public:
-    static void set_sparse(char *result, const std::map<int, uint8_t>& index_to_value, int& len);
+    static void set_sparse(char* result, const std::map<int, uint8_t>& index_to_value, int& len);
     static void set_explicit(char* result, const std::set<uint64_t>& hash_value_set, int& len);
     static void set_full(char* result, const std::map<int, uint8_t>& index_to_value,
                          const int set_len, int& len);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_HLL_H

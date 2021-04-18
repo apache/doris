@@ -34,12 +34,19 @@ namespace doris {
 
 ChunkAllocator* ChunkAllocator::_s_instance = nullptr;
 
-static IntCounter local_core_alloc_count(MetricUnit::NOUNIT);
-static IntCounter other_core_alloc_count(MetricUnit::NOUNIT);
-static IntCounter system_alloc_count(MetricUnit::NOUNIT);
-static IntCounter system_free_count(MetricUnit::NOUNIT);
-static IntCounter system_alloc_cost_ns(MetricUnit::NANOSECONDS);
-static IntCounter system_free_cost_ns(MetricUnit::NANOSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_local_core_alloc_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_other_core_alloc_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_system_alloc_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_system_free_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_system_alloc_cost_ns, MetricUnit::NANOSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(chunk_pool_system_free_cost_ns, MetricUnit::NANOSECONDS);
+
+static IntCounter* chunk_pool_local_core_alloc_count;
+static IntCounter* chunk_pool_other_core_alloc_count;
+static IntCounter* chunk_pool_system_alloc_count;
+static IntCounter* chunk_pool_system_free_count;
+static IntCounter* chunk_pool_system_alloc_cost_ns;
+static IntCounter* chunk_pool_system_free_cost_ns;
 
 #ifdef BE_TEST
 static std::mutex s_mutex;
@@ -53,13 +60,12 @@ ChunkAllocator* ChunkAllocator::instance() {
 }
 #endif
 
-
 // Keep free chunk's ptr in size separated free list.
 // This class is thread-safe.
 class ChunkArena {
 public:
-    ChunkArena() : _chunk_lists(64) { }
-    
+    ChunkArena() : _chunk_lists(64) {}
+
     ~ChunkArena() {
         for (int i = 0; i < 64; ++i) {
             if (_chunk_lists[i].empty()) continue;
@@ -93,6 +99,7 @@ public:
         std::lock_guard<SpinLock> l(_lock);
         _chunk_lists[idx].push_back(ptr);
     }
+
 private:
     SpinLock _lock;
     std::vector<std::vector<uint8_t*>> _chunk_lists;
@@ -101,31 +108,24 @@ private:
 void ChunkAllocator::init_instance(size_t reserve_limit) {
     if (_s_instance != nullptr) return;
     _s_instance = new ChunkAllocator(reserve_limit);
-
-#define REGISTER_METIRC_WITH_NAME(name, metric) \
-    DorisMetrics::instance()->metrics()->register_metric(#name, &metric)
-
-#define REGISTER_METIRC_WITH_PREFIX(prefix, name) \
-    REGISTER_METIRC_WITH_NAME(prefix##name, name)
-
-#define REGISTER_METIRC(name) \
-    REGISTER_METIRC_WITH_PREFIX(chunk_pool_, name)
-
-    REGISTER_METIRC(local_core_alloc_count);
-    REGISTER_METIRC(other_core_alloc_count);
-    REGISTER_METIRC(system_alloc_count);
-    REGISTER_METIRC(system_free_count);
-    REGISTER_METIRC(system_alloc_cost_ns);
-    REGISTER_METIRC(system_free_cost_ns);
 }
 
 ChunkAllocator::ChunkAllocator(size_t reserve_limit)
         : _reserve_bytes_limit(reserve_limit),
-        _reserved_bytes(0),
-        _arenas(CpuInfo::get_max_num_cores()) {
+          _reserved_bytes(0),
+          _arenas(CpuInfo::get_max_num_cores()) {
     for (int i = 0; i < _arenas.size(); ++i) {
         _arenas[i].reset(new ChunkArena());
     }
+
+    _chunk_allocator_metric_entity =
+            DorisMetrics::instance()->metric_registry()->register_entity("chunk_allocator");
+    INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_local_core_alloc_count);
+    INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_other_core_alloc_count);
+    INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_system_alloc_count);
+    INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_system_free_count);
+    INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_system_alloc_cost_ns);
+    INT_COUNTER_METRIC_REGISTER(_chunk_allocator_metric_entity, chunk_pool_system_free_cost_ns);
 }
 
 bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
@@ -136,7 +136,7 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
 
     if (_arenas[core_id]->pop_free_chunk(size, &chunk->data)) {
         _reserved_bytes.fetch_sub(size);
-        local_core_alloc_count.increment(1);
+        chunk_pool_local_core_alloc_count->increment(1);
         return true;
     }
     if (_reserved_bytes > size) {
@@ -145,7 +145,7 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
         for (int i = 1; i < _arenas.size(); ++i, ++core_id) {
             if (_arenas[core_id % _arenas.size()]->pop_free_chunk(size, &chunk->data)) {
                 _reserved_bytes.fetch_sub(size);
-                other_core_alloc_count.increment(1);
+                chunk_pool_other_core_alloc_count->increment(1);
                 // reset chunk's core_id to other
                 chunk->core_id = core_id % _arenas.size();
                 return true;
@@ -159,8 +159,8 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
         // allocate from system allocator
         chunk->data = SystemAllocator::allocate(size);
     }
-    system_alloc_count.increment(1);
-    system_alloc_cost_ns.increment(cost_ns);
+    chunk_pool_system_alloc_count->increment(1);
+    chunk_pool_system_alloc_cost_ns->increment(cost_ns);
     if (chunk->data == nullptr) {
         return false;
     }
@@ -178,9 +178,9 @@ void ChunkAllocator::free(const Chunk& chunk) {
                 SCOPED_RAW_TIMER(&cost_ns);
                 SystemAllocator::free(chunk.data, chunk.size);
             }
-            system_free_count.increment(1);
-            system_free_cost_ns.increment(cost_ns);
-            
+            chunk_pool_system_free_count->increment(1);
+            chunk_pool_system_free_cost_ns->increment(cost_ns);
+
             return;
         }
     } while (!_reserved_bytes.compare_exchange_weak(old_reserved_bytes, new_reserved_bytes));
@@ -188,4 +188,4 @@ void ChunkAllocator::free(const Chunk& chunk) {
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
 }
 
-}
+} // namespace doris

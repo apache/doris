@@ -43,5 +43,5 @@ mysql> SELECT ST_Y(ST_Point(24.7, 56.7));
 |                       56.7 |
 +----------------------------+
 ```
-##keyword
+## keyword
 ST_Y,ST,Y

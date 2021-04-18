@@ -23,13 +23,14 @@
 #include <vector>
 
 #include "olap/memory/column.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 namespace memory {
 
 TEST(ColumnDelta, Index) {
-    const int BaseSize = 256001;
-    const int NumUpdate = 10000;
+    const int BaseSize = LOOP_LESS_OR_MORE(2560, 256001);
+    const int NumUpdate = LOOP_LESS_OR_MORE(100, 10000);
     srand(1);
     scoped_refptr<ColumnDelta> delta(new ColumnDelta());
     std::map<uint32_t, uint32_t> updates;
@@ -40,7 +41,7 @@ TEST(ColumnDelta, Index) {
     size_t nblock = num_block(BaseSize, Column::BLOCK_SIZE);
     ASSERT_TRUE(delta->alloc(nblock, updates.size(), sizeof(uint32_t), false).ok());
     DeltaIndex* index = delta->index();
-    vector<uint32_t>& block_ends = index->block_ends();
+    std::vector<uint32_t>& block_ends = index->block_ends();
     Buffer& idxdata = index->_data;
     Buffer& data = delta->data();
     uint32_t cidx = 0;

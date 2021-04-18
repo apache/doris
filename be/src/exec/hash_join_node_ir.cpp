@@ -17,6 +17,7 @@
 
 #include "exec/hash_join_node.h"
 #include "exec/hash_table.hpp"
+#include "exprs/expr_context.h"
 #include "runtime/row_batch.h"
 
 namespace doris {
@@ -27,7 +28,7 @@ namespace doris {
 // This lets us distinguish between the join conjuncts vs. non-join conjuncts
 // for codegen.
 // Note: don't declare this static.  LLVM will pick the fastcc calling convention and
-// we will not be able to replace the funcitons with codegen'd versions.
+// we will not be able to replace the functions with codegen'd versions.
 // TODO: explicitly set the calling convention?
 // TODO: investigate using fastcc for all codegen internal functions?
 bool IR_NO_INLINE eval_other_join_conjuncts(ExprContext* const* ctxs, int num_ctxs, TupleRow* row) {
@@ -118,7 +119,10 @@ int HashJoinNode::process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch
             if (UNLIKELY(_probe_batch_pos == probe_rows)) {
                 goto end;
             }
-
+            if (++_probe_counter % RELEASE_CONTEXT_COUNTER == 0) {
+                ExprContext::free_local_allocations(_probe_expr_ctxs);
+                ExprContext::free_local_allocations(_build_expr_ctxs);
+            }
             _current_probe_row = probe_batch->get_row(_probe_batch_pos++);
             _hash_tbl_iterator = _hash_tbl->find(_current_probe_row);
             _matched_probe = false;

@@ -24,7 +24,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_union
+# bitmap_union function
+
 ## description
 
 聚合函数，用于计算分组后的 bitmap 并集。常见使用场景如：计算PV，UV。
@@ -41,7 +42,7 @@ under the License.
 mysql> select page_id, bitmap_union(user_id) from table group by page_id;
 ```
 
-和 bitmap_count 函数组合使用可以求得网页的 PV 数据
+和 bitmap_count 函数组合使用可以求得网页的 UV 数据
 
 ```
 mysql> select page_id, bitmap_count(bitmap_union(user_id)) from table group by page_id;

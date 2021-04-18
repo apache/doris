@@ -27,12 +27,13 @@ under the License.
 # ROUTINE LOAD
 ## description
 
-Routine Load function allows users to submit a resident load task, and continuously load data into Doris by continuously reading data from the specified data source. Currently, only text data format (CSV) data is loaded from Kakfa by means of no authentication or SSL authentication.
+Routine Load function allows users to submit a resident load task, and continuously load data into Doris by continuously reading data from the specified data source. Currently, only text data format (CSV) data is loaded from Kafka by means of no authentication or SSL authentication.
 
 Syntax:
 
 ```
 CREATE ROUTINE LOAD [db.]job_name ON tbl_name
+[merge_type]
 [load_properties]
 [job_properties]
 FROM data_source
@@ -47,7 +48,11 @@ FROM data_source
 
     Specifies the name of the table that needs to be loaded.
 
-3. load_properties
+3. merge_type
+
+    The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete on condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
+
+4. load_properties
 
     Used to describe the load data. grammar:
 
@@ -55,7 +60,9 @@ FROM data_source
     [column_separator],
     [columns_mapping],
     [where_predicates],
-    [partitions]
+    [delete_on_predicates]
+    [partitions],
+    [preceding_predicates]
     ```
 
     1. column_separator:
@@ -65,7 +72,7 @@ FROM data_source
         `COLUMNS TERMINATED BY ","`
 
         The default is: `\t`
-        
+
     2. columns_mapping:
 
         Specifies the mapping of columns in the source data and defines how the derived columns are generated.
@@ -97,7 +104,7 @@ FROM data_source
         For example, if we only want to load a column with k1 greater than 100 and k2 equal to 1000, we would write as follows:
 
         `WHERE k1 > 100 and k2 = 1000`
-        
+
     4. partitions
 
         Specifies which partitions of the load destination table. If not specified, it will be automatically loaded into the corresponding partition.
@@ -106,7 +113,15 @@ FROM data_source
 
         `PARTITION(p1, p2, p3)`
 
-4. job_properties
+    5. delete_on_predicates:
+
+        Only used when merge type is MERGE
+
+    6. preceding_predicates
+
+        Used to filter original data. The original data is the data without column mapping and transformation. The user can filter the data before conversion, select the desired data, and then perform the conversion.
+
+5. job_properties
 
     A generic parameter that specifies a routine load job.
 
@@ -161,8 +176,8 @@ FROM data_source
 
     4. `strict_mode`
 
-        Whether to enable strict mode, the default is on. If turned on, the column type transformation of non-null raw data is filtered if the result is NULL. Specified as "strict_mode" = "true"
-            
+        Whether to enable strict mode, the default is disabled. If turned on, the column type transformation of non-null raw data is filtered if the result is NULL. Specified as "strict_mode" = "true"
+
     5. `timezone`
 
         Specifies the time zone in which the job will be loaded. The default by using session variable's timezone. This parameter affects all function results related to the time zone involved in the load.
@@ -178,18 +193,21 @@ FROM data_source
     8. `strip_outer_array`
         Boolean type, true to indicate that json data starts with an array object and flattens objects in the array object, default value is false.
 
-5. data_source
+    9. `json_root`
+        json_root is a valid JSONPATH string that specifies the root node of the JSON Document. The default value is "".
+
+6. data_source
 
     The type of data source. Current support:
 
     KAFKA
 
-6. `data_source_properties`
+7. `data_source_properties`
 
     Specify information about the data source.
 
     syntax:
-    
+
     ```
     (
         "key1" = "val1",
@@ -201,7 +219,7 @@ FROM data_source
 
         `Kafka_broker_list`
 
-        Kafka's broker connection information. The format is ip:host. Multiple brokare separated by commas.
+        Kafka's broker connection information. The format is ip:host. Multiple brokers are separated by commas.
 
         Example:
 
@@ -221,9 +239,9 @@ FROM data_source
 
         Offset can specify a specific offset from 0 or greater, or:
 
-        1) OFFSET_BEGINNING: Subscribe from the location where the data is avaie.
+        1) OFFSET_BEGINNING: Subscribe from the location where the data is available.
 
-        2) OFFSET_END: ​​Subscribe from the end.
+        2) OFFSET_END: Subscribe from the end.
 
         If not specified, all partitions under topic are subscribed by default fromSET_END.
 
@@ -240,7 +258,7 @@ FROM data_source
 
         The function is equivalent to the "--property" parameter in the kafka shel
 
-        When the value of the parameter is a file, you need to add the keyword: "FILbefore the value.
+        When the value of the parameter is a file, you need to add the keyword: "FILE" before the value.
 
         For information on how to create a file, see "HELP CREATE FILE;"
 
@@ -253,7 +271,7 @@ FROM data_source
         "property.ssl.ca.location" = "FILE:ca.pem"
         ```
 
-        1. When connecting to Kafka using SSL, you need to specify the follg parameters:
+        1. When connecting to Kafka using SSL, you need to specify the following parameters:
 
             ```
             "property.security.protocol" = "ssl",
@@ -265,9 +283,9 @@ FROM data_source
 
             among them:
 
-            "property.security.protocol" and "property.ssl.ca.location" are requ to indicate the connection method is SSL and the location of the CA certate.
+            "property.security.protocol" and "property.ssl.ca.location" are required to indicate the connection method is SSL and the location of the CA certificate.
 
-            If the client authentication is enabled on the Kafka server, you alsod to set:
+            If the client authentication is enabled on the Kafka server, you also need to set:
 
             ```
             "property.ssl.certificate.location"
@@ -279,11 +297,11 @@ FROM data_source
 
         2. Specify the default starting offset for kafka partition
 
-            If kafka_partitions/kafka_offsets is not specified, all partitions are umed by default, and you can specify kafka_default_offsets to specify the star offset. The default is OFFSET_END, which starts at the end of the substion.
+            If kafka_partitions/kafka_offsets is not specified, all partitions are unanmed by default, and you can specify kafka_default_offsets to specify the star offset. The default is OFFSET_END, which starts at the end of the subscription.
 
             Values:
 
-            1) OFFSET_BEGINNING: Subscribe from the location where the data is avaie.
+            1) OFFSET_BEGINNING: Subscribe from the location where the data is available.
 
             2) OFFSET_END: Subscribe from the end.
 
@@ -291,13 +309,13 @@ FROM data_source
 
             `"property.kafka_default_offsets" = "OFFSET_BEGINNING"`
 
-7. load data format sample
+8. load data format sample
 
     Integer class (TINYINT/SMALLINT/INT/BIGINT/LARGEINT): 1, 1000, 1234
 
     Floating point class (FLOAT/DOUBLE/DECIMAL): 1.1, 0.23, .356
- 
-    Date class (DATE/DATETIME): 2017-10-03, 2017-06-13 12:34:03.
+
+    Date class (DATE/DATETIME): 2017-10-03, 2017-06-13 12:34:03.
 
     String class (CHAR/VARCHAR) (without quotes): I am a student, a
 
@@ -399,7 +417,7 @@ FROM data_source
         "kafka_offsets" = "0,0,0"
         );
     ```
-      It support two kinds data style：
+      It support two kinds data style:
       1）{"category":"a9jadhx","author":"test","price":895}
         2）[
                 {"category":"a9jadhx","author":"test","price":895},
@@ -457,9 +475,83 @@ FROM data_source
       {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
     ]
 
-   Tips：
+   Tips:
      1）If the json data starts as an array and each object in the array is a record, you need to set the strip_outer_array to true to represent the flat array.
      2）If the json data starts with an array, and each object in the array is a record, our ROOT node is actually an object in the array when we set jsonpath.
+
+6. User specifies the json_root node
+        CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+        COLUMNS(category, author, price, timestamp, dt=from_unixtime(timestamp, '%Y%m%d'))
+        PROPERTIES
+        (
+            "desired_concurrent_number"="3",
+            "max_batch_interval" = "20",
+            "max_batch_rows" = "300000",
+            "max_batch_size" = "209715200",
+            "strict_mode" = "false",
+            "format" = "json",
+            "jsonpaths" = "[\"$.category\",\"$.author\",\"$.price\",\"$.timestamp\"]",
+            "strip_outer_array" = "true",
+            "json_root" = "$.RECORDS"
+        )
+        FROM KAFKA
+        (
+            "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+            "kafka_topic" = "my_topic",
+            "kafka_partitions" = "0,1,2",
+            "kafka_offsets" = "0,0,0"
+        );
+   For example json data:
+        {
+        "RECORDS":[
+            {"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
+            {"category":"22","author":"2avc","price":895,"timestamp":1589191487},
+            {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
+            ]
+        }
+
+    7. Create a Kafka routine load task named test1 for the example_tbl of example_db. delete all data key columns match v3 >100 key columns.
+
+        CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+        WITH MERGE
+        COLUMNS(k1, k2, k3, v1, v2, v3),
+        WHERE k1 > 100 and k2 like "%doris%",
+        DELETE ON v3 >100
+        PROPERTIES
+        (
+            "desired_concurrent_number"="3",
+            "max_batch_interval" = "20",
+            "max_batch_rows" = "300000",
+            "max_batch_size" = "209715200",
+            "strict_mode" = "false"
+        )
+        FROM KAFKA
+        (
+            "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+            "kafka_topic" = "my_topic",
+            "kafka_partitions" = "0,1,2,3",
+            "kafka_offsets" = "101,0,0,200"
+        );
+
+    8. Filter original data
+
+        CREATE ROUTINE LOAD example_db.test_job ON example_tbl
+        COLUMNS TERMINATED BY ",",
+        COLUMNS(k1,k2,source_sequence,v1,v2),
+        PRECEDING FILTER k1 > 2
+        PROPERTIES
+        (
+            "desired_concurrent_number"="3",
+            "max_batch_interval" = "30",
+            "max_batch_rows" = "300000",
+            "max_batch_size" = "209715200"
+        ) FROM KAFKA
+        (
+            "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+            "kafka_topic" = "my_topic",
+            "kafka_partitions" = "0,1,2,3",
+            "kafka_offsets" = "101,0,0,200"
+        );
 
 ## keyword
 

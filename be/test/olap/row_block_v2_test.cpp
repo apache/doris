@@ -24,10 +24,8 @@ namespace doris {
 class TestRowBlockV2 : public testing::Test {
 public:
     TestRowBlockV2() {}
-    void SetUp() {
-    }
-    void TearDown() {
-    }
+    void SetUp() {}
+    void TearDown() {}
 };
 
 void init_tablet_schema(TabletSchema* tablet_schema, bool is_nullable) {
@@ -90,10 +88,9 @@ TEST_F(TestRowBlockV2, test_convert) {
     RowBlockInfo block_info;
     block_info.row_num = 1024;
     block_info.null_supported = true;
-    auto res = output_block.init(block_info);
-    ASSERT_EQ(OLAP_SUCCESS, res);
-    MemTracker tracker;
-    MemPool pool(&tracker);
+    output_block.init(block_info);
+    auto tracker = std::make_shared<MemTracker>();
+    MemPool pool(tracker.get());
     for (int i = 0; i < input_block.capacity(); ++i) {
         RowBlockRow row = input_block.row(i);
 
@@ -119,7 +116,7 @@ TEST_F(TestRowBlockV2, test_convert) {
         (*(Slice*)cell3) = str2;
 
         // column_4
-         row.set_is_null(3, false);
+        row.set_is_null(3, false);
         uint8_t* cell4 = row.mutable_cell_ptr(3);
         (*(uint32_t*)cell4) = 10 * i;
     }
@@ -167,11 +164,10 @@ TEST_F(TestRowBlockV2, test_convert) {
     }
 }
 
-}
+} // namespace doris
 
 // @brief Test Stub
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS(); 
+    return RUN_ALL_TESTS();
 }
-

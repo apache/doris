@@ -15,22 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
+#include "exec/schema_scanner/schema_create_table_scanner.h"
+
 #include <gtest/gtest.h>
 
+#include <string>
+
 #include "common/object_pool.h"
-#include "exec/schema_scanner/schema_create_table_scanner.h"
 #include "exec/schema_scanner/schema_jni_helper.h"
 #include "gen_cpp/Frontend_types.h"
-#include "runtime/mem_pool.h"
 #include "runtime/descriptors.h"
+#include "runtime/mem_pool.h"
 
 namespace doris {
 
 int db_num = 0;
 Status s_db_result;
-Status SchemaJniHelper::get_db_names(const TGetDbsParams &db_params,
-                                   TGetDbsResult *db_result) {
+Status SchemaJniHelper::get_db_names(const TGetDbsParams& db_params, TGetDbsResult* db_result) {
     for (int i = 0; i < db_num; ++i) {
         db_result->dbs.push_back("abc");
     }
@@ -39,8 +40,8 @@ Status SchemaJniHelper::get_db_names(const TGetDbsParams &db_params,
 
 int table_num = 0;
 Status s_table_result;
-Status SchemaJniHelper::get_table_names(const TGetTablesParams &table_params,
-                                      TGetTablesResult *table_result) {
+Status SchemaJniHelper::get_table_names(const TGetTablesParams& table_params,
+                                        TGetTablesResult* table_result) {
     for (int i = 0; i < table_num; ++i) {
         table_result->tables.push_back("bac");
     }
@@ -49,8 +50,8 @@ Status SchemaJniHelper::get_table_names(const TGetTablesParams &table_params,
 
 int desc_num = 0;
 Status s_desc_result;
-Status SchemaJniHelper::describe_table(const TDescribeTableParams &desc_params,
-                                      TDescribeTableResult *desc_result) {
+Status SchemaJniHelper::describe_table(const TDescribeTableParams& desc_params,
+                                       TDescribeTableResult* desc_result) {
     for (int i = 0; i < desc_num; ++i) {
         TColumnDesc column_desc;
         column_desc.__set_columnName("abc");
@@ -74,14 +75,14 @@ void init_mock() {
 
 class SchemaCreateTableScannerTest : public testing::Test {
 public:
-    SchemaCreateTableScannerTest() {
-    }
+    SchemaCreateTableScannerTest() {}
 
     virtual void SetUp() {
         _param.db = &_db;
         _param.table = &_table;
         _param.wild = &_wild;
     }
+
 private:
     ObjectPool _obj_pool;
     MemPool _mem_pool;
@@ -91,16 +92,16 @@ private:
     std::string _wild;
 };
 
-char g_tuple_buf[10000];// enougth for tuple
+char g_tuple_buf[10000]; // enough for tuple
 TEST_F(SchemaCreateTableScannerTest, normal_use) {
     SchemaCreateTableScanner scanner;
     Status status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
-    const TupleDescriptor *tuple_desc = scanner.tuple_desc();
+    const TupleDescriptor* tuple_desc = scanner.tuple_desc();
     ASSERT_TRUE(NULL != tuple_desc);
-    status = scanner.start((RuntimeState *)1);
+    status = scanner.start((RuntimeState*)1);
     ASSERT_TRUE(status.ok());
-    Tuple *tuple = (Tuple *)g_tuple_buf;
+    Tuple* tuple = (Tuple*)g_tuple_buf;
     bool eos = false;
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);
     ASSERT_TRUE(status.ok());
@@ -113,11 +114,11 @@ TEST_F(SchemaCreateTableScannerTest, one_column) {
     SchemaCreateTableScanner scanner;
     Status status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
-    const TupleDescriptor *tuple_desc = scanner.tuple_desc();
+    const TupleDescriptor* tuple_desc = scanner.tuple_desc();
     ASSERT_TRUE(NULL != tuple_desc);
-    status = scanner.start((RuntimeState *)1);
+    status = scanner.start((RuntimeState*)1);
     ASSERT_TRUE(status.ok());
-    Tuple *tuple = (Tuple *)g_tuple_buf;
+    Tuple* tuple = (Tuple*)g_tuple_buf;
     bool eos = false;
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);
     ASSERT_TRUE(status.ok());
@@ -131,9 +132,9 @@ TEST_F(SchemaCreateTableScannerTest, op_before_init) {
     db_num = 1;
     desc_num = 1;
     SchemaCreateTableScanner scanner;
-    Status status = scanner.start((RuntimeState *)1);
+    Status status = scanner.start((RuntimeState*)1);
     ASSERT_FALSE(status.ok());
-    Tuple *tuple = (Tuple *)g_tuple_buf;
+    Tuple* tuple = (Tuple*)g_tuple_buf;
     bool eos = false;
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);
     ASSERT_FALSE(status.ok());
@@ -147,7 +148,7 @@ TEST_F(SchemaCreateTableScannerTest, input_fail) {
     ASSERT_FALSE(status.ok());
     status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
-    status = scanner.start((RuntimeState *)1);
+    status = scanner.start((RuntimeState*)1);
     ASSERT_TRUE(status.ok());
     bool eos = false;
     status = scanner.get_next_row(NULL, &_mem_pool, &eos);
@@ -160,11 +161,11 @@ TEST_F(SchemaCreateTableScannerTest, table_fail) {
     SchemaCreateTableScanner scanner;
     Status status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
-    const TupleDescriptor *tuple_desc = scanner.tuple_desc();
+    const TupleDescriptor* tuple_desc = scanner.tuple_desc();
     ASSERT_TRUE(NULL != tuple_desc);
-    status = scanner.start((RuntimeState *)1);
+    status = scanner.start((RuntimeState*)1);
     ASSERT_TRUE(status.ok());
-    Tuple *tuple = (Tuple *)g_tuple_buf;
+    Tuple* tuple = (Tuple*)g_tuple_buf;
     bool eos = false;
     s_table_result = Status::InternalError("get table failed");
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);
@@ -177,11 +178,11 @@ TEST_F(SchemaCreateTableScannerTest, desc_fail) {
     SchemaCreateTableScanner scanner;
     Status status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
-    const TupleDescriptor *tuple_desc = scanner.tuple_desc();
+    const TupleDescriptor* tuple_desc = scanner.tuple_desc();
     ASSERT_TRUE(NULL != tuple_desc);
-    status = scanner.start((RuntimeState *)1);
+    status = scanner.start((RuntimeState*)1);
     ASSERT_TRUE(status.ok());
-    Tuple *tuple = (Tuple *)g_tuple_buf;
+    Tuple* tuple = (Tuple*)g_tuple_buf;
     bool eos = false;
     s_desc_result = Status::InternalError("get desc failed");
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);
@@ -196,11 +197,11 @@ TEST_F(SchemaCreateTableScannerTest, start_fail) {
     Status status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
     s_db_result = Status::InternalError("get db failed.");
-    status = scanner.start((RuntimeState *)1);
+    status = scanner.start((RuntimeState*)1);
     ASSERT_FALSE(status.ok());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -212,4 +213,3 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

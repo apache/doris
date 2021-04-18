@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
 #include <functional>
 using std::binary_function;
 using std::less;
@@ -25,7 +26,6 @@ using std::vector;
 #include "gutil/macros.h"
 #include "gutil/port.h"
 #include "gutil/stringprintf.h"
-
 
 // START DOXYGEN NumbersFunctions grouping
 /* @defgroup NumbersFunctions
@@ -76,10 +76,8 @@ bool safe_strto64_base(const string& str, int64* value, int base);
 bool safe_strtou32_base(const string& str, uint32* value, int base);
 bool safe_strtou64_base(const string& str, uint64* value, int base);
 
-bool safe_strto32_base(const char* startptr, int buffer_size,
-                       int32* value, int base);
-bool safe_strto64_base(const char* startptr, int buffer_size,
-                       int64* value, int base);
+bool safe_strto32_base(const char* startptr, int buffer_size, int32* value, int base);
+bool safe_strto64_base(const char* startptr, int buffer_size, int64* value, int base);
 
 // u64tostr_base36()
 //    The inverse of safe_strtou64_base, converts the number agument to
@@ -92,7 +90,9 @@ size_t u64tostr_base36(uint64 number, size_t buf_size, char* buffer);
 
 // Similar to atoi(s), except s could be like "16k", "32M", "2G", "4t".
 uint64 atoi_kmgt(const char* s);
-inline uint64 atoi_kmgt(const string& s) { return atoi_kmgt(s.c_str()); }
+inline uint64 atoi_kmgt(const string& s) {
+    return atoi_kmgt(s.c_str());
+}
 
 // ----------------------------------------------------------------------
 // FastIntToBuffer()
@@ -144,12 +144,10 @@ char* FastHex32ToBuffer(uint32 i, char* buffer);
 
 // at least 22 bytes long
 inline char* FastIntToBuffer(int i, char* buffer) {
-  return (sizeof(i) == 4 ?
-          FastInt32ToBuffer(i, buffer) : FastInt64ToBuffer(i, buffer));
+    return (sizeof(i) == 4 ? FastInt32ToBuffer(i, buffer) : FastInt64ToBuffer(i, buffer));
 }
 inline char* FastUIntToBuffer(unsigned int i, char* buffer) {
-  return (sizeof(i) == 4 ?
-          FastUInt32ToBuffer(i, buffer) : FastUInt64ToBuffer(i, buffer));
+    return (sizeof(i) == 4 ? FastUInt32ToBuffer(i, buffer) : FastUInt64ToBuffer(i, buffer));
 }
 
 // ----------------------------------------------------------------------
@@ -168,19 +166,19 @@ inline char* FastUIntToBuffer(unsigned int i, char* buffer) {
 // terminating the string).
 // ----------------------------------------------------------------------
 
-char* FastInt32ToBufferLeft(int32 i, char* buffer);    // at least 12 bytes
-char* FastUInt32ToBufferLeft(uint32 i, char* buffer);    // at least 12 bytes
-char* FastInt64ToBufferLeft(int64 i, char* buffer);    // at least 22 bytes
-char* FastUInt64ToBufferLeft(uint64 i, char* buffer);    // at least 22 bytes
+char* FastInt32ToBufferLeft(int32 i, char* buffer);   // at least 12 bytes
+char* FastUInt32ToBufferLeft(uint32 i, char* buffer); // at least 12 bytes
+char* FastInt64ToBufferLeft(int64 i, char* buffer);   // at least 22 bytes
+char* FastUInt64ToBufferLeft(uint64 i, char* buffer); // at least 22 bytes
 
 // Just define these in terms of the above.
 inline char* FastUInt32ToBuffer(uint32 i, char* buffer) {
-  FastUInt32ToBufferLeft(i, buffer);
-  return buffer;
+    FastUInt32ToBufferLeft(i, buffer);
+    return buffer;
 }
 inline char* FastUInt64ToBuffer(uint64 i, char* buffer) {
-  FastUInt64ToBufferLeft(i, buffer);
-  return buffer;
+    FastUInt64ToBufferLeft(i, buffer);
+    return buffer;
 }
 
 // ----------------------------------------------------------------------
@@ -207,7 +205,7 @@ void ConsumeStrayLeadingZeroes(string* str);
 // --------------------------------------------------------------------
 int32 ParseLeadingInt32Value(const char* str, int32 deflt);
 inline int32 ParseLeadingInt32Value(const string& str, int32 deflt) {
-  return ParseLeadingInt32Value(str.c_str(), deflt);
+    return ParseLeadingInt32Value(str.c_str(), deflt);
 }
 
 // ParseLeadingUInt32Value
@@ -219,7 +217,7 @@ inline int32 ParseLeadingInt32Value(const string& str, int32 deflt) {
 // --------------------------------------------------------------------
 uint32 ParseLeadingUInt32Value(const char* str, uint32 deflt);
 inline uint32 ParseLeadingUInt32Value(const string& str, uint32 deflt) {
-  return ParseLeadingUInt32Value(str.c_str(), deflt);
+    return ParseLeadingUInt32Value(str.c_str(), deflt);
 }
 
 // ----------------------------------------------------------------------
@@ -233,7 +231,7 @@ inline uint32 ParseLeadingUInt32Value(const string& str, uint32 deflt) {
 // --------------------------------------------------------------------
 int32 ParseLeadingDec32Value(const char* str, int32 deflt);
 inline int32 ParseLeadingDec32Value(const string& str, int32 deflt) {
-  return ParseLeadingDec32Value(str.c_str(), deflt);
+    return ParseLeadingDec32Value(str.c_str(), deflt);
 }
 
 // ParseLeadingUDec32Value
@@ -246,7 +244,7 @@ inline int32 ParseLeadingDec32Value(const string& str, int32 deflt) {
 // --------------------------------------------------------------------
 uint32 ParseLeadingUDec32Value(const char* str, uint32 deflt);
 inline uint32 ParseLeadingUDec32Value(const string& str, uint32 deflt) {
-  return ParseLeadingUDec32Value(str.c_str(), deflt);
+    return ParseLeadingUDec32Value(str.c_str(), deflt);
 }
 
 // ----------------------------------------------------------------------
@@ -261,23 +259,23 @@ inline uint32 ParseLeadingUDec32Value(const string& str, uint32 deflt) {
 // --------------------------------------------------------------------
 uint64 ParseLeadingUInt64Value(const char* str, uint64 deflt);
 inline uint64 ParseLeadingUInt64Value(const string& str, uint64 deflt) {
-  return ParseLeadingUInt64Value(str.c_str(), deflt);
+    return ParseLeadingUInt64Value(str.c_str(), deflt);
 }
 int64 ParseLeadingInt64Value(const char* str, int64 deflt);
 inline int64 ParseLeadingInt64Value(const string& str, int64 deflt) {
-  return ParseLeadingInt64Value(str.c_str(), deflt);
+    return ParseLeadingInt64Value(str.c_str(), deflt);
 }
 uint64 ParseLeadingHex64Value(const char* str, uint64 deflt);
 inline uint64 ParseLeadingHex64Value(const string& str, uint64 deflt) {
-  return ParseLeadingHex64Value(str.c_str(), deflt);
+    return ParseLeadingHex64Value(str.c_str(), deflt);
 }
 int64 ParseLeadingDec64Value(const char* str, int64 deflt);
 inline int64 ParseLeadingDec64Value(const string& str, int64 deflt) {
-  return ParseLeadingDec64Value(str.c_str(), deflt);
+    return ParseLeadingDec64Value(str.c_str(), deflt);
 }
 uint64 ParseLeadingUDec64Value(const char* str, uint64 deflt);
 inline uint64 ParseLeadingUDec64Value(const string& str, uint64 deflt) {
-  return ParseLeadingUDec64Value(str.c_str(), deflt);
+    return ParseLeadingUDec64Value(str.c_str(), deflt);
 }
 
 // ----------------------------------------------------------------------
@@ -288,7 +286,7 @@ inline uint64 ParseLeadingUDec64Value(const string& str, uint64 deflt) {
 // --------------------------------------------------------------------
 double ParseLeadingDoubleValue(const char* str, double deflt);
 inline double ParseLeadingDoubleValue(const string& str, double deflt) {
-  return ParseLeadingDoubleValue(str.c_str(), deflt);
+    return ParseLeadingDoubleValue(str.c_str(), deflt);
 }
 
 // ----------------------------------------------------------------------
@@ -300,7 +298,7 @@ inline double ParseLeadingDoubleValue(const string& str, double deflt) {
 // --------------------------------------------------------------------
 bool ParseLeadingBoolValue(const char* str, bool deflt);
 inline bool ParseLeadingBoolValue(const string& str, bool deflt) {
-  return ParseLeadingBoolValue(str.c_str(), deflt);
+    return ParseLeadingBoolValue(str.c_str(), deflt);
 }
 
 // ----------------------------------------------------------------------
@@ -326,42 +324,34 @@ inline bool ParseLeadingBoolValue(const string& str, bool deflt) {
 //    strict mode, but "01" == "1" otherwise.
 // ----------------------------------------------------------------------
 
-int AutoDigitStrCmp(const char* a, int alen,
-                    const char* b, int blen,
-                    bool strict);
+int AutoDigitStrCmp(const char* a, int alen, const char* b, int blen, bool strict);
 
-bool AutoDigitLessThan(const char* a, int alen,
-                       const char* b, int blen);
+bool AutoDigitLessThan(const char* a, int alen, const char* b, int blen);
 
-bool StrictAutoDigitLessThan(const char* a, int alen,
-                             const char* b, int blen);
+bool StrictAutoDigitLessThan(const char* a, int alen, const char* b, int blen);
 
-struct autodigit_less
-  : public binary_function<const string&, const string&, bool> {
-  bool operator()(const string& a, const string& b) const {
-    return AutoDigitLessThan(a.data(), a.size(), b.data(), b.size());
-  }
+struct autodigit_less : public binary_function<const string&, const string&, bool> {
+    bool operator()(const string& a, const string& b) const {
+        return AutoDigitLessThan(a.data(), a.size(), b.data(), b.size());
+    }
 };
 
-struct autodigit_greater
-  : public binary_function<const string&, const string&, bool> {
-  bool operator()(const string& a, const string& b) const {
-    return AutoDigitLessThan(b.data(), b.size(), a.data(), a.size());
-  }
+struct autodigit_greater : public binary_function<const string&, const string&, bool> {
+    bool operator()(const string& a, const string& b) const {
+        return AutoDigitLessThan(b.data(), b.size(), a.data(), a.size());
+    }
 };
 
-struct strict_autodigit_less
-  : public binary_function<const string&, const string&, bool> {
-  bool operator()(const string& a, const string& b) const {
-    return StrictAutoDigitLessThan(a.data(), a.size(), b.data(), b.size());
-  }
+struct strict_autodigit_less : public binary_function<const string&, const string&, bool> {
+    bool operator()(const string& a, const string& b) const {
+        return StrictAutoDigitLessThan(a.data(), a.size(), b.data(), b.size());
+    }
 };
 
-struct strict_autodigit_greater
-  : public binary_function<const string&, const string&, bool> {
-  bool operator()(const string& a, const string& b) const {
-    return StrictAutoDigitLessThan(b.data(), b.size(), a.data(), a.size());
-  }
+struct strict_autodigit_greater : public binary_function<const string&, const string&, bool> {
+    bool operator()(const string& a, const string& b) const {
+        return StrictAutoDigitLessThan(b.data(), b.size(), a.data(), a.size());
+    }
 };
 
 // ----------------------------------------------------------------------
@@ -372,25 +362,25 @@ struct strict_autodigit_greater
 //    Return value: string
 // ----------------------------------------------------------------------
 inline string SimpleItoa(int32 i) {
-  char buf[16];  // Longest is -2147483648
-  return string(buf, FastInt32ToBufferLeft(i, buf));
+    char buf[16]; // Longest is -2147483648
+    return string(buf, FastInt32ToBufferLeft(i, buf));
 }
 
 // We need this overload because otherwise SimpleItoa(5U) wouldn't compile.
 inline string SimpleItoa(uint32 i) {
-  char buf[16];  // Longest is 4294967295
-  return string(buf, FastUInt32ToBufferLeft(i, buf));
+    char buf[16]; // Longest is 4294967295
+    return string(buf, FastUInt32ToBufferLeft(i, buf));
 }
 
 inline string SimpleItoa(int64 i) {
-  char buf[32];  // Longest is -9223372036854775808
-  return string(buf, FastInt64ToBufferLeft(i, buf));
+    char buf[32]; // Longest is -9223372036854775808
+    return string(buf, FastInt64ToBufferLeft(i, buf));
 }
 
 // We need this overload because otherwise SimpleItoa(5ULL) wouldn't compile.
 inline string SimpleItoa(uint64 i) {
-  char buf[32];  // Longest is 18446744073709551615
-  return string(buf, FastUInt64ToBufferLeft(i, buf));
+    char buf[32]; // Longest is 18446744073709551615
+    return string(buf, FastUInt64ToBufferLeft(i, buf));
 }
 
 // SimpleAtoi converts a string to an integer.
@@ -402,27 +392,26 @@ inline string SimpleItoa(uint64 i) {
 // Returns true if parsing was successful.
 template <typename int_type>
 bool MUST_USE_RESULT SimpleAtoi(const char* s, int_type* out) {
-  // Must be of integer type (not pointer type), with more than 16-bitwidth.
-  COMPILE_ASSERT(sizeof(*out) == 4 || sizeof(*out) == 8,
-                 SimpleAtoiWorksWith32Or64BitInts);
-  if (std::numeric_limits<int_type>::is_signed) {  // Signed
-    if (sizeof(*out) == 64 / 8) {  // 64-bit
-      return safe_strto64(s, reinterpret_cast<int64*>(out));
-    } else {  // 32-bit
-      return safe_strto32(s, reinterpret_cast<int32*>(out));
+    // Must be of integer type (not pointer type), with more than 16-bitwidth.
+    COMPILE_ASSERT(sizeof(*out) == 4 || sizeof(*out) == 8, SimpleAtoiWorksWith32Or64BitInts);
+    if (std::numeric_limits<int_type>::is_signed) { // Signed
+        if (sizeof(*out) == 64 / 8) {               // 64-bit
+            return safe_strto64(s, reinterpret_cast<int64*>(out));
+        } else { // 32-bit
+            return safe_strto32(s, reinterpret_cast<int32*>(out));
+        }
+    } else {                          // Unsigned
+        if (sizeof(*out) == 64 / 8) { // 64-bit
+            return safe_strtou64(s, reinterpret_cast<uint64*>(out));
+        } else { // 32-bit
+            return safe_strtou32(s, reinterpret_cast<uint32*>(out));
+        }
     }
-  } else {  // Unsigned
-    if (sizeof(*out) == 64 / 8) {  // 64-bit
-      return safe_strtou64(s, reinterpret_cast<uint64*>(out));
-    } else {  // 32-bit
-      return safe_strtou32(s, reinterpret_cast<uint32*>(out));
-    }
-  }
 }
 
 template <typename int_type>
 bool MUST_USE_RESULT SimpleAtoi(const string& s, int_type* out) {
-  return SimpleAtoi(s.c_str(), out);
+    return SimpleAtoi(s.c_str(), out);
 }
 
 // ----------------------------------------------------------------------
@@ -447,8 +436,8 @@ bool MUST_USE_RESULT SimpleAtoi(const string& s, int_type* out) {
 string SimpleDtoa(double value);
 string SimpleFtoa(float value);
 
-int DoubleToBuffer(double i, int width, char *buffer);
-int FloatToBuffer(float i, int width, char *buffer);
+int DoubleToBuffer(double i, int width, char* buffer);
+int FloatToBuffer(float i, int width, char* buffer);
 
 char* DoubleToBuffer(double i, char* buffer);
 char* FloatToBuffer(float i, char* buffer);
@@ -517,15 +506,15 @@ string ItoaKMGT(int64 i);
 //    '\0'-terminated, which is more efficient.
 // ----------------------------------------------------------------------
 struct DoubleRangeOptions {
-  const char* separators;
-  bool require_separator;
-  const char* acceptable_terminators;
-  bool null_terminator_ok;
-  bool allow_unbounded_markers;
-  uint32 num_required_bounds;
-  bool dont_modify_unbounded;
-  bool allow_currency;
-  bool allow_comparators;
+    const char* separators;
+    bool require_separator;
+    const char* acceptable_terminators;
+    bool null_terminator_ok;
+    bool allow_unbounded_markers;
+    uint32 num_required_bounds;
+    bool dont_modify_unbounded;
+    bool allow_currency;
+    bool allow_comparators;
 };
 
 // NOTE: The instruction below creates a Module titled
@@ -533,9 +522,8 @@ struct DoubleRangeOptions {
 // This instruction is needed to expose global functions that are not
 // within a namespace.
 //
-bool ParseDoubleRange(const char* text, int len, const char** end,
-                      double* from, double* to, bool* is_currency,
-                      const DoubleRangeOptions& opts);
+bool ParseDoubleRange(const char* text, int len, const char** end, double* from, double* to,
+                      bool* is_currency, const DoubleRangeOptions& opts);
 
 // END DOXYGEN SplitFunctions grouping
 /* @} */
@@ -575,4 +563,4 @@ bool ParseDoubleRange(const char* text, int len, const char** end,
 //   return StringPrintf("%7" PRIu64, ui64);
 // }
 
-#endif  // STRINGS_NUMBERS_H_
+#endif // STRINGS_NUMBERS_H_

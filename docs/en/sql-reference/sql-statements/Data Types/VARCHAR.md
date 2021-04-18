@@ -27,7 +27,9 @@ under the License.
 # VARCHAR
 ## Description
 MARKETING (M)
-A variable length string, M represents the length of a variable length string. The range of M is 1-65535.
+A variable length string, M represents the length of a variable length string. The range of M is 1-65533.
 
-##keyword
+Note: Variable length strings are stored in UTF-8 encoding, so usually English characters occupies 1 byte, and Chinese characters occupies 3 bytes.
+
+## keyword
 VARCHAR

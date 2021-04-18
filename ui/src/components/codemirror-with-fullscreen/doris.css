@@ -1,0 +1,84 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ * 
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+/* neo theme for codemirror */
+
+/* Color scheme */
+
+.cm-s-neo.CodeMirror {
+    background-color: #fff;
+    color: #2e383c;
+    line-height: 1.4375;
+    font-family: apercu-mono-regular, Menlo, Monaco, Consolas, "Courier New", monospace !important;
+  }
+.cm-s-neo .cm-comment { 
+    color: #75787b;
+}
+.cm-s-neo .cm-keyword, 
+.cm-s-neo .cm-property { 
+    color: #02a0f9; 
+}
+.cm-s-neo .cm-atom,
+.cm-s-neo .cm-number { 
+    color: #35ae91; 
+}
+.cm-s-neo .cm-node,
+.cm-s-neo .cm-tag { 
+    color: #9c3328; 
+}
+.cm-s-neo .cm-string { 
+    color: #b35e14; 
+}
+.cm-s-neo .cm-variable,
+.cm-s-neo .cm-qualifier { 
+    color: #75438a; 
+}
+  
+  
+  /* Editor styling */
+  
+.cm-s-neo pre {
+    padding: 0;
+}
+
+.cm-s-neo .CodeMirror-gutters {
+    border: none;
+    border-right: 10px solid transparent;
+    background-color: transparent;
+}
+
+.cm-s-neo .CodeMirror-linenumber {
+    padding: 0;
+    color: #e0e2e5;
+}
+
+.cm-s-neo .CodeMirror-guttermarker { 
+    color: #1d75b3; 
+}
+.cm-s-neo .CodeMirror-guttermarker-subtle { 
+    color: #e0e2e5; 
+}
+
+.cm-s-neo .CodeMirror-cursor {
+    width: auto;
+    border: 0;
+    background: rgba(155, 157, 162, 0.37);
+    z-index: 1;
+}
+  

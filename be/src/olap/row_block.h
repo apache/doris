@@ -34,11 +34,11 @@ namespace doris {
 class ExprContext;
 
 struct RowBlockInfo {
-    RowBlockInfo() : checksum(0), row_num(0) { }
-    RowBlockInfo(uint32_t value, uint32_t num) : checksum(value), row_num(num) { }
+    RowBlockInfo() : checksum(0), row_num(0) {}
+    RowBlockInfo(uint32_t value, uint32_t num) : checksum(value), row_num(num) {}
 
     uint32_t checksum;
-    uint32_t row_num;       // block最大数据行数
+    uint32_t row_num; // block最大数据行数
     bool null_supported = false;
     std::vector<uint32_t> column_ids;
 };
@@ -49,14 +49,16 @@ struct RowBlockInfo {
 // RowBlock的内部buf中；
 // 2. 给定row_index，读取内部各field的值
 // 3. 给定查询的key，在RowBlock内做二分查找，返回起点的行偏移；
-// 4. 向量化的条件过滤下推到RowBlock级别进行，因此增加完成过滤的数据读取借口
+// 4. 向量化的条件过滤下推到RowBlock级别进行，因此增加完成过滤的数据读取接口
 class RowBlock {
     // Please keep these classes as 'friend'.  They have to use lots of private fields for
     // faster operation.
     friend class RowBlockChanger;
     friend class VectorizedRowBatch;
+
 public:
-    RowBlock(const TabletSchema* schema);
+    RowBlock(const TabletSchema* schema,
+             const std::shared_ptr<MemTracker>& parent_tracker = nullptr);
 
     // 注意回收内部buffer
     ~RowBlock();
@@ -64,13 +66,13 @@ public:
     // row_num是RowBlock的最大行数，fields为了初始化各个field的起始位置。
     // 在field都为定长的情况下根据这两个值可以确定RowBlock内部buffer的大小，
     // 目前只考虑定长，因此在函数可以分配内存资源。
-    OLAPStatus init(const RowBlockInfo& block_info);
+    void init(const RowBlockInfo& block_info);
 
     inline void get_row(uint32_t row_index, RowCursor* cursor) const {
         cursor->attach(_mem_buf + row_index * _mem_row_bytes);
     }
 
-    template<typename RowType>
+    template <typename RowType>
     inline void set_row(uint32_t row_index, const RowType& row) const {
         memcpy(_mem_buf + row_index * _mem_row_bytes, row.row_ptr(), _mem_row_bytes);
     }
@@ -89,9 +91,7 @@ public:
         return _mem_buf + _mem_row_bytes * row + _field_offset_in_memory[col];
     }
 
-    MemPool* mem_pool() const {
-        return _mem_pool.get();
-    }
+    MemPool* mem_pool() const { return _mem_pool.get(); }
 
     // 重用rowblock之前需调用clear，恢复到init之后的原始状态
     void clear();
@@ -107,18 +107,15 @@ public:
     void set_block_status(uint8_t status) { _block_status = status; }
 
 private:
-
-    bool has_nullbyte() {
-        return _null_supported;
-    }
+    bool has_nullbyte() { return _null_supported; }
 
     // Compute layout for storage buffer and  memory buffer
     void _compute_layout();
 
     uint32_t _capacity;
     RowBlockInfo _info;
-    const TabletSchema* _schema;     // 内部保存的schema句柄
-    
+    const TabletSchema* _schema; // 内部保存的schema句柄
+
     bool _null_supported;
 
     // Data in memory is construct from row cursors, these row cursors's size is equal
@@ -137,12 +134,12 @@ private:
     size_t _limit = 0;
     uint8_t _block_status = DEL_PARTIAL_SATISFIED;
 
-    std::unique_ptr<MemTracker> _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;
     // 由于内部持有内存资源，所以这里禁止拷贝和赋值
     DISALLOW_COPY_AND_ASSIGN(RowBlock);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROW_BLOCK_H

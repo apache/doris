@@ -122,7 +122,7 @@ The prefix indexes of the three tables are
 ```
 Base(k1 ,k2, k3, k4, k5, k6, k7)
 
-rollup_index1(k9)，rollup_index2(k9)
+rollup_index1(k9), rollup_index2(k9)
 
 rollup_index3(k4, k5, k6, k1, k2, k3, k7)
 
@@ -226,7 +226,7 @@ Of course, the function of aggregated data is indispensable for general polymer 
 
 The following are some types of aggregated queries that can hit Rollup.
 
-| Column type Query type |  Sum  | Distinct/Count Distinct |   Min |  Max  |  Ndv  |
+| Column type Query type |  Sum  | Distinct/Count Distinct |   Min |  Max  |  APPROX_COUNT_DISTINCT  |
 |--------------|-------|-------------------------|-------|-------|-------|
 |     Key      | false |           true          |  true |  true | true  |
 |   Value(Sum) |  true |          false          | false | false | false |
@@ -279,7 +279,7 @@ See the following queries:
 
 `SELECT SUM(k11) FROM test_rollup WHERE k1 = 10 AND k2 > 200 AND k3 in (1,2,3);`
 
-Firstly, it judges whether the query can hit the aggregated Rolup table. After checking the graph above, it is possible. Then the condition contains three conditions: k1, K2 and k3. The first three columns of test_rollup, rollup1 and rollup2 contain all the three conditions. So the prefix index length is the same. Then, it is obvious that the aggregation degree of rollup2 is the highest when comparing the number of rows. Row 2 is selected because of the minimum number of rows.
+Firstly, it judges whether the query can hit the aggregated Rollup table. After checking the graph above, it is possible. Then the condition contains three conditions: k1, K2 and k3. The first three columns of test_rollup, rollup1 and rollup2 contain all the three conditions. So the prefix index length is the same. Then, it is obvious that the aggregation degree of rollup2 is the highest when comparing the number of rows. Row 2 is selected because of the minimum number of rows.
 
 ```
 |   0:OlapScanNode                                          |

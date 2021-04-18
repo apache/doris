@@ -91,7 +91,7 @@ Status DiskIoMgr::ScanRange::get_next(BufferDescriptor** buffer) {
         if (_ready_buffers.empty()) {
             // The queue is empty indicating this thread could use more
             // IO. Increase the capacity to allow for more queueing.
-            ++_ready_buffers_capacity ;
+            ++_ready_buffers_capacity;
             _ready_buffers_capacity = std::min(_ready_buffers_capacity, MAX_QUEUE_CAPACITY);
         }
 
@@ -130,7 +130,7 @@ Status DiskIoMgr::ScanRange::get_next(BufferDescriptor** buffer) {
         _reader->_total_range_queue_capacity += _ready_buffers_capacity;
         ++_reader->_num_finished_ranges;
         _reader->_initial_queue_capacity =
-            _reader->_total_range_queue_capacity / _reader->_num_finished_ranges;
+                _reader->_total_range_queue_capacity / _reader->_num_finished_ranges;
     }
 
     DCHECK(_reader->validate()) << endl << _reader->debug_string();
@@ -197,24 +197,21 @@ void DiskIoMgr::ScanRange::cleanup_queued_buffers() {
 
 string DiskIoMgr::ScanRange::debug_string() const {
     stringstream ss;
-    ss << "file=" << _file << " disk_id=" << _disk_id << " offset=" << _offset
-        << " len=" << _len << " bytes_read=" << _bytes_read
-        << " buffer_queue=" << _ready_buffers.size()
-        << " capacity=" << _ready_buffers_capacity
-        << " hdfs_file=" << _hdfs_file;
+    ss << "file=" << _file << " disk_id=" << _disk_id << " offset=" << _offset << " len=" << _len
+       << " bytes_read=" << _bytes_read << " buffer_queue=" << _ready_buffers.size()
+       << " capacity=" << _ready_buffers_capacity << " hdfs_file=" << _hdfs_file;
     return ss.str();
 }
 
 bool DiskIoMgr::ScanRange::validate() {
     if (_bytes_read > _len) {
         LOG(WARNING) << "Bytes read tracking is wrong. Shouldn't read past the scan range."
-            << " _bytes_read=" << _bytes_read << " _len=" << _len;
+                     << " _bytes_read=" << _bytes_read << " _len=" << _len;
         return false;
     }
     if (_eosr_returned && !_eosr_queued) {
         LOG(WARNING) << "Returned eosr to reader before finishing reading the scan range"
-            << " _eosr_returned=" << _eosr_returned
-            << " _eosr_queued=" << _eosr_queued;
+                     << " _eosr_returned=" << _eosr_returned << " _eosr_queued=" << _eosr_queued;
         return false;
     }
     return true;
@@ -230,10 +227,9 @@ DiskIoMgr::ScanRange::~ScanRange() {
     DCHECK(_cached_buffer == NULL) << "Cached buffer was not released.";
 }
 
-void DiskIoMgr::ScanRange::reset(
-        hdfsFS fs, const char* file, int64_t len,
-        int64_t offset, int disk_id, bool try_cache,
-        bool expected_local, int64_t mtime, void* meta_data) {
+void DiskIoMgr::ScanRange::reset(hdfsFS fs, const char* file, int64_t len, int64_t offset,
+                                 int disk_id, bool try_cache, bool expected_local, int64_t mtime,
+                                 void* meta_data) {
     DCHECK(_ready_buffers.empty());
     _fs = fs;
     _file = file;
@@ -308,8 +304,7 @@ Status DiskIoMgr::ScanRange::open() {
         _local_file = NULL;
         string error_msg = get_str_err_msg();
         stringstream ss;
-        ss << "Could not seek to " << _offset << " for file: " << _file
-            << ": " << error_msg;
+        ss << "Could not seek to " << _offset << " for file: " << _file << ": " << error_msg;
         return Status::InternalError(ss.str());
     }
     // }
@@ -318,7 +313,7 @@ Status DiskIoMgr::ScanRange::open() {
 
 void DiskIoMgr::ScanRange::close() {
     unique_lock<mutex> hdfs_lock(_hdfs_lock);
-/*
+    /*
  *   if (_fs != NULL) {
  *     if (_hdfs_file == NULL) return;
  *
@@ -367,7 +362,7 @@ void DiskIoMgr::ScanRange::close() {
  *     // Profiles show that both the JNI array allocation and the memcpy adds much more
  *     // overhead for larger buffers, so limit the size of each read request.  128K was
  *     // chosen empirically by trying values between 4K and 8M and optimizing for lower CPU
- *     // utilization and higher S3 througput.
+ *     // utilization and higher S3 throughput.
  *     if (_disk_id == _io_mgr->RemoteS3DiskId()) {
  *         DCHECK(IsS3APath(file()));
  *         return 128 * 1024;
@@ -391,7 +386,7 @@ Status DiskIoMgr::ScanRange::read(char* buffer, int64_t* bytes_read, bool* eosr)
     // than an int, this min() will ensure that we don't overflow the length argument.
     DCHECK_LE(sizeof(_io_mgr->_max_buffer_size), sizeof(int));
     int bytes_to_read =
-        std::min(static_cast<int64_t>(_io_mgr->_max_buffer_size), _len - _bytes_read);
+            std::min(static_cast<int64_t>(_io_mgr->_max_buffer_size), _len - _bytes_read);
     DCHECK_GE(bytes_to_read, 0);
 
     /*
@@ -420,8 +415,8 @@ Status DiskIoMgr::ScanRange::read(char* buffer, int64_t* bytes_read, bool* eosr)
         if (ferror(_local_file) != 0) {
             string error_msg = get_str_err_msg();
             stringstream ss;
-            ss << "Error reading from " << _file << " at byte offset: "
-                << (_offset + _bytes_read) << ": " << error_msg;
+            ss << "Error reading from " << _file << " at byte offset: " << (_offset + _bytes_read)
+               << ": " << error_msg;
             return Status::InternalError(ss.str());
         } else {
             // On Linux, we should only get partial reads from block devices on error or eof.
@@ -487,4 +482,3 @@ Status DiskIoMgr::ScanRange::read(char* buffer, int64_t* bytes_read, bool* eosr)
  * }
  */
 } // namespace doris
-

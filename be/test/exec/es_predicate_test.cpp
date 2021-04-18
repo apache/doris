@@ -18,13 +18,15 @@
 #include "exec/es/es_predicate.h"
 
 #include <gtest/gtest.h>
+
 #include <string>
 #include <vector>
+
 #include "common/logging.h"
 #include "common/status.h"
+#include "exec/es/es_query_builder.h"
 #include "exprs/binary_predicate.h"
 #include "gen_cpp/Exprs_types.h"
-#include "exec/es/es_query_builder.h"
 #include "rapidjson/document.h"
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
@@ -91,14 +93,12 @@ public:
     void TearDown() override {}
 
 private:
-
     ObjectPool _obj_pool;
     DescriptorTbl* _desc_tbl;
     RuntimeState _runtime_state;
 };
 
 Status EsPredicateTest::build_expr_context_list(std::vector<ExprContext*>& conjunct_ctxs) {
-
     TExpr texpr;
     {
         TExprNode node0;
@@ -143,7 +143,7 @@ TEST_F(EsPredicateTest, normal) {
     std::vector<ExprContext*> conjunct_ctxs;
     Status status = build_expr_context_list(conjunct_ctxs);
 
-    TupleDescriptor *tuple_desc = _desc_tbl->get_tuple_descriptor(0);
+    TupleDescriptor* tuple_desc = _desc_tbl->get_tuple_descriptor(0);
     std::vector<EsPredicate*> predicates;
     for (int i = 0; i < conjunct_ctxs.size(); ++i) {
         EsPredicate* predicate = new EsPredicate(conjunct_ctxs[i], tuple_desc, &_obj_pool);
@@ -160,14 +160,15 @@ TEST_F(EsPredicateTest, normal) {
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     compound_bool_value.Accept(writer);
     std::string actual_bool_json = buffer.GetString();
-    std::string expected_json = "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"range\":{\"id\":{\"gt\":\"10\"}}}]}}]}}";
+    std::string expected_json =
+            "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"range\":{\"id\":{\"gt\":\"10\"}}}]}}]"
+            "}}";
     LOG(INFO) << "compound bool query" << actual_bool_json;
     ASSERT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
     for (auto predicate : predicates) {
         delete predicate;
     }
 }
-
 
 } // end namespace doris
 
