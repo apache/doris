@@ -17,12 +17,12 @@
 
 #pragma once
 
-#include<string>
-#include<vector>
+#include <string>
+#include <vector>
 
-#include "rapidjson/document.h"
-#include "exec/es/es_predicate.h"
 #include "common/status.h"
+#include "exec/es/es_predicate.h"
+#include "rapidjson/document.h"
 
 namespace doris {
 
@@ -38,13 +38,13 @@ public:
     ESQueryBuilder(const std::string& es_query_str);
     ESQueryBuilder(const ExtFunction& es_query);
     void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
+
 private:
     std::string _es_query_str;
 };
 
-// process field = value 
+// process field = value
 class TermQueryBuilder : public QueryBuilder {
-
 public:
     TermQueryBuilder(const std::string& field, const std::string& term);
     TermQueryBuilder(const ExtBinaryPredicate& binary_predicate);
@@ -53,14 +53,15 @@ public:
 private:
     std::string _field;
     std::string _term;
+    bool _match_none;
 };
 
 // process range predicate field >= value or field < value etc.
 class RangeQueryBuilder : public QueryBuilder {
-
 public:
     RangeQueryBuilder(const ExtBinaryPredicate& range_predicate);
     void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
+
 private:
     std::string _field;
     std::string _value;
@@ -69,10 +70,10 @@ private:
 
 // process in predicate :  field in [value1, value2]
 class TermsInSetQueryBuilder : public QueryBuilder {
-
 public:
     TermsInSetQueryBuilder(const ExtInPredicate& in_predicate);
     void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
+
 private:
     std::string _field;
     std::vector<std::string> _values;
@@ -80,7 +81,6 @@ private:
 
 // process like predicate : field like "a%b%c_"
 class WildCardQueryBuilder : public QueryBuilder {
-
 public:
     WildCardQueryBuilder(const ExtLikePredicate& like_predicate);
     void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
@@ -90,17 +90,14 @@ private:
     std::string _field;
 };
 
-// no predicates: all doccument match
+// no predicates: all document match
 class MatchAllQueryBuilder : public QueryBuilder {
-
 public:
     void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
 };
 
-
 // process like predicate : k1 is null or k1 is not null"
 class ExistsQueryBuilder : public QueryBuilder {
-
 public:
     ExistsQueryBuilder(const ExtIsNullPredicate& like_predicate);
     void to_json(rapidjson::Document* document, rapidjson::Value* query) override;
@@ -109,15 +106,15 @@ private:
     std::string _field;
 };
 
-// proccess bool compound query, and play the role of a bridge for transferring predicates to es native query
+// process bool compound query, and play the role of a bridge for transferring predicates to es native query
 class BooleanQueryBuilder : public QueryBuilder {
-
 public:
     BooleanQueryBuilder(const std::vector<ExtPredicate*>& predicates);
     BooleanQueryBuilder();
     virtual ~BooleanQueryBuilder();
     // class method for transfer predicate to es query value, invoker should enclose this value with `query`
-    static void to_query(const std::vector<EsPredicate*>& predicates, rapidjson::Document* root, rapidjson::Value* query);
+    static void to_query(const std::vector<EsPredicate*>& predicates, rapidjson::Document* root,
+                         rapidjson::Value* query);
     // validate esquery syntax
     static Status check_es_query(const ExtFunction& extFunction);
     // decide which predicate can process
@@ -137,4 +134,4 @@ private:
     std::vector<QueryBuilder*> _should_clauses;
 };
 
-}
+} // namespace doris

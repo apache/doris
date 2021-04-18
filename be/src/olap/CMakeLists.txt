@@ -32,11 +32,15 @@ add_library(Olap STATIC
     bloom_filter.hpp
     bloom_filter_reader.cpp
     bloom_filter_writer.cpp
+    block_column_predicate.cpp
     byte_buffer.cpp
+    collect_iterator.cpp
     compaction.cpp
+    compaction_permit_limiter.cpp
     comparison_predicate.cpp
     compress.cpp
     cumulative_compaction.cpp
+    cumulative_compaction_policy.cpp
     delete_handler.cpp
     delta_writer.cpp
     file_helper.cpp
@@ -63,7 +67,7 @@ add_library(Olap STATIC
     row_block.cpp
     row_block2.cpp
     row_cursor.cpp
-    rowset_graph.cpp
+    version_graph.cpp
     schema.cpp
     schema_change.cpp
     serialize.cpp
@@ -115,4 +119,5 @@ add_library(Olap STATIC
     task/engine_publish_version_task.cpp
     task/engine_alter_tablet_task.cpp
     olap_snapshot_converter.cpp
+    column_vector.cpp
 )

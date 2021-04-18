@@ -17,10 +17,10 @@
 
 #include "runtime/decimal_value.h"
 
+#include <gtest/gtest.h>
+
 #include <iostream>
 #include <string>
-
-#include <gtest/gtest.h>
 
 #include "util/logging.h"
 
@@ -28,14 +28,11 @@ namespace doris {
 
 class DecimalValueTest : public testing::Test {
 public:
-    DecimalValueTest() {
-    }
+    DecimalValueTest() {}
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
 };
 
 TEST_F(DecimalValueTest, string_to_decimal) {
@@ -93,7 +90,6 @@ TEST_F(DecimalValueTest, negative_zero) {
         ASSERT_FALSE(!(value <= value3));
         ASSERT_FALSE(!(value3 > value));
         ASSERT_FALSE(!(value3 >= value));
-
     }
     {
         // from int
@@ -181,14 +177,14 @@ TEST_F(DecimalValueTest, int_to_decimal) {
 }
 
 TEST_F(DecimalValueTest, add) {
-    DecimalValue value11(std::string("1111111111.2222222222"));// 10 digits
+    DecimalValue value11(std::string("1111111111.2222222222")); // 10 digits
     DecimalValue value12(std::string("2222222222.1111111111")); // 10 digits
     DecimalValue add_result1 = value11 + value12;
     std::cout << "add_result1: " << add_result1.get_debug_info() << std::endl;
     ASSERT_EQ("3333333333.3333333333", add_result1.to_string(10));
 
-    DecimalValue value21(std::string("-3333333333.2222222222"));// 10 digits
-    DecimalValue value22(std::string("2222222222.1111111111")); // 10 digits
+    DecimalValue value21(std::string("-3333333333.2222222222")); // 10 digits
+    DecimalValue value22(std::string("2222222222.1111111111"));  // 10 digits
     DecimalValue add_result2 = value21 + value22;
     std::cout << "add_result2: " << add_result2.get_debug_info() << std::endl;
     ASSERT_EQ("-1111111111.1111111111", add_result2.to_string(10));
@@ -205,7 +201,7 @@ TEST_F(DecimalValueTest, compound_add) {
 }
 
 TEST_F(DecimalValueTest, sub) {
-    DecimalValue value11(std::string("3333333333.2222222222"));// 10 digits
+    DecimalValue value11(std::string("3333333333.2222222222")); // 10 digits
     DecimalValue value12(std::string("2222222222.1111111111")); // 10 digits
     DecimalValue sub_result1 = value11 - value12;
     std::cout << "sub_result1: " << sub_result1.get_debug_info() << std::endl;
@@ -228,12 +224,12 @@ TEST_F(DecimalValueTest, sub) {
     }
     // minimum - maximal
     {
-        DecimalValue value1(std::string(
-                "9999999999999999999999999999999999999999"
-                "99999999999999999999999999999999999999999")); // 81 digits
-        DecimalValue value2(std::string(
-                "-9999999999999999999999999999999999999999"
-                "99999999999999999999999999999999999999999")); // 81 digits
+        DecimalValue value1(
+                std::string("9999999999999999999999999999999999999999"
+                            "99999999999999999999999999999999999999999")); // 81 digits
+        DecimalValue value2(
+                std::string("-9999999999999999999999999999999999999999"
+                            "99999999999999999999999999999999999999999")); // 81 digits
         DecimalValue sub_result = value2 - value1;
         LOG(INFO) << "sub_result: " << sub_result.get_debug_info() << std::endl;
         DecimalValue expected_value = value2;
@@ -244,13 +240,11 @@ TEST_F(DecimalValueTest, sub) {
 }
 
 TEST_F(DecimalValueTest, mul) {
-    DecimalValue value11(std::string("3333333333.2222222222"));// 10 digits
+    DecimalValue value11(std::string("3333333333.2222222222"));  // 10 digits
     DecimalValue value12(std::string("-2222222222.1111111111")); // 10 digits
     DecimalValue mul_result1 = value11 * value12;
     std::cout << "mul_result1: " << mul_result1.get_debug_info() << std::endl;
-    ASSERT_EQ(DecimalValue(
-            std::string("-7407407406790123456.71604938271975308642")),
-            mul_result1);
+    ASSERT_EQ(DecimalValue(std::string("-7407407406790123456.71604938271975308642")), mul_result1);
 
     DecimalValue value21(std::string("0")); // zero
     DecimalValue mul_result2 = value11 * value21;
@@ -291,7 +285,6 @@ TEST_F(DecimalValueTest, unary_minus_operator) {
         std::cout << "value2: " << value2.get_debug_info() << std::endl;
         ASSERT_EQ("111111111.222222222", value1.to_string(10));
         ASSERT_EQ("-111111111.222222222", value2.to_string(10));
-
     }
 }
 
@@ -534,7 +527,7 @@ TEST_F(DecimalValueTest, round_to_int) {
 
 TEST_F(DecimalValueTest, double_to_decimal) {
     double i = 1.2;
-    DecimalValue *value = new DecimalValue(100, 9876);
+    DecimalValue* value = new DecimalValue(100, 9876);
     value->assign_from_double(i);
     ASSERT_STREQ("1.2", value->to_string().c_str());
     delete value;
@@ -542,7 +535,7 @@ TEST_F(DecimalValueTest, double_to_decimal) {
 
 TEST_F(DecimalValueTest, float_to_decimal) {
     float i = 1.2;
-    DecimalValue *value = new DecimalValue(100, 9876);
+    DecimalValue* value = new DecimalValue(100, 9876);
     value->assign_from_float(i);
     ASSERT_STREQ("1.2", value->to_string().c_str());
     delete value;

@@ -16,6 +16,7 @@
 // under the License.
 
 #include "util/url_parser.h"
+
 #include "runtime/string_value.hpp"
 
 namespace doris {
@@ -24,10 +25,11 @@ const StringValue UrlParser::_s_url_authority(const_cast<char*>("AUTHORITY"), 9)
 const StringValue UrlParser::_s_url_file(const_cast<char*>("FILE"), 4);
 const StringValue UrlParser::_s_url_host(const_cast<char*>("HOST"), 4);
 const StringValue UrlParser::_s_url_path(const_cast<char*>("PATH"), 4);
-const StringValue UrlParser::_s_url_protocol(const_cast<char*>("_s_protocol"), 8);
+const StringValue UrlParser::_s_url_protocol(const_cast<char*>("PROTOCOL"), 8);
 const StringValue UrlParser::_s_url_query(const_cast<char*>("QUERY"), 5);
 const StringValue UrlParser::_s_url_ref(const_cast<char*>("REF"), 3);
 const StringValue UrlParser::_s_url_userinfo(const_cast<char*>("USERINFO"), 8);
+const StringValue UrlParser::_s_url_port(const_cast<char*>("PORT"), 4);
 const StringValue UrlParser::_s_protocol(const_cast<char*>("://"), 3);
 const StringValue UrlParser::_s_at(const_cast<char*>("@"), 1);
 const StringValue UrlParser::_s_slash(const_cast<char*>("/"), 1);
@@ -166,6 +168,36 @@ bool UrlParser::parse_url(const StringValue& url, UrlPart part, StringValue* res
         break;
     }
 
+    case PORT: {
+        // Find '@'.
+        int32_t start_pos = _s_at_search.search(&protocol_end);
+
+        if (start_pos < 0) {
+            // No '@' was found, i.e., no user:pass info was given, start after _s_protocol.
+            start_pos = 0;
+        } else {
+            // Skip '@'.
+            start_pos += _s_at.len;
+        }
+
+        StringValue host_start = protocol_end.substring(start_pos);
+        // Find ':' to strip out port.
+        int32_t end_pos = _s_colon_search.search(&host_start);
+        //no port found
+        if (end_pos < 0) {
+            return false;
+        }
+
+        StringValue port_start_str = protocol_end.substring(end_pos + _s_colon.len);
+        int32_t port_end_pos = _s_slash_search.search(&port_start_str);
+        //if '/' not found, try to find '?'
+        if (port_end_pos < 0) {
+            port_end_pos = _s_question_search.search(&port_start_str);
+        }
+        *result = port_start_str.substring(0, port_end_pos);
+        break;
+    }
+
     case INVALID:
         return false;
     }
@@ -173,11 +205,8 @@ bool UrlParser::parse_url(const StringValue& url, UrlPart part, StringValue* res
     return true;
 }
 
-bool UrlParser::parse_url_key(
-        const StringValue& url,
-        UrlPart part,
-        const StringValue& key,
-        StringValue* result) {
+bool UrlParser::parse_url_key(const StringValue& url, UrlPart part, const StringValue& key,
+                              StringValue* result) {
     // Part must be query to ask for a specific query key.
     if (part != QUERY) {
         return false;
@@ -201,7 +230,7 @@ bool UrlParser::parse_url_key(
         // Key pos must be != 0 because it must be preceded by a '?' or a '&'.
         // Check that the char before key_pos is either '?' or '&'.
         if (key_pos == 0 ||
-                (trimmed_url.ptr[key_pos - 1] != '?' && trimmed_url.ptr[key_pos - 1] != '&')) {
+            (trimmed_url.ptr[key_pos - 1] != '?' && trimmed_url.ptr[key_pos - 1] != '&')) {
             match = false;
         }
 
@@ -246,9 +275,12 @@ bool UrlParser::parse_url_key(
 UrlParser::UrlPart UrlParser::get_url_part(const StringValue& part) {
     // Quick filter on requested URL part, based on first character.
     // Hive requires the requested URL part to be all upper case.
-    switch (part.ptr[0]) {
+    std::string part_str = part.to_string();
+    transform(part_str.begin(), part_str.end(), part_str.begin(), ::toupper);
+    StringValue newPart = StringValue(part_str);
+    switch (newPart.ptr[0]) {
     case 'A': {
-        if (!part.eq(_s_url_authority)) {
+        if (!newPart.eq(_s_url_authority)) {
             return INVALID;
         }
 
@@ -256,7 +288,7 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringValue& part) {
     }
 
     case 'F': {
-        if (!part.eq(_s_url_file)) {
+        if (!newPart.eq(_s_url_file)) {
             return INVALID;
         }
 
@@ -264,7 +296,7 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringValue& part) {
     }
 
     case 'H': {
-        if (!part.eq(_s_url_host)) {
+        if (!newPart.eq(_s_url_host)) {
             return INVALID;
         }
 
@@ -272,17 +304,19 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringValue& part) {
     }
 
     case 'P': {
-        if (part.eq(_s_url_path)) {
+        if (newPart.eq(_s_url_path)) {
             return PATH;
-        } else if (part.eq(_s_url_protocol)) {
+        } else if (newPart.eq(_s_url_protocol)) {
             return PROTOCOL;
+        } else if (newPart.eq(_s_url_port)) {
+            return PORT;
         } else {
             return INVALID;
         }
     }
 
     case 'Q': {
-        if (!part.eq(_s_url_query)) {
+        if (!newPart.eq(_s_url_query)) {
             return INVALID;
         }
 
@@ -290,7 +324,7 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringValue& part) {
     }
 
     case 'R': {
-        if (!part.eq(_s_url_ref)) {
+        if (!newPart.eq(_s_url_ref)) {
             return INVALID;
         }
 
@@ -298,7 +332,7 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringValue& part) {
     }
 
     case 'U': {
-        if (!part.eq(_s_url_userinfo)) {
+        if (!newPart.eq(_s_url_userinfo)) {
             return INVALID;
         }
 
@@ -310,4 +344,4 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringValue& part) {
     }
 }
 
-}
+} // namespace doris

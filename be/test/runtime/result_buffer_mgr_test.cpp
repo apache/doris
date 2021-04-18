@@ -15,25 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
-#include <boost/shared_ptr.hpp>
-#include "util/cpu_info.h"
 #include "runtime/result_buffer_mgr.h"
-#include "runtime/buffer_control_block.h"
+
+#include <gtest/gtest.h>
+
+#include <boost/shared_ptr.hpp>
+
 #include "gen_cpp/PaloInternalService_types.h"
+#include "runtime/buffer_control_block.h"
+#include "util/cpu_info.h"
 
 namespace doris {
 
 class ResultBufferMgrTest : public testing::Test {
 public:
-    ResultBufferMgrTest() {
-    }
-    virtual ~ResultBufferMgrTest() {
-    }
+    ResultBufferMgrTest() {}
+    virtual ~ResultBufferMgrTest() {}
 
 protected:
-    virtual void SetUp() {
-    }
+    virtual void SetUp() {}
 
 private:
 };
@@ -116,7 +116,7 @@ TEST_F(ResultBufferMgrTest, cancel_no_block) {
 
     ASSERT_TRUE(buffer_mgr.cancel(query_id).ok());
 }
-}
+} // namespace doris
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!doris::config::init(conffile.c_str(), false)) {

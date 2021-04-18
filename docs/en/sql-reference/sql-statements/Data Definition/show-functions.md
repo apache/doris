@@ -41,7 +41,7 @@ SHOW [FULL] [BUILTIN] FUNCTIONS [IN|FROM db] [LIKE 'function_pattern']
 
 Look at all the custom(builtin) functions under the database. If the user specifies the database, then look at the corresponding database, otherwise directly query the database where the current session is located.
 
-You need `SHOW'privileges for this database
+You need `SHOW` privileges for this database
 
 ## example
 
@@ -73,5 +73,5 @@ mysql> show builtin functions in testDb like 'year%';
 2 rows in set (0.00 sec)
 ```
 
-##keyword
+## keyword
 SHOW,FUNCTIONS

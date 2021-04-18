@@ -19,8 +19,8 @@
 
 #include <string>
 
-#include "util/coding.h"
 #include "gutil/strings/substitute.h"
+#include "util/coding.h"
 
 using strings::Substitute;
 
@@ -33,8 +33,7 @@ Status ShortKeyIndexBuilder::add_item(const Slice& key) {
     return Status::OK();
 }
 
-Status ShortKeyIndexBuilder::finalize(uint32_t num_segment_rows,
-                                      std::vector<Slice>* body,
+Status ShortKeyIndexBuilder::finalize(uint32_t num_segment_rows, std::vector<Slice>* body,
                                       segment_v2::PageFooterPB* page_footer) {
     page_footer->set_type(segment_v2::SHORT_KEY_PAGE);
     page_footer->set_uncompressed_size(_key_buf.size() + _offset_buf.size());
@@ -57,9 +56,9 @@ Status ShortKeyIndexDecoder::parse(const Slice& body, const segment_v2::ShortKey
 
     // check if body size match footer's information
     if (body.size != (_footer.key_bytes() + _footer.offset_bytes())) {
-        return Status::Corruption(
-                Substitute("Index size not match, need=$0, real=$1",
-                           _footer.key_bytes() + _footer.offset_bytes(), body.size));
+        return Status::Corruption(strings::Substitute("Index size not match, need=$0, real=$1",
+                                                      _footer.key_bytes() + _footer.offset_bytes(),
+                                                      body.size));
     }
 
     // set index buffer
@@ -75,8 +74,8 @@ Status ShortKeyIndexDecoder::parse(const Slice& body, const segment_v2::ShortKey
             return Status::Corruption("Fail to get varint from index offset buffer");
         }
         DCHECK(offset <= _footer.key_bytes())
-                        << "Offset is larger than total bytes, offset=" << offset
-                        << ", key_bytes=" << _footer.key_bytes();
+                << "Offset is larger than total bytes, offset=" << offset
+                << ", key_bytes=" << _footer.key_bytes();
         _offsets[i] = offset;
     }
     _offsets[_footer.num_items()] = _footer.key_bytes();
@@ -88,4 +87,4 @@ Status ShortKeyIndexDecoder::parse(const Slice& body, const segment_v2::ShortKey
     return Status::OK();
 }
 
-}
+} // namespace doris

@@ -105,7 +105,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
     再举例，假设用户需要导入只包含 `k1` 一列的表，列类型为 `int`。并且需要将源文件中的对应列进行处理：将负数转换为正数，而将正数乘以 100。这个功能可以通过 `case when` 函数实现，正确写法应如下：
 
-    `COLUMNS (xx, case when xx < 0 than cast(-xx as varchar) else cast((xx + '100') as varchar) end)`
+    `COLUMNS (xx, k1 = case when xx < 0 then cast(-xx as varchar) else cast((xx + '100') as varchar) end)`
 
     注意这里我们需要将 `case when` 中所有的参数都最终转换为 varchar，才能得到期望的结果。
 
@@ -151,7 +151,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
 * data\_source\_properties
 
-    `data_source_properties` 中可以指定消费具体的 Kakfa partition。如果不指定，则默认消费所订阅的 topic 的所有 partition。
+    `data_source_properties` 中可以指定消费具体的 Kafka partition。如果不指定，则默认消费所订阅的 topic 的所有 partition。
 
     注意，当显式的指定了 partition，则导入作业不会再动态的检测 Kafka partition 的变化。如果没有指定，则会根据 kafka partition 的变化，动态调整需要消费的 partition。
 
@@ -166,6 +166,8 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
     2. 对于导入的某列由函数变换生成时，strict mode 对其不产生影响。
 
     3. 对于导入的某列类型包含范围限制的，如果原始数据能正常通过类型转换，但无法通过范围限制的，strict mode 对其也不产生影响。例如：如果类型是 decimal(1,0), 原始数据为 10，则属于可以通过类型转换但不在列声明的范围内。这种数据 strict 对其不产生影响。
+* merge\_type
+    数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete 条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理
 
 #### strict mode 与 source data 的导入关系
 
@@ -238,6 +240,10 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
 只能查看当前正在运行中的任务，已结束和未开始的任务无法查看。
 
+### 修改作业属性
+
+用户可以修改已经创建的作业。具体说明可以通过 `HELP ALTER ROUTINE LOAD;` 命令查看。或参阅 [ALTER ROUTINE LOAD](../../sql-reference/sql-statements/Data Manipulation/alter-routine-load.md)。
+
 ### 作业控制
 
 用户可以通过 `STOP/PAUSE/RESUME` 三个命令来控制作业的停止，暂停和重启。可以通过 `HELP STOP ROUTINE LOAD;`, `HELP PAUSE ROUTINE LOAD;` 以及 `HELP RESUME ROUTINE LOAD;` 三个命令查看帮助和示例。
@@ -301,3 +307,5 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 7. period\_of\_auto\_resume\_min
     FE 配置项，默认是5分钟。Doris重新调度，只会在5分钟这个周期内，最多尝试3次. 如果3次都失败则锁定当前任务，后续不在进行调度。但可通过人为干预，进行手动恢复。
 
+## keyword
+    ROUTINE,LOAD

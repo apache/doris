@@ -32,21 +32,20 @@ namespace doris {
 // Data in pip is stored in chunks.
 class StreamLoadPipe : public MessageBodySink, public FileReader {
 public:
-    StreamLoadPipe(size_t max_buffered_bytes = 1024 * 1024,
-                   size_t min_chunk_size = 64 * 1024)
-        : _buffered_bytes(0),
-        _max_buffered_bytes(max_buffered_bytes),
-        _min_chunk_size(min_chunk_size),
-        _finished(false), _cancelled(false) {
-    }
-    virtual ~StreamLoadPipe() { }
+    StreamLoadPipe(size_t max_buffered_bytes = 1024 * 1024, size_t min_chunk_size = 64 * 1024,
+                   int64_t total_length = -1)
+            : _buffered_bytes(0),
+              _max_buffered_bytes(max_buffered_bytes),
+              _min_chunk_size(min_chunk_size),
+              _total_length(total_length),
+              _finished(false),
+              _cancelled(false) {}
+    virtual ~StreamLoadPipe() {}
 
-    Status open() override {
-        return Status::OK();
-    }
+    Status open() override { return Status::OK(); }
 
     Status append_and_flush(const char* data, size_t size) {
-        ByteBufferPtr buf = ByteBuffer::allocate(BitUtil::RoundUpToPowerOfTwo(size+1));
+        ByteBufferPtr buf = ByteBuffer::allocate(BitUtil::RoundUpToPowerOfTwo(size + 1));
         buf->put_bytes(data, size);
         buf->flip();
         return _append(buf);
@@ -84,31 +83,33 @@ public:
         return _append(buf);
     }
 
-    Status read_one_message(uint8_t** data, size_t* length) override {
-        std::unique_lock<std::mutex> l(_lock);
-        while (!_cancelled && !_finished && _buf_queue.empty()) {
-            _get_cond.wait(l);
-        }
-        // cancelled
-        if (_cancelled) {
-            return Status::InternalError("cancelled");
-        }
-        // finished
-        if (_buf_queue.empty()) {
-            DCHECK(_finished);
-            *data = nullptr;
+    // If _total_length == -1, this should be a Kafka routine load task,
+    // just get the next buffer directly from the buffer queue, because one buffer contains a complete piece of data.
+    // Otherwise, this should be a stream load task that needs to read the specified amount of data.
+    Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length) override {
+        if (_total_length < -1) {
+            std::stringstream ss;
+            ss << "invalid, _total_length is: " << _total_length;
+            return Status::InternalError(ss.str());
+        } else if (_total_length == 0) {
+            // no data
             *length = 0;
             return Status::OK();
         }
-        auto buf = _buf_queue.front();
-        *length = buf->remaining();
-        *data = new uint8_t[*length];
-        buf->get_bytes((char*)(*data) , *length);
 
-        _buf_queue.pop_front();
-        _buffered_bytes -= buf->limit;
-        _put_cond.notify_one();
-        return Status::OK();
+        if (_total_length == -1) {
+            return _read_next_buffer(data, length);
+        }
+
+        // _total_length > 0, read the entire data
+        data->reset(new uint8_t[_total_length]);
+        *length = _total_length;
+        bool eof = false;
+        Status st = read(data->get(), length, &eof);
+        if (eof) {
+            *length = 0;
+        }
+        return st;
     }
 
     Status read(uint8_t* data, size_t* data_size, bool* eof) override {
@@ -140,7 +141,7 @@ public:
             }
         }
         DCHECK(bytes_read == *data_size)
-            << "bytes_read=" << bytes_read << ", *data_size=" << *data_size;
+                << "bytes_read=" << bytes_read << ", *data_size=" << *data_size;
         *eof = false;
         return Status::OK();
     }
@@ -149,26 +150,16 @@ public:
         return Status::InternalError("Not implemented");
     }
 
-    int64_t size () override {
-        return 0;
-    }
+    int64_t size() override { return 0; }
 
-    Status seek(int64_t position) override {
-        return Status::InternalError("Not implemented");
-    }
+    Status seek(int64_t position) override { return Status::InternalError("Not implemented"); }
 
-    Status tell(int64_t* position) override {
-        return Status::InternalError("Not implemented");
-    }
+    Status tell(int64_t* position) override { return Status::InternalError("Not implemented"); }
 
-    // called when comsumer finished
-    void close() override {
-        cancel();
-    }
+    // called when consumer finished
+    void close() override { cancel(); }
 
-    bool closed() override {
-        return _cancelled;
-    }
+    bool closed() override { return _cancelled; }
 
     // called when producer finished
     Status finish() override {
@@ -185,7 +176,7 @@ public:
         return Status::OK();
     }
 
-    // called when producer/comsumer failed
+    // called when producer/consumer failed
     void cancel() override {
         {
             std::lock_guard<std::mutex> l(_lock);
@@ -196,12 +187,39 @@ public:
     }
 
 private:
+    // read the next buffer from _buf_queue
+    Status _read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_t* length) {
+        std::unique_lock<std::mutex> l(_lock);
+        while (!_cancelled && !_finished && _buf_queue.empty()) {
+            _get_cond.wait(l);
+        }
+        // cancelled
+        if (_cancelled) {
+            return Status::InternalError("cancelled");
+        }
+        // finished
+        if (_buf_queue.empty()) {
+            DCHECK(_finished);
+            data->reset();
+            *length = 0;
+            return Status::OK();
+        }
+        auto buf = _buf_queue.front();
+        *length = buf->remaining();
+        data->reset(new uint8_t[*length]);
+        buf->get_bytes((char*)(data->get()), *length);
+
+        _buf_queue.pop_front();
+        _buffered_bytes -= buf->limit;
+        _put_cond.notify_one();
+        return Status::OK();
+    }
+
     Status _append(const ByteBufferPtr& buf) {
         {
             std::unique_lock<std::mutex> l(_lock);
             // if _buf_queue is empty, we append this buf without size check
-            while (!_cancelled &&
-                   !_buf_queue.empty() &&
+            while (!_cancelled && !_buf_queue.empty() &&
                    _buffered_bytes + buf->remaining() > _max_buffered_bytes) {
                 _put_cond.wait(l);
             }
@@ -215,12 +233,19 @@ private:
         return Status::OK();
     }
 
-
     // Blocking queue
     std::mutex _lock;
     size_t _buffered_bytes;
     size_t _max_buffered_bytes;
     size_t _min_chunk_size;
+    // The total amount of data expected to be read.
+    // In some scenarios, such as loading json format data through stream load,
+    // the data needs to be completely read before it can be parsed,
+    // so the total size of the data needs to be known.
+    // The default is -1, which means that the data arrives in a stream
+    // and the length is unknown.
+    // size_t is unsigned, so use int64_t
+    int64_t _total_length = -1;
     std::deque<ByteBufferPtr> _buf_queue;
     std::condition_variable _put_cond;
     std::condition_variable _get_cond;
@@ -231,4 +256,4 @@ private:
     ByteBufferPtr _write_buf;
 };
 
-}
+} // namespace doris

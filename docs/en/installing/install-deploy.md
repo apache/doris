@@ -40,7 +40,7 @@ Doris, as an open source MPP architecture OLAP database, can run on most mainstr
 
 | Linux System | Version|
 |---|---|
-| Centers | 7.1 and above |
+| Centos | 7.1 and above |
 | Ubuntu | 16.04 and above |
 
 #### Software requirements
@@ -74,7 +74,7 @@ Doris, as an open source MPP architecture OLAP database, can run on most mainstr
 
 > Note 2: Number of FE nodes
 > 
-> 1. FE roles are divided into Follower and Observer. (Leader is an elected role in the Follower group, hereinafter referred to as Follower, for the specific meaning, see [Metadata Design Document] (./internal/metadata-design).)
+> 1. FE roles are divided into Follower and Observer. (Leader is an elected role in the Follower group, hereinafter referred to as Follower, for the specific meaning, see [Metadata Design Document](./internal/metadata-design).)
 > 2. FE node data is at least 1 (1 Follower). When one Follower and one Observer are deployed, high read availability can be achieved. When three Followers are deployed, read-write high availability (HA) can be achieved.
 > 3. The number of Followers **must be** odd, and the number of Observers is arbitrary.
 > 4. According to past experience, when cluster availability requirements are high (e.g. providing online services), three Followers and one to three Observers can be deployed. For offline business, it is recommended to deploy 1 Follower and 1-3 Observers.
@@ -98,7 +98,7 @@ Doris instances communicate directly over the network. The following table shows
 | BE | heartbeat\_service_port | 9050 | FE - > BE | the heart beat service port (thrift) on BE, used to receive heartbeat from FE|
 | BE | brpc\_port* | 8060 | FE < - > BE, BE < - > BE | BE for communication between BEs|
 | FE | http_port* | 8030 | FE < - > FE, HTTP server port on user | FE|
-| FE | rpc_port | 9020 | BE - > FE, FE < - > FE | thrift server port on FE|
+| FE | rpc_port | 9020 | BE - > FE, FE < - > FE | thrift server port on FE, the configuration of each fe needs to be consistent|
 | FE | query_port | 9030 | user | FE|
 | FE | edit\_log_port | 9010 | FE <--> FE | FE|
 | Broker | broker ipc_port | 8000 | FE - > Broker, BE - > Broker | Broker for receiving requests|
@@ -116,13 +116,13 @@ Priority\_networks is a configuration that both FE and BE have, and the configur
 
 `priority_networks=10.1.3.0/24`
 
-This is a representation of [CIDR] (https://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing). FE or BE will find the matching IP based on this configuration item as their own local IP.
+This is a representation of [CIDR](https://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing). FE or BE will find the matching IP based on this configuration item as their own local IP.
 
 **Note**: When priority networks is configured and FE or BE is started, only the correct IP binding of FE or BE is ensured. In ADD BACKEND or ADD FRONTEND statements, you also need to specify IP matching priority networks configuration, otherwise the cluster cannot be established. Give an example:
 
 BE is configured as `priority_networks = 10.1.3.0/24'.`.
 
-When you want to ADD BACKEND use ：`ALTER SYSTEM ADD BACKEND "192.168.0.1:9050";`
+When you want to ADD BACKEND use: `ALTER SYSTEM ADD BACKEND "192.168.0.1:9050";`
 
 Then FE and BE will not be able to communicate properly.
 
@@ -167,7 +167,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 * Add all BE nodes to FE
 
-	BE nodes need to be added in FE before they can join the cluster. You can use mysql-client to connect to FE:
+	BE nodes need to be added in FE before they can join the cluster. You can use mysql-client([Download MySQL 5.7](https://dev.mysql.com/downloads/mysql/5.7.html)) to connect to FE:
 
 	`./mysql-client -h host -P port -uroot`
 
@@ -177,13 +177,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 	`ALTER SYSTEM ADD BACKEND "host:port";`
 
-	If the multi-tenant function is used, the following command is executed to add BE:
-
-	`ALTER SYSTEM ADD FREE BACKEND "host:port";`
-
 	The host is the node IP where BE is located; the port is heartbeat_service_port in be/conf/be.conf.
-
-	If the FREE keyword is not added, BE defaults to the automatically generated cluster, and the new BE does not belong to any cluster after adding the FREE keyword, so that when creating a new cluster, it can be selected from these free be, as detailed in [Multi-tenant Design Document] (./administrator-guide/operation/multi-tenant.md)
 
 * Start BE
 
@@ -217,13 +211,13 @@ Broker is deployed as a plug-in, independent of Doris. If you need to import dat
 
 	`ALTER SYSTEM ADD BROKER broker_name "host1:port1","host2:port2",...;`
 
-	The host is Broker's node ip; the port is brokeripcport in the Broker configuration file.
+	The host is Broker's node ip; the port is broker port in the Broker configuration file.
 
 * View Broker status
 
 	Connect any booted FE using mysql-client and execute the following command to view Broker status: `SHOW PROC '/brokers';`
 
-**Note: In production environments, daemons should be used to start all instances to ensure that processes are automatically pulled up after they exit, such as [Supervisor] (http://supervisord.org/). For daemon startup, in 0.9.0 and previous versions, you need to modify the start_xx.sh scripts to remove the last & symbol**. Starting with version 0.10.0, call `sh start_xx.sh` directly to start. Also refer to [here] (https://www.cnblogs.com/lenmom/p/9973401.html)
+**Note: In production environments, daemons should be used to start all instances to ensure that processes are automatically pulled up after they exit, such as [Supervisor](http://supervisord.org/). For daemon startup, in 0.9.0 and previous versions, you need to modify the start_xx.sh scripts to remove the last & symbol**. Starting with version 0.10.0, call `sh start_xx.sh` directly to start. Also refer to [here](https://www.cnblogs.com/lenmom/p/9973401.html)
 
 ## Expansion and contraction
 
@@ -298,7 +292,7 @@ You can also view the BE node through the front-end page connection: ``http://fe
 
 All of the above methods require Doris's root user rights.
 
-The expansion and scaling process of BE nodes does not affect the current system operation and the tasks being performed, and does not affect the performance of the current system. Data balancing is done automatically. Depending on the amount of data available in the cluster, the cluster will be restored to load balancing in a few hours to a day. For cluster load, see the [Tablet Load Balancing Document] (../administrator-guide/operation/tablet-repair-and-balance.md).
+The expansion and scaling process of BE nodes does not affect the current system operation and the tasks being performed, and does not affect the performance of the current system. Data balancing is done automatically. Depending on the amount of data available in the cluster, the cluster will be restored to load balancing in a few hours to a day. For cluster load, see the [Tablet Load Balancing Document](../administrator-guide/operation/tablet-repair-and-balance.md).
 
 #### Add BE nodes
 
@@ -318,7 +312,7 @@ The DROP statement is as follows:
 
 **Note: DROP BACKEND will delete the BE directly and the data on it will not be recovered!!! So we strongly do not recommend DROP BACKEND to delete BE nodes. When you use this statement, there will be corresponding error-proof operation hints.**
 
-DECOMMISSION clause：
+DECOMMISSION clause:
 
 ```ALTER SYSTEM DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```
 
@@ -368,7 +362,7 @@ Broker is a stateless process that can be started or stopped at will. Of course,
 
 	After the BE process starts, if there is data before, there may be several minutes of data index loading time.
 
-	If BE is started for the first time or the BE has not joined any cluster, the BE log will periodically scroll the words `waiting to receive first heartbeat from frontend`. BE has not received Master's address through FE's heartbeat and is waiting passively. This error log will disappear after ADD BACKEND in FE sends the heartbeat. If the word `````master client', get client from cache failed. host:, port: 0, code: 7````` master client'appears again after receiving heartbeat, it indicates that FE has successfully connected BE, but BE cannot actively connect FE. It may be necessary to check the connectivity of rpc_port from BE to FE.
+	If BE is started for the first time or the BE has not joined any cluster, the BE log will periodically scroll the words `waiting to receive first heartbeat from frontend`. BE has not received Master's address through FE's heartbeat and is waiting passively. This error log will disappear after ADD BACKEND in FE sends the heartbeat. If the word `````master client', get client from cache failed. host:, port: 0, code: 7````` master client appears again after receiving heartbeat, it indicates that FE has successfully connected BE, but BE cannot actively connect FE. It may be necessary to check the connectivity of rpc_port from BE to FE.
 
 	If BE has been added to the cluster, the heartbeat log from FE should be scrolled every five seconds: ```get heartbeat, host:xx. xx.xx.xx, port:9020, cluster id:xxxxxxx```, indicating that the heartbeat is normal.
 
@@ -410,7 +404,7 @@ Broker is a stateless process that can be started or stopped at will. Of course,
 
 	> **priority\_network**
 	>
-	> priority network is that both FE and BE have a configuration. Its main purpose is to assist FE or BE to identify their own IP addresses in the case of multi-network cards. Priority network is represented by CIDR: [RFC 4632] (https://tools.ietf.org/html/rfc4632)
+	> priority network is that both FE and BE have a configuration. Its main purpose is to assist FE or BE to identify their own IP addresses in the case of multi-network cards. Priority network is represented by CIDR: [RFC 4632](https://tools.ietf.org/html/rfc4632)
 	>
 	> When the connectivity of FE and BE is confirmed to be normal, if the table Timeout still occurs, and the FE log has an error message with the words `backend does not find. host:xxxx.xxx.XXXX`. This means that there is a problem with the IP address that Doris automatically identifies and that priority\_network parameters need to be set manually.
 	>
@@ -430,6 +424,6 @@ Broker is a stateless process that can be started or stopped at will. Of course,
 
    The default value of max_file_descriptor_number is 131072.
 
-   For Example : ulimit -n 65536; this command set file descriptor to 65536.
+   For Example: ulimit -n 65536; this command set file descriptor to 65536.
 
    After starting BE process, you can use **cat /proc/$pid/limits** to see the actual limit of process.

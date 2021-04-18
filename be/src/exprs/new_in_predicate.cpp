@@ -15,52 +15,48 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <sstream>
-
 #include "exprs/new_in_predicate.h"
+
+#include <sstream>
 
 #include "exprs/anyval_util.h"
 #include "runtime/string_value.hpp"
 
 namespace doris {
 
-void InPredicate::init() {
-}
+void InPredicate::init() {}
 
 // Templated getter functions for extracting 'SetType' values from AnyVals
-template<typename T, typename SetType>
+template <typename T, typename SetType>
 SetType get_val(const FunctionContext::TypeDesc* type, const T& x) {
     DCHECK(!x.is_null);
     return x.val;
 }
 
-template<> 
+template <>
 StringValue get_val(const FunctionContext::TypeDesc* type, const StringVal& x) {
     DCHECK(!x.is_null);
     return StringValue::from_string_val(x);
 }
 
-template<> 
-DateTimeValue get_val(
-        const FunctionContext::TypeDesc* type, const DateTimeVal& x) {
+template <>
+DateTimeValue get_val(const FunctionContext::TypeDesc* type, const DateTimeVal& x) {
     return DateTimeValue::from_datetime_val(x);
 }
 
-template<> 
-DecimalValue get_val(
-        const FunctionContext::TypeDesc* type, const DecimalVal& x) {
+template <>
+DecimalValue get_val(const FunctionContext::TypeDesc* type, const DecimalVal& x) {
     return DecimalValue::from_decimal_val(x);
 }
 
-template<> 
-DecimalV2Value get_val(
-        const FunctionContext::TypeDesc* type, const DecimalV2Val& x) {
+template <>
+DecimalV2Value get_val(const FunctionContext::TypeDesc* type, const DecimalV2Val& x) {
     return DecimalV2Value::from_decimal_val(x);
 }
 
-template<typename T, typename SetType>
-void InPredicate::set_lookup_prepare(
-        FunctionContext* ctx, FunctionContext::FunctionStateScope scope) {
+template <typename T, typename SetType>
+void InPredicate::set_lookup_prepare(FunctionContext* ctx,
+                                     FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
@@ -80,20 +76,20 @@ void InPredicate::set_lookup_prepare(
     ctx->set_function_state(scope, state);
 }
 
-template<typename SetType>
-void InPredicate::set_lookup_close(
-        FunctionContext* ctx, FunctionContext::FunctionStateScope scope) {
+template <typename SetType>
+void InPredicate::set_lookup_close(FunctionContext* ctx,
+                                   FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
     SetLookupState<SetType>* state =
-        reinterpret_cast<SetLookupState<SetType>*>(ctx->get_function_state(scope));
+            reinterpret_cast<SetLookupState<SetType>*>(ctx->get_function_state(scope));
     delete state;
 }
 
-template<typename T, typename SetType, bool not_in, InPredicate::Strategy strategy>
-BooleanVal InPredicate::templated_in(
-        FunctionContext* ctx, const T& val, int num_args, const T* args) {
+template <typename T, typename SetType, bool not_in, InPredicate::Strategy strategy>
+BooleanVal InPredicate::templated_in(FunctionContext* ctx, const T& val, int num_args,
+                                     const T* args) {
     if (val.is_null) {
         return BooleanVal::null();
     }
@@ -101,7 +97,7 @@ BooleanVal InPredicate::templated_in(
     BooleanVal found;
     if (strategy == SET_LOOKUP) {
         SetLookupState<SetType>* state = reinterpret_cast<SetLookupState<SetType>*>(
-            ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         DCHECK(state != NULL);
         found = set_lookup(state, val);
     } else {
@@ -114,9 +110,8 @@ BooleanVal InPredicate::templated_in(
     return BooleanVal(found.val ^ not_in);
 }
 
-template<typename T, typename SetType>
-BooleanVal InPredicate::set_lookup(
-        SetLookupState<SetType>* state, const T& v) {
+template <typename T, typename SetType>
+BooleanVal InPredicate::set_lookup(SetLookupState<SetType>* state, const T& v) {
     DCHECK(state != NULL);
     SetType val = get_val<T, SetType>(state->type, v);
     bool found = state->val_set.find(val) != state->val_set.end();
@@ -129,9 +124,9 @@ BooleanVal InPredicate::set_lookup(
     return BooleanVal(false);
 }
 
-template<typename T>
-BooleanVal InPredicate::iterate(
-        const FunctionContext::TypeDesc* type, const T& val, int num_args, const T* args) {
+template <typename T>
+BooleanVal InPredicate::iterate(const FunctionContext::TypeDesc* type, const T& val, int num_args,
+                                const T* args) {
     bool found_null = false;
     for (int i = 0; i < num_args; ++i) {
         if (args[i].is_null) {
@@ -146,44 +141,36 @@ BooleanVal InPredicate::iterate(
     return BooleanVal(false);
 }
 
-#define IN_FUNCTIONS(AnyValType, SetType, type_name) \
-  BooleanVal InPredicate::in_set_lookup( \
-      FunctionContext* context, const AnyValType& val, int num_args, \
-      const AnyValType* args) { \
-    return templated_in<AnyValType, SetType, false, SET_LOOKUP>( \
-        context, val, num_args, args); \
-  } \
-\
-  BooleanVal InPredicate::not_in_set_lookup( \
-      FunctionContext* context, const AnyValType& val, int num_args, \
-      const AnyValType* args) { \
-    return templated_in<AnyValType, SetType, true, SET_LOOKUP>( \
-        context, val, num_args, args); \
-  } \
-\
-  BooleanVal InPredicate::in_iterate( \
-      FunctionContext* context, const AnyValType& val, int num_args, \
-      const AnyValType* args) { \
-    return templated_in<AnyValType, SetType, false, ITERATE>( \
-        context, val, num_args, args); \
-  } \
-\
-  BooleanVal InPredicate::not_in_iterate( \
-      FunctionContext* context, const AnyValType& val, int num_args, \
-      const AnyValType* args) { \
-    return templated_in<AnyValType, SetType, true, ITERATE>( \
-        context, val, num_args, args); \
-  } \
-\
-  void InPredicate::set_lookup_prepare_##type_name( \
-      FunctionContext* ctx, FunctionContext::FunctionStateScope scope) { \
-    set_lookup_prepare<AnyValType, SetType>(ctx, scope); \
-  } \
-\
-  void InPredicate::set_lookup_close_##type_name( \
-      FunctionContext* ctx, FunctionContext::FunctionStateScope scope) { \
-    set_lookup_close<SetType>(ctx, scope); \
-  }
+#define IN_FUNCTIONS(AnyValType, SetType, type_name)                                               \
+    BooleanVal InPredicate::in_set_lookup(FunctionContext* context, const AnyValType& val,         \
+                                          int num_args, const AnyValType* args) {                  \
+        return templated_in<AnyValType, SetType, false, SET_LOOKUP>(context, val, num_args, args); \
+    }                                                                                              \
+                                                                                                   \
+    BooleanVal InPredicate::not_in_set_lookup(FunctionContext* context, const AnyValType& val,     \
+                                              int num_args, const AnyValType* args) {              \
+        return templated_in<AnyValType, SetType, true, SET_LOOKUP>(context, val, num_args, args);  \
+    }                                                                                              \
+                                                                                                   \
+    BooleanVal InPredicate::in_iterate(FunctionContext* context, const AnyValType& val,            \
+                                       int num_args, const AnyValType* args) {                     \
+        return templated_in<AnyValType, SetType, false, ITERATE>(context, val, num_args, args);    \
+    }                                                                                              \
+                                                                                                   \
+    BooleanVal InPredicate::not_in_iterate(FunctionContext* context, const AnyValType& val,        \
+                                           int num_args, const AnyValType* args) {                 \
+        return templated_in<AnyValType, SetType, true, ITERATE>(context, val, num_args, args);     \
+    }                                                                                              \
+                                                                                                   \
+    void InPredicate::set_lookup_prepare_##type_name(FunctionContext* ctx,                         \
+                                                     FunctionContext::FunctionStateScope scope) {  \
+        set_lookup_prepare<AnyValType, SetType>(ctx, scope);                                       \
+    }                                                                                              \
+                                                                                                   \
+    void InPredicate::set_lookup_close_##type_name(FunctionContext* ctx,                           \
+                                                   FunctionContext::FunctionStateScope scope) {    \
+        set_lookup_close<SetType>(ctx, scope);                                                     \
+    }
 
 IN_FUNCTIONS(BooleanVal, bool, boolean_val)
 IN_FUNCTIONS(TinyIntVal, int8_t, tiny_int_val)
@@ -199,6 +186,6 @@ IN_FUNCTIONS(DecimalV2Val, DecimalV2Value, decimalv2_val)
 IN_FUNCTIONS(LargeIntVal, __int128, large_int_val)
 
 // Needed for in-predicate-benchmark to build
-template BooleanVal InPredicate::iterate<IntVal>(
-    const FunctionContext::TypeDesc*, const IntVal&, int, const IntVal*);
-}
+template BooleanVal InPredicate::iterate<IntVal>(const FunctionContext::TypeDesc*, const IntVal&,
+                                                 int, const IntVal*);
+} // namespace doris

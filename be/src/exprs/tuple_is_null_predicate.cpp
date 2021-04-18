@@ -23,14 +23,13 @@
 
 namespace doris {
 
-TupleIsNullPredicate::TupleIsNullPredicate(const TExprNode& node) : 
-        Predicate(node),
-        _tuple_ids(node.tuple_is_null_pred.tuple_ids.begin(),
-    node.tuple_is_null_pred.tuple_ids.end()) {
-}
+TupleIsNullPredicate::TupleIsNullPredicate(const TExprNode& node)
+        : Predicate(node),
+          _tuple_ids(node.tuple_is_null_pred.tuple_ids.begin(),
+                     node.tuple_is_null_pred.tuple_ids.end()) {}
 
-Status TupleIsNullPredicate::prepare(
-        RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx) {
+Status TupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                                     ExprContext* ctx) {
     RETURN_IF_ERROR(Expr::prepare(state, row_desc, ctx));
     DCHECK_EQ(0, _children.size());
 
@@ -65,4 +64,4 @@ std::string TupleIsNullPredicate::debug_string() const {
     return out.str();
 }
 
-}
+} // namespace doris

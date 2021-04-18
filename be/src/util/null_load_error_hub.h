@@ -18,10 +18,10 @@
 #ifndef DORIS_BE_SRC_UTIL_NULL_LOAD_ERROR_HUB_H
 #define DORIS_BE_SRC_UTIL_NULL_LOAD_ERROR_HUB_H
 
-#include <sstream>
-#include <string>
 #include <mutex>
 #include <queue>
+#include <sstream>
+#include <string>
 
 #include "load_error_hub.h"
 
@@ -53,5 +53,3 @@ private:
 } // end namespace doris
 
 #endif // DORIS_BE_SRC_UTIL_NULL_LOAD_ERROR_HUB_H
-
-

@@ -85,9 +85,7 @@ public:
     const std::vector<int64_t>* counters(int snapshot) const;
 
     // Returns readable names for the added counters
-    const std::vector<std::string>* counter_names() const {
-        return &_counter_names;
-    }
+    const std::vector<std::string>* counter_names() const { return &_counter_names; }
 
     // Prints out the names and results for all snapshots to 'out'
     void pretty_print(std::ostream* out) const;
@@ -133,12 +131,12 @@ private:
     std::vector<CounterData> _counters;
     std::vector<std::string> _counter_names;
     std::vector<std::string> _snapshot_names;
-    std::vector<std::vector<int64_t> > _snapshots;
+    std::vector<std::vector<int64_t>> _snapshots;
     // System perf counters can be grouped together.  The OS will update all grouped counters
     // at the same time.  This is useful to better correlate counter values.
     int _group_fd;
 };
 
-}
+} // namespace doris
 
 #endif

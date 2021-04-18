@@ -32,7 +32,7 @@ namespace google {
 namespace protobuf {
 class Closure;
 }
-}
+} // namespace google
 
 namespace doris {
 
@@ -79,6 +79,8 @@ public:
     // Refactor so both merging and non-merging exchange use get_next(RowBatch*, bool* eos).
     Status get_batch(RowBatch** next_batch);
 
+    void add_batch(RowBatch* batch, int sender_id, bool use_move);
+
     // Deregister from DataStreamMgr instance, which shares ownership of this instance.
     void close();
 
@@ -87,6 +89,7 @@ public:
     // queues. The exprs used in less_than must have already been prepared and opened.
     Status create_merger(const TupleRowComparator& less_than);
 
+    Status create_parallel_merger(const TupleRowComparator& less_than, uint32_t batch_size, MemTracker* mem_tracker);
     // Fill output_batch with the next batch of rows obtained by merging the per-sender
     // input streams. Must only be called if _is_merging is true.
     Status get_next(RowBatch* output_batch, bool* eos);
@@ -98,30 +101,29 @@ public:
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     PlanNodeId dest_node_id() const { return _dest_node_id; }
     const RowDescriptor& row_desc() const { return _row_desc; }
-    MemTracker* mem_tracker() const { return _mem_tracker.get(); }
+    std::shared_ptr<MemTracker> mem_tracker() const { return _mem_tracker; }
 
     void add_sub_plan_statistics(const PQueryStatistics& statistics, int sender_id) {
         _sub_plan_query_statistics_recvr->insert(statistics, sender_id);
     }
 
+    // Indicate that a particular sender is done. Delegated to the appropriate
+    // sender queue. Called from DataStreamMgr.
+    void remove_sender(int sender_id, int be_number);
+
 private:
     friend class DataStreamMgr;
     class SenderQueue;
 
-    DataStreamRecvr(DataStreamMgr* stream_mgr, MemTracker* parent_tracker,
-            const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
-            PlanNodeId dest_node_id, int num_senders, bool is_merging, 
-            int total_buffer_limit, RuntimeProfile* profile, 
-            std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr);
+    DataStreamRecvr(DataStreamMgr* stream_mgr, const std::shared_ptr<MemTracker>& parent_tracker,
+                    const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
+                    PlanNodeId dest_node_id, int num_senders, bool is_merging,
+                    int total_buffer_limit, RuntimeProfile* profile,
+                    std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr);
 
     // If receive queue is full, done is enqueue pending, and return with *done is nullptr
-    void add_batch(const PRowBatch& batch, int sender_id,
-                   int be_number, int64_t packet_seq,
+    void add_batch(const PRowBatch& batch, int sender_id, int be_number, int64_t packet_seq,
                    ::google::protobuf::Closure** done);
-
-    // Indicate that a particular sender is done. Delegated to the appropriate
-    // sender queue. Called from DataStreamMgr.
-    void remove_sender(int sender_id, int be_number);
 
     // Empties the sender queues and notifies all waiting consumers of cancellation.
     void cancel_stream();
@@ -155,7 +157,7 @@ private:
     AtomicInt<int> _num_buffered_bytes;
 
     // Memtracker for batches in the sender queue(s).
-    boost::scoped_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     // One or more queues of row batches received from senders. If _is_merging is true,
     // there is one SenderQueue for each sender. Otherwise, row batches from all senders
@@ -163,9 +165,10 @@ private:
     // receiver and placed in _sender_queue_pool.
     std::vector<SenderQueue*> _sender_queues;
 
-    std::map<google::protobuf::Closure*, MonotonicStopWatch> _closure_clock_map;
     // SortedRunMerger used to merge rows from different senders.
     boost::scoped_ptr<SortedRunMerger> _merger;
+
+    std::vector<std::unique_ptr<SortedRunMerger>> _child_mergers;
 
     // Pool of sender queues.
     ObjectPool _sender_queue_pool;
@@ -179,7 +182,7 @@ private:
     // Time series of number of bytes received, samples _bytes_received_counter
     // RuntimeProfile::TimeSeriesCounter* _bytes_received_time_series_counter;
     RuntimeProfile::Counter* _deserialize_row_batch_timer;
-    
+
     // Time spent waiting until the first batch arrives across all queues.
     // TODO: Turn this into a wall-clock timer.
     RuntimeProfile::Counter* _first_batch_wait_total_timer;

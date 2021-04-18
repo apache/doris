@@ -64,7 +64,7 @@ Syntax:
             Range: -2^127 + 1 ~ 2^127 - 1
         FLOAT(4 Bytes)
             Support scientific notation
-        DOUBLE(12 Bytes)
+        DOUBLE(8 Bytes)
             Support scientific notation
         DECIMAL[(precision, scale)] (16 Bytes)
             Default is DECIMAL(10, 0)
@@ -93,14 +93,13 @@ Syntax:
        * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will   occur if and only if the newly imported data is a non-null value. If the newly imported   data is null, Doris will still retain the original value. Note: if NOT NULL is specified  in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it     to NULL and will not report an error to the user. Users can leverage this aggregate type    to achieve importing some of columns.
        * BITMAP_UNION: Only for BITMAP type
     Allow NULL: Default is NOT NULL. NULL value should be represented as `\N` in load source file.
-    Notice:  
-        The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
+    Notice: The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
 2. index_definition
     Syntax:
         `INDEX index_name (col_name[, col_name, ...]) [USING BITMAP] COMMENT 'xxxxxx'`
     Explain:
-        index_name：index name
-        col_name：column name
+        index_name: index name
+        col_name: column name
     Notice:
         Only support BITMAP index in current version, BITMAP can only apply to single column
 3. ENGINE type
@@ -133,14 +132,14 @@ Syntax:
             "line_delimiter" = "value_delimiter"
         )
         ```
-
+    
         ```
         BROKER PROPERTIES(
             "username" = "name",
             "password" = "password"
         )
         ```
-
+    
         For different broker, the broker properties are different
     Notice:
         Files name in "path" is separated by ",". If file name includes ",", use "%2c" instead.     If file name includes "%", use "%25" instead.
@@ -159,7 +158,7 @@ Syntax:
     Syntax:
         key_type(k1[,k2 ...])
     Explain:
-        Data is orderd by specified key columns. And has different behaviors for different key  desc.
+        Data is order by specified key columns. And has different behaviors for different key  desc.
             AGGREGATE KEY:
                     value columns will be aggregated is key columns are same.
             UNIQUE KEY:
@@ -188,7 +187,7 @@ Syntax:
         1) Partition name only support [A-z0-9_]
         2) Partition key column's type should be:
             TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME
-        3) The range is [closed, open). And the lower bound of first partition is MIN VALUE of  specifed column type.
+        3) The range is [closed, open). And the lower bound of first partition is MIN VALUE of  specified column type.
         4) NULL values should be save in partition which includes MIN VALUE.
         5) Support multi partition columns, the the default partition value is MIN VALUE.
     2）Fixed Range
@@ -220,8 +219,9 @@ Syntax:
             ["replication_num" = "3"]
             )
         ```
-
+    
         storage_medium:         SSD or HDD, The default initial storage media can be specified by `default_storage_medium= XXX` in the fe configuration file `fe.conf`, or, if not, by default, HDD.
+                                Note: when FE configuration 'enable_strict_storage_medium_check' is' True ', if the corresponding storage medium is not set in the cluster, the construction clause 'Failed to find enough host in all backends with storage medium is SSD|HDD'.
         storage_cooldown_time:  If storage_medium is SSD, data will be automatically moved to HDD   when timeout.
                                 Default is 30 days.
                                 Format: "yyyy-MM-dd HH:mm:ss"
@@ -245,13 +245,13 @@ Syntax:
             "colocate_with"="table1"
         )
         ```
-        
+    
     4) if you want to use the dynamic partitioning feature, specify it in properties
-       
+    
         ```
         PROPERTIES (
             "dynamic_partition.enable" = "true|false",
-            "dynamic_partition.time_unit" = "DAY|WEEK|MONTH",
+            "dynamic_partition.time_unit" = "HOUR|DAY|WEEK|MONTH",
             "dynamic_partitoin.end" = "${integer_value}",
             "dynamic_partition.prefix" = "${string_value}",
             "dynamic_partition.buckets" = "${integer_value}
@@ -260,13 +260,15 @@ Syntax:
        
        Dynamic_partition. Enable: specifies whether dynamic partitioning at the table level is enabled
        
-       Dynamic_partition. Time_unit: used to specify the time unit for dynamically adding partitions, which can be selected as DAY, WEEK, and MONTH.
+       Dynamic_partition. Time_unit: used to specify the time unit for dynamically adding partitions, which can be selected as HOUR, DAY, WEEK, and MONTH.
+                                     Attention: When the time unit is HOUR, the data type of partition column cannot be DATE.
        
        Dynamic_partition. End: used to specify the number of partitions created in advance
        
        Dynamic_partition. Prefix: used to specify the partition name prefix to be created, such as the partition name prefix p, automatically creates the partition name p20200108
        
        Dynamic_partition. Buckets: specifies the number of partition buckets that are automatically created
+       ```
 8. rollup_index
     grammar:
     ```
@@ -301,7 +303,7 @@ Syntax:
     PROPERTIES ("storage_type"="column");
     ```
 
-2. Create an olap table, distributed by hash, with aggregation type. Also set storage mediumand cooldown time.
+2. Create an olap table, distributed by hash, with aggregation type. Also set storage medium and cooldown time.
 
     ```
     CREATE TABLE example_db.table_hash
@@ -319,6 +321,7 @@ Syntax:
     "storage_medium" = "SSD",
     "storage_cooldown_time" = "2015-06-04 00:00:00"
     );
+    ```
 
 3. Create an olap table, with range partitioned, distributed by hash.
 
@@ -346,16 +349,16 @@ Syntax:
     "storage_medium" = "SSD", "storage_cooldown_time" = "2015-06-04 00:00:00"
     );
     ```
-
+    
     Explain:
     This statement will create 3 partitions:
-
+    
     ```
     ( {    MIN     },   {"2014-01-01"} )
     [ {"2014-01-01"},   {"2014-06-01"} )
     [ {"2014-06-01"},   {"2014-12-01"} )
     ```
-
+    
     Data outside these ranges will not be loaded.
 
 2) Fixed Range
@@ -380,9 +383,9 @@ Syntax:
     );
 
 4. Create a mysql table
-
-    ```
-    CREATE TABLE example_db.table_mysql
+   4.1 Create MySQL table directly from external table information
+```
+    CREATE EXTERNAL TABLE example_db.table_mysql
     (
     k1 DATE,
     k2 INT,
@@ -399,8 +402,38 @@ Syntax:
     "password" = "mysql_passwd",
     "database" = "mysql_db_test",
     "table" = "mysql_table_test"
-    );
-    ```
+    )
+```
+
+   4.2 Create MySQL table with external ODBC catalog resource
+```
+   CREATE EXTERNAL RESOURCE "mysql_resource" 
+   PROPERTIES
+   (
+     "type" = "odbc_catalog",
+     "user" = "mysql_user",
+     "password" = "mysql_passwd",
+     "host" = "127.0.0.1",
+     "port" = "8239"			
+   );
+```
+```
+    CREATE EXTERNAL TABLE example_db.table_mysql
+    (
+    k1 DATE,
+    k2 INT,
+    k3 SMALLINT,
+    k4 VARCHAR(2048),
+    k5 DATETIME
+    )
+    ENGINE=mysql
+    PROPERTIES
+    (
+    "odbc_catalog_resource" = "mysql_resource",
+    "database" = "mysql_db_test",
+    "table" = "mysql_table_test"
+    )
+```
 
 5. Create a broker table, with file on HDFS, line delimit by "|", column separated by "\n"
 
@@ -548,7 +581,7 @@ Syntax:
         "dynamic_partition.prefix" = "p",
         "dynamic_partition.buckets" = "32"
          );
-    ```
+     ```
 12. Create a table with rollup index
 ```
     CREATE TABLE example_db.rolup_index_table
@@ -569,7 +602,7 @@ Syntax:
     PROPERTIES("replication_num" = "3");
 ```
 
-12. Create a inmemory table:
+13. Create a inmemory table:
 
 ```
     CREATE TABLE example_db.table_hash
@@ -587,7 +620,7 @@ Syntax:
     PROPERTIES ("in_memory"="true");
 ```
 
-13. Create a hive external table
+14. Create a hive external table
 ```
     CREATE TABLE example_db.table_hive
     (

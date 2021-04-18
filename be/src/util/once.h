@@ -43,15 +43,14 @@ namespace doris {
 //     Status _do_init() { /* init logic here */ }
 //     DorisCallOnce<Status> _init_once;
 //   };
-template<typename ReturnType>
+template <typename ReturnType>
 class DorisCallOnce {
 public:
-    DorisCallOnce()
-        : _has_called(false) {}
+    DorisCallOnce() : _has_called(false) {}
 
     // If the underlying `once_flag` has yet to be invoked, invokes the provided
     // lambda and stores its return value. Otherwise, returns the stored Status.
-    template<typename Fn>
+    template <typename Fn>
     ReturnType call(Fn fn) {
         std::call_once(_once_flag, [this, fn] {
             _status = fn();
@@ -69,9 +68,7 @@ public:
     }
 
     // Return the stored result. The result is only meaningful when `has_called() == true`.
-    ReturnType stored_result() const {
-        return _status;
-    }
+    ReturnType stored_result() const { return _status; }
 
 private:
     std::atomic<bool> _has_called;

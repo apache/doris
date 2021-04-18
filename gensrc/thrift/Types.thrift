@@ -84,6 +84,13 @@ enum TTypeNodeType {
     STRUCT
 }
 
+enum TStorageBackendType {
+    BROKER,
+    S3,
+    HDFS,
+    LOCAL
+}
+
 struct TScalarType {
     1: required TPrimitiveType type
 
@@ -163,7 +170,7 @@ enum TTaskType {
     PUBLISH_VERSION,
     CLEAR_ALTER_TASK,
     CLEAR_TRANSACTION_TASK,
-    RECOVER_TABLET,
+    RECOVER_TABLET, // deprecated
     STREAM_LOAD,
     UPDATE_TABLET_META_INFO,
     // this type of task will replace both ROLLUP and SCHEMA_CHANGE
@@ -182,6 +189,7 @@ enum TStmtType {
 // level of verboseness for "explain" output
 // TODO: should this go somewhere else?
 enum TExplainLevel {
+  BRIEF,
   NORMAL,
   VERBOSE
 }
@@ -317,12 +325,22 @@ enum TEtlState {
 }
 
 enum TTableType {
-    MYSQL_TABLE,
+    MYSQL_TABLE, // Deprecated
     OLAP_TABLE,
     SCHEMA_TABLE,
     KUDU_TABLE, // Deprecated
     BROKER_TABLE,
-    ES_TABLE
+    ES_TABLE,
+    ODBC_TABLE
+}
+
+enum TOdbcTableType {
+    MYSQL,
+    ORACLE,
+    POSTGRESQL,
+    SQLSERVER,
+    REDIS,
+    MONGODB
 }
 
 enum TKeysType {
@@ -359,6 +377,8 @@ enum TFileType {
     FILE_LOCAL,
     FILE_BROKER,
     FILE_STREAM,    // file content is streaming in the buffer
+    FILE_S3,
+    FILE_HDFS,
 }
 
 struct TTabletCommitInfo {
@@ -375,6 +395,12 @@ enum TLoadType {
 enum TLoadSourceType {
     RAW,
     KAFKA,
+}
+
+enum TMergeType {
+  APPEND,
+  MERGE,
+  DELETE
 }
 
 // represent a user identity

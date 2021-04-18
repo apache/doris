@@ -1,0 +1,264 @@
+WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+WARN DependencyUtils: Skip remote jar hdfs://myhost:54310/user/etl/cluster_id/__spark_repository__test8/__archive_1.0.0/__lib_bea2ecd751343b3e1651556e85e98f89_spark-dpp-1.0.0-jar-with-dependencies.jar.
+INFO RMProxy: Connecting to ResourceManager at myhost/127.0.0.1:8350
+INFO Client: Requesting a new application from cluster with 0 NodeManagers
+INFO Client: Verifying our application has not requested more than the maximum memory capability of the cluster (204800 MB per container)
+INFO Client: Will allocate AM container, with 1408 MB memory including 384 MB overhead
+INFO Client: Setting up container launch context for our AM
+INFO Client: Setting up the launch environment for our AM container
+INFO Client: Preparing resources for our AM container
+* 0 [521082][9458][src/wrapper/hdfs_filesystem_wrapper.cpp:204] connect to cluster: hdfs://myhost:54310
+* 0 [522398][9458][src/afs/afs.cpp:171] connect to afs cluster: hdfs://myhost:54310
+INFO Client: Source and destination file systems are the same. Not copying hdfs://myhost:54310/user/etl/cluster_id/__spark_repository__test8/__archive_1.0.0/__lib_4d29048a6e58c5dd21d9deb9589573be_spark-2x.zip
+INFO Client: Source and destination file systems are the same. Not copying hdfs://myhost:54310/user/etl/cluster_id/__spark_repository__test8/__archive_1.0.0/__lib_bea2ecd751343b3e1651556e85e98f89_spark-dpp-1.0.0-jar-with-dependencies.jar
+* 0 [714727][9458][src/afs/dfs_client_impl.cpp:1759] fail to get path info, path:/user/etl/.sparkStaging/application_1573630236805_6864759/__dce_sessions__, ret:-10011
+INFO Client: Uploading resource file:/tmp/spark-7448982a-b4c2-4224-9f14-32b145deb920/__dce__2334649440686670150.zip -> hdfs://myhost:54310/user/etl/.sparkStaging/application_1573630236805_6864759/__dce__.zip
+* 0 [517842][9458][src/afs/dfs_client_impl.cpp:1759] fail to get path info, path:/user/etl/.sparkStagig/application_1573630236805_6864759/__dce__.zip, ret:-10011
+* 0 [522307][9458][src/afs/dfs_client_impl.cpp:477] Avg write speed: 170393
+INFO Client: Uploading resource file:/tmp/spark-7448982a-b4c2-4224-9f14-32b145deb920/__spark_conf__1476443680705568032.zip -> hdfs://myhost:54310/user/etl/.sparkStaging/application_1573630236805_6864759/__spark_conf__.zip
+* 0 [388983][9458][src/afs/dfs_client_impl.cpp:1759] fail to get path info, path:/user/etl/.sparkStaging/application_1573630236805_6864759/__spark_conf__.zip, ret:-10011
+INFO SecurityManager: Changing view acls to: test,testugi
+INFO SecurityManager: Changing modify acls to: test,testugi
+INFO SecurityManager: Changing view acls groups to:
+INFO SecurityManager: Changing modify acls groups to:
+INFO SecurityManager: SecurityManager: authentication disabled; ui acls disabled; users  with view permissions: Set(test, testugi); groups with view permissions: Set(); users  with modify permissions: Set(test, testugi); groups with modify permissions: Set()
+WARN Client: priority = 30
+INFO Client: Submitting application application_1573630236805_6864759 to ResourceManager
+INFO YarnClientImpl: Submitted application application_1573630236805_6864759
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client:
+client token: N/A
+diagnostics: N/A
+applicationMaster host: N/A
+applicationMaster RPC port: -1
+queue: spark-queue
+start time: 1597916263384
+final status: UNDEFINED
+tracking URL: http://myhost:8388/proxy/application_1573630236805_6864759/
+user: testugi
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: ACCEPTED)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client:
+client token: N/A
+diagnostics: N/A
+applicationMaster host: applicationMasterHost
+applicationMaster RPC port: 48297
+queue: spark-queue
+start time: 1597916263384
+final status: UNDEFINED
+tracking URL: http://myhost:8388/proxy/application_1573630236805_6864759/
+user: testugi
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: RUNNING)
+INFO Client: Application report for application_1573630236805_6864759 (state: FINISHED)
+INFO Client:
+client token: N/A
+diagnostics: N/A
+applicationMaster host: applicationMasterHost
+applicationMaster RPC port: 48297
+queue: spark-queue
+start time: 1597916263384
+final status: SUCCEEDED
+tracking URL: http://myhost:8388/proxy/application_1573630236805_6864759/A
+user: testugi
+* 0 [689781][9458][src/afs/dfs_client_impl.cpp:1473] fail to del, path:/user/etl/.sparkStaging/application_1573630236805_6864759, ret:-10011
+* 0 [689781][9458][src/afs/dfs_client_impl.cpp:1473] fail to del, path:/user/etl/.sparkStaging/application_1573630236805_6864759, ret:-10011
+WARN DFileSystem: Delete src not found! path: hdfs://myhost:54310/user/etl/.sparkStaging/application_1573630236805_6864759
+INFO ShutdownHookManager: Shutdown hook called
+INFO ShutdownHookManager: Deleting directory /tmp/spark-7448982a-b4c2-4224-9f14-32b145deb920
+INFO ShutdownHookManager: Deleting directory /tmp/spark-5c1c8a31-3db5-4042-925a-405509cd21da

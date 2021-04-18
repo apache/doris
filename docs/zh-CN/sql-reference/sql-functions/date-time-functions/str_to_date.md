@@ -30,7 +30,6 @@ under the License.
 
 `DATETIME STR_TO_DATE(VARCHAR str, VARCHAR format)`
 
-
 通过format指定的方式将str转化为DATE类型，如果转化结果不对返回NULL
 
 支持的format格式与date_format一致
@@ -58,8 +57,16 @@ mysql> select str_to_date('200442 Monday', '%X%V %W');
 +-----------------------------------------+
 | 2004-10-18                              |
 +-----------------------------------------+
+
+mysql> select str_to_date("2020-09-01", "%Y-%m-%d %H:%i:%s");
++------------------------------------------------+
+| str_to_date('2020-09-01', '%Y-%m-%d %H:%i:%s') |
++------------------------------------------------+
+| 2020-09-01 00:00:00                            |
++------------------------------------------------+
+1 row in set (0.01 sec)
 ```
 
-##keyword
+## keyword
 
     STR_TO_DATE,STR,TO,DATE

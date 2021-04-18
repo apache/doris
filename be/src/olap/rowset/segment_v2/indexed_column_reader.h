@@ -44,15 +44,14 @@ class IndexedColumnIterator;
 // thread-safe reader for IndexedColumn (see comments of `IndexedColumnWriter` to understand what IndexedColumn is)
 class IndexedColumnReader {
 public:
-    explicit IndexedColumnReader(const std::string& file_name,
-                                 const IndexedColumnMetaPB& meta)
-        : _file_name(file_name), _meta(meta) {};
+    explicit IndexedColumnReader(const std::string& file_name, const IndexedColumnMetaPB& meta)
+            : _file_name(file_name), _meta(meta){};
 
     Status load(bool use_page_cache, bool kept_in_memory);
 
     // read a page specified by `pp' from `file' into `handle'
-    Status read_page(fs::ReadableBlock* rblock, const PagePointer& pp,
-                     PageHandle* handle, Slice* body, PageFooterPB* footer) const;
+    Status read_page(fs::ReadableBlock* rblock, const PagePointer& pp, PageHandle* handle,
+                     Slice* body, PageFooterPB* footer, PageTypePB type) const;
 
     int64_t num_values() const { return _num_values; }
     const EncodingInfo* encoding_info() const { return _encoding_info; }
@@ -61,9 +60,7 @@ public:
     bool support_value_seek() const { return _meta.has_value_index_meta(); }
 
 private:
-    Status load_index_page(fs::ReadableBlock* rblock,
-                           const PagePointerPB& pp,
-                           PageHandle* handle,
+    Status load_index_page(fs::ReadableBlock* rblock, const PagePointerPB& pp, PageHandle* handle,
                            IndexPageReader* reader);
 
     friend class IndexedColumnIterator;
@@ -87,16 +84,15 @@ private:
     const TypeInfo* _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
     const BlockCompressionCodec* _compress_codec = nullptr;
-    const KeyCoder* _validx_key_coder = nullptr;
+    const KeyCoder* _value_key_coder = nullptr;
 };
 
 class IndexedColumnIterator {
 public:
     explicit IndexedColumnIterator(const IndexedColumnReader* reader)
-        : _reader(reader),
-          _ordinal_iter(&reader->_ordinal_index_reader),
-          _value_iter(&reader->_value_index_reader) {
-          
+            : _reader(reader),
+              _ordinal_iter(&reader->_ordinal_index_reader),
+              _value_iter(&reader->_value_index_reader) {
         fs::BlockManager* block_manager = fs::fs_util::block_manager();
         auto st = block_manager->open_block(_reader->_file_name, &_rblock);
         DCHECK(st.ok());
@@ -129,6 +125,7 @@ public:
     // into ColumnBlock. when read string type data, memory will allocated
     // from Arena
     Status next_batch(size_t* n, ColumnBlockView* column_view);
+
 private:
     Status _read_data_page(const PagePointer& pp);
 

@@ -35,7 +35,7 @@ Doris-On-ES将Doris的分布式查询规划能力和ES(Elasticsearch)的全文�
 
 ## 名词解释
 
-### Doirs相关
+### Doris相关
 * FE：Frontend，Doris 的前端节点,负责元数据管理和请求接入
 * BE：Backend，Doris 的后端节点,负责查询执行和数据存储
 
@@ -128,13 +128,13 @@ PROPERTIES (
 参数 | 说明
 ---|---
 **hosts** | ES集群地址，可以是一个或多个，也可以是ES前端的负载均衡地址
-**index** | 对应的ES的index名字
+**index** | 对应的ES的index名字，支持alias，如果使用doc_value，需要使用真实的名称
 **type** | index的type，不指定的情况会使用_doc
 **user** | ES集群用户名
 **password** | 对应用户的密码信息
 
 * ES 7.x之前的集群请注意在建表的时候选择正确的**索引类型type**
-* 认证方式目前仅支持Http Bastic认证，并且需要确保该用户有访问: /\_cluster/state/、\_nodes/http等路径和index的读权限; 集群未开启安全认证，用户名和密码不需要设置
+* 认证方式目前仅支持Http Basic认证，并且需要确保该用户有访问: /\_cluster/state/、\_nodes/http等路径和index的读权限; 集群未开启安全认证，用户名和密码不需要设置
 * Doris表中的列名需要和ES中的字段名完全匹配，字段类型应该保持一致
 *  **ENGINE**必须是 **Elasticsearch**
 
@@ -324,6 +324,64 @@ POST /_analyze
 ```
 
 `k4.keyword` 的类型是`keyword`，数据写入ES中是一个完整的term，所以可以匹配
+
+### 开启节点自动发现, 默认为true(es\_nodes\_discovery=true)
+
+```
+CREATE EXTERNAL TABLE `test` (
+  `k1` bigint(20) COMMENT "",
+  `k2` datetime COMMENT "",
+  `k3` varchar(20) COMMENT "",
+  `k4` varchar(100) COMMENT "",
+  `k5` float COMMENT ""
+) ENGINE=ELASTICSEARCH
+PROPERTIES (
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"index" = "test”,
+"type" = "doc",
+"user" = "root",
+"password" = "root",
+
+"nodes_discovery" = "true"
+);
+```
+
+参数说明：
+
+参数 | 说明
+---|---
+**es\_nodes\_discovery** | 是否开启es节点发现，默认为true
+
+当配置为true时，Doris将从ES找到所有可用的相关数据节点(在上面分配的分片)。如果ES数据节点的地址没有被Doris BE访问，则设置为false。ES集群部署在与公共Internet隔离的内网，用户通过代理访问
+
+### ES集群是否开启https访问模式，如果开启应设置为`true`，默认为false(http\_ssl\_enabled=true)
+
+```
+CREATE EXTERNAL TABLE `test` (
+  `k1` bigint(20) COMMENT "",
+  `k2` datetime COMMENT "",
+  `k3` varchar(20) COMMENT "",
+  `k4` varchar(100) COMMENT "",
+  `k5` float COMMENT ""
+) ENGINE=ELASTICSEARCH
+PROPERTIES (
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"index" = "test”,
+"type" = "doc",
+"user" = "root",
+"password" = "root",
+
+"http_ssl_enabled" = "true"
+);
+```
+
+参数说明：
+
+参数 | 说明
+---|---
+**http\_ssl\_enabled** | ES集群是否开启https访问模式
+
+目前会fe/be实现方式为信任所有，这是临时解决方案，后续会使用真实的用户配置证书
 
 ### 查询用法
 

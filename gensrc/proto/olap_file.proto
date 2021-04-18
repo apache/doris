@@ -181,6 +181,13 @@ enum KeysType {
 message DeletePredicatePB {
     required int32 version = 1;
     repeated string sub_predicates = 2;
+    repeated InPredicatePB in_predicates = 3;
+}
+
+message InPredicatePB {
+   optional string column_name = 1;
+   optional bool is_not_in = 2;
+   repeated string values = 3;
 }
 
 message OLAPHeaderMessage {
@@ -204,6 +211,7 @@ message OLAPHeaderMessage {
     optional KeysType keys_type = 15;   // TabletSchemaPB.keys_type
     repeated PDelta delta = 16; // TabletMetaPB.rs_metas
     repeated PPendingDelta pending_delta = 17;  // need write to olap meta store
+    // @Deprecated
     repeated PDelta incremental_delta = 18; // TabletMetaPB.inc_rs_metas
 
     // if true, this tablet will not do compaction,
@@ -249,7 +257,8 @@ message ColumnPB {
     optional int32 referenced_column_id = 13; //   
     optional string referenced_column = 14; // ColumnMessage.referenced_column?
     optional bool has_bitmap_index = 15 [default=false]; // ColumnMessage.has_bitmap_index
-
+    optional bool visible = 16 [default=true];
+    repeated ColumnPB children_columns = 17;
 }
 
 message TabletSchemaPB {
@@ -261,6 +270,8 @@ message TabletSchemaPB {
     optional double bf_fpp = 6; // OLAPHeaderMessage.bf_fpp
     optional uint32 next_column_unique_id = 7; // OLAPHeaderMessage.next_column_unique_id
     optional bool is_in_memory = 8 [default=false];
+    optional int32 delete_sign_idx = 9 [default = -1];
+    optional int32 sequence_col_idx = 10 [default= -1];
 }
 
 enum TabletStatePB {
@@ -288,6 +299,7 @@ message TabletMetaPB {
     optional TabletStatePB tablet_state = 8;
     optional TabletSchemaPB schema = 9;
     repeated RowsetMetaPB rs_metas = 10;
+    // @Deprecated
     repeated RowsetMetaPB inc_rs_metas = 11;
     optional AlterTabletPB alter_task = 12;
     // if true, this tablet will not do compaction,
@@ -298,6 +310,7 @@ message TabletMetaPB {
     optional int64 end_rowset_id = 15;
     optional RowsetTypePB preferred_rowset_type = 16;
     optional TabletTypePB tablet_type = 17;
+    repeated RowsetMetaPB stale_rs_metas = 18;
 }
 
 message OLAPIndexHeaderMessage {

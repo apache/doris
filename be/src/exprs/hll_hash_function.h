@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_HLL_HASH_FUNCTION_H
 #define DORIS_BE_SRC_QUERY_EXPRS_HLL_HASH_FUNCTION_H
 
+#include "exprs/anyval_util.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
-#include "exprs/anyval_util.h"
 
 namespace doris {
 
@@ -35,6 +35,6 @@ public:
     static StringVal hll_hash(FunctionContext* ctx, const StringVal& dest_base);
     static BigIntVal hll_cardinality(FunctionContext* ctx, const HllVal& dest_base);
 };
-}
+} // namespace doris
 
 #endif

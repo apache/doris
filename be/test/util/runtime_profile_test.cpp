@@ -15,13 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <iostream>
-#include <gtest/gtest.h>
-#include <boost/bind.hpp>
-#include "common/object_pool.h"
 #include "util/runtime_profile.h"
+
+#include <gtest/gtest.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <boost/bind.hpp>
+#include <iostream>
+
+#include "common/object_pool.h"
 #include "util/cpu_info.h"
 
 using namespace std;
@@ -66,7 +69,7 @@ TEST(CountersTest, Basic) {
     RuntimeProfile* from_thrift = RuntimeProfile::CreateFromThrift(&pool, thrift_profile);
     counter_merged = from_thrift->GetCounter("A");
     EXPECT_EQ(counter_merged->value(), 1);
-    EXPECT_TRUE(from_thrift->GetCounter("Not there") ==  NULL);
+    EXPECT_TRUE(from_thrift->GetCounter("Not there") == NULL);
 
     // Merge
     RuntimeProfile merged_profile(&pool, "Merged");
@@ -117,13 +120,13 @@ TEST(CountersTest, MergeAndUpdate) {
 
     // Create parent level counters
     RuntimeProfile::Counter* parent1_shared =
-        profile1.AddCounter("Parent Shared", TCounterType::UNIT);
+            profile1.AddCounter("Parent Shared", TCounterType::UNIT);
     RuntimeProfile::Counter* parent2_shared =
-        profile2.AddCounter("Parent Shared", TCounterType::UNIT);
+            profile2.AddCounter("Parent Shared", TCounterType::UNIT);
     RuntimeProfile::Counter* parent1_only =
-        profile1.AddCounter("Parent 1 Only", TCounterType::UNIT);
+            profile1.AddCounter("Parent 1 Only", TCounterType::UNIT);
     RuntimeProfile::Counter* parent2_only =
-        profile2.AddCounter("Parent 2 Only", TCounterType::UNIT);
+            profile2.AddCounter("Parent 2 Only", TCounterType::UNIT);
     parent1_shared->Update(1);
     parent2_shared->Update(3);
     parent1_only->Update(2);
@@ -131,17 +134,15 @@ TEST(CountersTest, MergeAndUpdate) {
 
     // Create child level counters
     RuntimeProfile::Counter* p1_c1_shared =
-        p1_child1.AddCounter("Child1 Shared", TCounterType::UNIT);
+            p1_child1.AddCounter("Child1 Shared", TCounterType::UNIT);
     RuntimeProfile::Counter* p1_c1_only =
-        p1_child1.AddCounter("Child1 Parent 1 Only", TCounterType::UNIT);
-    RuntimeProfile::Counter* p1_c2 =
-        p1_child2.AddCounter("Child2", TCounterType::UNIT);
+            p1_child1.AddCounter("Child1 Parent 1 Only", TCounterType::UNIT);
+    RuntimeProfile::Counter* p1_c2 = p1_child2.AddCounter("Child2", TCounterType::UNIT);
     RuntimeProfile::Counter* p2_c1_shared =
-        p2_child1.AddCounter("Child1 Shared", TCounterType::UNIT);
+            p2_child1.AddCounter("Child1 Shared", TCounterType::UNIT);
     RuntimeProfile::Counter* p2_c1_only =
-        p1_child1.AddCounter("Child1 Parent 2 Only", TCounterType::UNIT);
-    RuntimeProfile::Counter* p2_c3 =
-        p2_child3.AddCounter("Child3", TCounterType::UNIT);
+            p1_child1.AddCounter("Child1 Parent 2 Only", TCounterType::UNIT);
+    RuntimeProfile::Counter* p2_c3 = p2_child3.AddCounter("Child3", TCounterType::UNIT);
     p1_c1_shared->Update(10);
     p1_c1_only->Update(50);
     p2_c1_shared->Update(20);
@@ -159,7 +160,7 @@ TEST(CountersTest, MergeAndUpdate) {
     ValidateCounter(merged_profile, "Parent 1 Only", 2);
     ValidateCounter(merged_profile, "Parent 2 Only", 5);
 
-    vector<RuntimeProfile*> children;
+    std::vector<RuntimeProfile*> children;
     merged_profile->GetChildren(&children);
     EXPECT_EQ(children.size(), 3);
 
@@ -183,7 +184,7 @@ TEST(CountersTest, MergeAndUpdate) {
     }
 
     // make sure we can print
-    stringstream dummy;
+    std::stringstream dummy;
     merged_profile->PrettyPrint(&dummy);
 
     // Update profile2 w/ profile1 and validate
@@ -222,16 +223,14 @@ TEST(CountersTest, MergeAndUpdate) {
 TEST(CountersTest, DerivedCounters) {
     ObjectPool pool;
     RuntimeProfile profile(&pool, "Profile");
-    RuntimeProfile::Counter* bytes_counter =
-        profile.AddCounter("bytes", TCounterType::BYTES);
-    RuntimeProfile::Counter* ticks_counter =
-        profile.AddCounter("ticks", TCounterType::TIME_NS);
+    RuntimeProfile::Counter* bytes_counter = profile.AddCounter("bytes", TCounterType::BYTES);
+    RuntimeProfile::Counter* ticks_counter = profile.AddCounter("ticks", TCounterType::TIME_NS);
     // set to 1 sec
     ticks_counter->Set(1000L * 1000L * 1000L);
 
-    RuntimeProfile::DerivedCounter* throughput_counter =
-        profile.AddDerivedCounter("throughput", TCounterType::BYTES,
-                                  bind<int64_t>(&RuntimeProfile::UnitsPerSecond, bytes_counter, ticks_counter));
+    RuntimeProfile::DerivedCounter* throughput_counter = profile.AddDerivedCounter(
+            "throughput", TCounterType::BYTES,
+            bind<int64_t>(&RuntimeProfile::UnitsPerSecond, bytes_counter, ticks_counter));
 
     bytes_counter->Set(10L);
     EXPECT_EQ(throughput_counter->value(), 10);
@@ -256,8 +255,7 @@ TEST(CountersTest, InfoStringTest) {
     profile.ToThrift(&tprofile);
 
     // Convert it back
-    RuntimeProfile* from_thrift = RuntimeProfile::CreateFromThrift(
-                                      &pool, tprofile);
+    RuntimeProfile* from_thrift = RuntimeProfile::CreateFromThrift(&pool, tprofile);
     value = from_thrift->GetInfoString("Key");
     EXPECT_TRUE(value != NULL);
     EXPECT_EQ(*value, "Value");
@@ -286,11 +284,9 @@ TEST(CountersTest, RateCounters) {
     ObjectPool pool;
     RuntimeProfile profile(&pool, "Profile");
 
-    RuntimeProfile::Counter* bytes_counter =
-        profile.AddCounter("bytes", TCounterType::BYTES);
+    RuntimeProfile::Counter* bytes_counter = profile.AddCounter("bytes", TCounterType::BYTES);
 
-    RuntimeProfile::Counter* rate_counter =
-        profile.AddRateCounter("RateCounter", bytes_counter);
+    RuntimeProfile::Counter* rate_counter = profile.AddRateCounter("RateCounter", bytes_counter);
     EXPECT_TRUE(rate_counter->type() == TCounterType::BYTES_PER_SECOND);
 
     EXPECT_EQ(rate_counter->value(), 0);
@@ -323,14 +319,13 @@ TEST(CountersTest, BucketCounters) {
     ObjectPool pool;
     RuntimeProfile profile(&pool, "Profile");
 
-    RuntimeProfile::Counter* unit_counter =
-        profile.AddCounter("unit", TCounterType::UNIT);
+    RuntimeProfile::Counter* unit_counter = profile.AddCounter("unit", TCounterType::UNIT);
 
     // Set the unit to 1 before sampling
     unit_counter->Set(1L);
 
     // Create the bucket counters and start sampling
-    vector<RuntimeProfile::Counter*> buckets;
+    std::vector<RuntimeProfile::Counter*> buckets;
     profile.AddBucketingCounters("BucketCounters", "", unit_counter, 2, &buckets);
 
     // Wait two seconds.
@@ -352,7 +347,7 @@ TEST(CountersTest, BucketCounters) {
     EXPECT_EQ(val0, buckets[0]->double_value());
     EXPECT_EQ(val1, buckets[1]->double_value());
 }
-}
+} // namespace impala
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

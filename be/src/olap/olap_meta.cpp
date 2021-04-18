@@ -17,15 +17,15 @@
 
 #include "olap/olap_meta.h"
 
-#include <vector>
 #include <sstream>
+#include <vector>
 
+#include "common/logging.h"
 #include "olap/olap_define.h"
 #include "rocksdb/db.h"
-#include "rocksdb/slice.h"
 #include "rocksdb/options.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "common/logging.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 
@@ -45,19 +45,16 @@ namespace doris {
 const std::string META_POSTFIX = "/meta";
 const size_t PREFIX_LENGTH = 4;
 
-OlapMeta::OlapMeta(const std::string& root_path)
-        : _root_path(root_path),
-        _db(nullptr) {
-}
+OlapMeta::OlapMeta(const std::string& root_path) : _root_path(root_path), _db(nullptr) {}
 
 OlapMeta::~OlapMeta() {
-    for (auto handle : _handles) {
-        delete handle;
-    }
     if (_db != nullptr) {
-        _db->Close();
+        for (auto& handle : _handles) {
+            _db->DestroyColumnFamilyHandle(handle);
+            handle = nullptr;
+        }
         delete _db;
-        _db= nullptr;
+        _db = nullptr;
     }
 }
 
@@ -73,7 +70,7 @@ OLAPStatus OlapMeta::init() {
     column_families.emplace_back(DEFAULT_COLUMN_FAMILY, ColumnFamilyOptions());
     column_families.emplace_back(DORIS_COLUMN_FAMILY, ColumnFamilyOptions());
 
-    // meta column family add prefix extrator to improve performance and ensure correctness
+    // meta column family add prefix extractor to improve performance and ensure correctness
     ColumnFamilyOptions meta_column_family;
     meta_column_family.prefix_extractor.reset(NewFixedPrefixTransform(PREFIX_LENGTH));
     column_families.emplace_back(META_COLUMN_FAMILY, meta_column_family);
@@ -85,8 +82,9 @@ OLAPStatus OlapMeta::init() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key, std::string* value) {
-    DorisMetrics::instance()->meta_read_request_total.increment(1);
+OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key,
+                         std::string* value) {
+    DorisMetrics::instance()->meta_read_request_total->increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
     rocksdb::Status s;
@@ -94,7 +92,7 @@ OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key, 
         SCOPED_RAW_TIMER(&duration_ns);
         s = _db->Get(ReadOptions(), handle, Slice(key), value);
     }
-    DorisMetrics::instance()->meta_read_request_duration_us.increment(duration_ns / 1000);
+    DorisMetrics::instance()->meta_read_request_duration_us->increment(duration_ns / 1000);
     if (s.IsNotFound()) {
         return OLAP_ERR_META_KEY_NOT_FOUND;
     } else if (!s.ok()) {
@@ -104,8 +102,9 @@ OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key, 
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapMeta::put(const int column_family_index, const std::string& key, const std::string& value) {
-    DorisMetrics::instance()->meta_write_request_total.increment(1);
+OLAPStatus OlapMeta::put(const int column_family_index, const std::string& key,
+                         const std::string& value) {
+    DorisMetrics::instance()->meta_write_request_total->increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
     rocksdb::Status s;
@@ -115,7 +114,7 @@ OLAPStatus OlapMeta::put(const int column_family_index, const std::string& key, 
         write_options.sync = config::sync_tablet_meta;
         s = _db->Put(write_options, handle, Slice(key), Slice(value));
     }
-    DorisMetrics::instance()->meta_write_request_duration_us.increment(duration_ns / 1000);
+    DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
     if (!s.ok()) {
         LOG(WARNING) << "rocks db put key:" << key << " failed, reason:" << s.ToString();
         return OLAP_ERR_META_PUT;
@@ -124,7 +123,7 @@ OLAPStatus OlapMeta::put(const int column_family_index, const std::string& key, 
 }
 
 OLAPStatus OlapMeta::remove(const int column_family_index, const std::string& key) {
-    DorisMetrics::instance()->meta_write_request_total.increment(1);
+    DorisMetrics::instance()->meta_write_request_total->increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     rocksdb::Status s;
     int64_t duration_ns = 0;
@@ -134,7 +133,7 @@ OLAPStatus OlapMeta::remove(const int column_family_index, const std::string& ke
         write_options.sync = config::sync_tablet_meta;
         s = _db->Delete(write_options, handle, Slice(key));
     }
-    DorisMetrics::instance()->meta_write_request_duration_us.increment(duration_ns / 1000);
+    DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
     if (!s.ok()) {
         LOG(WARNING) << "rocks db delete key:" << key << " failed, reason:" << s.ToString();
         return OLAP_ERR_META_DELETE;
@@ -142,7 +141,8 @@ OLAPStatus OlapMeta::remove(const int column_family_index, const std::string& ke
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapMeta::iterate(const int column_family_index, const std::string& prefix,
+OLAPStatus OlapMeta::iterate(
+        const int column_family_index, const std::string& prefix,
         std::function<bool(const std::string&, const std::string&)> const& func) {
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     std::unique_ptr<Iterator> it(_db->NewIterator(ReadOptions(), handle));
@@ -201,4 +201,4 @@ OLAPStatus OlapMeta::set_tablet_convert_finished() {
     return s;
 }
 
-}
+} // namespace doris

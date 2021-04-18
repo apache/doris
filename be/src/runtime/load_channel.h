@@ -23,8 +23,8 @@
 #include <unordered_set>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/mem_tracker.h"
 #include "util/uid_util.h"
@@ -38,8 +38,8 @@ class TabletsChannel;
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, int64_t mem_limit,
-                int64_t timeout_s, MemTracker* mem_tracker);
+    LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
+                const std::shared_ptr<MemTracker>& mem_tracker);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -74,8 +74,8 @@ private:
     bool _find_largest_consumption_channel(std::shared_ptr<TabletsChannel>* channel);
 
     UniqueId _load_id;
-    // Tracks the total memory comsupted by current load job on this BE
-    std::unique_ptr<MemTracker> _mem_tracker;
+    // Tracks the total memory consumed by current load job on this BE
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     // lock protect the tablets channel map
     std::mutex _lock;
@@ -94,10 +94,9 @@ private:
 };
 
 inline std::ostream& operator<<(std::ostream& os, const LoadChannel& load_channel) {
-    os << "LoadChannel(id=" << load_channel.load_id()
-       << ", mem=" << load_channel.mem_consumption()
+    os << "LoadChannel(id=" << load_channel.load_id() << ", mem=" << load_channel.mem_consumption()
        << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time()) << ")";
     return os;
 }
 
-}
+} // namespace doris

@@ -36,7 +36,7 @@
 // called wait().  This results in POOR performance.  A much better
 // approach to getting a lot of threads out of wait() is to have each
 // thread (upon exiting wait()) call notify_one() to free up another
-// Wait'ing thread.  Look at condition_variable_unittest.cc for
+// Waiting thread.  Look at condition_variable_unittest.cc for
 // both examples.
 //
 // notify_all() can be used nicely during teardown, as it gets the job
@@ -103,13 +103,12 @@ public:
     void notify_one();
 
 private:
-
     mutable pthread_cond_t _condition;
     pthread_mutex_t* _user_mutex;
 
     DISALLOW_COPY_AND_ASSIGN(ConditionVariable);
 };
 
-}  // namespace doris 
+} // namespace doris
 
 #endif // DORIS_BE_SRC_UTIL_CONDITION_VARIABLE_H

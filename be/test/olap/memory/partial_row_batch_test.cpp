@@ -50,7 +50,7 @@ TEST(PartialRowbatch, write) {
         }
         EXPECT_TRUE(writer.end_row().ok());
     }
-    vector<uint8_t> buffer;
+    std::vector<uint8_t> buffer;
     writer.finish_batch(&buffer);
 
     PartialRowBatch rb(&sc);

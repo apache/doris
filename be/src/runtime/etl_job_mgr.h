@@ -22,23 +22,20 @@
 
 #include <mutex>
 #include <string>
-#include <vector>
 #include <unordered_set>
+#include <vector>
 
 #include "common/status.h"
-#include "util/lru_cache.hpp"
-#include "http/rest_monitor_iface.h"
 #include "gen_cpp/Types_types.h"
+#include "http/rest_monitor_iface.h"
 #include "util/hash_util.hpp"
+#include "util/lru_cache.hpp"
 
 namespace doris {
 
 // used to report to master
 struct EtlJobResult {
-    EtlJobResult() :
-            process_normal_rows(0),
-            process_abnormal_rows(0) {
-    }
+    EtlJobResult() : process_normal_rows(0), process_abnormal_rows(0) {}
     std::string debug_path;
     std::map<std::string, int64_t> file_map;
     int64_t process_normal_rows;
@@ -77,12 +74,9 @@ public:
     // Make a running job to failed job
     Status cancel_job(const TUniqueId& id);
 
-    Status finish_job(const TUniqueId& id,
-                      const Status& finish_status,
-                      const EtlJobResult& result);
+    Status finish_job(const TUniqueId& id, const Status& finish_status, const EtlJobResult& result);
 
-    Status get_job_state(const TUniqueId& id,
-                         TMiniLoadEtlStatusResult* result);
+    Status get_job_state(const TUniqueId& id, TMiniLoadEtlStatusResult* result);
 
     Status erase_job(const TDeleteEtlFilesRequest& req);
 
@@ -103,6 +97,6 @@ private:
     LruCache<TUniqueId, EtlJobCtx> _failed_jobs;
 };
 
-}
+} // namespace doris
 
 #endif

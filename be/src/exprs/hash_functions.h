@@ -21,16 +21,15 @@ namespace doris_udf {
 class FunctionContext;
 class IntVal;
 class StringVal;
-}
+} // namespace doris_udf
 
 namespace doris {
 
 class HashFunctions {
 public:
     static void init();
-    static doris_udf::IntVal murmur_hash3_32(
-        doris_udf::FunctionContext* ctx, int num_children,
-        const doris_udf::StringVal* inputs);
+    static doris_udf::IntVal murmur_hash3_32(doris_udf::FunctionContext* ctx, int num_children,
+                                             const doris_udf::StringVal* inputs);
 };
 
-}
+} // namespace doris

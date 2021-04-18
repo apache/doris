@@ -17,8 +17,8 @@
 
 #include "geo/wkt_parse.h"
 
-#include "geo/wkt_parse_ctx.h"
 #include "geo/geo_types.h"
+#include "geo/wkt_parse_ctx.h"
 #include "geo/wkt_parse_type.h"
 #include "geo/wkt_yacc.y.hpp"
 #define YYSTYPE WKT_STYPE
@@ -46,4 +46,4 @@ GeoParseStatus WktParse::parse_wkt(const char* str, size_t len, GeoShape** shape
     return ctx.parse_status;
 }
 
-}
+} // namespace doris

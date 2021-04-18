@@ -28,9 +28,11 @@
 
 namespace doris {
 
+class MemTracker;
 class RowBlock;
 class RowCursor;
 class TabletSchema;
+class TabletColumn;
 class ShortKeyIndexBuilder;
 
 namespace fs {
@@ -50,15 +52,13 @@ struct SegmentWriterOptions {
 
 class SegmentWriter {
 public:
-    explicit SegmentWriter(fs::WritableBlock* block,
-                           uint32_t segment_id,
-                           const TabletSchema* tablet_schema,
-                           const SegmentWriterOptions& opts);
+    explicit SegmentWriter(fs::WritableBlock* block, uint32_t segment_id,
+                           const TabletSchema* tablet_schema, const SegmentWriterOptions& opts, std::shared_ptr<MemTracker> parent = nullptr);
     ~SegmentWriter();
 
     Status init(uint32_t write_mbytes_per_sec);
 
-    template<typename RowType>
+    template <typename RowType>
     Status append_row(const RowType& row);
 
     uint64_t estimate_segment_size();
@@ -77,6 +77,7 @@ private:
     Status _write_short_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
+    void _init_column_meta(ColumnMetaPB* meta, uint32_t* column_id, const TabletColumn& column);
 
 private:
     uint32_t _segment_id;
@@ -89,8 +90,9 @@ private:
     SegmentFooterPB _footer;
     std::unique_ptr<ShortKeyIndexBuilder> _index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
+    std::shared_ptr<MemTracker> _mem_tracker;
     uint32_t _row_count = 0;
 };
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

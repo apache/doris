@@ -26,10 +26,10 @@ using doris_udf::FunctionContext;
 using doris_udf::IntVal;
 using doris_udf::StringVal;
 
-void HashFunctions::init() { }
+void HashFunctions::init() {}
 
-IntVal HashFunctions::murmur_hash3_32(
-        FunctionContext* ctx, int num_children, const StringVal* inputs) {
+IntVal HashFunctions::murmur_hash3_32(FunctionContext* ctx, int num_children,
+                                      const StringVal* inputs) {
     uint32_t seed = HashUtil::MURMUR3_32_SEED;
     for (int i = 0; i < num_children; ++i) {
         if (inputs[i].is_null) {
@@ -40,4 +40,4 @@ IntVal HashFunctions::murmur_hash3_32(
     return seed;
 }
 
-}
+} // namespace doris

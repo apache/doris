@@ -15,30 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <boost/foreach.hpp>
-#include <string>
+#include "exec/schema_scan_node.h"
+
 #include <gtest/gtest.h>
+
+#include <string>
 
 #include "common/object_pool.h"
 #include "exec/text_converter.hpp"
-#include "exec/schema_scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/mem_pool.h"
 #include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
+#include "runtime/mem_pool.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "schema_scan_node.h"
-#include "util/runtime_profile.h"
 #include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
 // mock
 class SchemaScanNodeTest : public testing::Test {
 public:
-    SchemaScanNodeTest() : _runtim_state("test") {
+    SchemaScanNodeTest() : runtime_state("test") {
         TDescriptorTable t_desc_table;
 
         // table descriptors
@@ -82,7 +83,7 @@ public:
 
         DescriptorTbl::create(&_obj_pool, t_desc_table, &_desc_tbl);
 
-        _runtim_state.set_desc_tbl(_desc_tbl);
+        runtime_state.set_desc_tbl(_desc_tbl);
 
         // Node Id
         _tnode.node_id = 0;
@@ -96,24 +97,23 @@ public:
         _tnode.__isset.schema_scan_node = true;
     }
 
-    virtual ~SchemaScanNodeTest() { }
+    virtual ~SchemaScanNodeTest() {}
 
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
+
 private:
     TPlanNode _tnode;
     ObjectPool _obj_pool;
     DescriptorTbl* _desc_tbl;
-    RuntimeState _runtim_state;
+    RuntimeState runtime_state;
 };
 
 TEST_F(SchemaScanNodeTest, normal_use) {
     SchemaScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
-    Status status = scan_node.prepare(&_runtim_state);
+    Status status = scan_node.prepare(&runtime_state);
     ASSERT_TRUE(status.ok());
-    status = scan_node.prepare(&_runtim_state);
+    status = scan_node.prepare(&runtime_state);
     ASSERT_TRUE(status.ok());
     std::vector<TScanRangeParams> scan_ranges;
     status = scan_node.set_scan_ranges(scan_ranges);
@@ -122,13 +122,13 @@ TEST_F(SchemaScanNodeTest, normal_use) {
     scan_node.debug_string(1, &out);
     LOG(WARNING) << out.str();
 
-    status = scan_node.open(&_runtim_state);
+    status = scan_node.open(&runtime_state);
     ASSERT_TRUE(status.ok());
     RowBatch row_batch(scan_node._row_descriptor, 100);
     bool eos = false;
 
     while (!eos) {
-        status = scan_node.get_next(&_runtim_state, &row_batch, &eos);
+        status = scan_node.get_next(&runtime_state, &row_batch, &eos);
         ASSERT_TRUE(status.ok());
 
         if (!eos) {
@@ -139,31 +139,31 @@ TEST_F(SchemaScanNodeTest, normal_use) {
         }
     }
 
-    status = scan_node.close(&_runtim_state);
+    status = scan_node.close(&runtime_state);
     ASSERT_TRUE(status.ok());
 }
 TEST_F(SchemaScanNodeTest, Prepare_fail_1) {
     SchemaScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     TableDescriptor* old = _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc;
     _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc = NULL;
-    Status status = scan_node.prepare(&_runtim_state);
+    Status status = scan_node.prepare(&runtime_state);
     ASSERT_FALSE(status.ok());
     _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc = old;
 }
 TEST_F(SchemaScanNodeTest, Prepare_fail_2) {
     SchemaScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node._tuple_id = 1;
-    Status status = scan_node.prepare(&_runtim_state);
+    Status status = scan_node.prepare(&runtime_state);
     ASSERT_FALSE(status.ok());
 }
 TEST_F(SchemaScanNodeTest, dummy) {
-    SchemaTableDescriptor* t_desc = (SchemaTableDescriptor*)
-                                    _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc;
+    SchemaTableDescriptor* t_desc =
+            (SchemaTableDescriptor*)_desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc;
     t_desc->_schema_table_type = TSchemaTableType::SCH_EVENTS;
     SchemaScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
-    Status status = scan_node.prepare(&_runtim_state);
+    Status status = scan_node.prepare(&runtime_state);
     ASSERT_TRUE(status.ok());
-    status = scan_node.prepare(&_runtim_state);
+    status = scan_node.prepare(&runtime_state);
     ASSERT_TRUE(status.ok());
     std::vector<TScanRangeParams> scan_ranges;
     status = scan_node.set_scan_ranges(scan_ranges);
@@ -172,13 +172,13 @@ TEST_F(SchemaScanNodeTest, dummy) {
     scan_node.debug_string(1, &out);
     LOG(WARNING) << out.str();
 
-    status = scan_node.open(&_runtim_state);
+    status = scan_node.open(&runtime_state);
     ASSERT_TRUE(status.ok());
     RowBatch row_batch(scan_node._row_descriptor, 100);
     bool eos = false;
 
     while (!eos) {
-        status = scan_node.get_next(&_runtim_state, &row_batch, &eos);
+        status = scan_node.get_next(&runtime_state, &row_batch, &eos);
         ASSERT_TRUE(status.ok());
 
         if (!eos) {
@@ -189,25 +189,25 @@ TEST_F(SchemaScanNodeTest, dummy) {
         }
     }
 
-    status = scan_node.close(&_runtim_state);
+    status = scan_node.close(&runtime_state);
     ASSERT_TRUE(status.ok());
     t_desc->_schema_table_type = TSchemaTableType::SCH_AUTHORS;
 }
 TEST_F(SchemaScanNodeTest, get_dest_desc_fail) {
     SchemaScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node._tuple_id = 1;
-    Status status = scan_node.prepare(&_runtim_state);
+    Status status = scan_node.prepare(&runtime_state);
     ASSERT_FALSE(status.ok());
 }
 TEST_F(SchemaScanNodeTest, invalid_param) {
     SchemaScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(NULL);
     ASSERT_FALSE(status.ok());
-    status = scan_node.prepare(&_runtim_state);
+    status = scan_node.prepare(&runtime_state);
     ASSERT_TRUE(status.ok());
     status = scan_node.open(NULL);
     ASSERT_FALSE(status.ok());
-    status = scan_node.open(&_runtim_state);
+    status = scan_node.open(&runtime_state);
     ASSERT_TRUE(status.ok());
     RowBatch row_batch(scan_node._row_descriptor, 100);
     bool eos;
@@ -217,17 +217,17 @@ TEST_F(SchemaScanNodeTest, invalid_param) {
 
 TEST_F(SchemaScanNodeTest, no_init) {
     SchemaScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
-    //Status status = scan_node.prepare(&_runtim_state);
+    //Status status = scan_node.prepare(&runtime_state);
     //ASSERT_TRUE(status.ok());
-    Status status = scan_node.open(&_runtim_state);
+    Status status = scan_node.open(&runtime_state);
     ASSERT_FALSE(status.ok());
     RowBatch row_batch(scan_node._row_descriptor, 100);
     bool eos;
-    status = scan_node.get_next(&_runtim_state, &row_batch, &eos);
+    status = scan_node.get_next(&runtime_state, &row_batch, &eos);
     ASSERT_FALSE(status.ok());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -239,4 +239,3 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

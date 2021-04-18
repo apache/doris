@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "util/path_trie.hpp"
+
 #include <gtest/gtest.h>
 
 #include "common/config.h"
 #include "util/logging.h"
-#include "util/path_trie.hpp"
 
 namespace doris {
 
-class PathTrieTest : public testing::Test {
-};
+class PathTrieTest : public testing::Test {};
 
 TEST_F(PathTrieTest, SplitTest) {
     PathTrie<int> root;
@@ -113,7 +113,7 @@ TEST_F(PathTrieTest, MultiTemplateTest) {
     std::string path = "/db/{table}";
     ASSERT_TRUE(root.insert(path, 100));
 
-    // Dumplicate template
+    // Duplicate template
     path = "/db/{rollup}/abc";
     ASSERT_FALSE(root.insert(path, 110));
 
@@ -133,7 +133,7 @@ TEST_F(PathTrieTest, MultiPlayTest) {
     std::string path = "/db/abc";
     ASSERT_TRUE(root.insert(path, 100));
 
-    // Dumplicate template
+    // Duplicate template
     path = "/db";
     ASSERT_TRUE(root.insert(path, 110));
 
@@ -154,7 +154,7 @@ TEST_F(PathTrieTest, EmptyTest) {
     std::string path = "/";
     ASSERT_TRUE(root.insert(path, 100));
 
-    // Dumplicate template
+    // Duplicate template
     path = "/";
     ASSERT_FALSE(root.insert(path, 110));
 
@@ -167,7 +167,7 @@ TEST_F(PathTrieTest, EmptyTest) {
     ASSERT_EQ(100, value);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

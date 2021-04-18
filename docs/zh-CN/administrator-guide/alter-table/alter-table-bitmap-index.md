@@ -53,13 +53,13 @@ create/drop index 语法
     或者 [ALTER TABLE](../../sql-reference/sql-statements/Data%20Definition/ALTER%20TABLE.html) 中bitmap 索引相关的操作
 
 ## 创建作业
-参照 schema change 文档 [Scheam Change](alter-table-schema-change.html)
+参照 schema change 文档 [Schema Change](alter-table-schema-change.html)
 
 ## 查看作业
-参照 schema change 文档 [Scheam Change](alter-table-schema-change.html)
+参照 schema change 文档 [Schema Change](alter-table-schema-change.html)
 
 ## 取消作业
-参照 schema change 文档 [Scheam Change](alter-table-schema-change.html)
+参照 schema change 文档 [Schema Change](alter-table-schema-change.html)
 
 ## 注意事项
 * 目前索引仅支持 bitmap 类型的索引。 
@@ -79,8 +79,4 @@ create/drop index 语法
     * `DECIMAL`
     * `BOOL`
 
-* bitmap索引仅在 segmentV2 下生效，需要在be的配置文件中增加如下配置
-
-    ```
-    default_rowset_type=BETA
-    ``` 
+* bitmap索引仅在 Segment V2 下生效。当创建 index 时，表的存储格式将默认转换为 V2 格式。

@@ -16,11 +16,12 @@
 // under the License.
 
 #include "runtime/buffer_control_block.h"
-#include "runtime/raw_value.h"
+
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "util/thrift_util.h"
+#include "runtime/raw_value.h"
 #include "service/brpc.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -31,8 +32,7 @@ void GetResultBatchCtx::on_failure(const Status& status) {
     delete this;
 }
 
-void GetResultBatchCtx::on_close(int64_t packet_seq,
-                 QueryStatistics* statistics) {
+void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics) {
     Status status;
     status.to_protobuf(result->mutable_status());
     if (statistics != nullptr) {
@@ -62,13 +62,12 @@ void GetResultBatchCtx::on_data(TFetchDataResult* t_result, int64_t packet_seq, 
 }
 
 BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size)
-    : _fragment_id(id),
-      _is_close(false),
-      _is_cancelled(false),
-      _buffer_rows(0),
-      _buffer_limit(buffer_size),
-      _packet_num(0) {
-}
+        : _fragment_id(id),
+          _is_close(false),
+          _is_cancelled(false),
+          _buffer_rows(0),
+          _buffer_limit(buffer_size),
+          _packet_num(0) {}
 
 BufferControlBlock::~BufferControlBlock() {
     cancel();
@@ -92,8 +91,7 @@ Status BufferControlBlock::add_batch(TFetchDataResult* result) {
 
     int num_rows = result->result_batch.rows.size();
 
-    while ((!_batch_queue.empty() && (num_rows + _buffer_rows) > _buffer_limit)
-            && !_is_cancelled) {
+    while ((!_batch_queue.empty() && (num_rows + _buffer_rows) > _buffer_limit) && !_is_cancelled) {
         _data_removal.wait(l);
     }
 
@@ -104,7 +102,7 @@ Status BufferControlBlock::add_batch(TFetchDataResult* result) {
     if (_waiting_rpc.empty()) {
         _buffer_rows += num_rows;
         _batch_queue.push_back(result);
-        _data_arriaval.notify_one();
+        _data_arrival.notify_one();
     } else {
         auto ctx = _waiting_rpc.front();
         _waiting_rpc.pop_front();
@@ -121,7 +119,7 @@ Status BufferControlBlock::get_batch(TFetchDataResult* result) {
         boost::unique_lock<boost::mutex> l(_lock);
 
         while (_batch_queue.empty() && !_is_close && !_is_cancelled) {
-            _data_arriaval.wait(l);
+            _data_arrival.wait(l);
         }
 
         // if Status has been set, return fail;
@@ -200,7 +198,7 @@ Status BufferControlBlock::close(Status exec_status) {
     _status = exec_status;
 
     // notify blocked get thread
-    _data_arriaval.notify_all();
+    _data_arrival.notify_all();
     if (!_waiting_rpc.empty()) {
         if (_status.ok()) {
             for (auto& ctx : _waiting_rpc) {
@@ -220,7 +218,7 @@ Status BufferControlBlock::cancel() {
     boost::unique_lock<boost::mutex> l(_lock);
     _is_cancelled = true;
     _data_removal.notify_all();
-    _data_arriaval.notify_all();
+    _data_arrival.notify_all();
     for (auto& ctx : _waiting_rpc) {
         ctx->on_failure(Status::Cancelled("Cancelled"));
     }
@@ -228,4 +226,4 @@ Status BufferControlBlock::cancel() {
     return Status::OK();
 }
 
-}
+} // namespace doris

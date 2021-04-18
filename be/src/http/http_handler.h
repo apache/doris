@@ -26,21 +26,21 @@ class HttpChannel;
 // Handler for on http request
 class HttpHandler {
 public:
-    virtual ~HttpHandler() { }
-    virtual void handle(HttpRequest *req) = 0;
+    virtual ~HttpHandler() {}
+    virtual void handle(HttpRequest* req) = 0;
 
     virtual bool request_will_be_read_progressively() { return false; }
 
-    // This funciton will called when all headers are recept.
+    // This function will called when all headers are receipt.
     // return 0 if process successfully. otherwise return -1;
     // If return -1, on_header function should send_reply to HTTP client
     // and function wont send any reply any more.
     virtual int on_header(HttpRequest* req) { return 0; }
 
-    virtual void on_chunk_data(HttpRequest* req) { }
-    virtual void free_handler_ctx(void* handler_ctx) { }
+    virtual void on_chunk_data(HttpRequest* req) {}
+    virtual void free_handler_ctx(void* handler_ctx) {}
 };
 
-}
+} // namespace doris
 
 #endif

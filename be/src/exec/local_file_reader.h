@@ -36,13 +36,15 @@ public:
     // If reach to end of file, the eof is set to true. meanwhile 'buf_len'
     // is set to zero.
     virtual Status read(uint8_t* buf, size_t* buf_len, bool* eof) override;
-    virtual Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) override;
-    virtual Status read_one_message(uint8_t** buf, size_t* length) override;
-    virtual int64_t size () override;
+    virtual Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read,
+                          void* out) override;
+    virtual Status read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) override;
+    virtual int64_t size() override;
     virtual Status seek(int64_t position) override;
     virtual Status tell(int64_t* position) override;
     virtual void close() override;
     virtual bool closed() override;
+
 private:
     std::string _path;
     int64_t _current_offset;
@@ -50,4 +52,4 @@ private:
     FILE* _fp;
 };
 
-}
+} // namespace doris

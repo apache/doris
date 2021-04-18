@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'WARCHAR DATE'U FORMAT (DATETIME DATE, WARCHAR Format)'
+'VARCHAR DATE' FORMAT (DATETIME DATE, VARCHAR Format)'
 
 
 Convert the date type to a bit string according to the format type.
@@ -154,5 +154,5 @@ mysql> select date_format('2006-06-01', '%%%d');
 | %01                                        |
 +--------------------------------------------+
 ```
-##keyword
+## keyword
 DATE_FORMAT,DATE,FORMAT

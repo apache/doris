@@ -15,29 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/in_predicate.h"
-
 #include <gtest/gtest.h>
 
-#include "exprs/expr.h"
 #include "common/object_pool.h"
+#include "exec/exec_node.h"
+#include "exprs/expr.h"
+#include "exprs/in_predicate.h"
 #include "exprs/int_literal.h"
 #include "gen_cpp/Exprs_types.h"
+#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/vectorized_row_batch.h"
-#include "runtime/row_batch.h"
-#include "exec/exec_node.h"
 #include "util/debug_util.h"
 
 namespace doris {
 
 class InOpTest : public ::testing::Test {
 public:
-    ~InOpTest() {
-    }
-    InOpTest() : 
-        _object_pool(NULL), _runtime_state(NULL), _row_desc(NULL) {
-    }
+    ~InOpTest() {}
+    InOpTest() : _object_pool(NULL), _runtime_state(NULL), _row_desc(NULL) {}
     virtual void SetUp() {
         _object_pool = new ObjectPool();
         _runtime_state = _object_pool->add(new RuntimeState(""));
@@ -71,8 +67,7 @@ public:
         row_tuples.push_back(0);
         std::vector<bool> nullable_tuples;
         nullable_tuples.push_back(false);
-        _row_desc = _object_pool->add(
-                        new RowDescriptor(*desc_tbl, row_tuples, nullable_tuples));
+        _row_desc = _object_pool->add(new RowDescriptor(*desc_tbl, row_tuples, nullable_tuples));
     }
     virtual void TearDown() {
         if (_object_pool != NULL) {
@@ -96,8 +91,7 @@ public:
             expr_node.__isset.opcode = true;
             expr_node.__set_opcode(TExprOpcode::INVALID_OPCODE);
             expr_node.__isset.vector_opcode = true;
-            expr_node.__set_vector_opcode(
-                TExprOpcode::FILTER_IN_INT);
+            expr_node.__set_vector_opcode(TExprOpcode::FILTER_IN_INT);
             exprs.nodes.push_back(expr_node);
         }
         {
@@ -139,6 +133,7 @@ public:
             return NULL;
         }
     }
+
 private:
     ObjectPool* _object_pool;
     RuntimeState* _runtime_state;
@@ -184,57 +179,56 @@ TEST_F(InOpTest, SimplePerformanceTest) {
         ASSERT_TRUE(expr != NULL);
         ASSERT_TRUE(expr->prepare(_runtime_state, *_row_desc).ok());
         int size = 1024 * 1024 / capacity;
-        VectorizedRowBatch* vec_row_batchs[size];
+        VectorizedRowBatch* vec_row_batches[size];
         srand(time(NULL));
 
         for (int i = 0; i < size; ++i) {
-            vec_row_batchs[i] = _object_pool->add(
-                    new VectorizedRowBatch(
-                        *_runtime_state->desc_tbl().get_tuple_descriptor(0), capacity));
-            MemPool* mem_pool = vec_row_batchs[i]->mem_pool();
-            int32_t* vec_data = reinterpret_cast<int32_t*>(
-                    mem_pool->allocate(sizeof(int32_t) * capacity));
-            vec_row_batchs[i]->column(0)->set_col_data(vec_data);
+            vec_row_batches[i] = _object_pool->add(new VectorizedRowBatch(
+                    *_runtime_state->desc_tbl().get_tuple_descriptor(0), capacity));
+            MemPool* mem_pool = vec_row_batches[i]->mem_pool();
+            int32_t* vec_data =
+                    reinterpret_cast<int32_t*>(mem_pool->allocate(sizeof(int32_t) * capacity));
+            vec_row_batches[i]->column(0)->set_col_data(vec_data);
 
             for (int i = 0; i < capacity; ++i) {
                 vec_data[i] = rand() % 256;
             }
 
-            vec_row_batchs[i]->set_size(capacity);
+            vec_row_batches[i]->set_size(capacity);
         }
 
-        RowBatch* row_batchs[size];
+        RowBatch* row_batches[size];
 
         for (int i = 0; i < size; ++i) {
-            row_batchs[i] = _object_pool->add(new RowBatch(*_row_desc, capacity));
-            vec_row_batchs[i]->to_row_batch(row_batchs[i]);
+            row_batches[i] = _object_pool->add(new RowBatch(*_row_desc, capacity));
+            vec_row_batches[i]->to_row_batch(row_batches[i]);
         }
 
         MonotonicStopWatch stopwatch;
         stopwatch.start();
 
         for (int i = 0; i < size; ++i) {
-            expr->evaluate(vec_row_batchs[i]);
+            expr->evaluate(vec_row_batches[i]);
         }
 
         uint64_t vec_time = stopwatch.elapsed_time();
-        VLOG(1) << PrettyPrinter::print(vec_time, TCounterType::TIME_NS);
+        VLOG_CRITICAL << PrettyPrinter::print(vec_time, TCounterType::TIME_NS);
 
         stopwatch.start();
 
         for (int i = 0; i < size; ++i) {
             for (int j = 0; j < capacity; ++j) {
-                ExecNode::eval_conjuncts(&expr, 1, row_batchs[i]->get_row(j));
+                ExecNode::eval_conjuncts(&expr, 1, row_batches[i]->get_row(j));
             }
         }
 
         uint64_t row_time = stopwatch.elapsed_time();
-        VLOG(1) << PrettyPrinter::print(row_time, TCounterType::TIME_NS);
+        VLOG_CRITICAL << PrettyPrinter::print(row_time, TCounterType::TIME_NS);
 
-        VLOG(1) << "capacity: " << capacity << " multiple: " << row_time / vec_time;
+        VLOG_CRITICAL << "capacity: " << capacity << " multiple: " << row_time / vec_time;
     }
 }
 
-}
+} // namespace doris
 
 /* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

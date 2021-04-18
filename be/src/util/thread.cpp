@@ -17,23 +17,30 @@
 
 #include "thread.h"
 
+#include <sys/prctl.h>
+#include <sys/types.h>
 #include <unistd.h>
+
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <map>
 #include <memory>
 #include <string>
-#include <sys/prctl.h>
-#include <sys/types.h>
 
 #include "common/logging.h"
 #include "gutil/atomicops.h"
-#include "gutil/once.h"
 #include "gutil/dynamic_annotations.h"
+#include "gutil/map-util.h"
+#include "gutil/once.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
+#include "util/debug/sanitizer_scopes.h"
+#include "util/easy_json.h"
 #include "util/mutex.h"
+#include "util/os_util.h"
 #include "util/scoped_cleanup.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -55,9 +62,7 @@ static GoogleOnceType once = GOOGLE_ONCE_INIT;
 // auditing. Used only by Thread.
 class ThreadMgr {
 public:
-    ThreadMgr()
-        : _threads_started_metric(0),
-          _threads_running_metric(0) {}
+    ThreadMgr() : _threads_started_metric(0), _threads_running_metric(0) {}
 
     ~ThreadMgr() {
         MutexLock lock(&_lock);
@@ -74,18 +79,17 @@ public:
     // already been removed, this is a no-op.
     void remove_thread(const pthread_t& pthread_id, const std::string& category);
 
-private:
+    void display_thread_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) const;
 
+private:
     // Container class for any details we want to capture about a thread
     // TODO: Add start-time.
     // TODO: Track fragment ID.
     class ThreadDescriptor {
     public:
-        ThreadDescriptor() { }
+        ThreadDescriptor() {}
         ThreadDescriptor(std::string category, std::string name, int64_t thread_id)
-            : _name(std::move(name)),
-            _category(std::move(category)),
-            _thread_id(thread_id) {}
+                : _name(std::move(name)), _category(std::move(category)), _thread_id(thread_id) {}
 
         const std::string& name() const { return _name; }
         const std::string& category() const { return _category; }
@@ -97,18 +101,20 @@ private:
         int64_t _thread_id;
     };
 
+    void summarize_thread_descriptor(const ThreadDescriptor& desc, EasyJson* ej) const;
+
     // A ThreadCategory is a set of threads that are logically related.
     // TODO: unordered_map is incompatible with pthread_t, but would be more
     // efficient here.
     typedef std::map<const pthread_t, ThreadDescriptor> ThreadCategory;
 
-    // All thread categorys, keyed on the category name.
+    // All thread categories, keyed on the category name.
     typedef std::map<std::string, ThreadCategory> ThreadCategoryMap;
 
     // Protects _thread_categories and thread metrics.
-    Mutex _lock;
+    mutable Mutex _lock;
 
-    // All thread categorys that ever contained a thread, even if empty
+    // All thread categories that ever contained a thread, even if empty
     ThreadCategoryMap _thread_categories;
 
     // Counters to track all-time total number of threads, and the
@@ -121,7 +127,7 @@ private:
 
 void ThreadMgr::set_thread_name(const std::string& name, int64_t tid) {
     if (tid == getpid()) {
-        return ;
+        return;
     }
     int err = prctl(PR_SET_NAME, name.c_str());
     if (err < 0 && errno != EPERM) {
@@ -144,7 +150,7 @@ void ThreadMgr::add_thread(const pthread_t& pthread_id, const std::string& name,
     // relationship between thread functors, ignoring potential data races.
     // The annotations prevent this from happening.
     ANNOTATE_IGNORE_SYNC_BEGIN();
-    ANNOTATE_IGNORE_READS_AND_WRITES_BEGIN();
+    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     {
         MutexLock l(&_lock);
         _thread_categories[category][pthread_id] = ThreadDescriptor(category, name, tid);
@@ -152,12 +158,11 @@ void ThreadMgr::add_thread(const pthread_t& pthread_id, const std::string& name,
         _threads_started_metric++;
     }
     ANNOTATE_IGNORE_SYNC_END();
-    ANNOTATE_IGNORE_READS_AND_WRITES_END();
 }
 
 void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& category) {
     ANNOTATE_IGNORE_SYNC_BEGIN();
-    ANNOTATE_IGNORE_READS_AND_WRITES_BEGIN();
+    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     {
         MutexLock l(&_lock);
         auto category_it = _thread_categories.find(category);
@@ -166,7 +171,82 @@ void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& ca
         _threads_running_metric--;
     }
     ANNOTATE_IGNORE_SYNC_END();
-    ANNOTATE_IGNORE_READS_AND_WRITES_END();
+}
+
+void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
+                                        EasyJson* ej) const {
+    const auto* category_name = FindOrNull(args, "group");
+    if (category_name) {
+        bool requested_all = (*category_name == "all");
+        ej->Set("requested_thread_group", EasyJson::kObject);
+        (*ej)["group_name"] = escape_for_html_to_string(*category_name);
+        (*ej)["requested_all"] = requested_all;
+
+        // The critical section is as short as possible so as to minimize the delay
+        // imposed on new threads that acquire the lock in write mode.
+        std::vector<ThreadDescriptor> descriptors_to_print;
+        if (!requested_all) {
+            MutexLock l(&_lock);
+            const auto* category = FindOrNull(_thread_categories, *category_name);
+            if (!category) {
+                return;
+            }
+            for (const auto& elem : *category) {
+                descriptors_to_print.emplace_back(elem.second);
+            }
+        } else {
+            MutexLock l(&_lock);
+            for (const auto& category : _thread_categories) {
+                for (const auto& elem : category.second) {
+                    descriptors_to_print.emplace_back(elem.second);
+                }
+            }
+        }
+
+        EasyJson found = (*ej).Set("found", EasyJson::kObject);
+        EasyJson threads = found.Set("threads", EasyJson::kArray);
+        for (const auto& desc : descriptors_to_print) {
+            summarize_thread_descriptor(desc, &threads);
+        }
+    } else {
+        // List all thread groups and the number of threads running in each.
+        std::vector<pair<string, uint64_t>> thread_categories_info;
+        uint64_t running;
+        {
+            MutexLock l(&_lock);
+            running = _threads_running_metric;
+            thread_categories_info.reserve(_thread_categories.size());
+            for (const auto& category : _thread_categories) {
+                thread_categories_info.emplace_back(category.first, category.second.size());
+            }
+
+            (*ej)["total_threads_running"] = running;
+            EasyJson groups = ej->Set("groups", EasyJson::kArray);
+            for (const auto& elem : thread_categories_info) {
+                string category_arg;
+                url_encode(elem.first, &category_arg);
+                EasyJson group = groups.PushBack(EasyJson::kObject);
+                group["encoded_group_name"] = category_arg;
+                group["group_name"] = elem.first;
+                group["threads_running"] = elem.second;
+            }
+        }
+    }
+}
+
+void ThreadMgr::summarize_thread_descriptor(const ThreadMgr::ThreadDescriptor& desc,
+                                            EasyJson* ej) const {
+    ThreadStats stats;
+    Status status = get_thread_stats(desc.thread_id(), &stats);
+    if (!status.ok()) {
+        LOG(WARNING) << "Could not get per-thread statistics: " << status.to_string();
+    }
+
+    EasyJson thread = ej->PushBack(EasyJson::kObject);
+    thread["thread_name"] = desc.name();
+    thread["user_sec"] = static_cast<double>(stats.user_ns) / 1e9;
+    thread["kernel_sec"] = static_cast<double>(stats.kernel_ns) / 1e9;
+    thread["iowait_sec"] = static_cast<double>(stats.iowait_ns) / 1e9;
 }
 
 Thread::~Thread() {
@@ -201,7 +281,8 @@ const std::string& Thread::category() const {
 }
 
 std::string Thread::to_string() const {
-  return strings::Substitute("Thread $0 (name: \"$1\", category: \"$2\")", tid(), _name, _category);
+    return strings::Substitute("Thread $0 (name: \"$1\", category: \"$2\")", tid(), _name,
+                               _category);
 }
 
 Thread* Thread::current_thread() {
@@ -210,7 +291,7 @@ Thread* Thread::current_thread() {
 
 int64_t Thread::unique_thread_id() {
     return static_cast<int64_t>(pthread_self());
-} 
+}
 
 int64_t Thread::current_thread_id() {
     return syscall(SYS_gettid);
@@ -268,7 +349,7 @@ Status Thread::start_thread(const std::string& category, const std::string& name
     t->_joinable = true;
     cleanup.cancel();
 
-    VLOG(3) << "Started thread " << t->tid()<< " - " << category << ":" << name;
+    VLOG_NOTICE << "Started thread " << t->tid() << " - " << category << ":" << name;
     return Status::OK();
 }
 
@@ -319,7 +400,7 @@ void Thread::finish_thread(void* arg) {
     // Signal any Joiner that we're done.
     t->_done.count_down();
 
-    VLOG(2) << "Ended thread " << t->_tid << " - " << t->category() << ":" << t->name();
+    VLOG_CRITICAL << "Ended thread " << t->_tid << " - " << t->category() << ":" << t->name();
     t->Release();
     // NOTE: the above 'Release' call could be the last reference to 'this',
     // so 'this' could be destructed at this point. Do not add any code
@@ -331,10 +412,10 @@ void Thread::init_threadmgr() {
 }
 
 ThreadJoiner::ThreadJoiner(Thread* thr)
-  : _thread(CHECK_NOTNULL(thr)),
-    _warn_after_ms(kDefaultWarnAfterMs),
-    _warn_every_ms(kDefaultWarnEveryMs),
-    _give_up_after_ms(kDefaultGiveUpAfterMs) {}
+        : _thread(CHECK_NOTNULL(thr)),
+          _warn_after_ms(kDefaultWarnAfterMs),
+          _warn_every_ms(kDefaultWarnEveryMs),
+          _give_up_after_ms(kDefaultGiveUpAfterMs) {}
 
 ThreadJoiner& ThreadJoiner::warn_after_ms(int ms) {
     _warn_after_ms = ms;
@@ -352,8 +433,7 @@ ThreadJoiner& ThreadJoiner::give_up_after_ms(int ms) {
 }
 
 Status ThreadJoiner::join() {
-    if (Thread::current_thread() &&
-        Thread::current_thread()->tid() == _thread->tid()) {
+    if (Thread::current_thread() && Thread::current_thread()->tid() == _thread->tid()) {
         return Status::InvalidArgument("Can't join on own thread", -1, _thread->_name);
     }
 
@@ -397,8 +477,15 @@ Status ThreadJoiner::join() {
         }
         waited_ms += wait_for;
     }
-    return Status::Aborted(strings::Substitute("Timed out after $0ms joining on $1",
-                                               waited_ms, _thread->_name));
+    return Status::Aborted(
+            strings::Substitute("Timed out after $0ms joining on $1", waited_ms, _thread->_name));
 }
 
+void register_thread_display_page(WebPageHandler* web_page_handler) {
+    web_page_handler->register_template_page(
+            "/threadz", "Threads",
+            std::bind(&ThreadMgr::display_thread_callback, thread_manager.get(),
+                      std::placeholders::_1, std::placeholders::_2),
+            true);
+}
 } // namespace doris

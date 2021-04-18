@@ -48,7 +48,7 @@ Viewing Tablet Meta information can be divided into online and offline methods
 
 Access BE's HTTP interface to obtain the corresponding Tablet Meta information:
 
-api：
+api:
 
 `http://{host}:{port}/api/meta/header/{tablet_id}/{schema_hash}`
 

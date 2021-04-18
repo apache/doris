@@ -16,25 +16,22 @@
 // under the License.
 
 #include "olap/rowset/bit_field_writer.h"
+
 #include <gen_cpp/column_data_file.pb.h>
+
 #include "olap/rowset/run_length_byte_writer.h"
 
 namespace doris {
 
-BitFieldWriter::BitFieldWriter(OutStream* output) : 
-        _output(output),
-        _byte_writer(NULL),
-        _current(0),
-        _bits_left(8) {
-
-}
+BitFieldWriter::BitFieldWriter(OutStream* output)
+        : _output(output), _byte_writer(NULL), _current(0), _bits_left(8) {}
 
 BitFieldWriter::~BitFieldWriter() {
     SAFE_DELETE(_byte_writer);
 }
 
 OLAPStatus BitFieldWriter::init() {
-    _byte_writer = new(std::nothrow) RunLengthByteWriter(_output);
+    _byte_writer = new (std::nothrow) RunLengthByteWriter(_output);
 
     if (NULL == _byte_writer) {
         OLAP_LOG_WARNING("fail to create RunLengthByteWriter");
@@ -99,4 +96,4 @@ void BitFieldWriter::get_position(PositionEntryWriter* index_entry) const {
     index_entry->add_position(8 - _bits_left);
 }
 
-}  // namespace doris
+} // namespace doris

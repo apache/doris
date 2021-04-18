@@ -24,13 +24,13 @@ namespace doris {
 
 class TExprNode;
 
-class Predicate: public Expr {
+class Predicate : public Expr {
 protected:
     friend class Expr;
 
     Predicate(const TExprNode& node) : Expr(node) {}
 };
 
-}
+} // namespace doris
 
 #endif

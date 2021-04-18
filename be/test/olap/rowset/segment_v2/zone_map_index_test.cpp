@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/rowset/segment_v2/zone_map_index.h"
+
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -23,7 +25,7 @@
 #include "env/env.h"
 #include "olap/fs/block_manager.h"
 #include "olap/fs/fs_util.h"
-#include "olap/rowset/segment_v2/zone_map_index.h"
+#include "olap/page_cache.h"
 #include "olap/tablet_schema_helper.h"
 #include "util/file_utils.h"
 
@@ -71,8 +73,8 @@ public:
         ColumnIndexMetaPB index_meta;
         {
             std::unique_ptr<fs::WritableBlock> wblock;
-            fs::CreateBlockOptions opts({ filename });
-            ASSERT_TRUE(fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock).ok());
+            fs::CreateBlockOptions opts({filename});
+            ASSERT_TRUE(fs::fs_util::block_manager()->create_block(opts, &wblock).ok());
             ASSERT_TRUE(builder.finish(wblock.get(), &index_meta).ok());
             ASSERT_EQ(ZONE_MAP_INDEX, index_meta.type());
             ASSERT_TRUE(wblock->close().ok());
@@ -124,8 +126,8 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     ColumnIndexMetaPB index_meta;
     {
         std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts({ filename });
-        ASSERT_TRUE(fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock).ok());
+        fs::CreateBlockOptions opts({filename});
+        ASSERT_TRUE(fs::fs_util::block_manager()->create_block(opts, &wblock).ok());
         ASSERT_TRUE(builder.finish(wblock.get(), &index_meta).ok());
         ASSERT_EQ(ZONE_MAP_INDEX, index_meta.type());
         ASSERT_TRUE(wblock->close().ok());
@@ -169,10 +171,11 @@ TEST_F(ColumnZoneMapTest, NormalTestCharPage) {
     delete field;
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris
 
 int main(int argc, char** argv) {
+    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

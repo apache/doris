@@ -20,13 +20,13 @@
 
 #include <stdint.h>
 
-#include <string>
 #include <map>
+#include <string>
 
 #include "common/status.h"
 #include "exec/file_writer.h"
-#include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloBrokerService_types.h"
+#include "gen_cpp/Types_types.h"
 
 namespace doris {
 
@@ -37,11 +37,9 @@ class TNetworkAddress;
 // Reader of broker file
 class BrokerWriter : public FileWriter {
 public:
-    BrokerWriter(ExecEnv* env,
-                  const std::vector<TNetworkAddress>& broker_addresses,
-                  const std::map<std::string, std::string>& properties,
-                  const std::string& path,
-                  int64_t start_offset);
+    BrokerWriter(ExecEnv* env, const std::vector<TNetworkAddress>& broker_addresses,
+                 const std::map<std::string, std::string>& properties, const std::string& path,
+                 int64_t start_offset);
     virtual ~BrokerWriter();
 
     virtual Status open() override;

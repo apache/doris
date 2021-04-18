@@ -17,9 +17,10 @@
 
 #include "exprs/case_expr.h"
 
+#include "exprs/expr_context.h"
 #include "exprs/anyval_util.h"
-#include "runtime/runtime_state.h"
 #include "gen_cpp/Exprs_types.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -31,29 +32,25 @@ struct CaseExprState {
     AnyVal* when_val;
 };
 
-CaseExpr::CaseExpr(const TExprNode& node) : 
-        Expr(node),
-        _has_case_expr(node.case_expr.has_case_expr),
-        _has_else_expr(node.case_expr.has_else_expr) {
-}
+CaseExpr::CaseExpr(const TExprNode& node)
+        : Expr(node),
+          _has_case_expr(node.case_expr.has_case_expr),
+          _has_else_expr(node.case_expr.has_else_expr) {}
 
-CaseExpr::~CaseExpr() {
-}
+CaseExpr::~CaseExpr() {}
 
-Status CaseExpr::prepare(
-        RuntimeState* state, const RowDescriptor& desc, ExprContext* ctx) {
+Status CaseExpr::prepare(RuntimeState* state, const RowDescriptor& desc, ExprContext* ctx) {
     RETURN_IF_ERROR(Expr::prepare(state, desc, ctx));
     register_function_context(ctx, state, 0);
     return Status::OK();
 }
 
-Status CaseExpr::open(
-        RuntimeState* state, ExprContext* ctx,
-        FunctionContext::FunctionStateScope scope) {
+Status CaseExpr::open(RuntimeState* state, ExprContext* ctx,
+                      FunctionContext::FunctionStateScope scope) {
     RETURN_IF_ERROR(Expr::open(state, ctx, scope));
     FunctionContext* fn_ctx = ctx->fn_context(_fn_context_index);
     CaseExprState* case_state =
-        reinterpret_cast<CaseExprState*>(fn_ctx->allocate(sizeof(CaseExprState)));
+            reinterpret_cast<CaseExprState*>(fn_ctx->allocate(sizeof(CaseExprState)));
     fn_ctx->set_function_state(FunctionContext::THREAD_LOCAL, case_state);
     if (_has_case_expr) {
         case_state->case_val = create_any_val(state->obj_pool(), _children[0]->type());
@@ -65,9 +62,8 @@ Status CaseExpr::open(
     return Status::OK();
 }
 
-void CaseExpr::close(
-        RuntimeState* state, ExprContext* ctx,
-        FunctionContext::FunctionStateScope scope) {
+void CaseExpr::close(RuntimeState* state, ExprContext* ctx,
+                     FunctionContext::FunctionStateScope scope) {
     if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = ctx->fn_context(_fn_context_index);
         void* case_state = fn_ctx->get_function_state(FunctionContext::THREAD_LOCAL);
@@ -78,9 +74,8 @@ void CaseExpr::close(
 
 std::string CaseExpr::debug_string() const {
     std::stringstream out;
-    out << "CaseExpr(has_case_expr=" << _has_case_expr
-        << " has_else_expr=" << _has_else_expr
-        << " " << Expr::debug_string() << ")";
+    out << "CaseExpr(has_case_expr=" << _has_case_expr << " has_else_expr=" << _has_else_expr << " "
+        << Expr::debug_string() << ")";
     return out.str();
 }
 
@@ -179,61 +174,59 @@ bool CaseExpr::any_val_eq(const TypeDescriptor& type, const AnyVal* v1, const An
     }
 }
 
-#define CASE_COMPUTE_FN(THEN_TYPE, TYPE_NAME) \
-    THEN_TYPE CaseExpr::get_##TYPE_NAME(ExprContext* ctx, TupleRow* row) { \
-        FunctionContext* fn_ctx = ctx->fn_context(_fn_context_index); \
-        CaseExprState* state = reinterpret_cast<CaseExprState*>( \
-                fn_ctx->get_function_state(FunctionContext::THREAD_LOCAL)); \
-        DCHECK(state->case_val != NULL); \
-        DCHECK(state->when_val != NULL); \
-        int num_children = _children.size(); \
-        if (has_case_expr()) { \
-            /* All case and when exprs return the same type */ \
-            /* (we guaranteed that during analysis). */ \
-            get_child_val(0, ctx, row, state->case_val); \
-        } else { \
-            /* If there's no case expression, compare the when values to "true". */ \
-            *reinterpret_cast<BooleanVal*>(state->case_val) = BooleanVal(true); \
-        } \
-        if (state->case_val->is_null) { \
-            if (has_else_expr()) { \
-                /* Return else value. */ \
-                return _children[num_children - 1]->get_##TYPE_NAME(ctx, row); \
-            } else { \
-                return THEN_TYPE::null(); \
-            } \
-        } \
-        int loop_start = has_case_expr() ? 1 : 0; \
-        int loop_end = (has_else_expr()) ? num_children - 1 : num_children; \
-        for (int i = loop_start; i < loop_end; i += 2) { \
-            get_child_val(i, ctx, row, state->when_val); \
-            if (state->when_val->is_null) continue; \
-            if (any_val_eq(_children[0]->type(), state->case_val, state->when_val)) {  \
-                /* Return then value. */ \
-                return _children[i + 1]->get_##TYPE_NAME(ctx, row); \
-            } \
-        } \
-        if (has_else_expr()) { \
-            /* Return else value. */ \
-            return _children[num_children - 1]->get_##TYPE_NAME(ctx, row); \
-        } \
-        return THEN_TYPE::null(); \
+#define CASE_COMPUTE_FN(THEN_TYPE, TYPE_NAME)                                         \
+    THEN_TYPE CaseExpr::get_##TYPE_NAME(ExprContext* ctx, TupleRow* row) {            \
+        FunctionContext* fn_ctx = ctx->fn_context(_fn_context_index);                 \
+        CaseExprState* state = reinterpret_cast<CaseExprState*>(                      \
+                fn_ctx->get_function_state(FunctionContext::THREAD_LOCAL));           \
+        DCHECK(state->case_val != NULL);                                              \
+        DCHECK(state->when_val != NULL);                                              \
+        int num_children = _children.size();                                          \
+        if (has_case_expr()) {                                                        \
+            /* All case and when exprs return the same type */                        \
+            /* (we guaranteed that during analysis). */                               \
+            get_child_val(0, ctx, row, state->case_val);                              \
+        } else {                                                                      \
+            /* If there's no case expression, compare the when values to "true". */   \
+            *reinterpret_cast<BooleanVal*>(state->case_val) = BooleanVal(true);       \
+        }                                                                             \
+        if (state->case_val->is_null) {                                               \
+            if (has_else_expr()) {                                                    \
+                /* Return else value. */                                              \
+                return _children[num_children - 1]->get_##TYPE_NAME(ctx, row);        \
+            } else {                                                                  \
+                return THEN_TYPE::null();                                             \
+            }                                                                         \
+        }                                                                             \
+        int loop_start = has_case_expr() ? 1 : 0;                                     \
+        int loop_end = (has_else_expr()) ? num_children - 1 : num_children;           \
+        for (int i = loop_start; i < loop_end; i += 2) {                              \
+            get_child_val(i, ctx, row, state->when_val);                              \
+            if (state->when_val->is_null) continue;                                   \
+            if (any_val_eq(_children[0]->type(), state->case_val, state->when_val)) { \
+                /* Return then value. */                                              \
+                return _children[i + 1]->get_##TYPE_NAME(ctx, row);                   \
+            }                                                                         \
+        }                                                                             \
+        if (has_else_expr()) {                                                        \
+            /* Return else value. */                                                  \
+            return _children[num_children - 1]->get_##TYPE_NAME(ctx, row);            \
+        }                                                                             \
+        return THEN_TYPE::null();                                                     \
     }
 
-#define CASE_COMPUTE_FN_WAPPER(TYPE, TYPE_NAME) \
-    CASE_COMPUTE_FN(TYPE, TYPE_NAME)
+#define CASE_COMPUTE_FN_WRAPPER(TYPE, TYPE_NAME) CASE_COMPUTE_FN(TYPE, TYPE_NAME)
 
-CASE_COMPUTE_FN_WAPPER(BooleanVal, boolean_val)
-CASE_COMPUTE_FN_WAPPER(TinyIntVal, tiny_int_val)
-CASE_COMPUTE_FN_WAPPER(SmallIntVal, small_int_val)
-CASE_COMPUTE_FN_WAPPER(IntVal, int_val)
-CASE_COMPUTE_FN_WAPPER(BigIntVal, big_int_val)
-CASE_COMPUTE_FN_WAPPER(FloatVal, float_val)
-CASE_COMPUTE_FN_WAPPER(DoubleVal, double_val)
-CASE_COMPUTE_FN_WAPPER(StringVal, string_val)
-CASE_COMPUTE_FN_WAPPER(DateTimeVal, datetime_val)
-CASE_COMPUTE_FN_WAPPER(DecimalVal, decimal_val)
-CASE_COMPUTE_FN_WAPPER(DecimalV2Val, decimalv2_val)
+CASE_COMPUTE_FN_WRAPPER(BooleanVal, boolean_val)
+CASE_COMPUTE_FN_WRAPPER(TinyIntVal, tiny_int_val)
+CASE_COMPUTE_FN_WRAPPER(SmallIntVal, small_int_val)
+CASE_COMPUTE_FN_WRAPPER(IntVal, int_val)
+CASE_COMPUTE_FN_WRAPPER(BigIntVal, big_int_val)
+CASE_COMPUTE_FN_WRAPPER(FloatVal, float_val)
+CASE_COMPUTE_FN_WRAPPER(DoubleVal, double_val)
+CASE_COMPUTE_FN_WRAPPER(StringVal, string_val)
+CASE_COMPUTE_FN_WRAPPER(DateTimeVal, datetime_val)
+CASE_COMPUTE_FN_WRAPPER(DecimalVal, decimal_val)
+CASE_COMPUTE_FN_WRAPPER(DecimalV2Val, decimalv2_val)
 
-
-}
+} // namespace doris

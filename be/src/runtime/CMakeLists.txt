@@ -67,7 +67,6 @@ set(RUNTIME_FILES
     disk_io_mgr_reader_context.cc
     disk_io_mgr_scan_range.cc 
     buffered_block_mgr2.cc
-    test_env.cc
     mem_tracker.cpp
     spill_sorter.cc
     sorted_run_merger.cc
@@ -92,6 +91,7 @@ set(RUNTIME_FILES
     message_body_sink.cpp
     stream_load/stream_load_context.cpp
     stream_load/stream_load_executor.cpp
+    stream_load/load_stream_mgr.cpp
     routine_load/data_consumer.cpp
     routine_load/data_consumer_group.cpp
     routine_load/data_consumer_pool.cpp
@@ -105,6 +105,9 @@ set(RUNTIME_FILES
     mysql_result_writer.cpp
     memory/system_allocator.cpp
     memory/chunk_allocator.cpp
+    cache/result_node.cpp
+    cache/result_cache.cpp
+    odbc_table_sink.cpp	
 )
 
 if (WITH_MYSQL)

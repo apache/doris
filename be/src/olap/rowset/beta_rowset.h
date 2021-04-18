@@ -39,11 +39,13 @@ public:
 
     OLAPStatus create_reader(RowsetReaderSharedPtr* result) override;
 
-    static std::string segment_file_path(
-            const std::string& segment_dir, const RowsetId& rowset_id, int segment_id);
+    OLAPStatus create_reader(const std::shared_ptr<MemTracker>& parent_tracker,
+                             std::shared_ptr<RowsetReader>* result) override;
 
-    OLAPStatus split_range(const RowCursor& start_key,
-                           const RowCursor& end_key,
+    static std::string segment_file_path(const std::string& segment_dir, const RowsetId& rowset_id,
+                                         int segment_id);
+
+    OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
                            uint64_t request_block_row_count,
                            std::vector<OlapTuple>* ranges) override;
 
@@ -61,14 +63,13 @@ public:
     bool check_path(const std::string& path) override;
 
 protected:
-    BetaRowset(const TabletSchema* schema,
-               std::string rowset_path,
+    BetaRowset(const TabletSchema* schema, std::string rowset_path,
                RowsetMetaSharedPtr rowset_meta);
 
     // init segment groups
     OLAPStatus init() override;
 
-    OLAPStatus do_load(bool use_cache) override;
+    OLAPStatus do_load(bool use_cache, std::shared_ptr<MemTracker> parent) override;
 
     void do_close() override;
 

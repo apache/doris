@@ -16,6 +16,7 @@
 // under the License.
 
 #include <gtest/gtest.h>
+
 #include <memory>
 
 #include "olap/rowset/segment_v2/bloom_filter.h"
@@ -25,7 +26,8 @@ namespace segment_v2 {
 
 class BlockBloomFilterTest : public testing::Test {
 public:
-    virtual ~BlockBloomFilterTest() { }
+    virtual ~BlockBloomFilterTest() {}
+
 private:
     uint64_t _expected_num = 1024;
     double _fpp = 0.05;
@@ -172,8 +174,8 @@ TEST_F(BlockBloomFilterTest, slice) {
     ASSERT_FALSE(bf->test_bytes(s.data, s.size));
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris
 
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);

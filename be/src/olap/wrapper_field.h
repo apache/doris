@@ -20,8 +20,8 @@
 
 #include "olap/field.h"
 #include "olap/olap_define.h"
-#include "olap/tablet_schema.h"
 #include "olap/row_cursor_cell.h"
+#include "olap/tablet_schema.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
@@ -29,24 +29,24 @@ namespace doris {
 class WrapperField {
 public:
     static WrapperField* create(const TabletColumn& column, uint32_t len = 0);
-    static WrapperField* create_by_type(const FieldType& type) {
-        return create_by_type(type, 0);
-    }
+    static WrapperField* create_by_type(const FieldType& type) { return create_by_type(type, 0); }
     static WrapperField* create_by_type(const FieldType& type, int32_t var_length);
 
     WrapperField(Field* rep, size_t variable_len, bool is_string_type);
 
+    // only used to wrapped content of row cursor cell to find element in wrapped field set
+    // do not delete rep, should call release_field before deconstructed
+    WrapperField(Field* rep, const RowCursorCell& row_cursor_cell);
+
     virtual ~WrapperField() {
         delete _rep;
-        delete [] _owned_buf;
+        delete[] _owned_buf;
     }
 
     // 将内部的value转成string输出
     // 没有考虑实现的性能，仅供DEBUG使用
     // do not include the null flag
-    std::string to_string() const {
-        return _rep->to_string(_field_buf + 1);
-    }
+    std::string to_string() const { return _rep->to_string(_field_buf + 1); }
 
     // 从传入的字符串反序列化field的值
     // 参数必须是一个\0结尾的字符串
@@ -67,15 +67,13 @@ public:
     // attach到一段buf
     void attach_buf(char* buf) {
         _field_buf = _owned_buf;
-        
+
         // set null byte
         *_field_buf = 0;
         memcpy(_field_buf + 1, buf, size());
     }
 
-    void attach_field(char* field) {
-        _field_buf = field;
-    }
+    void attach_field(char* field) { _field_buf = field; }
 
     bool is_string_type() const { return _is_string_type; }
     char* ptr() const { return _field_buf + 1; }
@@ -93,13 +91,12 @@ public:
     void* mutable_cell_ptr() const { return _field_buf + 1; }
     const Field* field() const { return _rep; }
 
-    int cmp(const WrapperField* field) const {
-        return _rep->compare_cell(*this, *field);
-    }
+    // should be only called by WrapperField which constructed by RowCursorCell
+    void release_field() { _rep = nullptr; }
 
-    void copy(const WrapperField* field) {
-        _rep->direct_copy(this, *field);
-    }
+    int cmp(const WrapperField* field) const { return _rep->compare_cell(*this, *field); }
+
+    void copy(const WrapperField* field) { _rep->direct_copy(this, *field); }
 
 private:
     Field* _rep = nullptr;
@@ -114,6 +111,6 @@ private:
     std::unique_ptr<char[]> _string_content;
 };
 
-}
+} // namespace doris
 
 #endif

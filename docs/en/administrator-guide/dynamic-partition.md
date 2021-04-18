@@ -26,7 +26,7 @@ under the License.
 
 # Dynamic Partition
 
-Dynamic partition is a new feature introduced in Doris verion 0.12. It's designed to manage partition's Time-to-Life (TTL), reducing the burden on users.
+Dynamic partition is a new feature introduced in Doris version 0.12. It's designed to manage partition's Time-to-Life (TTL), reducing the burden on users.
 
 At present, the functions of dynamically adding partitions and dynamically deleting partitions are realized.
 
@@ -81,7 +81,9 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
 * `dynamic_partition.time_unit`
 
-    The unit for dynamic partition scheduling. Can be specified as `DAY`,` WEEK`, and `MONTH`, means to create or delete partitions by day, week, and month, respectively.
+    The unit for dynamic partition scheduling. Can be specified as `HOUR`,`DAY`,` WEEK`, and `MONTH`, means to create or delete partitions by hour, day, week, and month, respectively.
+
+    When specified as `HOUR`, the suffix format of the dynamically created partition name is `yyyyMMddHH`, for example, `2020032501`. *When the time unit is HOUR, the data type of partition column cannot be DATE.*
 
     When specified as `DAY`, the suffix format of the dynamically created partition name is `yyyyMMdd`, for example, `20200325`.
 
@@ -108,7 +110,11 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 * `dynamic_partition.buckets`
 
     The number of buckets corresponding to the dynamically created partitions.
-    
+
+* `dynamic_partition.replication_num`
+
+    The replication number of dynamic partition.If not filled in, defaults to the number of table's replication number.    
+
 * `dynamic_partition.start_day_of_week`
 
     When `time_unit` is` WEEK`, this parameter is used to specify the starting point of the week. The value ranges from 1 to 7. Where 1 is Monday and 7 is Sunday. The default is 1, which means that every week starts on Monday.
@@ -117,17 +123,22 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     When `time_unit` is` MONTH`, this parameter is used to specify the start date of each month. The value ranges from 1 to 28. 1 means the 1st of every month, and 28 means the 28th of every month. The default is 1, which means that every month starts at 1st. The 29, 30 and 31 are not supported at the moment to avoid ambiguity caused by lunar years or months.
 
+### Notice
+
+If some partitions between `dynamic_partition.start` and `dynamic_partition.end` are lost due to some unexpected circumstances when using dynamic partition, the lost partitions between the current time and `dynamic_partition.end` will be recreated, but the lost partitions between `dynamic_partition.start` and the current time will not be recreated.
+
 ### Example
 
 1. Table `tbl1` partition column k1, type is DATE, create a dynamic partition rule. By day partition, only the partitions of the last 7 days are kept, and the partitions of the next 3 days are created in advance.
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATE,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",
@@ -155,12 +166,13 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 2. Table tbl1 partition column k1, type is DATETIME, create a dynamic partition rule. Partition by week, only keep the partition of the last 2 weeks, and create the partition of the next 2 weeks in advance.
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATETIME,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",
@@ -199,12 +211,13 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 3. Table tbl1 partition column k1, type is DATE, create a dynamic partition rule. Partition by month without deleting historical partitions, and create partitions for the next 2 months in advance. At the same time, set the starting date on the 3rd of each month.
 
     ```
-    CREATA TABLE tbl1
+    CREATE TABLE tbl1
     (
         k1 DATE,
         ...
     )
-    PARTITION BY RANGE(K1) ()
+    PARTITION BY RANGE(k1) ()
+    DISTRIBUTED BY HASH(k1)
     PROPERTIES
     (
         "dynamic_partition.enable" = "true",
@@ -276,8 +289,8 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 ```
     
 * LastUpdateTime: The last time of modifying dynamic partition properties 
-* LastSchedulerTime:   The last time of performing dynamic partition scheduling
-* State:    The state of the last execution of dynamic partition scheduling
+* LastSchedulerTime: The last time of performing dynamic partition scheduling
+* State: The state of the last execution of dynamic partition scheduling
 * LastCreatePartitionMsg: Error message of the last time to dynamically add partition scheduling
 * LastDropPartitionMsg: Error message of the last execution of dynamic deletion partition scheduling
 
@@ -289,11 +302,11 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
     Whether to enable Doris's dynamic partition feature. The default value is false, which is off. This parameter only affects the partitioning operation of dynamic partition tables, not normal tables. You can modify the parameters in `fe.conf` and restart FE to take effect. You can also execute the following commands at runtime to take effect:
     
-    MySQL protocal：
+    MySQL protocol:
     
     `ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true")`
     
-    HTTP protocal：
+    HTTP protocol:
     
     `curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_enable=true`
     
@@ -303,11 +316,36 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
     The execution frequency of dynamic partition threads defaults to 3600 (1 hour), that is, scheduling is performed every 1 hour. You can modify the parameters in `fe.conf` and restart FE to take effect. You can also modify the following commands at runtime:
     
-    MySQL protocal：
+    MySQL protocol:
 
     `ADMIN SET FRONTEND CONFIG ("dynamic_partition_check_interval_seconds" = "7200")`
     
-    HTTP protocal：
+    HTTP protocol:
     
     `curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_check_interval_seconds=432000`
     
+### Converting dynamic and manual partition tables to each other
+
+For a table, dynamic and manual partitioning can be freely converted, but they cannot exist at the same time, there is and only one state.
+
+#### Converting Manual Partitioning to Dynamic Partitioning
+
+If a table is not dynamically partitioned when it is created, it can be converted to dynamic partitioning at runtime by modifying the dynamic partitioning properties with `ALTER TABLE`, an example of which can be seen with `HELP ALTER TABLE`.
+
+When dynamic partitioning feature is enabled, Doris will no longer allow users to manage partitions manually, but will automatically manage partitions based on dynamic partition properties.
+
+**NOTICE**: If `dynamic_partition.start` is set, historical partitions with a partition range before the start offset of the dynamic partition will be deleted.
+
+#### Converting Dynamic Partitioning to Manual Partitioning
+
+The dynamic partitioning feature can be disabled by executing `ALTER TABLE tbl_name SET ("dynamic_partition.enable" = "false") ` and converting it to a manual partition table.
+
+When dynamic partitioning feature is disabled, Doris will no longer manage partitions automatically, and users will have to create or delete partitions manually by using `ALTER TABLE`.
+
+## Common problem
+
+1. After creating the dynamic partition table, it prompts ```Could not create table with dynamic partition when fe config dynamic_partition_enable is false```
+
+         Because the main switch of dynamic partition, that is, the configuration of FE ```dynamic_partition_enable``` is false, the dynamic partition table cannot be created.
+
+         At this time, please modify the FE configuration file, add a line ```dynamic_partition_enable=true```, and restart FE. Or execute the command ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") to turn on the dynamic partition switch.

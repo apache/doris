@@ -18,11 +18,13 @@
 #ifndef DORIS_BE_UDF_UDF_INTERNAL_H
 #define DORIS_BE_UDF_UDF_INTERNAL_H
 
+#include <string.h>
+
 #include <cstdint>
 #include <map>
 #include <string>
-#include <string.h>
 #include <vector>
+
 #include "udf/udf.h"
 
 namespace doris {
@@ -38,22 +40,21 @@ class FunctionContextImpl {
 public:
     /// Create a FunctionContext for a UDF. Caller is responsible for deleting it.
     static doris_udf::FunctionContext* create_context(
-        RuntimeState* state, MemPool* pool,
-        const doris_udf::FunctionContext::TypeDesc& return_type,
-        const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
-        int varargs_buffer_size, bool debug);
+            RuntimeState* state, MemPool* pool,
+            const doris_udf::FunctionContext::TypeDesc& return_type,
+            const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
+            int varargs_buffer_size, bool debug);
 
     /// Create a FunctionContext for a UDA. Identical to the UDF version except for the
     /// intermediate type. Caller is responsible for deleting it.
     static doris_udf::FunctionContext* create_context(
-        RuntimeState* state, MemPool* pool,
-        const doris_udf::FunctionContext::TypeDesc& intermediate_type,
-        const doris_udf::FunctionContext::TypeDesc& return_type,
-        const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
-        int varargs_buffer_size, bool debug);
+            RuntimeState* state, MemPool* pool,
+            const doris_udf::FunctionContext::TypeDesc& intermediate_type,
+            const doris_udf::FunctionContext::TypeDesc& return_type,
+            const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
+            int varargs_buffer_size, bool debug);
 
-    ~FunctionContextImpl() {
-    }
+    ~FunctionContextImpl() {}
 
     FunctionContextImpl(doris_udf::FunctionContext* parent);
 
@@ -66,42 +67,20 @@ public:
 
     void set_constant_args(const std::vector<doris_udf::AnyVal*>& constant_args);
 
-    uint8_t* varargs_buffer() { 
-        return _varargs_buffer; 
-    }
+    uint8_t* varargs_buffer() { return _varargs_buffer; }
 
-    std::vector<doris_udf::AnyVal*>* staging_input_vals() { 
-        return &_staging_input_vals; 
-    }
+    std::vector<doris_udf::AnyVal*>* staging_input_vals() { return &_staging_input_vals; }
 
-    bool closed() const {
-        return _closed;
-    }
+    bool closed() const { return _closed; }
 
-    int64_t num_updates() const { 
-        return _num_updates; 
-    }
-    int64_t num_removes() const {
-        return _num_removes; 
-    }
-    void set_num_updates(int64_t n) {
-        _num_updates = n; 
-    }
-    void set_num_removes(int64_t n) { 
-        _num_removes = n; 
-    }
-    void increment_num_updates(int64_t n) { 
-        _num_updates += n; 
-    }
-    void increment_num_updates() { 
-        _num_updates += 1; 
-    }
-    void increment_num_removes(int64_t n) { 
-        _num_removes += n; 
-    }
-    void increment_num_removes() { 
-        _num_removes += 1; 
-    }
+    int64_t num_updates() const { return _num_updates; }
+    int64_t num_removes() const { return _num_removes; }
+    void set_num_updates(int64_t n) { _num_updates = n; }
+    void set_num_removes(int64_t n) { _num_removes = n; }
+    void increment_num_updates(int64_t n) { _num_updates += n; }
+    void increment_num_updates() { _num_updates += 1; }
+    void increment_num_removes(int64_t n) { _num_removes += n; }
+    void increment_num_removes() { _num_removes += 1; }
 
     // Allocates a buffer of 'byte_size' with "local" memory management. These
     // allocations are not freed one by one but freed as a pool by FreeLocalAllocations()
@@ -119,13 +98,11 @@ public:
     // Returns true if there are no outstanding local allocations.
     bool check_local_allocations_empty();
 
-    RuntimeState* state() { 
-        return _state; 
-    }
+    RuntimeState* state() { return _state; }
 
-    std::string& string_result() {
-        return _string_result;
-    }
+    std::string& string_result() { return _string_result; }
+
+    const doris_udf::FunctionContext::TypeDesc& get_return_type() const { return _return_type; } 
 
 private:
     friend class doris_udf::FunctionContext;
@@ -203,7 +180,6 @@ private:
     std::string _string_result;
 };
 
-}
+} // namespace doris
 
 #endif
-

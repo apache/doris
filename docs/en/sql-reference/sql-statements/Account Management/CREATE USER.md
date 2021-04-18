@@ -58,11 +58,11 @@ Later encrypted content can be obtained through PASSWORD (), for example:
 
 SELECT PASSWORD('123456');
 
-4. Create a user who is allowed to log in from the'192.168'subnet and specify its role as example_role
+4. Create a user who is allowed to log in from the `192.168` subnet and specify its role as example_role
 
 CREATE USER 'jack'@'192.168.%' DEFAULT ROLE 'example_role';
 
-5. Create a user who is allowed to log in from the domain name'example_domain'.
+5. Create a user who is allowed to log in from the domain name 'example_domain'.
 
 CREATE USER 'jack'@['example_domain'] IDENTIFIED BY '12345';
 

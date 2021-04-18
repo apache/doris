@@ -46,14 +46,14 @@ You will get logstash-output-doris-{version}.gem file in the same directory
 ### 3.Plug-in installation
 copy logstash-output-doris-{version}.gem to the logstash installation directory
 
-Excuting an order
+Executing an order
 
 `./bin/logstash-plugin install logstash-output-doris-{version}.gem` 
 
 Install logstash-output-doris plugin
 
 ## Configuration
-### Example：
+### Example:
 
 Create a new configuration file in the config directory and name it logstash-doris.conf
 
@@ -145,7 +145,7 @@ Get the file logstash-output-doris-0.1.0.gem, and the compilation is complete
 
 /tmp/doris.data is the doris data path
 
-3> Start filebeat：
+3> Start filebeat:
 
 `./filebeat -e -c filebeat.yml -d "publish"`
 
@@ -184,7 +184,7 @@ Install the plugin
 
 The configuration here needs to be configured according to the configuration instructions
 
-5> Start logstash：
+5> Start logstash:
 
 ./bin/logstash -f ./config/logstash-doris.conf --config.reload.automatic
 

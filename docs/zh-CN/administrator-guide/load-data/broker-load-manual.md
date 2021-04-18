@@ -103,6 +103,7 @@ WITH BROKER broker_name broker_properties
     [PARTITION (p1, p2)]
     [COLUMNS TERMINATED BY separator ]
     [(col1, ...)]
+    [PRECEDING FILTER predicate]
     [SET (k1=f1(xx), k2=f2(xx))]
     [WHERE predicate]
 
@@ -174,6 +175,10 @@ Label 的另一个作用，是防止用户重复导入相同的数据。**强烈
 
     在 ```data_desc``` 中的 SET 语句负责设置列函数变换，这里的列函数变换支持所有查询的等值表达式变换。如果原始数据的列和表中的列不一一对应，就需要用到这个属性。
 
++ preceding filter predicate
+
+    用于过滤原始数据。原始数据是未经列映射、转换的数据。用户可以在对转换前的数据前进行一次过滤，选取期望的数据，再进行转换。
+
 + where predicate
 
     在 ```data_desc``` 中的 WHERE 语句中负责过滤已经完成 transform 的数据，被 filter 的数据不会进入容忍率的统计中。如果多个 data_desc 中声明了同一张表的多个条件的话，则会 merge 同一张表的多个条件，merge 策略是 AND 。
@@ -231,6 +236,8 @@ Label 的另一个作用，是防止用户重复导入相同的数据。**强烈
     2. 对于导入的某列由函数变换生成时，strict mode 对其不产生影响。
     
     3. 对于导入的某列类型包含范围限制的，如果原始数据能正常通过类型转换，但无法通过范围限制的，strict mode 对其也不产生影响。例如：如果类型是 decimal(1,0), 原始数据为 10，则属于可以通过类型转换但不在列声明的范围内。这种数据 strict 对其不产生影响。
++ merge\_type
+    数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete 条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理
 
 #### strict mode 与 source data 的导入关系
 
@@ -462,6 +469,14 @@ LoadFinishTime: 2019-07-27 11:50:16
         注意：一般用户的环境可能达不到 10M/s 的速度，所以建议超过 500G 的文件都进行文件切分，再导入。
         
         ```
+
+### 性能分析
+
+可以在提交 LOAD 作业前，先执行 `set is_report_success=true` 打开会话变量。然后提交导入作业。待导入作业完成后，可以在 FE 的 web 页面的 `Queris` 标签中查看到导入作业的 Profile。
+
+这个 Profile 可以帮助分析导入作业的运行状态。
+
+当前只有作业成功执行后，才能查看 Profile。
         
 ### 完整例子
 

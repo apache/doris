@@ -26,20 +26,18 @@ namespace debug {
 // Scoped object that generically disables LSAN leak checking in a given scope.
 // While this object is alive, calls to "new" will not be checked for leaks.
 class ScopedLeakCheckDisabler {
- public:
-  ScopedLeakCheckDisabler() {}
+public:
+    ScopedLeakCheckDisabler() {}
 
- private:
-
+private:
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER)
-  ScopedLSANDisabler lsan_disabler;
+    ScopedLSANDisabler lsan_disabler;
 #endif
 
-  DISALLOW_COPY_AND_ASSIGN(ScopedLeakCheckDisabler);
+    DISALLOW_COPY_AND_ASSIGN(ScopedLeakCheckDisabler);
 };
 
 } // namespace debug
 } // namespace doris
 
 #endif // DORIS_UTIL_DEBUG_LEAKCHECK_DISABLER_H_
-

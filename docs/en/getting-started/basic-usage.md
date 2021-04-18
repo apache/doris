@@ -27,7 +27,7 @@ under the License.
 
 # Guidelines for Basic Use
 
-Doris uses MySQL protocol to communicate. Users can connect to Doris cluster through MySQL client or MySQL JDBC. When selecting the MySQL client version, it is recommended to use the version after 5.1, because user names of more than 16 characters can not be supported before 5.1. This paper takes MySQL client as an example to show users the basic usage of Doris through a complete process.
+Doris uses MySQL protocol to communicate. Users can connect to Doris cluster through MySQL client or MySQL JDBC. When selecting the MySQL client version, it is recommended to use the version after 5.1, because user names of more than 16 characters cannot be supported before 5.1. This paper takes MySQL client as an example to show users the basic usage of Doris through a complete process.
 
 ## 1 Create Users
 
@@ -72,9 +72,9 @@ Initially, a database can be created through root or admin users:
 
 `CREATE DATABASE example_db;`
 
-> All commands can use'HELP command;'to see detailed grammar help. For example: `HELP CREATE DATABASE;'`
+> All commands can use `HELP` command to see detailed grammar help. For example: `HELP CREATE DATABASE;'`
 
-> If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type'HELP CREATE', you can match commands like `CREATE DATABASE', `CREATE TABLE', `CREATE USER', etc.
+> If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type `HELP CREATE`, you can match commands like `CREATE DATABASE', `CREATE TABLE', `CREATE USER', etc.
 
 After the database is created, you can view the database information through `SHOW DATABASES'.
 
@@ -99,7 +99,7 @@ After the example_db is created, the read and write permissions of example_db ca
 
 ### 2.3 Formulation
 
-Create a table using the `CREATE TABLE'command. More detailed parameters can be seen:
+Create a table using the `CREATE TABLE` command. More detailed parameters can be seen:
 
 `HELP CREATE TABLE;`
 
@@ -268,17 +268,17 @@ The local file `table1_data` takes `,` as the separation between data, and the s
 Example 2: With "table2_20170707" as Label, import table2 tables using the local file table2_data.
 
 ```
-curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separator:," -T table1_data http://127.0.0.1:8030/api/example_db/table2/_stream_load
+curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separator:|" -T table2_data http://127.0.0.1:8030/api/example_db/table2/_stream_load
 ```
 
-The local file `table2_data'is separated by `t'. The details are as follows:
+The local file `table2_data'is separated by `|'. The details are as follows:
 
 ```
-2017-07-03  1   1   jim   2
-2017-07-05  2   1   grace 2
-2017-07-12  3   2   tom   2
-2017-07-15  4   3   bush  3
-2017-07-12  5   3   helen 3
+2017-07-03|1|1|jim|2
+2017-07-05|2|1|grace|2
+2017-07-12|3|2|tom|2
+2017-07-15|4|3|bush|3
+2017-07-12|5|3|helen|3
 ```
 
 > Notes:
@@ -315,7 +315,7 @@ Broker imports are asynchronous commands. Successful execution of the above comm
 
 `SHOW LOAD WHERE LABLE = "table1_20170708";`
 
-In the return result, FINISHED in the `State'field indicates that the import was successful.
+In the return result, FINISHED in the `State` field indicates that the import was successful.
 
 For more instructions on `SHOW LOAD`, see` HELP SHOW LOAD; `
 
@@ -338,7 +338,7 @@ MySQL> SELECT * FROM table1 LIMIT 3;
 |      5 |        3 | 'helen'  |    3 |
 |      3 |        2 | 'tom'    |    2 |
 +--------+----------+----------+------+
-5 rows in set (0.01 sec)
+3 rows in set (0.01 sec)
 
 MySQL> SELECT * FROM table1 ORDER BY citycode;
 +--------+----------+----------+------+

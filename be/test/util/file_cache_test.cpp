@@ -25,10 +25,10 @@ namespace doris {
 
 class FileCacheTest : public testing::Test {
 public:
-    FileCacheTest() { }
+    FileCacheTest() {}
 
     void SetUp() override {
-        _file_cache.reset(new FileCache<RandomAccessFile>("test cache", 10000));
+        _file_cache.reset(new FileCache<RandomAccessFile>("test_cache", 10000));
         _file_exist = "file_exist";
         std::unique_ptr<WritableFile> file;
         auto st = Env::Default()->new_writable_file(_file_exist, &file);
@@ -63,7 +63,7 @@ TEST_F(FileCacheTest, normal) {
     ASSERT_EQ(file_handle.file(), file_handle2.file());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

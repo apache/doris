@@ -18,17 +18,17 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_WRITER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_WRITER_H
 
-#include "olap/stream_index_writer.h"
 #include "olap/olap_define.h"
+#include "olap/stream_index_writer.h"
 
 namespace doris {
 
 class OutStream;
 class RowIndexEntryMessage;
 
-// A Writer that writes a sequence of bytes. A control byte is written before
-// each run with positive values 0 to 127 meaning 2 to 129 repetitions. If the
-// bytes is -1 to -128, 1 to 128 literal byte values follow.
+// A writer that writes a sequence of bytes. A control byte is written before
+// each run with positive values 0 to 127 meaning 3 to 130 repetitions. If the
+// byte is -1 to -128, 1 to 128 literal byte values follow.
 class RunLengthByteWriter {
 public:
     explicit RunLengthByteWriter(OutStream* output);
@@ -39,6 +39,7 @@ public:
     static const int32_t MIN_REPEAT_SIZE = 3;
     static const int32_t MAX_LITERAL_SIZE = 128;
     static const int32_t MAX_REPEAT_SIZE = 127 + MIN_REPEAT_SIZE;
+
 private:
     OLAPStatus _write_values();
 
@@ -51,6 +52,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(RunLengthByteWriter);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_WRITER_H

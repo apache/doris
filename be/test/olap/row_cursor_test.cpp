@@ -15,14 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/row_cursor.h"
+
 #include <gtest/gtest.h>
 
 #include "common/object_pool.h"
-#include "olap/row_cursor.h"
-#include "olap/tablet_schema.h"
 #include "olap/row.h"
-#include "runtime/mem_tracker.h"
+#include "olap/tablet_schema.h"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 #include "util/logging.h"
 
 namespace doris {
@@ -259,7 +260,7 @@ public:
 
     virtual void TearDown() {}
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
 };
 
@@ -321,7 +322,7 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
 
     OlapTuple tuple2 = row.to_tuple();
     ASSERT_TRUE(strncmp(tuple2.get_value(0).c_str(), "0&char_exceed_length", 20));
-    ASSERT_TRUE(strncmp(tuple2.get_value(1).c_str(), "0&varchar_exceed_length", 23)); 
+    ASSERT_TRUE(strncmp(tuple2.get_value(1).c_str(), "0&varchar_exceed_length", 23));
 }
 
 TEST_F(TestRowCursor, EqualAndCompare) {
@@ -462,7 +463,7 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     int32_t l_int = 10;
     int128_t l_largeint = (int128_t)(1) << 100;
     double l_double = 8.8;
-    decimal12_t l_decimal(11, 22);
+    decimal12_t l_decimal = {11, 22};
     Slice l_varchar("beijing");
     left.set_field_content(0, reinterpret_cast<char*>(&l_char), _mem_pool.get());
     left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
@@ -471,7 +472,7 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     left.set_field_content(4, reinterpret_cast<char*>(&l_decimal), _mem_pool.get());
     left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
 
-    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
     std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
     ObjectPool agg_object_pool;
     init_row_with_others(&row, left, mem_pool.get(), &agg_object_pool);
@@ -482,7 +483,7 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     int32_t r_int = 10;
     int128_t r_largeint = (int128_t)(1) << 100;
     double r_double = 5.5;
-    decimal12_t r_decimal(22, 22);
+    decimal12_t r_decimal = {22, 22};
     Slice r_varchar("shenzhen");
     right.set_field_content(0, reinterpret_cast<char*>(&r_char), _mem_pool.get());
     right.set_field_content(1, reinterpret_cast<char*>(&r_int), _mem_pool.get());
@@ -532,7 +533,7 @@ TEST_F(TestRowCursor, AggregateWithNull) {
     left.set_null(4);
     left.set_field_content(5, reinterpret_cast<char*>(&l_varchar), _mem_pool.get());
 
-    std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
+    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
     std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
     ObjectPool agg_object_pool;
     init_row_with_others(&row, left, mem_pool.get(), &agg_object_pool);
@@ -543,7 +544,7 @@ TEST_F(TestRowCursor, AggregateWithNull) {
     int32_t r_int = 10;
     int128_t r_largeint = (int128_t)(1) << 100;
     double r_double = 5.5;
-    decimal12_t r_decimal(22, 22);
+    decimal12_t r_decimal = {22, 22};
     right.set_field_content(0, reinterpret_cast<char*>(&r_char), _mem_pool.get());
     right.set_field_content(1, reinterpret_cast<char*>(&r_int), _mem_pool.get());
     right.set_field_content(2, reinterpret_cast<char*>(&r_largeint), _mem_pool.get());

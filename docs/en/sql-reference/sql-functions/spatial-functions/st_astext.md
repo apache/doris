@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'VARCHAR ST'u AsText (GEOMETRY geo)'
+'VARCHAR ST_AsText (GEOMETRY geo)'
 
 
 Converting a geometric figure into a WKT (Well Known Text) representation
@@ -43,5 +43,5 @@ mysql> SELECT ST_AsText(ST_Point(24.7, 56.7));
 | POINT (24.7 56.7)               |
 +---------------------------------+
 ```
-##keyword
+## keyword
 ST_ASTEXT,ST_ASWKT,ST,ASTEXT,ASWKT

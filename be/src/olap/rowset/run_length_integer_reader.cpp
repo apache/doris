@@ -17,18 +17,14 @@
 
 #include "olap/rowset/run_length_integer_reader.h"
 
-#include "olap/rowset/column_reader.h"
 #include "olap/in_stream.h"
+#include "olap/rowset/column_reader.h"
 #include "olap/serialize.h"
 
 namespace doris {
 
 RunLengthIntegerReader::RunLengthIntegerReader(ReadOnlyFileStream* input, bool is_singed)
-      : _input(input),
-        _signed(is_singed),
-        _num_literals(0),
-        _used(0) {
-}
+        : _input(input), _signed(is_singed), _num_literals(0), _used(0) {}
 
 OLAPStatus RunLengthIntegerReader::_read_values() {
     OLAPStatus res = OLAP_SUCCESS;
@@ -170,7 +166,7 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
 
     res = _input->read((char*)&byte);
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read byte from in_strem.[res=%d]", res);
+        OLAP_LOG_WARNING("fail to read byte from in_straem.[res=%d]", res);
         return res;
     }
 
@@ -200,7 +196,7 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
 
     res = _input->read(&four_byte);
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read byte from in_strem.[res=%d]", res);
+        OLAP_LOG_WARNING("fail to read byte from in_straem.[res=%d]", res);
         return res;
     }
 
@@ -432,4 +428,4 @@ OLAPStatus RunLengthIntegerReader::skip(uint64_t num_values) {
     return res;
 }
 
-}  // namespace doris
+} // namespace doris

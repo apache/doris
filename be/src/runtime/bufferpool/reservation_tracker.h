@@ -19,12 +19,13 @@
 #define DORIS_BE_RUNTIME_RESERVATION_TRACKER_H
 
 #include <stdint.h>
+
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread/locks.hpp>
 #include <string>
 
-#include "runtime/bufferpool/reservation_tracker_counters.h"
 #include "common/status.h"
+#include "runtime/bufferpool/reservation_tracker_counters.h"
 #include "util/spinlock.h"
 
 namespace doris {
@@ -87,208 +88,208 @@ class RuntimeProfile;
 /// hierarchy. I.e. if a ReservationTracker is linked to a MemTracker "A", and its parent
 /// is linked to a MemTracker "B", then "B" must be the parent of "A"'.
 class ReservationTracker {
- public:
-  ReservationTracker();
-  virtual ~ReservationTracker();
+public:
+    ReservationTracker();
+    virtual ~ReservationTracker();
 
-  /// Initializes the root tracker with the given reservation limit in bytes. The initial
-  /// reservation is 0.
-  /// if 'profile' is not NULL, the counters defined in ReservationTrackerCounters are
-  /// added to 'profile'.
-  void InitRootTracker(RuntimeProfile* profile, int64_t reservation_limit);
+    /// Initializes the root tracker with the given reservation limit in bytes. The initial
+    /// reservation is 0.
+    /// if 'profile' is not NULL, the counters defined in ReservationTrackerCounters are
+    /// added to 'profile'.
+    void InitRootTracker(RuntimeProfile* profile, int64_t reservation_limit);
 
-  /// Initializes a new ReservationTracker with a parent.
-  /// If 'mem_tracker' is not NULL, reservations for this ReservationTracker and its
-  /// children will be counted as consumption against 'mem_tracker'.
-  /// 'reservation_limit' is the maximum reservation for this tracker in bytes.
-  /// if 'profile' is not NULL, the counters in 'counters_' are added to 'profile'.
-  void InitChildTracker(RuntimeProfile* profile, ReservationTracker* parent,
-      MemTracker* mem_tracker, int64_t reservation_limit);
+    /// Initializes a new ReservationTracker with a parent.
+    /// If 'mem_tracker' is not NULL, reservations for this ReservationTracker and its
+    /// children will be counted as consumption against 'mem_tracker'.
+    /// 'reservation_limit' is the maximum reservation for this tracker in bytes.
+    /// if 'profile' is not NULL, the counters in 'counters_' are added to 'profile'.
+    void InitChildTracker(RuntimeProfile* profile, ReservationTracker* parent,
+                          MemTracker* mem_tracker, int64_t reservation_limit);
 
-  /// If the tracker is initialized, deregister the ReservationTracker from its parent,
-  /// relinquishing all this tracker's reservation. All of the reservation must be unused
-  /// and all the tracker's children must be closed before calling this method.
-  /// TODO: decide on and implement policy for how far to release the reservation up
-  /// the tree. Currently the reservation is released all the way to the root.
-  void Close();
+    /// If the tracker is initialized, deregister the ReservationTracker from its parent,
+    /// relinquishing all this tracker's reservation. All of the reservation must be unused
+    /// and all the tracker's children must be closed before calling this method.
+    /// TODO: decide on and implement policy for how far to release the reservation up
+    /// the tree. Currently the reservation is released all the way to the root.
+    void Close();
 
-  /// Request to increase reservation by 'bytes'. The request is either granted in
-  /// full or not at all. Uses any unused reservation on ancestors and increase
-  /// ancestors' reservations if needed to fit the increased reservation.
-  /// Returns true if the reservation increase is granted, or false if not granted.
-  /// If the reservation is not granted, no modifications are made to the state of
-  /// any ReservationTrackers.
-  bool IncreaseReservation(int64_t bytes) WARN_UNUSED_RESULT;
+    /// Request to increase reservation by 'bytes'. The request is either granted in
+    /// full or not at all. Uses any unused reservation on ancestors and increase
+    /// ancestors' reservations if needed to fit the increased reservation.
+    /// Returns true if the reservation increase is granted, or false if not granted.
+    /// If the reservation is not granted, no modifications are made to the state of
+    /// any ReservationTrackers.
+    bool IncreaseReservation(int64_t bytes) WARN_UNUSED_RESULT;
 
-  /// Tries to ensure that 'bytes' of unused reservation is available. If not already
-  /// available, tries to increase the reservation such that the unused reservation is
-  /// exactly equal to 'bytes'. Uses any unused reservation on ancestors and increase
-  /// ancestors' reservations if needed to fit the increased reservation.
-  /// Returns true if the reservation increase was successful or not necessary.
-  bool IncreaseReservationToFit(int64_t bytes) WARN_UNUSED_RESULT;
+    /// Tries to ensure that 'bytes' of unused reservation is available. If not already
+    /// available, tries to increase the reservation such that the unused reservation is
+    /// exactly equal to 'bytes'. Uses any unused reservation on ancestors and increase
+    /// ancestors' reservations if needed to fit the increased reservation.
+    /// Returns true if the reservation increase was successful or not necessary.
+    bool IncreaseReservationToFit(int64_t bytes) WARN_UNUSED_RESULT;
 
-  /// Decrease reservation by 'bytes' on this tracker and all ancestors. This tracker's
-  /// reservation must be at least 'bytes' before calling this method.
-  void DecreaseReservation(int64_t bytes) { DecreaseReservation(bytes, false); }
+    /// Decrease reservation by 'bytes' on this tracker and all ancestors. This tracker's
+    /// reservation must be at least 'bytes' before calling this method.
+    void DecreaseReservation(int64_t bytes) { DecreaseReservation(bytes, false); }
 
-  /// Transfer reservation from this tracker to 'other'. Both trackers must be in the
-  /// same query subtree of the hierarchy. One tracker can be the ancestor of the other,
-  /// or they can share a common ancestor. The subtree root must be at the query level
-  /// or below so that the transfer cannot cause a MemTracker limit to be exceeded
-  /// (because linked MemTrackers with limits below the query level are not supported).
-  /// Returns true on success or false if the transfer would have caused a reservation
-  /// limit to be exceeded.
-  bool TransferReservationTo(ReservationTracker* other, int64_t bytes) WARN_UNUSED_RESULT;
+    /// Transfer reservation from this tracker to 'other'. Both trackers must be in the
+    /// same query subtree of the hierarchy. One tracker can be the ancestor of the other,
+    /// or they can share a common ancestor. The subtree root must be at the query level
+    /// or below so that the transfer cannot cause a MemTracker limit to be exceeded
+    /// (because linked MemTrackers with limits below the query level are not supported).
+    /// Returns true on success or false if the transfer would have caused a reservation
+    /// limit to be exceeded.
+    bool TransferReservationTo(ReservationTracker* other, int64_t bytes) WARN_UNUSED_RESULT;
 
-  /// Allocate 'bytes' from the reservation. The tracker must have at least 'bytes'
-  /// unused reservation before calling this method.
-  void AllocateFrom(int64_t bytes);
+    /// Allocate 'bytes' from the reservation. The tracker must have at least 'bytes'
+    /// unused reservation before calling this method.
+    void AllocateFrom(int64_t bytes);
 
-  /// Release 'bytes' of previously allocated memory. The used reservation is
-  /// decreased by 'bytes'. Before the call, the used reservation must be at least
-  /// 'bytes' before calling this method.
-  void ReleaseTo(int64_t bytes);
+    /// Release 'bytes' of previously allocated memory. The used reservation is
+    /// decreased by 'bytes'. Before the call, the used reservation must be at least
+    /// 'bytes' before calling this method.
+    void ReleaseTo(int64_t bytes);
 
-  /// Returns the amount of the reservation in bytes.
-  int64_t GetReservation();
+    /// Returns the amount of the reservation in bytes.
+    int64_t GetReservation();
 
-  /// Returns the current amount of the reservation used at this tracker, not including
-  /// reservations of children in bytes.
-  int64_t GetUsedReservation();
+    /// Returns the current amount of the reservation used at this tracker, not including
+    /// reservations of children in bytes.
+    int64_t GetUsedReservation();
 
-  /// Returns the amount of the reservation neither used nor given to childrens'
-  /// reservations at this tracker in bytes.
-  int64_t GetUnusedReservation();
+    /// Returns the amount of the reservation neither used nor given to childrens'
+    /// reservations at this tracker in bytes.
+    int64_t GetUnusedReservation();
 
-  /// Returns the total reservations of children in bytes.
-  int64_t GetChildReservations();
+    /// Returns the total reservations of children in bytes.
+    int64_t GetChildReservations();
 
-  /// Support for debug actions: deny reservation increase with probability 'probability'.
-  void SetDebugDenyIncreaseReservation(double probability) {
-    increase_deny_probability_ = probability;
-  }
+    /// Support for debug actions: deny reservation increase with probability 'probability'.
+    void SetDebugDenyIncreaseReservation(double probability) {
+        increase_deny_probability_ = probability;
+    }
 
-  ReservationTracker* parent() const { return parent_; }
+    ReservationTracker* parent() const { return parent_; }
 
-  std::string DebugString();
+    std::string DebugString();
 
- private:
-  /// Returns the amount of 'reservation_' that is unused.
-  inline int64_t unused_reservation() const {
-    return reservation_ - used_reservation_ - child_reservations_;
-  }
+private:
+    /// Returns the amount of 'reservation_' that is unused.
+    inline int64_t unused_reservation() const {
+        return reservation_ - used_reservation_ - child_reservations_;
+    }
 
-  /// Returns the parent's memtracker if 'parent_' is non-NULL, or NULL otherwise.
-  MemTracker* GetParentMemTracker() const {
-    return parent_ == nullptr ? nullptr : parent_->mem_tracker_;
-  }
+    /// Returns the parent's memtracker if 'parent_' is non-NULL, or NULL otherwise.
+    MemTracker* GetParentMemTracker() const {
+        return parent_ == nullptr ? nullptr : parent_->mem_tracker_;
+    }
 
-  /// Initializes 'counters_', storing the counters in 'profile'.
-  /// If 'profile' is NULL, creates a dummy profile to store the counters.
-  void InitCounters(RuntimeProfile* profile, int64_t max_reservation);
+    /// Initializes 'counters_', storing the counters in 'profile'.
+    /// If 'profile' is NULL, creates a dummy profile to store the counters.
+    void InitCounters(RuntimeProfile* profile, int64_t max_reservation);
 
-  /// Internal helper for IncreaseReservation(). If 'use_existing_reservation' is true,
-  /// increase by the minimum amount so that 'bytes' fits in the reservation, otherwise
-  /// just increase by 'bytes'. If 'is_child_reservation' is true, also increase
-  /// 'child_reservations_' by 'bytes'.
-  /// 'lock_' must be held by caller.
-  bool IncreaseReservationInternalLocked(
-      int64_t bytes, bool use_existing_reservation, bool is_child_reservation);
+    /// Internal helper for IncreaseReservation(). If 'use_existing_reservation' is true,
+    /// increase by the minimum amount so that 'bytes' fits in the reservation, otherwise
+    /// just increase by 'bytes'. If 'is_child_reservation' is true, also increase
+    /// 'child_reservations_' by 'bytes'.
+    /// 'lock_' must be held by caller.
+    bool IncreaseReservationInternalLocked(int64_t bytes, bool use_existing_reservation,
+                                           bool is_child_reservation);
 
-  /// Increase consumption on linked MemTracker to reflect an increase in reservation
-  /// of 'reservation_increase'. For the topmost link, return false if this failed
-  /// because it would exceed a memory limit. If there is no linked MemTracker, just
-  /// returns true.
-  /// TODO: remove once we account all memory via ReservationTrackers.
-  bool TryConsumeFromMemTracker(int64_t reservation_increase);
+    /// Increase consumption on linked MemTracker to reflect an increase in reservation
+    /// of 'reservation_increase'. For the topmost link, return false if this failed
+    /// because it would exceed a memory limit. If there is no linked MemTracker, just
+    /// returns true.
+    /// TODO: remove once we account all memory via ReservationTrackers.
+    bool TryConsumeFromMemTracker(int64_t reservation_increase);
 
-  /// Decrease consumption on linked MemTracker to reflect a decrease in reservation of
-  /// 'reservation_decrease'. If there is no linked MemTracker, does nothing.
-  /// TODO: remove once we account all memory via ReservationTrackers.
-  void ReleaseToMemTracker(int64_t reservation_decrease);
+    /// Decrease consumption on linked MemTracker to reflect a decrease in reservation of
+    /// 'reservation_decrease'. If there is no linked MemTracker, does nothing.
+    /// TODO: remove once we account all memory via ReservationTrackers.
+    void ReleaseToMemTracker(int64_t reservation_decrease);
 
-  /// Decrease reservation by 'bytes' on this tracker and all ancestors. This tracker's
-  /// reservation must be at least 'bytes' before calling this method. If
-  /// 'is_child_reservation' is true it decreases 'child_reservations_' by 'bytes'
-  void DecreaseReservation(int64_t bytes, bool is_child_reservation);
+    /// Decrease reservation by 'bytes' on this tracker and all ancestors. This tracker's
+    /// reservation must be at least 'bytes' before calling this method. If
+    /// 'is_child_reservation' is true it decreases 'child_reservations_' by 'bytes'
+    void DecreaseReservation(int64_t bytes, bool is_child_reservation);
 
-  /// Same as DecreaseReservation(), but 'lock_' must be held by caller.
-  void DecreaseReservationLocked(int64_t bytes, bool is_child_reservation);
+    /// Same as DecreaseReservation(), but 'lock_' must be held by caller.
+    void DecreaseReservationLocked(int64_t bytes, bool is_child_reservation);
 
-  /// Return a vector containing the trackers on the path to the root tracker. Includes
-  /// the current tracker and the root tracker.
-  std::vector<ReservationTracker*> FindPathToRoot();
+    /// Return a vector containing the trackers on the path to the root tracker. Includes
+    /// the current tracker and the root tracker.
+    std::vector<ReservationTracker*> FindPathToRoot();
 
-  /// Return true if trackers in the subtree rooted at 'subtree1' precede trackers in
-  /// the subtree rooted at 'subtree2' in the lock order. 'subtree1' and 'subtree2'
-  /// must share the same parent.
-  static bool lock_sibling_subtree_first(
-      ReservationTracker* subtree1, ReservationTracker* subtree2) {
-    DCHECK_EQ(subtree1->parent_, subtree2->parent_);
-    return reinterpret_cast<uintptr_t>(subtree1) < reinterpret_cast<uintptr_t>(subtree2);
-  }
+    /// Return true if trackers in the subtree rooted at 'subtree1' precede trackers in
+    /// the subtree rooted at 'subtree2' in the lock order. 'subtree1' and 'subtree2'
+    /// must share the same parent.
+    static bool lock_sibling_subtree_first(ReservationTracker* subtree1,
+                                           ReservationTracker* subtree2) {
+        DCHECK_EQ(subtree1->parent_, subtree2->parent_);
+        return reinterpret_cast<uintptr_t>(subtree1) < reinterpret_cast<uintptr_t>(subtree2);
+    }
 
-  /// Check the internal consistency of the ReservationTracker and DCHECKs if in an
-  /// inconsistent state.
-  /// 'lock_' must be held by caller.
-  void CheckConsistency() const;
+    /// Check the internal consistency of the ReservationTracker and DCHECKs if in an
+    /// inconsistent state.
+    /// 'lock_' must be held by caller.
+    void CheckConsistency() const;
 
-  /// Increase or decrease 'used_reservation_' and update profile counters accordingly.
-  /// 'lock_' must be held by caller.
-  void UpdateUsedReservation(int64_t delta);
+    /// Increase or decrease 'used_reservation_' and update profile counters accordingly.
+    /// 'lock_' must be held by caller.
+    void UpdateUsedReservation(int64_t delta);
 
-  /// Increase or decrease 'reservation_' and update profile counters accordingly.
-  /// 'lock_' must be held by caller.
-  void UpdateReservation(int64_t delta);
+    /// Increase or decrease 'reservation_' and update profile counters accordingly.
+    /// 'lock_' must be held by caller.
+    void UpdateReservation(int64_t delta);
 
-  /// Support for debug actions: see SetDebugDenyIncreaseReservation() for behaviour.
-  double increase_deny_probability_ = 0.0;
+    /// Support for debug actions: see SetDebugDenyIncreaseReservation() for behaviour.
+    double increase_deny_probability_ = 0.0;
 
-  /// lock_ protects all below members. The lock order in a tree of ReservationTrackers is
-  /// based on a post-order traversal of the tree, with children visited in order of the
-  /// memory address of the ReservationTracker object. The following rules can be applied
-  /// to determine the relative positions of two trackers t1 and t2 in the lock order:
-  /// * If t1 is a descendent of t2, t1's lock must be acquired before t2's lock (i.e.
-  ///   locks are acquired bottom-up).
-  /// * If neither t1 or t2 is a descendant of the other, they must be in subtrees of
-  ///   under a common ancestor. If the memory address of t1's subtree's root is less
-  ///   than the memory address of t2's subtree's root, t1's lock must be acquired before
-  ///   t2's lock. This check is implemented in lock_sibling_subtree_first().
-  SpinLock lock_;
+    /// lock_ protects all below members. The lock order in a tree of ReservationTrackers is
+    /// based on a post-order traversal of the tree, with children visited in order of the
+    /// memory address of the ReservationTracker object. The following rules can be applied
+    /// to determine the relative positions of two trackers t1 and t2 in the lock order:
+    /// * If t1 is a descendent of t2, t1's lock must be acquired before t2's lock (i.e.
+    ///   locks are acquired bottom-up).
+    /// * If neither t1 or t2 is a descendant of the other, they must be in subtrees of
+    ///   under a common ancestor. If the memory address of t1's subtree's root is less
+    ///   than the memory address of t2's subtree's root, t1's lock must be acquired before
+    ///   t2's lock. This check is implemented in lock_sibling_subtree_first().
+    SpinLock lock_;
 
-  /// True if the tracker is initialized.
-  bool initialized_ = false;
+    /// True if the tracker is initialized.
+    bool initialized_ = false;
 
-  /// A dummy profile to hold the counters in 'counters_' in the case that no profile
-  /// is provided.
-  boost::scoped_ptr<DummyProfile> dummy_profile_;
+    /// A dummy profile to hold the counters in 'counters_' in the case that no profile
+    /// is provided.
+    boost::scoped_ptr<DummyProfile> dummy_profile_;
 
-  /// The RuntimeProfile counters for this tracker.
-  /// All non-NULL if 'initialized_' is true.
-  ReservationTrackerCounters counters_;
+    /// The RuntimeProfile counters for this tracker.
+    /// All non-NULL if 'initialized_' is true.
+    ReservationTrackerCounters counters_;
 
-  /// The parent of this tracker in the hierarchy. Does not change after initialization.
-  ReservationTracker* parent_ = nullptr;
+    /// The parent of this tracker in the hierarchy. Does not change after initialization.
+    ReservationTracker* parent_ = nullptr;
 
-  /// If non-NULL, reservations are counted as memory consumption against this tracker.
-  /// Does not change after initialization. Not owned.
-  /// TODO: remove once all memory is accounted via ReservationTrackers.
-  MemTracker* mem_tracker_ = nullptr;
+    /// If non-NULL, reservations are counted as memory consumption against this tracker.
+    /// Does not change after initialization. Not owned.
+    /// TODO: remove once all memory is accounted via ReservationTrackers.
+    MemTracker* mem_tracker_ = nullptr;
 
-  /// The maximum reservation in bytes that this tracker can have.
-  int64_t reservation_limit_;
+    /// The maximum reservation in bytes that this tracker can have.
+    int64_t reservation_limit_;
 
-  /// This tracker's current reservation in bytes. 'reservation_' <= 'reservation_limit_'.
-  int64_t reservation_;
+    /// This tracker's current reservation in bytes. 'reservation_' <= 'reservation_limit_'.
+    int64_t reservation_;
 
-  /// Total reservation of children in bytes. This is included in 'reservation_'.
-  /// 'used_reservation_' + 'child_reservations_' <= 'reservation_'.
-  int64_t child_reservations_;
+    /// Total reservation of children in bytes. This is included in 'reservation_'.
+    /// 'used_reservation_' + 'child_reservations_' <= 'reservation_'.
+    int64_t child_reservations_;
 
-  /// The amount of the reservation currently used by this tracker in bytes.
-  /// 'used_reservation_' + 'child_reservations_' <= 'reservation_'.
-  int64_t used_reservation_;
+    /// The amount of the reservation currently used by this tracker in bytes.
+    /// 'used_reservation_' + 'child_reservations_' <= 'reservation_'.
+    int64_t used_reservation_;
 };
-}
+} // namespace doris
 
 #endif

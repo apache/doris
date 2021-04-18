@@ -53,7 +53,7 @@ DISTRIBUTED BY HASH(siteid) BUCKETS 10;
 
 1.1.2. KEY UNIQUE
 
-When UNIQUE KEY is the same, the new record covers the old record. At present, UNIQUE KEY implements the same RPLACE aggregation method as GGREGATE KEY, and they are essentially the same. Suitable for analytical business with updated requirements.
+When UNIQUE KEY is the same, the new record covers the old record. At present, UNIQUE KEY implements the same REPLACE aggregation method as AGGREGATE KEY, and they are essentially the same. Suitable for analytical business with updated requirements.
 
 ```
 CREATE TABLE sales_order
@@ -141,7 +141,7 @@ For the `site_visit'table:
 site -u visit (siteid, city, username, pv)
 ```
 
-Siteid may lead to a low degree of data aggregation. If business parties often base their PV needs on city statistics, they can build a city-only, PV-based ollup:
+Siteid may lead to a low degree of data aggregation. If business parties often base their PV needs on city statistics, they can build a city-only, PV-based rollup:
 
 ```
 ALTER TABLE site_visit ADD ROLLUP rollup_city(city, pv);
@@ -165,7 +165,7 @@ ALTER TABLE session_data ADD ROLLUP rollup_brower(brower,province,ip,url) DUPLIC
 
 ## 2 Schema Change
 
-There are three Schema Change in doris：Sorted Schema Change，Direct Schema Change, Linked Schema Change。
+There are three Schema Change in doris: Sorted Schema Change, Direct Schema Change, Linked Schema Change.
 
 2.1. Sorted Schema Change
 

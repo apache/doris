@@ -15,21 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vector>
-#include <map>
+#include "exec/es/es_scan_reader.h"
+
 #include <gtest/gtest.h>
+
+#include <map>
 #include <string>
+#include <vector>
 
 #include "common/logging.h"
-#include "exec/es/es_scan_reader.h"
 #include "exec/es/es_scroll_query.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
 #include "http/http_request.h"
 #include "rapidjson/document.h"
-#include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
 
 namespace doris {
 
@@ -54,7 +56,7 @@ public:
             }
             std::string _scroll_id(std::to_string(size));
             rapidjson::Document search_result;
-            rapidjson::Document::AllocatorType &allocator = search_result.GetAllocator();
+            rapidjson::Document::AllocatorType& allocator = search_result.GetAllocator();
             search_result.SetObject();
             rapidjson::Value scroll_id_value(_scroll_id.c_str(), allocator);
             search_result.AddMember("_scroll_id", scroll_id_value, allocator);
@@ -62,18 +64,18 @@ public:
             rapidjson::Value outer_hits(rapidjson::kObjectType);
             outer_hits.AddMember("total", 10, allocator);
             rapidjson::Value inner_hits(rapidjson::kArrayType);
-            rapidjson::Value source_docuement(rapidjson::kObjectType);
-            source_docuement.AddMember("id", 1, allocator);
+            rapidjson::Value source_document(rapidjson::kObjectType);
+            source_document.AddMember("id", 1, allocator);
             rapidjson::Value value_node("1", allocator);
-            source_docuement.AddMember("value", value_node, allocator);
-            inner_hits.PushBack(source_docuement, allocator);
+            source_document.AddMember("value", value_node, allocator);
+            inner_hits.PushBack(source_document, allocator);
             outer_hits.AddMember("hits", inner_hits, allocator);
             search_result.AddMember("hits", outer_hits, allocator);
 
-            rapidjson::StringBuffer buffer;  
+            rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             search_result.Accept(writer);
-            //send DELETE scorll post request
+            //send DELETE scroll post request
             std::string search_result_json = buffer.GetString();
             HttpChannel::send_reply(req, search_result_json);
         } else {
@@ -98,7 +100,7 @@ public:
             post_doc.Parse<0>(post_body.c_str());
             std::string scroll_id;
             if (!post_doc.HasMember("scroll_id")) {
-                HttpChannel::send_reply(req,HttpStatus::NOT_FOUND, "invalid scroll request");
+                HttpChannel::send_reply(req, HttpStatus::NOT_FOUND, "invalid scroll request");
                 return;
             } else {
                 rapidjson::Value& scroll_id_value = post_doc["scroll_id"];
@@ -106,7 +108,8 @@ public:
                 int offset = atoi(scroll_id.c_str());
                 if (offset > 10) {
                     rapidjson::Document end_search_result;
-                    rapidjson::Document::AllocatorType &allocator = end_search_result.GetAllocator();
+                    rapidjson::Document::AllocatorType& allocator =
+                            end_search_result.GetAllocator();
                     end_search_result.SetObject();
                     rapidjson::Value scroll_id_value("11", allocator);
                     end_search_result.AddMember("_scroll_id", scroll_id_value, allocator);
@@ -114,17 +117,17 @@ public:
                     rapidjson::Value outer_hits(rapidjson::kObjectType);
                     outer_hits.AddMember("total", 0, allocator);
                     end_search_result.AddMember("hits", outer_hits, allocator);
-                    rapidjson::StringBuffer buffer;  
+                    rapidjson::StringBuffer buffer;
                     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
                     end_search_result.Accept(writer);
-                    //send DELETE scorll post request
+                    //send DELETE scroll post request
                     std::string end_search_result_json = buffer.GetString();
                     HttpChannel::send_reply(req, end_search_result_json);
                     return;
                 } else {
                     int start = offset + 1;
                     rapidjson::Document search_result;
-                    rapidjson::Document::AllocatorType &allocator = search_result.GetAllocator();
+                    rapidjson::Document::AllocatorType& allocator = search_result.GetAllocator();
                     search_result.SetObject();
                     rapidjson::Value scroll_id_value(std::to_string(start).c_str(), allocator);
                     search_result.AddMember("_scroll_id", scroll_id_value, allocator);
@@ -132,25 +135,24 @@ public:
                     rapidjson::Value outer_hits(rapidjson::kObjectType);
                     outer_hits.AddMember("total", 1, allocator);
                     rapidjson::Value inner_hits(rapidjson::kArrayType);
-                    rapidjson::Value source_docuement(rapidjson::kObjectType);
-                    source_docuement.AddMember("id", start, allocator);
+                    rapidjson::Value source_document(rapidjson::kObjectType);
+                    source_document.AddMember("id", start, allocator);
                     rapidjson::Value value_node(std::to_string(start).c_str(), allocator);
-                    source_docuement.AddMember("value", value_node, allocator);
-                    inner_hits.PushBack(source_docuement, allocator);
+                    source_document.AddMember("value", value_node, allocator);
+                    inner_hits.PushBack(source_document, allocator);
                     outer_hits.AddMember("hits", inner_hits, allocator);
                     search_result.AddMember("hits", outer_hits, allocator);
 
-                    rapidjson::StringBuffer buffer;  
+                    rapidjson::StringBuffer buffer;
                     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
                     search_result.Accept(writer);
-                    //send DELETE scorll post request
+                    //send DELETE scroll post request
                     std::string search_result_json = buffer.GetString();
                     HttpChannel::send_reply(req, search_result_json);
                     return;
                 }
-                
             }
-        } 
+        }
     }
 };
 
@@ -169,21 +171,21 @@ public:
             post_doc.Parse<0>(post_body.c_str());
             std::string scroll_id;
             if (!post_doc.HasMember("scroll_id")) {
-                HttpChannel::send_reply(req,HttpStatus::NOT_FOUND, "invalid scroll request");
+                HttpChannel::send_reply(req, HttpStatus::NOT_FOUND, "invalid scroll request");
                 return;
             } else {
                 rapidjson::Document clear_scroll_result;
-                rapidjson::Document::AllocatorType &allocator = clear_scroll_result.GetAllocator();
+                rapidjson::Document::AllocatorType& allocator = clear_scroll_result.GetAllocator();
                 clear_scroll_result.SetObject();
                 clear_scroll_result.AddMember("succeeded", true, allocator);
                 clear_scroll_result.AddMember("num_freed", 1, allocator);
-                rapidjson::StringBuffer buffer;  
+                rapidjson::StringBuffer buffer;
                 rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
                 clear_scroll_result.Accept(writer);
                 std::string clear_scroll_result_json = buffer.GetString();
                 HttpChannel::send_reply(req, clear_scroll_result_json);
                 return;
-            } 
+            }
         }
     }
 };
@@ -196,12 +198,12 @@ static int real_port = 0;
 
 class MockESServerTest : public testing::Test {
 public:
-    MockESServerTest() { }
-    ~MockESServerTest() override { }
+    MockESServerTest() {}
+    ~MockESServerTest() override {}
 
     static void SetUpTestCase() {
         mock_es_server = new EvHttpServer(0);
-        mock_es_server->register_handler(POST, "/{index}/{type}/_search", &rest_search_action);        
+        mock_es_server->register_handler(POST, "/{index}/{type}/_search", &rest_search_action);
         mock_es_server->register_handler(POST, "/_search/scroll", &rest_search_scroll_action);
         mock_es_server->register_handler(DELETE, "/_search/scroll", &rest_clear_scroll_action);
         mock_es_server->start();
@@ -209,9 +211,7 @@ public:
         ASSERT_NE(0, real_port);
     }
 
-    static void TearDownTestCase() {
-        delete mock_es_server;
-    }
+    static void TearDownTestCase() { delete mock_es_server; }
 };
 
 TEST_F(MockESServerTest, workflow) {
@@ -227,23 +227,24 @@ TEST_F(MockESServerTest, workflow) {
     std::vector<EsPredicate*> predicates;
     std::map<std::string, std::string> docvalue_context;
     bool doc_value_mode = false;
-    props[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(props, fields, predicates, docvalue_context, &doc_value_mode);
+    props[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(props, fields, predicates,
+                                                                 docvalue_context, &doc_value_mode);
     ESScanReader reader(target, props, doc_value_mode);
     auto st = reader.open();
     ASSERT_TRUE(st.ok());
     bool eos = false;
     std::unique_ptr<ScrollParser> parser = nullptr;
-    while(!eos){
+    while (!eos) {
         st = reader.get_next(&eos, parser);
         ASSERT_TRUE(st.ok());
-        if(eos) {
+        if (eos) {
             break;
         }
     }
     auto cst = reader.close();
     ASSERT_TRUE(cst.ok());
 }
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

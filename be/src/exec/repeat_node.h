@@ -50,7 +50,7 @@ private:
     // An integer bitmap list, it indicates the bit position of the exprs not null.
     std::vector<int64_t> _repeat_id_list;
     std::vector<std::vector<int64_t>> _grouping_list;
-    // Tulple id used for output, it has new slots.
+    // Tuple id used for output, it has new slots.
     TupleId _output_tuple_id;
     const TupleDescriptor* _tuple_desc;
 
@@ -60,4 +60,4 @@ private:
     RuntimeState* _runtime_state;
 };
 
-}
+} // namespace doris

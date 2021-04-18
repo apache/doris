@@ -19,5 +19,4 @@
 
 #include "runtime/runtime_state.h"
 
-namespace doris {
-}
+namespace doris {}

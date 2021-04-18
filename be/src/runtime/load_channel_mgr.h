@@ -17,17 +17,20 @@
 
 #pragma once
 
-#include <unordered_map>
+#include <ctime>
 #include <memory>
 #include <mutex>
 #include <thread>
-#include <ctime>
+#include <unordered_map>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gutil/ref_counted.h"
 #include "runtime/tablets_channel.h"
+#include "util/countdown_latch.h"
+#include "util/thread.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -35,8 +38,8 @@ namespace doris {
 class Cache;
 class LoadChannel;
 
-// LoadChannelMgr -> LoadChannel -> TabletsChannel -> DeltaWrtier
-// All dispached load data for this backend is routed from this class
+// LoadChannelMgr -> LoadChannel -> TabletsChannel -> DeltaWriter
+// All dispatched load data for this backend is routed from this class
 class LoadChannelMgr {
 public:
     LoadChannelMgr();
@@ -48,12 +51,10 @@ public:
     Status open(const PTabletWriterOpenRequest& request);
 
     Status add_batch(const PTabletWriterAddBatchRequest& request,
-                     google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                     int64_t* wait_lock_time_ns);
+                     google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
-
 
 private:
     // check if the total load mem consumption exceeds limit.
@@ -67,15 +68,15 @@ private:
     std::mutex _lock;
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
-    Cache* _lastest_success_channel = nullptr;
+    Cache* _last_success_channel = nullptr;
 
     // check the total load mem consumption of this Backend
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
+    CountDownLatch _stop_background_threads_latch;
     // thread to clean timeout load channels
-    std::thread _load_channels_clean_thread;
+    scoped_refptr<Thread> _load_channels_clean_thread;
     Status _start_load_channels_clean();
-    std::atomic<bool> _is_stopped;
 };
 
-}
+} // namespace doris

@@ -22,7 +22,6 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/exprs")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exprs")
 
 add_library(Exprs
-  base64.cpp
   encryption_functions.cpp
   aggregate_functions.cpp
   agg_fn_evaluator.cpp
@@ -54,12 +53,11 @@ add_library(Exprs
   slot_ref.cpp
   string_functions.cpp
   timestamp_functions.cpp
-  timezone_db.cpp
   tuple_is_null_predicate.cpp
   udf_builtins.cpp
   utility_functions.cpp
   info_func.cpp
-  hybird_set.cpp
+  hybrid_set.cpp
   json_functions.cpp
   operators.cpp
   hll_hash_function.cpp
@@ -67,4 +65,5 @@ add_library(Exprs
   new_agg_fn_evaluator.cc
   bitmap_function.cpp
   hll_function.cpp
-  grouping_sets_functions.cpp)
+  grouping_sets_functions.cpp
+  topn_function.cpp)

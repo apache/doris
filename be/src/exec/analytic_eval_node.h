@@ -22,8 +22,8 @@
 #include "exprs/expr.h"
 //#include "exprs/expr_context.h"
 #include "runtime/buffered_block_mgr2.h"
-#include "runtime/buffered_tuple_stream2.inline.h"
 #include "runtime/buffered_tuple_stream2.h"
+#include "runtime/buffered_tuple_stream2.inline.h"
 #include "runtime/tuple.h"
 #include "thrift/protocol/TDebugProtocol.h"
 
@@ -133,8 +133,7 @@ private:
     // add_result_tuple() with the index of the previous row in _input_stream. next_partition
     // indicates if the current row is the start of a new partition. stream_idx is the
     // index of the current input row from _input_stream.
-    void try_add_result_tuple_for_prev_row(bool next_partition, int64_t stream_idx,
-                                     TupleRow* row);
+    void try_add_result_tuple_for_prev_row(bool next_partition, int64_t stream_idx, TupleRow* row);
 
     // Determines if there is a window ending at the current row, and if so, calls
     // add_result_tuple() with the index of the current row in _input_stream. stream_idx is
@@ -165,7 +164,7 @@ private:
     // get_next_output_batch().
     int64_t num_output_rows_ready() const;
 
-    // Resets the slots in current_tuple_ that store the intermedatiate results for lead().
+    // Resets the slots in current_tuple_ that store the intermediate results for lead().
     // This is necessary to produce the default value (set by Init()).
     void reset_lead_fn_slots();
 
@@ -246,7 +245,7 @@ private:
     // may be a single result tuple per output row and _result_tuples.size() may be one
     // less than the row batch size, in which case we will process another input row batch
     // (inserting one result tuple per input row) before returning a row batch.
-    std::list<std::pair<int64_t, Tuple*> > _result_tuples;
+    std::list<std::pair<int64_t, Tuple*>> _result_tuples;
 
     // Index in _input_stream of the most recently added result tuple.
     int64_t _last_result_idx;
@@ -256,7 +255,7 @@ private:
     // window start bound is PRECEDING or FOLLOWING. Tuples in this list are deep copied
     // and owned by curr_window_tuple_pool_.
     // TODO: Remove and use BufferedTupleStream (needs support for multiple readers).
-    std::list<std::pair<int64_t, Tuple*> > _window_tuples;
+    std::list<std::pair<int64_t, Tuple*>> _window_tuples;
     TupleDescriptor* _child_tuple_desc;
 
     // Pools used to allocate result tuples (added to _result_tuples and later returned)
@@ -308,7 +307,7 @@ private:
     boost::scoped_ptr<RowBatch> _curr_child_batch;
 
     // Block manager client used by _input_stream. Not owned.
-    BufferedBlockMgr2::Client* client_;
+    BufferedBlockMgr2::Client* _block_mgr_client;
 
     // Buffers input rows added in process_child_batch() until enough rows are able to
     // be returned by get_next_output_batch(), in which case row batches are returned from
@@ -330,6 +329,6 @@ private:
     RuntimeProfile::Counter* _evaluation_timer;
 };
 
-}
+} // namespace doris
 
 #endif

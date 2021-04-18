@@ -36,27 +36,29 @@ under the License.
     2. Baidu AFS: afs for Baidu. Only be used inside Baidu.
     3. Baidu Object Storage(BOS): BOS on Baidu Cloud.
     4. Apache HDFS.
+    5. Amazon S3：Amazon S3。
 
-### Syntax: 
+### Syntax:
 
     LOAD LABEL load_label
     (
     data_desc1[, data_desc2, ...]
     )
-    WITH BROKER broker_name
-    [broker_properties]
+    WITH [BROKER broker_name | S3]
+    [load_properties]
     [opt_properties];
 
     1. load_label
 
         Unique load label within a database.
-        syntax: 
+        syntax:
         [database_name.]your_label
      
     2. data_desc
 
         To describe the data source. 
-        syntax: 
+        syntax:
+            [MERGE|APPEND|DELETE]
             DATA INFILE
             (
             "file_path1"[, file_path2, ...]
@@ -67,10 +69,12 @@ under the License.
             [COLUMNS TERMINATED BY "column_separator"]
             [FORMAT AS "file_type"]
             [(column_list)]
+            [PRECEDING FILTER predicate]
             [SET (k1 = func(k2))]
-            [WHERE predicate]    
+            [WHERE predicate] 
+            [DELETE ON label=true]
 
-        Explain: 
+        Explain:
             file_path: 
 
             File path. Support wildcard. Must match to file, not directory. 
@@ -79,7 +83,7 @@ under the License.
 
             Data will only be loaded to specified partitions. Data out of partition's range will be filtered. If not specifed, all partitions will be loaded.
                     
-            NEGATIVE: 
+            NEGATIVE:
             
             If this parameter is specified, it is equivalent to importing a batch of "negative" data to offset the same batch of data loaded before.
             
@@ -96,14 +100,18 @@ under the License.
 
             Used to specify the type of imported file, such as parquet, orc, csv. Default values are determined by the file suffix name. 
  
-            column_list: 
+            column_list:
 
             Used to specify the correspondence between columns in the import file and columns in the table.
 
             When you need to skip a column in the import file, specify it as a column name that does not exist in the table.
 
-            syntax: 
+            syntax:
             (col_name1, col_name2, ...)
+
+            PRECEDING FILTER predicate:
+
+            Used to filter original data. The original data is the data without column mapping and transformation. The user can filter the data before conversion, select the desired data, and then perform the conversion.
             
             SET:
             
@@ -116,12 +124,20 @@ under the License.
             WHERE:
           
             After filtering the transformed data, data that meets where predicates can be loaded. Only column names in tables can be referenced in WHERE statements.
+
+            merge_type:
+
+            The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete on condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
+
+            delete_on_predicates:
+
+            Only used when merge type is MERGE
             
     3. broker_name
 
         The name of the Broker used can be viewed through the `show broker` command.
 
-    4. broker_properties
+    4. load_properties
 
         Used to provide Broker access to data sources. Different brokers, and different access methods, need to provide different information.
 
@@ -149,24 +165,37 @@ under the License.
 
             kerberos authentication: 
             hadoop.security.authentication = kerberos
-            kerberos_principal:  kerberos's principal
-            kerberos_keytab:  path of kerberos's keytab file. This file should be able to access by Broker
+            kerberos_principal: kerberos's principal
+            kerberos_keytab: path of kerberos's keytab file. This file should be able to access by Broker
             kerberos_keytab_content: Specify the contents of the KeyTab file in Kerberos after base64 encoding. This option is optional from the kerberos_keytab configuration. 
 
             namenode HA: 
             By configuring namenode HA, new namenode can be automatically identified when the namenode is switched
-            dfs.nameservices: hdfs service name，customize，eg: "dfs.nameservices" = "my_ha"
+            dfs.nameservices: hdfs service name, customize, eg: "dfs.nameservices" = "my_ha"
             dfs.ha.namenodes.xxx: Customize the name of a namenode, separated by commas. XXX is a custom name in dfs. name services, such as "dfs. ha. namenodes. my_ha" = "my_nn"
             dfs.namenode.rpc-address.xxx.nn: Specify RPC address information for namenode, where NN denotes the name of the namenode configured in dfs.ha.namenodes.xxxx, such as: "dfs.namenode.rpc-address.my_ha.my_nn"= "host:port"
             dfs.client.failover.proxy.provider: Specify the provider that client connects to namenode by default: org. apache. hadoop. hdfs. server. namenode. ha. Configured Failover ProxyProvider.
+        4. Amazon S3
+
+            fs.s3a.access.key：AmazonS3的access key
+            fs.s3a.secret.key：AmazonS3的secret key
+            fs.s3a.endpoint：AmazonS3的endpoint 
+        5. If using the S3 protocol to directly connect to the remote storage, you need to specify the following attributes 
+
+            (
+                "AWS_ENDPOINT" = "",
+                "AWS_ACCESS_KEY" = "",
+                "AWS_SECRET_KEY"="",
+                "AWS_REGION" = ""
+            )
 
     4. opt_properties
 
         Used to specify some special parameters. 
-        Syntax: 
+        Syntax:
         [PROPERTIES ("key"="value", ...)]
         
-        You can specify the following parameters: 
+        You can specify the following parameters:
         
         timout: Specifies the timeout time for the import operation. The default timeout is 4 hours per second.
 
@@ -190,7 +219,7 @@ under the License.
 
 ## example
 
-    1. Load a batch of data from HDFS, specify timeout and filtering ratio. Use the broker with the inscription my_hdfs_broker. Simple authentication.
+    1. Load a batch of data from HDFS, specify timeout and filtering ratio. Use the broker with the plaintext ugi my_hdfs_broker. Simple authentication.
 
         LOAD LABEL example_db.label1
         (
@@ -326,7 +355,8 @@ under the License.
     
     7. Load data into tables containing HLL columns, which can be columns in tables or columns in data
     
-        If there are three columns in the table (id, v1, v2, v3). The V1 and V2 columns are HLL columns. The imported source file has three columns. Then (column_list) declares that the first column is id, and the second and third columns are temporarily named k1, k2.
+        If there are 4 columns in the table are (id, v1, v2, v3). The v1 and v2 columns are hll columns. The imported source file has 3 columns, where the first column in the table = the first column in the source file, and the second and third columns in the table are the second and third columns in the source file, and the third column in the table is transformed. The four columns do not exist in the source file.
+        Then (column_list) declares that the first column is id, and the second and third columns are temporarily named k1, k2.
 
         In SET, the HLL column in the table must be specifically declared hll_hash. The V1 column in the table is equal to the hll_hash (k1) column in the original data.The v3 column in the table does not have a corresponding value in the original data, and empty_hll is used to supplement the default value.
 
@@ -422,6 +452,41 @@ under the License.
          SET (data_time=str_to_date(data_time, '%Y-%m-%d %H%%3A%i%%3A%s'))
         ) 
         WITH BROKER "hdfs" ("username"="user", "password"="pass");
+
+    13. Load a batch of data from HDFS, specify timeout and filtering ratio. Use the broker with the plaintext ugi my_hdfs_broker. Simple authentication. delete the data when v2 >100, other append
+
+        LOAD LABEL example_db.label1
+        (
+        MERGE DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+        INTO TABLE `my_table`
+        COLUMNS TERMINATED BY "\t"
+        (k1, k2, k3, v2, v1)
+        )
+        DELETE ON v2 >100
+        WITH BROKER my_hdfs_broker
+        (
+        "username" = "hdfs_user",
+        "password" = "hdfs_passwd"
+        )
+        PROPERTIES
+        (
+        "timeout" = "3600",
+        "max_filter_ratio" = "0.1"
+        );
+
+    14. Filter the original data first, and perform column mapping, conversion and filtering operations
+
+        LOAD LABEL example_db.label_filter
+        (
+         DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+         INTO TABLE `tbl1`
+         COLUMNS TERMINATED BY ","
+         (k1,k2,v1,v2)
+         PRECEDING FILTER k1 > 2
+         SET (k1 = k1 +1)
+         WHERE k1 > 3
+        ) 
+        with BROKER "hdfs" ("username"="user", "password"="pass");
      
 ## keyword
 

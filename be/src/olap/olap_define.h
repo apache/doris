@@ -18,11 +18,11 @@
 #ifndef DORIS_BE_SRC_OLAP_OLAP_DEFINE_H
 #define DORIS_BE_SRC_OLAP_OLAP_DEFINE_H
 
+#include <stdint.h>
+
 #include <cstdlib>
 #include <sstream>
 #include <string>
-
-#include <stdint.h>
 
 namespace doris {
 // 以下是一些统一的define
@@ -44,7 +44,7 @@ static const uint32_t OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE = 10 * 1024;
 // 此为百分比, 字典大小/原数据大小小于该百分比时, 启用字典编码
 static const uint32_t OLAP_DEFAULT_COLUMN_DICT_KEY_SIZE_THRESHOLD = 80; // 30%
 // LRU Cache Key的大小
-static const size_t OLAP_LRU_CACHE_MAX_KEY_LENTH = OLAP_MAX_PATH_LEN * 2;
+static const size_t OLAP_LRU_CACHE_MAX_KEY_LENGTH = OLAP_MAX_PATH_LEN * 2;
 
 static const uint64_t OLAP_FIX_HEADER_MAGIC_NUMBER = 0;
 // 执行be/ce时默认的候选集大小
@@ -64,7 +64,6 @@ enum OLAPDataVersion {
 };
 
 // storage_root_path下不同类型文件夹名称
-static const std::string ALIGN_TAG_PREFIX = "/align_tag";
 static const std::string MINI_PREFIX = "/mini_download";
 static const std::string CLUSTER_ID_PREFIX = "/cluster_id";
 static const std::string DATA_PREFIX = "/data";
@@ -126,8 +125,8 @@ enum OLAPStatus {
     OLAP_ERR_UB_NETWORK_ERROR = -118,
     OLAP_ERR_FILE_FORMAT_ERROR = -119,
     OLAP_ERR_EVAL_CONJUNCTS_ERROR = -120,
-    OLAP_ERR_COPY_FILE_ERROR =  -121,
-    OLAP_ERR_FILE_ALREADY_EXIST =  -122,
+    OLAP_ERR_COPY_FILE_ERROR = -121,
+    OLAP_ERR_FILE_ALREADY_EXIST = -122,
 
     // common errors codes
     // [-200, -300)
@@ -165,6 +164,9 @@ enum OLAPStatus {
     OLAP_ERR_DISK_REACH_CAPACITY_LIMIT = -232,
     OLAP_ERR_TOO_MANY_TRANSACTIONS = -233,
     OLAP_ERR_INVALID_SNAPSHOT_VERSION = -234,
+    OLAP_ERR_TOO_MANY_VERSION = -235,
+    OLAP_ERR_NOT_INITIALIZED = -236,
+    OLAP_ERR_ALREADY_CANCELLED = -237,
 
     // CommandExecutor
     // [-300, -400)
@@ -194,6 +196,7 @@ enum OLAPStatus {
     OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR = -503,
     OLAP_ERR_DELETE_VERSION_ERROR = -504,
     OLAP_ERR_GC_SCAN_PATH_ERROR = -505,
+    OLAP_ERR_ENGINE_INSERT_OLD_TABLET = -506,
 
     // FetchHandler
     // [-600, -700)
@@ -213,6 +216,7 @@ enum OLAPStatus {
     OLAP_ERR_READER_GET_ITERATOR_ERROR = -701,
     OLAP_ERR_CAPTURE_ROWSET_READER_ERROR = -702,
     OLAP_ERR_READER_READING_ERROR = -703,
+    OLAP_ERR_READER_INITIALIZE_ERROR = -704,
 
     // BaseCompaction
     // [-800, -900)
@@ -229,6 +233,7 @@ enum OLAPStatus {
     OLAP_ERR_BE_INVALID_NEED_MERGED_VERSIONS = -810,
     OLAP_ERR_BE_ERROR_DELETE_ACTION = -811,
     OLAP_ERR_BE_SEGMENTS_OVERLAPPING = -812,
+    OLAP_ERR_BE_CLONE_OCCURRED = -813,
 
     // PUSH
     // [-900, -1000)
@@ -305,6 +310,8 @@ enum OLAPStatus {
     OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED = -1603,
     OLAP_ERR_SCHEMA_CHANGE_INFO_INVALID = -1604,
     OLAP_ERR_QUERY_SPLIT_KEY_ERR = -1605,
+    //Error caused by a data quality issue during schema change/materialized view
+    OLAP_ERR_DATA_QUALITY_ERR = -1606,
 
     // Column File
     // [-1700, -1800)
@@ -336,6 +343,7 @@ enum OLAPStatus {
     OLAP_ERR_CUMULATIVE_INVALID_NEED_MERGED_VERSIONS = -2004,
     OLAP_ERR_CUMULATIVE_ERROR_DELETE_ACTION = -2005,
     OLAP_ERR_CUMULATIVE_MISS_VERSION = -2006,
+    OLAP_ERR_CUMULATIVE_CLONE_OCCURRED = -2007,
 
     // OLAPMeta
     // [-3000, -3100)
@@ -346,7 +354,7 @@ enum OLAPStatus {
     OLAP_ERR_META_PUT = -3004,
     OLAP_ERR_META_ITERATOR = -3005,
     OLAP_ERR_META_DELETE = -3006,
-    OLAP_ERR_META_ALREADY_EXIST  = -3007,
+    OLAP_ERR_META_ALREADY_EXIST = -3007,
 
     // Rowset
     // [-3100, -3200)
@@ -395,28 +403,30 @@ const std::string ROWSET_ID_PREFIX = "s_";
 #endif
 
 #ifndef RETURN_NOT_OK
-#define RETURN_NOT_OK(s) do {                           \
-    OLAPStatus _s = (s);                                \
-    if (OLAP_UNLIKELY(_s != OLAP_SUCCESS)) {            \
-        return _s;                                      \
-    }                                                   \
-} while (0);
+#define RETURN_NOT_OK(s)                         \
+    do {                                         \
+        OLAPStatus _s = (s);                     \
+        if (OLAP_UNLIKELY(_s != OLAP_SUCCESS)) { \
+            return _s;                           \
+        }                                        \
+    } while (0);
 #endif
 
 #ifndef RETURN_NOT_OK_LOG
-#define RETURN_NOT_OK_LOG(s, msg) do {                  \
-    OLAPStatus _s = (s);                                \
-    if (OLAP_UNLIKELY(_s != OLAP_SUCCESS)) {            \
-        LOG(WARNING) << (msg) << "[res=" << _s <<"]";   \
-        return _s;                                      \
-    }                                                   \
-} while (0);
+#define RETURN_NOT_OK_LOG(s, msg)                          \
+    do {                                                   \
+        OLAPStatus _s = (s);                               \
+        if (OLAP_UNLIKELY(_s != OLAP_SUCCESS)) {           \
+            LOG(WARNING) << (msg) << "[res=" << _s << "]"; \
+            return _s;                                     \
+        }                                                  \
+    } while (0);
 #endif
 
 // Declare copy constructor and equal operator as private
 #ifndef DISALLOW_COPY_AND_ASSIGN
 #define DISALLOW_COPY_AND_ASSIGN(type_t) \
-    type_t& operator=(const type_t&); \
+    type_t& operator=(const type_t&);    \
     type_t(const type_t&);
 #endif
 
@@ -424,43 +434,45 @@ const std::string ROWSET_ID_PREFIX = "s_";
 #define OLAP_UNUSED_ARG(a) (void)(a)
 
 // thread-safe(gcc only) method for obtaining singleton
-#define DECLARE_SINGLETON(classname) \
-    public: \
-        static classname *instance() { \
-            classname *p_instance = NULL; \
-            try { \
-                static classname s_instance; \
-                p_instance = &s_instance; \
-            } catch (...) { \
-                p_instance = NULL; \
-            } \
-            return p_instance; \
-        } \
-    protected: \
-        classname(); \
-    private: \
-        ~classname();
+#define DECLARE_SINGLETON(classname)     \
+public:                                  \
+    static classname* instance() {       \
+        classname* p_instance = NULL;    \
+        try {                            \
+            static classname s_instance; \
+            p_instance = &s_instance;    \
+        } catch (...) {                  \
+            p_instance = NULL;           \
+        }                                \
+        return p_instance;               \
+    }                                    \
+                                         \
+protected:                               \
+    classname();                         \
+                                         \
+private:                                 \
+    ~classname();
 
-#define SAFE_DELETE(ptr) \
-    do { \
+#define SAFE_DELETE(ptr)   \
+    do {                   \
         if (NULL != ptr) { \
-            delete ptr; \
-            ptr = NULL; \
-        } \
+            delete ptr;    \
+            ptr = NULL;    \
+        }                  \
     } while (0)
 
 #define SAFE_DELETE_ARRAY(ptr) \
-    do { \
-        if (NULL != ptr) { \
-            delete [] ptr; \
-            ptr = NULL; \
-        } \
+    do {                       \
+        if (NULL != ptr) {     \
+            delete[] ptr;      \
+            ptr = NULL;        \
+        }                      \
     } while (0)
 
 #ifndef BUILD_VERSION
-#define BUILD_VERSION "Unknow"
+#define BUILD_VERSION "Unknown"
 #endif
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_OLAP_DEFINE_H

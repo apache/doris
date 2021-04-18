@@ -15,26 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <memory>
 #include "olap/rowset/rowset_factory.h"
+
+#include <memory>
+
+#include "beta_rowset.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_writer.h"
-#include "beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_writer.h"
 
 namespace doris {
 
-OLAPStatus RowsetFactory::create_rowset(const TabletSchema* schema,
-                                        const std::string& rowset_path,
-                                        RowsetMetaSharedPtr rowset_meta,
-                                        RowsetSharedPtr* rowset) {
+OLAPStatus RowsetFactory::create_rowset(const TabletSchema* schema, const std::string& rowset_path,
+                                        RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
     if (rowset_meta->rowset_type() == ALPHA_ROWSET) {
         rowset->reset(new AlphaRowset(schema, rowset_path, rowset_meta));
         return (*rowset)->init();
     }
-    if (rowset_meta->rowset_type() == BETA_ROWSET)  {
+    if (rowset_meta->rowset_type() == BETA_ROWSET) {
         rowset->reset(new BetaRowset(schema, rowset_path, rowset_meta));
         return (*rowset)->init();
     }

@@ -25,12 +25,12 @@ class MemPool;
 class RowBatch;
 class TupleRow;
 
-// Node that calulate the intersect results of its children by either materializing their
+// Node that calculate the intersect results of its children by either materializing their
 // evaluated expressions into row batches or passing through (forwarding) the
 // batches if the input tuple layout is identical to the output tuple layout
 // and expressions don't need to be evaluated. The children should be ordered
 // such that all passthrough children come before the children that need
-// materialization. The interscet node pulls from its children sequentially, i.e.
+// materialization. The intersect node pulls from its children sequentially, i.e.
 // it exhausts one child completely before moving on to the next one.
 class IntersectNode : public SetOperationNode {
 public:

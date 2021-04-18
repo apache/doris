@@ -50,5 +50,5 @@ mysql> SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 2);
 | d                                                           |
 +-------------------------------------------------------------+
 ```
-##keyword
+## keyword
 REGEXP_EXTRACT,REGEXP,EXTRACT

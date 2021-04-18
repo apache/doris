@@ -24,25 +24,24 @@
 namespace doris {
 
 // set the 1st param if the second param is smaller.
-template<typename T> inline void set_if_smaller(T* num1_ptr, const T num2) {
+template <typename T>
+inline void set_if_smaller(T* num1_ptr, const T num2) {
     if (*num1_ptr > num2) {
         *num1_ptr = num2;
     }
 }
 
 // set the 1st param if the second param is smaller.
-template<typename T> inline void set_if_bigger(T* num1_ptr, const T num2) {
+template <typename T>
+inline void set_if_bigger(T* num1_ptr, const T num2) {
     if (*num1_ptr < num2) {
         *num1_ptr = num2;
     }
 }
 
 // util function: check if there is error and fix it.
-inline void fix_intg_frac_error(
-        const int32_t len,
-        int32_t* int_len,
-        int32_t* frac_len,
-        int32_t* error) {
+inline void fix_intg_frac_error(const int32_t len, int32_t* int_len, int32_t* frac_len,
+                                int32_t* error) {
     if (*int_len + *frac_len > len) {
         if (*int_len > len) {
             *int_len = len;
@@ -70,7 +69,7 @@ inline void add(const int32_t value1, const int32_t value2, int32_t* to, int32_t
 
 // to = value1 - value2
 inline void sub(const int32_t value1, const int32_t value2, int32_t* to, int32_t* carry) {
-    int32_t a = value1 - value2 - *carry ;
+    int32_t a = value1 - value2 - *carry;
     *carry = (a < 0) ? 1 : 0;
     if (*carry) {
         a += DIG_BASE;
@@ -81,10 +80,10 @@ inline void sub(const int32_t value1, const int32_t value2, int32_t* to, int32_t
 // Note: the input carry may > 1, after the summation process of three number (value1, value2, *carry),
 //      the maximum value of carry may be 2, when sum() >= 2 * DIG_BASE.
 inline void add2(const int32_t value1, const int32_t value2, int32_t* to, int32_t* carry) {
-    // NOTE: When three int32_t integers (the maximum value of each number is 10 ^ 9 - 1) are added, 
-    // because the maximum value of int32_t is 2147483647, the result may overflow, so it is 
+    // NOTE: When three int32_t integers (the maximum value of each number is 10 ^ 9 - 1) are added,
+    // because the maximum value of int32_t is 2147483647, the result may overflow, so it is
     // necessary to convert int32_t to int64_t.
-    int64_t sum = (int64_t) value1 + value2 + *carry;
+    int64_t sum = (int64_t)value1 + value2 + *carry;
     *carry = (sum >= DIG_BASE) ? 1 : 0;
     if (*carry) {
         sum -= DIG_BASE;
@@ -94,12 +93,12 @@ inline void add2(const int32_t value1, const int32_t value2, int32_t* to, int32_
         ++(*carry);
     }
     // the value of sum must small than DIG_BASE here
-    *to = (int32_t) sum;
+    *to = (int32_t)sum;
 }
 
 // to = value1 - value2 ƒ
 inline void sub2(const int32_t value1, const int32_t value2, int32_t* to, int32_t* carry) {
-    int32_t a = value1 - value2 - *carry ;
+    int32_t a = value1 - value2 - *carry;
     *carry = (a < 0) ? 1 : 0;
     if (*carry) {
         a += DIG_BASE;
@@ -111,10 +110,7 @@ inline void sub2(const int32_t value1, const int32_t value2, int32_t* to, int32_
     *to = a;
 }
 
-int32_t do_add(
-        const DecimalValue& value1,
-        const DecimalValue& value2,
-        DecimalValue* to) {
+int32_t do_add(const DecimalValue& value1, const DecimalValue& value2, DecimalValue* to) {
     int32_t intg1 = round_up(value1._int_length);
     int32_t intg2 = round_up(value2._int_length);
     int32_t frac1 = round_up(value1._frac_length);
@@ -123,9 +119,9 @@ int32_t do_add(
     int32_t intg0 = std::max(intg1, intg2);
 
     // Is there a need for extra word because of carry?
-    int32_t first_big_digit_sum = intg1 > intg2 ? value1._buffer[0] :
-        intg2 > intg1 ? value2._buffer[0] :
-        value1._buffer[0] + value2._buffer[0];
+    int32_t first_big_digit_sum = intg1 > intg2   ? value1._buffer[0]
+                                  : intg2 > intg1 ? value2._buffer[0]
+                                                  : value1._buffer[0] + value2._buffer[0];
     if (first_big_digit_sum > DIG_MAX - 1) {
         // yes, there is
         ++intg0;
@@ -141,12 +137,12 @@ int32_t do_add(
         return error;
     }
 
-    int32_t *buf0 = to->_buffer + intg0 + frac0;
+    int32_t* buf0 = to->_buffer + intg0 + frac0;
     to->_int_length = intg0 * DIG_PER_DEC1;
     to->_frac_length = std::max(value1._frac_length, value2._frac_length);
     if (error) { // E_DEC_TRUNCATED
         int32_t to_frac_length = to->_frac_length;
-        //ATTN: _int_lenggh is bit-field struct member, can not take address directly.
+        //ATTN: _int_length is bit-field struct member, can not take address directly.
         set_if_smaller(&to_frac_length, frac0 * DIG_PER_DEC1);
         to->_frac_length = to_frac_length;
         set_if_smaller(&frac1, frac0);
@@ -156,10 +152,10 @@ int32_t do_add(
     }
 
     // part 1 - max(frac) ... min (frac)
-    const int32_t *buf1 = nullptr;
-    const int32_t *buf2 = nullptr;
-    const int32_t *stop = nullptr;
-    const int32_t *stop2 = nullptr;
+    const int32_t* buf1 = nullptr;
+    const int32_t* buf2 = nullptr;
+    const int32_t* stop = nullptr;
+    const int32_t* stop2 = nullptr;
     if (frac1 > frac2) {
         buf1 = value1._buffer + intg1 + frac1;
         stop = value1._buffer + intg1 + frac2;
@@ -202,7 +198,7 @@ int32_t do_add(
 
 // to=value1-value2.
 // if to==0, return -1/0/+1 - the result of the comparison
-int do_sub(const DecimalValue& value1, const DecimalValue& value2, DecimalValue *to) {
+int do_sub(const DecimalValue& value1, const DecimalValue& value2, DecimalValue* to) {
     int32_t intg1 = round_up(value1._int_length);
     int32_t intg2 = round_up(value2._int_length);
     int32_t frac1 = round_up(value1._frac_length);
@@ -226,20 +222,20 @@ int do_sub(const DecimalValue& value1, const DecimalValue& value2, DecimalValue 
             buf1++;
         }
         start1 = buf1;
-        intg1 = (int32_t) (stop1 - buf1);
+        intg1 = (int32_t)(stop1 - buf1);
     }
     if (*buf2 == 0) {
         while (buf2 < stop2 && *buf2 == 0) {
             buf2++;
         }
         start2 = buf2;
-        intg2 = (int32_t) (stop2 - buf2);
+        intg2 = (int32_t)(stop2 - buf2);
     }
     if (intg2 > intg1) {
         carry = 1;
     } else if (intg2 == intg1) {
-        const int32_t *end1 = stop1 + (frac1 - 1);
-        const int32_t *end2 = stop2 + (frac2 - 1);
+        const int32_t* end1 = stop1 + (frac1 - 1);
+        const int32_t* end2 = stop2 + (frac2 - 1);
         // ignore trailing zeroes
         while ((buf1 <= end1) && (*end1 == 0)) {
             end1--;
@@ -248,8 +244,8 @@ int do_sub(const DecimalValue& value1, const DecimalValue& value2, DecimalValue 
             end2--;
         }
 
-        frac1 = (int32_t) (end1 - stop1) + 1;
-        frac2 = (int32_t) (end2 - stop2) + 1;
+        frac1 = (int32_t)(end1 - stop1) + 1;
+        frac2 = (int32_t)(end2 - stop2) + 1;
         while (buf1 <= end1 && buf2 <= end2 && *buf1 == *buf2) {
             buf1++;
             buf2++;
@@ -262,10 +258,10 @@ int do_sub(const DecimalValue& value1, const DecimalValue& value2, DecimalValue 
                 carry = 0;
             }
         } else {
-            if (buf2 <= end2){ // value2 is longer
+            if (buf2 <= end2) { // value2 is longer
                 carry = 1;
-            } else { // short-circuit everything: value1 == value2
-                if (to == nullptr) {// for decimal_cmp()
+            } else {                 // short-circuit everything: value1 == value2
+                if (to == nullptr) { // for decimal_cmp()
                     return 0;
                 }
                 to->set_to_zero();
@@ -379,13 +375,13 @@ int do_mul(const DecimalValue& value1, const DecimalValue& value2, DecimalValue*
     int32_t temp_intg = intg0;
     // if E_DEC_TRUNCATE, use to
     int32_t temp_frac = frac0;
-    fix_intg_frac_error(to->_buffer_length, &intg0, &frac0, &error);  // bound size
+    fix_intg_frac_error(to->_buffer_length, &intg0, &frac0, &error); // bound size
     to->_sign = (value1._sign != value2._sign) ? true : false;
     to->_int_length = intg0 * DIG_PER_DEC1;
     to->_frac_length = value1._frac_length + value2._frac_length; // store size in digits
 
     int32_t temp_to_frac_length = to->_frac_length;
-    //ATTN: _int_lenggh is bit-field struct member, can not take address directly.
+    //ATTN: _int_length is bit-field struct member, can not take address directly.
     set_if_smaller(&temp_to_frac_length, NOT_FIXED_DEC);
     to->_frac_length = temp_to_frac_length;
     if (error) {
@@ -403,7 +399,7 @@ int do_mul(const DecimalValue& value1, const DecimalValue& value2, DecimalValue*
             intg1 -= temp_frac;
             intg2 -= temp_intg - temp_frac;
             frac1 = frac2 = 0; // frac0 is already 0 here
-        } else { // bounded fract part, E_DEC_TRUNCATE
+        } else {               // bounded fract part, E_DEC_TRUNCATE
             temp_frac -= frac0;
             temp_intg = temp_frac >> 1;
             if (frac1 <= frac2) {
@@ -426,11 +422,9 @@ int do_mul(const DecimalValue& value1, const DecimalValue& value2, DecimalValue*
     for (buf1 += frac1 - 1; buf1 >= stop1; buf1--, start0--) {
         carry = 0;
         for (buf0 = start0, buf2 = start2; buf2 >= stop2; buf2--, buf0--) {
-            int64_t mul_result = ((int64_t) *buf1)
-                    * ((int64_t) *buf2);
-            int32_t high = (int32_t) (mul_result / DIG_BASE);
-            int32_t low =
-                    (int32_t) (mul_result - ((int64_t)high) * DIG_BASE);
+            int64_t mul_result = ((int64_t)*buf1) * ((int64_t)*buf2);
+            int32_t high = (int32_t)(mul_result / DIG_BASE);
+            int32_t low = (int32_t)(mul_result - ((int64_t)high) * DIG_BASE);
             add2(*buf0, low, buf0, &carry);
             carry += high;
         }
@@ -451,9 +445,9 @@ int do_mul(const DecimalValue& value1, const DecimalValue& value2, DecimalValue*
 
     // Now we have to check for '-0.000' case
     if (to->_sign) {
-        int32_t *buf = to->_buffer;
-        int32_t *end = to->_buffer + intg0 + frac0;
-        for (;buf < end; ++buf) {
+        int32_t* buf = to->_buffer;
+        int32_t* end = to->_buffer + intg0 + frac0;
+        for (; buf < end; ++buf) {
             if (*buf) {
                 break;
             }
@@ -473,7 +467,7 @@ int do_mul(const DecimalValue& value1, const DecimalValue& value2, DecimalValue*
         d_to_move--;
     }
     if (to->_buffer < buf1) {
-        int32_t *cur_d = to->_buffer;
+        int32_t* cur_d = to->_buffer;
         for (; d_to_move--; cur_d++, buf1++) {
             *cur_d = *buf1;
         }
@@ -483,11 +477,8 @@ int do_mul(const DecimalValue& value1, const DecimalValue& value2, DecimalValue*
 }
 
 // if N1/N2 mod==NULL; if N1%N2 to==NULL;
-int do_div_mod(
-            const DecimalValue& value1,
-            const DecimalValue& value2,
-            DecimalValue* to,
-            DecimalValue* mod) {
+int do_div_mod(const DecimalValue& value1, const DecimalValue& value2, DecimalValue* to,
+               DecimalValue* mod) {
     int32_t frac1 = round_up(value1._frac_length) * DIG_PER_DEC1;
     int32_t frac2 = round_up(value2._frac_length) * DIG_PER_DEC1;
     int32_t prec1 = value1._int_length + frac1;
@@ -577,7 +568,7 @@ int do_div_mod(
     int32_t* buff0 = to->_buffer;
     int32_t* stop0 = buff0 + intg0 + frac0;
     int32_t div_mod = !(mod); // true when do div, false when do mod.
-    if (div_mod) { // do div
+    if (div_mod) {            // do div
         while (dintg++ < 0 && buff0 < &(to->_buffer[to->_buffer_length])) {
             *buff0++ = 0;
         }
@@ -642,7 +633,7 @@ int do_div_mod(
                 if (start2[1] * guess > (x - guess * start2[0]) * DIG_BASE + y) {
                     guess--;
                 }
-                if (start2[1] * guess > (x - guess * start2[0]) * DIG_BASE + y){
+                if (start2[1] * guess > (x - guess * start2[0]) * DIG_BASE + y) {
                     guess--;
                 }
             }
@@ -680,16 +671,16 @@ int do_div_mod(
         ++start1;
     }
 
-    do{
+    do {
         if (mod) {
-        // now the result is in tmp1, it has
-        //  intg=prec1-frac1
-        //  frac=max(frac1, frac2)=to->frac
+            // now the result is in tmp1, it has
+            //  intg=prec1-frac1
+            //  frac=max(frac1, frac2)=to->frac
             if (dcarry) {
                 *--start1 = dcarry;
             }
             buff0 = to->_buffer;
-            intg0 = (int) (round_up(prec1 - frac1) - (start1 - tmp1));
+            intg0 = (int)(round_up(prec1 - frac1) - (start1 - tmp1));
             frac0 = round_up(to->_frac_length);
             error = E_DEC_OK;
             if (frac0 == 0 && intg0 == 0) {
@@ -716,7 +707,7 @@ int do_div_mod(
                     break;
                 }
                 stop1 = start1 + frac0 + intg0;
-                to->_int_length = std::min(intg0 * DIG_PER_DEC1, (int) value2._int_length);
+                to->_int_length = std::min(intg0 * DIG_PER_DEC1, (int)value2._int_length);
             }
             if (intg0 + frac0 > to->_buffer_length) {
                 stop1 -= frac0 + intg0 - to->_buffer_length;
@@ -728,7 +719,7 @@ int do_div_mod(
                 *buff0++ = *start1++;
             }
         }
-    }while(0);
+    } while (0);
 
     delete[] tmp1;
     int32_t to_int_length = 0;
@@ -736,7 +727,7 @@ int do_div_mod(
     to->_int_length = to_int_length;
     if (to->_buffer != first_no_zero) {
         memmove(to->_buffer, first_no_zero,
-            (round_up(to->_int_length) + round_up(to->_frac_length)) * sizeof(int32_t));
+                (round_up(to->_int_length) + round_up(to->_frac_length)) * sizeof(int32_t));
     }
     return error;
 }
@@ -762,19 +753,19 @@ DecimalValue operator-(const DecimalValue& v1, const DecimalValue& v2) {
     return result;
 }
 
-DecimalValue operator*(const DecimalValue& v1, const DecimalValue& v2){
+DecimalValue operator*(const DecimalValue& v1, const DecimalValue& v2) {
     DecimalValue result;
     do_mul(v1, v2, &result);
     return result;
 }
 
-DecimalValue operator/(const DecimalValue& v1, const DecimalValue& v2){
+DecimalValue operator/(const DecimalValue& v1, const DecimalValue& v2) {
     DecimalValue result;
     do_div_mod(v1, v2, &result, nullptr);
     return result;
 }
 
-DecimalValue operator%(const DecimalValue& v1, const DecimalValue& v2){
+DecimalValue operator%(const DecimalValue& v1, const DecimalValue& v2) {
     DecimalValue result;
     do_div_mod(v1, v2, nullptr, &result);
     return result;
@@ -835,14 +826,14 @@ int DecimalValue::parse_from_str(const char* decimal_str, int32_t length) {
     while (begin < end && std::isdigit(*begin)) {
         ++begin;
     }
-    int32_t int_len = (int32_t) (begin - temp_ptr);
+    int32_t int_len = (int32_t)(begin - temp_ptr);
     int32_t frac_len = 0;
     if (begin < end && *begin == '.') {
         frac_ptr = begin + 1;
         while (frac_ptr < end && std::isdigit(*frac_ptr)) {
             ++frac_ptr;
         }
-        frac_len = frac_ptr - begin - 1;  // -1 for char '.'
+        frac_len = frac_ptr - begin - 1; // -1 for char '.'
     } else {
         frac_len = 0;
         frac_ptr = begin;
@@ -904,9 +895,9 @@ int DecimalValue::parse_from_str(const char* decimal_str, int32_t length) {
     // TODO: we do not support decimal in scientific notation
     if ((frac_ptr + 1) < end && (*frac_ptr == 'e' || *frac_ptr == 'E')) {
         // return E_DEC_BAD_NUM;
-        int64_t exponent = strtoll(frac_ptr + 1, (char**) &end, 10);
+        int64_t exponent = strtoll(frac_ptr + 1, (char**)&end, 10);
         if (end != frac_ptr + 1) { // If at least one digit
-            if (errno) { // system error number, it is thread local
+            if (errno) {           // system error number, it is thread local
                 set_to_zero();
                 return E_DEC_BAD_NUM;
             }
@@ -942,7 +933,7 @@ std::string DecimalValue::to_string() const {
         --buff;
     }
 
-    int32_t actual_frac = (int32_t) (buff - frac_begin) + 1;
+    int32_t actual_frac = (int32_t)(buff - frac_begin) + 1;
     int32_t actual_frac_len = actual_frac * DIG_PER_DEC1;
 
     // Count the number of zeroes at the end of last "big digit" number
@@ -975,8 +966,7 @@ std::string DecimalValue::to_string(int scale) const {
     if (temp_intg == 0) {
         int_str_length = 1;
     }
-    int32_t length = (_sign ? 1 : 0)
-        + int_str_length + (temp_frac ? 1 : 0) + temp_frac;
+    int32_t length = (_sign ? 1 : 0) + int_str_length + (temp_frac ? 1 : 0) + temp_frac;
 
     char result_str[DECIMAL_MAX_STR_LENGTH + 1];
     char* result_ptr = result_str;
@@ -1024,7 +1014,7 @@ std::string DecimalValue::to_string(int scale) const {
 
 // NOTE: only change abstract value, do not change sign
 void DecimalValue::to_max_decimal(int32_t precision, int32_t frac) {
-    int32_t *buf = _buffer;
+    int32_t* buf = _buffer;
 
     _int_length = precision - frac;
     int32_t intpart = precision - frac;
@@ -1054,7 +1044,7 @@ std::size_t hash_value(DecimalValue const& value) {
     return value.hash(0);
 }
 
-int DecimalValue::round(DecimalValue *to, int scale, DecimalRoundMode mode) {
+int DecimalValue::round(DecimalValue* to, int scale, DecimalRoundMode mode) {
     int frac0 = scale > 0 ? round_up(scale) : (scale + 1) / DIG_PER_DEC1;
     int frac1 = round_up(_frac_length);
     int intg0 = round_up(_int_length);
@@ -1078,12 +1068,12 @@ int DecimalValue::round(DecimalValue *to, int scale, DecimalRoundMode mode) {
         round_digit = _sign ? 10 : 0;
         break;
     case FLOOR:
-        round_digit = _sign ? 0 : 10; 
+        round_digit = _sign ? 0 : 10;
         break;
     case TRUNCATE:
-        round_digit = 10; 
+        round_digit = 10;
         break;
-    default: 
+    default:
         return E_DEC_ERROR;
     }
 
@@ -1100,8 +1090,8 @@ int DecimalValue::round(DecimalValue *to, int scale, DecimalRoundMode mode) {
     }
     // normal case copy
     if (to != this) {
-        int32_t *p0 = buf0 + intg0 + std::max(frac1, frac0);
-        int32_t *p1 = buf1 + intg0 + std::max(frac1, frac0);
+        int32_t* p0 = buf0 + intg0 + std::max(frac1, frac0);
+        int32_t* p1 = buf1 + intg0 + std::max(frac1, frac0);
 
         while (buf0 < p0) {
             *(--p1) = *(--p0);
@@ -1144,8 +1134,7 @@ int DecimalValue::round(DecimalValue *to, int scale, DecimalRoundMode mode) {
         }
         case 5: {
             x = buf0[1] / DIG_MASK;
-            do_inc = (x > 5) 
-                || ((x == 5) && (mode == HALF_UP || (frac0 + intg0 > 0 && *buf0 & 1)));
+            do_inc = (x > 5) || ((x == 5) && (mode == HALF_UP || (frac0 + intg0 > 0 && *buf0 & 1)));
             break;
         }
         default:
@@ -1166,8 +1155,7 @@ int DecimalValue::round(DecimalValue *to, int scale, DecimalRoundMode mode) {
         int pos = frac0 * DIG_PER_DEC1 - scale - 1;
         x = *buf1 / powers10[pos];
         y = x % 10;
-        if (y > round_digit 
-                || (round_digit == 5 && y == 5 && (mode == HALF_UP || (x / 10) & 1))) {
+        if (y > round_digit || (round_digit == 5 && y == 5 && (mode == HALF_UP || (x / 10) & 1))) {
             x += 10;
         }
         *buf1 = powers10[pos] * (x - y);
@@ -1183,8 +1171,8 @@ int DecimalValue::round(DecimalValue *to, int scale, DecimalRoundMode mode) {
        The same holds if we round 1.5e-9 to 2e-9.
        */
     if (frac0 < frac1) {
-        int32_t *buf = to->_buffer + ((scale == 0 && intg0 == 0) ? 1 : intg0 + frac0);
-        int32_t *end = to->_buffer + len;
+        int32_t* buf = to->_buffer + ((scale == 0 && intg0 == 0) ? 1 : intg0 + frac0);
+        int32_t* end = to->_buffer + len;
         while (buf < end) {
             *buf++ = 0;
         }
@@ -1225,7 +1213,7 @@ int DecimalValue::round(DecimalValue *to, int scale, DecimalRoundMode mode) {
             }
             if (buf1-- == to->_buffer) {
                 /* making 'zero' with the proper scale */
-                int32_t *p0 = to->_buffer + frac0 + 1;
+                int32_t* p0 = to->_buffer + frac0 + 1;
                 to->_int_length = 1;
                 to->_frac_length = std::max(scale, 0);
                 to->_sign = 0;

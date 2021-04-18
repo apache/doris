@@ -18,15 +18,16 @@
 #pragma once
 
 #include <atomic>
-#include <memory>
-#include <vector>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <vector>
 
 namespace doris {
 
 class Chunk;
 class ChunkArena;
+class MetricEntity;
 
 // Used to allocate memory with power-of-two length.
 // This Allocator allocate memory from system and cache free chunks for
@@ -35,7 +36,7 @@ class ChunkArena;
 // ChunkAllocator has one ChunkArena for each CPU core, it will try to allocate
 // memory from current core arena firstly. In this way, there will be no lock contention
 // between concurrently-running threads. If this fails, ChunkAllocator will try to allocate
-// memroy from other core's arena.
+// memory from other core's arena.
 //
 // Memory Reservation
 // ChunkAllocator has a limit about how much free chunk bytes it can reserve, above which
@@ -54,9 +55,7 @@ public:
 #ifdef BE_TEST
     static ChunkAllocator* instance();
 #else
-    static ChunkAllocator* instance() {
-        return _s_instance;
-    }
+    static ChunkAllocator* instance() { return _s_instance; }
 #endif
 
     ChunkAllocator(size_t reserve_limit);
@@ -68,6 +67,7 @@ public:
 
     // Free chunk allocated from this allocator
     void free(const Chunk& chunk);
+
 private:
     static ChunkAllocator* _s_instance;
 
@@ -75,6 +75,8 @@ private:
     std::atomic<int64_t> _reserved_bytes;
     // each core has a ChunkArena
     std::vector<std::unique_ptr<ChunkArena>> _arenas;
+
+    std::shared_ptr<MetricEntity> _chunk_allocator_metric_entity;
 };
 
-}
+} // namespace doris

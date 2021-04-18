@@ -17,31 +17,28 @@
 
 #include "runtime/export_task_mgr.h"
 
+#include "gen_cpp/BackendService.h"
+#include "gen_cpp/FrontendService.h"
+#include "gen_cpp/HeartbeatService_types.h"
+#include "gen_cpp/MasterService_types.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
 
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/BackendService.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/MasterService_types.h"
-
 namespace doris {
 
-#define VLOG_EXPORT VLOG(2)
+#define VLOG_EXPORT VLOG_CRITICAL
 
 static size_t LRU_MAX_CASH_TASK_NUM = 1000;
 
-ExportTaskMgr::ExportTaskMgr(ExecEnv* exec_env) :
-        _exec_env(exec_env),
-        _success_tasks(LRU_MAX_CASH_TASK_NUM),
-        _failed_tasks(LRU_MAX_CASH_TASK_NUM) {
-}
+ExportTaskMgr::ExportTaskMgr(ExecEnv* exec_env)
+        : _exec_env(exec_env),
+          _success_tasks(LRU_MAX_CASH_TASK_NUM),
+          _failed_tasks(LRU_MAX_CASH_TASK_NUM) {}
 
-ExportTaskMgr::~ExportTaskMgr() {
-}
+ExportTaskMgr::~ExportTaskMgr() {}
 
 Status ExportTaskMgr::init() {
     return Status::OK();
@@ -125,8 +122,7 @@ void ExportTaskMgr::finalize_task(PlanFragmentExecutor* executor) {
     report_to_master(executor);
 }
 
-Status ExportTaskMgr::finish_task(const TUniqueId& id,
-                                  const Status& status,
+Status ExportTaskMgr::finish_task(const TUniqueId& id, const Status& status,
                                   const ExportTaskResult& result) {
     std::lock_guard<std::mutex> l(_lock);
     auto it = _running_tasks.find(id);
@@ -147,7 +143,7 @@ Status ExportTaskMgr::finish_task(const TUniqueId& id,
     }
 
     VLOG_EXPORT << "Move task(" << id << ") from running to "
-        << (status.ok() ? "success tasks" : "failed tasks");
+                << (status.ok() ? "success tasks" : "failed tasks");
 
     return Status::OK();
 }
@@ -196,18 +192,18 @@ void ExportTaskMgr::report_to_master(PlanFragmentExecutor* executor) {
         return;
     }
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
-    FrontendServiceConnection client(
-            _exec_env->frontend_client_cache(), master_address, config::thrift_rpc_timeout_ms, &status);
+    FrontendServiceConnection client(_exec_env->frontend_client_cache(), master_address,
+                                     config::thrift_rpc_timeout_ms, &status);
     if (!status.ok()) {
         std::stringstream ss;
-        ss << "Connect master failed, with address("
-            << master_address.hostname << ":" << master_address.port << ")";
+        ss << "Connect master failed, with address(" << master_address.hostname << ":"
+           << master_address.port << ")";
         LOG(WARNING) << ss.str();
-        return ;
+        return;
     }
 
     VLOG_ROW << "export updateExportTaskStatus. request  is "
-            << apache::thrift::ThriftDebugString(request).c_str();
+             << apache::thrift::ThriftDebugString(request).c_str();
 
     TFeResult res;
     try {
@@ -215,13 +211,13 @@ void ExportTaskMgr::report_to_master(PlanFragmentExecutor* executor) {
             client->updateExportTaskStatus(res, request);
         } catch (apache::thrift::transport::TTransportException& e) {
             LOG(WARNING) << "Retrying report export tasks status to master("
-                    << master_address.hostname << ":" << master_address.port
-                    << ") because: " << e.what();
+                         << master_address.hostname << ":" << master_address.port
+                         << ") because: " << e.what();
             status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
-                LOG(WARNING) << "Client repoen failed. with address("
-                    << master_address.hostname << ":" << master_address.port << ")";
-                return ;
+                LOG(WARNING) << "Client repoen failed. with address(" << master_address.hostname
+                             << ":" << master_address.port << ")";
+                return;
             }
             client->updateExportTaskStatus(res, request);
         }
@@ -230,14 +226,13 @@ void ExportTaskMgr::report_to_master(PlanFragmentExecutor* executor) {
         // reopen to disable this connection
         client.reopen(config::thrift_rpc_timeout_ms);
         std::stringstream ss;
-        ss << "Fail to report export task to master("
-            << master_address.hostname << ":" << master_address.port
-            << "). reason: " << e.what();
+        ss << "Fail to report export task to master(" << master_address.hostname << ":"
+           << master_address.port << "). reason: " << e.what();
         LOG(WARNING) << ss.str();
     }
 
     LOG(INFO) << "Successfully report elt task status to master."
-            << " id=" << print_id(request.taskId);
+              << " id=" << print_id(request.taskId);
 }
 
 } // end namespace doris

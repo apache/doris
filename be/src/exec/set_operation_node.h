@@ -26,7 +26,7 @@ class MemPool;
 class RowBatch;
 class TupleRow;
 
-// Node that calulate the set operation results of its children by either materializing their
+// Node that calculate the set operation results of its children by either materializing their
 // evaluated expressions into row batches or passing through (forwarding) the
 // batches if the input tuple layout is identical to the output tuple layout
 // and expressions don't need to be evaluated. The children should be ordered
@@ -42,7 +42,6 @@ public:
     virtual Status prepare(RuntimeState* state);
     virtual Status close(RuntimeState* state);
     virtual Status open(RuntimeState* state);
-
 
 protected:
     std::string get_row_output_string(TupleRow* row, const RowDescriptor& row_desc);

@@ -19,9 +19,10 @@
 #define DORIS_BE_SRC_QUERY_EXEC_SCAN_NODE_H
 
 #include <string>
+
 #include "exec/exec_node.h"
-#include "util/runtime_profile.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -64,20 +65,11 @@ class TScanRange;
 //
 //   ScanRangesComplete - number of scan ranges completed
 //
-//   MaterializeTupleTime - time spent in creating in-memory tuple format
-//
-//   ScannerThreadsTotalWallClockTime - total time spent in all scanner threads.
-//
-//   ScannerThreadsUserTime, ScannerThreadsSysTime,
-//   ScannerThreadsVoluntaryContextSwitches, ScannerThreadsInvoluntaryContextSwitches -
-//     these are aggregated counters across all scanner threads of this scan node. They
-//     are taken from getrusage. See RuntimeProfile::ThreadCounters for details.
-//
 class ScanNode : public ExecNode {
 public:
     ScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs) {}
-    virtual ~ScanNode() { }
+            : ExecNode(pool, tnode, descs) {}
+    virtual ~ScanNode() {}
 
     // Set up counters
     virtual Status prepare(RuntimeState* state);
@@ -86,61 +78,27 @@ public:
     // called after prepare()
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
 
-    virtual bool is_scan_node() const {
-        return true;
-    }
+    virtual bool is_scan_node() const { return true; }
 
-    RuntimeProfile::Counter* bytes_read_counter() const {
-        return _bytes_read_counter;
-    }
-    RuntimeProfile::Counter* rows_read_counter() const {
-        return _rows_read_counter;
-    }
-    RuntimeProfile::Counter* read_timer() const {
-        return _read_timer;
-    }
-    RuntimeProfile::Counter* total_throughput_counter() const {
-        return _total_throughput_counter;
-    }
-    RuntimeProfile::Counter* per_read_thread_throughput_counter() const {
-        return _per_read_thread_throughput_counter;
-    }
-    RuntimeProfile::Counter* materialize_tuple_timer() const {
-        return _materialize_tuple_timer;
-    }
-    RuntimeProfile::ThreadCounters* scanner_thread_counters() const {
-        return _scanner_thread_counters;
-    }
+    RuntimeProfile::Counter* bytes_read_counter() const { return _bytes_read_counter; }
+    RuntimeProfile::Counter* rows_read_counter() const { return _rows_read_counter; }
+    RuntimeProfile::Counter* total_throughput_counter() const { return _total_throughput_counter; }
 
     // names of ScanNode common counters
     static const std::string _s_bytes_read_counter;
     static const std::string _s_rows_read_counter;
-    static const std::string _s_total_read_timer;
     static const std::string _s_total_throughput_counter;
-    static const std::string _s_per_read_thread_throughput_counter;
     static const std::string _s_num_disks_accessed_counter;
-    static const std::string _s_materialize_tuple_timer;
-    static const std::string _s_scanner_thread_counters_prefix;
-    static const std::string _s_scanner_thread_total_wallclock_time;
-    static const std::string _s_average_io_mgr_queue_capacity;
-    static const std::string _s_num_scanner_threads_started;
 
 protected:
     RuntimeProfile::Counter* _bytes_read_counter; // # bytes read from the scanner
     // # rows/tuples read from the scanner (including those discarded by eval_conjucts())
     RuntimeProfile::Counter* _rows_read_counter;
-    RuntimeProfile::Counter* _read_timer; // total read time
     // Wall based aggregate read throughput [bytes/sec]
     RuntimeProfile::Counter* _total_throughput_counter;
-    // Per thread read throughput [bytes/sec]
-    RuntimeProfile::Counter* _per_read_thread_throughput_counter;
     RuntimeProfile::Counter* _num_disks_accessed_counter;
-    RuntimeProfile::Counter* _materialize_tuple_timer;  // time writing tuple slots
-    // Aggregated scanner thread counters
-    RuntimeProfile::ThreadCounters* _scanner_thread_counters;
-    RuntimeProfile::Counter* _num_scanner_threads_started_counter;
 };
 
-}
+} // namespace doris
 
 #endif

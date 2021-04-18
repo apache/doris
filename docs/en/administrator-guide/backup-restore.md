@@ -121,7 +121,7 @@ The commands related to the backup recovery function are as follows. The followi
 	* Snapshot Finished Time: Snapshot completion time.
 	* Upload Finished Time: Snapshot upload completion time.
 	* FinishedTime: The completion time of this assignment.
-	* Unfinished Tasks: In the `SNAPSHOTTING', `UPLOADING'and other stages, there will be multiple sub-tasks at the same time, the current stage shown here, the task ID of the unfinished sub-tasks.
+	* Unfinished Tasks: In the `SNAPSHOTTING`, `UPLOADING` and other stages, there will be multiple sub-tasks at the same time, the current stage shown here, the task ID of the unfinished sub-tasks.
 	* TaskErrMsg: If there is a sub-task execution error, the error message corresponding to the sub-task will be displayed here.
 	* Status: It is used to record some status information that may appear during the whole operation.
 	* Timeout: The timeout time of a job in seconds.
@@ -139,7 +139,7 @@ The commands related to the backup recovery function are as follows. The followi
 	* Database: The database corresponding to backup.
 	* Details: Shows the complete data directory structure of the backup.
 
-5. RESTOR
+5. RESTORE
 
 	Perform a recovery operation.
 

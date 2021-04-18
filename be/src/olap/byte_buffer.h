@@ -42,9 +42,9 @@ public:
     // 新buffer的position为0, limit为capacity
     // 调用者获得新建的ByteBuffer的所有权,并需使用delete删除获得的StorageByteBuffer
     //
-    // TODO. 我认为这里create用法应该是直接返回ByteBuffer本身而不是?
-    // ??针，否则智能指针就无法发挥作用
-    //  目前内存的管理还是手动的。而且需要认为deleta。
+    // TODO. 我认为这里create用法应该是直接返回ByteBuffer本身而不是智能指
+    // 针，否则智能指针就无法发挥作用
+    //  目前内存的管理还是手动的。而且需要认为delete。
     static StorageByteBuffer* create(uint64_t capacity);
 
     // 通过引用另一个ByteBuffer的内存创建一个新的StorageByteBuffer
@@ -58,28 +58,23 @@ public:
     //   offset + length < reference->capacity
     //
     // TODO. 同create
-    static StorageByteBuffer* reference_buffer(StorageByteBuffer* reference,
-            uint64_t offset,
-            uint64_t length);
+    static StorageByteBuffer* reference_buffer(StorageByteBuffer* reference, uint64_t offset,
+                                               uint64_t length);
 
     // 通过mmap创建一个ByteBuffer, mmap成功后的内存由ByteBuffer托管
     // start, length, prot, flags, fd, offset都是mmap函数的参数
     // 调用者获得新建的ByteBuffer的所有权,并需使用delete删除获得的StorageByteBuffer
-    static StorageByteBuffer* mmap(void* start, uint64_t length, int prot, int flags,
-            int fd, uint64_t offset);
+    static StorageByteBuffer* mmap(void* start, uint64_t length, int prot, int flags, int fd,
+                                   uint64_t offset);
 
     // 由于olap的文件都是用FileHandler封装的，因此稍微修?
     // ??下接口，省略掉的参数可以在handler中取到
     // 旧接口仍然保留，或许会用到？
     static StorageByteBuffer* mmap(FileHandler* handler, uint64_t offset, int prot, int flags);
 
-    inline uint64_t capacity() const {
-        return _capacity;
-    }
+    inline uint64_t capacity() const { return _capacity; }
 
-    inline uint64_t position() const {
-        return _position;
-    }
+    inline uint64_t position() const { return _position; }
     // 设置内部指针的位置
     // 如果新位置大于等于limit, 则返回OLAP_ERR_INPUT_PARAMETER_ERROR
     OLAPStatus set_position(uint64_t new_position) {
@@ -91,9 +86,7 @@ public:
         }
     }
 
-    inline uint64_t limit() const {
-        return _limit;
-    }
+    inline uint64_t limit() const { return _limit; }
     //设置新的limit
     //如果limit超过capacity, 返回OLAP_ERR_INPUT_PARAMETER_ERROR
     //如果position大于新的limit, 设置position等于limit
@@ -111,9 +104,7 @@ public:
         return OLAP_SUCCESS;
     }
 
-    inline uint64_t remaining() const {
-        return _limit - _position;
-    }
+    inline uint64_t remaining() const { return _limit - _position; }
 
     // 将limit设置为当前position
     // 将position设置为0
@@ -164,9 +155,7 @@ public:
     }
 
     // 读取dst_size长的数据到dst
-    inline OLAPStatus get(char* dst, uint64_t dst_size) {
-        return get(dst, dst_size, dst_size);
-    }
+    inline OLAPStatus get(char* dst, uint64_t dst_size) { return get(dst, dst_size, dst_size); }
 
     // 写入一个字节, 完成后增加position
     // 如果写入前position >= limit, 则返回OLAP_ERR_BUFFER_OVERFLOW
@@ -184,20 +173,14 @@ public:
     OLAPStatus put(const char* src, uint64_t src_size, uint64_t offset, uint64_t length);
 
     // 写入一组数据
-    OLAPStatus put(const char* src, uint64_t src_size) {
-        return put(src, src_size, 0, src_size);
-    }
+    OLAPStatus put(const char* src, uint64_t src_size) { return put(src, src_size, 0, src_size); }
 
     // 返回ByteBuffer内部的char数组
-    const char* array() const {
-        return _array;
-    }
+    const char* array() const { return _array; }
     const char* array(size_t position) const {
         return position >= _limit ? NULL : &_array[position];
     }
-    char* array() {
-        return _array;
-    }
+    char* array() { return _array; }
 
 private:
     // 自定义析构类,支持对new[]和mmap的内存进行析构
@@ -208,16 +191,18 @@ private:
         // 设置使用mmap方式
         void set_mmap(size_t mmap_length);
         void operator()(char* p);
+
     private:
-        bool _is_mmap;         // 是否使用mmap
-        size_t _mmap_length;   // 如果使用mmap,记录mmap的长度
+        bool _is_mmap;       // 是否使用mmap
+        size_t _mmap_length; // 如果使用mmap,记录mmap的长度
     };
+
 private:
     // 不支持直接创建ByteBuffer, 而是通过create方法创建
     StorageByteBuffer();
 
 private:
-    boost::shared_ptr<char> _buf;       // 托管的内存
+    boost::shared_ptr<char> _buf; // 托管的内存
     char* _array;
     uint64_t _capacity;
     uint64_t _limit;
@@ -225,6 +210,5 @@ private:
     bool _is_mmap;
 };
 
-}  // namespace doris
+} // namespace doris
 #endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_BYTE_BUFFER_H
-

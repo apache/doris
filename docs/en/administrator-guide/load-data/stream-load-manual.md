@@ -143,6 +143,10 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
     Memory limit. Default is 2GB. Unit is Bytes
 
++ merge\_type
+     The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
+
+
 ### Return results
 
 Since Stream load is a synchronous import method, the result of the import is directly returned to the user by creating the return value of the import.
@@ -183,7 +187,7 @@ The following main explanations are given for the Stream load import result para
 
 	"Publish Timeout": This state also indicates that the import has been completed, except that the data may be delayed and visible without retrying.
 
-	"Label Already Exists"：Label duplicate, need to be replaced Label.
+	"Label Already Exists": Label duplicate, need to be replaced Label.
 
 	"Fail": Import failed.
 	
@@ -207,13 +211,13 @@ The following main explanations are given for the Stream load import result para
 
 + BeginTxnTimeMs: The time cost for RPC to Fe to begin a transaction, Unit milliseconds.
 
-+ StreamLoadPutTimeMs：The time cost for RPC to Fe to get a stream load plan, Unit milliseconds.
++ StreamLoadPutTimeMs: The time cost for RPC to Fe to get a stream load plan, Unit milliseconds.
   
-+ ReadDataTimeMs：Read data time, Unit milliseconds.
++ ReadDataTimeMs: Read data time, Unit milliseconds.
 
-+ WriteDataTimeMs：Write data time, Unit milliseconds.
++ WriteDataTimeMs: Write data time, Unit milliseconds.
 
-+ CommitAndPublishTimeMs：The time cost for RPC to Fe to commit and publish a transaction, Unit milliseconds.
++ CommitAndPublishTimeMs: The time cost for RPC to Fe to commit and publish a transaction, Unit milliseconds.
 
 + ErrorURL: If you have data quality problems, visit this URL to see specific error lines.
 
@@ -303,6 +307,6 @@ Cluster situation: The concurrency of Stream load is not affected by cluster siz
 
 		Since Stream load is an HTTP protocol submission creation import task, HTTP Clients in various languages usually have their own request retry logic. After receiving the first request, the Doris system has started to operate Stream load, but because the result is not returned to the Client side in time, the Client side will retry to create the request. At this point, the Doris system is already operating on the first request, so the second request will be reported to Label Already Exists.
 
-		To sort out the possible methods mentioned above: Search FE Master's log with Label to see if there are two ``redirect load action to destination = ``redirect load action to destination'cases in the same Label. If so, the request is submitted repeatedly by the Client side.
+		To sort out the possible methods mentioned above: Search FE Master's log with Label to see if there are two ``redirect load action to destination = ``redirect load action to destination cases in the same Label. If so, the request is submitted repeatedly by the Client side.
 
 		It is suggested that the user calculate the approximate import time according to the data quantity of the current request, and change the request time-out time of the Client end according to the import time-out time, so as to avoid the request being submitted by the Client end many times.

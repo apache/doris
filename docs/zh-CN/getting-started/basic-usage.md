@@ -73,7 +73,7 @@ mysql -h FE_HOST -P9030 -utest -ptest_passwd
 
 > 所有命令都可以使用 'HELP command;' 查看到详细的语法帮助。如：`HELP CREATE DATABASE;`
 
-> 如果不清楚命令的全名，可以使用 "help 命令某一字段" 进行模糊查询。如键入'HELP CREATE'，可以匹配到 `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` 等命令。
+> 如果不清楚命令的全名，可以使用 "help 命令某一字段" 进行模糊查询。如键入 'HELP CREATE'，可以匹配到 `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` 等命令。
 
 数据库创建完成之后，可以通过 `SHOW DATABASES;` 查看数据库信息。
 
@@ -267,7 +267,7 @@ curl --location-trusted -u test:test -H "label:table1_20170707" -H "column_separ
 示例2: 以 "table2_20170707" 为 Label，使用本地文件 table2_data 导入 table2 表。
 
 ```
-curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separator:|" -T table1_data http://127.0.0.1:8030/api/example_db/table2/_stream_load
+curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separator:|" -T table2_data http://127.0.0.1:8030/api/example_db/table2/_stream_load
 ```
 
 本地文件 `table2_data` 以 `|` 作为数据之间的分隔，具体内容如下：
@@ -312,7 +312,7 @@ PROPERTIES
 
 Broker 导入是异步命令。以上命令执行成功只表示提交任务成功。导入是否成功需要通过 `SHOW LOAD;` 查看。如：
 
-`SHOW LOAD WHERE LABLE = "table1_20170708";`
+`SHOW LOAD WHERE LABEL = "table1_20170708";`
 
 返回结果中，`State` 字段为 FINISHED 则表示导入成功。
 
@@ -337,7 +337,7 @@ MySQL> SELECT * FROM table1 LIMIT 3;
 |      5 |        3 | 'helen'  |    3 |
 |      3 |        2 | 'tom'    |    2 |
 +--------+----------+----------+------+
-5 rows in set (0.01 sec)
+3 rows in set (0.01 sec)
 
 MySQL> SELECT * FROM table1 ORDER BY citycode;
 +--------+----------+----------+------+

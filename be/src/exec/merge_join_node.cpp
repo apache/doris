@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "exprs/in_predicate.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
@@ -29,9 +30,9 @@
 
 namespace doris {
 
-template<class T>
-int compare_value(const void* left_value,  const void* right_value) {
-    if (*(T*)left_value < * (T*)right_value) {
+template <class T>
+int compare_value(const void* left_value, const void* right_value) {
+    if (*(T*)left_value < *(T*)right_value) {
         return -1;
     } else if (*(T*)left_value == *(T*)right_value) {
         return 0;
@@ -40,25 +41,20 @@ int compare_value(const void* left_value,  const void* right_value) {
     }
 }
 
-template<class T>
-int compare_value(const StringValue* left_value,  const StringValue* right_value) {
+template <class T>
+int compare_value(const StringValue* left_value, const StringValue* right_value) {
     return left_value->compare(*right_value);
 }
 
-MergeJoinNode::MergeJoinNode(
-        ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) :
-            ExecNode(pool, tnode, descs),
-            _out_batch(NULL) {
-}
+MergeJoinNode::MergeJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ExecNode(pool, tnode, descs), _out_batch(NULL) {}
 
-MergeJoinNode::~MergeJoinNode() {
-}
+MergeJoinNode::~MergeJoinNode() {}
 
 Status MergeJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     DCHECK(tnode.__isset.merge_join_node);
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    const vector<TEqJoinCondition>& cmp_conjuncts =
-        tnode.merge_join_node.cmp_conjuncts;
+    const std::vector<TEqJoinCondition>& cmp_conjuncts = tnode.merge_join_node.cmp_conjuncts;
 
     for (int i = 0; i < cmp_conjuncts.size(); ++i) {
         ExprContext* ctx = NULL;
@@ -68,9 +64,8 @@ Status MergeJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _right_expr_ctxs.push_back(ctx);
     }
 
-    RETURN_IF_ERROR(Expr::create_expr_trees(
-            _pool, tnode.merge_join_node.other_join_conjuncts,
-            &_other_join_conjunct_ctxs));
+    RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.merge_join_node.other_join_conjuncts,
+                                            &_other_join_conjunct_ctxs));
     return Status::OK();
 }
 
@@ -79,10 +74,10 @@ Status MergeJoinNode::prepare(RuntimeState* state) {
 
     // build and probe exprs are evaluated in the context of the rows produced by our
     // right and left children, respectively
-    RETURN_IF_ERROR(Expr::prepare(
-            _left_expr_ctxs, state, child(0)->row_desc(), expr_mem_tracker()));
-    RETURN_IF_ERROR(Expr::prepare(
-            _right_expr_ctxs, state, child(1)->row_desc(), expr_mem_tracker()));
+    RETURN_IF_ERROR(
+            Expr::prepare(_left_expr_ctxs, state, child(0)->row_desc(), expr_mem_tracker()));
+    RETURN_IF_ERROR(
+            Expr::prepare(_right_expr_ctxs, state, child(1)->row_desc(), expr_mem_tracker()));
 
     for (int i = 0; i < _left_expr_ctxs.size(); ++i) {
         switch (_left_expr_ctxs[i]->root()->type().type) {
@@ -112,14 +107,14 @@ Status MergeJoinNode::prepare(RuntimeState* state) {
             break;
 
         default:
-            return Status::InternalError("unspport compare type.");
+            return Status::InternalError("unsupported compare type.");
             break;
         }
     }
 
     // _other_join_conjuncts are evaluated in the context of the rows produced by this node
-    RETURN_IF_ERROR(Expr::prepare(
-            _other_join_conjunct_ctxs, state, _row_descriptor, expr_mem_tracker()));
+    RETURN_IF_ERROR(
+            Expr::prepare(_other_join_conjunct_ctxs, state, _row_descriptor, expr_mem_tracker()));
 
     _result_tuple_row_size = _row_descriptor.tuple_descriptors().size() * sizeof(Tuple*);
     // pre-compute the tuple index of build tuples in the output row
@@ -299,18 +294,14 @@ Status MergeJoinNode::get_input_row(RuntimeState* state, int child_idx) {
         }
 
         if (child_idx == 0) {
-            _left_child_ctx.reset(
-                    new ChildReaderContext(
-                            child(child_idx)->row_desc(),
-                            state->batch_size(),
-                            state->instance_mem_tracker()));
+            _left_child_ctx.reset(new ChildReaderContext(child(child_idx)->row_desc(),
+                                                         state->batch_size(),
+                                                         state->instance_mem_tracker()));
             ctx = _left_child_ctx.get();
         } else {
-            _right_child_ctx.reset(
-                    new ChildReaderContext(
-                            child(child_idx)->row_desc(),
-                            state->batch_size(),
-                            state->instance_mem_tracker()));
+            _right_child_ctx.reset(new ChildReaderContext(child(child_idx)->row_desc(),
+                                                          state->batch_size(),
+                                                          state->instance_mem_tracker()));
             ctx = _right_child_ctx.get();
         }
 
@@ -326,19 +317,18 @@ Status MergeJoinNode::get_input_row(RuntimeState* state, int child_idx) {
     return Status::OK();
 }
 
-void MergeJoinNode::debug_string(int indentation_level, stringstream* out) const {
+void MergeJoinNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "MergeJoin(eos=" << (_eos ? "true" : "false")
          << " _left_child_pos=" << (_left_child_ctx.get() ? _left_child_ctx->row_idx : -1)
          << " _right_child_pos=" << (_right_child_ctx.get() ? _right_child_ctx->row_idx : -1)
          << " join_conjuncts=";
     *out << "Conjunct(";
-         // << " left_exprs=" << Expr::debug_string(_left_exprs)
-         // << " right_exprs=" << Expr::debug_string(_right_exprs);
+    // << " left_exprs=" << Expr::debug_string(_left_exprs)
+    // << " right_exprs=" << Expr::debug_string(_right_exprs);
     *out << ")";
     ExecNode::debug_string(indentation_level, out);
     *out << ")";
 }
 
-}
-
+} // namespace doris

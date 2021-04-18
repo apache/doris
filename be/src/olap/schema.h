@@ -21,10 +21,9 @@
 
 #include "olap/aggregate_func.h"
 #include "olap/field.h"
+#include "olap/row_cursor_cell.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
-#include "olap/field.h"
-#include "olap/row_cursor_cell.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
@@ -53,19 +52,24 @@ public:
             }
             columns.push_back(column);
         }
-
+        _delete_sign_idx = tablet_schema.delete_sign_idx();
+        if (tablet_schema.has_sequence_col()) {
+            _has_sequence_col = true;
+        }
         _init(columns, col_ids, num_key_columns);
     }
 
     // All the columns of one table may exist in the columns param, but col_ids is only a subset.
     Schema(const std::vector<TabletColumn>& columns, const std::vector<ColumnId>& col_ids) {
         size_t num_key_columns = 0;
-        for (const auto& c: columns) {
-            if (c.is_key()) {
+        for (size_t i = 0; i < columns.size(); ++i) {
+            if (columns[i].is_key()) {
                 ++num_key_columns;
             }
+            if (columns[i].name() == DELETE_SIGN) {
+                _delete_sign_idx = i;
+            }
         }
-
         _init(columns, col_ids, num_key_columns);
     }
 
@@ -83,6 +87,9 @@ public:
         std::vector<ColumnId> col_ids(cols.size());
         for (uint32_t cid = 0; cid < cols.size(); ++cid) {
             col_ids[cid] = cid;
+            if (cols.at(cid)->name() == DELETE_SIGN) {
+                _delete_sign_idx = cid;
+            }
         }
 
         _init(cols, col_ids, num_key_columns);
@@ -96,25 +103,15 @@ public:
     const std::vector<Field*>& columns() const { return _cols; }
     const Field* column(ColumnId cid) const { return _cols[cid]; }
 
-    size_t num_key_columns() const {
-        return _num_key_columns;
-    }
-    size_t schema_size() const {
-        return _schema_size;
-    }
+    size_t num_key_columns() const { return _num_key_columns; }
+    size_t schema_size() const { return _schema_size; }
 
-    size_t column_offset(ColumnId cid) const {
-        return _col_offsets[cid];
-    }
+    size_t column_offset(ColumnId cid) const { return _col_offsets[cid]; }
 
-    // TODO(lingbin): What is the difference between colun_size() and index_size()
-    size_t column_size(ColumnId cid) const {
-        return _cols[cid]->size();
-    }
+    // TODO(lingbin): What is the difference between column_size() and index_size()
+    size_t column_size(ColumnId cid) const { return _cols[cid]->size(); }
 
-    size_t index_size(ColumnId cid) const {
-        return _cols[cid]->index_size();
-    }
+    size_t index_size(ColumnId cid) const { return _cols[cid]->index_size(); }
 
     bool is_null(const char* row, int index) const {
         return *reinterpret_cast<const bool*>(row + _col_offsets[index]);
@@ -126,13 +123,13 @@ public:
     size_t num_columns() const { return _cols.size(); }
     size_t num_column_ids() const { return _col_ids.size(); }
     const std::vector<ColumnId>& column_ids() const { return _col_ids; }
+    int32_t delete_sign_idx() const { return _delete_sign_idx; }
+    bool has_sequence_col() const { return _has_sequence_col; }
 
 private:
-    void _init(const std::vector<TabletColumn>& cols,
-               const std::vector<ColumnId>& col_ids,
+    void _init(const std::vector<TabletColumn>& cols, const std::vector<ColumnId>& col_ids,
                size_t num_key_columns);
-    void _init(const std::vector<const Field*>& cols,
-               const std::vector<ColumnId>& col_ids,
+    void _init(const std::vector<const Field*>& cols, const std::vector<ColumnId>& col_ids,
                size_t num_key_columns);
 
     void _copy_from(const Schema& other);
@@ -149,6 +146,8 @@ private:
 
     size_t _num_key_columns;
     size_t _schema_size;
+    int32_t _delete_sign_idx = -1;
+    bool _has_sequence_col = false;
 };
 
 } // namespace doris

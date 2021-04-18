@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_UTIL_FILE_UTILS_H
 #define DORIS_BE_UTIL_FILE_UTILS_H
 
+#include <functional>
 #include <string>
 #include <vector>
-#include <functional>
 
 #include "common/status.h"
 
@@ -35,8 +35,7 @@ inline bool is_dot_or_dotdot(const char* name) {
 
 class FileUtils {
 public:
-
-    // Create directory of dir_path with default Env, 
+    // Create directory of dir_path with default Env,
     // This function will create directory recursively,
     // if dir's parent directory doesn't exist
     //
@@ -44,7 +43,7 @@ public:
     //  Status::OK()      if create directory success or directory already exists
     static Status create_dir(const std::string& dir_path);
 
-    // Create directory of dir_path, 
+    // Create directory of dir_path,
     // This function will create directory recursively,
     // if dir's parent directory doesn't exist
     //
@@ -54,28 +53,22 @@ public:
 
     // Delete file recursively.
     static Status remove_all(const std::string& dir_path);
-    
+
     // Delete dir or file, failed when there are files or dirs under the path
     static Status remove(const std::string& path, Env* env);
 
     static Status remove(const std::string& path);
-    
+
     static Status remove_paths(const std::vector<std::string>& paths);
-    
+
     // List all files in the specified directory without '.' and '..'.
-    // If you want retreive all files, you can use Env::iterate_dir.
+    // If you want retrieve all files, you can use Env::iterate_dir.
     // All valid files will be stored in given *files.
-    static Status list_files(
-        Env* env,
-        const std::string& dir,
-        std::vector<std::string>* files);
-    
+    static Status list_files(Env* env, const std::string& dir, std::vector<std::string>* files);
+
     // List all dirs and files in the specified directory
-    static Status list_dirs_files(
-            const std::string& path,
-            std::set<std::string>* dirs,
-            std::set<std::string>* files, 
-            Env* env);
+    static Status list_dirs_files(const std::string& path, std::set<std::string>* dirs,
+                                  std::set<std::string>* files, Env* env);
 
     // Get the number of children belong to the specified directory, this
     // funciton also exclude '.' and '..'.
@@ -89,16 +82,16 @@ public:
     static bool is_dir(const std::string& file_path);
 
     // Get file path from fd
-    // Return 
+    // Return
     //  file path of this fd referenced
     //  "" if this fd is invalid
     static std::string path_of_fd(int fd);
 
-    // split pathes in configue file to path
-    // for example 
+    // split paths in configure file to path
+    // for example
     // "/home/disk1/;/home/disk2"
     // will split to ['/home/disk1', '/home/disk2']
-    static Status split_pathes(const char* path, std::vector<std::string>* path_vec);
+    static Status split_paths(const char* path, std::vector<std::string>* path_vec);
 
     // copy the file from src path to dest path, it will overwrite the existing files
     static Status copy_file(const std::string& src_path, const std::string& dest_path);
@@ -108,7 +101,7 @@ public:
 
     // check path(file or directory) exist with default env
     static bool check_exist(const std::string& path);
-    
+
     // check path(file or directory) exist with env
     static bool check_exist(const std::string& path, Env* env);
 
@@ -121,7 +114,6 @@ public:
     static Status canonicalize(const std::string& path, std::string* real_path);
 };
 
-}
+} // namespace doris
 
 #endif
-

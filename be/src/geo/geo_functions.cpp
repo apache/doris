@@ -17,8 +17,8 @@
 
 #include "geo/geo_functions.h"
 
-#include <s2/s2earth.h>
 #include <s2/s2debug.h>
+#include <s2/s2earth.h>
 
 #include "common/logging.h"
 #include "geo/geo_types.h"
@@ -30,10 +30,9 @@ void GeoFunctions::init() {
     FLAGS_s2debug = false;
 }
 
-DoubleVal GeoFunctions::st_distance_sphere(FunctionContext* ctx,
-                                           const DoubleVal& x_lng, const DoubleVal& x_lat,
-                                           const DoubleVal& y_lng, const DoubleVal& y_lat) {
-
+DoubleVal GeoFunctions::st_distance_sphere(FunctionContext* ctx, const DoubleVal& x_lng,
+                                           const DoubleVal& x_lat, const DoubleVal& y_lng,
+                                           const DoubleVal& y_lat) {
     if (x_lng.is_null || x_lat.is_null || y_lng.is_null || y_lat.is_null) {
         return DoubleVal::null();
     }
@@ -108,8 +107,8 @@ StringVal GeoFunctions::st_as_wkt(doris_udf::FunctionContext* ctx,
 }
 
 struct StConstructState {
-    StConstructState() : is_null(false) { }
-    ~StConstructState() { }
+    StConstructState() : is_null(false) {}
+    ~StConstructState() {}
 
     bool is_null;
     std::string encoded_buf;
@@ -139,7 +138,8 @@ void GeoFunctions::st_from_wkt_prepare_common(FunctionContext* ctx,
         str->is_null = true;
     } else {
         GeoParseStatus status;
-        std::unique_ptr<GeoShape> shape(GeoShape::from_wkt((const char*)str->ptr, str->len, &status));
+        std::unique_ptr<GeoShape> shape(
+                GeoShape::from_wkt((const char*)str->ptr, str->len, &status));
         if (shape == nullptr || (shape_type != GEO_SHAPE_ANY && shape->type() != shape_type)) {
             state->is_null = true;
         } else {
@@ -149,13 +149,13 @@ void GeoFunctions::st_from_wkt_prepare_common(FunctionContext* ctx,
     ctx->set_function_state(scope, state.release());
 }
 
-StringVal GeoFunctions::st_from_wkt_common(FunctionContext* ctx,
-                                           const StringVal& wkt,
+StringVal GeoFunctions::st_from_wkt_common(FunctionContext* ctx, const StringVal& wkt,
                                            GeoShapeType shape_type) {
     if (wkt.is_null) {
         return StringVal::null();
     }
-    StConstructState* state = (StConstructState*)ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL);
+    StConstructState* state =
+            (StConstructState*)ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL);
     if (state == nullptr) {
         GeoParseStatus status;
         std::unique_ptr<GeoShape> shape(GeoShape::from_wkt((const char*)wkt.ptr, wkt.len, &status));
@@ -202,14 +202,13 @@ void GeoFunctions::st_circle_prepare(doris_udf::FunctionContext* ctx,
     ctx->set_function_state(scope, state.release());
 }
 
-doris_udf::StringVal GeoFunctions::st_circle(FunctionContext* ctx,
-                                             const DoubleVal& lng,
-                                             const DoubleVal& lat,
-                                             const DoubleVal& radius) {
+doris_udf::StringVal GeoFunctions::st_circle(FunctionContext* ctx, const DoubleVal& lng,
+                                             const DoubleVal& lat, const DoubleVal& radius) {
     if (lng.is_null || lat.is_null || radius.is_null) {
         return StringVal::null();
     }
-    StConstructState* state = (StConstructState*) ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL);
+    StConstructState* state =
+            (StConstructState*)ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL);
     if (state == nullptr) {
         std::unique_ptr<GeoCircle> circle(new GeoCircle());
         auto res = circle->init(lng.val, lat.val, radius.val);
@@ -231,7 +230,7 @@ doris_udf::StringVal GeoFunctions::st_circle(FunctionContext* ctx,
 }
 
 struct StContainsState {
-    StContainsState() : is_null(false), shapes{nullptr, nullptr} { }
+    StContainsState() : is_null(false), shapes{nullptr, nullptr} {}
     ~StContainsState() {
         delete shapes[0];
         delete shapes[1];
@@ -270,19 +269,19 @@ void GeoFunctions::st_contains_close(doris_udf::FunctionContext* ctx,
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
-    StContainsState* contains_ctx = reinterpret_cast<StContainsState*>(ctx->get_function_state(scope));
+    StContainsState* contains_ctx =
+            reinterpret_cast<StContainsState*>(ctx->get_function_state(scope));
     delete contains_ctx;
 }
-                                       
-doris_udf::BooleanVal GeoFunctions::st_contains(
-        doris_udf::FunctionContext* ctx,
-        const doris_udf::StringVal& lhs,
-        const doris_udf::StringVal& rhs) {
+
+doris_udf::BooleanVal GeoFunctions::st_contains(doris_udf::FunctionContext* ctx,
+                                                const doris_udf::StringVal& lhs,
+                                                const doris_udf::StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
         return BooleanVal::null();
     }
     const StContainsState* state = reinterpret_cast<StContainsState*>(
-        ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+            ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     if (state != nullptr && state->is_null) {
         return BooleanVal::null();
     }
@@ -304,4 +303,4 @@ doris_udf::BooleanVal GeoFunctions::st_contains(
     return shapes[0]->contains(shapes[1]);
 }
 
-}
+} // namespace doris

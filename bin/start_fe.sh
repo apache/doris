@@ -97,6 +97,11 @@ jdk_version() {
     fi
     echo "$result"
 }
+
+# need check and create if the log directory existed before outing message to the log file.
+if [ ! -d $LOG_DIR ]; then
+    mkdir -p $LOG_DIR
+fi
  
 # check java version and choose correct JAVA_OPTS
 java_version=$(jdk_version)
@@ -117,9 +122,6 @@ for f in $DORIS_HOME/lib/*.jar; do
 done
 export CLASSPATH=${CLASSPATH}:${DORIS_HOME}/lib
 
-if [ ! -d $LOG_DIR ]; then
-    mkdir -p $LOG_DIR
-fi
 
 pidfile=$PID_DIR/fe.pid
 

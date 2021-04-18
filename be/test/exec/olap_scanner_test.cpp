@@ -15,19 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/olap_scanner.h"
+
 #include <gtest/gtest.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
+
 #include <iostream>
 #include <vector>
 
-#include "exec/olap_scanner.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 #include "util/cpu_info.h"
 #include "util/runtime_profile.h"
-#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -74,10 +76,9 @@ void construct_one_tuple(TupleDescriptor& tuple_desc) {
     }
 }
 
-TEST(OlapIdlUtilTest, normalcase) {
-}
+TEST(OlapIdlUtilTest, normalcase) {}
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

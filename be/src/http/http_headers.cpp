@@ -95,4 +95,4 @@ const char* HttpHeaders::WWW_AUTHENTICATE = "WWW-Authenticate";
 
 const std::string HttpHeaders::JsonType = "application/json";
 
-}
+} // namespace doris

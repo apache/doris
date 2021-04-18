@@ -16,19 +16,18 @@
 // under the License.
 
 #include <cstdint>
-#include <vector>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
+#include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/Types_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "util/bitmap.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
-
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/internal_service.pb.h"
 
 namespace doris {
 
@@ -36,10 +35,9 @@ struct TabletsChannelKey {
     UniqueId id;
     int64_t index_id;
 
-    TabletsChannelKey(const PUniqueId& pid, int64_t index_id_)
-        : id(pid), index_id(index_id_) { }
+    TabletsChannelKey(const PUniqueId& pid, int64_t index_id_) : id(pid), index_id(index_id_) {}
 
-    ~TabletsChannelKey() noexcept { }
+    ~TabletsChannelKey() noexcept {}
 
     bool operator==(const TabletsChannelKey& rhs) const noexcept {
         return index_id == rhs.index_id && id == rhs.id;
@@ -56,7 +54,7 @@ class OlapTableSchemaParam;
 // Write channel for a particular (load, index).
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key, MemTracker* mem_tracker);
+    TabletsChannel(const TabletsChannelKey& key, const std::shared_ptr<MemTracker>& mem_tracker);
 
     ~TabletsChannel();
 
@@ -70,8 +68,8 @@ public:
     // to include all tablets written in this channel.
     // no-op when this channel has been closed or cancelled
     Status close(int sender_id, bool* finished,
-        const google::protobuf::RepeatedField<int64_t>& partition_ids,
-        google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+                 const google::protobuf::RepeatedField<int64_t>& partition_ids,
+                 google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
     // no-op when this channel has been closed or cancelled
     Status cancel();
@@ -92,7 +90,7 @@ private:
     // id of this load channel
     TabletsChannelKey _key;
 
-    // make execute sequece
+    // make execute sequence
     std::mutex _lock;
 
     enum State {
@@ -123,10 +121,9 @@ private:
 
     std::unordered_set<int64_t> _partition_ids;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     static std::atomic<uint64_t> _s_tablet_writer_count;
 };
 
-
-} // end namespace
+} // namespace doris

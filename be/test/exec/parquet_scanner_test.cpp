@@ -15,44 +15,44 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/broker_scan_node.h"
-
-#include <string>
-#include <map>
-#include <vector>
-
 #include <gtest/gtest.h>
 #include <time.h>
+
+#include <map>
+#include <string>
+#include <vector>
+
 #include "common/object_pool.h"
-#include "runtime/tuple.h"
+#include "exec/broker_scan_node.h"
 #include "exec/local_file_reader.h"
 #include "exprs/cast_functions.h"
-#include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
-#include "runtime/row_batch.h"
-#include "runtime/user_function_cache.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/descriptors.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/tuple.h"
+#include "runtime/user_function_cache.h"
 
 namespace doris {
 
-class ParquetSannerTest : public testing::Test {
+class ParquetScannerTest : public testing::Test {
 public:
-    ParquetSannerTest() : _runtime_state(TQueryGlobals()) {
+    ParquetScannerTest() : _runtime_state(TQueryGlobals()) {
         init();
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
     }
     void init();
     static void SetUpTestCase() {
-        UserFunctionCache::instance()->init("./be/test/runtime/test_data/user_function_cache/normal");
+        UserFunctionCache::instance()->init(
+                "./be/test/runtime/test_data/user_function_cache/normal");
         CastFunctions::init();
     }
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
+
 private:
     int create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id);
     int create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id);
@@ -68,16 +68,17 @@ private:
 
 #define TUPLE_ID_DST 0
 #define TUPLE_ID_SRC 1
-#define CLOMN_NUMBERS 20
+#define COLUMN_NUMBERS 20
 #define DST_TUPLE_SLOT_ID_START 1
 #define SRC_TUPLE_SLOT_ID_START 21
-int ParquetSannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
-    const char *clomnNames[] = {"log_version", "log_time", "log_time_stamp", "js_version", "vst_cookie",
-                                "vst_ip", "vst_user_id", "vst_user_agent", "device_resolution", "page_url",
-                                "page_refer_url", "page_yyid", "page_type", "pos_type", "content_id", "media_id",
-                                "spm_cnt", "spm_pre", "scm_cnt", "partition_column"};
-    for (int i = 0; i < CLOMN_NUMBERS; i++)
-    {
+int ParquetScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
+    const char* columnNames[] = {
+            "log_version",       "log_time", "log_time_stamp", "js_version",
+            "vst_cookie",        "vst_ip",   "vst_user_id",    "vst_user_agent",
+            "device_resolution", "page_url", "page_refer_url", "page_yyid",
+            "page_type",         "pos_type", "content_id",     "media_id",
+            "spm_cnt",           "spm_pre",  "scm_cnt",        "partition_column"};
+    for (int i = 0; i < COLUMN_NUMBERS; i++) {
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -94,10 +95,10 @@ int ParquetSannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next
         }
         slot_desc.slotType = type;
         slot_desc.columnPos = i;
-        slot_desc.byteOffset = i*16+8; // 跳过前8个字节 这8个字节用于表示字段是否为null值
-        slot_desc.nullIndicatorByte = i/8;
-        slot_desc.nullIndicatorBit = i%8;
-        slot_desc.colName = clomnNames[i];
+        slot_desc.byteOffset = i * 16 + 8; // 跳过前8个字节 这8个字节用于表示字段是否为null值
+        slot_desc.nullIndicatorByte = i / 8;
+        slot_desc.nullIndicatorBit = i % 8;
+        slot_desc.colName = columnNames[i];
         slot_desc.slotIdx = i + 1;
         slot_desc.isMaterialized = true;
 
@@ -108,7 +109,7 @@ int ParquetSannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next
         // TTupleDescriptor source
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = TUPLE_ID_SRC;
-        t_tuple_desc.byteSize = CLOMN_NUMBERS*16+8;//此处8字节为了处理null值
+        t_tuple_desc.byteSize = COLUMN_NUMBERS * 16 + 8; //此处8字节为了处理null值
         t_tuple_desc.numNullBytes = 0;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
@@ -117,9 +118,9 @@ int ParquetSannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next
     return next_slot_id;
 }
 
-int ParquetSannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
+int ParquetScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
     int32_t byteOffset = 8; // 跳过前8个字节 这8个字节用于表示字段是否为null值
-    {//log_version
+    {                       //log_version
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -146,7 +147,7 @@ int ParquetSannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
     byteOffset += 16;
-    {// log_time
+    { // log_time
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -172,7 +173,7 @@ int ParquetSannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
     byteOffset += 8;
-    {// log_time_stamp
+    { // log_time_stamp
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -198,12 +199,13 @@ int ParquetSannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
     byteOffset += 8;
-    const char *clomnNames[] = {"log_version", "log_time", "log_time_stamp", "js_version", "vst_cookie",
-                                "vst_ip", "vst_user_id", "vst_user_agent", "device_resolution", "page_url",
-                                "page_refer_url", "page_yyid", "page_type", "pos_type", "content_id", "media_id",
-                                "spm_cnt", "spm_pre", "scm_cnt", "partition_column"};
-    for (int i = 3; i < CLOMN_NUMBERS; i++, byteOffset+=16)
-    {
+    const char* columnNames[] = {
+            "log_version",       "log_time", "log_time_stamp", "js_version",
+            "vst_cookie",        "vst_ip",   "vst_user_id",    "vst_user_agent",
+            "device_resolution", "page_url", "page_refer_url", "page_yyid",
+            "page_type",         "pos_type", "content_id",     "media_id",
+            "spm_cnt",           "spm_pre",  "scm_cnt",        "partition_column"};
+    for (int i = 3; i < COLUMN_NUMBERS; i++, byteOffset += 16) {
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -221,10 +223,10 @@ int ParquetSannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next
         slot_desc.slotType = type;
         slot_desc.columnPos = i;
         slot_desc.byteOffset = byteOffset;
-        slot_desc.nullIndicatorByte = i/8;
-        slot_desc.nullIndicatorBit = i%8;
-        slot_desc.colName = clomnNames[i];
-        slot_desc.slotIdx = i+1;
+        slot_desc.nullIndicatorByte = i / 8;
+        slot_desc.nullIndicatorBit = i % 8;
+        slot_desc.colName = columnNames[i];
+        slot_desc.slotIdx = i + 1;
         slot_desc.isMaterialized = true;
 
         t_desc_table.slotDescriptors.push_back(slot_desc);
@@ -235,7 +237,7 @@ int ParquetSannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next
         // TTupleDescriptor dest
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = TUPLE_ID_DST;
-        t_tuple_desc.byteSize = byteOffset+8;//此处8字节为了处理null值
+        t_tuple_desc.byteSize = byteOffset + 8; //此处8字节为了处理null值
         t_tuple_desc.numNullBytes = 0;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
@@ -244,7 +246,7 @@ int ParquetSannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next
     return next_slot_id;
 }
 
-void ParquetSannerTest::init_desc_table() {
+void ParquetScannerTest::init_desc_table() {
     TDescriptorTable t_desc_table;
 
     // table descriptors
@@ -268,7 +270,7 @@ void ParquetSannerTest::init_desc_table() {
     _runtime_state.set_desc_tbl(_desc_tbl);
 }
 
-void ParquetSannerTest::create_expr_info() {
+void ParquetScannerTest::create_expr_info() {
     TTypeDesc varchar_type;
     {
         TTypeNode node;
@@ -379,9 +381,8 @@ void ParquetSannerTest::create_expr_info() {
         _params.expr_of_dest_slot.emplace(DST_TUPLE_SLOT_ID_START + 2, expr);
         _params.src_slot_ids.push_back(SRC_TUPLE_SLOT_ID_START + 2);
     }
-    // could't convert type
-    for (int i = 3; i < CLOMN_NUMBERS; i++)
-    {
+    // couldn't convert type
+    for (int i = 3; i < COLUMN_NUMBERS; i++) {
         TExprNode slot_ref;
         slot_ref.node_type = TExprNodeType::SLOT_REF;
         slot_ref.type = varchar_type;
@@ -402,8 +403,7 @@ void ParquetSannerTest::create_expr_info() {
     _params.__set_src_tuple_id(TUPLE_ID_SRC);
 }
 
-void ParquetSannerTest::init() {
-
+void ParquetScannerTest::init() {
     create_expr_info();
     init_desc_table();
 
@@ -418,7 +418,7 @@ void ParquetSannerTest::init() {
     _tnode.__isset.broker_scan_node = true;
 }
 
-TEST_F(ParquetSannerTest, normal) {
+TEST_F(ParquetScannerTest, normal) {
     BrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     auto status = scan_node.prepare(&_runtime_state);
     ASSERT_TRUE(status.ok());
@@ -459,9 +459,9 @@ TEST_F(ParquetSannerTest, normal) {
     status = scan_node.open(&_runtime_state);
     ASSERT_TRUE(status.ok());
 
-    MemTracker tracker;
+    auto tracker = std::make_shared<MemTracker>();
     // Get batch
-    RowBatch batch(scan_node.row_desc(), _runtime_state.batch_size(), &tracker);
+    RowBatch batch(scan_node.row_desc(), _runtime_state.batch_size(), tracker.get());
     bool eof = false;
     for (int i = 0; i < 14; i++) {
         status = scan_node.get_next(&_runtime_state, &batch, &eof);
@@ -489,7 +489,7 @@ TEST_F(ParquetSannerTest, normal) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

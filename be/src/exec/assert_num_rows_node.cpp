@@ -33,7 +33,7 @@ AssertNumRowsNode::AssertNumRowsNode(ObjectPool* pool, const TPlanNode& tnode,
     if (tnode.assert_num_rows_node.__isset.assertion) {
         _assertion = tnode.assert_num_rows_node.assertion;
     } else {
-        _assertion = TAssertion::LE; // just comptiable for the previous code
+        _assertion = TAssertion::LE; // just compatible for the previous code
     }
 }
 
@@ -86,7 +86,7 @@ Status AssertNumRowsNode::get_next(RuntimeState* state, RowBatch* output_batch, 
     }
 
     if (!assert_res) {
-        auto to_string_lamba = [](TAssertion::type assertion) {
+        auto to_string_lambda = [](TAssertion::type assertion) {
             std::map<int, const char*>::const_iterator it =
                     _TAssertion_VALUES_TO_NAMES.find(assertion);
 
@@ -96,10 +96,10 @@ Status AssertNumRowsNode::get_next(RuntimeState* state, RowBatch* output_batch, 
                 return it->second;
             }
         };
-        LOG(INFO) << "Expected " << to_string_lamba(_assertion) << " " << _desired_num_rows
+        LOG(INFO) << "Expected " << to_string_lambda(_assertion) << " " << _desired_num_rows
                   << " to be returned by expression " << _subquery_string;
         return Status::Cancelled(strings::Substitute(
-                "Expected $0 $1 to be returned by expression $2", to_string_lamba(_assertion),
+                "Expected $0 $1 to be returned by expression $2", to_string_lambda(_assertion),
                 _desired_num_rows, _subquery_string));
     }
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);

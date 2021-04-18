@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-namespace doris_udf {
-class FunctionContext;
-}
+#include <memory>
+#include <vector>
+
+#include "udf/udf.h"
 
 namespace doris {
 
@@ -29,16 +30,18 @@ class FunctionUtils {
 public:
     FunctionUtils();
     FunctionUtils(RuntimeState* state);
+    FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_type,
+                  const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
+                  int varargs_buffer_size);
     ~FunctionUtils();
 
-    doris_udf::FunctionContext* get_fn_ctx() {
-        return _fn_ctx;
-    }
+    doris_udf::FunctionContext* get_fn_ctx() { return _fn_ctx; }
+
 private:
     RuntimeState* _state = nullptr;
-    MemTracker* _mem_tracker = nullptr;
+    std::shared_ptr<MemTracker> _mem_tracker;
     MemPool* _memory_pool = nullptr;
     doris_udf::FunctionContext* _fn_ctx = nullptr;
 };
 
-}
+} // namespace doris
