@@ -295,7 +295,7 @@ public class Alter {
             if (swapTable) {
                 origTable.checkAndSetName(newTblName, true);
             }
-            replaceTableInternal(db, origTable, olapNewTbl, swapTable);
+            replaceTableInternal(db, origTable, olapNewTbl, swapTable, false);
             // write edit log
             ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(), origTable.getId(), olapNewTbl.getId(), swapTable);
             Catalog.getCurrentCatalog().getEditLog().logReplaceTable(log);
@@ -316,7 +316,7 @@ public class Alter {
         OlapTable newTbl = (OlapTable) db.getTable(newTblId);
 
         try {
-            replaceTableInternal(db, origTable, newTbl, log.isSwapTable());
+            replaceTableInternal(db, origTable, newTbl, log.isSwapTable(), true);
         } catch (DdlException e) {
             LOG.warn("should not happen", e);
         }
@@ -337,7 +337,8 @@ public class Alter {
      * 1.1 check if B can be renamed to A (checking name conflict, etc...)
      * 1.2 rename B to A, drop old A, and add new A to database.
      */
-    private void replaceTableInternal(Database db, OlapTable origTable, OlapTable newTbl, boolean swapTable)
+    private void replaceTableInternal(Database db, OlapTable origTable, OlapTable newTbl, boolean swapTable,
+                                      boolean isReplay)
             throws DdlException {
         String oldTblName = origTable.getName();
         String newTblName = newTbl.getName();
@@ -354,6 +355,9 @@ public class Alter {
             // rename origin table name to new table name and add it to database
             origTable.checkAndSetName(newTblName, false);
             db.createTable(origTable);
+        } else {
+            // not swap, the origin table is not used anymore, need to drop all its tablets.
+            Catalog.getCurrentCatalog().onEraseOlapTable(origTable, isReplay);
         }
     }
 
