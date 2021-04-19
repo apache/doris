@@ -229,7 +229,7 @@ public class DatabaseTransactionMgrTest {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Config.label_keep_max_second = -1;
         long currentMillis = System.currentTimeMillis();
-        masterDbTransMgr.removeExpiredTxns2(currentMillis);
+        masterDbTransMgr.removeExpiredTxns(currentMillis);
         assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
         assertEquals(3, masterDbTransMgr.getTransactionNum());
         assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));

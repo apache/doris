@@ -29,9 +29,11 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
+// Persist the info when removing batch of expired txns
 public class BatchRemoveTransactionsOperation implements Writable {
 
     @SerializedName(value = "dbTxnIds")
+    // dbId -> List of txns
     private Map<Long, List<Long>> dbTxnIds;
 
     public BatchRemoveTransactionsOperation(Map<Long, List<Long>> dbTxnIds) {

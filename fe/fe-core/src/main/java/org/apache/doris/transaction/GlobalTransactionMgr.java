@@ -339,12 +339,12 @@ public class GlobalTransactionMgr implements Writable {
         }
     }
 
-    public void replayBatchDeleteTransactions(BatchRemoveTransactionsOperation operation) {
+    public void replayBatchRemoveTransactions(BatchRemoveTransactionsOperation operation) {
         Map<Long, List<Long>> dbTxnIds = operation.getDbTxnIds();
         for (Long dbId : dbTxnIds.keySet()) {
             try {
                 DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-                dbTransactionMgr.replayBatchDeleteTransaction(dbTxnIds.get(dbId));
+                dbTransactionMgr.replayBatchRemoveTransaction(dbTxnIds.get(dbId));
             } catch (AnalysisException e) {
                 LOG.warn("replay batch remove transactions failed. db " + dbId, e);
             }

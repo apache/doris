@@ -597,7 +597,7 @@ public class EditLog {
                 }
                 case OperationType.OP_BATCH_REMOVE_TXNS: {
                     final BatchRemoveTransactionsOperation operation = (BatchRemoveTransactionsOperation) journal.getData();
-                    Catalog.getCurrentGlobalTransactionMgr().replayBatchDeleteTransactions(operation);
+                    Catalog.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactions(operation);
                     break;
                 }
                 case OperationType.OP_CREATE_REPOSITORY: {

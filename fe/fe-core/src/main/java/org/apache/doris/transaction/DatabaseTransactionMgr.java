@@ -617,7 +617,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public void replayBatchDeleteTransaction(List<Long> txnIds) {
+    public void replayBatchRemoveTransaction(List<Long> txnIds) {
         writeLock();
         try {
             for (Long txnId : txnIds) {
@@ -1114,7 +1114,7 @@ public class DatabaseTransactionMgr {
         return partitionInfos;
     }
 
-    public void removeExpiredTxns2(long currentMillis) {
+    public void removeExpiredTxns(long currentMillis) {
         // 1. get all txn ids
         List<Long> expiredTxnIds = Lists.newArrayList();
         readLock();
@@ -1451,7 +1451,7 @@ public class DatabaseTransactionMgr {
     }
 
     public void removeExpiredAndTimeoutTxns(long currentMillis) {
-        removeExpiredTxns2(currentMillis);
+        removeExpiredTxns(currentMillis);
         List<Long> timeoutTxns = getTimeoutTxns(currentMillis);
         // abort timeout txns
         for (Long txnId : timeoutTxns) {
@@ -1507,5 +1507,4 @@ public class DatabaseTransactionMgr {
             transactionState.write(out);
         }
     }
-
 }
