@@ -467,6 +467,25 @@ HTTP服务允许接收请求的Header的最大长度，单位为比特，默认�
 
 ### `max_distribution_pruner_recursion_depth`
 
+### `max_history_load_job_num_per_db`
+
+类型: int
+说明: 用于控制内存中单个db下已完成或取消的数据导入作业数。
+默认值: 100
+动态修改: 是
+
+### `max_history_txn_num_per_db`
+
+类型: int
+说明: 用于控制内存中单个db下已完成或取消的事务数。
+默认值: -1,表示没有限制
+动态修改: 是
+
+Type: int
+Description: Used to control the num of finished or aborted transactions under db in memory.
+Default value: -1, which means no limit
+Dynamic modification: yes
+
 ### `max_layout_length_per_row`
 
 ### `max_load_timeout_second`

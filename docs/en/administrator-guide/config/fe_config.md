@@ -470,6 +470,20 @@ Can cooperate with `mix_clone_task_timeout_sec` to control the maximum and minim
 
 ### `max_distribution_pruner_recursion_depth`
 
+### `max_history_load_job_num_per_db`
+
+Type: int
+Description: Used to control the num of finished or cancelled load jobs under db in memory.
+Default value: 100
+Dynamic modification: yes
+
+### `max_history_txn_num_per_db`
+
+Type: int
+Description: Used to control the num of finished or aborted transactions under db in memory.
+Default value: -1, which means no limit
+Dynamic modification: yes
+
 ### `max_layout_length_per_row`
 
 ### `max_load_timeout_second`

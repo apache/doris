@@ -59,8 +59,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.EnumSet;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -433,14 +433,28 @@ public class LoadManager implements Writable{
 
     public void removeOldLoadJob() {
         long currentTimeMs = System.currentTimeMillis();
-
         writeLock();
         try {
-            Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
-            while (iter.hasNext()) {
-                LoadJob job = iter.next().getValue();
+            List<LoadJob> loadJobList = idToLoadJob.entrySet()
+                    .stream().map(entry -> entry.getValue()).filter(LoadJob::isCompleted).
+                            sorted(Comparator.comparing(LoadJob::getFinishTimestamp).reversed()).collect(Collectors.toList());
+            Map<Long, Long> dbIdToHistoryJobNum = Maps.newHashMap();
+            for (LoadJob job : loadJobList) {
+                boolean shouldRemove = false;
                 if (job.isExpired(currentTimeMs)) {
-                    iter.remove();
+                    shouldRemove = true;
+                } else {
+                    Long num = dbIdToHistoryJobNum.get(job.getDbId());
+                    if (num == null) {
+                        dbIdToHistoryJobNum.put(job.getDbId(), 1L);
+                    } else if (num >= Config.max_history_load_job_num_per_db) {
+                        shouldRemove = true;
+                    } else {
+                        dbIdToHistoryJobNum.put(job.getDbId(), num + 1);
+                    }
+                }
+                if (shouldRemove) {
+                    idToLoadJob.remove(job.getId());
                     dbIdToLabelToLoadJobs.get(job.getDbId()).get(job.getLabel()).remove(job);
                     if (job instanceof SparkLoadJob) {
                         ((SparkLoadJob) job).clearSparkLauncherLog();

@@ -133,7 +133,15 @@ public class Config extends ConfigBase {
     // Remove the finished job or task if expired.
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_label_keep_max_second = 43200; // 12 hour
-  
+
+    /**
+     * Finished or cancelled load jobs in LoadManager will be removed if history load job num
+     * under db exceed *max_history_load_job_num_per_db*
+     * Set a small value will lower the FE memory usage.
+     * (Because all load jobs' info is kept in memory before being removed)
+     */
+    public static int max_history_load_job_num_per_db = 100;
+
     /**
      * The max keep time of some kind of jobs.
      * like schema change job and rollup job.
@@ -605,6 +613,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_running_txn_num_per_db = 100;
+
+    /**
+     * maximum history txn num including visible, aborted txns under a single db
+     * txn manager will remove the history txns when history txn num exceed *max_history_txn_num_per_db* in order of
+     * txn completion time, the default value for max_history_txn_num_per_db is -1, which means no limit
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_history_txn_num_per_db = -1;
 
     /**
      * This configuration is just for compatible with old version, this config has been replaced by async_loading_load_task_pool_size,

@@ -1123,30 +1123,46 @@ public class DatabaseTransactionMgr {
         try {
             leftNum = unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds, finalStatusTransactionStateDequeShort, leftNum);
             leftNum = unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds, finalStatusTransactionStateDequeLong, leftNum);
-
+            if (Config.max_history_txn_num_per_db != -1) {
+                leftNum = unprotectedRemoveExpiredTxnsByTxnHistoryNumLimit(expiredTxnIds, leftNum);
+            }
             Map<Long, List<Long>> dbExpiredTxnIds = Maps.newHashMap();
             dbExpiredTxnIds.put(dbId, expiredTxnIds);
             BatchRemoveTransactionsOperation op = new BatchRemoveTransactionsOperation(dbExpiredTxnIds);
             editLog.logBatchRemoveTransactions(op);
-            LOG.info("Remove {} expirted transactions", MAX_REMOVE_TXN_PER_ROUND - leftNum);
+            LOG.info("Remove {} expired transactions", MAX_REMOVE_TXN_PER_ROUND - leftNum);
         } finally {
             writeUnlock();
         }
     }
 
     private int unprotectedRemoveExpiredTxns(long currentMillis, List<Long> expiredTxnIds,
-                                             ArrayDeque<TransactionState> finalStatusTransactionStateDequeShort,
+                                             ArrayDeque<TransactionState> finalStatusTransactionStateDeque,
                                              int maxNumber) {
         int left = maxNumber;
-        while (!finalStatusTransactionStateDequeShort.isEmpty() && left > 0) {
-            TransactionState transactionState = finalStatusTransactionStateDequeShort.getFirst();
+        while (!finalStatusTransactionStateDeque.isEmpty() && left > 0) {
+            TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
             if (transactionState.isExpired(currentMillis)) {
-                finalStatusTransactionStateDequeShort.pop();
+                finalStatusTransactionStateDeque.pop();
                 clearTransactionState(transactionState.getTransactionId());
                 expiredTxnIds.add(transactionState.getTransactionId());
                 left--;
             } else {
                 break;
+            }
+        }
+        return left;
+    }
+
+    private int unprotectedRemoveExpiredTxnsByTxnHistoryNumLimit(List<Long> expiredTxnIds, int maxNumber) {
+        int left = maxNumber;
+        if (Config.max_history_txn_num_per_db != -1) {
+            while (idToFinalStatusTransactionState.size() > Config.max_history_txn_num_per_db && left > 0) {
+                TransactionState transactionState = (left % 2 == 0 && !finalStatusTransactionStateDequeShort.isEmpty()) ?
+                        finalStatusTransactionStateDequeShort.pop() : finalStatusTransactionStateDequeLong.pop();
+                clearTransactionState(transactionState.getTransactionId());
+                expiredTxnIds.add(transactionState.getTransactionId());
+                left--;
             }
         }
         return left;
