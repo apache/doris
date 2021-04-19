@@ -199,6 +199,11 @@ public:
         _preferred_rowset_type = preferred_rowset_type;
     }
 
+    // used for after tablet cloned to clear stale rowset
+    void clear_stale_rowset() {
+        _stale_rs_metas.clear();
+    }
+
 private:
     OLAPStatus _save_meta(DataDir* data_dir);
 
