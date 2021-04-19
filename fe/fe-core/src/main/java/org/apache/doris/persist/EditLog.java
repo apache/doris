@@ -1204,11 +1204,7 @@ public class EditLog {
     public void logInsertTransactionState(TransactionState transactionState) {
         logEdit(OperationType.OP_UPSERT_TRANSACTION_STATE, transactionState);
     }
-
-    public void logDeleteTransactionState(TransactionState transactionState) {
-        logEdit(OperationType.OP_DELETE_TRANSACTION_STATE, transactionState);
-    }
-
+    
     public void logBackupJob(BackupJob job) {
         logEdit(OperationType.OP_BACKUP_JOB, job);
     }

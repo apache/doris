@@ -600,14 +600,13 @@ public class DatabaseTransactionMgr {
         writeLock();
         try {
             // here we only delete the oldest element, so if element exist in finalStatusTransactionStateDeque,
-            // it must at the front of the finalStatusTransactionStateDeque
+            // it must at the front of the finalStatusTransactionStateDeque.
+            // check both "short" and "long" queue.
             if (!finalStatusTransactionStateDequeShort.isEmpty() &&
                     transactionState.getTransactionId() == finalStatusTransactionStateDequeShort.getFirst().getTransactionId()) {
                 finalStatusTransactionStateDequeShort.pop();
                 clearTransactionState(transactionState.getTransactionId());
-            }
-
-            if (!finalStatusTransactionStateDequeLong.isEmpty() &&
+            } else if (!finalStatusTransactionStateDequeLong.isEmpty() &&
                     transactionState.getTransactionId() == finalStatusTransactionStateDequeLong.getFirst().getTransactionId()) {
                 finalStatusTransactionStateDequeLong.pop();
                 clearTransactionState(transactionState.getTransactionId());
@@ -623,13 +622,12 @@ public class DatabaseTransactionMgr {
             for (Long txnId : txnIds) {
                 // here we only delete the oldest element, so if element exist in finalStatusTransactionStateDeque,
                 // it must at the front of the finalStatusTransactionStateDeque
+                // check both "short" and "long" queue.
                 if (!finalStatusTransactionStateDequeShort.isEmpty() &&
                         txnId == finalStatusTransactionStateDequeShort.getFirst().getTransactionId()) {
                     finalStatusTransactionStateDequeShort.pop();
                     clearTransactionState(txnId);
-                }
-
-                if (!finalStatusTransactionStateDequeLong.isEmpty() &&
+                } else if (!finalStatusTransactionStateDequeLong.isEmpty() &&
                         txnId == finalStatusTransactionStateDequeLong.getFirst().getTransactionId()) {
                     finalStatusTransactionStateDequeLong.pop();
                     clearTransactionState(txnId);
