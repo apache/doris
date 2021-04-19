@@ -102,6 +102,21 @@ OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key,
     return OLAP_SUCCESS;
 }
 
+bool OlapMeta::key_may_exist(const int column_family_index, const std::string& key,
+                         std::string* value) {
+    DorisMetrics::instance()->meta_read_request_total->increment(1);
+    rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
+    int64_t duration_ns = 0;
+    bool is_exist = false;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        is_exist = _db->KeyMayExist(ReadOptions(), handle, Slice(key), value);
+    }
+    DorisMetrics::instance()->meta_read_request_duration_us->increment(duration_ns / 1000);
+    
+    return is_exist;
+}
+
 OLAPStatus OlapMeta::put(const int column_family_index, const std::string& key,
                          const std::string& value) {
     DorisMetrics::instance()->meta_write_request_total->increment(1);

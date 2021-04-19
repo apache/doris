@@ -38,11 +38,7 @@ bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
                                           const RowsetId& rowset_id) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
-    OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
-    if (s != OLAP_SUCCESS) {
-        return false;
-    }
-    return true;
+    return meta->key_may_exist(META_COLUMN_FAMILY_INDEX, key, &value);;
 }
 
 OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
