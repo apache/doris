@@ -19,6 +19,17 @@
     </properties>
 
     <profiles>
+        <profile>
+            <id>thirdparty</id>
+            <activation>
+                <property>
+                    <name>env.DORIS_THIRDPARTY</name>
+                </property>
+            </activation>
+            <properties>
+                <doris.thirdparty>${env.DORIS_THIRDPARTY}</doris.thirdparty>
+            </properties>
+        </profile>
         <!-- for custom internal repository -->
         <profile>
             <id>custom-env</id>
