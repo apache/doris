@@ -64,6 +64,9 @@
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(etl_thread_pool_queue_size, MetricUnit::NOUNIT);
+
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
     return env->_init(store_paths);
 }
@@ -125,6 +128,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker->limit()));
     _heartbeat_flags = new HeartbeatFlags();
+    _register_metrics();
     _is_init = true;
     return Status::OK();
 }
@@ -208,11 +212,27 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size, int64_t capacity,
     _buffer_reservation->InitRootTracker(nullptr, capacity);
 }
 
+void ExecEnv::_register_metrics() {
+    REGISTER_HOOK_METRIC(scanner_thread_pool_queue_size, [this]() {
+        return _thread_pool->get_queue_size();
+    });
+
+    REGISTER_HOOK_METRIC(etl_thread_pool_queue_size, [this]() {
+        return _etl_thread_pool->get_queue_size();
+    });
+}
+
+void ExecEnv::_deregister_metrics() {
+    DEREGISTER_HOOK_METRIC(scanner_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(etl_thread_pool_queue_size);
+}
+
 void ExecEnv::_destroy() {
     //Only destroy once after init
     if (!_is_init) {
         return;
     }
+    _deregister_metrics();
     SAFE_DELETE(_brpc_stub_cache);
     SAFE_DELETE(_load_stream_mgr);
     SAFE_DELETE(_load_channel_mgr);

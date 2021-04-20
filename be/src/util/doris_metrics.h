@@ -180,6 +180,9 @@ public:
     UIntGauge* query_cache_sql_total_count;
     UIntGauge* query_cache_partition_total_count;
 
+    UIntGauge* scanner_thread_pool_queue_size;
+    UIntGauge* etl_thread_pool_queue_size;
+
     static DorisMetrics* instance() {
         static DorisMetrics instance;
         return &instance;
