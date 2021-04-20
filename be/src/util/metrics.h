@@ -63,12 +63,17 @@ enum class MetricUnit {
 std::ostream& operator<<(std::ostream& os, MetricType type);
 const char* unit_name(MetricUnit unit);
 
+using Labels = std::unordered_map<std::string, std::string>;
+
 class Metric {
 public:
     Metric() {}
     virtual ~Metric() {}
     virtual std::string to_string() const = 0;
-    virtual rj::Value to_json_value() const = 0;
+    virtual std::string to_prometheus(const std::string& display_name,
+                                      const Labels& entity_labels,
+                                      const Labels& metric_labels) const;
+    virtual rj::Value to_json_value(rj::Document::AllocatorType& allocator) const = 0;
 
 private:
     friend class MetricRegistry;
@@ -89,7 +94,7 @@ public:
 
     void set_value(const T& value) { _value.store(value); }
 
-    rj::Value to_json_value() const override { return rj::Value(value()); }
+    rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override { return rj::Value(value()); }
 
 protected:
     std::atomic<T> _value;
@@ -118,7 +123,7 @@ public:
         _value = value;
     }
 
-    rj::Value to_json_value() const override { return rj::Value(value()); }
+    rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override { return rj::Value(value()); }
 
 protected:
     // We use spinlock instead of std::atomic is because atomic don't support
@@ -154,7 +159,7 @@ public:
 
     void increment(const T& delta) { __sync_fetch_and_add(_value.access(), delta); }
 
-    rj::Value to_json_value() const override { return rj::Value(value()); }
+    rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override { return rj::Value(value()); }
 
 protected:
     CoreLocalValue<T> _value;
@@ -182,9 +187,13 @@ public:
     double average() const;
     double standard_deviation() const;
     std::string to_string() const override;
-    rj::Value to_json_value() const override;
+    std::string to_prometheus(const std::string& display_name,
+                              const Labels& entity_labels,
+                              const Labels& metric_labels) const override;
+    rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override;
 
 protected:
+    static std::map<std::string, double> _s_output_percentiles;
     mutable SpinLock _lock;
     HistogramStat _stats;
 };
@@ -242,6 +251,7 @@ public:
 
     std::string simple_name() const;
     std::string combine_name(const std::string& registry_name) const;
+    std::string to_prometheus(const std::string& registry_name) const;
 
     bool is_core_metric;
     MetricType type;
