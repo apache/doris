@@ -54,7 +54,7 @@ And then you could build Doris as following steps:
 #### Step1: Pull the docker image with Doris building environment
 
 ```
-$ docker pull apachedoris/doris-dev:build-env-1.2
+$ docker pull apachedoris/doris-dev:build-env-1.3
 ```
 
 You can check it by listing images, for example:
@@ -62,7 +62,7 @@ You can check it by listing images, for example:
 ```
 $ docker images
 REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-apachedoris/doris-dev   build-env-1.2       69cf7fff9d10        2 weeks ago         4.12GB
+apachedoris/doris-dev   build-env-1.3       c9665fbee395        5 days ago         3.55GB
 ```
 > NOTE: You may have to use different images to compile from source.
 >
@@ -70,7 +70,8 @@ apachedoris/doris-dev   build-env-1.2       69cf7fff9d10        2 weeks ago     
 > |---|---|---|
 > | apachedoris/doris-dev:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
 > | apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or 0.11.x |
-> | apachedoris/doris-dev:build-env-1.2 | [1648226](https://github.com/apache/incubator-doris/commit/1648226927c5b4e33f33ce2e12bf0e06369b7f6e) or later | 0.12.x or later |
+> | apachedoris/doris-dev:build-env-1.2 | [1648226](https://github.com/apache/incubator-doris/commit/1648226927c5b4e33f33ce2e12bf0e06369b7f6e) or later | 0.12.x or 0.13 |
+> | apachedoris/doris-dev:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | 0.14.x or later |
 
 
 
@@ -80,13 +81,13 @@ apachedoris/doris-dev   build-env-1.2       69cf7fff9d10        2 weeks ago     
 You can run the image directly:
 
 ```
-$ docker run -it apachedoris/doris-dev:build-env-1.2
+$ docker run -it apachedoris/doris-dev:build-env-1.3
 ```
 
 Or if you want to compile the source located in your local host, you can map the local directory to the image by running:
 
 ```
-$ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env-1.2
+$ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env-1.3
 ```
 
 #### Step3: Download Doris source
