@@ -116,6 +116,8 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     TRACE_COUNTER_INCREMENT("output_segments_num", _output_rowset->num_segments());
     TRACE("output rowset built");
 
+    sleep(60);
+
     // 3. check correctness
     RETURN_NOT_OK(check_correctness(stats));
     TRACE("check correctness finished");
