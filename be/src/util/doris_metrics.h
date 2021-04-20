@@ -28,9 +28,9 @@
 
 namespace doris {
 
-#define REGISTER_ENTITY_HOOK_METRIC(entity, onwer, metric, func)                                \
-    onwer->metric = (UIntGauge*)(entity->register_metric<UIntGauge>(&METRIC_##metric));         \
-    entity->register_hook(#metric, [&]() { onwer->metric->set_value(func()); });
+#define REGISTER_ENTITY_HOOK_METRIC(entity, owner, metric, func)                                \
+    owner->metric = (UIntGauge*)(entity->register_metric<UIntGauge>(&METRIC_##metric));         \
+    entity->register_hook(#metric, [&]() { owner->metric->set_value(func()); });
 
 #define REGISTER_HOOK_METRIC(metric, func)                                                      \
     REGISTER_ENTITY_HOOK_METRIC(DorisMetrics::instance()->server_entity(), DorisMetrics::instance(), metric, func)
