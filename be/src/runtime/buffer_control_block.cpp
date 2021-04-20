@@ -183,16 +183,16 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
     }
     if (!_batch_queue.empty()) {
         // get result
-		TFetchDataResult* result = _batch_queue.front();
-		_batch_queue.pop_front();
-		_buffer_rows -= result->result_batch.rows.size();
-		_data_removal.notify_one();
+        TFetchDataResult* result = _batch_queue.front();
+        _batch_queue.pop_front();
+        _buffer_rows -= result->result_batch.rows.size();
+        _data_removal.notify_one();
 
-		ctx->on_data(result, _packet_num);
-		_packet_num++;
+        ctx->on_data(result, _packet_num);
+        _packet_num++;
 
-		delete result;
-		result = nullptr;
+        delete result;
+        result = nullptr;
 
         return;
     }
