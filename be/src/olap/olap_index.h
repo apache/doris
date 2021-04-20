@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_SRC_OLAP_OLAP_INDEX_H
 #define DORIS_BE_SRC_OLAP_OLAP_INDEX_H
 
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
+#include <condition_variable>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>

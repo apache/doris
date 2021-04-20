@@ -20,8 +20,8 @@
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread.hpp>
-#include <boost/unordered_set.hpp>
 #include <string>
+#include <unordered_set>
 
 #include "exec/blocking_join_node.h"
 #include "exec/exec_node.h"

@@ -20,6 +20,7 @@
 
 #include <boost/function.hpp>
 #include <boost/scoped_ptr.hpp>
+#include <condition_variable>
 #include <vector>
 
 #include "common/object_pool.h"
@@ -155,15 +156,15 @@ private:
     // profile reporting-related
     report_status_callback _report_status_cb;
     boost::thread _report_thread;
-    boost::mutex _report_thread_lock;
+    std::mutex _report_thread_lock;
 
     // Indicates that profile reporting thread should stop.
     // Tied to _report_thread_lock.
-    boost::condition_variable _stop_report_thread_cv;
+    std::condition_variable _stop_report_thread_cv;
 
     // Indicates that profile reporting thread started.
     // Tied to _report_thread_lock.
-    boost::condition_variable _report_thread_started_cv;
+    std::condition_variable _report_thread_started_cv;
     bool _report_thread_active; // true if we started the thread
 
     // true if _plan->get_next() indicated that it's done
@@ -192,7 +193,7 @@ private:
     // lock ordering:
     // 1. _report_thread_lock
     // 2. _status_lock
-    boost::mutex _status_lock;
+    std::mutex _status_lock;
 
     // note that RuntimeState should be constructed before and destructed after `_sink' and `_row_batch',
     // therefore we declare it before `_sink' and `_row_batch'

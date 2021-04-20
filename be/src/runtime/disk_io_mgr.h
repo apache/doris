@@ -19,11 +19,11 @@
 #define DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_H
 
 #include <boost/scoped_ptr.hpp>
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
 #include <boost/thread/thread.hpp>
-#include <boost/unordered_set.hpp>
+#include <condition_variable>
 #include <list>
+#include <mutex>
+#include <unordered_set>
 #include <vector>
 
 #include "common/atomic.h"
@@ -445,7 +445,7 @@ public:
 
         // Lock protecting fields below.
         // This lock should not be taken during Open/Read/Close.
-        boost::mutex _lock;
+        std::mutex _lock;
 
         // Number of bytes read so far for this scan range
         int _bytes_read;
@@ -467,7 +467,7 @@ public:
 
         // IO buffers that are queued for this scan range.
         // Condition variable for get_next
-        boost::condition_variable _buffer_ready_cv;
+        std::condition_variable _buffer_ready_cv;
         std::list<BufferDescriptor*> _ready_buffers;
 
         // The soft capacity limit for _ready_buffers. _ready_buffers can exceed
@@ -482,7 +482,7 @@ public:
         // that the disk threads are finished with HDFS calls before _is_cancelled is set
         // to true and cleanup starts.
         // If this lock and _lock need to be taken, _lock must be taken first.
-        boost::mutex _hdfs_lock;
+        std::mutex _hdfs_lock;
 
         // If true, this scan range has been cancelled.
         bool _is_cancelled;
@@ -729,7 +729,7 @@ private:
     boost::scoped_ptr<RequestContextCache> _request_context_cache;
 
     // Protects _free_buffers and _free_buffer_descs
-    boost::mutex _free_buffers_lock;
+    std::mutex _free_buffers_lock;
 
     // Free buffers that can be handed out to clients. There is one list for each buffer
     // size, indexed by the Log2 of the buffer size in units of _min_buffer_size. The

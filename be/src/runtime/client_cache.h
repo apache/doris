@@ -19,13 +19,14 @@
 #define DORIS_BE_RUNTIME_CLIENT_CACHE_H
 
 #include <boost/bind/bind.hpp>
-#include <boost/thread/mutex.hpp>
-#include <boost/unordered_map.hpp>
 #include <list>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
+#include "util/hash_util.hpp"
 #include "util/metrics.h"
 #include "util/thrift_client.h"
 
@@ -98,14 +99,14 @@ private:
     // Protects all member variables
     // TODO: have more fine-grained locks or use lock-free data structures,
     // this isn't going to scale for a high request rate
-    boost::mutex _lock;
+    std::mutex _lock;
 
     // map from (host, port) to list of client keys for that address
-    typedef boost::unordered_map<TNetworkAddress, std::list<void*>> ClientCacheMap;
+    typedef std::unordered_map<TNetworkAddress, std::list<void*>> ClientCacheMap;
     ClientCacheMap _client_cache;
 
     // Map from client key back to its associated ThriftClientImpl transport
-    typedef boost::unordered_map<void*, ThriftClientImpl*> ClientMap;
+    typedef std::unordered_map<void*, ThriftClientImpl*> ClientMap;
     ClientMap _client_map;
 
     bool _metrics_enabled;
@@ -190,13 +191,15 @@ public:
     typedef ThriftClient<T> Client;
 
     ClientCache() : _client_cache_helper() {
-        _client_factory = boost::bind<ThriftClientImpl*>(boost::mem_fn(&ClientCache::make_client),
-                                                         this, boost::placeholders::_1, boost::placeholders::_2);
+        _client_factory =
+                boost::bind<ThriftClientImpl*>(boost::mem_fn(&ClientCache::make_client), this,
+                                               boost::placeholders::_1, boost::placeholders::_2);
     }
 
     ClientCache(int max_cache_size) : _client_cache_helper(max_cache_size) {
-        _client_factory = boost::bind<ThriftClientImpl*>(boost::mem_fn(&ClientCache::make_client),
-                                                         this, boost::placeholders::_1, boost::placeholders::_2);
+        _client_factory =
+                boost::bind<ThriftClientImpl*>(boost::mem_fn(&ClientCache::make_client), this,
+                                               boost::placeholders::_1, boost::placeholders::_2);
     }
 
     // Close all clients connected to the supplied address, (e.g., in

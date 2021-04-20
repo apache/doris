@@ -35,7 +35,7 @@
 namespace doris {
 
 typedef boost::shared_lock<boost::shared_mutex> CacheReadLock;
-typedef boost::unique_lock<boost::shared_mutex> CacheWriteLock;
+typedef std::unique_lock<boost::shared_mutex> CacheWriteLock;
 
 //#ifndef PARTITION_CACHE_DEV
 //#define PARTITION_CACHE_DEV

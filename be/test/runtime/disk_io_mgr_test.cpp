@@ -33,11 +33,11 @@ using std::stringstream;
 using std::vector;
 using std::list;
 
-using boost::lock_guard;
-using boost::unique_lock;
-using boost::mutex;
+using std::lock_guard;
+using std::unique_lock;
+using std::mutex;
 using boost::mem_fn;
-using boost::condition_variable;
+using std::condition_variable;
 using boost::scoped_ptr;
 using boost::thread;
 using boost::thread_group;

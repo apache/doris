@@ -19,7 +19,7 @@
 #define DORIS_BE_SRC_RUNTIME_DATA_STREAM_RECVR_H
 
 #include <boost/scoped_ptr.hpp>
-#include <boost/thread/mutex.hpp>
+#include <mutex>
 
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -89,7 +89,8 @@ public:
     // queues. The exprs used in less_than must have already been prepared and opened.
     Status create_merger(const TupleRowComparator& less_than);
 
-    Status create_parallel_merger(const TupleRowComparator& less_than, uint32_t batch_size, MemTracker* mem_tracker);
+    Status create_parallel_merger(const TupleRowComparator& less_than, uint32_t batch_size,
+                                  MemTracker* mem_tracker);
     // Fill output_batch with the next batch of rows obtained by merging the per-sender
     // input streams. Must only be called if _is_merging is true.
     Status get_next(RowBatch* output_batch, bool* eos);

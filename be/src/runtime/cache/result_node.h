@@ -108,7 +108,7 @@ private:
 
 typedef int64 PartitionKey;
 typedef std::list<PartitionRowBatch*> PartitionRowBatchList;
-typedef boost::unordered_map<PartitionKey, PartitionRowBatch*> PartitionRowBatchMap;
+typedef std::unordered_map<PartitionKey, PartitionRowBatch*> PartitionRowBatchMap;
 
 /**
 * Cache the result of one SQL, include many partition rowsets.
