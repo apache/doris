@@ -73,7 +73,6 @@ using std::list;
 using std::map;
 using std::nothrow;
 using std::pair;
-using std::priority_queue;
 using std::set;
 using std::set_difference;
 using std::string;

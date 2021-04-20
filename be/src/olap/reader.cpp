@@ -102,6 +102,7 @@ Reader::~Reader() {
 }
 
 OLAPStatus Reader::init(const ReaderParams& read_params) {
+    // TODO(yingchun): monitor
     _tracker.reset(new MemTracker(-1, read_params.tablet->full_name()));
     _predicate_mem_pool.reset(new MemPool(_tracker.get()));
 
@@ -115,7 +116,8 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
         return res;
     }
 
-    res = _capture_rs_readers(read_params);
+    std::vector<RowsetReaderSharedPtr> rs_readers;
+    res = _capture_rs_readers(read_params, &rs_readers);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
@@ -125,11 +127,36 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
         return res;
     }
 
-    // When only one rowset has data, and this rowset is nonoverlapping, we can read directly without aggregation
+    if (_optimize_for_single_rowset(rs_readers)) {
+        _next_row_func = _tablet->keys_type() == AGG_KEYS ? &Reader::_direct_agg_key_next_row
+                                                          : &Reader::_direct_next_row;
+        return OLAP_SUCCESS;
+    }
+
+    switch (_tablet->keys_type()) {
+    case KeysType::DUP_KEYS:
+        _next_row_func = &Reader::_direct_next_row;
+        break;
+    case KeysType::UNIQUE_KEYS:
+        _next_row_func = &Reader::_unique_key_next_row;
+        break;
+    case KeysType::AGG_KEYS:
+        _next_row_func = &Reader::_agg_key_next_row;
+        break;
+    default:
+        DCHECK(false) << "No next row function for type:" << _tablet->keys_type();
+        break;
+    }
+
+    return OLAP_SUCCESS;
+}
+
+// When only one rowset has data, and this rowset is nonoverlapping, we can read directly without aggregation
+bool Reader::_optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr>& rs_readers) {
     bool has_delete_rowset = false;
     bool has_overlapping = false;
     int nonoverlapping_count = 0;
-    for (auto rs_reader : _rs_readers) {
+    for (const auto& rs_reader : rs_readers) {
         if (rs_reader->rowset()->rowset_meta()->delete_flag()) {
             has_delete_rowset = true;
             break;
@@ -144,27 +171,8 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
             }
         }
     }
-    if (!has_overlapping && nonoverlapping_count == 1 && !has_delete_rowset) {
-        _next_row_func = _tablet->keys_type() == AGG_KEYS ? &Reader::_direct_agg_key_next_row
-                                                          : &Reader::_direct_next_row;
-    } else {
-        switch (_tablet->keys_type()) {
-        case KeysType::DUP_KEYS:
-            _next_row_func = &Reader::_direct_next_row;
-            break;
-        case KeysType::UNIQUE_KEYS:
-            _next_row_func = &Reader::_unique_key_next_row;
-            break;
-        case KeysType::AGG_KEYS:
-            _next_row_func = &Reader::_agg_key_next_row;
-            break;
-        default:
-            break;
-        }
-    }
-    DCHECK(_next_row_func != nullptr) << "No next row function for type:" << _tablet->keys_type();
 
-    return OLAP_SUCCESS;
+    return !has_overlapping && nonoverlapping_count == 1 && !has_delete_rowset;
 }
 
 OLAPStatus Reader::_direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
@@ -180,6 +188,7 @@ OLAPStatus Reader::_direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, Ob
     }
     return OLAP_SUCCESS;
 }
+
 OLAPStatus Reader::_direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
                                             ObjectPool* agg_pool, bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
@@ -188,7 +197,7 @@ OLAPStatus Reader::_direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_
     }
     init_row_with_others(row_cursor, *_next_key, mem_pool, agg_pool);
     auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
-    if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
+    if (UNLIKELY(res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF)) {
         return res;
     }
     if (_need_agg_finalize) {
@@ -301,7 +310,8 @@ void Reader::close() {
     }
 }
 
-OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
+OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params,
+                                       std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
     const std::vector<RowsetReaderSharedPtr>* rs_readers = &read_params.rs_readers;
     if (rs_readers->empty()) {
         LOG(WARNING) << "fail to acquire data sources. tablet=" << _tablet->full_name();
@@ -399,10 +409,10 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
             return res;
         }
         if (res == OLAP_SUCCESS) {
-            _rs_readers.push_back(rs_reader);
+            valid_rs_readers->push_back(rs_reader);
         }
     }
-    _collect_iter->build_heap();
+    _collect_iter->build_heap(*valid_rs_readers);
     _next_key = _collect_iter->current_row(&_next_delete_flag);
     return OLAP_SUCCESS;
 }

@@ -72,6 +72,8 @@ public:
         cursor->attach(_mem_buf + row_index * _mem_row_bytes);
     }
 
+    // TODO(yingchun): why not use _pos directly?
+
     template <typename RowType>
     inline void set_row(uint32_t row_index, const RowType& row) const {
         memcpy(_mem_buf + row_index * _mem_row_bytes, row.row_ptr(), _mem_row_bytes);

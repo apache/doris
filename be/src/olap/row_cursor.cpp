@@ -165,6 +165,7 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
     return OLAP_SUCCESS;
 }
 
+// TODO(yingchun): parameter 'const TabletSchema& schema' is not used
 OLAPStatus RowCursor::allocate_memory_for_string_type(const TabletSchema& schema) {
     // allocate memory for string type(char, varchar, hll)
     // The memory allocated in this function is used in aggregate and copy function

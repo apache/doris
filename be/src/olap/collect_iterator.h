@@ -35,7 +35,7 @@ public:
 
     OLAPStatus add_child(RowsetReaderSharedPtr rs_reader);
 
-    void build_heap();
+    void build_heap(const std::vector<RowsetReaderSharedPtr>& rs_readers);
 
     // Get top row of the heap, nullptr if reach end.
     const RowCursor* current_row(bool* delete_flag) const;
@@ -46,9 +46,6 @@ public:
     //      OLAP_ERR_DATA_EOF and set *row to nullptr when EOF is reached.
     //      Others when error happens
     OLAPStatus next(const RowCursor** row, bool* delete_flag);
-
-    // Clear the MergeSet element and reset state.
-    void clear();
 
 private:
     // This interface is the actual implementation of the new version of iterator.
@@ -70,6 +67,7 @@ private:
         virtual OLAPStatus next(const RowCursor** row, bool* delete_flag) = 0;
         virtual ~LevelIterator() = 0;
     };
+
     // Compare row cursors between multiple merge elements,
     // if row cursors equal, compare data version.
     class LevelIteratorComparator {
@@ -79,7 +77,6 @@ private:
 
     private:
         bool _reverse;
-        OlapReaderStatistics* _stats;
     };
 
     typedef std::priority_queue<LevelIterator*, std::vector<LevelIterator*>,
@@ -90,15 +87,15 @@ private:
     public:
         Level0Iterator(RowsetReaderSharedPtr rs_reader, Reader* reader);
 
-        OLAPStatus init();
+        OLAPStatus init() override;
 
-        const RowCursor* current_row(bool* delete_flag) const;
+        const RowCursor* current_row(bool* delete_flag) const override;
 
-        const RowCursor* current_row() const;
+        const RowCursor* current_row() const override;
 
-        int64_t version() const;
+        int64_t version() const override;
 
-        OLAPStatus next(const RowCursor** row, bool* delete_flag);
+        OLAPStatus next(const RowCursor** row, bool* delete_flag) override;
 
         ~Level0Iterator();
 
@@ -109,27 +106,27 @@ private:
         OLAPStatus _refresh_current_row_v2();
 
         RowsetReaderSharedPtr _rs_reader;
-        const RowCursor* _current_row = nullptr;
+        const RowCursor* _current_row = nullptr;  // It points to the returned row
         bool _is_delete = false;
         Reader* _reader = nullptr;
-        // point to rows inside `_row_block`
-        RowCursor _row_cursor;
+        RowCursor _row_cursor;  // It points to rows inside `_row_block`, maybe not returned
         RowBlock* _row_block = nullptr;
     };
+
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)
     class Level1Iterator : public LevelIterator {
     public:
-        Level1Iterator(const std::vector<LevelIterator*>& children, bool merge, bool reverse);
+        Level1Iterator(const std::list<LevelIterator*>& children, bool merge, bool reverse);
 
-        OLAPStatus init();
+        OLAPStatus init() override;
 
-        const RowCursor* current_row(bool* delete_flag) const;
+        const RowCursor* current_row(bool* delete_flag) const override;
 
-        const RowCursor* current_row() const;
+        const RowCursor* current_row() const override;
 
-        int64_t version() const;
+        int64_t version() const override;
 
-        OLAPStatus next(const RowCursor** row, bool* delete_flag);
+        OLAPStatus next(const RowCursor** row, bool* delete_flag) override;
 
         ~Level1Iterator();
 
@@ -137,8 +134,9 @@ private:
         inline OLAPStatus _merge_next(const RowCursor** row, bool* delete_flag);
         inline OLAPStatus _normal_next(const RowCursor** row, bool* delete_flag);
 
-        // each Level0Iterator corresponds to a rowset reader
-        const std::vector<LevelIterator*> _children;
+        // Each LevelIterator corresponds to a rowset reader,
+        // it will be cleared after '_heap' has been initilized when '_merge == true'.
+        std::list<LevelIterator*> _children;
         // point to the Level0Iterator containing the next output row.
         // null when CollectIterator hasn't been initialized or reaches EOF.
         LevelIterator* _cur_child = nullptr;
@@ -158,8 +156,9 @@ private:
 
     std::unique_ptr<LevelIterator> _inner_iter;
 
-    // each LevelIterator corresponds to a rowset reader
-    std::vector<LevelIterator*> _children;
+    // Each LevelIterator corresponds to a rowset reader,
+    // it will be cleared after '_inner_iter' has been initilized.
+    std::list<LevelIterator*> _children;
 
     bool _merge = true;
     bool _reverse = false;

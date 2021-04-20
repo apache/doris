@@ -83,8 +83,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
 
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name()
-              << ", output_version=" << _output_version.first << "-" << _output_version.second
-              << ", permits: " << permits;
+              << ", output_version=" << _output_version << ", permits: " << permits;
 
     RETURN_NOT_OK(construct_output_rowset_writer());
     RETURN_NOT_OK(construct_input_rowset_readers());
@@ -98,8 +97,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
                      << ", tablet=" << _tablet->full_name()
-                     << ", output_version=" << _output_version.first << "-"
-                     << _output_version.second;
+                     << ", output_version=" << _output_version;
         return res;
     }
     TRACE("merge rowsets finished");
@@ -109,8 +107,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     _output_rowset = _output_rs_writer->build();
     if (_output_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
-                     << ", output_version=" << _output_version.first << "-"
-                     << _output_version.second;
+                     << ", output_version=" << _output_version;
         return OLAP_ERR_MALLOC_ERROR;
     }
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
@@ -128,6 +125,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
 
     // 5. update last success compaction time
     int64_t now = UnixMillis();
+    // TODO(yingchun): do the judge in Tablet class
     if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
         _tablet->set_last_cumu_compaction_success_time(now);
     } else {
@@ -141,7 +139,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     }
 
     LOG(INFO) << "succeed to do " << compaction_name() << ". tablet=" << _tablet->full_name()
-              << ", output_version=" << _output_version.first << "-" << _output_version.second
+              << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << segments_num
               << ". elapsed time=" << watch.get_elapse_second() << "s. cumulative_compaction_policy="
