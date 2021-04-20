@@ -72,7 +72,7 @@ create/drop index 语法
     * `UNSIGNEDINT`
     * `BIGINT`
     * `CHAR`
-    * `VARCHAE`
+    * `VARCHAR`
     * `DATE`
     * `DATETIME`
     * `LARGEINT`
