@@ -229,34 +229,9 @@ under the License.
             <artifactId>joda-time</artifactId>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/com.baidu/jprotobuf -->
-        <dependency>
-            <groupId>com.baidu</groupId>
-            <artifactId>jprotobuf</artifactId>
-            <classifier>jar-with-dependencies</classifier>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/com.baidu/jprotobuf-rpc-common -->
-        <dependency>
-            <groupId>com.baidu</groupId>
-            <artifactId>jprotobuf-rpc-common</artifactId>
-        </dependency>
-
         <dependency>
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/com.baidu/jprotobuf-rpc-core -->
-        <dependency>
-            <groupId>com.baidu</groupId>
-            <artifactId>jprotobuf-rpc-core</artifactId>
-            <exclusions>
-                <exclusion>
-                    <artifactId>servlet-api</artifactId>
-                    <groupId>javax.servlet</groupId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.json/json -->
@@ -607,6 +582,20 @@ under the License.
             <artifactId>tree-printer</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-protobuf</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-stub</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
@@ -674,6 +663,39 @@ under the License.
                 </configuration>
             </plugin>
 
+
+            <!-- protobuf -->
+            <plugin>
+                <groupId>com.github.os72</groupId>
+                <artifactId>protoc-jar-maven-plugin</artifactId>
+                <version>3.11.1</version>
+                <executions>
+                    <execution>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <protocCommand>${doris.thirdparty}/installed/bin/protoc</protocCommand>
+                            <!-->You can use following protocArtifact instead of protocCommand, so that you don't need to install protobuf tools<-->
+                            <!--protocArtifact>com.google.protobuf:protoc:${protobuf.version}</protocArtifact-->
+                            <protocVersion>${protobuf.version}</protocVersion>
+                            <inputDirectories>
+                                <include>${doris.home}/gensrc/proto</include>
+                            </inputDirectories>
+                            <outputTargets>
+                                <outputTarget>
+                                    <type>java</type>
+                                </outputTarget>
+                                <outputTarget>
+                                    <type>grpc-java</type>
+                                    <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</pluginArtifact>
+                                </outputTarget>
+                            </outputTargets>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <!-- run make to generate Version and builtin -->
             <!-- also parse the proto for FE -->
             <plugin>
@@ -681,21 +703,6 @@ under the License.
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.0.0</version>
                 <executions>
-                    <execution>
-                        <id>make-dir</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <executable>mkdir</executable>
-                            <arguments>
-                                <argument>-p</argument>
-                                <argument>${basedir}/target/generated-sources/proto</argument>
-                            </arguments>
-                            <skip>${skip.plugin}</skip>
-                        </configuration>
-                    </execution>
                     <execution>
                         <id>gensrc</id>
                         <phase>generate-sources</phase>
@@ -707,24 +714,6 @@ under the License.
                             <arguments>
                                 <argument>-C</argument>
                                 <argument>${doris.home}/gensrc/script</argument>
-                            </arguments>
-                            <skip>${skip.plugin}</skip>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>gen_proto</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <!-- DO NOT use goal 'java', it will terminate the VM after done -->
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <executable>${java.home}/bin/java</executable>
-                            <arguments>
-                                <argument>-jar</argument>
-                                <argument>${settings.localRepository}/com/baidu/jprotobuf/${jprotobuf.version}/jprotobuf-${jprotobuf.version}-jar-with-dependencies.jar</argument>
-                                <argument>--java_out=${basedir}/target/generated-sources/proto</argument>
-                                <argument>${doris.home}/gensrc/proto/internal_service.proto</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
                         </configuration>
@@ -748,7 +737,6 @@ under the License.
                             <sources>
                                 <!-- add arbitrary num of src dirs here -->
                                 <source>${basedir}/target/generated-sources/build/</source>
-                                <source>${basedir}/target/generated-sources/proto/</source>
                             </sources>
                         </configuration>
                     </execution>

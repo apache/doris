@@ -18,7 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.proto.PUniqueId;
+import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TUniqueId;
 
 import java.io.PrintWriter;
@@ -135,9 +135,9 @@ public class DebugUtil {
         return builder.toString();
     }
 
-    public static String printId(final PUniqueId id) {
+    public static String printId(final Types.PUniqueId id) {
         StringBuilder builder = new StringBuilder();
-        builder.append(Long.toHexString(id.hi)).append("-").append(Long.toHexString(id.lo));
+        builder.append(Long.toHexString(id.getHi())).append("-").append(Long.toHexString(id.getLo()));
         return builder.toString();
     }
     
