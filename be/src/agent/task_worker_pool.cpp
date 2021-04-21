@@ -68,6 +68,8 @@ using std::vector;
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(agent_task_queue_size, MetricUnit::NOUNIT);
+
 const uint32_t TASK_FINISH_MAX_RETRY = 3;
 const uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
 const uint32_t REPORT_TASK_WORKER_COUNT = 1;
@@ -81,8 +83,7 @@ FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache;
 
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                                const TMasterInfo& master_info)
-        : _name(strings::Substitute("TaskWorkerPool.$0", TYPE_STRING(task_worker_type))),
-          _master_info(master_info),
+        : _master_info(master_info),
           _agent_utils(new AgentUtils()),
           _master_client(new MasterServerClient(_master_info, &_master_service_client_cache)),
           _env(env),
@@ -93,11 +94,24 @@ TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* e
     _backend.__set_host(BackendOptions::get_localhost());
     _backend.__set_be_port(config::be_port);
     _backend.__set_http_port(config::webserver_port);
+
+    string task_worker_type_name = TYPE_STRING(task_worker_type);
+    _name = strings::Substitute("TaskWorkerPool.$0", task_worker_type_name);
+
+    _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
+            task_worker_type_name, {{"type", task_worker_type_name}});
+    REGISTER_ENTITY_HOOK_METRIC(_metric_entity, this, agent_task_queue_size, [this]() {
+        lock_guard<Mutex> lock(_worker_thread_lock);
+        return _tasks.size();
+    });
 }
 
 TaskWorkerPool::~TaskWorkerPool() {
     _stop_background_threads_latch.count_down();
     stop();
+
+    DEREGISTER_ENTITY_HOOK_METRIC(_metric_entity, agent_task_queue_size);
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
 }
 
 void TaskWorkerPool::start() {
