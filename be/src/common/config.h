@@ -348,6 +348,14 @@ CONF_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 CONF_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 CONF_mBool(tablet_writer_ignore_eovercrowded, "false");
+// batch size of stream load record reported to FE
+CONF_mInt32(stream_load_record_batch_size, "50");
+// expire time of stream load record in rocksdb.
+CONF_Int32(stream_load_record_expire_time_secs, "28800");
+// time interval to clean expired stream load records
+CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
+// the storage path of stream load record rocksdb
+CONF_String(stream_load_record_path, "${DORIS_HOME}");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.

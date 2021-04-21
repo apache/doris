@@ -256,7 +256,7 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
     // wait for all consumers finished
     HANDLE_ERROR(ctx->future.get(), "consume failed");
 
-    ctx->load_cost_nanos = MonotonicNanos() - ctx->start_nanos;
+    ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
     // return the consumer back to pool
     // call this before commit txn, in case the next task can come very fast

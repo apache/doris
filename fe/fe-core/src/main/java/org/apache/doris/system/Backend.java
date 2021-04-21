@@ -95,6 +95,8 @@ public class Backend implements Writable {
     // additional backendStatus information for BE, display in JSON format
     private BackendStatus backendStatus = new BackendStatus();
 
+    private long lastStreamLoadTime = -1;
+
     public Backend() {
         this.host = "";
         this.version = "";
@@ -112,6 +114,8 @@ public class Backend implements Writable {
         this.backendState = BackendState.free.ordinal();
         
         this.decommissionType = DecommissionType.SystemDecommission.ordinal();
+
+        this.lastStreamLoadTime = -1;
     }
 
     public Backend(long id, String host, int heartbeatPort) {
@@ -132,6 +136,8 @@ public class Backend implements Writable {
         this.ownerClusterName = "";
         this.backendState = BackendState.free.ordinal();
         this.decommissionType = DecommissionType.SystemDecommission.ordinal();
+
+        this.lastStreamLoadTime = -1;
     }
 
     public long getId() {
@@ -168,6 +174,12 @@ public class Backend implements Writable {
 
     public String getHeartbeatErrMsg() {
         return heartbeatErrMsg;
+    }
+
+    public long getLastStreamLoadTime() { return lastStreamLoadTime; }
+
+    public void setLastStreamLoadTime(long lastStreamLoadTime) {
+        this.lastStreamLoadTime = lastStreamLoadTime;
     }
 
     // for test only
