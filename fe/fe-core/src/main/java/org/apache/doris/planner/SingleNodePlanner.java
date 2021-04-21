@@ -907,7 +907,7 @@ public class SingleNodePlanner {
     }
 
     // no need to remove?
-    private PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts) {
+    public static PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts) {
         PartitionColumnFilter partitionColumnFilter = null;
         for (Expr expr : conjuncts) {
             if (!expr.isBound(desc.getId())) {
