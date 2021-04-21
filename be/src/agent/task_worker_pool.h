@@ -221,6 +221,9 @@ private:
     std::unique_ptr<ThreadPool> _thread_pool;
     std::deque<TAgentTaskRequest> _tasks;
 
+    std::shared_ptr<MetricEntity> _metric_entity;
+    UIntGauge* agent_task_queue_size;
+
     uint32_t _worker_count;
     TaskWorkerType _task_worker_type;
 
