@@ -600,6 +600,18 @@ public class Config extends ConfigBase {
     public static int fetch_stream_load_record_interval_second = 120;
 
     /**
+     * Default max number of recent stream load record that can be stored in memory.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_stream_load_record_size = 5000;
+
+    /**
+     * Whether to disable show stream load and clear stream load records in memory.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean disable_show_stream_load = false;
+
+    /**
      * maximum concurrent running txn num including prepare, commit txns under a single db
      * txn manager will reject coming txns
      */
