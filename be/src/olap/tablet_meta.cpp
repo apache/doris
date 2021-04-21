@@ -304,12 +304,6 @@ OLAPStatus TabletMeta::serialize(string* meta_binary) {
     if (!serialize_success) {
         LOG(FATAL) << "failed to serialize meta " << full_name();
     }
-    // deserialize the meta to check the result is correct
-    TabletMetaPB de_tablet_meta_pb;
-    bool parsed = de_tablet_meta_pb.ParseFromString(*meta_binary);
-    if (!parsed) {
-        LOG(FATAL) << "deserialize from previous serialize result failed " << full_name();
-    }
     return OLAP_SUCCESS;
 }
 
