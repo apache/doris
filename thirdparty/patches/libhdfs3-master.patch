@@ -1,0 +1,104 @@
+diff --git a/src/client/FileSystem.cpp b/src/client/FileSystem.cpp
+index 6c347c7..6aec1a3 100644
+--- a/src/client/FileSystem.cpp
++++ b/src/client/FileSystem.cpp
+@@ -136,7 +136,7 @@ static std::string ExtractPrincipalFromTicketCache(
+ static std::string ExtractPrincipalFromToken(const Token & token) {
+     std::string realUser, owner;
+     std::string identifier = token.getIdentifier();
+-    WritableUtils cin(identifier.data(), identifier.size());
++    WritableUtils cin(&identifier[0], identifier.size());
+     char version;
+ 
+     try {
+diff --git a/src/client/Token.cpp b/src/client/Token.cpp
+index 1e23fed..8c88b2f 100644
+--- a/src/client/Token.cpp
++++ b/src/client/Token.cpp
+@@ -156,10 +156,10 @@ Token & Token::fromString(const std::string & str) {
+         WritableUtils in(buffer.data(), buffer.size());
+         len = in.ReadInt32();
+         identifier.resize(len);
+-        in.ReadRaw(identifier.data(), len);
++        in.ReadRaw(&identifier[0], len);
+         len = in.ReadInt32();
+         password.resize(len);
+-        in.ReadRaw(password.data(), len);
++        in.ReadRaw(&password[0], len);
+         kind = in.ReadText();
+         service = in.ReadText();
+         return *this;
+diff --git a/src/common/ExceptionInternal.h b/src/common/ExceptionInternal.h
+index 4ee661e..9d734af 100644
+--- a/src/common/ExceptionInternal.h
++++ b/src/common/ExceptionInternal.h
+@@ -175,7 +175,7 @@ void ThrowException(bool nested, const char * f, int l,
+     int offset = buffer.size();
+     buffer.resize(offset + size + 1);
+     va_start(ap, fmt);
+-    vsnprintf(buffer.data() + offset, size + 1, fmt, ap);
++    vsnprintf(&buffer[offset], size + 1, fmt, ap);
+     va_end(ap);
+ 
+     if (!nested) {
+@@ -218,7 +218,7 @@ void ThrowException(bool nested, const char * f, int l,
+     int offset = buffer.size();
+     buffer.resize(offset + size + 1);
+     va_start(ap, fmt);
+-    vsnprintf(buffer.data() + offset, size + 1, fmt, ap);
++    vsnprintf(&buffer[offset], size + 1, fmt, ap);
+     va_end(ap);
+ 
+     if (!nested) {
+diff --git a/src/common/StringUtil.h b/src/common/StringUtil.h
+index f9cba5d..3a8e76f 100644
+--- a/src/common/StringUtil.h
++++ b/src/common/StringUtil.h
+@@ -41,7 +41,7 @@ static inline std::vector<std::string> StringSplit(const std::string & str,
+     char * token, *lasts = NULL;
+     std::string s = str;
+     std::vector<std::string> retval;
+-    token = strtok_r(s.data(), sep, &lasts);
++    token = strtok_r(&s[0], sep, &lasts);
+ 
+     while (token) {
+         retval.push_back(token);
+diff --git a/src/common/WritableUtils.cpp b/src/common/WritableUtils.cpp
+index fdadd45..98bbc6a 100644
+--- a/src/common/WritableUtils.cpp
++++ b/src/common/WritableUtils.cpp
+@@ -88,7 +88,7 @@ std::string WritableUtils::ReadText() {
+     std::string retval;
+     length = ReadInt32();
+     retval.resize(length);
+-    ReadRaw(retval.data(), length);
++    ReadRaw(&retval[0], length);
+     return retval;
+ }
+ 
+diff --git a/src/rpc/RpcClient.cpp b/src/rpc/RpcClient.cpp
+index bb19991..ebb6e28 100644
+--- a/src/rpc/RpcClient.cpp
++++ b/src/rpc/RpcClient.cpp
+@@ -54,7 +54,7 @@ RpcClientImpl::RpcClientImpl() :
+     cleaning(false), running(true), count(0) {
+     auto id = boost::uuids::random_generator()();
+     clientId.resize(boost::uuids::uuid::static_size());
+-    memcpy(clientId.data(), id.begin(), boost::uuids::uuid::static_size());
++    memcpy(&clientId[0], id.begin(), boost::uuids::uuid::static_size());
+ #ifdef MOCK
+     stub = NULL;
+ #endif
+diff --git a/src/rpc/SaslClient.cpp b/src/rpc/SaslClient.cpp
+index 9aa9d7b..53893a1 100644
+--- a/src/rpc/SaslClient.cpp
++++ b/src/rpc/SaslClient.cpp
+@@ -137,7 +137,7 @@ std::string SaslClient::evaluateChallenge(const std::string & challenge) {
+ 
+     if (rc == GSASL_NEEDS_MORE || rc == GSASL_OK) {
+         retval.resize(outputSize);
+-        memcpy(retval.data(), output, outputSize);
++        memcpy(&retval[0], output, outputSize);
+ 
+         if (output) {
+             free(output);
