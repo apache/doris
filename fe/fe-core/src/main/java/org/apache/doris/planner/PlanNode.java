@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanNode;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.math.LongMath;
@@ -81,6 +82,18 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
 
     protected List<Expr> conjuncts = Lists.newArrayList();
 
+    // Conjuncts used to filter the original load file.
+    // In the load execution plan, the difference between "preFilterConjuncts" and "conjuncts" is that
+    // conjuncts are used to filter the data after column conversion and mapping,
+    // while fileFilterConjuncts directly filter the content read from the source data.
+    // That is, the data processing flow is:
+    //
+    //  1. Read data from source.
+    //  2. Filter data by using "preFilterConjuncts".
+    //  3. Do column mapping and transforming.
+    //  4. Filter data by using "conjuncts".
+    protected List<Expr> preFilterConjuncts = Lists.newArrayList();
+
     // Fragment that this PlanNode is executed in. Valid only after this PlanNode has been
     // assigned to a fragment. Set and maintained by enclosing PlanFragment.
     protected PlanFragment fragment_;
@@ -99,6 +112,10 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     //  Node should compact data.
     protected boolean compactData;
     protected int numInstances;
+
+    public String getPlanNodeName() {
+        return planNodeName;
+    }
 
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName) {
         this.id = id;
@@ -223,6 +240,16 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         limit = -1;
     }
 
+    protected List<TupleId> getAllScanTupleIds() {
+        List<TupleId> tupleIds = Lists.newArrayList();
+        List<ScanNode> scanNodes = Lists.newArrayList();
+        collectAll(Predicates.instanceOf(ScanNode.class), scanNodes);
+        for(ScanNode node: scanNodes) {
+            tupleIds.addAll(node.getTupleIds());
+        }
+        return tupleIds;
+    }
+
     public ArrayList<TupleId> getTupleIds() {
         Preconditions.checkState(tupleIds != null);
         return tupleIds;
@@ -250,6 +277,13 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             return;
         }
         this.conjuncts.addAll(conjuncts);
+    }
+
+    public void addPreFilterConjuncts(List<Expr> conjuncts) {
+        if (conjuncts == null) {
+            return;
+        }
+        this.preFilterConjuncts.addAll(conjuncts);
     }
 
     public void transferConjuncts(PlanNode recipient) {
@@ -353,7 +387,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      * Subclass should override this function.
      * Each line should be prefix by detailPrefix.
      */
-    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         return "";
     }
 
@@ -601,5 +635,28 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             }
             sb.append(")");
         }
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
+        sb.append("\nFragment: ").append(getFragmentId().asInt()).append("]");
+        sb.append("\n").append(getNodeExplainString("", TExplainLevel.BRIEF));
+        return sb.toString();
+    }
+    
+    public ScanNode getScanNodeInOneFragmentByTupleId(TupleId tupleId) {
+        if (this instanceof ScanNode && tupleIds.contains(tupleId)) {
+            return (ScanNode) this;
+        } else if (!(this instanceof ExchangeNode)) {
+            for (PlanNode planNode : children) {
+                ScanNode scanNode = planNode.getScanNodeInOneFragmentByTupleId(tupleId);
+                if (scanNode != null) {
+                    return scanNode;
+                }
+            }
+        }
+        return null;
     }
 }

@@ -34,7 +34,7 @@ struct OlapReaderStatistics;
 namespace fs {
 class ReadableBlock;
 class WritableBlock;
-}
+} // namespace fs
 
 namespace segment_v2 {
 
@@ -54,6 +54,10 @@ struct PageReadOptions {
     // if true, use DURABLE CachePriority in page cache
     // currently used for in memory olap table
     bool kept_in_memory = false;
+    // for page cache allocation
+    // page types are divided into DATA_PAGE & INDEX_PAGE
+    // INDEX_PAGE including index_page, dict_page and short_key_page
+    PageTypePB type;
 
     void sanity_check() const {
         CHECK_NOTNULL(rblock);
@@ -71,37 +75,30 @@ struct PageReadOptions {
 //     - Checksum is the crc32c checksum of all previous part
 class PageIO {
 public:
-
     // Compress `body' using `codec' into `compressed_body'.
     // The size of returned `compressed_body' is 0 when the body is not compressed, this
     // could happen when `codec' is null or space saving is less than `min_space_saving'.
-    static Status compress_page_body(const BlockCompressionCodec* codec,
-                                     double min_space_saving,
-                                     const std::vector<Slice>& body,
-                                     OwnedSlice* compressed_body);
+    static Status compress_page_body(const BlockCompressionCodec* codec, double min_space_saving,
+                                     const std::vector<Slice>& body, OwnedSlice* compressed_body);
 
     // Encode page from `body' and `footer' and write to `file'.
     // `body' could be either uncompressed or compressed.
     // On success, the file pointer to the written page is stored in `result'.
-    static Status write_page(fs::WritableBlock* wblock,
-                             const std::vector<Slice>& body,
-                             const PageFooterPB& footer,
-                             PagePointer* result);
+    static Status write_page(fs::WritableBlock* wblock, const std::vector<Slice>& body,
+                             const PageFooterPB& footer, PagePointer* result);
 
     // Convenient function to compress page body and write page in one go.
     static Status compress_and_write_page(const BlockCompressionCodec* codec,
-                                          double min_space_saving,
-                                          fs::WritableBlock* wblock,
+                                          double min_space_saving, fs::WritableBlock* wblock,
                                           const std::vector<Slice>& body,
-                                          const PageFooterPB& footer,
-                                          PagePointer* result) {
+                                          const PageFooterPB& footer, PagePointer* result) {
         DCHECK_EQ(footer.uncompressed_size(), Slice::compute_total_size(body));
         OwnedSlice compressed_body;
         RETURN_IF_ERROR(compress_page_body(codec, min_space_saving, body, &compressed_body));
         if (compressed_body.slice().empty()) { // uncompressed
             return write_page(wblock, body, footer, result);
         }
-        return write_page(wblock, { compressed_body.slice() }, footer, result);
+        return write_page(wblock, {compressed_body.slice()}, footer, result);
     }
 
     // Read and parse a page according to `opts'.
@@ -109,10 +106,8 @@ public:
     //     `handle' holds the memory of page data,
     //     `body' points to page body,
     //     `footer' stores the page footer.
-    static Status read_and_decompress_page(const PageReadOptions& opts,
-                                           PageHandle* handle,
-                                           Slice* body,
-                                           PageFooterPB* footer);
+    static Status read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
+                                           Slice* body, PageFooterPB* footer);
 };
 
 } // namespace segment_v2

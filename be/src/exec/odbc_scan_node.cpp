@@ -21,30 +21,27 @@
 
 #include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
-OdbcScanNode::OdbcScanNode(ObjectPool* pool, const TPlanNode& tnode,
-                             const DescriptorTbl& descs)
+OdbcScanNode::OdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ScanNode(pool, tnode, descs),
           _is_init(false),
           _table_name(tnode.odbc_scan_node.table_name),
           _connect_string(std::move(tnode.odbc_scan_node.connect_string)),
           _query_string(std::move(tnode.odbc_scan_node.query_string)),
           _tuple_id(tnode.odbc_scan_node.tuple_id),
-          _tuple_desc(nullptr) {
-}
+          _tuple_desc(nullptr) {}
 
-OdbcScanNode::~OdbcScanNode() {
-}
+OdbcScanNode::~OdbcScanNode() {}
 
 Status OdbcScanNode::prepare(RuntimeState* state) {
-    VLOG(1) << "OdbcScanNode::Prepare";
+    VLOG_CRITICAL << "OdbcScanNode::Prepare";
 
     if (_is_init) {
         return Status::OK();
@@ -68,19 +65,19 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
     _odbc_param.query_string = std::move(_query_string);
     _odbc_param.tuple_desc = _tuple_desc;
 
-    _odbc_scanner.reset(new (std::nothrow)ODBCScanner(_odbc_param));
+    _odbc_scanner.reset(new (std::nothrow) ODBCConnector(_odbc_param));
 
     if (_odbc_scanner.get() == nullptr) {
         return Status::InternalError("new a odbc scanner failed.");
     }
 
-    _tuple_pool.reset(new(std::nothrow) MemPool(mem_tracker().get()));
+    _tuple_pool.reset(new (std::nothrow) MemPool(mem_tracker().get()));
 
     if (_tuple_pool.get() == NULL) {
         return Status::InternalError("new a mem pool failed.");
     }
 
-    _text_converter.reset(new(std::nothrow) TextConverter('\\'));
+    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
 
     if (_text_converter.get() == NULL) {
         return Status::InternalError("new a text convertor failed.");
@@ -93,7 +90,7 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
 
 Status OdbcScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
-    VLOG(1) << "OdbcScanNode::Open";
+    VLOG_CRITICAL << "OdbcScanNode::Open";
 
     if (NULL == state) {
         return Status::InternalError("input pointer is NULL.");
@@ -113,12 +110,12 @@ Status OdbcScanNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status OdbcScanNode::write_text_slot(char* value, int value_length,
-                                      SlotDescriptor* slot, RuntimeState* state) {
-    if (!_text_converter->write_slot(slot, _tuple, value, value_length,
-                                     true, false, _tuple_pool.get())) {
+Status OdbcScanNode::write_text_slot(char* value, int value_length, SlotDescriptor* slot,
+                                     RuntimeState* state) {
+    if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
+                                     _tuple_pool.get())) {
         std::stringstream ss;
-        ss << "fail to convert odbc value '" << value << "' TO " << slot->type();
+		ss << "Fail to convert odbc value:'" << value << "' to " << slot->type() << " on column:`" << slot->col_name() + "`";
         return Status::InternalError(ss.str());
     }
 
@@ -126,7 +123,7 @@ Status OdbcScanNode::write_text_slot(char* value, int value_length,
 }
 
 Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    VLOG(1) << "OdbcScanNode::GetNext";
+    VLOG_CRITICAL << "OdbcScanNode::GetNext";
 
     if (NULL == state || NULL == row_batch || NULL == eos) {
         return Status::InternalError("input is NULL pointer");
@@ -139,7 +136,6 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_TIMER(materialize_tuple_timer());
 
     if (reached_limit()) {
         *eos = true;
@@ -207,8 +203,8 @@ Status OdbcScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
                    << ", column=" << slot_desc->col_name();
                 return Status::InternalError(ss.str());
             } else {
-                    RETURN_IF_ERROR(
-                            write_text_slot(static_cast<char*>(column_data.target_value_ptr), column_data.strlen_or_ind, slot_desc, state));
+                RETURN_IF_ERROR(write_text_slot(static_cast<char*>(column_data.target_value_ptr),
+                                                column_data.strlen_or_ind, slot_desc, state));
             }
             j++;
         }
@@ -240,7 +236,7 @@ Status OdbcScanNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-void OdbcScanNode::debug_string(int indentation_level, stringstream* out) const {
+void OdbcScanNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "OdbcScanNode(tupleid=" << _tuple_id << " table=" << _table_name;
     *out << ")" << std::endl;
@@ -250,8 +246,8 @@ void OdbcScanNode::debug_string(int indentation_level, stringstream* out) const 
     }
 }
 
-Status OdbcScanNode::set_scan_ranges(const vector<TScanRangeParams>& scan_ranges) {
+Status OdbcScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     return Status::OK();
 }
 
-}
+} // namespace doris

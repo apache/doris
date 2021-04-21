@@ -131,25 +131,26 @@ public class TableQueryPlanAction extends RestBaseAction {
                 throw new DorisHttpException(HttpResponseStatus.NOT_FOUND,
                                              "Database [" + dbName + "] " + "does not exists");
             }
+            Table table = db.getTable(tableName);
+            if (table == null) {
+                throw new DorisHttpException(HttpResponseStatus.NOT_FOUND,
+                        "Table [" + tableName + "] " + "does not exists");
+            }
+            // just only support OlapTable, ignore others such as ESTable
+            if (table.getType() != Table.TableType.OLAP) {
+                // Forbidden
+                throw new DorisHttpException(HttpResponseStatus.FORBIDDEN,
+                        "only support OlapTable currently, but Table [" + tableName + "] "
+                                + "is not a OlapTable");
+            }
+
             // may be should acquire writeLock
-            db.readLock();
+            table.readLock();
             try {
-                Table table = db.getTable(tableName);
-                if (table == null) {
-                    throw new DorisHttpException(HttpResponseStatus.NOT_FOUND,
-                                                 "Table [" + tableName + "] " + "does not exists");
-                }
-                // just only support OlapTable, ignore others such as ESTable
-                if (table.getType() != Table.TableType.OLAP) {
-                    // Forbidden
-                    throw new DorisHttpException(HttpResponseStatus.FORBIDDEN,
-                                                 "only support OlapTable currently, but Table [" + tableName + "] "
-                                                    + "is not a OlapTable");
-                }
                 // parse/analysis/plan the sql and acquire tablet distributions
                 handleQuery(ConnectContext.get(), fullDbName, tableName, sql, resultMap);
             } finally {
-                db.readUnlock();
+                table.readUnlock();
             }
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic

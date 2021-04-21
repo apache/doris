@@ -20,25 +20,20 @@
 
 #include <stdint.h>
 
-#include <string>
 #include <map>
+#include <string>
 #include <vector>
 
-#include "gen_cpp/Types_types.h"
-
 #include "common/status.h"
+#include "gen_cpp/Types_types.h"
 #include "olap/tablet.h"
 #include "runtime/client_cache.h"
 
 namespace doris {
 
 class ExecEnv;
-
-struct FileStat {
-    std::string name;
-    std::string md5;
-    int64_t size;
-};
+class StorageBackend;
+class FileStat;
 
 /*
  * Upload:
@@ -63,82 +58,54 @@ struct FileStat {
 class SnapshotLoader {
 public:
     SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id);
+    SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
+                   const TNetworkAddress& broker_addr,
+                   const std::map<std::string, std::string>& broker_prop);
+    SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
+                   const std::map<std::string, std::string>& broker_prop);
 
     ~SnapshotLoader();
 
-    Status upload(
-        const std::map<std::string, std::string>& src_to_dest_path,
-        const TNetworkAddress& broker_addr,
-        const std::map<std::string, std::string>& broker_prop,
-        std::map<int64_t, std::vector<std::string>>* tablet_files);
+    Status upload(const std::map<std::string, std::string>& src_to_dest_path,
+                  std::map<int64_t, std::vector<std::string>>* tablet_files);
 
-    Status download(
-        const std::map<std::string, std::string>& src_to_dest_path,
-        const TNetworkAddress& broker_addr,
-        const std::map<std::string, std::string>& broker_prop,
-        std::vector<int64_t>* downloaded_tablet_ids);
+    Status download(const std::map<std::string, std::string>& src_to_dest_path,
+                    std::vector<int64_t>* downloaded_tablet_ids);
 
-    Status move(
-        const std::string& snapshot_path,
-        TabletSharedPtr tablet,
-        bool overwrite);
+    Status move(const std::string& snapshot_path, TabletSharedPtr tablet, bool overwrite);
 
 private:
-    Status _get_tablet_id_and_schema_hash_from_file_path(
-        const std::string& src_path, int64_t* tablet_id,
-        int32_t* schema_hash);
+    Status _get_tablet_id_and_schema_hash_from_file_path(const std::string& src_path,
+                                                         int64_t* tablet_id, int32_t* schema_hash);
 
-    Status _check_local_snapshot_paths(
-        const std::map<std::string, std::string>& src_to_dest_path,
-        bool check_src);
+    Status _check_local_snapshot_paths(const std::map<std::string, std::string>& src_to_dest_path,
+                                       bool check_src);
 
-    Status _get_existing_files_from_remote(
-        BrokerServiceConnection& client,
-        const std::string& remote_path,
-        const std::map<std::string, std::string>& broker_prop,
-        std::map<std::string, FileStat>* files);
+    Status _get_existing_files_from_local(const std::string& local_path,
+                                          std::vector<std::string>* local_files);
 
-    Status _get_existing_files_from_local(
-        const std::string& local_path,
-        std::vector<std::string>* local_files);
+    bool _end_with(const std::string& str, const std::string& match);
 
-    Status _rename_remote_file(
-        BrokerServiceConnection& client,
-        const std::string& orig_name,
-        const std::string& new_name,
-        const std::map<std::string, std::string>& broker_prop);
+    void _assemble_file_name(const std::string& snapshot_path, const std::string& tablet_path,
+                             int64_t tablet_id, int64_t start_version, int64_t end_version,
+                             int64_t version_hash, int32_t seg_num, const std::string suffix,
+                             std::string* snapshot_file, std::string* tablet_file);
 
-    bool _end_with(
-        const std::string& str,
-        const std::string& match);
+    Status _replace_tablet_id(const std::string& file_name, int64_t tablet_id,
+                              std::string* new_file_name);
 
-    void _assemble_file_name(
-        const std::string& snapshot_path,
-        const std::string& tablet_path,
-        int64_t tablet_id,
-        int64_t start_version, int64_t end_version,
-        int64_t version_hash, int32_t seg_num,
-        const std::string suffix,
-        std::string* snapshot_file, std::string* tablet_file);
+    Status _get_tablet_id_from_remote_path(const std::string& remote_path, int64_t* tablet_id);
 
-    Status _replace_tablet_id(
-        const std::string& file_name,
-        int64_t tablet_id,
-        std::string* new_file_name);
-
-    Status _get_tablet_id_from_remote_path(
-        const std::string& remote_path,
-        int64_t* tablet_id);
-
-    Status _report_every(
-        int report_threshold, int* counter,
-        int finished_num, int total_num,
-        TTaskType::type type);
+    Status _report_every(int report_threshold, int* counter, int finished_num, int total_num,
+                         TTaskType::type type);
 
 private:
     ExecEnv* _env;
     int64_t _job_id;
     int64_t _task_id;
+    const TNetworkAddress& _broker_addr;
+    const std::map<std::string, std::string>& _prop;
+    std::unique_ptr<StorageBackend> _storage_backend;
 };
 
 } // end namespace doris

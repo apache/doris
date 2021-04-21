@@ -101,6 +101,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String STRIP_OUTER_ARRAY = "strip_outer_array";
     public static final String JSONPATHS = "jsonpaths";
     public static final String JSONROOT = "json_root";
+    public static final String NUM_AS_STRING = "num_as_string";
+    public static final String FUZZY_PARSE = "fuzzy_parse";
 
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
@@ -122,6 +124,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(FORMAT)
             .add(JSONPATHS)
             .add(STRIP_OUTER_ARRAY)
+            .add(NUM_AS_STRING)
+            .add(FUZZY_PARSE)
             .add(JSONROOT)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
@@ -165,6 +169,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private String jsonPaths  = "";
     private String jsonRoot   = ""; // MUST be a jsonpath string
     private boolean stripOuterArray = false;
+    private boolean numAsString = false;
+    private boolean fuzzyParse = false;
 
     // kafka related properties
     private String kafkaBrokerList;
@@ -255,6 +261,14 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return stripOuterArray;
     }
 
+    public boolean isNumAsString() {
+        return numAsString;
+    }
+
+    public boolean isFuzzyParse() {
+        return fuzzyParse;
+    }
+
     public String getJsonPaths() {
         return jsonPaths;
     }
@@ -317,7 +331,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         }
         Table table = db.getTable(tableName);
         if (table == null) {
-            throw new AnalysisException("table: " + dbName + " not found.");
+            throw new AnalysisException("table: " + tableName + " not found.");
         }
         if (mergeType != LoadTask.MergeType.APPEND
                 && (table.getType() != Table.TableType.OLAP
@@ -331,20 +345,23 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     }
 
     public void checkLoadProperties() throws UserException {
-        ColumnSeparator columnSeparator = null;
+        Separator columnSeparator = null;
+        // TODO(yangzhengguo01): add line delimiter to properties
+        Separator lineDelimiter = null;
         ImportColumnsStmt importColumnsStmt = null;
+        ImportWhereStmt precedingImportWhereStmt = null;
         ImportWhereStmt importWhereStmt = null;
         ImportSequenceStmt importSequenceStmt = null;
         PartitionNames partitionNames = null;
         ImportDeleteOnStmt importDeleteOnStmt = null;
         if (loadPropertyList != null) {
             for (ParseNode parseNode : loadPropertyList) {
-                if (parseNode instanceof ColumnSeparator) {
+                if (parseNode instanceof Separator) {
                     // check column separator
                     if (columnSeparator != null) {
                         throw new AnalysisException("repeat setting of column separator");
                     }
-                    columnSeparator = (ColumnSeparator) parseNode;
+                    columnSeparator = (Separator) parseNode;
                     columnSeparator.analyze(null);
                 } else if (parseNode instanceof ImportColumnsStmt) {
                     // check columns info
@@ -354,10 +371,18 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     importColumnsStmt = (ImportColumnsStmt) parseNode;
                 } else if (parseNode instanceof ImportWhereStmt) {
                     // check where expr
-                    if (importWhereStmt != null) {
-                        throw new AnalysisException("repeat setting of where predicate");
+                    ImportWhereStmt node = (ImportWhereStmt) parseNode;
+                    if (node.isPreceding()) {
+                        if (precedingImportWhereStmt != null) {
+                            throw new AnalysisException("repeat setting of preceding where predicate");
+                        }
+                        precedingImportWhereStmt = node;
+                    } else {
+                        if (importWhereStmt != null) {
+                            throw new AnalysisException("repeat setting of where predicate");
+                        }
+                        importWhereStmt = node;
                     }
-                    importWhereStmt = (ImportWhereStmt) parseNode;
                 } else if (parseNode instanceof PartitionNames) {
                     // check partition names
                     if (partitionNames != null) {
@@ -380,7 +405,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 }
             }
         }
-        routineLoadDesc = new RoutineLoadDesc(columnSeparator, importColumnsStmt, importWhereStmt,
+        routineLoadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
+                        precedingImportWhereStmt, importWhereStmt,
                         partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
                         importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }
@@ -431,6 +457,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 jsonPaths = jobProperties.get(JSONPATHS);
                 jsonRoot = jobProperties.get(JSONROOT);
                 stripOuterArray = Boolean.valueOf(jobProperties.getOrDefault(STRIP_OUTER_ARRAY, "false"));
+                numAsString = Boolean.valueOf(jobProperties.getOrDefault(NUM_AS_STRING, "false"));
+                fuzzyParse = Boolean.valueOf(jobProperties.getOrDefault(FUZZY_PARSE, "false"));
             } else {
                 throw new UserException("Format type is invalid. format=`" + format + "`");
             }

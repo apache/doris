@@ -18,38 +18,41 @@
 #ifndef DORIS_BE_RUNTIME_FRAGMENT_MGR_H
 #define DORIS_BE_RUNTIME_FRAGMENT_MGR_H
 
-#include <mutex>
-#include <memory>
-#include <unordered_map>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
 #include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "util/hash_util.hpp"
-#include "http/rest_monitor_iface.h"
 #include "gutil/ref_counted.h"
+#include "http/rest_monitor_iface.h"
 #include "util/countdown_latch.h"
+#include "util/hash_util.hpp"
+#include "util/metrics.h"
 #include "util/thread.h"
 
 namespace doris {
 
+class QueryFragmentsCtx;
 class ExecEnv;
 class FragmentExecState;
-class TExecPlanFragmentParams;
-class TUniqueId;
 class PlanFragmentExecutor;
 class ThreadPool;
+class TExecPlanFragmentParams;
+class TExecPlanFragmentParamsList;
+class TUniqueId;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
 // This class used to manage all the fragment execute in this instance
 class FragmentMgr : public RestMonitorIface {
 public:
-    typedef std::function<void (PlanFragmentExecutor*)> FinishCallback;
+    typedef std::function<void(PlanFragmentExecutor*)> FinishCallback;
 
     FragmentMgr(ExecEnv* exec_env);
     virtual ~FragmentMgr();
@@ -75,11 +78,12 @@ public:
     // input: TScanOpenParams fragment_instance_id
     // output: selected_columns
     // execute external query, all query info are packed in TScanOpenParams
-    Status exec_external_plan_fragment(const TScanOpenParams& params, const TUniqueId& fragment_instance_id, std::vector<TScanColumnDesc>* selected_columns);
+    Status exec_external_plan_fragment(const TScanOpenParams& params,
+                                       const TUniqueId& fragment_instance_id,
+                                       std::vector<TScanColumnDesc>* selected_columns);
 
 private:
-    void exec_actual(std::shared_ptr<FragmentExecState> exec_state,
-                     FinishCallback cb);
+    void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
 
     // This is input params
     ExecEnv* _exec_env;
@@ -88,14 +92,18 @@ private:
 
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
+    // query id -> QueryFragmentsCtx
+    std::unordered_map<TUniqueId, std::shared_ptr<QueryFragmentsCtx>> _fragments_ctx_map;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _cancel_thread;
     // every job is a pool
     std::unique_ptr<ThreadPool> _thread_pool;
+
+    std::shared_ptr<MetricEntity> _entity = nullptr;
+    UIntGauge* timeout_canceled_fragment_count = nullptr;
 };
 
-}
+} // namespace doris
 
 #endif
-

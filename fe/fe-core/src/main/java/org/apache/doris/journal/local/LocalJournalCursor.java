@@ -24,7 +24,6 @@ import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
-import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
@@ -40,6 +39,7 @@ import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.TableInfo;
@@ -235,6 +235,11 @@ public final class LocalJournalCursor implements JournalCursor {
                 ret.setData(info);
                 break;
             }
+            case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
+                RefreshExternalTableInfo info = RefreshExternalTableInfo.read(in);
+                ret.setData(info);
+                break;
+            }
             case OperationType.OP_ADD_PARTITION: {
                 PartitionPersistInfo info = new PartitionPersistInfo();
                 info.readFields(in);
@@ -322,21 +327,9 @@ public final class LocalJournalCursor implements JournalCursor {
                 ret.setData(job);
                 break;
             }
-            case OperationType.OP_FINISH_SYNC_DELETE: {
-                DeleteInfo info = new DeleteInfo();
-                info.readFields(in);
-                ret.setData(info);
-                break;
-            }
             case OperationType.OP_FINISH_DELETE: {
-                DeleteInfo info = new DeleteInfo();
-                info.readFields(in);
+                DeleteInfo info = DeleteInfo.read(in);
                 ret.setData(info);
-                break;
-            }
-            case OperationType.OP_FINISH_ASYNC_DELETE: {
-                AsyncDeleteJob deleteJob = AsyncDeleteJob.read(in);
-                ret.setData(deleteJob);
                 break;
             }
             case OperationType.OP_ADD_REPLICA:

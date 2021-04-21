@@ -23,12 +23,13 @@ import org.apache.doris.qe.MultiLoadMgr;
 
 // Execute environment, used to save other module, need to singleton
 public class ExecuteEnv {
-    private volatile static ExecuteEnv INSTANCE;
+    private static volatile ExecuteEnv INSTANCE;
     private MultiLoadMgr multiLoadMgr;
     private ConnectScheduler scheduler;
 
-    public ExecuteEnv() {
+    private ExecuteEnv() {
         multiLoadMgr = new MultiLoadMgr();
+        scheduler = new ConnectScheduler(Config.qe_max_connection);
     }
 
     public static ExecuteEnv getInstance() {
@@ -40,11 +41,6 @@ public class ExecuteEnv {
             }
         }
         return INSTANCE;
-    }
-
-    public static void setup() {
-        ExecuteEnv env = getInstance();
-        env.scheduler = new ConnectScheduler(Config.qe_max_connection);
     }
 
     public ConnectScheduler getScheduler() {

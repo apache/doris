@@ -26,6 +26,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -270,35 +271,18 @@ public abstract class AlterHandler extends MasterDaemon {
         alterJob.handleFinishedReplica(task, finishTabletInfo, reportVersion);
     }
 
-    /*
-     * cancel alter job when drop table
-     * olapTable: 
-     *      table which is being dropped
-     */
-    public void cancelWithTable(OlapTable olapTable) {
-        // make sure to hold to db write lock before calling this
-        AlterJob alterJob = getAlterJob(olapTable.getId());
-        if (alterJob == null) {
-            return;
-        }
-        alterJob.cancel(olapTable, "table is dropped");
-
-        // remove from alterJobs and add to finishedOrCancelledAlterJobs operation should be perform atomically
-        lock();
-        try {
-            alterJob = alterJobs.remove(olapTable.getId());
-            if (alterJob != null) {
-                alterJob.clear();
-                finishedOrCancelledAlterJobs.add(alterJob);
-            }
-        } finally {
-            unlock();
-        }
-    }
-
     protected void cancelInternal(AlterJob alterJob, OlapTable olapTable, String msg) {
         // cancel
-        alterJob.cancel(olapTable, msg);
+        if (olapTable != null) {
+            olapTable.writeLock();
+        }
+        try {
+            alterJob.cancel(olapTable, msg);
+        } finally {
+            if (olapTable != null) {
+                olapTable.writeUnlock();
+            }
+        }
         jobDone(alterJob);
     }
 
@@ -381,6 +365,12 @@ public abstract class AlterHandler extends MasterDaemon {
             throws UserException;
 
     /*
+     * entry function. handle alter ops for external table
+     */
+    public void processExternalTable(List<AlterClause> alterClauses, Database db, Table externalTable)
+            throws UserException {};
+
+    /*
      * cancel alter ops
      */
     public abstract void cancel(CancelStmt stmt) throws DdlException;
@@ -403,16 +393,16 @@ public abstract class AlterHandler extends MasterDaemon {
      * We assume that the specified version is X.
      * Case 1:
      *      After alter table process starts, there is no new load job being submitted. So the new replica
-     *      should be with version (1-0). So we just modify the replica's version to partition's visible version, which is X.
+     *      should be with version (0-1). So we just modify the replica's version to partition's visible version, which is X.
      * Case 2:
      *      After alter table process starts, there are some load job being processed.
      * Case 2.1:
-     *      Only one new load job, and it failed on this replica. so the replica's last failed version should be X + 1
-     *      and version is still 1. We should modify the replica's version to (last failed version - 1)
+     *      None of them succeed on this replica. so the version is still 1. We should modify the replica's version to X.
      * Case 2.2 
      *      There are new load jobs after alter task, and at least one of them is succeed on this replica.
      *      So the replica's version should be larger than X. So we don't need to modify the replica version
      *      because its already looks like normal.
+     * In summary, we only need to update replica's version when replica's version is smaller than X
      */
     public void handleFinishAlterTask(AlterReplicaTask task) throws MetaNotFoundException {
         Database db = Catalog.getCurrentCatalog().getDb(task.getDbId());
@@ -420,12 +410,9 @@ public abstract class AlterHandler extends MasterDaemon {
             throw new MetaNotFoundException("database " + task.getDbId() + " does not exist");
         }
 
-        db.writeLock();
+        OlapTable tbl = (OlapTable) db.getTableOrThrowException(task.getTableId(), Table.TableType.OLAP);
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(task.getTableId());
-            if (tbl == null) {
-                throw new MetaNotFoundException("tbl " + task.getTableId() + " does not exist");
-            }
             Partition partition = tbl.getPartition(task.getPartitionId());
             if (partition == null) {
                 throw new MetaNotFoundException("partition " + task.getPartitionId() + " does not exist");
@@ -444,19 +431,9 @@ public abstract class AlterHandler extends MasterDaemon {
             LOG.info("before handle alter task tablet {}, replica: {}, task version: {}-{}",
                     task.getSignature(), replica, task.getVersion(), task.getVersionHash());
             boolean versionChanged = false;
-            if (replica.getVersion() > task.getVersion()) {
-                // Case 2.2, do nothing
-            } else {
-                if (replica.getLastFailedVersion() > task.getVersion()) {
-                    // Case 2.1
-                    replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
-                    versionChanged = true;
-                } else {
-                    // Case 1
-                    Preconditions.checkState(replica.getLastFailedVersion() == -1, replica.getLastFailedVersion());
-                    replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
-                    versionChanged = true;
-                }
+            if (replica.getVersion() < task.getVersion()) {
+                replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
+                versionChanged = true;
             }
 
             if (versionChanged) {
@@ -471,7 +448,7 @@ public abstract class AlterHandler extends MasterDaemon {
             
             LOG.info("after handle alter task tablet: {}, replica: {}", task.getSignature(), replica);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
     }
 

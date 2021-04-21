@@ -24,9 +24,8 @@ namespace ser {
 
 class SerializeTest : public testing::Test {
 public:
-    SerializeTest() { }
-    virtual ~SerializeTest() {
-    }
+    SerializeTest() {}
+    virtual ~SerializeTest() {}
 };
 
 TEST_F(SerializeTest, get_closet_fixed_bits) {
@@ -231,12 +230,10 @@ TEST_F(SerializeTest, new_percentile_bits) {
     }
 }
 
-
-}
-}
+} // namespace ser
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

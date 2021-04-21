@@ -30,7 +30,7 @@ under the License.
 
 * JDK 1.8+
 * Maven 3.x+
-* Eclipse，with [M2Eclipse](http://www.eclipse.org/m2e/) installed
+* Eclipse, with [M2Eclipse](http://www.eclipse.org/m2e/) installed
 
 ### Code Generation
 
@@ -63,9 +63,9 @@ The FE module requires part of the generated code, such as Thrift, Protobuf, Jfl
 
 2. Import FE project
 
-    * Open Eclipse，choose `File -> Import`.
+    * Open Eclipse, choose `File -> Import`.
     * Choose `General -> Existing Projects into Workspace`.
-    * `Select root directory` and choose `fe/` directory，click `Finish` to finish.
+    * `Select root directory` and choose `fe/` directory, click `Finish` to finish.
     * Right click the project, and choose `Build Path -> Configure Build Path`.
     * In the `Java Build Path` dialog, choose the `Source` tab, click `Add Folder`, and select the `java/` directory that was copied and unzipped before adding.
     * Click `Apply and Close` to finish.

@@ -18,9 +18,10 @@
 #ifndef DORIS_BE_SERVICE_BACKEND_OPTIONS_H
 #define DORIS_BE_SERVICE_BACKEND_OPTIONS_H
 
+#include <gutil/macros.h>
+
 #include <string>
 #include <vector>
-#include <gutil/macros.h>
 
 namespace doris {
 
@@ -41,6 +42,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(BackendOptions);
 };
 
-}
+} // namespace doris
 
 #endif //DORIS_BE_SERVICE_BACKEND_OPTIONS_H

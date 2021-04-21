@@ -18,6 +18,8 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.LogBuilder;
@@ -43,9 +45,9 @@ public class BrokerLoadPendingTask extends LoadTask {
     private BrokerDesc brokerDesc;
 
     public BrokerLoadPendingTask(BrokerLoadJob loadTaskCallback,
-            Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
-            BrokerDesc brokerDesc) {
-        super(loadTaskCallback);
+                                 Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
+                                 BrokerDesc brokerDesc) {
+        super(loadTaskCallback, TaskType.PENDING);
         this.retryTime = 3;
         this.attachment = new BrokerPendingTaskAttachment(signature);
         this.aggKeyToBrokerFileGroups = aggKeyToBrokerFileGroups;
@@ -71,25 +73,59 @@ public class BrokerLoadPendingTask extends LoadTask {
             long tableTotalFileSize = 0;
             int tableTotalFileNum = 0;
             int groupNum = 0;
-            for (BrokerFileGroup fileGroup : fileGroups) {
-                long groupFileSize = 0;
-                List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-                for (String path : fileGroup.getFilePaths()) {
-                    BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
-                }
-                fileStatusList.add(fileStatuses);
-                for (TBrokerFileStatus fstatus : fileStatuses) {
-                    groupFileSize += fstatus.getSize();
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                                .add("file_status", fstatus).build());
+            if (brokerDesc.isMultiLoadBroker()) {
+                for (BrokerFileGroup fileGroup : fileGroups) {
+                    if (fileGroup.getFilePaths().size() != fileGroup.getFileSize().size()) {
+                        LOG.warn("Cannot get file size, file path count {}, file size count {}",
+                                fileGroup.getFilePaths().size(), fileGroup.getFileSize().size());
+                        throw new AnalysisException("Cannot get file size.");
                     }
+                    List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
+                    tableTotalFileNum += fileGroup.getFilePaths().size();
+                    for (int i = 0; i < fileGroup.getFilePaths().size(); i++) {
+                        tableTotalFileSize += fileGroup.getFileSize().get(i);
+                        TBrokerFileStatus fileStatus = new TBrokerFileStatus(fileGroup.getFilePaths().get(i),
+                                false, fileGroup.getFileSize().get(i), false);
+                        fileStatuses.add(fileStatus);
+                    }
+                    fileStatusList.add(fileStatuses);
                 }
-                tableTotalFileSize += groupFileSize;
-                tableTotalFileNum += fileStatuses.size();
-                LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
-                        fileStatuses.size(), groupNum, entry.getKey(), groupFileSize, callback.getCallbackId(), BrokerUtil.getAddress(brokerDesc));
-                groupNum++;
+            } else {
+                for (BrokerFileGroup fileGroup : fileGroups) {
+                    long groupFileSize = 0;
+                    List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
+                    for (String path : fileGroup.getFilePaths()) {
+                        BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+                    }
+                    boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
+                    List<TBrokerFileStatus> filteredFileStatuses = Lists.newArrayList();
+                    for (TBrokerFileStatus fstatus : fileStatuses) {
+                        if (fstatus.getSize() == 0 && isBinaryFileFormat) {
+                            // For parquet or orc file, if it is an empty file, ignore it.
+                            // Because we can not read an empty parquet or orc file.
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                                        .add("empty file", fstatus).build());
+                            }
+                        } else {
+                            groupFileSize += fstatus.size;
+                            filteredFileStatuses.add(fstatus);
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                                        .add("file_status", fstatus).build());
+                            }
+                        }
+                    }
+                    fileStatusList.add(filteredFileStatuses);
+                    tableTotalFileSize += groupFileSize;
+                    tableTotalFileNum += filteredFileStatuses.size();
+                    LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
+                            filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
+                            callback.getCallbackId(),
+                        brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER ?
+                            BrokerUtil.getAddress(brokerDesc): brokerDesc.getStorageType());
+                    groupNum++;
+                }
             }
 
             totalFileSize += tableTotalFileSize;

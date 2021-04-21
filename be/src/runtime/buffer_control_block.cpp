@@ -16,11 +16,12 @@
 // under the License.
 
 #include "runtime/buffer_control_block.h"
-#include "runtime/raw_value.h"
+
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "util/thrift_util.h"
+#include "runtime/raw_value.h"
 #include "service/brpc.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -31,8 +32,7 @@ void GetResultBatchCtx::on_failure(const Status& status) {
     delete this;
 }
 
-void GetResultBatchCtx::on_close(int64_t packet_seq,
-                 QueryStatistics* statistics) {
+void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics) {
     Status status;
     status.to_protobuf(result->mutable_status());
     if (statistics != nullptr) {
@@ -45,16 +45,28 @@ void GetResultBatchCtx::on_close(int64_t packet_seq,
 }
 
 void GetResultBatchCtx::on_data(TFetchDataResult* t_result, int64_t packet_seq, bool eos) {
-    uint8_t* buf = nullptr;
-    uint32_t len = 0;
-    ThriftSerializer ser(false, 4096);
-    auto st = ser.serialize(&t_result->result_batch, &len, &buf);
-    if (st.ok()) {
-        cntl->response_attachment().append(buf, len);
+    Status st = Status::OK();
+    if (t_result != nullptr) {
+        uint8_t* buf = nullptr;
+        uint32_t len = 0;
+        ThriftSerializer ser(false, 4096);
+        st = ser.serialize(&t_result->result_batch, &len, &buf);
+        if (st.ok()) {
+            if (resp_in_attachment) {
+                // TODO(yangzhengguo) this is just for compatible with old version, this should be removed in the release 0.15
+                cntl->response_attachment().append(buf, len);
+            } else {
+                result->set_row_batch(std::string((const char*)buf, len));
+            }
+            result->set_packet_seq(packet_seq);
+            result->set_eos(eos);
+        } else {
+            LOG(WARNING) << "TFetchDataResult serialize failed, errmsg=" << st.get_error_msg();
+        }
+    } else {
+        result->set_empty_batch(true);
         result->set_packet_seq(packet_seq);
         result->set_eos(eos);
-    } else {
-        LOG(WARNING) << "TFetchDataResult serialize failed, errmsg=" << st.get_error_msg();
     }
     st.to_protobuf(result->mutable_status());
     done->Run();
@@ -62,13 +74,12 @@ void GetResultBatchCtx::on_data(TFetchDataResult* t_result, int64_t packet_seq, 
 }
 
 BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size)
-    : _fragment_id(id),
-      _is_close(false),
-      _is_cancelled(false),
-      _buffer_rows(0),
-      _buffer_limit(buffer_size),
-      _packet_num(0) {
-}
+        : _fragment_id(id),
+          _is_close(false),
+          _is_cancelled(false),
+          _buffer_rows(0),
+          _buffer_limit(buffer_size),
+          _packet_num(0) {}
 
 BufferControlBlock::~BufferControlBlock() {
     cancel();
@@ -92,8 +103,7 @@ Status BufferControlBlock::add_batch(TFetchDataResult* result) {
 
     int num_rows = result->result_batch.rows.size();
 
-    while ((!_batch_queue.empty() && (num_rows + _buffer_rows) > _buffer_limit)
-            && !_is_cancelled) {
+    while ((!_batch_queue.empty() && (num_rows + _buffer_rows) > _buffer_limit) && !_is_cancelled) {
         _data_removal.wait(l);
     }
 
@@ -228,4 +238,4 @@ Status BufferControlBlock::cancel() {
     return Status::OK();
 }
 
-}
+} // namespace doris

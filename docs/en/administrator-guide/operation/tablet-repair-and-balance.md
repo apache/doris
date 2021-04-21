@@ -214,7 +214,11 @@ At the same time, in order to ensure the weight of the initial priority, we stip
 
 ## Duplicate Equilibrium
 
-Doris automatically balances replicas within the cluster. The main idea of balancing is to create a replica of some fragments on low-load nodes, and then delete the replicas of these fragments on high-load nodes. At the same time, because of the existence of different storage media, there may or may not exist one or two storage media on different BE nodes in the same cluster. We require that fragments of storage medium A be stored in storage medium A as far as possible after equalization. So we divide the BE nodes of the cluster according to the storage medium. Then load balancing scheduling is carried out for different BE node sets of storage media.
+Doris automatically balances replicas within the cluster. Currently supports two rebalance strategies, BeLoad and Partition. BeLoad rebalance will consider about the disk usage and replica count for each BE. Partition rebalance just aim at replica count for each partition, this helps to avoid hot spots. If you want high read/write performance, you may need this. Note that Partition rebalance do not consider about the disk usage, pay more attention to it when you are using Partition rebalance. The strategy selection config is not mutable at runtime. 
+
+### BeLoad
+
+The main idea of balancing is to create a replica of some fragments on low-load nodes, and then delete the replicas of these fragments on high-load nodes. At the same time, because of the existence of different storage media, there may or may not exist one or two storage media on different BE nodes in the same cluster. We require that fragments of storage medium A be stored in storage medium A as far as possible after equalization. So we divide the BE nodes of the cluster according to the storage medium. Then load balancing scheduling is carried out for different BE node sets of storage media.
 
 Similarly, replica balancing ensures that a copy of the same table will not be deployed on the BE of the same host.
 
@@ -228,7 +232,22 @@ Disk usage and number of copies have a weight factor, which is **capacityCoeffic
 
 The weight coefficient ensures that when disk utilization is too high, the backend load score will be higher to ensure that the BE load is reduced as soon as possible.
 
-Tablet Scheduler updates CLS every 1 minute.
+Tablet Scheduler updates CLS every 20 seconds.
+
+### Partition
+
+The main idea of `partition rebalancing` is to decrease the skew of partitions. The skew of the partition is defined as the difference between the maximum replica count of the partition over all bes and the minimum replica count over all bes. 
+
+So we only consider about the replica count, do not consider replica size(disk usage).
+To fewer moves, we use TwoDimensionalGreedyAlgo which two dims are cluster & partition. It prefers a move that reduce the skew of the cluster when we want to rebalance a max skew partition. 
+
+#### Skew Info
+
+The skew info is represented by `ClusterBalanceInfo`. `partitionInfoBySkew` is a multimap which key is the partition's skew, so we can get max skew partitions simply. `beByTotalReplicaCount` is a multimap which key is the total replica count of the backend.
+
+`ClusterBalanceInfo` is in CLS, updated every 20 seconds.
+
+When get more than one max skew partitions, we random select one partition to calculate the move.
 
 ### Equilibrium strategy
 
@@ -552,29 +571,29 @@ We have collected some statistics of Tablet Checker and Tablet Scheduler during 
 
 The meanings of each line are as follows:
 
-* num of tablet check round：Tablet Checker 检查次数
-* cost of tablet check(ms)：Tablet Checker 检查总耗时
-* num of tablet checked in tablet checker：Tablet Checker 检查过的 tablet 数量
-* num of unhealthy tablet checked in tablet checker：Tablet Checker 检查过的不健康的 tablet 数量
-* num of tablet being added to tablet scheduler：被提交到 Tablet Scheduler 中的 tablet 数量
-* num of tablet schedule round：Tablet Scheduler 运行次数
-* cost of tablet schedule(ms)：Tablet Scheduler 运行总耗时
-* num of tablet being scheduled：被调度的 Tablet 总数量
-* num of tablet being scheduled succeeded：被成功调度的 Tablet 总数量
-* num of tablet being scheduled failed：调度失败的 Tablet 总数量
-* num of tablet being scheduled discard：调度失败且被抛弃的 Tablet 总数量
-* num of tablet priority upgraded：优先级上调次数
-* num of tablet priority downgraded：优先级下调次数
+* num of tablet check round: Tablet Checker 检查次数
+* cost of tablet check(ms): Tablet Checker 检查总耗时
+* num of tablet checked in tablet checker: Tablet Checker 检查过的 tablet 数量
+* num of unhealthy tablet checked in tablet checker: Tablet Checker 检查过的不健康的 tablet 数量
+* num of tablet being added to tablet scheduler: 被提交到 Tablet Scheduler 中的 tablet 数量
+* num of tablet schedule round: Tablet Scheduler 运行次数
+* cost of tablet schedule(ms): Tablet Scheduler 运行总耗时
+* num of tablet being scheduled: 被调度的 Tablet 总数量
+* num of tablet being scheduled succeeded: 被成功调度的 Tablet 总数量
+* num of tablet being scheduled failed: 调度失败的 Tablet 总数量
+* num of tablet being scheduled discard: 调度失败且被抛弃的 Tablet 总数量
+* num of tablet priority upgraded: 优先级上调次数
+* num of tablet priority downgraded: 优先级下调次数
 * num of clone task: number of clone tasks generated
-* num of clone task succeeded：clone 任务成功的数量
-* num of clone task failed：clone 任务失败的数量
-* num of clone task timeout：clone 任务超时的数量
+* num of clone task succeeded: clone 任务成功的数量
+* num of clone task failed: clone 任务失败的数量
+* num of clone task timeout: clone 任务超时的数量
 * num of replica missing error: the number of tablets whose status is checked is the missing copy
-* num of replica version missing error：检查的状态为版本缺失的 tablet 的数量（该统计值包括了 num of replica relocating 和 num of replica missing in cluster error）
+* num of replica version missing error: 检查的状态为版本缺失的 tablet 的数量（该统计值包括了 num of replica relocating 和 num of replica missing in cluster error）
 *num of replica relocation *29366;* 24577;*replica relocation tablet *
 * num of replica redundant error: Number of tablets whose checked status is replica redundant
-* num of replica missing in cluster error：检查的状态为不在对应 cluster 的 tablet 的数量
-* num of balance scheduled：均衡调度的次数
+* num of replica missing in cluster error: 检查的状态为不在对应 cluster 的 tablet 的数量
+* num of balance scheduled: 均衡调度的次数
 
 > Note: The above states are only historical accumulative values. We also print these statistics regularly in the FE logs, where the values in parentheses represent the number of changes in each statistical value since the last printing dependence of the statistical information.
 
@@ -617,7 +636,7 @@ The following adjustable parameters are all configurable parameters in fe.conf.
 * disable\_balance
 
 	* Description: Control whether to turn off the balancing function. When replicas are in equilibrium, some functions, such as ALTER TABLE, will be banned. Equilibrium can last for a long time. Therefore, if the user wants to do the prohibited operation as soon as possible. This parameter can be set to true to turn off balanced scheduling.
-	* Default value:true
+	* Default value: false
 	* Importance:
 
 ### Unadjustable parameters
@@ -664,4 +683,4 @@ The following parameters do not support modification for the time being, just fo
 
 * In some cases, the default replica repair and balancing strategy may cause the network to be full (mostly in the case of gigabit network cards and a large number of disks per BE). At this point, some parameters need to be adjusted to reduce the number of simultaneous balancing and repair tasks.
 
-* Current balancing strategies for copies of Colocate Table do not guarantee that copies of the same Tablet will not be distributed on the BE of the same host. However, the repair strategy of the copy of Colocate Table detects this distribution error and corrects it. However, it may occur that after correction, the balancing strategy regards the replicas as unbalanced and rebalances them. As a result, the Colocate Group can not achieve stability because of the continuous alternation between the two states. In view of this situation, we suggest that when using Colocate attribute, we try to ensure that the cluster is isomorphic, so as to reduce the probability that replicas are distributed on the same host.
+* Current balancing strategies for copies of Colocate Table do not guarantee that copies of the same Tablet will not be distributed on the BE of the same host. However, the repair strategy of the copy of Colocate Table detects this distribution error and corrects it. However, it may occur that after correction, the balancing strategy regards the replicas as unbalanced and rebalances them. As a result, the Colocate Group cannot achieve stability because of the continuous alternation between the two states. In view of this situation, we suggest that when using Colocate attribute, we try to ensure that the cluster is isomorphic, so as to reduce the probability that replicas are distributed on the same host.

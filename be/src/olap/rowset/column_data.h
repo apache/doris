@@ -19,17 +19,16 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_COLUMN_DATA_H
 
 #include <string>
-#include <string>
 
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_cond.h"
-#include "olap/rowset/segment_group.h"
 #include "olap/row.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/segment_group.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -47,57 +46,39 @@ public:
     ~ColumnData();
 
     // 为了与之前兼容, 暴露部分index的接口
-    Version version() const {
-        return _segment_group->version();
-    }
-    VersionHash version_hash() const {
-        return _segment_group->version_hash();
-    }
-    bool delete_flag() const {
-        return _segment_group->delete_flag();
-    }
-    uint32_t num_segments() const {
-        return _segment_group->num_segments();
-    }
+    Version version() const { return _segment_group->version(); }
+    VersionHash version_hash() const { return _segment_group->version_hash(); }
+    bool delete_flag() const { return _segment_group->delete_flag(); }
+    uint32_t num_segments() const { return _segment_group->num_segments(); }
 
     OLAPStatus init();
 
-    OLAPStatus prepare_block_read(
-            const RowCursor* start_key, bool find_start_key,
-            const RowCursor* end_key, bool find_end_key,
-            RowBlock** first_block);
+    OLAPStatus prepare_block_read(const RowCursor* start_key, bool find_start_key,
+                                  const RowCursor* end_key, bool find_end_key,
+                                  RowBlock** first_block);
 
     OLAPStatus get_next_block(RowBlock** row_block);
 
-    void set_read_params(
-            const std::vector<uint32_t>& return_columns,
-            const std::vector<uint32_t>& seek_columns,
-            const std::set<uint32_t>& load_bf_columns,
-            const Conditions& conditions,
-            const std::vector<ColumnPredicate*>& col_predicates,
-            bool is_using_cache,
-            RuntimeState* runtime_state);
+    void set_read_params(const std::vector<uint32_t>& return_columns,
+                         const std::vector<uint32_t>& seek_columns,
+                         const std::set<uint32_t>& load_bf_columns, const Conditions& conditions,
+                         std::shared_ptr<std::vector<ColumnPredicate*>> col_predicates, bool is_using_cache,
+                         RuntimeState* runtime_state);
 
     OLAPStatus get_first_row_block(RowBlock** row_block);
 
     // Only used to binary search in full-key find row
     const RowCursor* seek_and_get_current_row(const RowBlockPosition& position);
 
-    void set_using_cache(bool is_using_cache) {
-        _is_using_cache = is_using_cache;
-    }
+    void set_using_cache(bool is_using_cache) { _is_using_cache = is_using_cache; }
 
-    void set_stats(OlapReaderStatistics* stats) {
-        _stats = stats;
-    }
+    void set_stats(OlapReaderStatistics* stats) { _stats = stats; }
 
     void set_delete_handler(const DeleteHandler* delete_handler) {
         _delete_handler = delete_handler;
     }
 
-    void set_delete_status(const DelCondSatisfied delete_status) {
-        _delete_status = delete_status;
-    }
+    void set_delete_status(const DelCondSatisfied delete_status) { _delete_status = delete_status; }
 
     // 开放接口查询_eof，让外界知道数据读取是否正常终止
     // 因为这个函数被频繁访问, 从性能考虑, 放在基类而不是虚函数
@@ -108,6 +89,7 @@ public:
     bool empty() const { return _segment_group->empty(); }
     bool zero_num_rows() const { return _segment_group->zero_num_rows(); }
 
+    // Return true if should be filtered out
     bool rowset_pruning_filter();
     int delete_pruning_filter();
     uint64_t get_filtered_rows();
@@ -132,12 +114,12 @@ private:
     // seek to block_pos without load that block, caller must call _get_block()
     // to load _read_block with data. If without_filter is false, this will seek to
     // other block. Because the seeked block may be filtered by condition or delete.
-    OLAPStatus _seek_to_block(const RowBlockPosition &block_pos, bool without_filter);
+    OLAPStatus _seek_to_block(const RowBlockPosition& block_pos, bool without_filter);
 
-    OLAPStatus _find_position_by_short_key(
-            const RowCursor& key, bool find_last_key, RowBlockPosition *position);
-    OLAPStatus _find_position_by_full_key(
-            const RowCursor& key, bool find_last_key, RowBlockPosition *position);
+    OLAPStatus _find_position_by_short_key(const RowCursor& key, bool find_last_key,
+                                           RowBlockPosition* position);
+    OLAPStatus _find_position_by_full_key(const RowCursor& key, bool find_last_key,
+                                          RowBlockPosition* position);
 
     // Used in _seek_to_row, this function will goto next row that valid for this
     // ColumnData
@@ -145,8 +127,8 @@ private:
 
     // get block from reader, just read vector batch from _current_segment.
     // The read batch return by got_batch.
-    OLAPStatus _get_block_from_reader(
-        VectorizedRowBatch** got_batch, bool without_filter, int rows_read);
+    OLAPStatus _get_block_from_reader(VectorizedRowBatch** got_batch, bool without_filter,
+                                      int rows_read);
 
     // get block from segment reader. If this function returns OLAP_SUCCESS
     OLAPStatus _get_block(bool without_filter, int rows_read = 0);
@@ -155,14 +137,15 @@ private:
         _read_block->get_row(_read_block->pos(), &_cursor);
         return &_cursor;
     }
+
 private:
     SegmentGroup* _segment_group;
     std::shared_ptr<MemTracker> _parent_tracker;
     // 当到达文件末尾或者到达end key时设置此标志
     bool _eof;
     const Conditions* _conditions;
-    const std::vector<ColumnPredicate*>* _col_predicates;
-    const DeleteHandler*_delete_handler = nullptr;
+    std::shared_ptr<std::vector<ColumnPredicate*>> _col_predicates;
+    const DeleteHandler* _delete_handler = nullptr;
     DelCondSatisfied _delete_status;
     RuntimeState* _runtime_state;
     OlapReaderStatistics* _stats;
@@ -203,13 +186,11 @@ private:
 
 class ColumnDataComparator {
 public:
-    ColumnDataComparator(
-        RowBlockPosition position,
-        ColumnData* olap_data,
-        const SegmentGroup* segment_group)
+    ColumnDataComparator(RowBlockPosition position, ColumnData* olap_data,
+                         const SegmentGroup* segment_group)
             : _start_block_position(position),
-            _olap_data(olap_data),
-            _segment_group(segment_group) {}
+              _olap_data(olap_data),
+              _segment_group(segment_group) {}
 
     ~ColumnDataComparator() {}
 
@@ -223,10 +204,8 @@ public:
     }
 
 private:
-    bool _compare(
-            const iterator_offset_t& index,
-            const RowCursor& key,
-            ComparatorEnum comparator_enum) const {
+    bool _compare(const iterator_offset_t& index, const RowCursor& key,
+                  ComparatorEnum comparator_enum) const {
         OLAPStatus res = OLAP_SUCCESS;
         RowBlockPosition position = _start_block_position;
         if (OLAP_SUCCESS != (res = _segment_group->advance_row_block(index, &position))) {
@@ -251,6 +230,6 @@ private:
     const SegmentGroup* _segment_group;
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_COLUMN_DATA_H

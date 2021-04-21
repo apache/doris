@@ -43,6 +43,10 @@ None
 * `confkey1=confvalue1`
 
     Specify the configuration name to be set, and its value is the configuration value to be modified.
+    
+* `persist`
+
+     Whether to persist the modified configuration. The default is false, which means it is not persisted. If it is true, the modified configuration item will be written into the `fe_custom.conf` file and will still take effect after FE is restarted.
 
 ## Request body
 
@@ -86,6 +90,26 @@ The `set` field indicates the successfully set configuration. The `err` field in
     			"max_broker_concurrency": "20"
     		},
     		"err": {}
+    	},
+    	"count": 0
+    }
+    ```
+
+2. Set `max_bytes_per_broker_scanner` and persist it.
+
+    ```
+    GET /api/_set_config?max_bytes_per_broker_scanner=21474836480&persist=true
+    
+    Response:
+    {
+    	"msg": "success",
+    	"code": 0,
+    	"data": {
+    		"set": {
+    			"max_bytes_per_broker_scanner": "21474836480"
+    		},
+    		"err": {},
+    		"persist": "ok"
     	},
     	"count": 0
     }

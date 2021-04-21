@@ -17,22 +17,22 @@
 
 #include "exec/broker_scanner.h"
 
-#include <string>
-#include <map>
-#include <vector>
-
 #include <gtest/gtest.h>
 
+#include <map>
+#include <string>
+#include <vector>
+
 #include "common/object_pool.h"
-#include "runtime/tuple.h"
 #include "exec/local_file_reader.h"
+#include "exprs/cast_functions.h"
+#include "gen_cpp/Descriptors_types.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
+#include "runtime/tuple.h"
 #include "runtime/user_function_cache.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "exprs/cast_functions.h"
 
 namespace doris {
 
@@ -46,15 +46,15 @@ public:
     void init();
 
     static void SetUpTestCase() {
-        UserFunctionCache::instance()->init("./be/test/runtime/test_data/user_function_cache/normal");
+        UserFunctionCache::instance()->init(
+                "./be/test/runtime/test_data/user_function_cache/normal");
         CastFunctions::init();
     }
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
+
 private:
     void init_desc_table();
     void init_params();
@@ -68,6 +68,7 @@ private:
     DescriptorTbl* _desc_tbl;
     std::vector<TNetworkAddress> _addresses;
     ScannerCounter _counter;
+    std::vector<doris::ExprContext*> _pre_filter; 
 };
 
 void BrokerScannerTest::init_desc_table() {
@@ -357,7 +358,7 @@ TEST_F(BrokerScannerTest, normal) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -409,7 +410,7 @@ TEST_F(BrokerScannerTest, normal2) {
     range.size = 4;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -455,7 +456,7 @@ TEST_F(BrokerScannerTest, normal3) {
     range.size = 5;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -502,7 +503,7 @@ TEST_F(BrokerScannerTest, normal4) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -533,7 +534,7 @@ TEST_F(BrokerScannerTest, normal5) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -557,7 +558,7 @@ TEST_F(BrokerScannerTest, normal6) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -588,7 +589,7 @@ TEST_F(BrokerScannerTest, normal7) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -612,7 +613,7 @@ TEST_F(BrokerScannerTest, normal8) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -643,13 +644,55 @@ TEST_F(BrokerScannerTest, normal9) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, &_counter);
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
     MemPool tuple_pool(_tracker.get());
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
+    // end of file
+    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(eof);
+}
+
+TEST_F(BrokerScannerTest, multi_bytes_1) {
+    std::vector<TBrokerRangeDesc> ranges;
+    TBrokerRangeDesc range;
+    range.path = "./be/test/exec/test_data/broker_scanner/multi_bytes_sep.csv";
+    range.start_offset = 0;
+    range.size = 18;
+    range.splittable = true;
+    range.file_type = TFileType::FILE_LOCAL;
+    range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
+    ranges.push_back(range);
+
+    _params.column_separator_str = "AAAA";
+    _params.line_delimiter_str = "BB";
+    _params.column_separator_length = 4;
+    _params.line_delimiter_length = 2;
+    BrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
+    auto st = scanner.open();
+    ASSERT_TRUE(st.ok());
+
+    MemPool tuple_pool(_tracker.get());
+    Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
+    bool eof = false;
+    // 4,5,6
+    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(eof);
+    ASSERT_EQ(4, *(int*)tuple->get_slot(0));
+    ASSERT_EQ(5, *(int*)tuple->get_slot(4));
+    ASSERT_EQ(6, *(int*)tuple->get_slot(8));
+    // 1,2,3
+    st = scanner.get_next(tuple, &tuple_pool, &eof);
+    ASSERT_TRUE(st.ok());
+    ASSERT_FALSE(eof);
+    ASSERT_EQ(1, *(int*)tuple->get_slot(0));
+    ASSERT_EQ(2, *(int*)tuple->get_slot(4));
+    ASSERT_EQ(3, *(int*)tuple->get_slot(8));
     // end of file
     st = scanner.get_next(tuple, &tuple_pool, &eof);
     ASSERT_TRUE(st.ok());

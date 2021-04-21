@@ -17,19 +17,29 @@
 
 package org.apache.doris.load.loadv2;
 
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
@@ -38,7 +48,11 @@ import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.Source;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.planner.BrokerScanNode;
+import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.task.MasterTaskExecutor;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Lists;
@@ -49,15 +63,12 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
+import java.util.UUID;
 
 public class BrokerLoadJobTest {
 
@@ -321,6 +332,50 @@ public class BrokerLoadJobTest {
         Assert.assertEquals(true, finishedTaskIds.contains(taskId));
         Map<Long, LoadTask> idToTasks = Deencapsulation.getField(brokerLoadJob, "idToTasks");
         Assert.assertEquals(3, idToTasks.size());
+    }
+
+    @Test
+    public void testPendingTaskOnFinishedWithUserInfo(@Mocked BrokerPendingTaskAttachment attachment,
+                                          @Mocked Catalog catalog,
+                                          @Injectable BrokerDesc brokerDesc,
+                                          @Injectable LoadTaskCallback callback,
+                                          @Injectable Database database,
+                                          @Injectable FileGroupAggKey aggKey,
+                                          @Mocked OlapTable olapTable,
+                                          @Mocked PlanFragment sinkFragment,
+                                          @Mocked OlapTableSink olapTableSink,
+                                          @Mocked BrokerScanNode scanNode) throws Exception{
+        List<Column> schema = new ArrayList<>();
+        schema.add(new Column("a", PrimitiveType.BIGINT));
+        Map<String, String> properties = new HashMap<>();
+        properties.put("broker_name", "test");
+        properties.put("path", "hdfs://www.test.com");
+        BrokerTable brokerTable = new BrokerTable(123L, "test", schema, properties);
+        BrokerFileGroup brokerFileGroup = new BrokerFileGroup(brokerTable);
+        List<Long> partitionIds = new ArrayList<>();
+        partitionIds.add(123L);
+        Deencapsulation.setField(brokerFileGroup, "partitionIds", partitionIds);
+        List<BrokerFileGroup> fileGroups = Lists.newArrayList();
+        fileGroups.add(brokerFileGroup);
+        UUID uuid = UUID.randomUUID();
+        TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        RuntimeProfile jobProfile = new RuntimeProfile("test");
+        LoadLoadingTask task = new LoadLoadingTask(database, olapTable,brokerDesc, fileGroups,
+                100, 100, false, 100, callback, "", 100, 1,
+                jobProfile);
+        try {
+            UserIdentity userInfo = new UserIdentity("root", "localhost");
+            userInfo.setIsAnalyzed();
+            task.init(loadId,
+                    attachment.getFileStatusByTable(aggKey),
+                    attachment.getFileNumByTable(aggKey),
+                    userInfo);
+            LoadingTaskPlanner planner = Deencapsulation.getField(task, "planner");
+            Analyzer al = Deencapsulation.getField(planner, "analyzer");
+            Assert.assertFalse(al.isUDFAllowed());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     @Test

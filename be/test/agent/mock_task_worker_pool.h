@@ -35,6 +35,6 @@ public:
     MOCK_METHOD0(start, void());
     MOCK_METHOD1(submit_task, void(const TAgentTaskRequest& task));
     MOCK_METHOD0(get_command_executor, CommandExecutor*());
-};  // class MockTaskWorkerPool
-}  // namespace doris
-#endif  // DORIS_BE_SRC_MOCK_MOCK_TASK_WORKER_POOL_H
+}; // class MockTaskWorkerPool
+} // namespace doris
+#endif // DORIS_BE_SRC_MOCK_MOCK_TASK_WORKER_POOL_H

@@ -28,7 +28,7 @@ import org.apache.doris.mysql.MysqlErrPacket;
 import org.apache.doris.mysql.MysqlOkPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
-import org.apache.doris.proto.PQueryStatistics;
+import org.apache.doris.proto.Data;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.Assert;
@@ -55,7 +55,7 @@ public class ConnectProcessorTest {
     @Mocked
     private static SocketChannel socketChannel;
 
-    private static PQueryStatistics statistics = new PQueryStatistics();
+    private static Data.PQueryStatistics statistics = Data.PQueryStatistics.newBuilder().build();
 
     @BeforeClass
     public static void setUpClass() {
@@ -97,9 +97,7 @@ public class ConnectProcessorTest {
             serializer.writeEofString("");
             fieldListPacket = serializer.toByteBuffer();
         }
-
-        statistics.scan_bytes = 0L;
-        statistics.scan_rows = 0L;
+        statistics = statistics.toBuilder().setCpuMs(0L).setScanRows(0).setScanBytes(0).build();
 
         MetricRepo.init();
     }
@@ -310,6 +308,25 @@ public class ConnectProcessorTest {
 
         processor.processOnce();
         Assert.assertEquals(MysqlCommand.COM_QUERY, myContext.getCommand());
+    }
+
+    @Test
+    public void testQueryWithUserInfo(@Mocked StmtExecutor executor) throws Exception {
+        ConnectContext ctx = initMockContext(mockChannel(queryPacket), AccessTestUtil.fetchAdminCatalog());
+
+        ConnectProcessor processor = new ConnectProcessor(ctx);
+
+        // Mock statement executor
+        new Expectations() {
+            {
+                executor.getQueryStatisticsForAuditLog();
+                minTimes = 0;
+                result = statistics;
+            }
+        };
+        processor.processOnce();
+        StmtExecutor er = Deencapsulation.getField(processor, "executor");
+        Assert.assertTrue(er.getParsedStmt().getUserInfo() != null);
     }
 
     @Test

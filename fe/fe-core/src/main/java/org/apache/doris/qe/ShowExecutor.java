@@ -32,6 +32,7 @@ import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
+import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDbStmt;
@@ -50,6 +51,7 @@ import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.ShowPluginsStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
+import org.apache.doris.analysis.ShowQueryProfileStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
@@ -70,6 +72,7 @@ import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -108,10 +111,14 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.RollupProcDir;
 import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.common.proc.TabletsProcDir;
+import org.apache.doris.common.profile.ProfileTreeNode;
+import org.apache.doris.common.profile.ProfileTreePrinter;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
@@ -124,6 +131,7 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.base.Preconditions;
@@ -132,6 +140,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -192,6 +201,8 @@ public class ShowExecutor {
             handleShowEngines();
         } else if (stmt instanceof ShowFunctionsStmt) {
             handleShowFunctions();
+        } else if (stmt instanceof ShowCreateFunctionStmt) {
+            handleShowCreateFunction();
         } else if (stmt instanceof ShowVariablesStmt) {
             handleShowVariables();
         } else if (stmt instanceof ShowColumnStmt) {
@@ -260,6 +271,8 @@ public class ShowExecutor {
             handleShowTransaction();
         } else if (stmt instanceof ShowPluginsStmt) {
             handleShowPlugins();
+        } else if (stmt instanceof ShowQueryProfileStmt) {
+            handleShowQueryProfile();
         } else {
             handleEmtpy();
         }
@@ -360,6 +373,23 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 
+    // Handle show create function
+    private void handleShowCreateFunction() throws AnalysisException {
+        ShowCreateFunctionStmt showCreateFunctionStmt = (ShowCreateFunctionStmt) stmt;
+        Database db = ctx.getCatalog().getDb(showCreateFunctionStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showCreateFunctionStmt.getDbName());
+        }
+
+        Function function = db.getFunction(showCreateFunctionStmt.getFunction());
+        List<List<String>> resultRowSet = Lists.newArrayList();
+        List<String> resultRow = Lists.newArrayList();
+        resultRow.add(function.signatureString());
+        resultRow.add(function.toSql(false));
+        resultRowSet.add(resultRow);
+        resultSet = new ShowResultSet(showCreateFunctionStmt.getMetaData(), resultRowSet);
+    }
+
     private void handleShowProc() throws AnalysisException {
         ShowProcStmt showProcStmt = (ShowProcStmt) stmt;
         ShowResultSetMetaData metaData = showProcStmt.getMetaData();
@@ -456,27 +486,22 @@ public class ShowExecutor {
         Database db = ctx.getCatalog().getDb(showTableStmt.getDb());
         if (db != null) {
             Map<String, String> tableMap = Maps.newTreeMap();
-            db.readLock();
-            try {
-                PatternMatcher matcher = null;
-                if (showTableStmt.getPattern() != null) {
-                    matcher = PatternMatcher.createMysqlPattern(showTableStmt.getPattern(),
-                                                                CaseSensibility.TABLE.getCaseSensibility());
+            PatternMatcher matcher = null;
+            if (showTableStmt.getPattern() != null) {
+                matcher = PatternMatcher.createMysqlPattern(showTableStmt.getPattern(),
+                        CaseSensibility.TABLE.getCaseSensibility());
+            }
+            for (Table tbl : db.getTables()) {
+                if (matcher != null && !matcher.match(tbl.getName())) {
+                    continue;
                 }
-                for (Table tbl : db.getTables()) {
-                    if (matcher != null && !matcher.match(tbl.getName())) {
-                        continue;
-                    }
-                    // check tbl privs
-                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                            db.getFullName(), tbl.getName(),
-                                                                            PrivPredicate.SHOW)) {
-                        continue;
-                    }
-                    tableMap.put(tbl.getName(), tbl.getMysqlType());
+                // check tbl privs
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                        db.getFullName(), tbl.getName(),
+                        PrivPredicate.SHOW)) {
+                    continue;
                 }
-            } finally {
-                db.readUnlock();
+                tableMap.put(tbl.getName(), tbl.getMysqlType());
             }
 
             for (Map.Entry<String, String> entry : tableMap.entrySet()) {
@@ -498,39 +523,34 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
         Database db = ctx.getCatalog().getDb(showStmt.getDb());
         if (db != null) {
-            db.readLock();
-            try {
-                PatternMatcher matcher = null;
-                if (showStmt.getPattern() != null) {
-                    matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
-                                                                CaseSensibility.TABLE.getCaseSensibility());
+            PatternMatcher matcher = null;
+            if (showStmt.getPattern() != null) {
+                matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
+                        CaseSensibility.TABLE.getCaseSensibility());
+            }
+            for (Table table : db.getTables()) {
+                if (matcher != null && !matcher.match(table.getName())) {
+                    continue;
                 }
-                for (Table table : db.getTables()) {
-                    if (matcher != null && !matcher.match(table.getName())) {
-                        continue;
-                    }
 
-                    // check tbl privs
-                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                            db.getFullName(), table.getName(),
-                                                                            PrivPredicate.SHOW)) {
-                        continue;
-                    }
-
-                    List<String> row = Lists.newArrayList();
-                    // Name
-                    row.add(table.getName());
-                    // Engine
-                    row.add(table.getEngine());
-                    // version, ra
-                    for (int i = 0; i < 15; ++i) {
-                        row.add(null);
-                    }
-                    row.add(table.getComment());
-                    rows.add(row);
+                // check tbl privs
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                        db.getFullName(), table.getName(),
+                        PrivPredicate.SHOW)) {
+                    continue;
                 }
-            } finally {
-                db.readUnlock();
+
+                List<String> row = Lists.newArrayList();
+                // Name
+                row.add(table.getName());
+                // Engine
+                row.add(table.getEngine());
+                // version, ra
+                for (int i = 0; i < 15; ++i) {
+                    row.add(null);
+                }
+                row.add(table.getComment());
+                rows.add(row);
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -570,13 +590,13 @@ public class ShowExecutor {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDb());
         }
         List<List<String>> rows = Lists.newArrayList();
-        db.readLock();
-        try {
-            Table table = db.getTable(showStmt.getTable());
-            if (table == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getTable());
-            }
+        Table table = db.getTable(showStmt.getTable());
+        if (table == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getTable());
+        }
 
+        table.readLock();
+        try {
             List<String> createTableStmt = Lists.newArrayList();
             Catalog.getDdlStmt(table, createTableStmt, null, null, false, true /* hide password */);
             if (createTableStmt.isEmpty()) {
@@ -599,7 +619,7 @@ public class ShowExecutor {
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
             }
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
     }
 
@@ -615,15 +635,15 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
         Database db = ctx.getCatalog().getDb(showStmt.getDb());
         if (db != null) {
-            db.readLock();
-            try {
-                Table table = db.getTable(showStmt.getTable());
-                if (table != null) {
-                    PatternMatcher matcher = null;
-                    if (showStmt.getPattern() != null) {
-                        matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
-                                                                    CaseSensibility.COLUMN.getCaseSensibility());
-                    }
+            Table table = db.getTable(showStmt.getTable());
+            if (table != null) {
+                PatternMatcher matcher = null;
+                if (showStmt.getPattern() != null) {
+                    matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
+                            CaseSensibility.COLUMN.getCaseSensibility());
+                }
+                table.readLock();
+                try {
                     List<Column> columns = table.getBaseSchema();
                     for (Column col : columns) {
                         if (matcher != null && !matcher.match(col.getName())) {
@@ -639,29 +659,29 @@ public class ShowExecutor {
                             // Field Type Collation Null Key Default Extra
                             // Privileges Comment
                             rows.add(Lists.newArrayList(columnName,
-                                                        columnType,
-                                                        "",
-                                                        isAllowNull,
-                                                        isKey,
-                                                        defaultValue,
-                                                        aggType,
-                                                        "",
-                                                        col.getComment()));
+                                    columnType,
+                                    "",
+                                    isAllowNull,
+                                    isKey,
+                                    defaultValue,
+                                    aggType,
+                                    "",
+                                    col.getComment()));
                         } else {
                             // Field Type Null Key Default Extra
                             rows.add(Lists.newArrayList(columnName,
-                                                        columnType,
-                                                        isAllowNull,
-                                                        isKey,
-                                                        defaultValue,
-                                                        aggType));
+                                    columnType,
+                                    isAllowNull,
+                                    isKey,
+                                    defaultValue,
+                                    aggType));
                         }
                     }
-                } else {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, db.getFullName() + "." + showStmt.getTable());
+                } finally {
+                    table.readUnlock();
                 }
-            } finally {
-                db.readUnlock();
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, db.getFullName() + "." + showStmt.getTable());
             }
         } else {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getDb() + "." + showStmt.getTable());
@@ -677,22 +697,23 @@ public class ShowExecutor {
         if (db == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getTableName().toString());
         }
-        db.readLock();
-        try {
-            Table table = db.getTable(showStmt.getTableName().getTbl());
-            if (table != null && table instanceof OlapTable) {
+
+        Table table = db.getTable(showStmt.getTableName().getTbl());
+        if (table != null && table instanceof OlapTable) {
+            table.readLock();
+            try {
                 List<Index> indexes = ((OlapTable) table).getIndexes();
                 for (Index index : indexes) {
                     rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
                             "", index.getColumns().stream().collect(Collectors.joining(",")), "", "", "", "",
                             "", index.getIndexType().name(), index.getComment()));
                 }
-            } else {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR,
-                        db.getFullName() + "." + showStmt.getTableName().toString());
+            } finally {
+                table.readUnlock();
             }
-        } finally {
-            db.readUnlock();
+        } else {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR,
+                    db.getFullName() + "." + showStmt.getTableName().toString());
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
@@ -1061,8 +1082,7 @@ public class ShowExecutor {
 
         DeleteHandler deleteHandler = catalog.getDeleteHandler();
         Load load = catalog.getLoadInstance();
-        List<List<Comparable>> deleteInfos = deleteHandler.getDeleteInfosByDb(dbId, true);
-        deleteInfos.addAll(load.getDeleteInfosByDb(dbId, true));
+        List<List<Comparable>> deleteInfos = deleteHandler.getDeleteInfosByDb(dbId);
         List<List<String>> rows = Lists.newArrayList();
         for (List<Comparable> deleteInfo : deleteInfos) {
             List<String> oneInfo = new ArrayList<String>(deleteInfo.size());
@@ -1151,16 +1171,15 @@ public class ShowExecutor {
                     break;
                 }
                 dbName = db.getFullName();
+                Table table = db.getTable(tableId);
+                if (table == null || !(table instanceof OlapTable)) {
+                    isSync = false;
+                    break;
+                }
 
-                db.readLock();
+                table.readLock();
                 try {
-                    Table table = db.getTable(tableId);
-                    if (table == null || !(table instanceof OlapTable)) {
-                        isSync = false;
-                        break;
-                    }
                     tableName = table.getName();
-
                     OlapTable olapTable = (OlapTable) table;
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
@@ -1197,7 +1216,7 @@ public class ShowExecutor {
                     }
 
                 } finally {
-                    db.readUnlock();
+                    table.readUnlock();
                 }
             } while (false);
 
@@ -1213,16 +1232,16 @@ public class ShowExecutor {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
             }
 
-            db.readLock();
-            try {
-                Table table = db.getTable(showStmt.getTableName());
-                if (table == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getTableName());
-                }
-                if (!(table instanceof OlapTable)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, showStmt.getTableName());
-                }
+            Table table = db.getTable(showStmt.getTableName());
+            if (table == null) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getTableName());
+            }
+            if (!(table instanceof OlapTable)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, showStmt.getTableName());
+            }
 
+            table.readLock();
+            try {
                 OlapTable olapTable = (OlapTable) table;
                 long sizeLimit = -1;
                 if (showStmt.hasOffset() && showStmt.hasLimit()) {
@@ -1263,7 +1282,7 @@ public class ShowExecutor {
                         if (indexId > -1 && index.getId() != indexId) {
                             continue;
                         }
-                        TabletsProcDir procDir = new TabletsProcDir(db, index);
+                        TabletsProcDir procDir = new TabletsProcDir(table, index);
                         tabletInfos.addAll(procDir.fetchComparableResult(
                                 showStmt.getVersion(), showStmt.getBackendId(), showStmt.getReplicaState()));
                         if (sizeLimit > -1 && tabletInfos.size() >= sizeLimit) {
@@ -1298,7 +1317,7 @@ public class ShowExecutor {
                     rows.add(oneTablet);
                 }
             } finally {
-                db.readUnlock();
+                table.readUnlock();
             }
         }
 
@@ -1308,10 +1327,13 @@ public class ShowExecutor {
     // Handle show brokers
     private void handleShowBroker() {
         ShowBrokerStmt showStmt = (ShowBrokerStmt) stmt;
-        List<List<String>> rowSet = Catalog.getCurrentCatalog().getBrokerMgr().getBrokersInfo();
+        List<List<String>> brokersInfo = Catalog.getCurrentCatalog().getBrokerMgr().getBrokersInfo();
+        for (List<String> row : brokersInfo) {
+            row.remove(BrokerMgr.HOSTNAME_INDEX);
+        }
 
         // Only success
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), brokersInfo);
     }
 
     // Handle show resources
@@ -1536,19 +1558,21 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
         Database db = ctx.getCatalog().getDb(showDynamicPartitionStmt.getDb());
         if (db != null) {
-            db.readLock();
-            try {
-                for (Table tbl : db.getTables()) {
-                    if (!(tbl instanceof OlapTable)) {
-                        continue;
-                    }
+            List<Table> tableList = db.getTables();
+            for (Table tbl : tableList) {
+                if (!(tbl instanceof OlapTable)) {
+                    continue;
+                }
 
-                    DynamicPartitionScheduler dynamicPartitionScheduler = Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
-                    OlapTable olapTable = (OlapTable) tbl;
+                DynamicPartitionScheduler dynamicPartitionScheduler = Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
+                OlapTable olapTable = (OlapTable) tbl;
+                olapTable.readLock();
+                try {
                     if (!olapTable.dynamicPartitionExists()) {
                         dynamicPartitionScheduler.removeRuntimeInfo(olapTable.getName());
                         continue;
                     }
+
                     // check tbl privs
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
                             db.getFullName(), olapTable.getName(),
@@ -1574,10 +1598,11 @@ public class ShowExecutor {
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.CREATE_PARTITION_MSG),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DROP_PARTITION_MSG)));
+                } finally {
+                    olapTable.readUnlock();
                 }
-            } finally {
-                db.readUnlock();
             }
+
             resultSet = new ShowResultSet(showDynamicPartitionStmt.getMetaData(), rows);
         }
     }
@@ -1600,6 +1625,54 @@ public class ShowExecutor {
         List<List<String>> rows = Catalog.getCurrentPluginMgr().getPluginShowInfos();
         resultSet = new ShowResultSet(pluginsStmt.getMetaData(), rows);
     }
+
+    private void handleShowQueryProfile() throws AnalysisException {
+        ShowQueryProfileStmt showStmt = (ShowQueryProfileStmt) stmt;
+        ShowQueryProfileStmt.PathType pathType = showStmt.getPathType();
+        List<List<String>> rows = Lists.newArrayList();
+        switch (pathType) {
+            case QUERY_IDS:
+                rows = ProfileManager.getInstance().getAllQueries();
+                break;
+            case FRAGMETNS: {
+                ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(showStmt.getQueryId());
+                if (treeRoot == null) {
+                    throw new AnalysisException("Failed to get fragment tree for query: " + showStmt.getQueryId());
+                }
+                List<String> row = Lists.newArrayList(ProfileTreePrinter.printFragmentTree(treeRoot));
+                rows.add(row);
+                break;
+            }
+            case INSTANCES: {
+                List<Triple<String, String, Long>> instanceList
+                        = ProfileManager.getInstance().getFragmentInstanceList(showStmt.getQueryId(), showStmt.getFragmentId());
+                if (instanceList == null) {
+                    throw new AnalysisException("Failed to get instance list for fragment: " + showStmt.getFragmentId());
+                }
+                for (Triple<String, String, Long> triple : instanceList) {
+                    List<String> row = Lists.newArrayList(triple.getLeft(), triple.getMiddle(),
+                            RuntimeProfile.printCounter(triple.getRight(), TUnit.TIME_NS));
+                    rows.add(row);
+                }
+                break;
+            }
+            case SINGLE_INSTANCE: {
+                ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(showStmt.getQueryId(),
+                        showStmt.getFragmentId(), showStmt.getInstanceId());
+                if (treeRoot == null) {
+                    throw new AnalysisException("Failed to get instance tree for instance: " + showStmt.getInstanceId());
+                }
+                List<String> row = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
+                rows.add(row);
+                break;
+            }
+            default:
+                break;
+        }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
 }
 
 

@@ -15,40 +15,40 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "runtime/memory_scratch_sink.h"
+
 #include <gtest/gtest.h>
-#include <iostream>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+#include <iostream>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "exec/csv_scan_node.h"
 #include "exprs/expr.h"
 #include "gen_cpp/DorisExternalService_types.h"
-#include "gen_cpp/Types_types.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "gen_cpp/Types_types.h"
 #include "olap/options.h"
 #include "olap/row.h"
-#include "runtime/bufferpool/reservation_tracker.h"
-#include "runtime/exec_env.h"
-#include "runtime/memory_scratch_sink.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/primitive_type.h"
-#include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/thread_resource_mgr.h"
+#include "runtime/test_env.h"
 #include "runtime/tuple_row.h"
+#include "testutil/desc_tbl_builder.h"
 #include "util/blocking_queue.hpp"
 #include "util/logging.h"
-#include "testutil/desc_tbl_builder.h"
 
 namespace doris {
 
 class MemoryScratchSinkTest : public testing::Test {
 public:
     MemoryScratchSinkTest() {
+        _env = std::make_shared<TestEnv>();
         {
             TExpr expr;
             {
@@ -65,12 +65,7 @@ public:
         }
     }
 
-    ~MemoryScratchSinkTest() {
-        delete _state;
-        delete _exec_env->_result_queue_mgr;
-        delete _exec_env->_thread_mgr;
-        delete _exec_env->_buffer_reservation;
-    }
+    ~MemoryScratchSinkTest() { delete _state; }
 
     virtual void SetUp() {
         config::periodic_counter_update_period_ms = 500;
@@ -94,7 +89,7 @@ public:
 
 private:
     ObjectPool _obj_pool;
-    ExecEnv* _exec_env = nullptr;
+    std::shared_ptr<TestEnv> _env;
     // std::vector<TExpr> _exprs;
     TDescriptorTable _t_desc_table;
     RuntimeState* _state = nullptr;
@@ -106,25 +101,21 @@ private:
     std::vector<TExpr> _exprs;
 };
 
-
 void MemoryScratchSinkTest::init() {
-    _exec_env = ExecEnv::GetInstance();
     init_desc_tbl();
     init_runtime_state();
 }
 
 void MemoryScratchSinkTest::init_runtime_state() {
-    _exec_env->_result_queue_mgr = new ResultQueueMgr();
-    _exec_env->_thread_mgr = new ThreadResourceMgr();
-    _exec_env->_buffer_reservation = new ReservationTracker();
     TQueryOptions query_options;
     query_options.batch_size = 1024;
     TUniqueId query_id;
     query_id.lo = 10;
     query_id.hi = 100;
-    _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _exec_env);
+    _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _env->exec_env());
     _state->init_instance_mem_tracker();
-    _mem_tracker = MemTracker::CreateTracker(-1, "MemoryScratchSinkTest", _state->instance_mem_tracker());
+    _mem_tracker =
+            MemTracker::CreateTracker(-1, "MemoryScratchSinkTest", _state->instance_mem_tracker());
     _state->set_desc_tbl(_desc_tbl);
     _state->_load_dir = "./test_run/output/";
     _state->init_mem_trackers(TUniqueId());
@@ -178,11 +169,10 @@ void MemoryScratchSinkTest::init_desc_tbl() {
 
     DescriptorTbl::create(&_obj_pool, _t_desc_table, &_desc_tbl);
 
-
-    vector<TTupleId> row_tids;
+    std::vector<TTupleId> row_tids;
     row_tids.push_back(0);
 
-    vector<bool> nullable_tuples;
+    std::vector<bool> nullable_tuples;
     nullable_tuples.push_back(false);
     _row_desc = _obj_pool.add(new RowDescriptor(*_desc_tbl, row_tids, nullable_tuples));
 
@@ -216,7 +206,6 @@ void MemoryScratchSinkTest::init_desc_tbl() {
     _tnode.csv_scan_node.__isset.default_values = true;
     _tnode.csv_scan_node.max_filter_ratio = 0.5;
     _tnode.__isset.csv_scan_node = true;
-
 }
 
 TEST_F(MemoryScratchSinkTest, work_flow_normal) {
@@ -254,7 +243,7 @@ TEST_F(MemoryScratchSinkTest, work_flow_normal) {
     ASSERT_TRUE(scan_node.close(_state).ok());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

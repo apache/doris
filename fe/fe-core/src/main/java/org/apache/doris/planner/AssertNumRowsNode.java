@@ -26,7 +26,7 @@ import org.apache.doris.thrift.TPlanNodeType;
 /**
  * Assert num rows node is used to determine whether the number of rows is less then desired num of rows.
  * The rows are the result of subqueryString.
- * If the number of rows is more then the desired num of rows, the query will be cancelled.
+ * If the number of rows is more than the desired num of rows, the query will be cancelled.
  * The cancelled reason will be reported by Backend and displayed back to the user.
  */
 public class AssertNumRowsNode extends PlanNode {
@@ -47,7 +47,10 @@ public class AssertNumRowsNode extends PlanNode {
     }
 
     @Override
-    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return "";
+        }
         StringBuilder output = new StringBuilder()
                 .append(prefix + "assert number of rows: ")
                 .append(assertion).append(" ").append(desiredNumOfRows).append("\n");

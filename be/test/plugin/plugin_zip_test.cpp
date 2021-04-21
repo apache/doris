@@ -15,76 +15,66 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 #include "plugin/plugin_zip.h"
 
-#include <memory>
 #include <gtest/gtest.h>
-#include <set>
-#include <libgen.h>
+
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
+#include <set>
 
-#include "util/file_utils.h"
-#include "util/slice.h"
 #include "env/env.h"
 #include "http/ev_http_server.h"
+#include "http/http_channel.h"
 #include "http/http_handler.h"
 #include "http/http_request.h"
-#include "http/http_channel.h"
+#include "test_util/test_util.h"
+#include "util/file_utils.h"
+#include "util/slice.h"
 
 namespace doris {
 class HttpTestHandler : public HttpHandler {
 public:
     void handle(HttpRequest* req) override {
-        char buf[1024];
-        readlink("/proc/self/exe", buf, 1023);
-        char* dir_path = dirname(buf);
-        std::string path = std::string(dir_path);
-        
+        std::string path = GetCurrentRunningDir();
+        ASSERT_FALSE(path.empty());
+
         std::unique_ptr<SequentialFile> file;
-        
+
         auto& file_name = req->param("FILE");
-        
+
         FILE* fp = fopen((path + "/plugin_test/source/" + file_name).c_str(), "r");
+        ASSERT_TRUE(fp != nullptr);
 
         std::string response;
         char f[1024];
         while (true) {
             auto size = fread(f, 1, 1024, fp);
             response.append(f, size);
-            
+
             if (size < 1024) {
                 break;
             }
         }
-        
+
         fclose(fp);
-        
+
         HttpChannel::send_reply(req, response);
     }
 };
 
-
 class PluginZipTest : public testing::Test {
-
 public:
     PluginZipTest() {
-        char buf[1024];
-        readlink("/proc/self/exe", buf, 1023);
-        char* dir_path = dirname(buf);
-        _path = std::string(dir_path);
-
+        _path = GetCurrentRunningDir();
+        EXPECT_FALSE(_path.empty());
         _server.reset(new EvHttpServer(29191));
         _server->register_handler(GET, "/{FILE}", &_handler);
         _server->start();
-        
+
         std::cout << "the path: " << _path << std::endl;
     }
-
-    ~PluginZipTest() {
-        _server->stop();
-    };
 
 public:
     std::string _path;
@@ -101,7 +91,6 @@ TEST_F(PluginZipTest, local_normal) {
     ASSERT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/test"));
     ASSERT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/test/test.txt"));
 
-
     std::unique_ptr<RandomAccessFile> file;
     Env::Default()->new_random_access_file(_path + "/plugin_test/target/test/test.txt", &file);
 
@@ -116,7 +105,7 @@ TEST_F(PluginZipTest, local_normal) {
 
 TEST_F(PluginZipTest, http_normal) {
     FileUtils::remove_all(_path + "/plugin_test/target");
-    
+
     PluginZip zip("http://127.0.0.1:29191/test.zip");
 
     //    ASSERT_TRUE(zip.extract(_path + "/plugin_test/target/", "test").ok());
@@ -136,8 +125,10 @@ TEST_F(PluginZipTest, http_normal) {
 
     std::set<std::string> dirs;
     std::set<std::string> files;
-    ASSERT_TRUE(FileUtils::list_dirs_files(_path + "/plugin_test/target", &dirs, &files, Env::Default()).ok());
-    
+    ASSERT_TRUE(
+            FileUtils::list_dirs_files(_path + "/plugin_test/target", &dirs, &files, Env::Default())
+                    .ok());
+
     ASSERT_EQ(1, dirs.size());
     ASSERT_EQ(1, files.size());
 
@@ -145,16 +136,16 @@ TEST_F(PluginZipTest, http_normal) {
 }
 
 TEST_F(PluginZipTest, already_install) {
-    // This test case will finish very soon, sleep 1 second to ensure that EvHttpServer worker has started
+    // This test case will finish very soon, sleep 100 us to ensure that EvHttpServer worker has started
     // before this unit test case finished, or there may cause an ASAN error.
-    sleep(1);
+    usleep(100);
     FileUtils::remove_all(_path + "/plugin_test/target");
 
     PluginZip zip("http://127.0.0.1:29191/test.zip");
     ASSERT_FALSE(zip.extract(_path + "/plugin_test/", "source").ok());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

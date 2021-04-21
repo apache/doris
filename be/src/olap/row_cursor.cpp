@@ -28,13 +28,11 @@ using std::string;
 using std::vector;
 
 namespace doris {
-RowCursor::RowCursor() :
-        _fixed_len(0),
-        _variable_len(0) {}
+RowCursor::RowCursor() : _fixed_len(0), _variable_len(0) {}
 
 RowCursor::~RowCursor() {
-    delete [] _owned_fixed_buf;
-    delete [] _variable_buf;
+    delete[] _owned_fixed_buf;
+    delete[] _variable_buf;
 }
 
 OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
@@ -52,7 +50,7 @@ OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
     _fixed_len = _schema->schema_size();
     _fixed_buf = new (nothrow) char[_fixed_len];
     if (_fixed_buf == nullptr) {
-        LOG(WARNING) <<  "Fail to malloc _fixed_buf.";
+        LOG(WARNING) << "Fail to malloc _fixed_buf.";
         return OLAP_ERR_MALLOC_ERROR;
     }
     _owned_fixed_buf = _fixed_buf;
@@ -71,9 +69,10 @@ OLAPStatus RowCursor::init(const std::vector<TabletColumn>& schema) {
 
 OLAPStatus RowCursor::init(const TabletSchema& schema, size_t column_count) {
     if (column_count > schema.num_columns()) {
-        LOG(WARNING) << "Input param are invalid. Column count is bigger than num_columns of schema. "
-                     << "column_count=" << column_count
-                     << ", schema.num_columns=" << schema.num_columns();
+        LOG(WARNING)
+                << "Input param are invalid. Column count is bigger than num_columns of schema. "
+                << "column_count=" << column_count
+                << ", schema.num_columns=" << schema.num_columns();
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -87,9 +86,9 @@ OLAPStatus RowCursor::init(const TabletSchema& schema, size_t column_count) {
 
 OLAPStatus RowCursor::init(const std::vector<TabletColumn>& schema, size_t column_count) {
     if (column_count > schema.size()) {
-        LOG(WARNING) << "Input param are invalid. Column count is bigger than num_columns of schema. "
-                     << "column_count=" << column_count
-                     << ", schema.num_columns=" << schema.size();
+        LOG(WARNING)
+                << "Input param are invalid. Column count is bigger than num_columns of schema. "
+                << "column_count=" << column_count << ", schema.num_columns=" << schema.size();
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -101,8 +100,7 @@ OLAPStatus RowCursor::init(const std::vector<TabletColumn>& schema, size_t colum
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowCursor::init(const TabletSchema& schema,
-                           const vector<uint32_t>& columns) {
+OLAPStatus RowCursor::init(const TabletSchema& schema, const std::vector<uint32_t>& columns) {
     RETURN_NOT_OK(_init(schema.columns(), columns));
     return OLAP_SUCCESS;
 }
@@ -111,9 +109,10 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
                                     const std::vector<std::string>& scan_keys) {
     size_t scan_key_size = scan_keys.size();
     if (scan_key_size > schema.num_columns()) {
-        LOG(WARNING) << "Input param are invalid. Column count is bigger than num_columns of schema. "
-                     << "column_count=" << scan_key_size
-                     << ", schema.num_columns=" << schema.num_columns();
+        LOG(WARNING)
+                << "Input param are invalid. Column count is bigger than num_columns of schema. "
+                << "column_count=" << scan_key_size
+                << ", schema.num_columns=" << schema.num_columns();
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -133,13 +132,12 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
             _variable_len += scan_keys[cid].length();
         } else if (type == OLAP_FIELD_TYPE_CHAR) {
-            _variable_len += std::max(
-                scan_keys[cid].length(), column.length());
+            _variable_len += std::max(scan_keys[cid].length(), column.length());
         }
     }
 
     // variable_len for null bytes
-    _variable_buf = new(nothrow) char[_variable_len];
+    _variable_buf = new (nothrow) char[_variable_len];
     if (_variable_buf == nullptr) {
         OLAP_LOG_WARNING("Fail to malloc _variable_buf.");
         return OLAP_ERR_MALLOC_ERROR;
@@ -170,7 +168,9 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
 OLAPStatus RowCursor::allocate_memory_for_string_type(const TabletSchema& schema) {
     // allocate memory for string type(char, varchar, hll)
     // The memory allocated in this function is used in aggregate and copy function
-    if (_variable_len == 0) { return OLAP_SUCCESS; }
+    if (_variable_len == 0) {
+        return OLAP_SUCCESS;
+    }
     DCHECK(_variable_buf == nullptr) << "allocate memory twice";
     _variable_buf = new (nothrow) char[_variable_len];
     memset(_variable_buf, 0, _variable_len);
@@ -209,7 +209,7 @@ OLAPStatus RowCursor::build_min_key() {
 OLAPStatus RowCursor::from_tuple(const OlapTuple& tuple) {
     if (tuple.size() != _schema->num_column_ids()) {
         LOG(WARNING) << "column count does not match. tuple_size=" << tuple.size()
-            << ", field_count=" << _schema->num_column_ids();
+                     << ", field_count=" << _schema->num_column_ids();
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -225,7 +225,7 @@ OLAPStatus RowCursor::from_tuple(const OlapTuple& tuple) {
         OLAPStatus res = field->from_string(buf, tuple.get_value(i));
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to convert field from string. string=" << tuple.get_value(i)
-                << ", res=" << res;
+                         << ", res=" << res;
             return res;
         }
     }
@@ -253,8 +253,8 @@ OlapTuple RowCursor::to_tuple() const {
     return tuple;
 }
 
-string RowCursor::to_string() const {
-    string result;
+std::string RowCursor::to_string() const {
+    std::string result;
     size_t i = 0;
     for (auto cid : _schema->column_ids()) {
         if (i++ > 0) {
@@ -275,4 +275,4 @@ string RowCursor::to_string() const {
     return result;
 }
 
-}  // namespace doris
+} // namespace doris

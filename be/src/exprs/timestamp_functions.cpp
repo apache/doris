@@ -17,20 +17,20 @@
 
 #include "exprs/timestamp_functions.h"
 
-#include "exprs/expr.h"
 #include "exprs/anyval_util.h"
-#include "runtime/tuple_row.h"
+#include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "runtime/datetime_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.hpp"
+#include "runtime/tuple_row.h"
 #include "util/debug_util.h"
 #include "util/path_builder.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
 
-void TimestampFunctions::init() {
-}
+void TimestampFunctions::init() {}
 
 // TODO: accept Java data/time format strings:
 // http://docs.oracle.com/javase/1.4.2/docs/api/java/text/SimpleDateFormat.html
@@ -89,13 +89,12 @@ StringVal TimestampFunctions::convert_format(FunctionContext* ctx, const StringV
 }
 
 void TimestampFunctions::report_bad_format(const StringVal* format) {
-    std::string format_str((char *)format->ptr, format->len);
+    std::string format_str((char*)format->ptr, format->len);
     // LOG(WARNING) << "Bad date/time conversion format: " << format_str
     //             << " Format must be: 'yyyy-MM-dd[ HH:mm:ss]'";
 }
 
-IntVal TimestampFunctions::year(
-        FunctionContext* context, const DateTimeVal& ts_val) {
+IntVal TimestampFunctions::year(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
@@ -103,8 +102,7 @@ IntVal TimestampFunctions::year(
     return IntVal(ts_value.year());
 }
 
-IntVal TimestampFunctions::quarter(
-        FunctionContext* context, const DateTimeVal& ts_val) {
+IntVal TimestampFunctions::quarter(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
@@ -112,25 +110,26 @@ IntVal TimestampFunctions::quarter(
     return IntVal((ts_value.month() - 1) / 3 + 1);
 }
 
-IntVal TimestampFunctions::month(
-        FunctionContext* context, const DateTimeVal& ts_val) {
+IntVal TimestampFunctions::month(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
     return IntVal(ts_value.month());
 }
-IntVal TimestampFunctions::day_of_week(
-        FunctionContext* context, const DateTimeVal& ts_val) {
+
+IntVal TimestampFunctions::day_of_week(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
-    return IntVal((ts_value.weekday() + 1 ) % 7 + 1);
+    if (ts_value.is_valid_date()) {
+        return IntVal((ts_value.weekday() + 1) % 7 + 1);
+    }
+    return IntVal::null();
 }
 
-IntVal TimestampFunctions::day_of_month(
-        FunctionContext* context, const DateTimeVal& ts_val) {
+IntVal TimestampFunctions::day_of_month(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
@@ -138,26 +137,29 @@ IntVal TimestampFunctions::day_of_month(
     return IntVal(ts_value.day());
 }
 
-IntVal TimestampFunctions::day_of_year(
-        FunctionContext* context, const DateTimeVal& ts_val) {
+IntVal TimestampFunctions::day_of_year(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
-    return IntVal(ts_value.day_of_year());
+    if (ts_value.is_valid_date()) {
+        return IntVal(ts_value.day_of_year());
+    }
+    return IntVal::null();
 }
 
-IntVal TimestampFunctions::week_of_year(
-        FunctionContext* context, const DateTimeVal& ts_val) {
+IntVal TimestampFunctions::week_of_year(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
-    return IntVal(ts_value.week(mysql_week_mode(3)));
+    if (ts_value.is_valid_date()) {
+        return IntVal(ts_value.week(mysql_week_mode(3)));
+    }
+    return IntVal::null();
 }
 
-IntVal TimestampFunctions::hour(
-        FunctionContext* context, const DateTimeVal& ts_val) {
+IntVal TimestampFunctions::hour(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
@@ -165,8 +167,7 @@ IntVal TimestampFunctions::hour(
     return IntVal(ts_value.hour());
 }
 
-IntVal TimestampFunctions::minute(
-        FunctionContext* context, const DateTimeVal& ts_val) {
+IntVal TimestampFunctions::minute(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
@@ -174,8 +175,7 @@ IntVal TimestampFunctions::minute(
     return IntVal(ts_value.minute());
 }
 
-IntVal TimestampFunctions::second(
-        FunctionContext* context, const DateTimeVal& ts_val) {
+IntVal TimestampFunctions::second(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
@@ -183,8 +183,7 @@ IntVal TimestampFunctions::second(
     return IntVal(ts_value.second());
 }
 
-DateTimeVal TimestampFunctions::to_date(
-        FunctionContext* ctx, const DateTimeVal& ts_val) {
+DateTimeVal TimestampFunctions::to_date(FunctionContext* ctx, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return DateTimeVal::null();
     }
@@ -195,23 +194,42 @@ DateTimeVal TimestampFunctions::to_date(
     return result;
 }
 
-DateTimeVal TimestampFunctions::str_to_date(
-        FunctionContext* ctx, const StringVal& str, const StringVal& format) {
+DateTimeVal TimestampFunctions::str_to_date(FunctionContext* ctx, const StringVal& str,
+                                            const StringVal& format) {
     if (str.is_null || format.is_null) {
         return DateTimeVal::null();
     }
     DateTimeValue ts_value;
-    if (!ts_value.from_date_format_str((const char*)format.ptr, format.len,
-                                       (const char*)str.ptr, str.len)) {
+    if (!ts_value.from_date_format_str((const char*)format.ptr, format.len, (const char*)str.ptr,
+                                       str.len)) {
         return DateTimeVal::null();
     }
+
+    /// The return type of str_to_date depends on whether the time part is included in the format.
+    /// If included, it is datetime, otherwise it is date.
+    /// If the format parameter is not constant, the return type will be datetime.
+    /// The above judgment has been completed in the FE query planning stage,
+    /// so here we directly set the value type to the return type set in the query plan.
+    ///
+    /// For example:
+    /// A table with one column k1 varchar, and has 2 lines:
+    ///     "%Y-%m-%d"
+    ///     "%Y-%m-%d %H:%i:%s"
+    /// Query:
+    ///     SELECT str_to_date("2020-09-01", k1) from tbl;
+    /// Result will be:
+    ///     2020-09-01 00:00:00
+    ///     2020-09-01 00:00:00
+    if (ctx->impl()->get_return_type().type == doris_udf::FunctionContext::Type::TYPE_DATETIME) {
+        ts_value.to_datetime();
+    }
+
     DateTimeVal ts_val;
     ts_value.to_datetime_val(&ts_val);
     return ts_val;
 }
 
-StringVal TimestampFunctions::month_name(
-        FunctionContext* ctx, const DateTimeVal& ts_val) {
+StringVal TimestampFunctions::month_name(FunctionContext* ctx, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return StringVal::null();
     }
@@ -223,8 +241,7 @@ StringVal TimestampFunctions::month_name(
     return AnyValUtil::from_string_temp(ctx, name);
 }
 
-StringVal TimestampFunctions::day_name(
-        FunctionContext* ctx, const DateTimeVal& ts_val) {
+StringVal TimestampFunctions::day_name(FunctionContext* ctx, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return StringVal::null();
     }
@@ -236,106 +253,89 @@ StringVal TimestampFunctions::day_name(
     return AnyValUtil::from_string_temp(ctx, name);
 }
 
-DateTimeVal TimestampFunctions::years_add(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::years_add(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                          const IntVal& count) {
     return timestamp_time_op<YEAR>(ctx, ts_val, count, true);
 }
 
-DateTimeVal TimestampFunctions::years_sub(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::years_sub(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                          const IntVal& count) {
     return timestamp_time_op<YEAR>(ctx, ts_val, count, false);
 }
 
-DateTimeVal TimestampFunctions::months_add(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::months_add(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                           const IntVal& count) {
     return timestamp_time_op<MONTH>(ctx, ts_val, count, true);
 }
 
-DateTimeVal TimestampFunctions::months_sub(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::months_sub(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                           const IntVal& count) {
     return timestamp_time_op<MONTH>(ctx, ts_val, count, false);
 }
 
-DateTimeVal TimestampFunctions::weeks_add(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::weeks_add(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                          const IntVal& count) {
     return timestamp_time_op<WEEK>(ctx, ts_val, count, true);
 }
 
-DateTimeVal TimestampFunctions::weeks_sub(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::weeks_sub(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                          const IntVal& count) {
     return timestamp_time_op<WEEK>(ctx, ts_val, count, false);
 }
 
-DateTimeVal TimestampFunctions::days_add(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::days_add(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                         const IntVal& count) {
     return timestamp_time_op<DAY>(ctx, ts_val, count, true);
 }
 
-DateTimeVal TimestampFunctions::days_sub(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::days_sub(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                         const IntVal& count) {
     return timestamp_time_op<DAY>(ctx, ts_val, count, false);
 }
 
-DateTimeVal TimestampFunctions::hours_add(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::hours_add(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                          const IntVal& count) {
     return timestamp_time_op<HOUR>(ctx, ts_val, count, true);
 }
 
-DateTimeVal TimestampFunctions::hours_sub(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::hours_sub(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                          const IntVal& count) {
     return timestamp_time_op<HOUR>(ctx, ts_val, count, false);
 }
 
-DateTimeVal TimestampFunctions::minutes_add(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::minutes_add(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                            const IntVal& count) {
     return timestamp_time_op<MINUTE>(ctx, ts_val, count, true);
 }
 
-DateTimeVal TimestampFunctions::minutes_sub(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::minutes_sub(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                            const IntVal& count) {
     return timestamp_time_op<MINUTE>(ctx, ts_val, count, false);
 }
 
-DateTimeVal TimestampFunctions::seconds_add(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::seconds_add(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                            const IntVal& count) {
     return timestamp_time_op<SECOND>(ctx, ts_val, count, true);
 }
 
-DateTimeVal TimestampFunctions::seconds_sub(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::seconds_sub(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                            const IntVal& count) {
     return timestamp_time_op<SECOND>(ctx, ts_val, count, false);
 }
 
-DateTimeVal TimestampFunctions::micros_add(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::micros_add(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                           const IntVal& count) {
     return timestamp_time_op<MICROSECOND>(ctx, ts_val, count, true);
 }
 
-DateTimeVal TimestampFunctions::micros_sub(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count) {
+DateTimeVal TimestampFunctions::micros_sub(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                           const IntVal& count) {
     return timestamp_time_op<MICROSECOND>(ctx, ts_val, count, false);
 }
 
 template <TimeUnit unit>
-DateTimeVal TimestampFunctions::timestamp_time_op(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& count, bool is_add) {
+DateTimeVal TimestampFunctions::timestamp_time_op(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                                  const IntVal& count, bool is_add) {
     if (ts_val.is_null || count.is_null) {
         return DateTimeVal::null();
     }
@@ -351,115 +351,114 @@ DateTimeVal TimestampFunctions::timestamp_time_op(
     return new_ts_val;
 }
 
-BigIntVal TimestampFunctions::years_diff(
-        FunctionContext* ctx, const DateTimeVal& ts_val1, const DateTimeVal& ts_val2) {
+BigIntVal TimestampFunctions::years_diff(FunctionContext* ctx, const DateTimeVal& ts_val1,
+                                         const DateTimeVal& ts_val2) {
     return timestamp_diff<YEAR>(ctx, ts_val1, ts_val2);
 }
 
-BigIntVal TimestampFunctions::months_diff(
-        FunctionContext* ctx, const DateTimeVal& ts_val1, const DateTimeVal& ts_val2) {
+BigIntVal TimestampFunctions::months_diff(FunctionContext* ctx, const DateTimeVal& ts_val1,
+                                          const DateTimeVal& ts_val2) {
     return timestamp_diff<MONTH>(ctx, ts_val1, ts_val2);
 }
 
-BigIntVal TimestampFunctions::weeks_diff(
-        FunctionContext* ctx, const DateTimeVal& ts_val1, const DateTimeVal& ts_val2) {
+BigIntVal TimestampFunctions::weeks_diff(FunctionContext* ctx, const DateTimeVal& ts_val1,
+                                         const DateTimeVal& ts_val2) {
     return timestamp_diff<WEEK>(ctx, ts_val1, ts_val2);
 }
 
-BigIntVal TimestampFunctions::days_diff(
-        FunctionContext* ctx, const DateTimeVal& ts_val1, const DateTimeVal& ts_val2) {
+BigIntVal TimestampFunctions::days_diff(FunctionContext* ctx, const DateTimeVal& ts_val1,
+                                        const DateTimeVal& ts_val2) {
     return timestamp_diff<DAY>(ctx, ts_val1, ts_val2);
 }
 
-BigIntVal TimestampFunctions::hours_diff(
-        FunctionContext* ctx, const DateTimeVal& ts_val1, const DateTimeVal& ts_val2) {
+BigIntVal TimestampFunctions::hours_diff(FunctionContext* ctx, const DateTimeVal& ts_val1,
+                                         const DateTimeVal& ts_val2) {
     return timestamp_diff<HOUR>(ctx, ts_val1, ts_val2);
 }
 
-BigIntVal TimestampFunctions::minutes_diff(
-        FunctionContext* ctx, const DateTimeVal& ts_val1, const DateTimeVal& ts_val2) {
+BigIntVal TimestampFunctions::minutes_diff(FunctionContext* ctx, const DateTimeVal& ts_val1,
+                                           const DateTimeVal& ts_val2) {
     return timestamp_diff<MINUTE>(ctx, ts_val1, ts_val2);
 }
 
-BigIntVal TimestampFunctions::seconds_diff(
-        FunctionContext* ctx, const DateTimeVal& ts_val1, const DateTimeVal& ts_val2) {
+BigIntVal TimestampFunctions::seconds_diff(FunctionContext* ctx, const DateTimeVal& ts_val1,
+                                           const DateTimeVal& ts_val2) {
     return timestamp_diff<SECOND>(ctx, ts_val1, ts_val2);
 }
 
 template <TimeUnit unit>
-BigIntVal TimestampFunctions::timestamp_diff(FunctionContext* ctx, const DateTimeVal& ts_val2, const DateTimeVal& ts_val1) {
+BigIntVal TimestampFunctions::timestamp_diff(FunctionContext* ctx, const DateTimeVal& ts_val2,
+                                             const DateTimeVal& ts_val1) {
     if (ts_val1.is_null || ts_val2.is_null) {
-        return BigIntVal::null();            
+        return BigIntVal::null();
     }
 
     DateTimeValue ts_value1 = DateTimeValue::from_datetime_val(ts_val1);
     DateTimeValue ts_value2 = DateTimeValue::from_datetime_val(ts_val2);
 
     switch (unit) {
-        case YEAR: {
-            int year = (ts_value2.year() - ts_value1.year());
-            if (year > 0) {
-                year -= (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) < 0;
-            } else if (year < 0) {
-                year += (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) > 0;
-            }
-            return year;
+    case YEAR: {
+        int year = (ts_value2.year() - ts_value1.year());
+        if (year > 0) {
+            year -= (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) < 0;
+        } else if (year < 0) {
+            year += (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) > 0;
         }
-        case MONTH: {
-            int month = (ts_value2.year() - ts_value1.year()) * 12 + (ts_value2.month() - ts_value1.month());
-            if (month > 0) {
-                month -= (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) < 0;
-            } else if (month < 0) {
-                month += (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) > 0;
-            }
-            return month;
+        return year;
+    }
+    case MONTH: {
+        int month = (ts_value2.year() - ts_value1.year()) * 12 +
+                    (ts_value2.month() - ts_value1.month());
+        if (month > 0) {
+            month -= (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) < 0;
+        } else if (month < 0) {
+            month += (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) > 0;
         }
-        case WEEK: {
-            int day = ts_value2.daynr() - ts_value1.daynr();
-            if (day > 0) {
-                day -= ts_value2.time_part_diff(ts_value1) < 0;
-            } else if (day < 0) {
-                day += ts_value2.time_part_diff(ts_value1) > 0;
-            }
-            return day / 7;
+        return month;
+    }
+    case WEEK: {
+        int day = ts_value2.daynr() - ts_value1.daynr();
+        if (day > 0) {
+            day -= ts_value2.time_part_diff(ts_value1) < 0;
+        } else if (day < 0) {
+            day += ts_value2.time_part_diff(ts_value1) > 0;
         }
-        case DAY: {
-            int day = ts_value2.daynr() - ts_value1.daynr();
-            if (day > 0) {
-                day -= ts_value2.time_part_diff(ts_value1) < 0;
-            } else if (day < 0) {
-                day += ts_value2.time_part_diff(ts_value1) > 0;
-            }
-            return day;
+        return day / 7;
+    }
+    case DAY: {
+        int day = ts_value2.daynr() - ts_value1.daynr();
+        if (day > 0) {
+            day -= ts_value2.time_part_diff(ts_value1) < 0;
+        } else if (day < 0) {
+            day += ts_value2.time_part_diff(ts_value1) > 0;
         }
-        case HOUR: {
-            int64_t second = ts_value2.second_diff(ts_value1);
-            int64_t hour = second / 60 / 60;
-            return hour;
-        }
-        case MINUTE: {
-            int64_t second = ts_value2.second_diff(ts_value1);
-            int64_t minute = second / 60;
-            return minute;
-        }
-        case SECOND: {
-            int64_t second = ts_value2.second_diff(ts_value1);
-            return second;
-        }
-        default:
-            return BigIntVal::null();
+        return day;
+    }
+    case HOUR: {
+        int64_t second = ts_value2.second_diff(ts_value1);
+        int64_t hour = second / 60 / 60;
+        return hour;
+    }
+    case MINUTE: {
+        int64_t second = ts_value2.second_diff(ts_value1);
+        int64_t minute = second / 60;
+        return minute;
+    }
+    case SECOND: {
+        int64_t second = ts_value2.second_diff(ts_value1);
+        return second;
+    }
+    default:
+        return BigIntVal::null();
     }
 }
 
-void TimestampFunctions::format_prepare(
-        doris_udf::FunctionContext* context,
-        doris_udf::FunctionContext::FunctionStateScope scope) {
-
-    if (scope != FunctionContext::FRAGMENT_LOCAL
-            || context->get_num_args() < 2
-            || context->get_arg_type(1)->type != doris_udf::FunctionContext::Type::TYPE_VARCHAR
-            || !context->is_arg_constant(1)) {
-        VLOG(10) << "format_prepare returned";
+void TimestampFunctions::format_prepare(doris_udf::FunctionContext* context,
+                                        doris_udf::FunctionContext::FunctionStateScope scope) {
+    if (scope != FunctionContext::FRAGMENT_LOCAL || context->get_num_args() < 2 ||
+        context->get_arg_type(1)->type != doris_udf::FunctionContext::Type::TYPE_VARCHAR ||
+        !context->is_arg_constant(1)) {
+        VLOG_TRACE << "format_prepare returned";
         return;
     }
 
@@ -473,7 +472,7 @@ void TimestampFunctions::format_prepare(
     }
 
     fc->fmt = convert_format(context, *format);
-    int format_len = DateTimeValue::compute_format_len((const char*) fc->fmt.ptr, fc->fmt.len);
+    int format_len = DateTimeValue::compute_format_len((const char*)fc->fmt.ptr, fc->fmt.len);
     if (UNLIKELY(format_len >= 128)) {
         fc->is_valid = false;
         return;
@@ -483,14 +482,14 @@ void TimestampFunctions::format_prepare(
     return;
 }
 
-void TimestampFunctions::format_close(
-        doris_udf::FunctionContext* context,
-        doris_udf::FunctionContext::FunctionStateScope scope) {
+void TimestampFunctions::format_close(doris_udf::FunctionContext* context,
+                                      doris_udf::FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
 
-    FormatCtx* fc = reinterpret_cast<FormatCtx*>(context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    FormatCtx* fc = reinterpret_cast<FormatCtx*>(
+            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     if (fc != nullptr) {
         delete fc;
     }
@@ -507,36 +506,37 @@ DateTimeVal from_olap_datetime(uint64_t datetime) {
     return ts_val;
 }
 
-#define _TR_4(TYPE, type, UNIT, unit) \
-    DateTimeVal TimestampFunctions::unit##_##type( \
-            FunctionContext* ctx, const DateTimeVal& ts_val, \
-            const IntVal& period, const DateTimeVal& origin) { \
-        return time_round<UNIT, TYPE>(ctx, ts_val, period, origin); \
-    } \
-    DateTimeVal TimestampFunctions::unit##_##type( \
-            FunctionContext* ctx, const DateTimeVal& ts_val, const DateTimeVal& origin) { \
-        return time_round<UNIT, TYPE>(ctx, ts_val, IntVal(1), origin); \
+#define _TR_4(TYPE, type, UNIT, unit)                                                              \
+    DateTimeVal TimestampFunctions::unit##_##type(FunctionContext* ctx, const DateTimeVal& ts_val, \
+                                                  const IntVal& period,                            \
+                                                  const DateTimeVal& origin) {                     \
+        return time_round<UNIT, TYPE>(ctx, ts_val, period, origin);                                \
+    }                                                                                              \
+    DateTimeVal TimestampFunctions::unit##_##type(FunctionContext* ctx, const DateTimeVal& ts_val, \
+                                                  const DateTimeVal& origin) {                     \
+        return time_round<UNIT, TYPE>(ctx, ts_val, IntVal(1), origin);                             \
     }
 
-#define _TR_5(TYPE, type, UNIT, unit, ORIGIN) \
-    DateTimeVal TimestampFunctions::unit##_##type( \
-            FunctionContext* ctx, const DateTimeVal& ts_val) { \
-        return time_round<UNIT, TYPE>(ctx, ts_val, IntVal(1), ORIGIN); \
-    } \
-    DateTimeVal TimestampFunctions::unit##_##type( \
-            FunctionContext* ctx, const DateTimeVal& ts_val, const IntVal& period) { \
-        return time_round<UNIT, TYPE>(ctx, ts_val, period, ORIGIN); \
+#define _TR_5(TYPE, type, UNIT, unit, ORIGIN)                                                      \
+    DateTimeVal TimestampFunctions::unit##_##type(FunctionContext* ctx,                            \
+                                                  const DateTimeVal& ts_val) {                     \
+        return time_round<UNIT, TYPE>(ctx, ts_val, IntVal(1), ORIGIN);                             \
+    }                                                                                              \
+    DateTimeVal TimestampFunctions::unit##_##type(FunctionContext* ctx, const DateTimeVal& ts_val, \
+                                                  const IntVal& period) {                          \
+        return time_round<UNIT, TYPE>(ctx, ts_val, period, ORIGIN);                                \
     }
 
 #define FLOOR 0
-#define CEIL  1
+#define CEIL 1
 
-static const DateTimeVal FIRST_DAY    = from_olap_datetime(19700101000000);
+static const DateTimeVal FIRST_DAY = from_olap_datetime(19700101000000);
 static const DateTimeVal FIRST_SUNDAY = from_olap_datetime(19700104000000);
 
-#define TIME_ROUND(UNIT, unit, ORIGIN) \
-    _TR_4(FLOOR, floor, UNIT, unit)         _TR_4(CEIL, ceil, UNIT, unit) \
-    _TR_5(FLOOR, floor, UNIT, unit, ORIGIN) _TR_5(CEIL, ceil, UNIT, unit, ORIGIN)
+#define TIME_ROUND(UNIT, unit, ORIGIN)                                    \
+    _TR_4(FLOOR, floor, UNIT, unit)                                       \
+    _TR_4(CEIL, ceil, UNIT, unit) _TR_5(FLOOR, floor, UNIT, unit, ORIGIN) \
+            _TR_5(CEIL, ceil, UNIT, unit, ORIGIN)
 
 TIME_ROUND(YEAR, year, FIRST_DAY)
 TIME_ROUND(MONTH, month, FIRST_DAY)
@@ -547,9 +547,8 @@ TIME_ROUND(MINUTE, minute, FIRST_DAY)
 TIME_ROUND(SECOND, second, FIRST_DAY)
 
 template <TimeUnit unit, bool type>
-DateTimeVal TimestampFunctions::time_round(
-        FunctionContext* ctx, const DateTimeVal& ts_val,
-        const IntVal& period, const DateTimeVal& origin) {
+DateTimeVal TimestampFunctions::time_round(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                           const IntVal& period, const DateTimeVal& origin) {
     if (ts_val.is_null || period.is_null || period.val < 1 || origin.is_null) {
         return DateTimeVal::null();
     }
@@ -558,43 +557,43 @@ DateTimeVal TimestampFunctions::time_round(
     DateTimeValue ts2 = DateTimeValue::from_datetime_val(ts_val);
     int64_t diff;
     switch (unit) {
-        case YEAR: {
-            int year = (ts2.year() - ts1.year());
-            diff = year - (ts2.to_int64() % 10000000000 < ts1.to_int64() % 10000000000);
-            break;
-        }
-        case MONTH: {
-            int month = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
-            diff =  month - (ts2.to_int64() % 100000000 < ts1.to_int64() % 100000000);
-            break;
-        }
-        case WEEK: {
-            int week = ts2.daynr() / 7 - ts1.daynr() / 7;
-            diff = week - (ts2.daynr() % 7 < ts1.daynr() % 7 + (ts2.time_part_diff(ts1) < 0));
-            break;
-        }
-        case DAY: {
-            int day = ts2.daynr() - ts1.daynr();
-            diff = day - (ts2.time_part_diff(ts1) < 0);
-            break;
-        }
-        case HOUR: {
-            int hour = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
-            diff = hour - ((ts2.minute() * 60 + ts2.second()) < (ts1.minute() * 60 - ts1.second()));
-            break;
-        }
-        case MINUTE: {
-            int minute = (ts2.daynr() - ts1.daynr()) * 24 * 60 +
-                         (ts2.hour() - ts1.hour()) * 60 + (ts2.minute() - ts1.minute());
-            diff = minute - (ts2.second() < ts1.second());
-            break;
-        }
-        case SECOND: {
-            diff = ts2.second_diff(ts1);
-            break;
-        }
-        default:
-            return DateTimeVal::null();
+    case YEAR: {
+        int year = (ts2.year() - ts1.year());
+        diff = year - (ts2.to_int64() % 10000000000 < ts1.to_int64() % 10000000000);
+        break;
+    }
+    case MONTH: {
+        int month = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
+        diff = month - (ts2.to_int64() % 100000000 < ts1.to_int64() % 100000000);
+        break;
+    }
+    case WEEK: {
+        int week = ts2.daynr() / 7 - ts1.daynr() / 7;
+        diff = week - (ts2.daynr() % 7 < ts1.daynr() % 7 + (ts2.time_part_diff(ts1) < 0));
+        break;
+    }
+    case DAY: {
+        int day = ts2.daynr() - ts1.daynr();
+        diff = day - (ts2.time_part_diff(ts1) < 0);
+        break;
+    }
+    case HOUR: {
+        int hour = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
+        diff = hour - ((ts2.minute() * 60 + ts2.second()) < (ts1.minute() * 60 - ts1.second()));
+        break;
+    }
+    case MINUTE: {
+        int minute = (ts2.daynr() - ts1.daynr()) * 24 * 60 + (ts2.hour() - ts1.hour()) * 60 +
+                     (ts2.minute() - ts1.minute());
+        diff = minute - (ts2.second() < ts1.second());
+        break;
+    }
+    case SECOND: {
+        diff = ts2.second_diff(ts1);
+        break;
+    }
+    default:
+        return DateTimeVal::null();
     }
     int64_t count = period.val;
     int64_t step = diff - (diff % count + count) % count + (type == FLOOR ? 0 : count);
@@ -609,23 +608,24 @@ DateTimeVal TimestampFunctions::time_round(
     return new_ts_val;
 }
 
-StringVal TimestampFunctions::date_format(
-        FunctionContext* ctx, const DateTimeVal& ts_val, const StringVal& format) {
+StringVal TimestampFunctions::date_format(FunctionContext* ctx, const DateTimeVal& ts_val,
+                                          const StringVal& format) {
     if (ts_val.is_null || format.is_null) {
         return StringVal::null();
     }
 
     DateTimeValue ts_value = DateTimeValue::from_datetime_val(ts_val);
-    FormatCtx* fc = reinterpret_cast<FormatCtx*>(ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    FormatCtx* fc =
+            reinterpret_cast<FormatCtx*>(ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     if (UNLIKELY(fc == nullptr)) {
         // prepare phase failed, calculate at runtime
         StringVal new_fmt = convert_format(ctx, format);
-        if (DateTimeValue::compute_format_len((const char*) new_fmt.ptr, new_fmt.len) >= 128) {
+        if (DateTimeValue::compute_format_len((const char*)new_fmt.ptr, new_fmt.len) >= 128) {
             return StringVal::null();
         }
 
         char buf[128];
-        if (!ts_value.to_format_string((const char*) new_fmt.ptr, new_fmt.len, buf)) {
+        if (!ts_value.to_format_string((const char*)new_fmt.ptr, new_fmt.len, buf)) {
             return StringVal::null();
         }
         return AnyValUtil::from_string_temp(ctx, buf);
@@ -636,14 +636,13 @@ StringVal TimestampFunctions::date_format(
     }
 
     char buf[128];
-    if (!ts_value.to_format_string((const char*) fc->fmt.ptr, fc->fmt.len, buf)) {
+    if (!ts_value.to_format_string((const char*)fc->fmt.ptr, fc->fmt.len, buf)) {
         return StringVal::null();
     }
     return AnyValUtil::from_string_temp(ctx, buf);
 }
 
-DateTimeVal TimestampFunctions::from_days(
-        FunctionContext* ctx, const IntVal& days) {
+DateTimeVal TimestampFunctions::from_days(FunctionContext* ctx, const IntVal& days) {
     if (days.is_null) {
         return DateTimeVal::null();
     }
@@ -656,8 +655,7 @@ DateTimeVal TimestampFunctions::from_days(
     return ts_val;
 }
 
-IntVal TimestampFunctions::to_days(
-        FunctionContext* ctx, const DateTimeVal& ts_val) {
+IntVal TimestampFunctions::to_days(FunctionContext* ctx, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
@@ -665,19 +663,22 @@ IntVal TimestampFunctions::to_days(
     return IntVal(ts_value.daynr());
 }
 
-DoubleVal TimestampFunctions::time_diff(
-        FunctionContext* ctx, const DateTimeVal& ts_val1, const DateTimeVal& ts_val2) {
+DoubleVal TimestampFunctions::time_diff(FunctionContext* ctx, const DateTimeVal& ts_val1,
+                                        const DateTimeVal& ts_val2) {
     if (ts_val1.is_null || ts_val2.is_null) {
         return DoubleVal::null();
     }
 
     const DateTimeValue& ts_value1 = DateTimeValue::from_datetime_val(ts_val1);
     const DateTimeValue& ts_value2 = DateTimeValue::from_datetime_val(ts_val2);
-    return DoubleVal(ts_value1.second_diff(ts_value2));
+    if (ts_value1.is_valid_date() && ts_value2.is_valid_date()) {
+        return DoubleVal(ts_value1.second_diff(ts_value2));
+    }
+    return DoubleVal::null();
 }
 
-IntVal TimestampFunctions::date_diff(
-        FunctionContext* ctx, const DateTimeVal& ts_val1, const DateTimeVal& ts_val2) {
+IntVal TimestampFunctions::date_diff(FunctionContext* ctx, const DateTimeVal& ts_val1,
+                                     const DateTimeVal& ts_val2) {
     if (ts_val1.is_null || ts_val2.is_null) {
         return IntVal::null();
     }
@@ -687,14 +688,12 @@ IntVal TimestampFunctions::date_diff(
 }
 
 // TimeZone correlation functions.
-DateTimeVal TimestampFunctions::timestamp(
-        FunctionContext* ctx, const DateTimeVal& val) {
+DateTimeVal TimestampFunctions::timestamp(FunctionContext* ctx, const DateTimeVal& val) {
     return val;
 }
 
 // FROM_UNIXTIME() without format
-StringVal TimestampFunctions::from_unix(
-        FunctionContext* context, const IntVal& unix_time) {
+StringVal TimestampFunctions::from_unix(FunctionContext* context, const IntVal& unix_time) {
     if (unix_time.is_null || unix_time.val < 0 || unix_time.val > INT_MAX) {
         return StringVal::null();
     }
@@ -709,8 +708,8 @@ StringVal TimestampFunctions::from_unix(
 }
 
 // FROM_UNIXTIME() with format
-StringVal TimestampFunctions::from_unix(
-            FunctionContext* context, const IntVal& unix_time, const StringVal& fmt) {
+StringVal TimestampFunctions::from_unix(FunctionContext* context, const IntVal& unix_time,
+                                        const StringVal& fmt) {
     if (unix_time.is_null || fmt.is_null || unix_time.val < 0 || unix_time.val > INT_MAX) {
         return StringVal::null();
     }
@@ -720,7 +719,8 @@ StringVal TimestampFunctions::from_unix(
         return StringVal::null();
     }
 
-    FormatCtx* fc = reinterpret_cast<FormatCtx*>(context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    FormatCtx* fc = reinterpret_cast<FormatCtx*>(
+            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     if (UNLIKELY(fc == nullptr)) {
         // prepare phase failed, calculate at runtime
         StringVal new_fmt = convert_format(context, fmt);
@@ -736,7 +736,7 @@ StringVal TimestampFunctions::from_unix(
     }
 
     char buf[128];
-    if (!dtv.to_format_string((const char*) fc->fmt.ptr, fc->fmt.len, buf)) {
+    if (!dtv.to_format_string((const char*)fc->fmt.ptr, fc->fmt.len, buf)) {
         return StringVal::null();
     }
     return AnyValUtil::from_string_temp(context, buf);
@@ -748,10 +748,9 @@ IntVal TimestampFunctions::to_unix(FunctionContext* context) {
 }
 
 // UNIX_TIMESTAMP()
-IntVal TimestampFunctions::to_unix(
-            FunctionContext* context, const DateTimeValue& ts_value) {
+IntVal TimestampFunctions::to_unix(FunctionContext* context, const DateTimeValue& ts_value) {
     int64_t timestamp;
-    if(!ts_value.unix_timestamp(&timestamp, context->impl()->state()->timezone_obj())) {
+    if (!ts_value.unix_timestamp(&timestamp, context->impl()->state()->timezone_obj())) {
         return IntVal::null();
     } else {
         //To compatible to mysql, timestamp not between 1970-01-01 00:00:00 ~ 2038-01-01 00:00:00 return 0
@@ -762,22 +761,21 @@ IntVal TimestampFunctions::to_unix(
 }
 
 // UNIX_TIMESTAMP()
-IntVal TimestampFunctions::to_unix(
-            FunctionContext* context, const StringVal& string_val, const StringVal& fmt) {
+IntVal TimestampFunctions::to_unix(FunctionContext* context, const StringVal& string_val,
+                                   const StringVal& fmt) {
     if (string_val.is_null || fmt.is_null) {
         return IntVal::null();
     }
     DateTimeValue tv;
-    if (!tv.from_date_format_str(
-            (const char *)fmt.ptr, fmt.len, (const char *)string_val.ptr, string_val.len)) {
+    if (!tv.from_date_format_str((const char*)fmt.ptr, fmt.len, (const char*)string_val.ptr,
+                                 string_val.len)) {
         return IntVal::null();
     }
     return to_unix(context, tv);
 }
 
 // UNIX_TIMESTAMP()
-IntVal TimestampFunctions::to_unix(
-            FunctionContext* context, const DateTimeVal& ts_val) {
+IntVal TimestampFunctions::to_unix(FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
@@ -798,7 +796,7 @@ DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {
 DateTimeVal TimestampFunctions::now(FunctionContext* context) {
     DateTimeValue dtv;
     if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
-            context->impl()->state()->timezone_obj())) {
+                           context->impl()->state()->timezone_obj())) {
         return DateTimeVal::null();
     }
 
@@ -810,7 +808,7 @@ DateTimeVal TimestampFunctions::now(FunctionContext* context) {
 DoubleVal TimestampFunctions::curtime(FunctionContext* context) {
     DateTimeValue dtv;
     if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
-            context->impl()->state()->timezone_obj())) {
+                           context->impl()->state()->timezone_obj())) {
         return DoubleVal::null();
     }
 
@@ -820,7 +818,7 @@ DoubleVal TimestampFunctions::curtime(FunctionContext* context) {
 DateTimeVal TimestampFunctions::curdate(FunctionContext* context) {
     DateTimeValue dtv;
     if (!dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
-            context->impl()->state()->timezone_obj())) {
+                           context->impl()->state()->timezone_obj())) {
         return DateTimeVal::null();
     }
     dtv.set_type(TIME_DATE);
@@ -830,16 +828,12 @@ DateTimeVal TimestampFunctions::curdate(FunctionContext* context) {
     return return_val;
 }
 
-void TimestampFunctions::convert_tz_prepare(
-        doris_udf::FunctionContext* context,
-        doris_udf::FunctionContext::FunctionStateScope scope) {
-
-    if (scope != FunctionContext::FRAGMENT_LOCAL
-            || context->get_num_args() != 3
-            || context->get_arg_type(1)->type != doris_udf::FunctionContext::Type::TYPE_VARCHAR
-            || context->get_arg_type(2)->type != doris_udf::FunctionContext::Type::TYPE_VARCHAR
-            || !context->is_arg_constant(1)
-            || !context->is_arg_constant(2)) {
+void TimestampFunctions::convert_tz_prepare(doris_udf::FunctionContext* context,
+                                            doris_udf::FunctionContext::FunctionStateScope scope) {
+    if (scope != FunctionContext::FRAGMENT_LOCAL || context->get_num_args() != 3 ||
+        context->get_arg_type(1)->type != doris_udf::FunctionContext::Type::TYPE_VARCHAR ||
+        context->get_arg_type(2)->type != doris_udf::FunctionContext::Type::TYPE_VARCHAR ||
+        !context->is_arg_constant(1) || !context->is_arg_constant(2)) {
         return;
     }
 
@@ -852,7 +846,8 @@ void TimestampFunctions::convert_tz_prepare(
         ctc->is_valid = false;
         return;
     }
-    if (!TimezoneUtils::find_cctz_time_zone(std::string((char*) from->ptr, from->len), ctc->from_tz)) {
+    if (!TimezoneUtils::find_cctz_time_zone(std::string((char*)from->ptr, from->len),
+                                            ctc->from_tz)) {
         ctc->is_valid = false;
         return;
     }
@@ -863,7 +858,7 @@ void TimestampFunctions::convert_tz_prepare(
         ctc->is_valid = false;
         return;
     }
-    if (!TimezoneUtils::find_cctz_time_zone(std::string((char*) to->ptr, to->len), ctc->to_tz)) {
+    if (!TimezoneUtils::find_cctz_time_zone(std::string((char*)to->ptr, to->len), ctc->to_tz)) {
         ctc->is_valid = false;
         return;
     }
@@ -873,16 +868,17 @@ void TimestampFunctions::convert_tz_prepare(
 }
 
 DateTimeVal TimestampFunctions::convert_tz(FunctionContext* ctx, const DateTimeVal& ts_val,
-                                               const StringVal& from_tz, const StringVal& to_tz) {
-    const DateTimeValue &ts_value = DateTimeValue::from_datetime_val(ts_val);
-    ConvertTzCtx* ctc = reinterpret_cast<ConvertTzCtx*>(ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                                           const StringVal& from_tz, const StringVal& to_tz) {
+    const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
+    ConvertTzCtx* ctc = reinterpret_cast<ConvertTzCtx*>(
+            ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     if (UNLIKELY(ctc == nullptr)) {
         int64_t timestamp;
-        if(!ts_value.unix_timestamp(&timestamp, std::string((char *)from_tz.ptr, from_tz.len))) {
+        if (!ts_value.unix_timestamp(&timestamp, std::string((char*)from_tz.ptr, from_tz.len))) {
             return DateTimeVal::null();
         }
         DateTimeValue ts_value2;
-        if (!ts_value2.from_unixtime(timestamp, std::string((char *)to_tz.ptr, to_tz.len))) {
+        if (!ts_value2.from_unixtime(timestamp, std::string((char*)to_tz.ptr, to_tz.len))) {
             return DateTimeVal::null();
         }
 
@@ -896,7 +892,7 @@ DateTimeVal TimestampFunctions::convert_tz(FunctionContext* ctx, const DateTimeV
     }
 
     int64_t timestamp;
-    if(!ts_value.unix_timestamp(&timestamp, ctc->from_tz)) {
+    if (!ts_value.unix_timestamp(&timestamp, ctc->from_tz)) {
         return DateTimeVal::null();
     }
     DateTimeValue ts_value2;
@@ -909,17 +905,17 @@ DateTimeVal TimestampFunctions::convert_tz(FunctionContext* ctx, const DateTimeV
     return return_val;
 }
 
-void TimestampFunctions::convert_tz_close(
-        doris_udf::FunctionContext* context,
-        doris_udf::FunctionContext::FunctionStateScope scope) {
+void TimestampFunctions::convert_tz_close(doris_udf::FunctionContext* context,
+                                          doris_udf::FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
 
-    ConvertTzCtx* ctc = reinterpret_cast<ConvertTzCtx*>(context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    ConvertTzCtx* ctc = reinterpret_cast<ConvertTzCtx*>(
+            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     if (ctc != nullptr) {
         delete ctc;
     }
 }
 
-}
+} // namespace doris

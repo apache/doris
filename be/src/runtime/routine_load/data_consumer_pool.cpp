@@ -16,15 +16,13 @@
 // under the License.
 
 #include "runtime/routine_load/data_consumer_pool.h"
-#include "runtime/routine_load/data_consumer_group.h"
+
 #include "common/config.h"
+#include "runtime/routine_load/data_consumer_group.h"
 
 namespace doris {
 
-Status DataConsumerPool::get_consumer(
-        StreamLoadContext* ctx,
-        std::shared_ptr<DataConsumer>* ret) {
-
+Status DataConsumerPool::get_consumer(StreamLoadContext* ctx, std::shared_ptr<DataConsumer>* ret) {
     std::unique_lock<std::mutex> l(_lock);
 
     // check if there is an available consumer.
@@ -32,11 +30,11 @@ Status DataConsumerPool::get_consumer(
     auto iter = std::begin(_pool);
     while (iter != std::end(_pool)) {
         if ((*iter)->match(ctx)) {
-            VLOG(3) << "get an available data consumer from pool: " << (*iter)->id();
+            VLOG_NOTICE << "get an available data consumer from pool: " << (*iter)->id();
             (*iter)->reset();
             *ret = *iter;
             iter = _pool.erase(iter);
-            return Status::OK(); 
+            return Status::OK();
         } else {
             ++iter;
         }
@@ -45,28 +43,28 @@ Status DataConsumerPool::get_consumer(
     // no available consumer, create a new one
     std::shared_ptr<DataConsumer> consumer;
     switch (ctx->load_src_type) {
-        case TLoadSourceType::KAFKA:
-            consumer = std::make_shared<KafkaDataConsumer>(ctx);
-            break;
-        default:
-            std::stringstream ss;
-            ss << "PAUSE: unknown routine load task type: " << ctx->load_type;
-            return Status::InternalError(ss.str());
+    case TLoadSourceType::KAFKA:
+        consumer = std::make_shared<KafkaDataConsumer>(ctx);
+        break;
+    default:
+        std::stringstream ss;
+        ss << "PAUSE: unknown routine load task type: " << ctx->load_type;
+        return Status::InternalError(ss.str());
     }
-    
+
     // init the consumer
     RETURN_IF_ERROR(consumer->init(ctx));
 
-    VLOG(3) << "create new data consumer: " << consumer->id();
+    VLOG_NOTICE << "create new data consumer: " << consumer->id();
     *ret = consumer;
     return Status::OK();
 }
 
-Status DataConsumerPool::get_consumer_grp(
-        StreamLoadContext* ctx,
-        std::shared_ptr<DataConsumerGroup>* ret) {
+Status DataConsumerPool::get_consumer_grp(StreamLoadContext* ctx,
+                                          std::shared_ptr<DataConsumerGroup>* ret) {
     if (ctx->load_src_type != TLoadSourceType::KAFKA) {
-        return Status::InternalError("PAUSE: Currently only support consumer group for Kafka data source");
+        return Status::InternalError(
+                "PAUSE: Currently only support consumer group for Kafka data source");
     }
     DCHECK(ctx->kafka_info);
 
@@ -74,32 +72,30 @@ Status DataConsumerPool::get_consumer_grp(
 
     // one data consumer group contains at least one data consumers.
     int max_consumer_num = config::max_consumer_num_per_group;
-    size_t consumer_num = std::min((size_t) max_consumer_num, ctx->kafka_info->begin_offset.size());
+    size_t consumer_num = std::min((size_t)max_consumer_num, ctx->kafka_info->begin_offset.size());
     for (int i = 0; i < consumer_num; ++i) {
         std::shared_ptr<DataConsumer> consumer;
         RETURN_IF_ERROR(get_consumer(ctx, &consumer));
         grp->add_consumer(consumer);
     }
 
-    LOG(INFO) << "get consumer group " << grp->grp_id() << " with "
-            << consumer_num << " consumers";
+    LOG(INFO) << "get consumer group " << grp->grp_id() << " with " << consumer_num << " consumers";
     *ret = grp;
-    return Status::OK(); 
+    return Status::OK();
 }
 
 void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
     std::unique_lock<std::mutex> l(_lock);
 
     if (_pool.size() == _max_pool_size) {
-        VLOG(3) << "data consumer pool is full: " << _pool.size()
-                << "-" << _max_pool_size << ", discard the returned consumer: "
-                << consumer->id();
+        VLOG_NOTICE << "data consumer pool is full: " << _pool.size() << "-" << _max_pool_size
+                << ", discard the returned consumer: " << consumer->id();
         return;
     }
 
     consumer->reset();
     _pool.push_back(consumer);
-    VLOG(3) << "return the data consumer: " << consumer->id()
+    VLOG_NOTICE << "return the data consumer: " << consumer->id()
             << ", current pool size: " << _pool.size();
     return;
 }
@@ -111,16 +107,17 @@ void DataConsumerPool::return_consumers(DataConsumerGroup* grp) {
 }
 
 Status DataConsumerPool::start_bg_worker() {
-    RETURN_IF_ERROR(Thread::create("ResultBufferMgr", "clean_idle_consumer",
-                                   [this]() {
+    RETURN_IF_ERROR(Thread::create(
+            "ResultBufferMgr", "clean_idle_consumer",
+            [this]() {
 #ifdef GOOGLE_PROFILER
-                                       ProfilerRegisterThread();
+                ProfilerRegisterThread();
 #endif
-                                       do {
-                                           _clean_idle_consumer_bg();
-                                       } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(60)));
-                                   },
-                                   &_clean_idle_consumer_thread));
+                do {
+                    _clean_idle_consumer_bg();
+                } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(60)));
+            },
+            &_clean_idle_consumer_thread));
     return Status::OK();
 }
 
@@ -128,14 +125,14 @@ void DataConsumerPool::_clean_idle_consumer_bg() {
     const static int32_t max_idle_time_second = 600;
 
     std::unique_lock<std::mutex> l(_lock);
-    time_t now = time(nullptr);    
+    time_t now = time(nullptr);
 
     auto iter = std::begin(_pool);
     while (iter != std::end(_pool)) {
         if (difftime(now, (*iter)->last_visit_time()) >= max_idle_time_second) {
             LOG(INFO) << "remove data consumer " << (*iter)->id()
-                    << ", since it last visit: " << (*iter)->last_visit_time()
-                    << ", now: " << now;
+                      << ", since it last visit: " << (*iter)->last_visit_time()
+                      << ", now: " << now;
             iter = _pool.erase(iter);
         } else {
             ++iter;

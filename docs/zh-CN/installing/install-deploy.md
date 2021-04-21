@@ -74,7 +74,7 @@ Doris 作为一款开源的 MPP 架构 OLAP 数据库，能够运行在绝大多
 > 1. FE 角色分为 Follower 和 Observer，（Leader 为 Follower 组中选举出来的一种角色，以下统称 Follower，具体含义见 [元数据设计文档](../internal/metadata-design)）。
 > 2. FE 节点数据至少为1（1 个 Follower）。当部署 1 个 Follower 和 1 个 Observer 时，可以实现读高可用。当部署 3 个 Follower 时，可以实现读写高可用（HA）。
 > 3. Follower 的数量**必须**为奇数，Observer 数量随意。
-> 4. 根据以往经验，当集群可用性要求很高是（比如提供在线业务），可以部署 3 个 Follower 和 1-3 个 Observer。如果是离线业务，建议部署 1 个 Follower 和 1-3 个 Observer。
+> 4. 根据以往经验，当集群可用性要求很高时（比如提供在线业务），可以部署 3 个 Follower 和 1-3 个 Observer。如果是离线业务，建议部署 1 个 Follower 和 1-3 个 Observer。
 
 * **通常我们建议 10 ~ 100 台左右的机器，来充分发挥 Doris 的性能（其中 3 台部署 FE（HA），剩余的部署 BE）**  
 * **当然，Doris的性能与节点数量及配置正相关。在最少4台机器（一台 FE，三台 BE，其中一台 BE 混部一个 Observer FE 提供元数据备份），以及较低配置的情况下，依然可以平稳的运行 Doris。**  
@@ -95,7 +95,7 @@ Doris 各个实例直接通过网络进行通讯。以下表格展示了所有�
 | BE | heartbeat\_service_port | 9050 | FE --> BE | BE 上心跳服务端口（thrift），用于接收来自 FE 的心跳 |
 | BE | brpc\_port* | 8060 | FE<-->BE, BE <--> BE | BE 上的 brpc 端口，用于 BE 之间通讯 |
 | FE | http_port * | 8030 | FE <--> FE，用户 |FE 上的 http server 端口 |
-| FE | rpc_port | 9020 | BE --> FE, FE <--> FE | FE 上的 thrift server 端口 |
+| FE | rpc_port | 9020 | BE --> FE, FE <--> FE | FE 上的 thrift server 端口，每个fe的配置需要保持一致|
 | FE | query_port | 9030 | 用户 | FE 上的 mysql server 端口 |
 | FE | edit\_log_port | 9010 | FE <--> FE | FE 上的 bdbje 之间通信用的端口 |
 | Broker | broker\_ipc_port | 8000 | FE --> Broker, BE --> Broker | Broker 上的 thrift server，用于接收请求 |
@@ -221,7 +221,7 @@ Doris 可以很方便的扩容和缩容 FE、BE、Broker 实例。
 
 ### FE 扩容和缩容
 
-可以通过将 FE 扩容至 3 个一上节点来实现 FE 的高可用。
+可以通过将 FE 扩容至 3 个以上节点来实现 FE 的高可用。
 
 用户可以通过 mysql 客户端登陆 Master FE。通过:
 

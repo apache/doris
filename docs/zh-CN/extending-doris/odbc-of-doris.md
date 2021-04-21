@@ -30,6 +30,7 @@ ODBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(
 
  1. 支持各种数据源接入Doris
  2. 支持Doris与各种数据源中的表联合查询，进行更加复杂的分析操作
+  3. 通过insert into将Doris执行的查询结果写入外部的数据源
 
 本文档主要介绍该功能的实现原理、使用方式等。
 
@@ -100,7 +101,7 @@ PROPERTIES (
 ---|---
 **hosts** | 外表数据库的IP地址
 **driver** | ODBC外表的Driver名，该名字需要和be/conf/odbcinst.ini中的Driver名一致。
-**odbc_type** | 外表数据库的类型，当前支持oracle与mysql
+**odbc_type** | 外表数据库的类型，当前支持oracle, mysql, postgresql
 **user** | 外表数据库的用户名
 **password** | 对应用户的密码信息
 
@@ -130,16 +131,34 @@ FileUsage       = 1
 
 
 ```
-select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
+select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris';
 ```
 
+### 数据写入
+
+在Doris中建立ODBC外表后，可以通过insert into语句直接写入数据，也可以将Doris执行完查询之后的结果写入ODBC外表，或者是从一个ODBC外表将数据导入另一个ODBC外表。
+
+
+```
+insert into oracle_table values(1, "doris");
+insert into oracle_table select * from postgre_table;
+```
+#### 事务
+
+Doris的数据是由一组batch的方式写入外部表的，如果中途导入中断，之前写入数据可能需要回滚。所以ODBC外表支持数据写入时的事务，事务的支持需要通过session variable：`enable_odbc_transcation `设置。
+
+```
+set enable_odbc_transcation = true; 
+```
+
+事务保证了ODBC外表数据写入的原子性，但是一定程度上会降低数据写入的性能，可以考虑酌情开启该功能。
 
 
 ## 类型匹配
 
-各个数据之间数据类型存在不同，这里列出了各个数据库中的类型和Doris之中数据类型匹配的情况。
+各个数据库之间数据类型存在不同，这里列出了各个数据库中的类型和Doris之中数据类型匹配的情况。
 
-### MySQL类型
+### MySQL
 
 |  MySQL  | Doris  |             替换方案              |
 | :------: | :----: | :-------------------------------: |
@@ -156,7 +175,23 @@ select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
 |   DATETIME  | DATETIME |  |
 |   DECIMAL  | DECIMAL |  |
 
-### Oracle类型                          
+### PostgreSQL
+
+|  PostgreSQL  | Doris  |             替换方案              |
+| :------: | :----: | :-------------------------------: |
+|  BOOLEAN  | BOOLEAN  |                         |
+|   CHAR   |  CHAR  |            当前仅支持UTF8编码            |
+| VARCHAR | VARCHAR |       当前仅支持UTF8编码       |
+|   DATE   |  DATE  |                                   |
+|  REAL   |  FLOAT  |                                   |
+|   SMALLINT  | SMALLINT |  |
+|   INT  | INT |  |
+|   BIGINT  | BIGINT |  |
+|   DOUBLE  | DOUBLE |  |
+|   TIMESTAMP  | DATETIME |  |
+|   DECIMAL  | DECIMAL |  |
+
+### Oracle                        
 
 |  Oracle  | Doris  |             替换方案              |
 | :------: | :----: | :-------------------------------: |
@@ -179,9 +214,9 @@ select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
 
     在接入ODBC外表之后，原先的访问MySQL外表的方式将被逐渐弃用。如果之前没有使用过MySQL外表，建议新接入的MySQL表直接使用ODBC的MySQL外表。
     
-2. 除了MySQL和Oracle，是否能够支持更多的数据库
+2. 除了MySQL,Oracle,PostgreSQL, 是否能够支持更多的数据库
 
-    目前Doris只适配了MySQL和Oracle，关于其他的数据库的适配工作正在规划之中，原则上来说任何支持ODBC访问的数据库都能通过ODBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+    目前Doris只适配了MySQL,Oracle,PostgreSQL，关于其他的数据库的适配工作正在规划之中，原则上来说任何支持ODBC访问的数据库都能通过ODBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 3. 什么场合适合通过外表访问
 
@@ -199,9 +234,9 @@ select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
 
     没有在每一个BE上安装好对应数据的Driver，或者是没有在be/conf/odbcinst.ini配置正确的路径，亦或是建表是Driver名与be/conf/odbcinst.ini不同
 
-7. 报错 `fail to convert odbc value 'PALO ' TO INT`
+7. 报错 `Fail to convert odbc value 'PALO ' TO INT on column:'A'`
 
-    类型转换出错，需要修改列的类型映射
+    ODBC外表的A列类型转换出错，说明外表的实际列与ODBC的映射列的数据类型不同，需要修改列的类型映射
     
 8. 同时使用旧的MySQL表与ODBC外表的Driver时出现程序Crash
 

@@ -79,7 +79,7 @@ public class ShowProcAction extends RestBaseAction {
             context.setQualifiedUser(ConnectContext.get().getQualifiedUser());
             context.setRemoteIP(ConnectContext.get().getRemoteIP());
             MasterOpExecutor masterOpExecutor = new MasterOpExecutor(new OriginStatement(showProcStmt, 0), context,
-                    RedirectStatus.FORWARD_NO_SYNC);
+                    RedirectStatus.FORWARD_NO_SYNC, true);
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
 
             try {

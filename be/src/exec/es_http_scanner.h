@@ -16,17 +16,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  BE_EXEC_ES_HTTP_SCANNER_H
-#define  BE_EXEC_ES_HTTP_SCANNER_H
+#ifndef BE_EXEC_ES_HTTP_SCANNER_H
+#define BE_EXEC_ES_HTTP_SCANNER_H
 
-#include <memory>
-#include <vector>
-#include <string>
 #include <map>
+#include <memory>
 #include <sstream>
+#include <string>
+#include <vector>
 
-#include "common/status.h"
 #include "common/global_types.h"
+#include "common/status.h"
 #include "exec/es/es_scan_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
@@ -47,38 +47,33 @@ class MemTracker;
 class RuntimeProfile;
 
 struct EsScanCounter {
-    EsScanCounter() : num_rows_returned(0), num_rows_filtered(0) {
-    }
-    
+    EsScanCounter() : num_rows_returned(0), num_rows_filtered(0) {}
+
     int64_t num_rows_returned;
     int64_t num_rows_filtered;
 };
 
 class EsHttpScanner {
 public:
-    EsHttpScanner(
-        RuntimeState* state,
-        RuntimeProfile* profile,
-        TupleId tuple_id,
-        const std::map<std::string, std::string>& properties,
-        const std::vector<ExprContext*>& conjunct_ctxs,
-        EsScanCounter* counter,
-        bool doc_value_mode);
+    EsHttpScanner(RuntimeState* state, RuntimeProfile* profile, TupleId tuple_id,
+                  const std::map<std::string, std::string>& properties,
+                  const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter,
+                  bool doc_value_mode);
     ~EsHttpScanner();
 
     Status open();
 
-    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, const std::map<std::string, std::string>& docvalue_context);
+    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof,
+                    const std::map<std::string, std::string>& docvalue_context);
 
     void close();
 
 private:
-
     RuntimeState* _state;
     RuntimeProfile* _profile;
     TupleId _tuple_id;
     const std::map<std::string, std::string>& _properties;
-    const std::vector<ExprContext*>& _conjunct_ctxs; 
+    const std::vector<ExprContext*>& _conjunct_ctxs;
 
     int _next_range;
     bool _line_eof;
@@ -103,6 +98,6 @@ private:
     RuntimeProfile::Counter* _materialize_timer;
 };
 
-}
+} // namespace doris
 
 #endif

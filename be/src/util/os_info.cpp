@@ -17,23 +17,20 @@
 
 #include "util/os_info.h"
 
-#include <iostream>
-#include <fstream>
-#include <sstream>
 #include <stdlib.h>
 #include <string.h>
-
 #include <unistd.h>
 
-#include "common/names.h"
+#include <fstream>
+#include <iostream>
+#include <sstream>
 
 namespace doris {
 
 bool OsInfo::initialized_ = false;
-string OsInfo::os_version_ = "Unknown";
+std::string OsInfo::os_version_ = "Unknown";
 clockid_t OsInfo::fast_clock_ = CLOCK_MONOTONIC;
-std::string OsInfo::clock_name_ =
-    "Unknown clocksource, clockid_t defaulting to CLOCK_MONOTONIC";
+std::string OsInfo::clock_name_ = "Unknown clocksource, clockid_t defaulting to CLOCK_MONOTONIC";
 
 // CLOCK_MONOTONIC_COARSE was added in Linux 2.6.32. For now we still want to support
 // older kernels by falling back to CLOCK_MONOTONIC.
@@ -45,40 +42,39 @@ std::string OsInfo::clock_name_ =
 #endif
 
 void OsInfo::Init() {
-  DCHECK(!initialized_);
-  // Read from /proc/version
-  ifstream version("/proc/version", ios::in);
-  if (version.good()) getline(version, os_version_);
-  if (version.is_open()) version.close();
+    DCHECK(!initialized_);
+    // Read from /proc/version
+    std::ifstream version("/proc/version", std::ios::in);
+    if (version.good()) getline(version, os_version_);
+    if (version.is_open()) version.close();
 
-  // Read the current clocksource to see if CLOCK_MONOTONIC is known to be fast. "tsc" is
-  // fast, while "xen" is slow (40 times slower than "tsc" on EC2). If CLOCK_MONOTONIC is
-  // known to be slow, we use CLOCK_MONOTONIC_COARSE, which uses jiffies, with a
-  // resolution measured in milliseconds, rather than nanoseconds.
-  std::ifstream clocksource_file(
-      "/sys/devices/system/clocksource/clocksource0/current_clocksource");
-  if (clocksource_file.good()) {
-    std::string clocksource;
-    clocksource_file >> clocksource;
-    clock_name_ = "clocksource: '" + clocksource + "', clockid_t: ";
-    if (HAVE_CLOCK_MONOTONIC_COARSE && clocksource != "tsc") {
-      clock_name_ += "CLOCK_MONOTONIC_COARSE";
-      fast_clock_ = CLOCK_MONOTONIC_COARSE;
-    } else {
-      clock_name_ += "CLOCK_MONOTONIC";
-      fast_clock_ = CLOCK_MONOTONIC;
+    // Read the current clocksource to see if CLOCK_MONOTONIC is known to be fast. "tsc" is
+    // fast, while "xen" is slow (40 times slower than "tsc" on EC2). If CLOCK_MONOTONIC is
+    // known to be slow, we use CLOCK_MONOTONIC_COARSE, which uses jiffies, with a
+    // resolution measured in milliseconds, rather than nanoseconds.
+    std::ifstream clocksource_file(
+            "/sys/devices/system/clocksource/clocksource0/current_clocksource");
+    if (clocksource_file.good()) {
+        std::string clocksource;
+        clocksource_file >> clocksource;
+        clock_name_ = "clocksource: '" + clocksource + "', clockid_t: ";
+        if (HAVE_CLOCK_MONOTONIC_COARSE && clocksource != "tsc") {
+            clock_name_ += "CLOCK_MONOTONIC_COARSE";
+            fast_clock_ = CLOCK_MONOTONIC_COARSE;
+        } else {
+            clock_name_ += "CLOCK_MONOTONIC";
+            fast_clock_ = CLOCK_MONOTONIC;
+        }
     }
-  }
 
-  initialized_ = true;
+    initialized_ = true;
 }
 
-string OsInfo::DebugString() {
-  DCHECK(initialized_);
-  stringstream stream;
-  stream << "OS version: " << os_version_ << endl
-         << "Clock: " << clock_name_ << endl;
-  return stream.str();
+std::string OsInfo::DebugString() {
+    DCHECK(initialized_);
+    std::stringstream stream;
+    stream << "OS version: " << os_version_ << std::endl << "Clock: " << clock_name_ << std::endl;
+    return stream.str();
 }
 
-}
+} // namespace doris

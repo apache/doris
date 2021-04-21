@@ -24,6 +24,7 @@ import org.roaringbitmap.BitmapDataProvider;
 import org.roaringbitmap.BitmapDataProviderSupplier;
 import org.roaringbitmap.IntConsumer;
 import org.roaringbitmap.IntIterator;
+import org.roaringbitmap.InvalidRoaringFormat;
 import org.roaringbitmap.RoaringBitmap;
 import org.roaringbitmap.RoaringBitmapSupplier;
 import org.roaringbitmap.Util;
@@ -1345,16 +1346,22 @@ public class Roaring64Map {
         this.clear();
         highToBitmap = new TreeMap<>();
 
-        long nbHighs = 1;
-        if (bitmapType == BitmapValue.BITMAP64) {
-            nbHighs = Codec.decodeVarint64(in);
+        if (bitmapType == BitmapValue.BITMAP32) {
+            RoaringBitmap provider = new RoaringBitmap();
+            provider.deserialize(in);
+            highToBitmap.put(0, provider);
+            return;
         }
 
+        if (bitmapType != BitmapValue.BITMAP64) {
+            throw new InvalidRoaringFormat("invalid bitmap type");
+        }
+
+        long nbHighs = Codec.decodeVarint64(in);
         for (int i = 0; i < nbHighs; i++) {
             int high = in.readInt();
             RoaringBitmap provider = new RoaringBitmap();
             provider.deserialize(in);
-
             highToBitmap.put(high, provider);
         }
 

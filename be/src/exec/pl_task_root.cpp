@@ -19,18 +19,10 @@
 
 namespace doris {
 
-ExchangeNode::ExchangeNode(
-        ObjectPool* pool, 
-        const TPlanNode& tnode,
-        const DescriptorTbl& descs) : 
-            ExecNode(pool, tnode, descs),
-            _num_senders(0),
-            _stream_recvr(NULL),
-            _next_row_idx(0) {
-}
+ExchangeNode::ExchangeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ExecNode(pool, tnode, descs), _num_senders(0), _stream_recvr(NULL), _next_row_idx(0) {}
 
-ExchangeNode::~ExchangeNode() {
-}
+ExchangeNode::~ExchangeNode() {}
 
 Status ExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
     return ExecNode::init(tnode, state);
@@ -44,7 +36,7 @@ Status ExchangeNode::prepare(RuntimeState* state) {
     // TODO: figure out appropriate buffer size
     DCHECK_GT(_num_senders, 0);
     _stream_recvr = state->create_recvr(_row_descriptor, _id, _num_senders,
-                                       config::exchg_node_buffer_size_bytes, runtime_profile());
+                                        config::exchg_node_buffer_size_bytes, runtime_profile());
     return Status::OK();
 }
 
@@ -78,8 +70,8 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
             SCOPED_TIMER(_convert_row_batch_timer);
 
             // copy rows until we hit the limit/capacity or until we exhaust _input_batch
-            while (!reached_limit() && !output_batch->is_full()
-                    && _input_batch.get() != NULL && _next_row_idx < _input_batch->capacity()) {
+            while (!reached_limit() && !output_batch->is_full() && _input_batch.get() != NULL &&
+                   _next_row_idx < _input_batch->capacity()) {
                 TupleRow* src = _input_batch->get_row(_next_row_idx);
 
                 if (ExecNode::eval_conjuncts(ctxs, num_ctxs, src)) {
@@ -145,5 +137,4 @@ void ExchangeNode::debug_string(int indentation_level, std::stringstream* out) c
     *out << ")";
 }
 
-}
-
+} // namespace doris

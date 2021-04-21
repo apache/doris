@@ -18,13 +18,12 @@
 #ifndef DORIS_BE_RUNTIME_RAW_VALUE_H
 #define DORIS_BE_RUNTIME_RAW_VALUE_H
 
+#include <boost/functional/hash.hpp>
 #include <string>
 
-#include <boost/functional/hash.hpp>
-
 #include "common/logging.h"
-#include "runtime/types.h"
 #include "runtime/string_value.h"
+#include "runtime/types.h"
 #include "util/hash_util.hpp"
 #include "util/types.h"
 
@@ -44,15 +43,15 @@ public:
     // determines how many digits after the decimal are printed for floating point numbers,
     // -1 indicates to use the stream's current formatting.
     static void print_value(const void* value, const TypeDescriptor& type, int scale,
-                           std::stringstream* stream);
+                            std::stringstream* stream);
 
     // write ascii value to string instead of stringstream.
     static void print_value(const void* value, const TypeDescriptor& type, int scale,
-                           std::string* str);
+                            std::string* str);
 
     // Writes the byte representation of a value to a stringstream character-by-character
     static void print_value_as_bytes(const void* value, const TypeDescriptor& type,
-                                  std::stringstream* stream);
+                                     std::stringstream* stream);
 
     static uint32_t get_hash_value(const void* value, const PrimitiveType& type) {
         return get_hash_value(value, type, 0);
@@ -75,11 +74,10 @@ public:
     // and cannot be safely used as the first step in data repartitioning.
     // However, get_hash_value() can be significantly faster.
     // TODO: fix get_hash_value
-    static uint32_t get_hash_value_fvn(
-        const void* value, const PrimitiveType& type, uint32_t seed);
+    static uint32_t get_hash_value_fvn(const void* value, const PrimitiveType& type, uint32_t seed);
 
-    static uint32_t get_hash_value_fvn(
-            const void* value, const TypeDescriptor& type, uint32_t seed) {
+    static uint32_t get_hash_value_fvn(const void* value, const TypeDescriptor& type,
+                                       uint32_t seed) {
         return get_hash_value_fvn(value, type.type, seed);
     }
 
@@ -124,32 +122,25 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
 
     switch (type.type) {
     case TYPE_BOOLEAN:
-        return *reinterpret_cast<const bool*>(v1)
-               < *reinterpret_cast<const bool*>(v2);
+        return *reinterpret_cast<const bool*>(v1) < *reinterpret_cast<const bool*>(v2);
 
     case TYPE_TINYINT:
-        return *reinterpret_cast<const int8_t*>(v1)
-               < *reinterpret_cast<const int8_t*>(v2);
+        return *reinterpret_cast<const int8_t*>(v1) < *reinterpret_cast<const int8_t*>(v2);
 
     case TYPE_SMALLINT:
-        return *reinterpret_cast<const int16_t*>(v1)
-               < *reinterpret_cast<const int16_t*>(v2);
+        return *reinterpret_cast<const int16_t*>(v1) < *reinterpret_cast<const int16_t*>(v2);
 
     case TYPE_INT:
-        return *reinterpret_cast<const int32_t*>(v1)
-               < *reinterpret_cast<const int32_t*>(v2);
+        return *reinterpret_cast<const int32_t*>(v1) < *reinterpret_cast<const int32_t*>(v2);
 
     case TYPE_BIGINT:
-        return *reinterpret_cast<const int64_t*>(v1)
-               < *reinterpret_cast<const int64_t*>(v2);
+        return *reinterpret_cast<const int64_t*>(v1) < *reinterpret_cast<const int64_t*>(v2);
 
     case TYPE_FLOAT:
-        return *reinterpret_cast<const float*>(v1)
-               < *reinterpret_cast<const float*>(v2);
+        return *reinterpret_cast<const float*>(v1) < *reinterpret_cast<const float*>(v2);
 
     case TYPE_DOUBLE:
-        return *reinterpret_cast<const double*>(v1)
-               < *reinterpret_cast<const double*>(v2);
+        return *reinterpret_cast<const double*>(v1) < *reinterpret_cast<const double*>(v2);
 
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -186,32 +177,25 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
 
     switch (type.type) {
     case TYPE_BOOLEAN:
-        return *reinterpret_cast<const bool*>(v1)
-               == *reinterpret_cast<const bool*>(v2);
+        return *reinterpret_cast<const bool*>(v1) == *reinterpret_cast<const bool*>(v2);
 
     case TYPE_TINYINT:
-        return *reinterpret_cast<const int8_t*>(v1)
-               == *reinterpret_cast<const int8_t*>(v2);
+        return *reinterpret_cast<const int8_t*>(v1) == *reinterpret_cast<const int8_t*>(v2);
 
     case TYPE_SMALLINT:
-        return *reinterpret_cast<const int16_t*>(v1)
-               == *reinterpret_cast<const int16_t*>(v2);
+        return *reinterpret_cast<const int16_t*>(v1) == *reinterpret_cast<const int16_t*>(v2);
 
     case TYPE_INT:
-        return *reinterpret_cast<const int32_t*>(v1)
-               == *reinterpret_cast<const int32_t*>(v2);
+        return *reinterpret_cast<const int32_t*>(v1) == *reinterpret_cast<const int32_t*>(v2);
 
     case TYPE_BIGINT:
-        return *reinterpret_cast<const int64_t*>(v1)
-               == *reinterpret_cast<const int64_t*>(v2);
+        return *reinterpret_cast<const int64_t*>(v1) == *reinterpret_cast<const int64_t*>(v2);
 
     case TYPE_FLOAT:
-        return *reinterpret_cast<const float*>(v1)
-               == *reinterpret_cast<const float*>(v2);
+        return *reinterpret_cast<const float*>(v1) == *reinterpret_cast<const float*>(v2);
 
     case TYPE_DOUBLE:
-        return *reinterpret_cast<const double*>(v1)
-               == *reinterpret_cast<const double*>(v2);
+        return *reinterpret_cast<const double*>(v1) == *reinterpret_cast<const double*>(v2);
 
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -247,8 +231,7 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
 // here to use int32t's (instead of size_t)
 // boost::hash_combine does:
 //  seed ^= v + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-inline uint32_t RawValue::get_hash_value(
-        const void* v, const PrimitiveType& type, uint32_t seed) {
+inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& type, uint32_t seed) {
     // Hash_combine with v = 0
     if (v == NULL) {
         uint32_t value = 0x9e3779b9;
@@ -305,8 +288,8 @@ inline uint32_t RawValue::get_hash_value(
     }
 }
 
-inline uint32_t RawValue::get_hash_value_fvn(
-        const void* v, const PrimitiveType& type, uint32_t seed) {
+inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType& type,
+                                             uint32_t seed) {
     // Hash_combine with v = 0
     if (v == NULL) {
         uint32_t value = 0x9e3779b9;
@@ -349,7 +332,7 @@ inline uint32_t RawValue::get_hash_value_fvn(
         return HashUtil::fnv_hash(v, 16, seed);
 
     case TYPE_DECIMAL:
-        return ((DecimalValue *) v)->hash(seed);
+        return ((DecimalValue*)v)->hash(seed);
 
     case TYPE_DECIMALV2:
         return HashUtil::fnv_hash(v, 16, seed);
@@ -374,7 +357,7 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
 
     switch (type.type) {
     case TYPE_VARCHAR:
-    case TYPE_HLL:  {
+    case TYPE_HLL: {
         const StringValue* string_value = reinterpret_cast<const StringValue*>(v);
         return HashUtil::zlib_crc_hash(string_value->ptr, string_value->len, seed);
     }
@@ -434,6 +417,6 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
     }
 }
 
-}
+} // namespace doris
 
 #endif

@@ -63,7 +63,7 @@ HashIndex::HashIndex(size_t capacity)
     if (_chunks) {
         _num_chunks = nc;
         _chunk_mask = nc - 1;
-        memset(_chunks, 0, _num_chunks * 64);
+        memset(static_cast<void*>(_chunks), 0, _num_chunks * 64);
         _max_size = _num_chunks * HashChunk::CAPACITY * 12 / 14;
     }
 }

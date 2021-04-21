@@ -18,12 +18,13 @@
 #include "geo/geo_functions.h"
 
 #include <gtest/gtest.h>
+
 #include <vector>
 
+#include "common/logging.h"
 #include "geo/geo_types.h"
 #include "geo/wkt_parse.h"
 #include "geo/wkt_parse_ctx.h"
-#include "common/logging.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"
 #include "udf/udf_internal.h"
@@ -32,8 +33,8 @@ namespace doris {
 
 class GeoFunctionsTest : public testing::Test {
 public:
-    GeoFunctionsTest() { }
-    virtual ~GeoFunctionsTest() { }
+    GeoFunctionsTest() {}
+    virtual ~GeoFunctionsTest() {}
 };
 
 TEST_F(GeoFunctionsTest, st_dist_sphere) {
@@ -84,7 +85,7 @@ TEST_F(GeoFunctionsTest, st_x_y) {
 
     std::string buf;
     point.encode_to(&buf);
-    
+
     auto x = GeoFunctions::st_x(ctx, StringVal((uint8_t*)buf.data(), buf.size()));
     auto y = GeoFunctions::st_y(ctx, StringVal((uint8_t*)buf.data(), buf.size()));
     ASSERT_EQ(134, x.val);
@@ -100,7 +101,7 @@ TEST_F(GeoFunctionsTest, as_wkt) {
 
     std::string buf;
     point.encode_to(&buf);
-    
+
     auto wkt = GeoFunctions::st_as_wkt(ctx, StringVal((uint8_t*)buf.data(), buf.size()));
     ASSERT_STREQ("POINT (134 63)", std::string((char*)wkt.ptr, wkt.len).c_str());
 }
@@ -129,7 +130,7 @@ TEST_F(GeoFunctionsTest, st_from_wkt) {
         ASSERT_NE(nullptr, ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
         // convert
-        auto str2  = GeoFunctions::st_from_wkt(ctx, StringVal((uint8_t*)wkt.data(), wkt.size()));
+        auto str2 = GeoFunctions::st_from_wkt(ctx, StringVal((uint8_t*)wkt.data(), wkt.size()));
         ASSERT_FALSE(str2.is_null);
 
         // close
@@ -170,7 +171,7 @@ TEST_F(GeoFunctionsTest, st_line) {
         ASSERT_NE(nullptr, ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
         // convert
-        auto str2  = GeoFunctions::st_line(ctx, StringVal((uint8_t*)wkt.data(), wkt.size()));
+        auto str2 = GeoFunctions::st_line(ctx, StringVal((uint8_t*)wkt.data(), wkt.size()));
         ASSERT_FALSE(str2.is_null);
 
         // close
@@ -204,7 +205,7 @@ TEST_F(GeoFunctionsTest, st_polygon) {
         ASSERT_NE(nullptr, ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
         // convert
-        auto str2  = GeoFunctions::st_polygon(ctx, StringVal((uint8_t*)wkt.data(), wkt.size()));
+        auto str2 = GeoFunctions::st_polygon(ctx, StringVal((uint8_t*)wkt.data(), wkt.size()));
         ASSERT_FALSE(str2.is_null);
 
         // close
@@ -241,7 +242,7 @@ TEST_F(GeoFunctionsTest, st_circle) {
         ASSERT_NE(nullptr, ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
         // convert
-        auto str2  = GeoFunctions::st_circle(ctx, lng, lat, radius_meter);
+        auto str2 = GeoFunctions::st_circle(ctx, lng, lat, radius_meter);
         ASSERT_FALSE(str2.is_null);
 
         // close
@@ -281,11 +282,13 @@ TEST_F(GeoFunctionsTest, st_contains) {
     ASSERT_EQ(nullptr, ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
     std::string polygon_wkt = "POLYGON ((10 10, 50 10, 50 50, 10 50, 10 10))";
-    auto polygon = GeoFunctions::st_from_wkt(ctx, StringVal((uint8_t*)polygon_wkt.data(), polygon_wkt.size()));
+    auto polygon = GeoFunctions::st_from_wkt(
+            ctx, StringVal((uint8_t*)polygon_wkt.data(), polygon_wkt.size()));
     ASSERT_EQ(nullptr, ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
     std::string point_wkt = "POINT (25 25)";
-    auto point = GeoFunctions::st_from_wkt(ctx, StringVal((uint8_t*)point_wkt.data(), point_wkt.size()));
+    auto point =
+            GeoFunctions::st_from_wkt(ctx, StringVal((uint8_t*)point_wkt.data(), point_wkt.size()));
     ASSERT_EQ(nullptr, ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
     GeoFunctions::st_contains_prepare(ctx, FunctionContext::FRAGMENT_LOCAL);
@@ -302,9 +305,11 @@ TEST_F(GeoFunctionsTest, st_contains_cached) {
     GeoFunctions::st_from_wkt_prepare(ctx, FunctionContext::FRAGMENT_LOCAL);
 
     std::string polygon_wkt = "POLYGON ((10 10, 50 10, 50 50, 10 50, 10 10))";
-    auto polygon = GeoFunctions::st_from_wkt(ctx, StringVal((uint8_t*)polygon_wkt.data(), polygon_wkt.size()));
+    auto polygon = GeoFunctions::st_from_wkt(
+            ctx, StringVal((uint8_t*)polygon_wkt.data(), polygon_wkt.size()));
     std::string point_wkt = "POINT (25 25)";
-    auto point = GeoFunctions::st_from_wkt(ctx, StringVal((uint8_t*)point_wkt.data(), point_wkt.size()));
+    auto point =
+            GeoFunctions::st_from_wkt(ctx, StringVal((uint8_t*)point_wkt.data(), point_wkt.size()));
 
     // push const value
     std::vector<doris_udf::AnyVal*> const_vals;
@@ -320,7 +325,7 @@ TEST_F(GeoFunctionsTest, st_contains_cached) {
     GeoFunctions::st_contains_close(ctx, FunctionContext::FRAGMENT_LOCAL);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

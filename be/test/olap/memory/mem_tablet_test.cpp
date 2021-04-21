@@ -22,6 +22,7 @@
 #include "olap/memory/mem_tablet_scan.h"
 #include "olap/memory/write_txn.h"
 #include "olap/tablet_meta.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 namespace memory {
@@ -34,9 +35,9 @@ struct TData {
 };
 
 TEST(MemTablet, writescan) {
-    const int num_insert = 2000000;
-    const int insert_per_write = 500000;
-    const int num_update = 10000;
+    const int num_insert = LOOP_LESS_OR_MORE(2000, 2000000);
+    const int insert_per_write = LOOP_LESS_OR_MORE(500, 500000);
+    const int num_update = LOOP_LESS_OR_MORE(10, 10000);
     const int update_time = 3;
     scoped_refptr<Schema> sc;
     ASSERT_TRUE(Schema::create("id int,uv int,pv int,city tinyint null", &sc).ok());
@@ -73,7 +74,7 @@ TEST(MemTablet, writescan) {
     ASSERT_TRUE(tablet->init().ok());
 
     uint64_t cur_version = 0;
-    vector<TData> alldata(num_insert);
+    std::vector<TData> alldata(num_insert);
 
     // insert
     srand(1);
@@ -101,7 +102,7 @@ TEST(MemTablet, writescan) {
             EXPECT_TRUE(writer.set("city", city % 2 == 0 ? nullptr : &city).ok());
             EXPECT_TRUE(writer.end_row().ok());
         }
-        vector<uint8_t> wtxn_buff;
+        std::vector<uint8_t> wtxn_buff;
         EXPECT_TRUE(writer.finish_batch(&wtxn_buff).ok());
         PartialRowBatch* batch = wtx->new_batch();
         EXPECT_TRUE(batch->load(std::move(wtxn_buff)).ok());
@@ -131,7 +132,7 @@ TEST(MemTablet, writescan) {
             EXPECT_TRUE(writer.set("city", city % 2 == 0 ? nullptr : &city).ok());
             EXPECT_TRUE(writer.end_row().ok());
         }
-        vector<uint8_t> wtxn_buff;
+        std::vector<uint8_t> wtxn_buff;
         EXPECT_TRUE(writer.finish_batch(&wtxn_buff).ok());
         PartialRowBatch* batch = wtx->new_batch();
         EXPECT_TRUE(batch->load(std::move(wtxn_buff)).ok());

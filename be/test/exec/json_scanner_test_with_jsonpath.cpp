@@ -15,25 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/broker_scan_node.h"
-
-#include <string>
-#include <map>
-#include <vector>
-
 #include <gtest/gtest.h>
 #include <time.h>
+
+#include <map>
+#include <string>
+#include <vector>
+
 #include "common/object_pool.h"
-#include "runtime/tuple.h"
+#include "exec/broker_scan_node.h"
 #include "exec/local_file_reader.h"
 #include "exprs/cast_functions.h"
-#include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
-#include "runtime/row_batch.h"
-#include "runtime/user_function_cache.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/tuple.h"
+#include "runtime/user_function_cache.h"
 
 namespace doris {
 
@@ -46,15 +46,15 @@ public:
     }
     void init();
     static void SetUpTestCase() {
-        UserFunctionCache::instance()->init("./be/test/runtime/test_data/user_function_cache/normal");
+        UserFunctionCache::instance()->init(
+                "./be/test/runtime/test_data/user_function_cache/normal");
         CastFunctions::init();
     }
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
+
 private:
     int create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id);
     int create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id);
@@ -74,9 +74,8 @@ private:
 #define DST_TUPLE_SLOT_ID_START 1
 #define SRC_TUPLE_SLOT_ID_START 5
 int JsonScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
-    const char *columnNames[] = {"k1", "kind", "ip", "value"};
-    for (int i = 0; i < COLUMN_NUMBERS; i++)
-    {
+    const char* columnNames[] = {"k1", "kind", "ip", "value"};
+    for (int i = 0; i < COLUMN_NUMBERS; i++) {
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -93,9 +92,9 @@ int JsonScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_s
         }
         slot_desc.slotType = type;
         slot_desc.columnPos = i;
-        slot_desc.byteOffset = i*16+8;
-        slot_desc.nullIndicatorByte = i/8;
-        slot_desc.nullIndicatorBit = i%8;
+        slot_desc.byteOffset = i * 16 + 8;
+        slot_desc.nullIndicatorByte = i / 8;
+        slot_desc.nullIndicatorBit = i % 8;
         slot_desc.colName = columnNames[i];
         slot_desc.slotIdx = i + 1;
         slot_desc.isMaterialized = true;
@@ -107,7 +106,7 @@ int JsonScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_s
         // TTupleDescriptor source
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = TUPLE_ID_SRC;
-        t_tuple_desc.byteSize = COLUMN_NUMBERS*16+8;
+        t_tuple_desc.byteSize = COLUMN_NUMBERS * 16 + 8;
         t_tuple_desc.numNullBytes = 0;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
@@ -118,7 +117,7 @@ int JsonScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_s
 
 int JsonScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
     int32_t byteOffset = 8;
-    {//k1
+    { //k1
         TSlotDescriptor slot_desc;
         slot_desc.id = next_slot_id++;
         slot_desc.parent = 0;
@@ -144,7 +143,7 @@ int JsonScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_s
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
     byteOffset += 16;
-    {//kind
+    { //kind
         TSlotDescriptor slot_desc;
         slot_desc.id = next_slot_id++;
         slot_desc.parent = 0;
@@ -170,7 +169,7 @@ int JsonScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_s
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
     byteOffset += 16;
-    {// ip
+    { // ip
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -197,7 +196,7 @@ int JsonScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_s
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
     byteOffset += 16;
-    {// value
+    { // value
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -296,14 +295,14 @@ void JsonScannerTest::create_expr_info() {
         slot_ref.type = varchar_type;
         slot_ref.num_children = 0;
         slot_ref.__isset.slot_ref = true;
-        slot_ref.slot_ref.slot_id = SRC_TUPLE_SLOT_ID_START+1; // kind id in src tuple
+        slot_ref.slot_ref.slot_id = SRC_TUPLE_SLOT_ID_START + 1; // kind id in src tuple
         slot_ref.slot_ref.tuple_id = 1;
 
         TExpr expr;
         expr.nodes.push_back(slot_ref);
 
-        _params.expr_of_dest_slot.emplace(DST_TUPLE_SLOT_ID_START+1, expr);
-        _params.src_slot_ids.push_back(SRC_TUPLE_SLOT_ID_START+1);
+        _params.expr_of_dest_slot.emplace(DST_TUPLE_SLOT_ID_START + 1, expr);
+        _params.src_slot_ids.push_back(SRC_TUPLE_SLOT_ID_START + 1);
     }
     // ip VARCHAR --> VARCHAR
     {
@@ -312,14 +311,14 @@ void JsonScannerTest::create_expr_info() {
         slot_ref.type = varchar_type;
         slot_ref.num_children = 0;
         slot_ref.__isset.slot_ref = true;
-        slot_ref.slot_ref.slot_id = SRC_TUPLE_SLOT_ID_START+2; // ip id in src tuple
+        slot_ref.slot_ref.slot_id = SRC_TUPLE_SLOT_ID_START + 2; // ip id in src tuple
         slot_ref.slot_ref.tuple_id = 1;
 
         TExpr expr;
         expr.nodes.push_back(slot_ref);
 
-        _params.expr_of_dest_slot.emplace(DST_TUPLE_SLOT_ID_START+2, expr);
-        _params.src_slot_ids.push_back(SRC_TUPLE_SLOT_ID_START+2);
+        _params.expr_of_dest_slot.emplace(DST_TUPLE_SLOT_ID_START + 2, expr);
+        _params.src_slot_ids.push_back(SRC_TUPLE_SLOT_ID_START + 2);
     }
     // value VARCHAR --> VARCHAR
     {
@@ -328,14 +327,14 @@ void JsonScannerTest::create_expr_info() {
         slot_ref.type = varchar_type;
         slot_ref.num_children = 0;
         slot_ref.__isset.slot_ref = true;
-        slot_ref.slot_ref.slot_id = SRC_TUPLE_SLOT_ID_START+3; // valuep id in src tuple
+        slot_ref.slot_ref.slot_id = SRC_TUPLE_SLOT_ID_START + 3; // valuep id in src tuple
         slot_ref.slot_ref.tuple_id = 1;
 
         TExpr expr;
         expr.nodes.push_back(slot_ref);
 
-        _params.expr_of_dest_slot.emplace(DST_TUPLE_SLOT_ID_START+3, expr);
-        _params.src_slot_ids.push_back(SRC_TUPLE_SLOT_ID_START+3);
+        _params.expr_of_dest_slot.emplace(DST_TUPLE_SLOT_ID_START + 3, expr);
+        _params.src_slot_ids.push_back(SRC_TUPLE_SLOT_ID_START + 3);
     }
 
     // _params.__isset.expr_of_dest_slot = true;
@@ -344,7 +343,6 @@ void JsonScannerTest::create_expr_info() {
 }
 
 void JsonScannerTest::init() {
-
     create_expr_info();
     init_desc_table();
 
@@ -415,9 +413,7 @@ TEST_F(JsonScannerTest, normal) {
     }
 }
 
-
-
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

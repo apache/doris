@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2.etl;
 
+import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.dpp.GlobalDictBuilder;
 import org.apache.doris.load.loadv2.dpp.SparkDpp;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumn;
@@ -26,12 +27,12 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
 
 import org.apache.commons.collections.map.MultiValueMap;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 import org.apache.spark.SparkConf;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -49,10 +50,11 @@ import java.util.Set;
  * 4. dpp (data partition, data sort and data aggregation)
  */
 public class SparkEtlJob {
-    private static final Logger LOG = LogManager.getLogger(SparkEtlJob.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SparkEtlJob.class);
 
     private static final String BITMAP_DICT_FUNC = "bitmap_dict";
     private static final String TO_BITMAP_FUNC = "to_bitmap";
+    private static final String BITMAP_HASH = "bitmap_hash";
 
     private String jobConfigFilePath;
     private EtlJobConfig etlJobConfig;
@@ -112,8 +114,11 @@ public class SparkEtlJob {
                     String columnName = mappingEntry.getKey();
                     String exprStr = mappingEntry.getValue().toDescription();
                     String funcName = functions.expr(exprStr).expr().prettyName();
+                    if (funcName.equalsIgnoreCase(BITMAP_HASH)) {
+                        throw new SparkDppException("spark load not support bitmap_hash now");
+                    }
                     if (funcName.equalsIgnoreCase(BITMAP_DICT_FUNC)) {
-                        bitmapDictColumns.add(columnName);
+                        bitmapDictColumns.add(columnName.toLowerCase());
                     } else if (!funcName.equalsIgnoreCase(TO_BITMAP_FUNC)) {
                         newColumnMappings.put(mappingEntry.getKey(), mappingEntry.getValue());
                     }
@@ -137,7 +142,7 @@ public class SparkEtlJob {
     }
 
     private void processDpp() throws Exception {
-        SparkDpp sparkDpp = new SparkDpp(spark, etlJobConfig);
+        SparkDpp sparkDpp = new SparkDpp(spark, etlJobConfig, tableToBitmapDictColumns);
         sparkDpp.init();
         sparkDpp.doDpp();
     }

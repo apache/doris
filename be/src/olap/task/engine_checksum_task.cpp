@@ -22,26 +22,23 @@
 
 namespace doris {
 
-EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash, 
-        TVersion version, TVersionHash version_hash, uint32_t* checksum)
-        :_tablet_id(tablet_id),
-         _schema_hash(schema_hash),
-         _version(version),
-         _version_hash(version_hash),
-         _checksum(checksum) {
-
-}
+EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash,
+                                       TVersion version, TVersionHash version_hash,
+                                       uint32_t* checksum)
+        : _tablet_id(tablet_id),
+          _schema_hash(schema_hash),
+          _version(version),
+          _version_hash(version_hash),
+          _checksum(checksum) {}
 
 OLAPStatus EngineChecksumTask::execute() {
     OLAPStatus res = _compute_checksum();
     return res;
 } // execute
 
-
 OLAPStatus EngineChecksumTask::_compute_checksum() {
     LOG(INFO) << "begin to process compute checksum."
-              << "tablet_id=" << _tablet_id
-              << ", schema_hash=" << _schema_hash
+              << "tablet_id=" << _tablet_id << ", schema_hash=" << _schema_hash
               << ", version=" << _version;
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -50,13 +47,13 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
 
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id, _schema_hash);
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id, _schema_hash);
     if (NULL == tablet.get()) {
-        OLAP_LOG_WARNING("can't find tablet. [tablet_id=%ld schema_hash=%d]",
-                         _tablet_id, _schema_hash);
+        OLAP_LOG_WARNING("can't find tablet. [tablet_id=%ld schema_hash=%d]", _tablet_id,
+                         _schema_hash);
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
-
 
     Reader reader;
     ReaderParams reader_params;
@@ -72,7 +69,8 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
 
-        OLAPStatus acquire_reader_st = tablet->capture_rs_readers(reader_params.version, &reader_params.rs_readers);
+        OLAPStatus acquire_reader_st =
+                tablet->capture_rs_readers(reader_params.version, &reader_params.rs_readers);
         if (acquire_reader_st != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to init reader. tablet=" << tablet->full_name()
                          << "res=" << acquire_reader_st;
@@ -104,9 +102,10 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     bool eof = false;
     uint32_t row_checksum = 0;
     while (true) {
-        OLAPStatus res = reader.next_row_with_aggregation(&row, mem_pool.get(), agg_object_pool.get(), &eof);
+        OLAPStatus res =
+                reader.next_row_with_aggregation(&row, mem_pool.get(), agg_object_pool.get(), &eof);
         if (res == OLAP_SUCCESS && eof) {
-            VLOG(3) << "reader reads to the end.";
+            VLOG_NOTICE << "reader reads to the end.";
             break;
         } else if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to read in reader. [res=%d]", res);
@@ -125,4 +124,4 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     return OLAP_SUCCESS;
 }
 
-} // doris
+} // namespace doris

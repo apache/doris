@@ -22,14 +22,9 @@
 
 namespace doris {
 
-BrokerLoadErrorHub::BrokerLoadErrorHub(
-        ExecEnv* env,
-        const TBrokerErrorHubInfo& info,
-        const std::string& error_log_file_name) :
-        _env(env),
-        _info(info, error_log_file_name),
-        _broker_writer(nullptr) {
-}
+BrokerLoadErrorHub::BrokerLoadErrorHub(ExecEnv* env, const TBrokerErrorHubInfo& info,
+                                       const std::string& error_log_file_name)
+        : _env(env), _info(info, error_log_file_name), _broker_writer(nullptr) {}
 
 BrokerLoadErrorHub::~BrokerLoadErrorHub() {
     delete _broker_writer;
@@ -37,8 +32,7 @@ BrokerLoadErrorHub::~BrokerLoadErrorHub() {
 }
 
 Status BrokerLoadErrorHub::prepare() {
-    _broker_writer = new BrokerWriter(_env, _info.addrs,
-            _info.props, _info.path, 0); 
+    _broker_writer = new BrokerWriter(_env, _info.addrs, _info.props, _info.path, 0);
 
     RETURN_IF_ERROR(_broker_writer->open());
 
@@ -83,14 +77,13 @@ Status BrokerLoadErrorHub::close() {
 Status BrokerLoadErrorHub::write_to_broker() {
     std::stringstream ss;
     while (!_error_msgs.empty()) {
-        ss << _error_msgs.front().job_id << ": "
-           << _error_msgs.front().msg << "\n";
+        ss << _error_msgs.front().job_id << ": " << _error_msgs.front().msg << "\n";
         _error_msgs.pop();
     }
-    
+
     const std::string& msg = ss.str();
     size_t written_len = 0;
-    RETURN_IF_ERROR(_broker_writer->write((uint8_t*) msg.c_str(), msg.length(), &written_len));
+    RETURN_IF_ERROR(_broker_writer->write((uint8_t*)msg.c_str(), msg.length(), &written_len));
     return Status::OK();
 }
 
@@ -101,4 +94,3 @@ std::string BrokerLoadErrorHub::debug_string() const {
 }
 
 } // end namespace doris
-

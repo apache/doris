@@ -81,43 +81,43 @@ public class TableSchemaAction extends RestBaseAction {
             if (db == null) {
                 throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Database [" + dbName + "] " + "does not exists");
             }
-            db.readLock();
+
+            Table table = db.getTable(tableName);
+            if (table == null) {
+                throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
+            }
+            // just only support OlapTable, ignore others such as ESTable
+            if (!(table instanceof OlapTable)) {
+                // Forbidden
+                throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "Table [" + tableName + "] "
+                        + "is not a OlapTable, only support OlapTable currently");
+            }
+
+            table.readLock();
             try {
-                Table table = db.getTable(tableName);
-                if (table == null) {
-                    throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
-                }
-                // just only support OlapTable, ignore others such as ESTable
-                if (!(table instanceof OlapTable)) {
-                    // Forbidden
-                    throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "Table [" + tableName + "] "
-                            + "is not a OlapTable, only support OlapTable currently");
-                }
-                try {
-                    List<Column> columns = table.getBaseSchema();
-                    List<Map<String, String>> propList = new ArrayList(columns.size());
-                    for (Column column : columns) {
-                        Map<String, String> baseInfo = new HashMap<>(2);
-                        Type colType = column.getOriginType();
-                        PrimitiveType primitiveType = colType.getPrimitiveType();
-                        if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType == PrimitiveType.DECIMAL) {
-                            ScalarType scalarType = (ScalarType) colType;
-                            baseInfo.put("precision", scalarType.getPrecision() + "");
-                            baseInfo.put("scale", scalarType.getScalarScale() + "");
-                        }
-                        baseInfo.put("type", primitiveType.toString());
-                        baseInfo.put("comment", column.getComment());
-                        baseInfo.put("name", column.getDisplayName());
-                        propList.add(baseInfo);
+                List<Column> columns = table.getBaseSchema();
+                List<Map<String, String>> propList = new ArrayList(columns.size());
+                for (Column column : columns) {
+                    Map<String, String> baseInfo = new HashMap<>(2);
+                    Type colType = column.getOriginType();
+                    PrimitiveType primitiveType = colType.getPrimitiveType();
+                    if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType == PrimitiveType.DECIMAL) {
+                        ScalarType scalarType = (ScalarType) colType;
+                        baseInfo.put("precision", scalarType.getPrecision() + "");
+                        baseInfo.put("scale", scalarType.getScalarScale() + "");
                     }
-                    resultMap.put("status", 200);
-                    resultMap.put("properties", propList);
-                } catch (Exception e) {
-                    // Transform the general Exception to custom DorisHttpException
-                    throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR, e.getMessage() == null ? "Null Pointer Exception" : e.getMessage());
+                    baseInfo.put("type", primitiveType.toString());
+                    baseInfo.put("comment", column.getComment());
+                    baseInfo.put("name", column.getDisplayName());
+                    propList.add(baseInfo);
                 }
+                resultMap.put("status", 200);
+                resultMap.put("properties", propList);
+            } catch (Exception e) {
+                // Transform the general Exception to custom DorisHttpException
+                throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR, e.getMessage() == null ? "Null Pointer Exception" : e.getMessage());
             } finally {
-                db.readUnlock();
+                table.readUnlock();
             }
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic

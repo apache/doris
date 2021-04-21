@@ -18,40 +18,36 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_THRIFT_CLIENT_H
 #define DORIS_BE_SRC_COMMON_UTIL_THRIFT_CLIENT_H
 
-#include <string>
-#include <ostream>
-#include <sstream>
-#include <sys/types.h>
-#include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <boost/shared_ptr.hpp>
+#include <sys/socket.h>
+#include <sys/types.h>
 #include <thrift/Thrift.h>
-#include <thrift/transport/TSocket.h>
-#include <thrift/transport/TBufferTransports.h>
 #include <thrift/protocol/TBinaryProtocol.h>
+#include <thrift/transport/TBufferTransports.h>
+#include <thrift/transport/TSocket.h>
+
+#include <boost/shared_ptr.hpp>
+#include <ostream>
+#include <sstream>
+#include <string>
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "util/thrift_server.h"
 #include "gen_cpp/Types_types.h"
+#include "util/thrift_server.h"
 
 namespace doris {
 
-template<class InterfaceType> class ThriftClient;
+template <class InterfaceType>
+class ThriftClient;
 
 // Super class for templatized thrift clients.
 class ThriftClientImpl {
 public:
-    virtual ~ThriftClientImpl() {
-        close();
-    }
-    const std::string& ipaddress() {
-        return _ipaddress;
-    }
-    int port() {
-        return _port;
-    }
+    virtual ~ThriftClientImpl() { close(); }
+    const std::string& ipaddress() { return _ipaddress; }
+    int port() { return _port; }
 
     // Open the connection to the remote server. May be called
     // repeatedly, is idempotent unless there is a failure to connect.
@@ -65,28 +61,22 @@ public:
     void close();
 
     // Set the connect timeout
-    void set_conn_timeout(int ms) {
-        _socket->setConnTimeout(ms);
-    }
+    void set_conn_timeout(int ms) { _socket->setConnTimeout(ms); }
 
     // Set the receive timeout
-    void set_recv_timeout(int ms) {
-        _socket->setRecvTimeout(ms);
-    }
+    void set_recv_timeout(int ms) { _socket->setRecvTimeout(ms); }
 
     // Set the send timeout
-    void set_send_timeout(int ms) {
-        _socket->setSendTimeout(ms);
-    }
+    void set_send_timeout(int ms) { _socket->setSendTimeout(ms); }
+
 protected:
-    ThriftClientImpl(const std::string& ipaddress, int port) : 
-            _ipaddress(ipaddress),
-            _port(port),
-            _socket(new apache::thrift::transport::TSocket(ipaddress, port)) {
-    }
+    ThriftClientImpl(const std::string& ipaddress, int port)
+            : _ipaddress(ipaddress),
+              _port(port),
+              _socket(new apache::thrift::transport::TSocket(ipaddress, port)) {}
 
 private:
-    template<class InterfaceType>
+    template <class InterfaceType>
     friend class ThriftClient;
 
     std::string _ipaddress;
@@ -96,7 +86,6 @@ private:
     boost::shared_ptr<apache::thrift::transport::TSocket> _socket;
     boost::shared_ptr<apache::thrift::transport::TTransport> _transport;
     boost::shared_ptr<apache::thrift::protocol::TBinaryProtocol> _protocol;
-
 };
 
 // Utility client to a Thrift server. The parameter type is the
@@ -106,50 +95,35 @@ class ThriftClient : public ThriftClientImpl {
 public:
     ThriftClient(const std::string& ipaddress, int port);
 
-    ThriftClient(
-            const std::string& ipaddress,
-            int port,
-            ThriftServer::ServerType server_type);
+    ThriftClient(const std::string& ipaddress, int port, ThriftServer::ServerType server_type);
 
     // Returns the object used to actually make RPCs against the remote server
-    InterfaceType* iface() {
-        return _iface.get();
-    }
+    InterfaceType* iface() { return _iface.get(); }
 
 private:
     boost::shared_ptr<InterfaceType> _iface;
-
 };
 
 template <class InterfaceType>
-ThriftClient<InterfaceType>::ThriftClient(
-        const std::string& ipaddress,
-        int port) : ThriftClientImpl(ipaddress, port) {
+ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port)
+        : ThriftClientImpl(ipaddress, port) {
     _transport.reset(new apache::thrift::transport::TBufferedTransport(_socket));
     _protocol.reset(new apache::thrift::protocol::TBinaryProtocol(_transport));
     _iface.reset(new InterfaceType(_protocol));
 }
 
 template <class InterfaceType>
-ThriftClient<InterfaceType>::ThriftClient(
-        const std::string& ipaddress,
-        int port,
-        ThriftServer::ServerType server_type) : 
-            ThriftClientImpl(ipaddress, port),
-            _iface(new InterfaceType(_protocol)) {
+ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port,
+                                          ThriftServer::ServerType server_type)
+        : ThriftClientImpl(ipaddress, port), _iface(new InterfaceType(_protocol)) {
     switch (server_type) {
     case ThriftServer::NON_BLOCKING:
-        // The Nonblocking server is disabled at this time.  There are
-        // issues with the framed protocol throwing negative frame size errors.
-        LOG(WARNING) << "Nonblocking server usage is experimental";
         _transport.reset(new apache::thrift::transport::TFramedTransport(_socket));
         break;
-
-    case ThriftServer::THREAD_POOL:
     case ThriftServer::THREADED:
+    case ThriftServer::THREAD_POOL:
         _transport.reset(new apache::thrift::transport::TBufferedTransport(_socket));
         break;
-
     default:
         std::stringstream error_msg;
         error_msg << "Unsupported server type: " << server_type;
@@ -162,5 +136,5 @@ ThriftClient<InterfaceType>::ThriftClient(
     _iface.reset(new InterfaceType(_protocol));
 }
 
-}
+} // namespace doris
 #endif

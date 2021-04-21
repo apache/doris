@@ -24,14 +24,14 @@
 #include "util/logging.h"
 #include "util/metrics.h"
 #include "util/stopwatch.hpp"
+#include "test_util/test_util.h"
 
 namespace doris {
 
 class MetricsTest : public testing::Test {
 public:
-    MetricsTest() { }
-    virtual ~MetricsTest() {
-    }
+    MetricsTest() {}
+    virtual ~MetricsTest() {}
 };
 
 TEST_F(MetricsTest, Counter) {
@@ -69,12 +69,12 @@ TEST_F(MetricsTest, Counter) {
     }
 }
 
-template<typename T>
-void mt_updater(T* counter, std::atomic<uint64_t>* used_time) {
+template <typename T>
+void mt_updater(int32_t loop, T* counter, std::atomic<uint64_t>* used_time) {
     sleep(1);
     MonotonicStopWatch watch;
     watch.start();
-    for (int i = 0; i < 1000000L; ++i) {
+    for (int i = 0; i < loop; ++i) {
         counter->increment(1);
     }
     uint64_t elapsed = watch.elapsed_time();
@@ -82,7 +82,8 @@ void mt_updater(T* counter, std::atomic<uint64_t>* used_time) {
 }
 
 TEST_F(MetricsTest, CounterPerf) {
-    static const int kLoopCount = 100000000;
+    static const int kLoopCount = LOOP_LESS_OR_MORE(10, 100000000);
+    static const int kThreadLoopCount = LOOP_LESS_OR_MORE(1000, 1000000);
     // volatile int64_t
     {
         volatile int64_t sum = 0;
@@ -93,8 +94,7 @@ TEST_F(MetricsTest, CounterPerf) {
         }
         uint64_t elapsed = watch.elapsed_time();
         ASSERT_EQ(kLoopCount, sum);
-        LOG(INFO) << "int64_t: elapsed: " << elapsed
-                  << "ns, ns/iter:" << elapsed / kLoopCount;
+        LOG(INFO) << "int64_t: elapsed: " << elapsed << "ns, ns/iter:" << elapsed / kLoopCount;
     }
     // IntAtomicCounter
     {
@@ -119,8 +119,7 @@ TEST_F(MetricsTest, CounterPerf) {
         }
         uint64_t elapsed = watch.elapsed_time();
         ASSERT_EQ(kLoopCount, counter.value());
-        LOG(INFO) << "IntCounter: elapsed: " << elapsed
-                  << "ns, ns/iter:" << elapsed / kLoopCount;
+        LOG(INFO) << "IntCounter: elapsed: " << elapsed << "ns, ns/iter:" << elapsed / kLoopCount;
     }
 
     // multi-thread for IntCounter
@@ -129,14 +128,14 @@ TEST_F(MetricsTest, CounterPerf) {
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
-            updaters.emplace_back(&mt_updater<IntCounter>, &mt_counter, &used_time);
+            updaters.emplace_back(&mt_updater<IntCounter>, kThreadLoopCount, &mt_counter, &used_time);
         }
         for (int i = 0; i < 8; ++i) {
             updaters[i].join();
         }
         LOG(INFO) << "IntCounter multi-thread elapsed: " << used_time.load()
-                  << "ns, ns/iter:" << used_time.load() / (8 * 1000000L);
-        ASSERT_EQ(8 * 1000000L, mt_counter.value());
+                  << "ns, ns/iter:" << used_time.load() / (8 * kThreadLoopCount);
+        ASSERT_EQ(8 * kThreadLoopCount, mt_counter.value());
     }
     // multi-thread for IntAtomicCounter
     {
@@ -144,14 +143,14 @@ TEST_F(MetricsTest, CounterPerf) {
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
-            updaters.emplace_back(&mt_updater<IntAtomicCounter>, &mt_counter, &used_time);
+            updaters.emplace_back(&mt_updater<IntAtomicCounter>, kThreadLoopCount, &mt_counter, &used_time);
         }
         for (int i = 0; i < 8; ++i) {
             updaters[i].join();
         }
         LOG(INFO) << "IntAtomicCounter multi-thread elapsed: " << used_time.load()
-                  << "ns, ns/iter:" << used_time.load() / (8 * 1000000L);
-        ASSERT_EQ(8 * 1000000L, mt_counter.value());
+                  << "ns, ns/iter:" << used_time.load() / (8 * kThreadLoopCount);
+        ASSERT_EQ(8 * kThreadLoopCount, mt_counter.value());
     }
 }
 
@@ -187,7 +186,8 @@ TEST_F(MetricsTest, Gauge) {
 
 TEST_F(MetricsTest, MetricPrototype) {
     {
-        MetricPrototype cpu_idle_type(MetricType::COUNTER, MetricUnit::PERCENT, "fragment_requests_total",
+        MetricPrototype cpu_idle_type(MetricType::COUNTER, MetricUnit::PERCENT,
+                                      "fragment_requests_total",
                                       "Total fragment requests received.");
 
         ASSERT_EQ("fragment_requests_total", cpu_idle_type.simple_name());
@@ -239,9 +239,7 @@ TEST_F(MetricsTest, MetricEntityWithHook) {
 
     // Register
     IntCounter* cpu_idle = (IntCounter*)entity.register_metric<IntCounter>(&cpu_idle_type);
-    entity.register_hook("test_hook", [cpu_idle]() {
-        cpu_idle->increment(6);
-    });
+    entity.register_hook("test_hook", [cpu_idle]() { cpu_idle->increment(6); });
 
     // Before hook
     Metric* metric = entity.get_metric("cpu_idle");
@@ -310,14 +308,17 @@ TEST_F(MetricsTest, MetricRegistryOutput) {
         // Register one common metric to the entity
         auto entity = registry.register_entity("test_entity");
 
-        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "", {}, true);
+        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "",
+                                      {}, true);
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(8);
 
         ASSERT_EQ(R"(# TYPE test_registry_cpu_idle gauge
 test_registry_cpu_idle 8
-)", registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu_idle"},"unit":"percent","value":8}])", registry.to_json());
+)",
+                  registry.to_prometheus());
+        ASSERT_EQ(R"([{"tags":{"metric":"cpu_idle"},"unit":"percent","value":8}])",
+                  registry.to_json());
         ASSERT_EQ("test_registry_cpu_idle LONG 8\n", registry.to_core_string());
         registry.deregister_entity(entity);
     }
@@ -326,14 +327,17 @@ test_registry_cpu_idle 8
         // Register one metric with group name to the entity
         auto entity = registry.register_entity("test_entity");
 
-        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu", {{"mode", "idle"}}, false);
+        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu",
+                                      {{"mode", "idle"}}, false);
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(18);
 
         ASSERT_EQ(R"(# TYPE test_registry_cpu gauge
 test_registry_cpu{mode="idle"} 18
-)", registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":18}])", registry.to_json());
+)",
+                  registry.to_prometheus());
+        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":18}])",
+                  registry.to_json());
         ASSERT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }
@@ -348,8 +352,11 @@ test_registry_cpu{mode="idle"} 18
 
         ASSERT_EQ(R"(# TYPE test_registry_cpu_idle gauge
 test_registry_cpu_idle{name="label_test"} 28
-)", registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu_idle","name":"label_test"},"unit":"percent","value":28}])", registry.to_json());
+)",
+                  registry.to_prometheus());
+        ASSERT_EQ(
+                R"([{"tags":{"metric":"cpu_idle","name":"label_test"},"unit":"percent","value":28}])",
+                registry.to_json());
         ASSERT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }
@@ -358,14 +365,18 @@ test_registry_cpu_idle{name="label_test"} 28
         // Register one common metric with group name to an entity with label
         auto entity = registry.register_entity("test_entity", {{"name", "label_test"}});
 
-        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu", {{"mode", "idle"}});
+        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu",
+                                      {{"mode", "idle"}});
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(38);
 
         ASSERT_EQ(R"(# TYPE test_registry_cpu gauge
 test_registry_cpu{name="label_test",mode="idle"} 38
-)", registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"idle","name":"label_test"},"unit":"percent","value":38}])", registry.to_json());
+)",
+                  registry.to_prometheus());
+        ASSERT_EQ(
+                R"([{"tags":{"metric":"cpu","mode":"idle","name":"label_test"},"unit":"percent","value":38}])",
+                registry.to_json());
         ASSERT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }
@@ -374,24 +385,94 @@ test_registry_cpu{name="label_test",mode="idle"} 38
         // Register two common metrics to one entity
         auto entity = registry.register_entity("test_entity");
 
-        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu", {{"mode", "idle"}});
+        MetricPrototype cpu_idle_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_idle", "", "cpu",
+                                      {{"mode", "idle"}});
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(48);
 
-        MetricPrototype cpu_guest_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_guest", "", "cpu", {{"mode", "guest"}});
+        MetricPrototype cpu_guest_type(MetricType::GAUGE, MetricUnit::PERCENT, "cpu_guest", "",
+                                       "cpu", {{"mode", "guest"}});
         IntGauge* cpu_guest = (IntGauge*)entity->register_metric<IntGauge>(&cpu_guest_type);
         cpu_guest->increment(58);
 
         ASSERT_EQ(R"(# TYPE test_registry_cpu gauge
 test_registry_cpu{mode="idle"} 48
 test_registry_cpu{mode="guest"} 58
-)", registry.to_prometheus());
-        ASSERT_EQ(R"([{"tags":{"metric":"cpu","mode":"guest"},"unit":"percent","value":58},{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":48}])", registry.to_json());
+)",
+                  registry.to_prometheus());
+        ASSERT_EQ(
+                R"([{"tags":{"metric":"cpu","mode":"guest"},"unit":"percent","value":58},{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":48}])",
+                registry.to_json());
         ASSERT_EQ("", registry.to_core_string());
         registry.deregister_entity(entity);
     }
 }
+
+TEST_F(MetricsTest, HistogramRegistryOutput) {
+    MetricRegistry registry("test_registry");
+
+    {
+        // Register one histogram metric to the entity
+        auto entity = registry.register_entity("test_entity");
+
+        MetricPrototype task_duration_type(MetricType::HISTOGRAM,
+                                           MetricUnit::MILLISECONDS,
+                                           "task_duration");
+        HistogramMetric* task_duration = (HistogramMetric*)entity->register_metric<HistogramMetric>(&task_duration_type);
+        for (int j = 1; j <= 100; j++) {
+            task_duration->add(j);
+        }
+
+        ASSERT_EQ(R"(# TYPE test_registry_task_duration histogram
+test_registry_task_duration{quantile="0.50"} 50
+test_registry_task_duration{quantile="0.75"} 75
+test_registry_task_duration{quantile="0.90"} 95.8333
+test_registry_task_duration{quantile="0.95"} 100
+test_registry_task_duration{quantile="0.99"} 100
+test_registry_task_duration_sum 5050
+test_registry_task_duration_count 100
+)",
+                  registry.to_prometheus());
+        ASSERT_EQ(R"*([{"tags":{"metric":"task_duration"},"unit":"milliseconds",)*"
+                R"*("value":{"total_count":100,"min":1,"average":50.5,"median":50.0,)*"
+                R"*("percentile_50":50.0,"percentile_75":75.0,"percentile_90":95.83333333333334,"percentile_95":100.0,"percentile_99":100.0,)*"
+                R"*("standard_deviation":28.86607004772212,"max":100,"total_sum":5050}}])*",
+                  registry.to_json());
+        registry.deregister_entity(entity);
+    }
+
+    {
+        // Register one histogram metric with lables to the entity
+        auto entity = registry.register_entity("test_entity", {{"instance", "test"}});
+
+        MetricPrototype task_duration_type(MetricType::HISTOGRAM,
+                                           MetricUnit::MILLISECONDS,
+                                           "task_duration", "", "",
+                                           {{"type", "create_tablet"}});
+        HistogramMetric* task_duration = (HistogramMetric*)entity->register_metric<HistogramMetric>(&task_duration_type);
+        for (int j = 1; j <= 100; j++) {
+            task_duration->add(j);
+        }
+
+        ASSERT_EQ(R"(# TYPE test_registry_task_duration histogram
+test_registry_task_duration{instance="test",type="create_tablet",quantile="0.50"} 50
+test_registry_task_duration{instance="test",type="create_tablet",quantile="0.75"} 75
+test_registry_task_duration{instance="test",type="create_tablet",quantile="0.90"} 95.8333
+test_registry_task_duration{instance="test",type="create_tablet",quantile="0.95"} 100
+test_registry_task_duration{instance="test",type="create_tablet",quantile="0.99"} 100
+test_registry_task_duration_sum{instance="test",type="create_tablet"} 5050
+test_registry_task_duration_count{instance="test",type="create_tablet"} 100
+)",
+                  registry.to_prometheus());
+        ASSERT_EQ(R"*([{"tags":{"metric":"task_duration","type":"create_tablet","instance":"test"},"unit":"milliseconds",)*"
+                R"*("value":{"total_count":100,"min":1,"average":50.5,"median":50.0,)*"
+                R"*("percentile_50":50.0,"percentile_75":75.0,"percentile_90":95.83333333333334,"percentile_95":100.0,"percentile_99":100.0,)*"
+                R"*("standard_deviation":28.86607004772212,"max":100,"total_sum":5050}}])*",
+                  registry.to_json());
+        registry.deregister_entity(entity);
+    }
 }
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

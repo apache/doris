@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "util/zip_util.h"
+
 #include <memory>
 
-#include "util/zip_util.h"
-#include "util/file_utils.h"
+#include "env/env.h"
 #include "gutil/strings/substitute.h"
 #include "gutil/strings/util.h"
-#include "env/env.h"
+#include "util/file_utils.h"
 #include "util/time.h"
 
 namespace doris {
@@ -39,7 +40,7 @@ Status ZipFile::close() {
         unzClose(_zip_file);
     }
 
-    for (auto& p: _clean_paths) {
+    for (auto& p : _clean_paths) {
         RETURN_IF_ERROR(FileUtils::remove_all(p));
     }
 
@@ -57,7 +58,8 @@ Status ZipFile::extract(const std::string& target_path, const std::string& dir_n
     int err = unzGetGlobalInfo64(_zip_file, &global_info);
 
     if (err != UNZ_OK) {
-        return Status::IOError(strings::Substitute("read zip file info $0 error, code: $1", _zip_path, err));
+        return Status::IOError(
+                strings::Substitute("read zip file info $0 error, code: $1", _zip_path, err));
     }
 
     // 0.check target path
@@ -67,7 +69,8 @@ Status ZipFile::extract(const std::string& target_path, const std::string& dir_n
     }
 
     // 1.create temp directory
-    std::string temp = target_path + "/.tmp_" + std::to_string(GetCurrentTimeMicros()) + "_" + dir_name;
+    std::string temp =
+            target_path + "/.tmp_" + std::to_string(GetCurrentTimeMicros()) + "_" + dir_name;
     _clean_paths.push_back(temp);
 
     RETURN_IF_ERROR(FileUtils::create_dir(temp));
@@ -81,7 +84,7 @@ Status ZipFile::extract(const std::string& target_path, const std::string& dir_n
     // 3.move to target directory
     RETURN_IF_ERROR(Env::Default()->rename_file(temp, target));
     _clean_paths.clear();
-    
+
     return Status::OK();
 }
 
@@ -90,8 +93,8 @@ Status ZipFile::extract_file(const std::string& target_path) {
 
     unz_file_info64 file_info_inzip;
 
-    int err = unzGetCurrentFileInfo64(_zip_file, &file_info_inzip, file_name, DEFAULT_FILE_NAME_SIZE,
-                                      nullptr, 0, nullptr, 0);
+    int err = unzGetCurrentFileInfo64(_zip_file, &file_info_inzip, file_name,
+                                      DEFAULT_FILE_NAME_SIZE, nullptr, 0, nullptr, 0);
 
     if (err != UNZ_OK) {
         return Status::IOError(strings::Substitute("read zip file info error, code: $0", err));
@@ -109,18 +112,19 @@ Status ZipFile::extract_file(const std::string& target_path) {
     _open_current_file = true;
 
     if (UNZ_OK != err) {
-        return Status::IOError(strings::Substitute("read zip file $0 info error, code: $1", file_name, err));
+        return Status::IOError(
+                strings::Substitute("read zip file $0 info error, code: $1", file_name, err));
     }
 
     ZPOS64_T file_size = std::min(file_info_inzip.uncompressed_size, DEFAULT_UNZIP_BUFFER);
-    std::unique_ptr<char []> file_data(new char[file_size]);
+    std::unique_ptr<char[]> file_data(new char[file_size]);
 
     std::unique_ptr<WritableFile> wfile;
     RETURN_IF_ERROR(Env::Default()->new_writable_file(path, &wfile));
 
     size_t size = 0;
     do {
-        size = unzReadCurrentFile(_zip_file, (voidp) file_data.get(), file_size);
+        size = unzReadCurrentFile(_zip_file, (voidp)file_data.get(), file_size);
         if (size < 0) {
             return Status::IOError(strings::Substitute("unzip file $0 failed", file_name));
         }
@@ -137,4 +141,4 @@ Status ZipFile::extract_file(const std::string& target_path) {
     return Status::OK();
 }
 
-}
+} // namespace doris

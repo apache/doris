@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_DECIMAL_OPERATORS_H
 
 #include <stdint.h>
+
 #include "runtime/decimal_value.h"
 #include "udf/udf.h"
 
@@ -33,7 +34,7 @@ class TupleRow;
 class DecimalOperators {
 public:
     static void init();
-    
+
     static DecimalVal cast_to_decimal_val(FunctionContext*, const TinyIntVal&);
     static DecimalVal cast_to_decimal_val(FunctionContext*, const SmallIntVal&);
     static DecimalVal cast_to_decimal_val(FunctionContext*, const IntVal&);
@@ -55,31 +56,31 @@ public:
     static StringVal cast_to_string_val(FunctionContext*, const DecimalVal&);
     static DateTimeVal cast_to_datetime_val(FunctionContext*, const DecimalVal&);
 
-    static DecimalVal add_decimal_val_decimal_val(
-        FunctionContext*, const DecimalVal&, const DecimalVal&);
-    static DecimalVal subtract_decimal_val_decimal_val(
-        FunctionContext*, const DecimalVal&, const DecimalVal&);
-    static DecimalVal multiply_decimal_val_decimal_val(
-        FunctionContext*, const DecimalVal&, const DecimalVal&);
-    static DecimalVal divide_decimal_val_decimal_val(
-        FunctionContext*, const DecimalVal&, const DecimalVal&);
-    static DecimalVal mod_decimal_val_decimal_val(
-        FunctionContext*, const DecimalVal&, const DecimalVal&);
+    static DecimalVal add_decimal_val_decimal_val(FunctionContext*, const DecimalVal&,
+                                                  const DecimalVal&);
+    static DecimalVal subtract_decimal_val_decimal_val(FunctionContext*, const DecimalVal&,
+                                                       const DecimalVal&);
+    static DecimalVal multiply_decimal_val_decimal_val(FunctionContext*, const DecimalVal&,
+                                                       const DecimalVal&);
+    static DecimalVal divide_decimal_val_decimal_val(FunctionContext*, const DecimalVal&,
+                                                     const DecimalVal&);
+    static DecimalVal mod_decimal_val_decimal_val(FunctionContext*, const DecimalVal&,
+                                                  const DecimalVal&);
 
-    static BooleanVal eq_decimal_val_decimal_val(
-        FunctionContext*, const DecimalVal&, const DecimalVal&);
-    static BooleanVal ne_decimal_val_decimal_val(
-        FunctionContext*, const DecimalVal&, const DecimalVal&);
-    static BooleanVal gt_decimal_val_decimal_val(
-        FunctionContext*, const DecimalVal&, const DecimalVal&);
-    static BooleanVal lt_decimal_val_decimal_val(
-        FunctionContext*, const DecimalVal&, const DecimalVal&);
-    static BooleanVal ge_decimal_val_decimal_val(
-        FunctionContext*, const DecimalVal&, const DecimalVal&);
-    static BooleanVal le_decimal_val_decimal_val(
-        FunctionContext*, const DecimalVal&, const DecimalVal&);
+    static BooleanVal eq_decimal_val_decimal_val(FunctionContext*, const DecimalVal&,
+                                                 const DecimalVal&);
+    static BooleanVal ne_decimal_val_decimal_val(FunctionContext*, const DecimalVal&,
+                                                 const DecimalVal&);
+    static BooleanVal gt_decimal_val_decimal_val(FunctionContext*, const DecimalVal&,
+                                                 const DecimalVal&);
+    static BooleanVal lt_decimal_val_decimal_val(FunctionContext*, const DecimalVal&,
+                                                 const DecimalVal&);
+    static BooleanVal ge_decimal_val_decimal_val(FunctionContext*, const DecimalVal&,
+                                                 const DecimalVal&);
+    static BooleanVal le_decimal_val_decimal_val(FunctionContext*, const DecimalVal&,
+                                                 const DecimalVal&);
 };
 
-}
+} // namespace doris
 
 #endif

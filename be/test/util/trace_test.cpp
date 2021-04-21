@@ -17,6 +17,11 @@
 
 #include "util/trace.h"
 
+#include <glog/logging.h>
+#include <gtest/gtest.h>
+#include <rapidjson/document.h>
+#include <rapidjson/rapidjson.h>
+
 #include <cctype>
 #include <cstdint>
 #include <cstring>
@@ -26,11 +31,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-#include <glog/logging.h>
-#include <gtest/gtest.h>
-#include <rapidjson/document.h>
-#include <rapidjson/rapidjson.h>
 
 #include "gutil/macros.h"
 #include "gutil/port.h"
@@ -51,90 +51,90 @@ using std::vector;
 
 namespace doris {
 
-class TraceTest : public ::testing::Test {
-};
+class TraceTest : public ::testing::Test {};
 
 // Replace all digits in 's' with the character 'X'.
-static string XOutDigits(const string& s) {
-  string ret;
-  ret.reserve(s.size());
-  for (char c : s) {
-    if (isdigit(c)) {
-      ret.push_back('X');
-    } else {
-      ret.push_back(c);
+static std::string XOutDigits(const string& s) {
+    std::string ret;
+    ret.reserve(s.size());
+    for (char c : s) {
+        if (isdigit(c)) {
+            ret.push_back('X');
+        } else {
+            ret.push_back(c);
+        }
     }
-  }
-  return ret;
+    return ret;
 }
 
 TEST_F(TraceTest, TestBasic) {
-  scoped_refptr<Trace> t(new Trace);
-  TRACE_TO(t, "hello $0, $1", "world", 12345);
-  TRACE_TO(t, "goodbye $0, $1", "cruel world", 54321);
+    scoped_refptr<Trace> t(new Trace);
+    TRACE_TO(t, "hello $0, $1", "world", 12345);
+    TRACE_TO(t, "goodbye $0, $1", "cruel world", 54321);
 
-  string result = XOutDigits(t->DumpToString(Trace::NO_FLAGS));
-  ASSERT_EQ("XXXX XX:XX:XX.XXXXXX trace_test.cpp:XX] hello world, XXXXX\n"
+    std::string result = XOutDigits(t->DumpToString(Trace::NO_FLAGS));
+    ASSERT_EQ(
+            "XXXX XX:XX:XX.XXXXXX trace_test.cpp:XX] hello world, XXXXX\n"
             "XXXX XX:XX:XX.XXXXXX trace_test.cpp:XX] goodbye cruel world, XXXXX\n",
             result);
 }
 
 TEST_F(TraceTest, TestAttach) {
-  scoped_refptr<Trace> traceA(new Trace);
-  scoped_refptr<Trace> traceB(new Trace);
-  {
-    ADOPT_TRACE(traceA.get());
-    EXPECT_EQ(traceA.get(), Trace::CurrentTrace());
+    scoped_refptr<Trace> traceA(new Trace);
+    scoped_refptr<Trace> traceB(new Trace);
     {
-      ADOPT_TRACE(traceB.get());
-      EXPECT_EQ(traceB.get(), Trace::CurrentTrace());
-      TRACE("hello from traceB");
+        ADOPT_TRACE(traceA.get());
+        EXPECT_EQ(traceA.get(), Trace::CurrentTrace());
+        {
+            ADOPT_TRACE(traceB.get());
+            EXPECT_EQ(traceB.get(), Trace::CurrentTrace());
+            TRACE("hello from traceB");
+        }
+        EXPECT_EQ(traceA.get(), Trace::CurrentTrace());
+        TRACE("hello from traceA");
     }
-    EXPECT_EQ(traceA.get(), Trace::CurrentTrace());
-    TRACE("hello from traceA");
-  }
-  EXPECT_TRUE(Trace::CurrentTrace() == nullptr);
-  TRACE("this goes nowhere");
+    EXPECT_TRUE(Trace::CurrentTrace() == nullptr);
+    TRACE("this goes nowhere");
 
-  EXPECT_EQ("XXXX XX:XX:XX.XXXXXX trace_test.cpp:XX] hello from traceA\n",
-            XOutDigits(traceA->DumpToString(Trace::NO_FLAGS)));
-  EXPECT_EQ("XXXX XX:XX:XX.XXXXXX trace_test.cpp:XX] hello from traceB\n",
-            XOutDigits(traceB->DumpToString(Trace::NO_FLAGS)));
+    EXPECT_EQ("XXXX XX:XX:XX.XXXXXX trace_test.cpp:XX] hello from traceA\n",
+              XOutDigits(traceA->DumpToString(Trace::NO_FLAGS)));
+    EXPECT_EQ("XXXX XX:XX:XX.XXXXXX trace_test.cpp:XX] hello from traceB\n",
+              XOutDigits(traceB->DumpToString(Trace::NO_FLAGS)));
 }
 
 TEST_F(TraceTest, TestChildTrace) {
-  scoped_refptr<Trace> traceA(new Trace);
-  scoped_refptr<Trace> traceB(new Trace);
-  ADOPT_TRACE(traceA.get());
-  traceA->AddChildTrace("child", traceB.get());
-  TRACE("hello from traceA");
-  {
-    ADOPT_TRACE(traceB.get());
-    TRACE("hello from traceB");
-  }
-  EXPECT_EQ("XXXX XX:XX:XX.XXXXXX trace_test.cpp:XXX] hello from traceA\n"
+    scoped_refptr<Trace> traceA(new Trace);
+    scoped_refptr<Trace> traceB(new Trace);
+    ADOPT_TRACE(traceA.get());
+    traceA->AddChildTrace("child", traceB.get());
+    TRACE("hello from traceA");
+    {
+        ADOPT_TRACE(traceB.get());
+        TRACE("hello from traceB");
+    }
+    EXPECT_EQ(
+            "XXXX XX:XX:XX.XXXXXX trace_test.cpp:XXX] hello from traceA\n"
             "Related trace 'child':\n"
             "XXXX XX:XX:XX.XXXXXX trace_test.cpp:XXX] hello from traceB\n",
             XOutDigits(traceA->DumpToString(Trace::NO_FLAGS)));
 }
 
 TEST_F(TraceTest, TestTraceMetrics) {
-  scoped_refptr<Trace> trace(new Trace);
-  trace->metrics()->Increment("foo", 10);
-  trace->metrics()->Increment("bar", 10);
-  for (int i = 0; i < 1000; i++) {
-    trace->metrics()->Increment("baz", i);
-  }
-  EXPECT_EQ("{\"bar\":10,\"baz\":499500,\"foo\":10}",
-            trace->MetricsAsJSON());
+    scoped_refptr<Trace> trace(new Trace);
+    trace->metrics()->Increment("foo", 10);
+    trace->metrics()->Increment("bar", 10);
+    for (int i = 0; i < 1000; i++) {
+        trace->metrics()->Increment("baz", i);
+    }
+    EXPECT_EQ("{\"bar\":10,\"baz\":499500,\"foo\":10}", trace->MetricsAsJSON());
 
-  {
-    ADOPT_TRACE(trace.get());
-    TRACE_COUNTER_SCOPE_LATENCY_US("test_scope_us");
-    SleepFor(MonoDelta::FromMilliseconds(100));
-  }
-  auto m = trace->metrics()->Get();
-  EXPECT_GE(m["test_scope_us"], 80 * 1000);
+    {
+        ADOPT_TRACE(trace.get());
+        TRACE_COUNTER_SCOPE_LATENCY_US("test_scope_us");
+        SleepFor(MonoDelta::FromMilliseconds(100));
+    }
+    auto m = trace->metrics()->Get();
+    EXPECT_GE(m["test_scope_us"], 80 * 1000);
 }
 
 } // namespace doris
@@ -143,4 +143,3 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

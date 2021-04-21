@@ -25,7 +25,7 @@ under the License.
 -->
 
 # 代码格式化
-为了自动格式化代码，推荐使用clang-format进行代码格式化。
+Doris使用clang-format进行代码格式化，并在build-support目录下提供了封装脚本`clang-format.sh`.
 
 ## 代码风格定制
 Doris的代码风格在Google Style的基础上稍有改动，定制为.clang-format文件，位于Doris根目录。
@@ -53,24 +53,10 @@ clang-format程序的版本匹配，从支持的StyleOption上看，应该是低
 ## 使用方式
 
 ### 命令行运行
-`clang-format --style=file -i $File$` 
+cd到Doris根目录下，然后执行如下命令:
+`build-support/clang-format.sh`
 
-`--sytle=file`就会自动找到.clang-format文件，根据文件Option配置来格式化代码。
-
-`--lines=m:n`通过指定起始行和结束行修改文件的指定范围
-
-`-i`指定被格式化文件
-
-批量文件clang-format时，需注意过滤不应该格式化的文件。例如，只格式化*.h/*.cpp，并排除某些文件夹：
-
- Centos
-
-`find . -type f -not \( -wholename ./env/* \) -regextype posix-egrep -regex
- ".*\.(cpp|h)" | xargs clang-format -i -style=file`
- 
- Mac
- 
- `find -E . -type f -not \( -wholename ./env/* \) -regex ".*\.(cpp|h)" | xargs clang-format -i --style=file`
+注：`clang-format.sh`脚本要求您的机器上安装了python 3
 
 ### 在IDE或Editor中使用clang-format
 #### Clion

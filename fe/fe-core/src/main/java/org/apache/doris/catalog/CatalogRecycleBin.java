@@ -28,12 +28,11 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.RangeUtils;
-import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.RecoverInfo;
-import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TStorageMedium;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -41,13 +40,9 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +50,9 @@ import java.util.Set;
 
 public class CatalogRecycleBin extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(CatalogRecycleBin.class);
+    // erase meta at least after minEraseLatency milliseconds
+    // to avoid erase log ahead of drop log
+    private static final long minEraseLatency = 10 * 60 * 1000;  // 10 min
 
     private Map<Long, RecycleDatabaseInfo> idToDatabase;
     private Map<Long, RecycleTableInfo> idToTable;
@@ -130,10 +128,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     private synchronized boolean isExpire(long id, long currentTimeMs) {
-        if (currentTimeMs - idToRecycleTime.get(id) > Config.catalog_trash_expire_second * 1000L) {
-            return true;
-        }
-        return false;
+        long latency = currentTimeMs - idToRecycleTime.get(id);
+        return latency > minEraseLatency && latency > Config.catalog_trash_expire_second * 1000L;
     }
 
     private synchronized void eraseDatabase(long currentTimeMs) {
@@ -146,19 +142,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 // erase db
                 dbIter.remove();
                 idToRecycleTime.remove(entry.getKey());
-
-                // remove jobs
-                Catalog.getCurrentCatalog().getLoadInstance().removeDbLoadJob(db.getId());
-                Catalog.getCurrentCatalog().getLoadInstance().removeDbDeleteJob(db.getId());
-                Catalog.getCurrentCatalog().getSchemaChangeHandler().removeDbAlterJob(db.getId());
-                Catalog.getCurrentCatalog().getRollupHandler().removeDbAlterJob(db.getId());
-
-                // remove database transaction manager
-                Catalog.getCurrentCatalog().getGlobalTransactionMgr().removeDatabaseTransactionMgr(db.getId());
-
-                // log
-                Catalog.getCurrentCatalog().getEditLog().logEraseDb(entry.getKey());
-                LOG.info("erase db[{}]", entry.getKey());
+                Catalog.getCurrentCatalog().eraseDatabase(db.getId(), true);
+                LOG.info("erase db[{}]", db.getId());
             }
         }
     }
@@ -184,15 +169,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     public synchronized void replayEraseDatabase(long dbId) {
         idToDatabase.remove(dbId);
         idToRecycleTime.remove(dbId);
-
-        // remove jobs
-        Catalog.getCurrentCatalog().getLoadInstance().removeDbLoadJob(dbId);
-        Catalog.getCurrentCatalog().getLoadInstance().removeDbDeleteJob(dbId);
-        Catalog.getCurrentCatalog().getSchemaChangeHandler().removeDbAlterJob(dbId);
-        Catalog.getCurrentCatalog().getRollupHandler().removeDbAlterJob(dbId);
-
-        // remove database transaction manager
-        Catalog.getCurrentCatalog().getGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
+        Catalog.getCurrentCatalog().eraseDatabase(dbId, false);
         LOG.info("replay erase db[{}]", dbId);
     }
 
@@ -206,7 +183,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             if (isExpire(tableId, currentTimeMs)) {
                 if (table.getType() == TableType.OLAP) {
-                    onEraseOlapTable((OlapTable) table);
+                    Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, false);
                 }
 
                 // erase table
@@ -218,45 +195,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 LOG.info("erase table[{}]", tableId);
             }
         } // end for tables
-    }
-
-    private void onEraseOlapTable(OlapTable olapTable) {
-        // inverted index
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        Collection<Partition> allPartitions = olapTable.getAllPartitions();
-        for (Partition partition : allPartitions) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                for (Tablet tablet : index.getTablets()) {
-                    invertedIndex.deleteTablet(tablet.getId());
-                }
-            }
-        }
-
-        // drop all replicas
-        AgentBatchTask batchTask = new AgentBatchTask();
-        for (Partition partition : olapTable.getAllPartitions()) {
-            List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
-            for (MaterializedIndex materializedIndex : allIndices) {
-                long indexId = materializedIndex.getId();
-                int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                for (Tablet tablet : materializedIndex.getTablets()) {
-                    long tabletId = tablet.getId();
-                    List<Replica> replicas = tablet.getReplicas();
-                    for (Replica replica : replicas) {
-                        long backendId = replica.getBackendId();
-                        DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId, schemaHash);
-                        batchTask.addTask(dropTask);
-                    } // end for replicas
-                } // end for tablets
-            } // end for indices
-        } // end for partitions
-        AgentTaskExecutor.submit(batchTask);
-
-        // colocation
-        if (Catalog.getCurrentColocateIndex().removeTable(olapTable.getId())) {
-            Catalog.getCurrentCatalog().getEditLog().logColocateRemoveTable(
-                    ColocatePersistInfo.createForRemoveTable(olapTable.getId()));
-        }
     }
 
     private synchronized void eraseTableWithSameName(long dbId, String tableName) {
@@ -271,7 +209,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             Table table = tableInfo.getTable();
             if (table.getName().equals(tableName)) {
                 if (table.getType() == TableType.OLAP) {
-                    onEraseOlapTable((OlapTable) table);
+                    Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, false);
                 }
 
                 iterator.remove();
@@ -287,21 +225,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         Table table = tableInfo.getTable();
         if (table.getType() == TableType.OLAP && !Catalog.isCheckpointThread()) {
-            OlapTable olapTable = (OlapTable) table;
-
-            // remove tablet from inverted index
-            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-            for (Partition partition : olapTable.getAllPartitions()) {
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                    for (Tablet tablet : index.getTablets()) {
-                        invertedIndex.deleteTablet(tablet.getId());
-                    }
-                }
-            }
+            Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, true);
         }
-
-        // colocation
-        Catalog.getCurrentColocateIndex().removeTable(tableId);
 
         LOG.info("replay erase table[{}]", tableId);
     }
@@ -315,14 +240,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             long partitionId = entry.getKey();
             if (isExpire(partitionId, currentTimeMs)) {
-                // remove tablet in inverted index
-                TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                    for (Tablet tablet : index.getTablets()) {
-                        invertedIndex.deleteTablet(tablet.getId());
-                    }
-                }
-
+                Catalog.getCurrentCatalog().onErasePartition(partition);
                 // erase partition
                 iterator.remove();
                 idToRecycleTime.remove(partitionId);
@@ -345,14 +263,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             Partition partition = partitionInfo.getPartition();
             if (partition.getName().equals(partitionName)) {
-                // remove tablet in inverted index
-                TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                    for (Tablet tablet : index.getTablets()) {
-                        invertedIndex.deleteTablet(tablet.getId());
-                    }
-                }
-
+                Catalog.getCurrentCatalog().onErasePartition(partition);
                 iterator.remove();
                 idToRecycleTime.remove(entry.getKey());
 
@@ -367,13 +278,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         Partition partition = partitionInfo.getPartition();
         if (!Catalog.isCheckpointThread()) {
-            // remove tablet from inverted index
-            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                for (Tablet tablet : index.getTablets()) {
-                    invertedIndex.deleteTablet(tablet.getId());
-                }
-            }
+            Catalog.getCurrentCatalog().onErasePartition(partition);
         }
 
         LOG.info("replay erase partition[{}]", partitionId);
@@ -551,7 +456,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         LOG.info("recover partition[{}]", partitionId);
     }
 
-    // The caller should keep db write lock
+    // The caller should keep table write lock
     public synchronized void replayRecoverPartition(OlapTable table, long partitionId) {
         Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
         while (iterator.hasNext()) {

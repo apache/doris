@@ -19,13 +19,13 @@
 
 #include <stdint.h>
 
-#include <string>
 #include <map>
+#include <string>
 
 #include "common/status.h"
 #include "exec/file_reader.h"
-#include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloBrokerService_types.h"
+#include "gen_cpp/Types_types.h"
 
 namespace doris {
 
@@ -39,20 +39,18 @@ class BrokerReader : public FileReader {
 public:
     // If the reader need the file size, set it when construct BrokerReader.
     // There is no other way to set the file size.
-    BrokerReader(ExecEnv* env,
-                 const std::vector<TNetworkAddress>& broker_addresses,
-                 const std::map<std::string, std::string>& properties,
-                 const std::string& path,
-                 int64_t start_offset,
-                 int64_t file_size = 0);
+    BrokerReader(ExecEnv* env, const std::vector<TNetworkAddress>& broker_addresses,
+                 const std::map<std::string, std::string>& properties, const std::string& path,
+                 int64_t start_offset, int64_t file_size = 0);
     virtual ~BrokerReader();
 
     virtual Status open() override;
 
-    // Read 
+    // Read
     virtual Status read(uint8_t* buf, size_t* buf_len, bool* eof) override;
-    virtual Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) override;
-    virtual Status read_one_message(uint8_t** buf, size_t* length) override;
+    virtual Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read,
+                          void* out) override;
+    virtual Status read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) override;
     virtual int64_t size() override;
     virtual Status seek(int64_t position) override;
     virtual Status tell(int64_t* position) override;
@@ -74,5 +72,4 @@ private:
     int _addr_idx;
 };
 
-}
-
+} // namespace doris

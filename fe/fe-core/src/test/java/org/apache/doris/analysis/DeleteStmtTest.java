@@ -24,15 +24,15 @@ import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import mockit.Mocked;
+import com.google.common.collect.Lists;
 
 import java.util.List;
+
+import mockit.Mocked;
 
 public class DeleteStmtTest {
 
@@ -59,9 +59,13 @@ public class DeleteStmtTest {
 
         Assert.assertEquals("testDb", deleteStmt.getDbName());
         Assert.assertEquals("testTbl", deleteStmt.getTableName());
-        Assert.assertEquals("partition", deleteStmt.getPartitionName());
-        Assert.assertEquals("DELETE FROM `testDb`.`testTbl` PARTITION partition WHERE `k1` = 'abc'",
+        Assert.assertEquals(Lists.newArrayList("partition"), deleteStmt.getPartitionNames());
+        Assert.assertEquals("DELETE FROM `testDb`.`testTbl` PARTITION (partition) WHERE `k1` = 'abc'",
                             deleteStmt.toSql());
+
+        deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"), null, wherePredicate);
+        Assert.assertEquals("DELETE FROM `testDb`.`testTbl` WHERE `k1` = 'abc'",
+                deleteStmt.toSql());
     }
 
     @Test
@@ -172,6 +176,25 @@ public class DeleteStmtTest {
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
             deleteStmt.analyze(analyzer);
+        } catch (UserException e) {
+            Assert.fail();
+        }
+
+        // multi partition
+        deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
+                new PartitionNames(false, Lists.newArrayList("partition1", "partiton2")), compoundPredicate);
+        try {
+            deleteStmt.analyze(analyzer);
+            Assert.assertEquals(Lists.newArrayList("partition1", "partiton2"), deleteStmt.getPartitionNames());
+        } catch (UserException e) {
+            Assert.fail();
+        }
+
+        // no partition
+        deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"), null, compoundPredicate);
+        try {
+            deleteStmt.analyze(analyzer);
+            Assert.assertEquals(Lists.newArrayList(), deleteStmt.getPartitionNames());
         } catch (UserException e) {
             Assert.fail();
         }

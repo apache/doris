@@ -83,7 +83,11 @@ Here is a detailed list of  ```query ID, execution time, execution statement``` 
            - MemoryUsed: 0.00 
            - RowsReturnedRate: 811
 ```
-The fragment ID is listed here; ``` hostname ``` show the be node executing the fragment; ```active: 10s270ms```show the total execution time of the node;  ```non child: 0.14%``` show the execution time of the node self except the execution time of the subchild node. Subsequently, the statistics of the child nodes will be printed in turn. **here you can distinguish the parent-child relationship by intent**.
+The fragment ID is listed here; ``` hostname ``` show the be node executing the fragment; ```active: 10s270ms```show the total execution time of the node;  ```non child: 0.14%``` means the execution time of the execution node itself (not including the execution time of child nodes) as a percentage of the total time. 
+
+`PeakMemoryUsage` indicates the peak memory usage of `EXCHANGE_NODE`; `RowsReturned` indicates the number of rows returned by `EXCHANGE_NODE`; `RowsReturnedRate`=`RowsReturned`/`ActiveTime`; the meaning of these three statistics in other `NODE` the same.
+
+Subsequently, the statistics of the child nodes will be printed in turn. **here you can distinguish the parent-child relationship by intent**.
 
 ## Profile statistic analysis
 
@@ -113,9 +117,13 @@ There are many statistical information collected at BE.  so we list the correspo
 #### `EXCHANGE_NODE`
   - BytesReceived: Size of bytes received by network
   - DataArrivalWaitTime: Total waiting time of sender to push data 
+  - MergeGetNext: When there is a sort in the lower level node, exchange node will perform a unified merge sort and output an ordered result. This indicator records the total time consumption of merge sorting, including the time consumption of MergeGetNextBatch.
+  - MergeGetNextBatch：It takes time for merge node to get data. If it is single-layer merge sort, the object to get data is network queue. For multi-level merge sorting, the data object is child merger.
+  - ChildMergeGetNext: When there are too many senders in the lower layer to send data, single thread merge will become a performance bottleneck. Doris will start multiple child merge threads to do merge sort in parallel. The sorting time of child merge is recorded, which is the cumulative value of multiple threads.
+  - ChildMergeGetNextBatch: It takes time for child merge to get data，If the time consumption is too large, the bottleneck may be the lower level data sending node.
   - FirstBatchArrivalWaitTime: The time waiting for the first batch come from sender
   - DeserializeRowBatchTimer: Time consuming to receive data deserialization
-  - SendersBlockedTotalTimer(*): When the DataStreamRecv's queue buffer is full，wait time of sender
+  - SendersBlockedTotalTimer(*): When the DataStreamRecv's queue buffer is full, wait time of sender
   - ConvertRowBatchTime: Time taken to transfer received data to RowBatch
   - RowsReturned: Number of receiving rows
   - RowsReturnedRate: Rate of rows received
@@ -131,120 +139,121 @@ There are many statistical information collected at BE.  so we list the correspo
 #### `AGGREGATION_NODE`
   - PartitionsCreated: Number of partition split by aggregate
   - GetResultsTime: Time to get aggregate results from each partition
-  - HTResizeTime:  Time spent in resizing hashtable
-  - HTResize:  Number of times hashtable resizes
+  - HTResizeTime: Time spent in resizing hashtable
+  - HTResize: Number of times hashtable resizes
   - HashBuckets: Number of buckets in hashtable
-  - HashBucketsWithDuplicate:  Number of buckets with duplicatenode in hashtable
-  - HashCollisions:  Number of hash conflicts generated 
-  - HashDuplicateNodes:  Number of duplicate nodes with the same buckets in hashtable
-  - HashFailedProbe:  Number of failed probe operations
-  - HashFilledBuckets:  Number of buckets filled data
-  - HashProbe:  Number of hashtable probe
-  - HashTravelLength:  The number of steps moved when hashtable queries
+  - HashBucketsWithDuplicate: Number of buckets with duplicatenode in hashtable
+  - HashCollisions: Number of hash conflicts generated 
+  - HashDuplicateNodes: Number of duplicate nodes with the same buckets in hashtable
+  - HashFailedProbe: Number of failed probe operations
+  - HashFilledBuckets: Number of buckets filled data
+  - HashProbe: Number of hashtable probe
+  - HashTravelLength: The number of steps moved when hashtable queries
+
+#### `HASH_JOIN_NODE`
+  - ExecOption: The way to construct a HashTable for the right child (synchronous or asynchronous), the right child in Join may be a table or a subquery, the same is true for the left child
+  - BuildBuckets: The number of Buckets in HashTable
+  - BuildRows: the number of rows of HashTable
+  - BuildTime: Time-consuming to construct HashTable
+  - LoadFactor: Load factor of HashTable (ie the number of non-empty buckets)
+  - ProbeRows: Traverse the number of rows of the left child for Hash Probe
+  - ProbeTime: Time consuming to traverse the left child for Hash Probe, excluding the time consuming to call GetNext on the left child RowBatch
+  - PushDownComputeTime: The calculation time of the predicate pushdown condition
+  - PushDownTime: The total time consumed by the predicate push down. When Join, the right child who meets the requirements is converted to the left child's in query
+
+#### `CROSS_JOIN_NODE`
+  - ExecOption: The way to construct RowBatchList for the right child (synchronous or asynchronous)
+  - BuildRows: The number of rows of RowBatchList (ie the number of rows of the right child)
+  - BuildTime: Time-consuming to construct RowBatchList
+  - LeftChildRows: the number of rows of the left child
+  - LeftChildTime: The time it takes to traverse the left child and find the Cartesian product with the right child, not including the time it takes to call GetNext on the left child RowBatch
+
+#### `UNION_NODE`
+  - MaterializeExprsEvaluateTime: When the field types at both ends of the Union are inconsistent, the time spent to evaluates type conversion exprs and materializes the results 
+
+#### `ANALYTIC_EVAL_NODE`
+  - EvaluationTime: Analysis function (window function) calculation total time
+  - GetNewBlockTime: It takes time to apply for a new block during initialization. Block saves the cache line window or the entire partition for analysis function calculation
+  - PinTime: the time it takes to apply for a new block later or reread the block written to the disk back to the memory
+  - UnpinTime: the time it takes to flush the data of the block to the disk when the memory pressure of the block that is not in use or the current operator is high
 
 #### `OLAP_SCAN_NODE`
 
-The `OLAP_SCAN_NODE` is responsible for specific data scanning tasks. One `OLAP_SCAN_NODE` will generate one or more `OlapScanner` threads. Each Scanner thread is responsible for scanning part of the data.
+The `OLAP_SCAN_NODE` is responsible for specific data scanning tasks. One `OLAP_SCAN_NODE` will generate one or more `OlapScanner`. Each Scanner thread is responsible for scanning part of the data.
 
 Some or all of the predicate conditions in the query will be pushed to `OLAP_SCAN_NODE`. Some of these predicate conditions will continue to be pushed down to the storage engine in order to use the storage engine's index for data filtering. The other part will be kept in `OLAP_SCAN_NODE` to filter the data returned from the storage engine.
+
+The profile of the `OLAP_SCAN_NODE` node is usually used to analyze the efficiency of data scanning. It is divided into three layers: `OLAP_SCAN_NODE`, `OlapScanner`, and `SegmentIterator` according to the calling relationship.
 
 The profile of a typical `OLAP_SCAN_NODE` is as follows. Some indicators will have different meanings depending on the storage format (V1 or V2).
 
 ```
-OLAP_SCAN_NODE (id=0): (Active: 4.050ms, non-child: 35.68%)
-   -BitmapIndexFilterTimer: 0.000ns # Time consuming to filter data using bitmap index.
-   -BlockConvertTime: 7.433ms   # Time consuming to convert a vectorized block into a row structure RowBlock. Vectorized Block is VectorizedRowBatch in V1, and RowBlockV2 in V2.
-   -BlockFetchTime: 36.934ms    # Rowset Reader time to get Block.
-   -BlockLoadTime: 23.368ms # time of SegmentReader(V1) or SegmentIterator(V2) to get the block time.
-   -BlockSeekCount: 0   # The number of block seek times when reading segments.
-   -BlockSeekTime: 3.062ms  # Time consuming for block seek when reading segments.
-   -BlocksLoad: 221 # number of blocks read
-   -BytesRead: 6.59 MB  # The amount of data read from the data file. Assuming that 10 32-bit integers are read, the amount of data is 10 * 4B = 40 Bytes. This data only represents the fully expanded size of the data in memory, and does not represent the actual IO size.
-   -CachedPagesNum: 0   # In V2 only, when PageCache is enabled, the number of pages that hit Cache.
-   -CompressedBytesRead: 1.36 MB    # V1, the size of the data read from the file before decompression. In V2, the uncompressed size of Pages that did not hit PageCache.
-   -DecompressorTimer: 4.194ms  # Data decompression takes time.
-   -IOTimer: 1.404ms    # IO time to actually read data from the operating system.
-   -IndexLoadTime: 1.521ms  # In V1 only, it takes time to read Index Stream.
-   -NumDiskAccess: 6    # The number of disks involved in this ScanNode.
-   -NumScanners: 25 # The number of Scanners generated by this ScanNode.
-   -NumSegmentFiltered: 4   # Number of Segment filtered by column statistic when creating Segment Iterator.
-   -NumSegmentTotal: 20    # Total number of Segment related to this scan.
-   -PeakMemoryUsage: 0  # meaningless
-   -PerReadThreadRawHdfsThroughput: 0.00 /sec   # meaningless
-   -RawRowsRead: 141.71K    # The number of raw rows read in the storage engine. See below for details.
-   -ReaderInitTime: 16.515ms    # OlapScanner time to initialize Reader. V1 includes the time to form MergeHeap. V2 includes the time to generate Iterators at all levels and read the first block.
-   -RowsBitmapFiltered: 0   # Number of rows filtered by bitmap index
-   -RowsBloomFilterFiltered: 0  # In V2 only, the number of rows filtered by the BloomFilter index.
-   -RowsDelFiltered: 0  # V1 indicates the number of rows filtered according to the delete condition. V2 also includes the number of rows filtered by BloomFilter and some predicate conditions.
-   -RowsPushedCondFiltered: 0   # Filter the conditions based on the predicate passed down, such as the condition passed from BuildTable to ProbeTable in Join calculation. This value is inaccurate because if the filtering effect is poor, it will not be filtered.
-   -RowsRead: 132.78K   # The number of rows returned from the storage engine to the Scanner, excluding the number of rows filtered by the Scanner.
-   -RowsReturned: 132.78K   # The number of rows returned from ScanNode to the upper node.
-   -RowsReturnedRate: 32.78 M/sec   # RowsReturned/ActiveTime
-   -RowsStatsFiltered: 0    # In V2, the number of rows filtered according to Zonemap with predicate conditions. V1 also contains the number of rows filtered by BloomFilter.
-   -RowsVectorPredFiltered: 0   # The number of rows filtered by the vectorized conditional filtering operation.
-   -ScanTime: 49.239ms # Time-consuming statistics of Scanner calling get_next() method.
-   -ScannerThreadsInvoluntaryContextSwitches: 0 # meaningless
-   -ScannerThreadsTotalWallClockTime: 0.000ns   # meaningless
-     -MaterializeTupleTime(*): 0.000ns  # meaningless
-     -ScannerThreadsSysTime: 0.000ns    # meaningless
-     -ScannerThreadsUserTime: 0.000ns   # meaningless
-   -ScannerThreadsVoluntaryContextSwitches: 0   # meaningless
-   -ShowHintsTime: 0.000ns  # meaningless in V2. Part of the data is read in V1 to perform ScanRange segmentation.
-   -TabletCount: 25 # The number of tablets involved in this ScanNode.
-   -TotalPagesNum: 0    # In V2 only, the total number of pages read.
-   -TotalRawReadTime(*): 0.000ns    # meaningless
-   -TotalReadThroughput: 0.00 /sec  # meaningless
-   -UncompressedBytesRead: 4.28 MB  # V1 is the decompressed size of the read data file (if the file does not need to be decompressed, the file size is directly counted). In V2, only the uncompressed size of the PageCache is counted (if the Page does not need to be decompressed, the Page size is directly counted)
-   -VectorPredEvalTime: 0.000ns # Time consuming of vectorized conditional filtering operation.
+OLAP_SCAN_NODE (id=0):(Active: 1.2ms,% non-child: 0.00%)
+  - BytesRead: 265.00 B                 # The amount of data read from the data file. Assuming that 10 32-bit integers are read, the amount of data is 10 * 4B = 40 Bytes. This data only represents the fully expanded size of the data in memory, and does not represent the actual IO size.
+  - NumDiskAccess: 1                    # The number of disks involved in this ScanNode node.
+  - NumScanners: 20                     # The number of Scanners generated by this ScanNode.
+  - PeakMemoryUsage: 0.00               # Peak memory usage during query, not used yet
+  - RowsRead: 7                         # The number of rows returned from the storage engine to the Scanner, excluding the number of rows filtered by the Scanner.
+  - RowsReturned: 7                     # The number of rows returned from ScanNode to the upper node.
+  - RowsReturnedRate: 6.979K /sec       # RowsReturned/ActiveTime
+  - TabletCount: 20                     # The number of Tablets involved in this ScanNode.
+  - TotalReadThroughput: 74.70 KB/sec   # BytesRead divided by the total time spent in this node (from Open to Close). For IO bounded queries, this should be very close to the total throughput of all the disks
+  - ScannerBatchWaitTime: 426.886us     # To count the time the transfer thread waits for the scaner thread to return rowbatch.
+  - ScannerWorkerWaitTime: 17.745us     # To count the time that the scanner thread waits for the available worker threads in the thread pool.
+  OlapScanner:
+    - BlockConvertTime: 8.941us         # The time it takes to convert a vectorized Block into a RowBlock with a row structure. The vectorized Block is VectorizedRowBatch in V1 and RowBlockV2 in V2.
+    - BlockFetchTime: 468.974us         # Rowset Reader gets the time of the Block.
+    - ReaderInitTime: 5.475ms           # The time when OlapScanner initializes Reader. V1 includes the time to form MergeHeap. V2 includes the time to generate various Iterators and read the first group of blocks.
+    - RowsDelFiltered: 0                # Including the number of rows filtered out according to the Delete information in the Tablet, and the number of rows filtered for marked deleted rows under the unique key model.
+    - RowsPushedCondFiltered: 0         # Filter conditions based on the predicates passed down, such as the conditions passed from BuildTable to ProbeTable in Join calculation. This value is not accurate, because if the filtering effect is poor, it will no longer be filtered.
+    - ScanTime: 39.24us                 # The number of rows returned from ScanNode to the upper node.
+    - ShowHintsTime_V1: 0ns             # V2 has no meaning. Read part of the data in V1 to perform ScanRange segmentation.
+    SegmentIterator:
+      - BitmapIndexFilterTimer: 779ns   # Use bitmap index to filter data time-consuming.
+      - BlockLoadTime: 415.925us        # SegmentReader(V1) or SegmentIterator(V2) gets the time of the block.
+      - BlockSeekCount: 12              # The number of block seeks when reading Segment.
+      - BlockSeekTime: 222.556us        # It takes time to block seek when reading Segment.
+      - BlocksLoad: 6                   # read the number of blocks
+      - CachedPagesNum: 30              # In V2 only, when PageCache is enabled, the number of Pages that hit the Cache.
+      - CompressedBytesRead: 0.00       # In V1, the size of the data read from the file before decompression. In V2, the pre-compressed size of the read page that did not hit the PageCache.
+      - DecompressorTimer: 0ns          # Data decompression takes time.
+      - IOTimer: 0ns                    # IO time for actually reading data from the operating system.
+      - IndexLoadTime_V1: 0ns           # Only in V1, it takes time to read Index Stream.
+      - NumSegmentFiltered: 0           # When generating Segment Iterator, the number of Segments that are completely filtered out through column statistics and query conditions.
+      - NumSegmentTotal: 6              # Query the number of all segments involved.
+      - RawRowsRead: 7                  # The number of raw rows read in the storage engine. See below for details.
+      - RowsBitmapIndexFiltered: 0      # Only in V2, the number of rows filtered by the Bitmap index.
+      - RowsBloomFilterFiltered: 0      # Only in V2, the number of rows filtered by BloomFilter index.
+      - RowsKeyRangeFiltered: 0         # In V2 only, the number of rows filtered out by SortkeyIndex index.
+      - RowsStatsFiltered: 0            # In V2, the number of rows filtered by the ZoneMap index, including the deletion condition. V1 also contains the number of rows filtered by BloomFilter.
+      - RowsConditionsFiltered: 0       # Only in V2, the number of rows filtered by various column indexes.
+      - RowsVectorPredFiltered: 0       # The number of rows filtered by the vectorized condition filtering operation.
+      - TotalPagesNum: 30               # Only in V2, the total number of pages read.
+      - UncompressedBytesRead: 0.00     # V1 is the decompressed size of the read data file (if the file does not need to be decompressed, the file size is directly counted). In V2, only the decompressed size of the Page that missed PageCache is counted (if the Page does not need to be decompressed, the Page size is directly counted)
+      - VectorPredEvalTime: 0ns         # Time-consuming of vectorized condition filtering operation.
 ```
 
-* Some notes on the number of rows in Profile
+The predicate push down and index usage can be inferred from the related indicators of the number of data rows in the profile. The following only describes the profile in the reading process of segment V2 format data. In segment V1 format, the meaning of these indicators is slightly different.
 
-    The metrics related to the number of rows in the Profile are:
+  - When reading a segment V2, if the query has key_ranges (the query range composed of prefix keys), first filter the data through the SortkeyIndex index, and the number of filtered rows is recorded in `RowsKeyRangeFiltered`.
+  - After that, use the Bitmap index to perform precise filtering on the columns containing the bitmap index in the query condition, and the number of filtered rows is recorded in `RowsBitmapIndexFiltered`.
+  - After that, according to the equivalent (eq, in, is) condition in the query condition, use the BloomFilter index to filter the data and record it in `RowsBloomFilterFiltered`. The value of `RowsBloomFilterFiltered` is the difference between the total number of rows of the Segment (not the number of rows filtered by the Bitmap index) and the number of remaining rows after BloomFilter, so the data filtered by BloomFilter may overlap with the data filtered by Bitmap.
+  - After that, use the ZoneMap index to filter the data according to the query conditions and delete conditions and record it in `RowsStatsFiltered`.
+  - `RowsConditionsFiltered` is the number of rows filtered by various indexes, including the values ​​of `RowsBloomFilterFiltered` and `RowsStatsFiltered`.
+  - So far, the Init phase is completed, and the number of rows filtered by the condition to be deleted in the Next phase is recorded in `RowsDelFiltered`. Therefore, the number of rows actually filtered by the delete condition are recorded in `RowsStatsFiltered` and `RowsDelFiltered` respectively.
+  - `RawRowsRead` is the final number of rows to be read after the above filtering.
+  - `RowsRead` is the number of rows finally returned to Scanner. `RowsRead` is usually smaller than `RawRowsRead`, because returning from the storage engine to the Scanner may go through a data aggregation. If the difference between `RawRowsRead` and `RowsRead` is large, it means that a large number of rows are aggregated, and aggregation may be time-consuming.
+  - `RowsReturned` is the number of rows finally returned by ScanNode to the upper node. `RowsReturned` is usually smaller than `RowsRead`. Because there will be some predicate conditions on the Scanner that are not pushed down to the storage engine, filtering will be performed once. If the difference between `RowsRead` and `RowsReturned` is large, it means that many rows are filtered in the Scanner. This shows that many highly selective predicate conditions are not pushed to the storage engine. The filtering efficiency in Scanner is worse than that in storage engine.
 
-    * NumSegmentFiltered
-    * NumSegmentTotal
-
-    The number of segments actually read can be obtained through these two metrics.
+Through the above indicators, you can roughly analyze the number of rows processed by the storage engine and the size of the final filtered result row. Through the `Rows***Filtered` group of indicators, it is also possible to analyze whether the query conditions are pushed down to the storage engine, and the filtering effects of different indexes. In addition, a simple analysis can be made through the following aspects.
     
-    * RowsKeyRangeFiltered
-    * RowsBitmapIndexFiltered
-    * RowsBloomFilterFiltered
-    * RowsStatsFiltered
-    * RowsDelFiltered
-    * RawRowsRead
-    * RowsRead
-    * RowsReturned
-
-    The predicate conditions in a query are filtered in the storage engine and Scanner respectively. Among the above indicators, the group of metrics `Rows***Filtered` describes the number of rows filtered in the storage engine. The last three metrics describe the number of lines processed in Scanner.
-    
-    The following only describes the process of reading data in Segment V2 format. In the Segment V1 format, the meaning of these metrics are slightly different.
-
-    When reading a V2 format segment, it will first filter based on the Key range (the query range composed of the prefix key), and the number of filtered lines is recorded in `RowsKeyRangeFiltered`. After that, the data is filtered using the Bitmap index, and the filtered rows are recorded in `RowsBitmapIndexFiltered`. After that, the data is filtered using the BloomFilter index and recorded in `RowsBloomFilterFiltered`. The value of `RowsBloomFilterFiltered` is the difference between the total number of rows in the Segment (not the number of rows after being filtered by the Bitmap index) and the number of remaining rows after BloomFilter filtering, so the data filtered by BloomFilter may overlap with the data filtered by Bitmap.
-
-    `RowsStatsFiltered` records the number of rows filtered by other predicate conditions. This includes the predicate conditions pushed down to the storage engine and the Delete condition in the storage engine.
-    
-    `RowsDelFiltered` contains the number of filtered rows recorded by `RowsBloomFilterFiltered` and `RowsStatsFiltered`.
-    
-    `RawRowsRead` is the number of rows that need to be read after the above filtering. The `RowsRead` is the number of rows returned to the Scanner. `RowsRead` is usually smaller than `RawRowsRead`, because returning from the storage engine to the Scanner may go through a data aggregation.
-    
-    `RowsReturned` is the number of rows that ScanNode will eventually return to the upper node. `RowsReturned` will usually be less than
-`RowsRead`. Because there will be some predicate conditions that are not pushed down to the storage engine on the Scanner, it will be filtered in Scanner.
-
-    Through the above indicators, you can roughly analyze the number of rows processed by the storage engine and the final number of rows after filtering. Through the set of indicators of `Rows***Filtered`, you can also analyze whether the query condition is pushed down to the storage engine and the filtering effect of different indexes.
-    
-    If the gap between `RawRowsRead` and `RowsRead` is large, it means that a large number of rows are aggregated, and the aggregation may be time-consuming. If the gap between `RowsRead` and `RowsReturned` is large, it means that many lines are filtered in Scanner. This shows that many highly selected conditions are not pushed to the storage engine. The filtering efficiency in Scanner is worse than that in the storage engine.
-
-* Simple analysis of Scan Node Profile
-
-    OlapScanNode's Profile is usually used to analyze the efficiency of data scanning. In addition to the information about the number of rows that can be used to infer the predicate pushdown and index usage, the following aspects can also be used for simple analysis.
-    
-    * First of all, many indicators, such as `IOTimer`, `BlockFetchTime`, etc. are the accumulation of all Scanner thread indicators, so the value may be relatively large. And because the Scanner thread reads data asynchronously, these cumulative indicators can only reflect the cumulative working time of the Scanner, and do not directly represent the time cost of ScanNode. The proportion of time spent by ScanNode in the entire query plan is the value recorded in the `Active` field. Sometimes it appears that `IOTimer` has tens of seconds, while `Active` actually has only a few seconds. This situation is usually because: 1. `IOTimer` is the accumulated time of multiple Scanners, and there are many Scanners. 2. The upper nodes are more time-consuming. For example, the upper node takes 100 seconds, while the lower ScanNode only takes 10 seconds. The field reflected in `Active` may only be a few milliseconds. Because while the upper node is processing data, the ScanNode has asynchronously scanned the data and prepared the data. When the upper-layer node obtains data from ScanNode, it can obtain the prepared data, so the `Active` time is very short.
-    * IOTimer is the IO time, which can directly reflect the time-consuming IO operation. Here is the accumulated IO time of all Scanner threads.
-    * NumScanners indicates the number of Scanner threads. Too many or too few threads will affect query efficiency. At the same time, some aggregate indicators can be divided by the number of threads to roughly estimate the time spent by each thread.
-    * TabletCount represents the number of tablets that need to be scanned. Excessive numbers may mean that a large number of random reads and data merge operations are required.
-    * UncompressedBytesRead indirectly reflects the amount of data read. If the value is large, it indicates that there may be a large number of IO operations.
-    * CachedPagesNum and TotalPagesNum. For V2 format, you can view the hit of PageCache. The higher the hit rate, the less time the IO and decompression operations take.
+  - Many indicators under `OlapScanner`, such as `IOTimer`, `BlockFetchTime`, etc., are the accumulation of all Scanner thread indicators, so the value may be relatively large. And because the Scanner thread reads data asynchronously, these cumulative indicators can only reflect the cumulative working time of the Scanner, and do not directly represent the time consumption of the ScanNode. The time-consuming ratio of ScanNode in the entire query plan is the value recorded in the `Active` field. Sometimes it appears that `IOTimer` has tens of seconds, but `Active` is actually only a few seconds. This situation is usually due to:
+    - `IOTimer` is the accumulated time of multiple Scanners, and there are more Scanners.
+    - The upper node is time-consuming. For example, the upper node takes 100 seconds, while the lower ScanNode only takes 10 seconds. The field reflected in `Active` may be only a few milliseconds. Because while the upper layer is processing data, ScanNode has performed data scanning asynchronously and prepared the data. When the upper node obtains data from ScanNode, it can obtain the prepared data, so the Active time is very short.
+  - `NumScanners` represents the number of Tasks submitted by the Scanner to the thread pool. It is scheduled by the thread pool in `RuntimeState`. The two parameters `doris_scanner_thread_pool_thread_num` and `doris_scanner_thread_pool_queue_size` control the size of the thread pool and the queue length respectively. Too many or too few threads will affect query efficiency. At the same time, some summary indicators can be divided by the number of threads to roughly estimate the time consumption of each thread.
+  - `TabletCount` indicates the number of tablets to be scanned. Too many may mean a lot of random read and data merge operations.
+  - `UncompressedBytesRead` indirectly reflects the amount of data read. If the value is large, it means that there may be a lot of IO operations.
+  - `CachedPagesNum` and `TotalPagesNum` can check the hitting status of PageCache. The higher the hit rate, the less time-consuming IO and decompression operations.  
 
 #### `Buffer pool`
  - AllocTime: Memory allocation time

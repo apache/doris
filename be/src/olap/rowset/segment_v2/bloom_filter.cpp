@@ -18,11 +18,11 @@
 #include <cstdint>
 #include <functional>
 
-#include "olap/utils.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/strings/substitute.h"
-#include "olap/serialize.h"
 #include "olap/rowset/segment_v2/block_split_bloom_filter.h"
+#include "olap/serialize.h"
+#include "olap/utils.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -31,7 +31,8 @@ Status BloomFilter::create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<Blo
     if (algorithm == BLOCK_BLOOM_FILTER) {
         bf->reset(new BlockSplitBloomFilter());
     } else {
-        return Status::InternalError(strings::Substitute("invalid bloom filter algorithm:$0", algorithm));
+        return Status::InternalError(
+                strings::Substitute("invalid bloom filter algorithm:$0", algorithm));
     }
     return Status::OK();
 }

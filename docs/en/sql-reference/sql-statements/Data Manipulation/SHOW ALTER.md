@@ -31,7 +31,7 @@ Grammar:
 SHOW ALTER [CLUSTER | TABLE [COLUMN | ROLLUP] [FROM db_name]];
 
 Explain:
-TABLE COLUMN：Shows the task of alter table column.
+TABLE COLUMN: Shows the task of alter table column.
               Support grammar [WHERE TableName|CreateTime|FinishTime|State] [ORDER BY] [LIMIT]
 TABLE ROLLUP: Shows the task of creating or deleting ROLLUP index
 If db_name is not specified, use the current default DB

@@ -21,13 +21,13 @@
 
 namespace doris {
 
-#define IF_NULL_COMPUTE_FUNCTION(type, type_name) \
+#define IF_NULL_COMPUTE_FUNCTION(type, type_name)                           \
     type IfNullExpr::get_##type_name(ExprContext* context, TupleRow* row) { \
-        DCHECK_EQ(_children.size(), 2); \
-        type val = _children[0]->get_##type_name(context, row); \
-        if (!val.is_null) return val; /* short-circuit */ \
-        return _children[1]->get_##type_name(context, row); \
-    }\
+        DCHECK_EQ(_children.size(), 2);                                     \
+        type val = _children[0]->get_##type_name(context, row);             \
+        if (!val.is_null) return val; /* short-circuit */                   \
+        return _children[1]->get_##type_name(context, row);                 \
+    }
 
 IF_NULL_COMPUTE_FUNCTION(BooleanVal, boolean_val);
 IF_NULL_COMPUTE_FUNCTION(TinyIntVal, tiny_int_val);
@@ -42,23 +42,22 @@ IF_NULL_COMPUTE_FUNCTION(DecimalVal, decimal_val);
 IF_NULL_COMPUTE_FUNCTION(DecimalV2Val, decimalv2_val);
 IF_NULL_COMPUTE_FUNCTION(LargeIntVal, large_int_val);
 
-#define NULL_IF_COMPUTE_FUNCTION(TYPE, type_name) \
-    TYPE NullIfExpr::get_##type_name(ExprContext* ctx, TupleRow* row) { \
-        DCHECK_EQ(_children.size(), 2); \
-        TYPE lhs_val = _children[0]->get_##type_name(ctx, row); \
-        /* Short-circuit in case lhs_val is NULL. Can never be equal to RHS. */ \
-        if (lhs_val.is_null) return TYPE::null(); \
-        /* Get rhs and return NULL if lhs == rhs, lhs otherwise */ \
-        TYPE rhs_val = _children[1]->get_##type_name(ctx, row); \
+#define NULL_IF_COMPUTE_FUNCTION(TYPE, type_name)                                             \
+    TYPE NullIfExpr::get_##type_name(ExprContext* ctx, TupleRow* row) {                       \
+        DCHECK_EQ(_children.size(), 2);                                                       \
+        TYPE lhs_val = _children[0]->get_##type_name(ctx, row);                               \
+        /* Short-circuit in case lhs_val is NULL. Can never be equal to RHS. */               \
+        if (lhs_val.is_null) return TYPE::null();                                             \
+        /* Get rhs and return NULL if lhs == rhs, lhs otherwise */                            \
+        TYPE rhs_val = _children[1]->get_##type_name(ctx, row);                               \
         if (!rhs_val.is_null && AnyValUtil::equals(_children[0]->type(), lhs_val, rhs_val)) { \
-                return TYPE::null(); \
-        } \
-        return lhs_val; \
+            return TYPE::null();                                                              \
+        }                                                                                     \
+        return lhs_val;                                                                       \
     }
 
 // Just for code check.....
-#define NULL_IF_COMPUTE_FUNCTION_WRAPPER(TYPE, type_name) \
-    NULL_IF_COMPUTE_FUNCTION(TYPE, type_name)
+#define NULL_IF_COMPUTE_FUNCTION_WRAPPER(TYPE, type_name) NULL_IF_COMPUTE_FUNCTION(TYPE, type_name)
 
 NULL_IF_COMPUTE_FUNCTION_WRAPPER(BooleanVal, boolean_val);
 NULL_IF_COMPUTE_FUNCTION_WRAPPER(TinyIntVal, tiny_int_val);
@@ -72,14 +71,14 @@ NULL_IF_COMPUTE_FUNCTION_WRAPPER(DateTimeVal, datetime_val);
 // NULL_IF_COMPUTE_FUNCTION(DecimalVal, decimal_val);
 NULL_IF_COMPUTE_FUNCTION_WRAPPER(LargeIntVal, large_int_val);
 
-#define IF_COMPUTE_FUNCTION(type, type_name) \
+#define IF_COMPUTE_FUNCTION(type, type_name)                            \
     type IfExpr::get_##type_name(ExprContext* context, TupleRow* row) { \
-        DCHECK_EQ(_children.size(), 3); \
-        BooleanVal cond = _children[0]->get_boolean_val(context, row); \
-        if (cond.is_null || !cond.val) { \
-            return _children[2]->get_##type_name(context, row); \
-        } \
-        return _children[1]->get_##type_name(context, row); \
+        DCHECK_EQ(_children.size(), 3);                                 \
+        BooleanVal cond = _children[0]->get_boolean_val(context, row);  \
+        if (cond.is_null || !cond.val) {                                \
+            return _children[2]->get_##type_name(context, row);         \
+        }                                                               \
+        return _children[1]->get_##type_name(context, row);             \
     }
 
 IF_COMPUTE_FUNCTION(BooleanVal, boolean_val);
@@ -95,14 +94,14 @@ IF_COMPUTE_FUNCTION(DecimalVal, decimal_val);
 IF_COMPUTE_FUNCTION(DecimalV2Val, decimalv2_val);
 IF_COMPUTE_FUNCTION(LargeIntVal, large_int_val);
 
-#define COALESCE_COMPUTE_FUNCTION(type, type_name) \
+#define COALESCE_COMPUTE_FUNCTION(type, type_name)                            \
     type CoalesceExpr::get_##type_name(ExprContext* context, TupleRow* row) { \
-        DCHECK_GE(_children.size(), 1); \
-        for (int i = 0; i < _children.size(); ++i) {                  \
-            type val = _children[i]->get_##type_name(context, row); \
-            if (!val.is_null) return val; \
-        } \
-        return type::null(); \
+        DCHECK_GE(_children.size(), 1);                                       \
+        for (int i = 0; i < _children.size(); ++i) {                          \
+            type val = _children[i]->get_##type_name(context, row);           \
+            if (!val.is_null) return val;                                     \
+        }                                                                     \
+        return type::null();                                                  \
     }
 
 COALESCE_COMPUTE_FUNCTION(BooleanVal, boolean_val);
@@ -118,4 +117,4 @@ COALESCE_COMPUTE_FUNCTION(DecimalVal, decimal_val);
 COALESCE_COMPUTE_FUNCTION(DecimalV2Val, decimalv2_val);
 COALESCE_COMPUTE_FUNCTION(LargeIntVal, large_int_val);
 
-}
+} // namespace doris

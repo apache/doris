@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "gtest/gtest.h"
-#include "gmock/gmock.h"
+#include "agent/agent_server.h"
+
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/Types_types.h"
-#include "agent/agent_server.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "olap/mock_command_executor.h"
 #include "util/logging.h"
 
@@ -32,15 +33,15 @@ using std::vector;
 
 namespace doris {
 
-TEST(SubmitTasksTest, TestSubmitTasks){
+TEST(SubmitTasksTest, TestSubmitTasks) {
     TAgentResult return_value;
-    vector<TAgentTaskRequest> tasks;
-    
+    std::vector<TAgentTaskRequest> tasks;
+
     ExecEnv env;
     TMasterInfo master_info;
     TNetworkAddress network_address;
     AgentServer agent_server(&env, master_info);
-    
+
     // Master info not init
     agent_server.submit_tasks(return_value, tasks);
     EXPECT_EQ(TStatusCode::CANCELLED, return_value.status.status_code);
@@ -118,7 +119,7 @@ TEST(MakeSnapshotTest, TestMakeSnapshot) {
     TMasterInfo master_info;
 
     ExecEnv env;
-    CommandExecutor* tmp;    
+    CommandExecutor* tmp;
     MockCommandExecutor mock_command_executor;
     AgentServer agent_server(&env, master_info);
     tmp = agent_server._command_executor;
@@ -134,8 +135,8 @@ TEST(MakeSnapshotTest, TestMakeSnapshot) {
 
     TAgentResult return_value2;
     EXPECT_CALL(mock_command_executor, make_snapshot(_, _))
-        .Times(1)
-        .WillOnce(Return(OLAP_ERR_VERSION_NOT_EXIST));
+            .Times(1)
+            .WillOnce(Return(OLAP_ERR_VERSION_NOT_EXIST));
     agent_server.make_snapshot(return_value2, snapshot_request);
 
     EXPECT_EQ(TStatusCode::RUNTIME_ERROR, return_value2.status.status_code);
@@ -148,7 +149,7 @@ TEST(ReleaseSnapshotTest, TestReleaseSnapshot) {
     string snapshot_path = "snapshot path";
     TMasterInfo master_info;
 
-    CommandExecutor* tmp;    
+    CommandExecutor* tmp;
     MockCommandExecutor mock_command_executor;
     ExecEnv env;
     AgentServer agent_server(&env, master_info);
@@ -165,8 +166,8 @@ TEST(ReleaseSnapshotTest, TestReleaseSnapshot) {
 
     TAgentResult return_value2;
     EXPECT_CALL(mock_command_executor, release_snapshot(snapshot_path))
-        .Times(1)
-        .WillOnce(Return(OLAP_ERR_VERSION_NOT_EXIST));
+            .Times(1)
+            .WillOnce(Return(OLAP_ERR_VERSION_NOT_EXIST));
     agent_server.release_snapshot(return_value2, snapshot_path);
 
     EXPECT_EQ(TStatusCode::RUNTIME_ERROR, return_value2.status.status_code);
@@ -175,9 +176,9 @@ TEST(ReleaseSnapshotTest, TestReleaseSnapshot) {
     agent_server._command_executor = tmp;
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");

@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
@@ -85,7 +86,8 @@ public class OlapTableSink extends DataSink {
     public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds) {
         this.dstTable = dstTable;
         this.tupleDescriptor = tupleDescriptor;
-        Preconditions.checkState(!CollectionUtils.isEmpty(partitionIds));
+        Preconditions.checkState(!CollectionUtils.isEmpty(partitionIds),
+            "The specified partition ids is empty.");
         this.partitionIds = partitionIds;
     }
 
@@ -134,6 +136,9 @@ public class OlapTableSink extends DataSink {
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
         strBuilder.append(prefix + "OLAP TABLE SINK\n");
+        if (explainLevel == TExplainLevel.BRIEF) {
+            return strBuilder.toString();
+        }
         strBuilder.append(prefix + "  TUPLE ID: " + tupleDescriptor.getId() + "\n");
         strBuilder.append(prefix + "  " + DataPartition.RANDOM.getExplainString(explainLevel));
         return strBuilder.toString();
@@ -296,7 +301,8 @@ public class OlapTableSink extends DataSink {
                     Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     if (bePathsMap.keySet().size() < quorum) {
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
-                                "tablet " + tablet.getId() + " has few replicas: " + bePathsMap.keySet().size());
+                                "tablet " + tablet.getId() + " has few replicas: " + bePathsMap.keySet().size()
+                                        + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]");
                     }
                     locationParam.addToTablets(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
                     allBePathsMap.putAll(bePathsMap);

@@ -105,7 +105,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
     再举例，假设用户需要导入只包含 `k1` 一列的表，列类型为 `int`。并且需要将源文件中的对应列进行处理：将负数转换为正数，而将正数乘以 100。这个功能可以通过 `case when` 函数实现，正确写法应如下：
 
-    `COLUMNS (xx, case when xx < 0 than cast(-xx as varchar) else cast((xx + '100') as varchar) end)`
+    `COLUMNS (xx, k1 = case when xx < 0 then cast(-xx as varchar) else cast((xx + '100') as varchar) end)`
 
     注意这里我们需要将 `case when` 中所有的参数都最终转换为 varchar，才能得到期望的结果。
 
@@ -307,3 +307,5 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 7. period\_of\_auto\_resume\_min
     FE 配置项，默认是5分钟。Doris重新调度，只会在5分钟这个周期内，最多尝试3次. 如果3次都失败则锁定当前任务，后续不在进行调度。但可通过人为干预，进行手动恢复。
 
+## keyword
+    ROUTINE,LOAD

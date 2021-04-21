@@ -45,7 +45,6 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.BDBJEJournal;
 import org.apache.doris.journal.bdbje.Timestamp;
-import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
@@ -178,6 +177,13 @@ public class EditLog {
                     LOG.info("Begin to unprotect create table. db = "
                             + info.getDbName() + " table = " + info.getTable().getId());
                     catalog.replayCreateTable(info.getDbName(), info.getTable());
+                    break;
+                }
+                case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
+                    RefreshExternalTableInfo info = (RefreshExternalTableInfo) journal.getData();
+                    LOG.info("Begin to unprotect alter external table schema. db = "
+                            + info.getDbName() + " table = " + info.getTableName());
+                    catalog.replayAlterExternalTableSchema(info.getDbName(), info.getTableName(), info.getNewSchema());
                     break;
                 }
                 case OperationType.OP_DROP_TABLE: {
@@ -386,22 +392,10 @@ public class EditLog {
                     ExportMgr exportMgr = catalog.getExportMgr();
                     exportMgr.replayUpdateJobState(op.getJobId(), op.getState());
                     break;
-                case OperationType.OP_FINISH_SYNC_DELETE: {
-                    DeleteInfo info = (DeleteInfo) journal.getData();
-                    Load load = catalog.getLoadInstance();
-                    load.replayDelete(info, catalog);
-                    break;
-                }
                 case OperationType.OP_FINISH_DELETE: {
                     DeleteInfo info = (DeleteInfo) journal.getData();
                     DeleteHandler deleteHandler = catalog.getDeleteHandler();
                     deleteHandler.replayDelete(info, catalog);
-                    break;
-                }
-                case OperationType.OP_FINISH_ASYNC_DELETE: {
-                    AsyncDeleteJob deleteJob = (AsyncDeleteJob) journal.getData();
-                    Load load = catalog.getLoadInstance();
-                    load.replayFinishAsyncDeleteJob(deleteJob, catalog);
                     break;
                 }
                 case OperationType.OP_ADD_REPLICA: {
@@ -924,6 +918,10 @@ public class EditLog {
         logEdit(OperationType.OP_CREATE_TABLE, info);
     }
 
+    public void logRefreshExternalTableSchema(RefreshExternalTableInfo info) {
+        logEdit(OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA, info);
+    }
+
     public void logAddPartition(PartitionPersistInfo info) {
         logEdit(OperationType.OP_ADD_PARTITION, info);
     }
@@ -1048,16 +1046,8 @@ public class EditLog {
         logEdit(OperationType.OP_REMOVE_FRONTEND, fe);
     }
 
-    public void logFinishSyncDelete(DeleteInfo info) {
-        logEdit(OperationType.OP_FINISH_SYNC_DELETE, info);
-    }
-
     public void logFinishDelete(DeleteInfo info) {
         logEdit(OperationType.OP_FINISH_DELETE, info);
-    }
-
-    public void logFinishAsyncDelete(AsyncDeleteJob job) {
-        logEdit(OperationType.OP_FINISH_ASYNC_DELETE, job);
     }
 
     public void logAddReplica(ReplicaPersistInfo info) {

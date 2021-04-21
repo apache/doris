@@ -17,25 +17,24 @@
 
 #include "util/file_cache.h"
 
-#include "gutil/strings/substitute.h"
 #include "env/env.h"
+#include "gutil/strings/substitute.h"
 
 namespace doris {
 
 template <class FileType>
-FileCache<FileType>::FileCache(const std::string& cache_name, int max_open_files) :
-        _cache_name(cache_name),
-        _cache(new_lru_cache(max_open_files)),
-        _is_cache_own(true) { }
+FileCache<FileType>::FileCache(const std::string& cache_name, int max_open_files)
+        : _cache_name(cache_name),
+          _cache(new_lru_cache(std::string("FileBlockManagerCache:") + cache_name, max_open_files)),
+          _is_cache_own(true) {}
 
 template <class FileType>
-FileCache<FileType>::FileCache(const std::string& cache_name, std::shared_ptr<Cache> cache) :
-        _cache_name(cache_name),
-        _cache(cache),
-        _is_cache_own(false) { }
+FileCache<FileType>::FileCache(const std::string& cache_name, std::shared_ptr<Cache> cache)
+        : _cache_name(cache_name), _cache(cache), _is_cache_own(false) {}
 
 template <class FileType>
-bool FileCache<FileType>::lookup(const std::string& file_name, OpenedFileHandle<FileType>* file_handle) {
+bool FileCache<FileType>::lookup(const std::string& file_name,
+                                 OpenedFileHandle<FileType>* file_handle) {
     DCHECK(_cache != nullptr);
     CacheKey key(file_name);
     auto lru_handle = _cache->lookup(key);
@@ -47,11 +46,10 @@ bool FileCache<FileType>::lookup(const std::string& file_name, OpenedFileHandle<
 }
 
 template <class FileType>
-void FileCache<FileType>::insert(const std::string& file_name, FileType* file, OpenedFileHandle<FileType>* file_handle) {
+void FileCache<FileType>::insert(const std::string& file_name, FileType* file,
+                                 OpenedFileHandle<FileType>* file_handle) {
     DCHECK(_cache != nullptr);
-    auto deleter = [](const CacheKey& key, void* value) {
-        delete (FileType*)value;
-    };
+    auto deleter = [](const CacheKey& key, void* value) { delete (FileType*)value; };
     CacheKey key(file_name);
     auto lru_handle = _cache->insert(key, file, 1, deleter);
     *file_handle = OpenedFileHandle<FileType>(_cache.get(), lru_handle);

@@ -324,11 +324,9 @@ public class BitmapValueTest {
         Assert.assertTrue(serializeSingleValueBitmapValue.equals(deserializeSingleValueBitmapValue));
 
         // bitmap
+        // case 1 : 32-bit bitmap
         BitmapValue serializeBitmapBitmapValue = new BitmapValue();
         for (int i = 0; i < 10; i++) {
-            serializeBitmapBitmapValue.add(i);
-        }
-        for (long i = Long.MAX_VALUE; i > Long.MAX_VALUE - 10; i--) {
             serializeBitmapBitmapValue.add(i);
         }
         ByteArrayOutputStream bitmapOutputStream = new ByteArrayOutputStream();
@@ -340,6 +338,23 @@ public class BitmapValueTest {
         deserializeBitmapBitmapValue.deserialize(bitmapInputStream);
 
         Assert.assertTrue(serializeBitmapBitmapValue.equals(deserializeBitmapBitmapValue));
+
+
+        // bitmap
+        // case 2 : 64-bit bitmap
+        BitmapValue serializeBitmapBitmapValue64 = new BitmapValue();
+        for (long i = Long.MAX_VALUE; i > Long.MAX_VALUE - 10; i--) {
+            serializeBitmapBitmapValue64.add(i);
+        }
+        ByteArrayOutputStream bitmapOutputStream64 = new ByteArrayOutputStream();
+        DataOutput bitmapOutput64 = new DataOutputStream(bitmapOutputStream64);
+        serializeBitmapBitmapValue64.serialize(bitmapOutput64);
+
+        DataInputStream bitmapInputStream64 = new DataInputStream(new ByteArrayInputStream(bitmapOutputStream64.toByteArray()));
+        BitmapValue deserializeBitmapBitmapValue64 = new BitmapValue();
+        deserializeBitmapBitmapValue64.deserialize(bitmapInputStream64);
+
+        Assert.assertTrue(serializeBitmapBitmapValue64.equals(deserializeBitmapBitmapValue64));
     }
 
     @Test

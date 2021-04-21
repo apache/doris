@@ -22,47 +22,37 @@
 
 namespace doris {
 
-ReadOnlyFileStream::ReadOnlyFileStream(
-        FileHandler* handler,
-        StorageByteBuffer** shared_buffer,
-        Decompressor decompressor,
-        uint32_t compress_buffer_size,
-        OlapReaderStatistics* stats)
-            : _file_cursor(handler, 0, 0),
-            _compressed_helper(NULL),
-            _uncompressed(NULL),
-            _shared_buffer(shared_buffer),
-            _decompressor(decompressor),
-            _compress_buffer_size(compress_buffer_size + sizeof(StreamHead)),
-            _current_compress_position(std::numeric_limits<uint64_t>::max()),
-            _stats(stats) {
-}
+ReadOnlyFileStream::ReadOnlyFileStream(FileHandler* handler, StorageByteBuffer** shared_buffer,
+                                       Decompressor decompressor, uint32_t compress_buffer_size,
+                                       OlapReaderStatistics* stats)
+        : _file_cursor(handler, 0, 0),
+          _compressed_helper(NULL),
+          _uncompressed(NULL),
+          _shared_buffer(shared_buffer),
+          _decompressor(decompressor),
+          _compress_buffer_size(compress_buffer_size + sizeof(StreamHead)),
+          _current_compress_position(std::numeric_limits<uint64_t>::max()),
+          _stats(stats) {}
 
-ReadOnlyFileStream::ReadOnlyFileStream(
-        FileHandler* handler,
-        StorageByteBuffer** shared_buffer,
-        uint64_t offset,
-        uint64_t length,
-        Decompressor decompressor,
-        uint32_t compress_buffer_size,
-        OlapReaderStatistics* stats)
-            : _file_cursor(handler, offset, length),
-            _compressed_helper(NULL),
-            _uncompressed(NULL),
-            _shared_buffer(shared_buffer),
-            _decompressor(decompressor),
-            _compress_buffer_size(compress_buffer_size + sizeof(StreamHead)),
-            _current_compress_position(std::numeric_limits<uint64_t>::max()),
-            _stats(stats) {
-}
+ReadOnlyFileStream::ReadOnlyFileStream(FileHandler* handler, StorageByteBuffer** shared_buffer,
+                                       uint64_t offset, uint64_t length, Decompressor decompressor,
+                                       uint32_t compress_buffer_size, OlapReaderStatistics* stats)
+        : _file_cursor(handler, offset, length),
+          _compressed_helper(NULL),
+          _uncompressed(NULL),
+          _shared_buffer(shared_buffer),
+          _decompressor(decompressor),
+          _compress_buffer_size(compress_buffer_size + sizeof(StreamHead)),
+          _current_compress_position(std::numeric_limits<uint64_t>::max()),
+          _stats(stats) {}
 
 OLAPStatus ReadOnlyFileStream::_assure_data() {
     // if still has data in uncompressed
     if (OLAP_LIKELY(_uncompressed != NULL && _uncompressed->remaining() > 0)) {
         return OLAP_SUCCESS;
     } else if (_file_cursor.eof()) {
-        VLOG(10) << "STREAM EOF. length=" << _file_cursor.length()
-                << ", used=" << _file_cursor.position();
+        VLOG_TRACE << "STREAM EOF. length=" << _file_cursor.length()
+                 << ", used=" << _file_cursor.position();
         return OLAP_ERR_COLUMN_STREAM_EOF;
     }
 
@@ -113,8 +103,7 @@ OLAPStatus ReadOnlyFileStream::seek(PositionProvider* position) {
     // 先seek到解压前的位置，也就是writer中写入的spilled byte
     int64_t compressed_position = position->get_next();
     int64_t uncompressed_bytes = position->get_next();
-    if (_current_compress_position == compressed_position
-        && NULL != _uncompressed) {
+    if (_current_compress_position == compressed_position && NULL != _uncompressed) {
         /*
          * 多数情况下不会出现_uncompressed为NULL的情况，
          * 但varchar类型的数据可能会导致查询中出现_uncompressed == NULL 。
@@ -130,7 +119,7 @@ OLAPStatus ReadOnlyFileStream::seek(PositionProvider* position) {
         if (OLAP_LIKELY(OLAP_SUCCESS == res)) {
             // assure data will be successful in most case
         } else if (res == OLAP_ERR_COLUMN_STREAM_EOF) {
-            VLOG(10) << "file stream eof.";
+            VLOG_TRACE << "file stream eof.";
             return res;
         } else {
             OLAP_LOG_WARNING("fail to assure data after seek");
@@ -140,9 +129,7 @@ OLAPStatus ReadOnlyFileStream::seek(PositionProvider* position) {
 
     res = _uncompressed->set_position(uncompressed_bytes);
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to set position.[res=%d, position=%lu]",
-                res,
-                uncompressed_bytes);
+        OLAP_LOG_WARNING("fail to set position.[res=%d, position=%lu]", res, uncompressed_bytes);
         return res;
     }
 
@@ -178,8 +165,7 @@ OLAPStatus ReadOnlyFileStream::skip(uint64_t skip_length) {
 OLAPStatus ReadOnlyFileStream::_fill_compressed(size_t length) {
     if (length > _compress_buffer_size) {
         LOG(WARNING) << "overflow when fill compressed."
-                     << ", length=" << length
-                     << ", compress_size" << _compress_buffer_size;
+                     << ", length=" << length << ", compress_size" << _compress_buffer_size;
         return OLAP_ERR_OUT_OF_BOUND;
     }
 
@@ -198,4 +184,4 @@ uint64_t ReadOnlyFileStream::available() {
     return _file_cursor.remain();
 }
 
-}  // namespace doris
+} // namespace doris

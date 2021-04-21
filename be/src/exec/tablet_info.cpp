@@ -61,8 +61,8 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     }
 
     std::sort(_indexes.begin(), _indexes.end(),
-              [] (const OlapTableIndexSchema* lhs, const OlapTableIndexSchema* rhs) {
-              return lhs->index_id < rhs->index_id;
+              [](const OlapTableIndexSchema* lhs, const OlapTableIndexSchema* rhs) {
+                  return lhs->index_id < rhs->index_id;
               });
     return Status::OK();
 }
@@ -95,8 +95,8 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     }
 
     std::sort(_indexes.begin(), _indexes.end(),
-              [] (const OlapTableIndexSchema* lhs, const OlapTableIndexSchema* rhs) {
-              return lhs->index_id < rhs->index_id;
+              [](const OlapTableIndexSchema* lhs, const OlapTableIndexSchema* rhs) {
+                  return lhs->index_id < rhs->index_id;
               });
     return Status::OK();
 }
@@ -122,11 +122,9 @@ std::string OlapTableSchemaParam::debug_string() const {
 
 std::string OlapTablePartition::debug_string(TupleDescriptor* tuple_desc) const {
     std::stringstream ss;
-    ss << "(id=" << id
-        << ",start_key=" << Tuple::to_string(start_key, *tuple_desc)
-        << ",end_key=" << Tuple::to_string(end_key, *tuple_desc)
-        << ",num_buckets=" << num_buckets
-        << ",indexes=[";
+    ss << "(id=" << id << ",start_key=" << Tuple::to_string(start_key, *tuple_desc)
+       << ",end_key=" << Tuple::to_string(end_key, *tuple_desc) << ",num_buckets=" << num_buckets
+       << ",indexes=[";
     int idx = 0;
     for (auto& index : indexes) {
         if (idx++ > 0) {
@@ -146,16 +144,14 @@ std::string OlapTablePartition::debug_string(TupleDescriptor* tuple_desc) const 
     return ss.str();
 }
 
-OlapTablePartitionParam::OlapTablePartitionParam(
-        std::shared_ptr<OlapTableSchemaParam> schema,
-        const TOlapTablePartitionParam& t_param)
-            : _schema(schema), _t_param(t_param),
-            _mem_tracker(MemTracker::CreateTracker(-1, "OlapTablePartitionParam")),
-            _mem_pool(new MemPool(_mem_tracker.get())) {
-}
+OlapTablePartitionParam::OlapTablePartitionParam(std::shared_ptr<OlapTableSchemaParam> schema,
+                                                 const TOlapTablePartitionParam& t_param)
+        : _schema(schema),
+          _t_param(t_param),
+          _mem_tracker(MemTracker::CreateTracker(-1, "OlapTablePartitionParam")),
+          _mem_pool(new MemPool(_mem_tracker.get())) {}
 
-OlapTablePartitionParam::~OlapTablePartitionParam() {
-}
+OlapTablePartitionParam::~OlapTablePartitionParam() {}
 
 Status OlapTablePartitionParam::init() {
     std::map<std::string, SlotDescriptor*> slots_map;
@@ -182,8 +178,7 @@ Status OlapTablePartitionParam::init() {
         }
     }
 
-    _partitions_map.reset(
-        new std::map<Tuple*, OlapTablePartition*, OlapTablePartKeyComparator>(
+    _partitions_map.reset(new std::map<Tuple*, OlapTablePartition*, OlapTablePartKeyComparator>(
             OlapTablePartKeyComparator(_partition_slot_descs)));
     if (_t_param.__isset.distributed_columns) {
         for (auto& col : _t_param.distributed_columns) {
@@ -204,14 +199,14 @@ Status OlapTablePartitionParam::init() {
 
         if (t_part.__isset.start_key) {
             // deprecated, use start_keys instead
-            std::vector<TExprNode> exprs = { t_part.start_key };
+            std::vector<TExprNode> exprs = {t_part.start_key};
             RETURN_IF_ERROR(_create_partition_keys(exprs, &part->start_key));
         } else if (t_part.__isset.start_keys) {
             RETURN_IF_ERROR(_create_partition_keys(t_part.start_keys, &part->start_key));
         }
         if (t_part.__isset.end_key) {
             // deprecated, use end_keys instead
-            std::vector<TExprNode> exprs = { t_part.end_key };
+            std::vector<TExprNode> exprs = {t_part.end_key};
             RETURN_IF_ERROR(_create_partition_keys(exprs, &part->end_key));
         } else if (t_part.__isset.end_keys) {
             RETURN_IF_ERROR(_create_partition_keys(t_part.end_keys, &part->end_key));
@@ -222,22 +217,22 @@ Status OlapTablePartitionParam::init() {
         if (t_part.indexes.size() != num_indexes) {
             std::stringstream ss;
             ss << "number of partition's index is not equal with schema's"
-                << ", num_part_indexes=" << t_part.indexes.size()
-                << ", num_schema_indexes=" << num_indexes;
+               << ", num_part_indexes=" << t_part.indexes.size()
+               << ", num_schema_indexes=" << num_indexes;
             return Status::InternalError(ss.str());
         }
         part->indexes = t_part.indexes;
         std::sort(part->indexes.begin(), part->indexes.end(),
-                  [] (const OlapTableIndexTablets& lhs, const OlapTableIndexTablets& rhs) {
-                    return lhs.index_id < rhs.index_id;
+                  [](const OlapTableIndexTablets& lhs, const OlapTableIndexTablets& rhs) {
+                      return lhs.index_id < rhs.index_id;
                   });
         // check index
         for (int j = 0; j < num_indexes; ++j) {
             if (part->indexes[j].index_id != _schema->indexes()[j]->index_id) {
                 std::stringstream ss;
                 ss << "partition's index is not equal with schema's"
-                    << ", part_index=" << part->indexes[j].index_id
-                    << ", schema_index=" << _schema->indexes()[j]->index_id;
+                   << ", part_index=" << part->indexes[j].index_id
+                   << ", schema_index=" << _schema->indexes()[j]->index_id;
                 return Status::InternalError(ss.str());
             }
         }
@@ -247,8 +242,7 @@ Status OlapTablePartitionParam::init() {
     return Status::OK();
 }
 
-bool OlapTablePartitionParam::find_tablet(Tuple* tuple,
-                                          const OlapTablePartition** partition,
+bool OlapTablePartitionParam::find_tablet(Tuple* tuple, const OlapTablePartition** partition,
                                           uint32_t* dist_hashes) const {
     auto it = _partitions_map->upper_bound(tuple);
     if (it == _partitions_map->end()) {
@@ -262,7 +256,8 @@ bool OlapTablePartitionParam::find_tablet(Tuple* tuple,
     return false;
 }
 
-Status OlapTablePartitionParam::_create_partition_keys(const std::vector<TExprNode>& t_exprs, Tuple** part_key) {
+Status OlapTablePartitionParam::_create_partition_keys(const std::vector<TExprNode>& t_exprs,
+                                                       Tuple** part_key) {
     Tuple* tuple = (Tuple*)_mem_pool->allocate(_schema->tuple_desc()->byte_size());
     for (int i = 0; i < t_exprs.size(); i++) {
         const TExprNode& t_expr = t_exprs[i];
@@ -272,13 +267,14 @@ Status OlapTablePartitionParam::_create_partition_keys(const std::vector<TExprNo
     return Status::OK();
 }
 
-Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, Tuple* tuple, SlotDescriptor* slot_desc) {
+Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, Tuple* tuple,
+                                                      SlotDescriptor* slot_desc) {
     void* slot = tuple->get_slot(slot_desc->tuple_offset());
     tuple->set_not_null(slot_desc->null_indicator_offset());
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
         if (!reinterpret_cast<DateTimeValue*>(slot)->from_date_str(
-                t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size())) {
+                    t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size())) {
             std::stringstream ss;
             ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
             return Status::InternalError(ss.str());
@@ -307,9 +303,9 @@ Status OlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, T
     }
     case TExprNodeType::LARGE_INT_LITERAL: {
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-        __int128 val = StringParser::string_to_int<__int128>(
-            t_expr.large_int_literal.value.c_str(), t_expr.large_int_literal.value.size(),
-            &parse_result);
+        __int128 val = StringParser::string_to_int<__int128>(t_expr.large_int_literal.value.c_str(),
+                                                             t_expr.large_int_literal.value.size(),
+                                                             &parse_result);
         if (parse_result != StringParser::PARSE_SUCCESS) {
             val = MAX_INT128;
         }
@@ -358,4 +354,4 @@ uint32_t OlapTablePartitionParam::_compute_dist_hash(Tuple* key) const {
     return hash_val;
 }
 
-}
+} // namespace doris

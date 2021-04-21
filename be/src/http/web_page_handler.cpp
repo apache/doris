@@ -50,7 +50,8 @@ WebPageHandler::WebPageHandler(EvHttpServer* server) : _http_server(server) {
     _http_server->register_static_file_handler(this);
 
     TemplatePageHandlerCallback root_callback =
-            std::bind<void>(std::mem_fn(&WebPageHandler::root_handler), this, std::placeholders::_1, std::placeholders::_2);
+            std::bind<void>(std::mem_fn(&WebPageHandler::root_handler), this, std::placeholders::_1,
+                            std::placeholders::_2);
     register_template_page("/", "Home", root_callback, false /* is_on_nav_bar */);
 }
 
@@ -59,9 +60,10 @@ WebPageHandler::~WebPageHandler() {
 }
 
 void WebPageHandler::register_template_page(const std::string& path, const string& alias,
-                                            const TemplatePageHandlerCallback& callback, bool is_on_nav_bar) {
+                                            const TemplatePageHandlerCallback& callback,
+                                            bool is_on_nav_bar) {
     // Relative path which will be used to find .mustache file in _www_path
-    string render_path = (path == "/") ? "/home" : path;
+    std::string render_path = (path == "/") ? "/home" : path;
     auto wrapped_cb = [=](const ArgumentMap& args, std::stringstream* output) {
         EasyJson ej;
         callback(args, &ej);
@@ -80,8 +82,7 @@ void WebPageHandler::register_page(const std::string& path, const string& alias,
 }
 
 void WebPageHandler::handle(HttpRequest* req) {
-    LOG(INFO) << req->debug_string();
-
+    VLOG_TRACE << req->debug_string();
     PathHandler* handler = nullptr;
     {
         boost::mutex::scoped_lock lock(_map_lock);
@@ -127,7 +128,7 @@ static const std::string kMainTemplate = R"(
     <meta charset='utf-8'/>
     <link href='/Bootstrap-3.3.7/css/bootstrap.min.css' rel='stylesheet' media='screen' />
     <link href='/Bootstrap-3.3.7/css/bootstrap-table.min.css' rel='stylesheet' media='screen' />
-    <script src='/jQuery-3.3.1/jquery-3.3.1.min.js' defer></script>
+    <script src='/jQuery-3.3.1/jquery-3.3.1.min.js'></script>
     <script src='/Bootstrap-3.3.7/js/bootstrap.min.js' defer></script>
     <script src='/Bootstrap-3.3.7/js/bootstrap-table.min.js' defer></script>
     <script src='/doris.js' defer></script>
@@ -167,7 +168,7 @@ static const std::string kMainTemplate = R"(
 )";
 
 std::string WebPageHandler::mustache_partial_tag(const std::string& path) const {
-    return Substitute("{{> $0.mustache}}", path);
+    return strings::Substitute("{{> $0.mustache}}", path);
 }
 
 bool WebPageHandler::static_pages_available() const {
@@ -179,11 +180,12 @@ bool WebPageHandler::mustache_template_available(const std::string& path) const 
     if (!static_pages_available()) {
         return false;
     }
-    return Env::Default()->path_exists(Substitute("$0/$1.mustache", _www_path, path)).ok();
+    return Env::Default()->path_exists(strings::Substitute("$0/$1.mustache", _www_path, path)).ok();
 }
 
 void WebPageHandler::render_main_template(const std::string& content, std::stringstream* output) {
-    static const std::string& footer = std::string("<pre>") + get_version_string(true) + std::string("</pre>");
+    static const std::string& footer =
+            std::string("<pre>") + get_version_string(true) + std::string("</pre>");
 
     EasyJson ej;
     ej["static_pages_available"] = static_pages_available();

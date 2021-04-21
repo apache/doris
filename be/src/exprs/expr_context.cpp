@@ -17,30 +17,30 @@
 
 #include "exprs/expr_context.h"
 
-#include <sstream>
 #include <gperftools/profiler.h>
 
+#include <sstream>
+
+#include "exprs/anyval_util.h"
 #include "exprs/expr.h"
 #include "exprs/slot_ref.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/runtime_state.h"
 #include "runtime/raw_value.h"
+#include "runtime/runtime_state.h"
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
 #include "util/stack_util.h"
-#include "exprs/anyval_util.h"
 
 namespace doris {
 
-ExprContext::ExprContext(Expr* root) :
-        _fn_contexts_ptr(NULL),
-        _root(root),
-        _is_clone(false),
-        _prepared(false),
-        _opened(false),
-        _closed(false) {
-}
+ExprContext::ExprContext(Expr* root)
+        : _fn_contexts_ptr(NULL),
+          _root(root),
+          _is_clone(false),
+          _prepared(false),
+          _opened(false),
+          _closed(false) {}
 
 ExprContext::~ExprContext() {
     DCHECK(!_prepared || _closed);
@@ -70,11 +70,11 @@ Status ExprContext::open(RuntimeState* state) {
     // Fragment-local state is only initialized for original contexts. Clones inherit the
     // original's fragment state and only need to have thread-local state initialized.
     FunctionContext::FunctionStateScope scope =
-        _is_clone? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
+            _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
     return _root->open(state, this, scope);
 }
 
-// TODO chenhao , replace ExprContext with ScalarExprEvaluator 
+// TODO chenhao , replace ExprContext with ScalarExprEvaluator
 Status ExprContext::open(std::vector<ExprContext*> evals, RuntimeState* state) {
     for (int i = 0; i < evals.size(); ++i) {
         RETURN_IF_ERROR(evals[i]->open(state));
@@ -85,7 +85,7 @@ Status ExprContext::open(std::vector<ExprContext*> evals, RuntimeState* state) {
 void ExprContext::close(RuntimeState* state) {
     DCHECK(!_closed);
     FunctionContext::FunctionStateScope scope =
-        _is_clone? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
+            _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
     _root->close(state, this, scope);
 
     for (int i = 0; i < _fn_contexts.size(); ++i) {
@@ -98,11 +98,10 @@ void ExprContext::close(RuntimeState* state) {
     _closed = true;
 }
 
-int ExprContext::register_func(
-        RuntimeState* state,
-        const doris_udf::FunctionContext::TypeDesc& return_type,
-        const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
-        int varargs_buffer_size) {
+int ExprContext::register_func(RuntimeState* state,
+                               const doris_udf::FunctionContext::TypeDesc& return_type,
+                               const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
+                               int varargs_buffer_size) {
     _fn_contexts.push_back(FunctionContextImpl::create_context(
             state, _pool.get(), return_type, arg_types, varargs_buffer_size, false));
     _fn_contexts_ptr = &_fn_contexts[0];
@@ -117,8 +116,7 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx) {
     *new_ctx = state->obj_pool()->add(new ExprContext(_root));
     (*new_ctx)->_pool.reset(new MemPool(_pool->mem_tracker()));
     for (int i = 0; i < _fn_contexts.size(); ++i) {
-        (*new_ctx)->_fn_contexts.push_back(
-            _fn_contexts[i]->impl()->clone((*new_ctx)->_pool.get()));
+        (*new_ctx)->_fn_contexts.push_back(_fn_contexts[i]->impl()->clone((*new_ctx)->_pool.get()));
     }
     (*new_ctx)->_fn_contexts_ptr = &((*new_ctx)->_fn_contexts[0]);
 
@@ -137,8 +135,7 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx, Expr* root
     *new_ctx = state->obj_pool()->add(new ExprContext(root));
     (*new_ctx)->_pool.reset(new MemPool(_pool->mem_tracker()));
     for (int i = 0; i < _fn_contexts.size(); ++i) {
-        (*new_ctx)->_fn_contexts.push_back(
-            _fn_contexts[i]->impl()->clone((*new_ctx)->_pool.get()));
+        (*new_ctx)->_fn_contexts.push_back(_fn_contexts[i]->impl()->clone((*new_ctx)->_pool.get()));
     }
     (*new_ctx)->_fn_contexts_ptr = &((*new_ctx)->_fn_contexts[0]);
 
@@ -245,13 +242,6 @@ void ExprContext::get_value(TupleRow* row, bool as_ascii, TColumnValue* col_val)
         DCHECK(false) << "bad get_value() type: " << _root->_type;
     }
 #endif
-}
-
-void* ExprContext::get_value(TupleRow* row) {
-    if (_root->is_slotref()) {
-        return SlotRef::get_value(_root, row);
-    }
-    return get_value(_root, row);
 }
 
 bool ExprContext::is_nullable() {
@@ -464,58 +454,56 @@ DecimalV2Val ExprContext::get_decimalv2_val(TupleRow* row) {
     return _root->get_decimalv2_val(this, row);
 }
 
-Status ExprContext::get_const_value(RuntimeState* state, Expr& expr,
-    AnyVal** const_val) {
-  DCHECK(_opened);
-  if (!expr.is_constant()) {
-    *const_val = nullptr;
-    return Status::OK();
-  }
-
-  // A constant expression shouldn't have any SlotRefs expr in it.
-  DCHECK_EQ(expr.get_slot_ids(nullptr), 0);
-  DCHECK(_pool != nullptr);
-  const TypeDescriptor& result_type = expr.type();
-  ObjectPool* obj_pool = state->obj_pool();
-  *const_val = create_any_val(obj_pool, result_type);
-  if (*const_val == NULL) {
-      return Status::InternalError("Could not create any val");
-  }
-
-  const void* result = ExprContext::get_value(&expr, nullptr);
-  AnyValUtil::set_any_val(result, result_type, *const_val);
-  if (result_type.is_string_type()) {
-    StringVal* sv = reinterpret_cast<StringVal*>(*const_val);
-    if (!sv->is_null && sv->len > 0) {
-      // Make sure the memory is owned by this evaluator.
-      char* ptr_copy = reinterpret_cast<char*>(_pool->try_allocate(sv->len));
-      if (ptr_copy == nullptr) {
-        return _pool->mem_tracker()->MemLimitExceeded(
-            state, "Could not allocate constant string value", sv->len);
-      }
-      memcpy(ptr_copy, sv->ptr, sv->len);
-      sv->ptr = reinterpret_cast<uint8_t*>(ptr_copy);
+Status ExprContext::get_const_value(RuntimeState* state, Expr& expr, AnyVal** const_val) {
+    DCHECK(_opened);
+    if (!expr.is_constant()) {
+        *const_val = nullptr;
+        return Status::OK();
     }
-  }
-  return get_error(expr._fn_ctx_idx_start, expr._fn_ctx_idx_end);
+
+    // A constant expression shouldn't have any SlotRefs expr in it.
+    DCHECK_EQ(expr.get_slot_ids(nullptr), 0);
+    DCHECK(_pool != nullptr);
+    const TypeDescriptor& result_type = expr.type();
+    ObjectPool* obj_pool = state->obj_pool();
+    *const_val = create_any_val(obj_pool, result_type);
+    if (*const_val == NULL) {
+        return Status::InternalError("Could not create any val");
+    }
+
+    const void* result = ExprContext::get_value(&expr, nullptr);
+    AnyValUtil::set_any_val(result, result_type, *const_val);
+    if (result_type.is_string_type()) {
+        StringVal* sv = reinterpret_cast<StringVal*>(*const_val);
+        if (!sv->is_null && sv->len > 0) {
+            // Make sure the memory is owned by this evaluator.
+            char* ptr_copy = reinterpret_cast<char*>(_pool->try_allocate(sv->len));
+            if (ptr_copy == nullptr) {
+                return _pool->mem_tracker()->MemLimitExceeded(
+                        state, "Could not allocate constant string value", sv->len);
+            }
+            memcpy(ptr_copy, sv->ptr, sv->len);
+            sv->ptr = reinterpret_cast<uint8_t*>(ptr_copy);
+        }
+    }
+    return get_error(expr._fn_ctx_idx_start, expr._fn_ctx_idx_end);
 }
 
-
 Status ExprContext::get_error(int start_idx, int end_idx) const {
-  DCHECK(_opened);
-  end_idx = end_idx == -1 ? _fn_contexts.size() : end_idx;
-  DCHECK_GE(start_idx, 0);
-  DCHECK_LE(end_idx, _fn_contexts.size());
-  for (int idx = start_idx; idx < end_idx; ++idx) {
-    DCHECK_LT(idx, _fn_contexts.size());
-    FunctionContext* fn_ctx = _fn_contexts[idx];
-    if (fn_ctx->has_error()) return Status::InternalError(fn_ctx->error_msg());
-  }
-  return Status::OK();
+    DCHECK(_opened);
+    end_idx = end_idx == -1 ? _fn_contexts.size() : end_idx;
+    DCHECK_GE(start_idx, 0);
+    DCHECK_LE(end_idx, _fn_contexts.size());
+    for (int idx = start_idx; idx < end_idx; ++idx) {
+        DCHECK_LT(idx, _fn_contexts.size());
+        FunctionContext* fn_ctx = _fn_contexts[idx];
+        if (fn_ctx->has_error()) return Status::InternalError(fn_ctx->error_msg());
+    }
+    return Status::OK();
 }
 
 std::string ExprContext::get_error_msg() const {
-    for (auto fn_ctx: _fn_contexts) {
+    for (auto fn_ctx : _fn_contexts) {
         if (fn_ctx->has_error()) {
             return std::string(fn_ctx->error_msg());
         }
@@ -524,9 +512,9 @@ std::string ExprContext::get_error_msg() const {
 }
 
 void ExprContext::clear_error_msg() {
-    for (auto fn_ctx: _fn_contexts) {
+    for (auto fn_ctx : _fn_contexts) {
         fn_ctx->clear_error_msg();
     }
 }
 
-}
+} // namespace doris

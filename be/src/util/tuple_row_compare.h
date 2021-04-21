@@ -18,12 +18,13 @@
 #ifndef INF_DORIS_BE_SRC_UTIL_TUPLE_ROW_COMPARE_H
 #define INF_DORIS_BE_SRC_UTIL_TUPLE_ROW_COMPARE_H
 
-#include "exprs/expr.h"
 #include "exec/sort_exec_exprs.h"
+#include "exprs/expr.h"
+#include "exprs/expr_context.h"
+#include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
-#include "runtime/descriptors.h"
 
 namespace doris {
 
@@ -34,14 +35,12 @@ public:
     // sort order.
     // We use nulls_first to determine, for each expr, if nulls should come before
     // or after all other values.
-    TupleRowComparator(
-        const std::vector<ExprContext*>& key_expr_ctxs_lhs,
-        const std::vector<ExprContext*>& key_expr_ctxs_rhs,
-        const std::vector<bool>& is_asc,
-        const std::vector<bool>& nulls_first) :
-            _key_expr_ctxs_lhs(key_expr_ctxs_lhs),
-            _key_expr_ctxs_rhs(key_expr_ctxs_rhs),
-            _is_asc(is_asc) {
+    TupleRowComparator(const std::vector<ExprContext*>& key_expr_ctxs_lhs,
+                       const std::vector<ExprContext*>& key_expr_ctxs_rhs,
+                       const std::vector<bool>& is_asc, const std::vector<bool>& nulls_first)
+            : _key_expr_ctxs_lhs(key_expr_ctxs_lhs),
+              _key_expr_ctxs_rhs(key_expr_ctxs_rhs),
+              _is_asc(is_asc) {
         // DCHECK_EQ(key_expr_ctxs_lhs.size(), key_expr_ctxs_rhs.size());
         DCHECK_EQ(key_expr_ctxs_lhs.size(), is_asc.size());
         DCHECK_EQ(key_expr_ctxs_lhs.size(), nulls_first.size());
@@ -51,14 +50,13 @@ public:
         }
     }
 
-    TupleRowComparator(
-        const std::vector<ExprContext*>& key_expr_ctxs_lhs,
-        const std::vector<ExprContext*>& key_expr_ctxs_rhs,
-        bool is_asc, bool nulls_first) :
-            _key_expr_ctxs_lhs(key_expr_ctxs_lhs),
-            _key_expr_ctxs_rhs(key_expr_ctxs_rhs),
-            _is_asc(key_expr_ctxs_lhs.size(), is_asc),
-            _nulls_first(key_expr_ctxs_lhs.size(), nulls_first ? -1 : 1) {
+    TupleRowComparator(const std::vector<ExprContext*>& key_expr_ctxs_lhs,
+                       const std::vector<ExprContext*>& key_expr_ctxs_rhs, bool is_asc,
+                       bool nulls_first)
+            : _key_expr_ctxs_lhs(key_expr_ctxs_lhs),
+              _key_expr_ctxs_rhs(key_expr_ctxs_rhs),
+              _is_asc(key_expr_ctxs_lhs.size(), is_asc),
+              _nulls_first(key_expr_ctxs_lhs.size(), nulls_first ? -1 : 1) {
         DCHECK_EQ(key_expr_ctxs_lhs.size(), key_expr_ctxs_rhs.size());
     }
 
@@ -67,13 +65,11 @@ public:
     // order.
     // 'nulls_first' determines, for each expr, if nulls should come before or after all
     // other values.
-    TupleRowComparator(
-            const SortExecExprs& sort_key_exprs,
-            const std::vector<bool>& is_asc,
-            const std::vector<bool>& nulls_first) :
-                _key_expr_ctxs_lhs(sort_key_exprs.lhs_ordering_expr_ctxs()),
-                _key_expr_ctxs_rhs(sort_key_exprs.rhs_ordering_expr_ctxs()),
-                _is_asc(is_asc) {
+    TupleRowComparator(const SortExecExprs& sort_key_exprs, const std::vector<bool>& is_asc,
+                       const std::vector<bool>& nulls_first)
+            : _key_expr_ctxs_lhs(sort_key_exprs.lhs_ordering_expr_ctxs()),
+              _key_expr_ctxs_rhs(sort_key_exprs.rhs_ordering_expr_ctxs()),
+              _is_asc(is_asc) {
         DCHECK_EQ(_key_expr_ctxs_lhs.size(), is_asc.size());
         DCHECK_EQ(_key_expr_ctxs_lhs.size(), nulls_first.size());
         _nulls_first.reserve(_key_expr_ctxs_lhs.size());
@@ -82,12 +78,11 @@ public:
         }
     }
 
-    TupleRowComparator(const SortExecExprs& sort_key_exprs, bool is_asc, bool nulls_first) :
-            _key_expr_ctxs_lhs(sort_key_exprs.lhs_ordering_expr_ctxs()),
-            _key_expr_ctxs_rhs(sort_key_exprs.rhs_ordering_expr_ctxs()),
-            _is_asc(_key_expr_ctxs_lhs.size(), is_asc),
-            _nulls_first(_key_expr_ctxs_lhs.size(), nulls_first ? -1 : 1) {
-    }
+    TupleRowComparator(const SortExecExprs& sort_key_exprs, bool is_asc, bool nulls_first)
+            : _key_expr_ctxs_lhs(sort_key_exprs.lhs_ordering_expr_ctxs()),
+              _key_expr_ctxs_rhs(sort_key_exprs.rhs_ordering_expr_ctxs()),
+              _is_asc(_key_expr_ctxs_lhs.size(), is_asc),
+              _nulls_first(_key_expr_ctxs_lhs.size(), nulls_first ? -1 : 1) {}
 
     // Returns a negative value if lhs is less than rhs, a positive value if lhs is greater
     // than rhs, or 0 if they are equal. All exprs (_key_exprs_lhs and _key_exprs_rhs)
@@ -109,8 +104,8 @@ public:
                 return -_nulls_first[i];
             }
 
-            int result = RawValue::compare(
-                lhs_value, rhs_value, _key_expr_ctxs_lhs[i]->root()->type());
+            int result =
+                    RawValue::compare(lhs_value, rhs_value, _key_expr_ctxs_lhs[i]->root()->type());
             if (!_is_asc[i]) {
                 result = -result;
             }
@@ -125,7 +120,7 @@ public:
     // Returns true if lhs is strictly less than rhs.
     // All exprs (_key_exprs_lhs and _key_exprs_rhs) must have been prepared and opened
     // before calling this.
-    bool operator() (TupleRow* lhs, TupleRow* rhs) const {
+    bool operator()(TupleRow* lhs, TupleRow* rhs) const {
         int result = compare(lhs, rhs);
         if (result < 0) {
             return true;
@@ -133,7 +128,7 @@ public:
         return false;
     }
 
-    bool operator() (Tuple* lhs, Tuple* rhs) const {
+    bool operator()(Tuple* lhs, Tuple* rhs) const {
         TupleRow* lhs_row = reinterpret_cast<TupleRow*>(&lhs);
         TupleRow* rhs_row = reinterpret_cast<TupleRow*>(&rhs);
         return (*this)(lhs_row, rhs_row);
@@ -147,7 +142,6 @@ private:
 
     typedef int (*CompareFn)(ExprContext* const*, ExprContext* const*, TupleRow*, TupleRow*);
 };
-}
+} // namespace doris
 
 #endif
-

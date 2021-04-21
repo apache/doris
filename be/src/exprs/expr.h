@@ -18,24 +18,23 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_EXPR_H
 #define DORIS_BE_SRC_QUERY_EXPRS_EXPR_H
 
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
 
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "exprs/expr_value.h"
 #include "gen_cpp/Opcodes_types.h"
-#include "runtime/descriptors.h"
-#include "runtime/tuple.h"
-#include "runtime/tuple_row.h"
-#include "runtime/string_value.h"
-#include "runtime/string_value.hpp"
 #include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
-#include "udf/udf.h"
+#include "runtime/descriptors.h"
+#include "runtime/string_value.h"
+#include "runtime/string_value.hpp"
+#include "runtime/tuple.h"
+#include "runtime/tuple_row.h"
 #include "runtime/types.h"
+#include "udf/udf.h"
 //#include <boost/scoped_ptr.hpp>
 //
 #undef USING_DORIS_UDF
@@ -46,6 +45,7 @@ USING_DORIS_UDF;
 namespace doris {
 
 class Expr;
+class ExprContext;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
@@ -78,20 +78,18 @@ public:
     // evaluate expr and return pointer to result. The result is
     // valid as long as 'row' doesn't change.
     // TODO: stop having the result cached in this Expr object
-    void* get_value(TupleRow* row) {
-        return NULL;
-    }
+    void* get_value(TupleRow* row) { return NULL; }
 
     // Vectorize Evalute expr and return result column index.
     // Result cached in batch and valid as long as batch.
     bool evaluate(VectorizedRowBatch* batch);
 
-    bool is_null_scalar_function(std::string &str) {
+    bool is_null_scalar_function(std::string& str) {
         // name and function_name both are required
         if (_fn.name.function_name.compare("is_null_pred") == 0) {
             str.assign("null");
             return true;
-        } else  if (_fn.name.function_name.compare("is_not_null_pred") == 0) {
+        } else if (_fn.name.function_name.compare("is_not_null_pred") == 0) {
             str.assign("not null");
             return true;
         } else {
@@ -121,51 +119,27 @@ public:
     // value. Returns -1 if no scale has been specified (currently the scale is only set for
     // doubles set by RoundUpTo). get_value() must have already been called.
     // TODO: this will be unnecessary once we support the DECIMAL(precision, scale) type
-    int output_scale() const {
-        return _output_scale;
-    }
-    int output_column() const {
-        return _output_column;
-    }
+    int output_scale() const { return _output_scale; }
+    int output_column() const { return _output_column; }
 
-    void add_child(Expr* expr) {
-        _children.push_back(expr);
-    }
-    Expr* get_child(int i) const {
-        return _children[i];
-    }
-    int get_num_children() const {
-        return _children.size();
-    }
+    void add_child(Expr* expr) { _children.push_back(expr); }
+    Expr* get_child(int i) const { return _children[i]; }
+    int get_num_children() const { return _children.size(); }
 
-    const TypeDescriptor& type() const {
-        return _type;
-    }
-    const std::vector<Expr*>& children() const {
-        return _children;
-    }
+    const TypeDescriptor& type() const { return _type; }
+    const std::vector<Expr*>& children() const { return _children; }
 
-    TExprOpcode::type op() const {
-        return _opcode;
-    }
+    TExprOpcode::type op() const { return _opcode; }
 
-    TExprNodeType::type node_type() const {
-        return _node_type;
-    }
+    TExprNodeType::type node_type() const { return _node_type; }
 
-    const TFunction& fn() const {
-        return _fn;
-    }
+    const TFunction& fn() const { return _fn; }
 
-    bool is_slotref() const {
-        return _is_slotref;
-    }
+    bool is_slotref() const { return _is_slotref; }
 
     /// Returns true if this expr uses a FunctionContext to track its runtime state.
     /// Overridden by exprs which use FunctionContext.
-    virtual bool has_fn_ctx() const { 
-        return false; 
-    }
+    virtual bool has_fn_ctx() const { return false; }
 
     /// Returns an error status if the function context associated with the
     /// expr has an error set.
@@ -238,10 +212,8 @@ public:
     /// Idempotent: if '*new_ctxs' is empty, a clone of each context in 'ctxs' will be added
     /// to it, and if non-empty, it is assumed CloneIfNotExists() was already called and the
     /// call is a no-op. The new ExprContexts are created in state->obj_pool().
-    static Status clone_if_not_exists(
-            const std::vector<ExprContext*>& ctxs,
-            RuntimeState* state,
-            std::vector<ExprContext*>* new_ctxs);
+    static Status clone_if_not_exists(const std::vector<ExprContext*>& ctxs, RuntimeState* state,
+                                      std::vector<ExprContext*>* new_ctxs);
 
     /// Convenience function for closing multiple expr trees.
     static void close(const std::vector<ExprContext*>& ctxs, RuntimeState* state);
@@ -255,10 +227,10 @@ public:
     // Variable length types are guaranteed to be at the end and 'var_result_begin'
     // will be set the beginning byte offset where variable length results begin.
     // 'var_result_begin' will be set to -1 if there are no variable len types.
-    static int compute_results_layout(const std::vector<Expr*>& exprs,
-                                    std::vector<int>* offsets, int* var_result_begin);
+    static int compute_results_layout(const std::vector<Expr*>& exprs, std::vector<int>* offsets,
+                                      int* var_result_begin);
     static int compute_results_layout(const std::vector<ExprContext*>& ctxs,
-                                    std::vector<int>* offsets, int* var_result_begin);
+                                      std::vector<int>* offsets, int* var_result_begin);
 
     /// If this expr is constant, evaluates the expr with no input row argument and returns
     /// the output. Returns NULL if the argument is not constant. The returned AnyVal* is
@@ -289,7 +261,7 @@ public:
     // GetIrConstant().
     enum ExprConstant {
         RETURN_TYPE_SIZE, // int
-        ARG_TYPE_SIZE // int[]
+        ARG_TYPE_SIZE     // int[]
     };
 
     static Expr* copy(ObjectPool* pool, Expr* old_expr);
@@ -340,8 +312,7 @@ protected:
     ///
     /// Subclasses overriding this function should call Expr::Prepare() to recursively call
     /// Prepare() on the expr tree.
-    virtual Status prepare(RuntimeState* state,
-                           const RowDescriptor& row_desc,
+    virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                            ExprContext* context);
 
     /// Initializes 'context' for execution. If scope if FRAGMENT_LOCAL, both fragment- and
@@ -350,39 +321,32 @@ protected:
     //
     /// Subclasses overriding this function should call Expr::Open() to recursively call
     /// Open() on the expr tree.
-    Status open(RuntimeState* state,
-                ExprContext* context) {
+    Status open(RuntimeState* state, ExprContext* context) {
         return open(state, context, FunctionContext::FRAGMENT_LOCAL);
     }
 
-    virtual Status open(
-            RuntimeState* state,
-            ExprContext* context,
-            FunctionContext::FunctionStateScope scope);
+    virtual Status open(RuntimeState* state, ExprContext* context,
+                        FunctionContext::FunctionStateScope scope);
 
     /// Subclasses overriding this function should call Expr::Close().
     //
     /// If scope if FRAGMENT_LOCAL, both fragment- and thread-local state should be torn
     /// down. Otherwise, if scope is THREAD_LOCAL, only thread-local state should be torn
     /// down.
-    void close(
-            RuntimeState* state,
-            ExprContext* context) {
+    void close(RuntimeState* state, ExprContext* context) {
         close(state, context, FunctionContext::FRAGMENT_LOCAL);
     }
 
-    virtual void close(
-            RuntimeState* state,
-            ExprContext* context,
-            FunctionContext::FunctionStateScope scope);
+    virtual void close(RuntimeState* state, ExprContext* context,
+                       FunctionContext::FunctionStateScope scope);
 
     /// Releases cache entries to LibCache in all nodes of the Expr tree.
     virtual void close();
 
     /// Helper function that calls ctx->Register(), sets fn_context_index_, and returns the
     /// registered FunctionContext.
-    FunctionContext* register_function_context(
-        ExprContext* ctx, RuntimeState* state, int varargs_buffer_size);
+    FunctionContext* register_function_context(ExprContext* ctx, RuntimeState* state,
+                                               int varargs_buffer_size);
 
     /// Cache entry for the library implementing this function.
     UserFunctionCacheEntry* _cache_entry = nullptr;
@@ -447,13 +411,9 @@ private:
     /// return
     ///   status.ok() if successful
     ///   !status.ok() if tree is inconsistent or corrupt
-    static Status create_tree_from_thrift(
-            ObjectPool* pool,
-            const std::vector<TExprNode>& nodes,
-            Expr* parent,
-            int* node_idx,
-            Expr** root_expr,
-            ExprContext** ctx);
+    static Status create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprNode>& nodes,
+                                          Expr* parent, int* node_idx, Expr** root_expr,
+                                          ExprContext** ctx);
 
     /// Static wrappers around the virtual Get*Val() functions. Calls the appropriate
     /// Get*Val() function on expr, passing it the context and row arguments.
@@ -488,8 +448,8 @@ private:
     /// return
     ///   status.ok() if successful
     ///   !status.ok() if tree is inconsistent or corrupt
-    static Status create_tree_internal(const std::vector<TExprNode>& nodes,
-        ObjectPool* pool, Expr* parent, int* child_node_idx);
+    static Status create_tree_internal(const std::vector<TExprNode>& nodes, ObjectPool* pool,
+                                       Expr* parent, int* child_node_idx);
 
     /// 'fn_ctx_idx_' is the index into the FunctionContext vector in ScalarExprEvaluator
     /// for storing FunctionContext needed to evaluate this ScalarExprNode. It's -1 if this
@@ -501,7 +461,6 @@ private:
     /// in ScalarExpeEvaluator for the expression subtree rooted at this ScalarExpr node.
     int _fn_ctx_idx_start = 0;
     int _fn_ctx_idx_end = 0;
-
 };
 
 inline bool Expr::evaluate(VectorizedRowBatch* batch) {
@@ -515,6 +474,6 @@ inline bool Expr::evaluate(VectorizedRowBatch* batch) {
     }
 }
 
-}
+} // namespace doris
 
 #endif

@@ -119,4 +119,4 @@ private:
 };
 
 } // namespace doris
-#endif 
+#endif

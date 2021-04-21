@@ -16,6 +16,7 @@
 // under the License.
 
 #include "exec/spill_sort_node.h"
+
 #include "exec/sort_exec_exprs.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -24,15 +25,13 @@
 
 namespace doris {
 
-SpillSortNode::SpillSortNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) :
-        ExecNode(pool, tnode, descs),
-        _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
-        _sorter(NULL),
-        _num_rows_skipped(0) {
-}
+SpillSortNode::SpillSortNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ExecNode(pool, tnode, descs),
+          _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
+          _sorter(NULL),
+          _num_rows_skipped(0) {}
 
-SpillSortNode::~SpillSortNode() {
-}
+SpillSortNode::~SpillSortNode() {}
 
 Status SpillSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
@@ -45,8 +44,8 @@ Status SpillSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status SpillSortNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    RETURN_IF_ERROR(_sort_exec_exprs.prepare(
-            state, child(0)->row_desc(), _row_descriptor, expr_mem_tracker()));
+    RETURN_IF_ERROR(_sort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor,
+                                             expr_mem_tracker()));
     // AddExprCtxsToFree(_sort_exec_exprs);
     return Status::OK();
 }
@@ -64,9 +63,8 @@ Status SpillSortNode::open(RuntimeState* state) {
     if (_sorter.get() == NULL) {
         TupleRowComparator less_than(_sort_exec_exprs, _is_asc_order, _nulls_first);
         // Create and initialize the external sort impl object
-        _sorter.reset(new SpillSorter(
-                    less_than, _sort_exec_exprs.sort_tuple_slot_expr_ctxs(),
-                    &_row_descriptor, mem_tracker(), runtime_profile(), state));
+        _sorter.reset(new SpillSorter(less_than, _sort_exec_exprs.sort_tuple_slot_expr_ctxs(),
+                                      &_row_descriptor, mem_tracker(), runtime_profile(), state));
         RETURN_IF_ERROR(_sorter->init());
     }
 
@@ -145,12 +143,10 @@ Status SpillSortNode::close(RuntimeState* state) {
 
 void SpillSortNode::debug_string(int indentation_level, stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
-    *out << "SpillSortNode("
-        << Expr::debug_string(_sort_exec_exprs.lhs_ordering_expr_ctxs());
+    *out << "SpillSortNode(" << Expr::debug_string(_sort_exec_exprs.lhs_ordering_expr_ctxs());
     for (int i = 0; i < _is_asc_order.size(); ++i) {
-        *out << (i > 0 ? " " : "")
-            << (_is_asc_order[i] ? "asc" : "desc")
-            << " nulls " << (_nulls_first[i] ? "first" : "last");
+        *out << (i > 0 ? " " : "") << (_is_asc_order[i] ? "asc" : "desc") << " nulls "
+             << (_nulls_first[i] ? "first" : "last");
     }
     ExecNode::debug_string(indentation_level, out);
     *out << ")";

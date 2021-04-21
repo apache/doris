@@ -18,28 +18,27 @@
 #include <mysql/mysql.h>
 
 #define __DorisMysql MYSQL
-#include "runtime/mysql_table_writer.h"
-
 #include <sstream>
 
+#include "exprs/expr.h"
+#include "exprs/expr_context.h"
+#include "runtime/mysql_table_writer.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
-#include "exprs/expr.h"
 #include "util/types.h"
 
 namespace doris {
 
 std::string MysqlConnInfo::debug_string() const {
     std::stringstream ss;
-    
-    ss << "(host=" << host << ",port=" << port << ",user=" << user
-        << ",db=" << db << ",passwd=" << passwd << ")";
+
+    ss << "(host=" << host << ",port=" << port << ",user=" << user << ",db=" << db
+       << ",passwd=" << passwd << ")";
     return ss.str();
 }
 
-MysqlTableWriter::MysqlTableWriter(const std::vector<ExprContext*>& output_expr_ctxs) :
-        _output_expr_ctxs(output_expr_ctxs) {
-}
+MysqlTableWriter::MysqlTableWriter(const std::vector<ExprContext*>& output_expr_ctxs)
+        : _output_expr_ctxs(output_expr_ctxs) {}
 
 MysqlTableWriter::~MysqlTableWriter() {
     if (_mysql_conn) {
@@ -53,15 +52,10 @@ Status MysqlTableWriter::open(const MysqlConnInfo& conn_info, const std::string&
         return Status::InternalError("Call mysql_init failed.");
     }
 
-    MYSQL* res = mysql_real_connect(
-            _mysql_conn,
-            conn_info.host.c_str(), 
-            conn_info.user.c_str(),
-            conn_info.passwd.c_str(),
-            conn_info.db.c_str(),
-            conn_info.port,
-            NULL,   // unix socket
-            0);     // flags
+    MYSQL* res = mysql_real_connect(_mysql_conn, conn_info.host.c_str(), conn_info.user.c_str(),
+                                    conn_info.passwd.c_str(), conn_info.db.c_str(), conn_info.port,
+                                    NULL, // unix socket
+                                    0);   // flags
     if (res == nullptr) {
         std::stringstream ss;
         ss << "mysql_real_connect failed because " << mysql_error(_mysql_conn);
@@ -134,7 +128,7 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
                     ss << "NULL";
                 }
             } else {
-                char *buf = new char[2 * string_val->len + 1];
+                char* buf = new char[2 * string_val->len + 1];
                 mysql_real_escape_string(_mysql_conn, buf, string_val->ptr, string_val->len);
                 ss << "\'" << buf << "\'";
                 delete[] buf;
@@ -170,8 +164,8 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
 
         default: {
             std::stringstream err_ss;
-            err_ss << "can't convert this type to mysql type. type = " <<
-                _output_expr_ctxs[i]->root()->type();
+            err_ss << "can't convert this type to mysql type. type = "
+                   << _output_expr_ctxs[i]->root()->type();
             return Status::InternalError(err_ss.str());
         }
         }
@@ -184,7 +178,7 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
     if (mysql_real_query(_mysql_conn, insert_stmt.c_str(), insert_stmt.length())) {
         std::stringstream err_ss;
         err_ss << "Insert to mysql server(" << mysql_get_host_info(_mysql_conn)
-            << ") failed, because: " << mysql_error(_mysql_conn);
+               << ") failed, because: " << mysql_error(_mysql_conn);
         return Status::InternalError(err_ss.str());
     }
 
@@ -204,5 +198,4 @@ Status MysqlTableWriter::append(RowBatch* batch) {
     return Status::OK();
 }
 
-}
-
+} // namespace doris

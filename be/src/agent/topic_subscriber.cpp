@@ -16,17 +16,17 @@
 // under the License.
 
 #include "agent/topic_subscriber.h"
+
 #include "common/logging.h"
 
 namespace doris {
 
-TopicSubscriber::TopicSubscriber() {
-}
+TopicSubscriber::TopicSubscriber() {}
 
 TopicSubscriber::~TopicSubscriber() {
     // Delete all listeners in the register
-    std::map<TTopicType::type, std::vector<TopicListener*>>::iterator it 
-        = _registered_listeners.begin();
+    std::map<TTopicType::type, std::vector<TopicListener*>>::iterator it =
+            _registered_listeners.begin();
     for (; it != _registered_listeners.end(); ++it) {
         std::vector<TopicListener*>& listeners = it->second;
         std::vector<TopicListener*>::iterator listener_it = listeners.begin();
@@ -53,9 +53,8 @@ void TopicSubscriber::handle_updates(const TAgentPublishRequest& agent_publish_r
         std::vector<TopicListener*>::iterator listener_it = listeners.begin();
         // Send the update to all listeners with protocol version.
         for (; listener_it != listeners.end(); ++listener_it) {
-            (*listener_it)->handle_update(agent_publish_request.protocol_version, 
-                                          *topic_update_it); 
-        }    
+            (*listener_it)->handle_update(agent_publish_request.protocol_version, *topic_update_it);
+        }
     }
 }
 } // namespace doris

@@ -211,6 +211,7 @@ message OLAPHeaderMessage {
     optional KeysType keys_type = 15;   // TabletSchemaPB.keys_type
     repeated PDelta delta = 16; // TabletMetaPB.rs_metas
     repeated PPendingDelta pending_delta = 17;  // need write to olap meta store
+    // @Deprecated
     repeated PDelta incremental_delta = 18; // TabletMetaPB.inc_rs_metas
 
     // if true, this tablet will not do compaction,
@@ -257,7 +258,7 @@ message ColumnPB {
     optional string referenced_column = 14; // ColumnMessage.referenced_column?
     optional bool has_bitmap_index = 15 [default=false]; // ColumnMessage.has_bitmap_index
     optional bool visible = 16 [default=true];
-
+    repeated ColumnPB children_columns = 17;
 }
 
 message TabletSchemaPB {
@@ -298,6 +299,7 @@ message TabletMetaPB {
     optional TabletStatePB tablet_state = 8;
     optional TabletSchemaPB schema = 9;
     repeated RowsetMetaPB rs_metas = 10;
+    // @Deprecated
     repeated RowsetMetaPB inc_rs_metas = 11;
     optional AlterTabletPB alter_task = 12;
     // if true, this tablet will not do compaction,

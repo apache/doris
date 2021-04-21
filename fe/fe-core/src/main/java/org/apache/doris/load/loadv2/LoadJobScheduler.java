@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -35,6 +36,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * LoadScheduler will schedule the pending LoadJob which belongs to LoadManager.
@@ -62,11 +64,17 @@ public class LoadJobScheduler extends MasterDaemon {
 
     private void process() throws InterruptedException {
         while (true) {
-            // take one load job from queue
-            LoadJob loadJob = needScheduleJobs.poll();
-            if (loadJob == null) {
+            if (!needScheduleJobs.isEmpty()) {
+                if (needScheduleJobs.peek() instanceof BrokerLoadJob && Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().isTaskQueueFull()) {
+                    LOG.warn("Failed to take one broker load job from queue because of task queue in loading_load_task_scheduler is full");
+                    return;
+                }
+            } else {
                 return;
             }
+
+            // take one load job from queue
+            LoadJob loadJob = needScheduleJobs.poll();
 
             // schedule job
             try {
@@ -99,6 +107,12 @@ public class LoadJobScheduler extends MasterDaemon {
                                  .build(), e);
                 needScheduleJobs.put(loadJob);
                 return;
+            } catch (RejectedExecutionException e) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
+                        .add("error_msg", "Failed to submit etl job. Job queue is full.")
+                        .build(), e);
+                loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage()),
+                        true, true);
             }
         }
     }

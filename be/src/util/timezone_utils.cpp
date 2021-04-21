@@ -26,7 +26,8 @@ const std::string TimezoneUtils::default_time_zone = "+08:00";
 
 bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) {
     re2::StringPiece value;
-    if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value, 1)) {
+    if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value,
+                                          1)) {
         bool positive = value[0] != '-';
 
         //Regular expression guarantees hour and minute mush be int
@@ -43,7 +44,7 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
         offset *= positive ? 1 : -1;
         ctz = cctz::fixed_time_zone(cctz::seconds(offset));
         return true;
-    } else if (timezone == "CST"){
+    } else if (timezone == "CST") {
         // Supports offset and region timezone type, "CST" use here is compatibility purposes.
         ctz = cctz::fixed_time_zone(cctz::seconds(8 * 60 * 60));
         return true;
@@ -52,4 +53,4 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
     }
 }
 
-} // end namespace
+} // namespace doris

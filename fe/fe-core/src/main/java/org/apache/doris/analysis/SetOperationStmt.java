@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Representation of a set ops with its list of operands, and optional order by and limit.
@@ -171,10 +172,10 @@ public class SetOperationStmt extends QueryStmt {
     public List<Expr> getSetOpsResultExprs() { return setOpsResultExprs_; }
 
     @Override
-    public void getDbs(Analyzer analyzer, Map<String, Database> dbs) throws AnalysisException {
-        getWithClauseDbs(analyzer, dbs);
+    public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
+        getWithClauseTables(analyzer, tableMap, parentViewNameSet);
         for (SetOperand op : operands) {
-            op.getQueryStmt().getDbs(analyzer, dbs);
+            op.getQueryStmt().getTables(analyzer, tableMap, parentViewNameSet);
         }
     }
 
@@ -183,7 +184,7 @@ public class SetOperationStmt extends QueryStmt {
      * set operands are set compatible, adding implicit casts if necessary.
      */
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         if (isAnalyzed()) return;
         super.analyze(analyzer);
         Preconditions.checkState(operands.size() > 0);

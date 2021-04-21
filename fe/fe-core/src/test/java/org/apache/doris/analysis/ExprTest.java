@@ -24,15 +24,16 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Maps;
 
-import org.junit.Assert;
-import org.junit.Test;
-
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Test;
 
 public class ExprTest {
 
@@ -158,5 +159,47 @@ public class ExprTest {
         Assert.assertFalse(stringLiteral == castStringLiteral);
         StringLiteral castStringLiteral2 = (StringLiteral) stringLiteral.uncheckedCastTo(Type.VARCHAR);
         Assert.assertTrue(stringLiteral == castStringLiteral2);
+    }
+
+    @Test
+    public void testEqualSets() {
+        Expr r1 = new DateLiteral(2020, 10, 20);
+        Expr r2 = new DateLiteral(2020, 10, 21);
+        Expr r3 = new DateLiteral(2020, 10, 22);
+        Expr r4 = new DateLiteral(2020, 10, 23);
+
+        //list1 equal list2
+        List<Expr> list1 = new ArrayList<>();
+        List<Expr> list2 = new ArrayList<>();
+        list1.add(r1);
+        list1.add(r2);
+        list1.add(r3);
+        list2.add(r1);
+        list2.add(r2);
+        list2.add(r3);
+        Assert.assertTrue(Expr.equalSets(list1, list2));
+
+        //list3 not equal list4
+        list2.add(r4);
+        Assert.assertFalse(Expr.equalSets(list1, list2));
+    }
+
+    @Test
+    public void testSrcSlotRef(@Injectable SlotDescriptor slotDescriptor) {
+        TableName tableName = new TableName("db1", "table1");
+        SlotRef slotRef = new SlotRef(tableName, "c1");
+        slotRef.setDesc(slotDescriptor);
+        Deencapsulation.setField(slotRef, "isAnalyzed", true);
+        Expr castExpr = new CastExpr(new TypeDef(Type.INT), slotRef);
+        new Expectations() {
+            {
+                slotDescriptor.getSourceExprs();
+                result = null;
+            }
+        };
+
+        SlotRef srcSlotRef = castExpr.getSrcSlotRef();
+        Assert.assertTrue(srcSlotRef != null);
+        Assert.assertTrue(srcSlotRef == slotRef);
     }
 }

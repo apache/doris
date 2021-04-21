@@ -18,11 +18,13 @@
 #ifndef DORIS_BE_SRC_COMMON_CONFIGBASE_H
 #define DORIS_BE_SRC_COMMON_CONFIGBASE_H
 
-#include <stdint.h>
+#include <cstdint>
 
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
+#include <functional>
 
 namespace doris {
 class Status;
@@ -58,14 +60,42 @@ public:
         Field field(ftype, fname, fstorage, fdefval, fvalmutable);
         _s_field_map->insert(std::make_pair(std::string(fname), field));
     }
+
 };
 
-#define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT, VALMUTABLE)                    \
-    FIELD_TYPE FIELD_NAME;                                                                 \
-    static Register reg_##FIELD_NAME(#FIELD_TYPE, #FIELD_NAME, &FIELD_NAME, FIELD_DEFAULT, \
+// RegisterConfValidator class is used to store validator function of registered config fields in
+// Register::_s_field_map.
+// If any validator return false when BE bootstart, the bootstart will be terminated.
+// If validator return false when use http API to update some config, the config will not
+// be modified and the API will return failure.
+class RegisterConfValidator {
+public:
+    // Validator for each config name.
+    static std::map<std::string, std::function<bool()>>* _s_field_validator;
+
+public:
+    RegisterConfValidator(const char* fname, const std::function<bool()>& validator) {
+        if (_s_field_validator == nullptr) {
+            _s_field_validator = new std::map<std::string, std::function<bool()>>();
+        }
+        // register validator to _s_field_validator
+        _s_field_validator->insert(std::make_pair(std::string(fname), validator));
+    }
+};
+
+#define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT, VALMUTABLE)                      \
+    FIELD_TYPE FIELD_NAME;                                                                   \
+    static Register reg_##FIELD_NAME(#FIELD_TYPE, #FIELD_NAME, &(FIELD_NAME), FIELD_DEFAULT, \
                                      VALMUTABLE);
 
 #define DECLARE_FIELD(FIELD_TYPE, FIELD_NAME) extern FIELD_TYPE FIELD_NAME;
+
+#define DEFINE_VALIDATOR(FIELD_NAME, VALIDATOR)                                            \
+    static auto validator_##FIELD_NAME = VALIDATOR;                                        \
+    static RegisterConfValidator reg_validator_##FIELD_NAME(#FIELD_NAME,                   \
+            []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
+
+#define DECLARE_VALIDATOR(FIELD_NAME) ;
 
 #ifdef __IN_CONFIGBASE_CPP__
 #define CONF_Bool(name, defaultstr) DEFINE_FIELD(bool, name, defaultstr, false)
@@ -86,6 +116,8 @@ public:
 #define CONF_mInt32(name, defaultstr) DEFINE_FIELD(int32_t, name, defaultstr, true)
 #define CONF_mInt64(name, defaultstr) DEFINE_FIELD(int64_t, name, defaultstr, true)
 #define CONF_mDouble(name, defaultstr) DEFINE_FIELD(double, name, defaultstr, true)
+#define CONF_Validator(name, validator) DEFINE_VALIDATOR(name, validator)
+
 #else
 #define CONF_Bool(name, defaultstr) DECLARE_FIELD(bool, name)
 #define CONF_Int16(name, defaultstr) DECLARE_FIELD(int16_t, name)
@@ -104,27 +136,46 @@ public:
 #define CONF_mInt32(name, defaultstr) DECLARE_FIELD(int32_t, name)
 #define CONF_mInt64(name, defaultstr) DECLARE_FIELD(int64_t, name)
 #define CONF_mDouble(name, defaultstr) DECLARE_FIELD(double, name)
+#define CONF_Validator(name, validator) DECLARE_VALIDATOR(name)
 #endif
 
 // configuration properties load from config file.
 class Properties {
 public:
-    bool load(const char* filename);
+    // load conf from file, if must_exist is true and file does not exist, return false
+    bool load(const char* conf_file, bool must_exist = true);
+
+    // Find the config value by key from `file_conf_map`.
+    // If found, set `retval` to the config value,
+    // or set `retval` to `defstr`
+    // if retval is not set(in case defstr is nullptr), set is_retval_set to false
     template <typename T>
-    bool get(const char* key, const char* defstr, T& retval) const;
+    bool get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set) const;
+
+    void set(const std::string& key, const std::string& val);
+
+    // dump props to conf file
+    bool dump(const std::string& conffile);
 
 private:
     std::map<std::string, std::string> file_conf_map;
 };
 
-extern Properties props;
-
 // full configurations.
 extern std::map<std::string, std::string>* full_conf_map;
 
-bool init(const char* filename, bool fillconfmap = false);
+extern std::mutex custom_conf_lock;
 
-Status set_config(const std::string& field, const std::string& value);
+// Init the config from `conf_file`.
+// If fill_conf_map is true, the updated config will also update the `full_conf_map`.
+// If must_exist is true and `conf_file` does not exist, this function will return false.
+// If set_to_default is true, the config value will be set to default value if not found in `conf_file`.
+bool init(const char* conf_file, bool fill_conf_map = false, bool must_exist = true,
+          bool set_to_default = true);
+
+Status set_config(const std::string& field, const std::string& value, bool need_persist = false);
+
+bool persist_config(const std::string& field, const std::string& value);
 
 } // namespace config
 } // namespace doris

@@ -15,21 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
-#include <sstream>
 #include <fstream>
+#include <filesystem>
+#include <sstream>
+#include <string>
 
-#include "gtest/gtest.h"
 #include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/olap_meta.h"
-#include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/txn_manager.h"
-#include "boost/filesystem.hpp"
-#include "json2pb/json_to_pb.h"
 #include "util/file_utils.h"
 
 #ifndef BE_TEST
@@ -48,19 +48,16 @@ static StorageEngine* k_engine = nullptr;
 class TabletMgrTest : public testing::Test {
 public:
     virtual void SetUp() {
-        config::tablet_map_shard_size = 1;
-        config::txn_map_shard_size = 1;
-        config::txn_shard_size = 1;
-        string test_engine_data_path = "./be/test/olap/test_data/converter_test_data/data";
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
-        boost::filesystem::remove_all(_engine_data_path);
+        std::filesystem::remove_all(_engine_data_path);
         FileUtils::create_dir(_engine_data_path);
         FileUtils::create_dir(_engine_data_path + "/meta");
 
-        std::vector<StorePath> paths;
-        paths.emplace_back("_engine_data_path", -1);
+        config::tablet_map_shard_size = 1;
+        config::txn_map_shard_size = 1;
+        config::txn_shard_size = 1;
         EngineOptions options;
-        options.store_paths = paths;
+        // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
         if (k_engine == nullptr) {
             k_engine = new StorageEngine(options);
@@ -68,35 +65,20 @@ public:
 
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();
-        string tmp_data_path = _engine_data_path + "/data";
-        if (boost::filesystem::exists(tmp_data_path)) {
-            boost::filesystem::remove_all(tmp_data_path);
-        }
-        copy_dir(test_engine_data_path, tmp_data_path);
-        _tablet_id = 15007;
-        _schema_hash = 368169781;
-        _tablet_data_path = tmp_data_path
-                + "/" + std::to_string(0)
-                + "/" + std::to_string(_tablet_id)
-                + "/" + std::to_string(_schema_hash);
-        _tablet_mgr.reset(new TabletManager(1));
+        _tablet_mgr = k_engine->tablet_manager();
     }
 
     virtual void TearDown() {
         delete _data_dir;
-        if (boost::filesystem::exists(_engine_data_path)) {
-            ASSERT_TRUE(boost::filesystem::remove_all(_engine_data_path));
+        if (std::filesystem::exists(_engine_data_path)) {
+            ASSERT_TRUE(std::filesystem::remove_all(_engine_data_path));
         }
     }
 
 private:
-    DataDir* _data_dir;
-    std::string _json_rowset_meta;
+    DataDir* _data_dir = nullptr;
     std::string _engine_data_path;
-    int64_t _tablet_id;
-    int32_t _schema_hash;
-    string _tablet_data_path;
-    std::unique_ptr<TabletManager> _tablet_mgr;
+    TabletManager* _tablet_mgr = nullptr;
 };
 
 TEST_F(TabletMgrTest, CreateTablet) {
@@ -119,7 +101,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_tablet_req.__set_tablet_id(111);
     create_tablet_req.__set_version(2);
     create_tablet_req.__set_version_hash(3333);
-    vector<DataDir*> data_dirs;
+    std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_SUCCESS);
@@ -142,6 +124,12 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_tablet_req.__set_tablet_schema(tablet_schema);
     create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_ERR_CE_TABLET_ID_EXIST);
+
+    OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, 3333, false);
+    ASSERT_TRUE(drop_st == OLAP_SUCCESS);
+    tablet.reset();
+    OLAPStatus trash_st = _tablet_mgr->start_trash_sweep();
+    ASSERT_TRUE(trash_st == OLAP_SUCCESS);
 }
 
 TEST_F(TabletMgrTest, CreateTabletWithSequence) {
@@ -166,7 +154,6 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     col3.__set_aggregation_type(TAggregationType::REPLACE);
     cols.push_back(col3);
 
-
     TTabletSchema tablet_schema;
     tablet_schema.__set_short_key_column_count(1);
     tablet_schema.__set_schema_hash(3333);
@@ -174,25 +161,31 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     tablet_schema.__set_storage_type(TStorageType::COLUMN);
     tablet_schema.__set_columns(cols);
     tablet_schema.__set_sequence_col_idx(1);
-
     TCreateTabletReq create_tablet_req;
     create_tablet_req.__set_tablet_schema(tablet_schema);
     create_tablet_req.__set_tablet_id(111);
     create_tablet_req.__set_version(2);
     create_tablet_req.__set_version_hash(3333);
-    vector<DataDir*> data_dirs;
+    std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_SUCCESS);
+
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111, 3333);
     ASSERT_TRUE(tablet != nullptr);
     // check dir exist
     bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
-    ASSERT_TRUE(dir_exist);
+    ASSERT_TRUE(dir_exist) << tablet->tablet_path();
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
     OLAPStatus check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
     ASSERT_TRUE(check_meta_st == OLAP_SUCCESS);
+
+    OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, 3333, false);
+    ASSERT_TRUE(drop_st == OLAP_SUCCESS);
+    tablet.reset();
+    OLAPStatus trash_st = _tablet_mgr->start_trash_sweep();
+    ASSERT_TRUE(trash_st == OLAP_SUCCESS);
 }
 
 TEST_F(TabletMgrTest, DropTablet) {
@@ -215,7 +208,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     create_tablet_req.__set_tablet_id(111);
     create_tablet_req.__set_version(2);
     create_tablet_req.__set_version_hash(3333);
-    vector<DataDir*> data_dirs;
+    std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_SUCCESS);
@@ -280,7 +273,9 @@ TEST_F(TabletMgrTest, GetRowsetId) {
     }
     // normal case
     {
-        std::string path = _engine_data_path + "/data/0/15007/368169781/020000000000000100000000000000020000000000000003_0_0.dat";
+        std::string path =
+                _engine_data_path +
+                "/data/0/15007/368169781/020000000000000100000000000000020000000000000003_0_0.dat";
         TTabletId tid;
         TSchemaHash schema_hash;
         ASSERT_TRUE(_tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
@@ -319,23 +314,27 @@ TEST_F(TabletMgrTest, GetRowsetId) {
         std::string path = _engine_data_path + "/data/0/15007abc";
         TTabletId tid;
         TSchemaHash schema_hash;
-        ASSERT_FALSE(_tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+        ASSERT_FALSE(
+                _tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
     }
     // not match pattern
     {
-        std::string path = _engine_data_path + "/data/0/15007/123abc/020000000000000100000000000000020000000000000003_0_0.dat";
+        std::string path =
+                _engine_data_path +
+                "/data/0/15007/123abc/020000000000000100000000000000020000000000000003_0_0.dat";
         TTabletId tid;
         TSchemaHash schema_hash;
-        ASSERT_FALSE(_tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+        ASSERT_FALSE(
+                _tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
 
         RowsetId id;
         ASSERT_FALSE(_tablet_mgr->get_rowset_id_from_path(path, &id));
     }
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

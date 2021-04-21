@@ -18,7 +18,8 @@
 #include "olap/options.h"
 
 #include <gtest/gtest.h>
-#include <boost/filesystem.hpp>
+#include <filesystem>
+
 #include <string>
 
 namespace doris {
@@ -28,17 +29,18 @@ void set_up() {
     system("mkdir -p ./test_run/palo && mkdir -p ./test_run/palo.ssd");
 }
 
-void tear_down() { system("rm -rf ./test_run"); }
+void tear_down() {
+    system("rm -rf ./test_run");
+}
 
 class OptionsTest : public testing::Test {
-   public:
+public:
     OptionsTest() {}
     virtual ~OptionsTest() {}
 };
 
 TEST_F(OptionsTest, parse_root_path) {
-    std::string path_prefix =
-        boost::filesystem::system_complete("./test_run").string();
+    std::string path_prefix = std::filesystem::absolute("./test_run").string();
     std::string path1 = path_prefix + "/palo";
     std::string path2 = path_prefix + "/palo.ssd";
 
@@ -106,7 +108,7 @@ TEST_F(OptionsTest, parse_root_path) {
     }
 }
 
-}  // namespace doris
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

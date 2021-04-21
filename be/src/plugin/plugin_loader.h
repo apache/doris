@@ -18,39 +18,31 @@
 #ifndef DORIS_BE_PLUGIN_PLUGIN_LOADER_H
 #define DORIS_BE_PLUGIN_PLUGIN_LOADER_H
 
-#include <string>
 #include <memory>
+#include <string>
 #include <vector>
 
-#include "gen_cpp/Types_types.h"
-
 #include "common/status.h"
+#include "gen_cpp/Types_types.h"
 #include "plugin/plugin.h"
 
 namespace doris {
 
 class PluginLoader {
 public:
-    
-    PluginLoader(const std::string& name, int type): _name(name), _type(type), _close(false) {}
-    
-    virtual ~PluginLoader() {};
-    
+    PluginLoader(const std::string& name, int type) : _name(name), _type(type), _close(false) {}
+
+    virtual ~PluginLoader(){};
+
     virtual Status install() = 0;
-    
+
     virtual Status uninstall() = 0;
 
-    virtual std::shared_ptr<Plugin>& plugin() {
-        return _plugin;
-    };
-    
-    const std::string& name() { 
-        return _name;
-    }
-    
-    int type() {
-        return _type;
-    }
+    virtual std::shared_ptr<Plugin>& plugin() { return _plugin; };
+
+    const std::string& name() { return _name; }
+
+    int type() { return _type; }
 
 protected:
     virtual Status open_valid();
@@ -67,13 +59,15 @@ protected:
     bool _close;
 };
 
-class DynamicPluginLoader: public PluginLoader {
-
+class DynamicPluginLoader : public PluginLoader {
 public:
-    DynamicPluginLoader(const std::string& name, int type, const std::string& source, const std::string& so_name,
-                        const std::string& install_path) : PluginLoader(name, type), _source(source), _so_name(so_name),
-                                                           _install_path(install_path), _plugin_handler(nullptr) {
-    };
+    DynamicPluginLoader(const std::string& name, int type, const std::string& source,
+                        const std::string& so_name, const std::string& install_path)
+            : PluginLoader(name, type),
+              _source(source),
+              _so_name(so_name),
+              _install_path(install_path),
+              _plugin_handler(nullptr){};
 
     virtual ~DynamicPluginLoader() {
         // just close plugin, but don't clean install path (maybe other plugin has used)
@@ -97,21 +91,18 @@ private:
     std::string _install_path;
 
     void* _plugin_handler;
-
 };
 
 class BuiltinPluginLoader : public PluginLoader {
 public:
     BuiltinPluginLoader(const std::string& name, int type, const Plugin* plugin);
-    
-    virtual ~BuiltinPluginLoader() {
-        WARN_IF_ERROR(uninstall(), "close plugin failed.");
-    }
+
+    virtual ~BuiltinPluginLoader() { WARN_IF_ERROR(uninstall(), "close plugin failed."); }
 
     virtual Status install();
 
     virtual Status uninstall();
 };
 
-}
+} // namespace doris
 #endif //DORIS_BE_PLUGIN_PLUGIN_LOADER_H

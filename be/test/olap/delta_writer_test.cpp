@@ -17,26 +17,27 @@
 
 #include "olap/delta_writer.h"
 
-#include <sys/file.h>
-#include <string>
 #include <gtest/gtest.h>
+#include <sys/file.h>
+
+#include <string>
 
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/field.h"
+#include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
-#include "runtime/tuple.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "util/logging.h"
+#include "runtime/tuple.h"
 #include "util/file_utils.h"
-#include "olap/options.h"
-#include "olap/tablet_meta_manager.h"
+#include "util/logging.h"
 
 namespace doris {
 
@@ -70,9 +71,11 @@ void set_up() {
 }
 
 void tear_down() {
-    k_engine->stop();
-    delete k_engine;
-    k_engine = nullptr;
+    if (k_engine != nullptr) {
+        k_engine->stop();
+        delete k_engine;
+        k_engine = nullptr;
+    }
     system("rm -rf ./data_test");
     FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
@@ -225,7 +228,8 @@ void create_tablet_request(int64_t tablet_id, int32_t schema_hash, TCreateTablet
     request->tablet_schema.columns.push_back(v10);
 }
 
-void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash, TCreateTabletReq* request) {
+void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
+                                             TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
     request->__set_version(1);
     request->__set_version_hash(0);
@@ -267,46 +271,46 @@ TDescriptorTable create_descriptor_tablet() {
     TTupleDescriptorBuilder tuple_builder;
 
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_TINYINT).column_name("k1").column_pos(0).build());
+            TSlotDescriptorBuilder().type(TYPE_TINYINT).column_name("k1").column_pos(0).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_SMALLINT).column_name("k2").column_pos(1).build());
+            TSlotDescriptorBuilder().type(TYPE_SMALLINT).column_name("k2").column_pos(1).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_INT).column_name("k3").column_pos(2).build());
+            TSlotDescriptorBuilder().type(TYPE_INT).column_name("k3").column_pos(2).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("k4").column_pos(3).build());
+            TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("k4").column_pos(3).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_LARGEINT).column_name("k5").column_pos(4).build());
+            TSlotDescriptorBuilder().type(TYPE_LARGEINT).column_name("k5").column_pos(4).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_DATE).column_name("k6").column_pos(5).build());
+            TSlotDescriptorBuilder().type(TYPE_DATE).column_name("k6").column_pos(5).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("k7").column_pos(6).build());
+            TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("k7").column_pos(6).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().string_type(4).column_name("k8").column_pos(7).build());
+            TSlotDescriptorBuilder().string_type(4).column_name("k8").column_pos(7).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().string_type(65).column_name("k9").column_pos(8).build());
+            TSlotDescriptorBuilder().string_type(65).column_name("k9").column_pos(8).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().decimal_type(6, 3).column_name("k10").column_pos(9).build());
+            TSlotDescriptorBuilder().decimal_type(6, 3).column_name("k10").column_pos(9).build());
 
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_TINYINT).column_name("v1").column_pos(10).build());
+            TSlotDescriptorBuilder().type(TYPE_TINYINT).column_name("v1").column_pos(10).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_SMALLINT).column_name("v2").column_pos(11).build());
+            TSlotDescriptorBuilder().type(TYPE_SMALLINT).column_name("v2").column_pos(11).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_INT).column_name("v3").column_pos(12).build());
+            TSlotDescriptorBuilder().type(TYPE_INT).column_name("v3").column_pos(12).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("v4").column_pos(13).build());
+            TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("v4").column_pos(13).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_LARGEINT).column_name("v5").column_pos(14).build());
+            TSlotDescriptorBuilder().type(TYPE_LARGEINT).column_name("v5").column_pos(14).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_DATE).column_name("v6").column_pos(15).build());
+            TSlotDescriptorBuilder().type(TYPE_DATE).column_name("v6").column_pos(15).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("v7").column_pos(16).build());
+            TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("v7").column_pos(16).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().string_type(4).column_name("v8").column_pos(17).build());
+            TSlotDescriptorBuilder().string_type(4).column_name("v8").column_pos(17).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().string_type(65).column_name("v9").column_pos(18).build());
+            TSlotDescriptorBuilder().string_type(65).column_name("v9").column_pos(18).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().decimal_type(6, 3).column_name("v10").column_pos(19).build());
+            TSlotDescriptorBuilder().decimal_type(6, 3).column_name("v10").column_pos(19).build());
     tuple_builder.build(&dtb);
 
     return dtb.desc_tbl();
@@ -320,8 +324,11 @@ TDescriptorTable create_descriptor_tablet_with_sequence_col() {
             TSlotDescriptorBuilder().type(TYPE_TINYINT).column_name("k1").column_pos(0).build());
     tuple_builder.add_slot(
             TSlotDescriptorBuilder().type(TYPE_SMALLINT).column_name("k2").column_pos(1).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_INT).column_name(SEQUENCE_COL).column_pos(2).build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_INT)
+                                   .column_name(SEQUENCE_COL)
+                                   .column_pos(2)
+                                   .build());
     tuple_builder.add_slot(
             TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("v1").column_pos(3).build());
     tuple_builder.build(&dtb);
@@ -331,15 +338,15 @@ TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 
 class TestDeltaWriter : public ::testing::Test {
 public:
-    TestDeltaWriter() { }
-    ~TestDeltaWriter() { }
+    TestDeltaWriter() {}
+    ~TestDeltaWriter() {}
 
     void SetUp() {
         // Create local data dir for StorageEngine.
         std::cout << "setup" << std::endl;
     }
 
-    void TearDown(){
+    void TearDown() {
         // Remove all dir.
         std::cout << "tear down" << std::endl;
         //doris::tear_down();
@@ -362,8 +369,8 @@ TEST_F(TestDeltaWriter, open) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10003, 270068375, WriteType::LOAD,
-                              20001, 30001, load_id, false, tuple_desc};
+    WriteRequest write_req = {10003, 270068375, WriteType::LOAD, 20001,
+                              30001, load_id,   false,           tuple_desc};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
@@ -396,9 +403,8 @@ TEST_F(TestDeltaWriter, write) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10004, 270068376, WriteType::LOAD,
-                              20002, 30002, load_id, false, tuple_desc,
-                              &(tuple_desc->slots())};
+    WriteRequest write_req = {10004, 270068376,  WriteType::LOAD,       20002, 30002, load_id,
+                              false, tuple_desc, &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
@@ -417,8 +423,10 @@ TEST_F(TestDeltaWriter, write) {
         int128_t large_int_value = -90000;
         memcpy(tuple->get_slot(slots[4]->tuple_offset()), &large_int_value, sizeof(int128_t));
 
-        ((DateTimeValue*)(tuple->get_slot(slots[5]->tuple_offset())))->from_date_str("2048-11-10", 10);
-        ((DateTimeValue*)(tuple->get_slot(slots[6]->tuple_offset())))->from_date_str("2636-08-16 19:39:43", 19);
+        ((DateTimeValue*)(tuple->get_slot(slots[5]->tuple_offset())))
+                ->from_date_str("2048-11-10", 10);
+        ((DateTimeValue*)(tuple->get_slot(slots[6]->tuple_offset())))
+                ->from_date_str("2636-08-16 19:39:43", 19);
 
         StringValue* char_ptr = (StringValue*)(tuple->get_slot(slots[7]->tuple_offset()));
         char_ptr->ptr = (char*)pool.allocate(4);
@@ -440,8 +448,10 @@ TEST_F(TestDeltaWriter, write) {
 
         memcpy(tuple->get_slot(slots[14]->tuple_offset()), &large_int_value, sizeof(int128_t));
 
-        ((DateTimeValue*)(tuple->get_slot(slots[15]->tuple_offset())))->from_date_str("2048-11-10", 10);
-        ((DateTimeValue*)(tuple->get_slot(slots[16]->tuple_offset())))->from_date_str("2636-08-16 19:39:43", 19);
+        ((DateTimeValue*)(tuple->get_slot(slots[15]->tuple_offset())))
+                ->from_date_str("2048-11-10", 10);
+        ((DateTimeValue*)(tuple->get_slot(slots[16]->tuple_offset())))
+                ->from_date_str("2636-08-16 19:39:43", 19);
 
         char_ptr = (StringValue*)(tuple->get_slot(slots[17]->tuple_offset()));
         char_ptr->ptr = (char*)pool.allocate(4);
@@ -466,27 +476,30 @@ TEST_F(TestDeltaWriter, write) {
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // publish version success
-    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
+    TabletSharedPtr tablet =
+            k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
     version.first = tablet->rowset_with_max_version()->end_version() + 1;
     version.second = tablet->rowset_with_max_version()->end_version() + 1;
-    std::cout << "start to add rowset version:" << version.first << "-" << version.second << std::endl;
+    std::cout << "start to add rowset version:" << version.first << "-" << version.second
+              << std::endl;
     VersionHash version_hash = 2;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-    StorageEngine::instance()->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id, &tablet_related_rs);
+    StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
+            write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         std::cout << "start to publish txn" << std::endl;
         RowsetSharedPtr rowset = tablet_rs.second;
-        res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                   write_req.tablet_id, write_req.schema_hash, tablet_rs.first.tablet_uid,
-                                   version, version_hash);
+        res = k_engine->txn_manager()->publish_txn(
+                meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
+                write_req.schema_hash, tablet_rs.first.tablet_uid, version, version_hash);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        std::cout << "start to add inc rowset:" << rowset->rowset_id() << ", num rows:" << rowset->num_rows()
-                << ", version:" << rowset->version().first << "-" << rowset->version().second
-                << ", version_hash:" << rowset->version_hash()
-                 << std::endl;
+        std::cout << "start to add inc rowset:" << rowset->rowset_id()
+                  << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
+                  << "-" << rowset->version().second << ", version_hash:" << rowset->version_hash()
+                  << std::endl;
         res = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(OLAP_SUCCESS, res);
     }
@@ -515,9 +528,8 @@ TEST_F(TestDeltaWriter, sequence_col) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005, 270068377, WriteType::LOAD,
-                              20003, 30003, load_id, false, tuple_desc,
-                              &(tuple_desc->slots())};
+    WriteRequest write_req = {10005, 270068377,  WriteType::LOAD,       20003, 30003, load_id,
+                              false, tuple_desc, &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
@@ -531,7 +543,8 @@ TEST_F(TestDeltaWriter, sequence_col) {
         *(int8_t*)(tuple->get_slot(slots[0]->tuple_offset())) = 123;
         *(int16_t*)(tuple->get_slot(slots[1]->tuple_offset())) = 456;
         *(int32_t*)(tuple->get_slot(slots[2]->tuple_offset())) = 1;
-        ((DateTimeValue*)(tuple->get_slot(slots[3]->tuple_offset())))->from_date_str("2020-07-16 19:39:43", 19);
+        ((DateTimeValue*)(tuple->get_slot(slots[3]->tuple_offset())))
+                ->from_date_str("2020-07-16 19:39:43", 19);
 
         res = delta_writer->write(tuple);
         ASSERT_EQ(OLAP_SUCCESS, res);
@@ -543,26 +556,29 @@ TEST_F(TestDeltaWriter, sequence_col) {
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // publish version success
-    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
+    TabletSharedPtr tablet =
+            k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
     version.first = tablet->rowset_with_max_version()->end_version() + 1;
     version.second = tablet->rowset_with_max_version()->end_version() + 1;
-    std::cout << "start to add rowset version:" << version.first << "-" << version.second << std::endl;
+    std::cout << "start to add rowset version:" << version.first << "-" << version.second
+              << std::endl;
     VersionHash version_hash = 2;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-    StorageEngine::instance()->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id, &tablet_related_rs);
+    StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
+            write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         std::cout << "start to publish txn" << std::endl;
         RowsetSharedPtr rowset = tablet_rs.second;
-        res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                   write_req.tablet_id, write_req.schema_hash, tablet_rs.first.tablet_uid,
-                                                   version, version_hash);
+        res = k_engine->txn_manager()->publish_txn(
+                meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
+                write_req.schema_hash, tablet_rs.first.tablet_uid, version, version_hash);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        std::cout << "start to add inc rowset:" << rowset->rowset_id() << ", num rows:" << rowset->num_rows()
-                  << ", version:" << rowset->version().first << "-" << rowset->version().second
-                  << ", version_hash:" << rowset->version_hash()
+        std::cout << "start to add inc rowset:" << rowset->rowset_id()
+                  << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
+                  << "-" << rowset->version().second << ", version_hash:" << rowset->version_hash()
                   << std::endl;
         res = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(OLAP_SUCCESS, res);

@@ -17,23 +17,21 @@
 
 #include "exprs/conditional_functions.h"
 
-#include "exprs/expr.h"
 #include "exprs/anyval_util.h"
 #include "exprs/case_expr.h"
+#include "exprs/expr.h"
 #include "runtime/tuple_row.h"
 #include "udf/udf.h"
 
 namespace doris {
 
-#define CTOR_DCTOR_FUN(expr_class) \
-    expr_class::expr_class(const TExprNode& node) : Expr(node) { \
-    };\
-    \
-    expr_class::~expr_class() { \
-    };\
+#define CTOR_DCTOR_FUN(expr_class)                                \
+    expr_class::expr_class(const TExprNode& node) : Expr(node){}; \
+                                                                  \
+    expr_class::~expr_class(){};
 
 CTOR_DCTOR_FUN(IfNullExpr);
 CTOR_DCTOR_FUN(NullIfExpr);
 CTOR_DCTOR_FUN(IfExpr);
 CTOR_DCTOR_FUN(CoalesceExpr);
-}
+} // namespace doris

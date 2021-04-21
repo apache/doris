@@ -18,40 +18,39 @@
 #include "exec/merge_node.h"
 
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/raw_value.h"
 
 using std::vector;
 
 namespace doris {
 
-MergeNode::MergeNode(ObjectPool* pool, const TPlanNode& tnode,
-                     const DescriptorTbl& descs) :
-        ExecNode(pool, tnode, descs),
-        _tuple_id(tnode.merge_node.tuple_id),
-        _const_result_expr_idx(0),
-        _child_idx(INVALID_CHILD_IDX),
-        _child_row_batch(NULL),
-        _child_eos(false),
-        _child_row_idx(0) {
-}
+MergeNode::MergeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ExecNode(pool, tnode, descs),
+          _tuple_id(tnode.merge_node.tuple_id),
+          _const_result_expr_idx(0),
+          _child_idx(INVALID_CHILD_IDX),
+          _child_row_batch(NULL),
+          _child_eos(false),
+          _child_row_idx(0) {}
 
 Status MergeNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.merge_node);
     // Create _const_expr_lists from thrift exprs.
-    const vector<vector<TExpr>>& const_texpr_lists = tnode.merge_node.const_expr_lists;
+    const std::vector<vector<TExpr>>& const_texpr_lists = tnode.merge_node.const_expr_lists;
     for (int i = 0; i < const_texpr_lists.size(); ++i) {
-        vector<ExprContext*> ctxs;
+        std::vector<ExprContext*> ctxs;
         RETURN_IF_ERROR(Expr::create_expr_trees(_pool, const_texpr_lists[i], &ctxs));
         _const_result_expr_ctx_lists.push_back(ctxs);
     }
     // Create _result_expr__ctx_lists from thrift exprs.
-    const vector<vector<TExpr>>& result_texpr_lists = tnode.merge_node.result_expr_lists;
+    const std::vector<vector<TExpr>>& result_texpr_lists = tnode.merge_node.result_expr_lists;
     for (int i = 0; i < result_texpr_lists.size(); ++i) {
-        vector<ExprContext*> ctxs;
+        std::vector<ExprContext*> ctxs;
         RETURN_IF_ERROR(Expr::create_expr_trees(_pool, result_texpr_lists[i], &ctxs));
         _result_expr_ctx_lists.push_back(ctxs);
     }
@@ -66,8 +65,8 @@ Status MergeNode::prepare(RuntimeState* state) {
 
     // Prepare const expr lists.
     for (int i = 0; i < _const_result_expr_ctx_lists.size(); ++i) {
-        RETURN_IF_ERROR(Expr::prepare(
-                _const_result_expr_ctx_lists[i], state, row_desc(), expr_mem_tracker()));
+        RETURN_IF_ERROR(Expr::prepare(_const_result_expr_ctx_lists[i], state, row_desc(),
+                                      expr_mem_tracker()));
         DCHECK_EQ(_const_result_expr_ctx_lists[i].size(), _tuple_desc->slots().size());
     }
 
@@ -81,8 +80,8 @@ Status MergeNode::prepare(RuntimeState* state) {
 
     // Prepare result expr lists.
     for (int i = 0; i < _result_expr_ctx_lists.size(); ++i) {
-        RETURN_IF_ERROR(Expr::prepare(
-                _result_expr_ctx_lists[i], state, child(i)->row_desc(), expr_mem_tracker()));
+        RETURN_IF_ERROR(Expr::prepare(_result_expr_ctx_lists[i], state, child(i)->row_desc(),
+                                      expr_mem_tracker()));
         // DCHECK_EQ(_result_expr_ctx_lists[i].size(), _tuple_desc->slots().size());
         DCHECK_EQ(_result_expr_ctx_lists[i].size(), _materialized_slots.size());
     }
@@ -118,8 +117,8 @@ Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
     // Evaluate and materialize the const expr lists exactly once.
     while (_const_result_expr_idx < _const_result_expr_ctx_lists.size()) {
         // Materialize expr results into row_batch.
-        eval_and_materialize_exprs(
-            _const_result_expr_ctx_lists[_const_result_expr_idx], true, &tuple, row_batch);
+        eval_and_materialize_exprs(_const_result_expr_ctx_lists[_const_result_expr_idx], true,
+                                   &tuple, row_batch);
         ++_const_result_expr_idx;
         *eos = reached_limit();
 
@@ -137,12 +136,12 @@ Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
         // Row batch was either never set or we're moving on to a different child.
         if (_child_row_batch.get() == NULL) {
             RETURN_IF_CANCELLED(state);
-            _child_row_batch.reset(
-                new RowBatch(child(_child_idx)->row_desc(), state->batch_size(), mem_tracker().get()));
+            _child_row_batch.reset(new RowBatch(child(_child_idx)->row_desc(), state->batch_size(),
+                                                mem_tracker().get()));
             // Open child and fetch the first row batch.
             RETURN_IF_ERROR(child(_child_idx)->open(state));
-            RETURN_IF_ERROR(child(_child_idx)->get_next(state, _child_row_batch.get(),
-                            &_child_eos));
+            RETURN_IF_ERROR(
+                    child(_child_idx)->get_next(state, _child_row_batch.get(), &_child_eos));
             _child_row_idx = 0;
         }
 
@@ -150,7 +149,7 @@ Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
         while (true) {
             // Continue materializing exprs on _child_row_batch into row batch.
             if (eval_and_materialize_exprs(_result_expr_ctx_lists[_child_idx], false, &tuple,
-                                        row_batch)) {
+                                           row_batch)) {
                 *eos = reached_limit();
 
                 if (*eos) {
@@ -167,8 +166,8 @@ Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
 
             RETURN_IF_CANCELLED(state);
             _child_row_batch->reset();
-            RETURN_IF_ERROR(child(_child_idx)->get_next(state, _child_row_batch.get(),
-                            &_child_eos));
+            RETURN_IF_ERROR(
+                    child(_child_idx)->get_next(state, _child_row_batch.get(), &_child_eos));
             _child_row_idx = 0;
         }
 
@@ -198,11 +197,8 @@ Status MergeNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-bool MergeNode::eval_and_materialize_exprs(
-        const std::vector<ExprContext*>& ctxs,
-        bool const_exprs,
-        Tuple** tuple,
-        RowBatch* row_batch) {
+bool MergeNode::eval_and_materialize_exprs(const std::vector<ExprContext*>& ctxs, bool const_exprs,
+                                           Tuple** tuple, RowBatch* row_batch) {
     // Make sure there are rows left in the batch.
     if (!const_exprs && _child_row_idx >= _child_row_batch->num_rows()) {
         return false;
@@ -258,4 +254,4 @@ bool MergeNode::eval_and_materialize_exprs(
     return false;
 }
 
-}
+} // namespace doris

@@ -23,7 +23,7 @@ namespace doris {
 
 BloomFilterIndexWriter::~BloomFilterIndexWriter() {
     for (std::vector<BloomFilter*>::iterator it = _bloom_filters.begin();
-            it != _bloom_filters.end(); ++it) {
+         it != _bloom_filters.end(); ++it) {
         SAFE_DELETE(*it);
     }
 }
@@ -42,8 +42,8 @@ OLAPStatus BloomFilterIndexWriter::add_bloom_filter(BloomFilter* bf) {
 uint64_t BloomFilterIndexWriter::estimate_buffered_memory() {
     uint64_t buffered_size = sizeof(_header);
     if (_bloom_filters.size() > 0) {
-        buffered_size += 
-            _bloom_filters.size() * _bloom_filters[0]->bit_set_data_len() * sizeof(uint64_t);
+        buffered_size +=
+                _bloom_filters.size() * _bloom_filters[0]->bit_set_data_len() * sizeof(uint64_t);
     }
     return buffered_size;
 }
@@ -86,7 +86,7 @@ OLAPStatus BloomFilterIndexWriter::write_to_buffer(char* buffer, size_t buffer_s
 
     if (estimate_buffered_memory() > buffer_size) {
         OLAP_LOG_WARNING("need more buffer. [scr_size=%lu buffer_size=%lu]",
-            estimate_buffered_memory(), buffer_size);
+                         estimate_buffered_memory(), buffer_size);
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 

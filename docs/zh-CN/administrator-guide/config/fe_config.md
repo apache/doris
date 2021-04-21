@@ -30,6 +30,12 @@ under the License.
 
 该文档主要介绍 FE 的相关配置项。
 
+FE 的配置文件 `fe.conf` 通常存放在 FE 部署路径的 `conf/` 目录下。 而在 0.14 版本中会引入另一个配置文件 `fe_custom.conf`。该配置文件用于记录用户在运行是动态配置并持久化的配置项。
+
+FE 进程启动后，会先读取 `fe.conf` 中的配置项，之后再读取 `fe_custom.conf` 中的配置项。`fe_custom.conf` 中的配置项会覆盖 `fe.conf` 中相同的配置项。
+
+`fe_custom.conf` 文件的位置可以在 `fe.conf` 通过 `custom_config_dir` 配置项配置。 
+
 ## 查看配置项
 
 FE 的配置项有两种方式进行查看：
@@ -61,7 +67,7 @@ FE 的配置项有两种方式进行配置：
 
     在 `conf/fe.conf` 文件中添加和设置配置项。`fe.conf` 中的配置项会在 FE 进程启动时被读取。没有在 `fe.conf` 中的配置项将使用默认值。
     
-2. 动态配置
+2. 通过 MySQL 协议动态配置
 
     FE 启动后，可以通过以下命令动态设置配置项。该命令需要管理员权限。
     
@@ -75,13 +81,19 @@ FE 的配置项有两种方式进行配置：
     
     更多该命令的帮助，可以通过 `HELP ADMIN SET CONFIG;` 命令查看。
     
+3. 通过 HTTP 协议动态配置
+
+    具体请参阅 [Set Config Action](../http-actions/fe/set-config-action.md)
+    
+    该方式也可以持久化修改后的配置项。配置项将持久化在 `fe_custom.conf` 文件中，在 FE 重启后仍会生效。
+    
 ## 应用举例
 
-1. 修改 `async_load_task_pool_size`
+1. 修改 `async_pending_load_task_pool_size`
 
     通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项不能动态配置（`IsMutable` 为 false）。则需要在 `fe.conf` 中添加：
     
-    `async_load_task_pool_size=20`
+    `async_pending_load_task_pool_size=20`
     
     之后重启 FE 进程以生效该配置。
     
@@ -113,7 +125,7 @@ FE 的配置项有两种方式进行配置：
 ### `agent_task_resend_wait_time_ms`
 
 当代理任务的创建时间被设置的时候，此配置将决定是否重新发送代理任务， 当且仅当当前时间减去创建时间大于 `agent_task_task_resend_wait_time_ms` 时，ReportHandler可以重新发送代理任务。 
-  
+
 该配置目前主要用来解决`PUBLISH_VERSION`代理任务的重复发送问题, 目前该配置的默认值是5000，是个实验值，由于把代理任务提交到代理任务队列和提交到be存在一定的时间延迟，所以调大该配置的值可以有效解决代理任务的重复发送问题，
 
 但同时会导致提交失败或者执行失败的代理任务再次被执行的时间延长。  
@@ -121,6 +133,22 @@ FE 的配置项有两种方式进行配置：
 ### `alter_table_timeout_second`
 
 ### `async_load_task_pool_size`
+
+此配置仅用于与旧版本兼容，该配置已经被`async_loading_load_task_pool_size`所取代，将来会被移除。
+
+### `async_loading_load_task_pool_size`
+
+`loading_load`任务执行程序池大小。 该池大小限制了正在运行的最大`loading_load`任务数。
+
+当前，它仅限制`broker load`的`loading_load`任务的数量。
+
+### `async_pending_load_task_pool_size`
+
+`pending_load`任务执行程序池大小。 该池大小限制了正在运行的最大`pending_load`任务数。
+
+当前，它仅限制`broker load`和`spark load`的`pending_load`任务的数量。
+
+它应该小于`max_running_txn_num_per_db`的值。
 
 ### `audit_log_delete_age`
 
@@ -208,6 +236,12 @@ FE 的配置项有两种方式进行配置：
 
 ### `consistency_check_start_time`
 
+### `custom_config_dir`
+
+配置 `fe_custom.conf` 文件的位置。默认为 `conf/` 目录下。
+
+在某些部署环境下，`conf/` 目录可能因为系统的版本升级被覆盖掉。这会导致用户在运行是持久化修改的配置项也被覆盖。这时，我们可以将 `fe_custom.conf` 存储在另一个指定的目录中，以防止配置文件被覆盖。
+
 ### `db_used_data_quota_update_interval_secs`
 
 为了更好的数据导入性能，在数据导入之前的数据库已使用的数据量是否超出配额的检查中，我们并不实时计算数据库已经使用的数据量，而是获取后台线程周期性更新的值。
@@ -227,8 +261,6 @@ FE 的配置项有两种方式进行配置：
 ### `disable_cluster_feature`
 
 ### `disable_colocate_balance`
-
-### `disable_colocate_join`
 
 ### `disable_colocate_join`
 
@@ -322,6 +354,14 @@ FE 的配置项有两种方式进行配置：
 
 ### `frontend_address`
 
+状态：已废弃，不建议使用，后续可能删除该参数
+
+类型：string
+
+说明：显式的设置FE的IP地址, 代替使用 *InetAddress.getByName*获取IP地址。通常在*InetAddress.getByName*无法获取预期结果的情况下使用。仅支持IP地址，不支持hostname。
+
+默认值：0.0.0.0
+
 ### `hadoop_load_default_timeout_second`
 
 ### `heartbeat_mgr_blocking_queue_size`
@@ -397,7 +437,7 @@ HTTP服务允许接收请求的Header的最大长度，单位为比特，默认�
 ### `max_agent_task_threads_num`
 
 ### `max_allowed_in_element_num_of_delete`
-    
+
 该配置被用于限制delete语句中谓词in的元素数量。默认值为1024。 
 
 ### `max_allowed_packet`
@@ -430,8 +470,6 @@ HTTP服务允许接收请求的Header的最大长度，单位为比特，默认�
 ### `max_layout_length_per_row`
 
 ### `max_load_timeout_second`
-
-### `max_mysql_service_task_threads_num`
 
 ### `max_query_retry_time`
 
@@ -479,6 +517,15 @@ current running txns on db xxx is xx, larger than limit xx
 
 ### `meta_dir`
 
+类型：string
+
+说明：FE元数据的存储目录，强烈建议该目录应该为：
+
+* 高性能 （如SSD设备）
+* 安全（如RAID）
+
+默认值：DORIS_HOME_DIR + "/doris-meta";
+
 ### `meta_publish_timeout_ms`
 
 ### `min_bytes_per_broker_scanner`
@@ -487,7 +534,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 类型：long
 说明：用于控制一个 clone 任务的最小超时时间。单位秒。
-默认值：120
+默认值：180
 动态修改：是
 
 见 `max_clone_task_timeout_sec` 说明。
@@ -496,9 +543,31 @@ current running txns on db xxx is xx, larger than limit xx
 
 ### `min_load_timeout_second`
 
+### `mysql_service_nio_enabled`
+
+类型：bool
+说明：FE是否启动基于NIO模型的MySQL服务端。建议在查询连接低于1000或并发场景不高的场景可以关闭该选项。
+默认值：true
+
 ### `mysql_service_io_threads_num`
 
-### `mysql_service_nio_enabled`
+类型：int
+
+说明：当FE启动基于NIO模型的MySQL服务端时，负责IO Event的线程数量，仅在
+
+`mysql_service_nio_enabled`为true时生效。
+
+默认值：4
+
+### `max_mysql_service_task_threads_num`
+
+类型：int
+
+说明：当FE启动基于NIO模型的MySQL服务端时，负责查询Task Event的线程数量，仅在
+
+`mysql_service_nio_enabled`为true时生效。
+
+默认值：4096
 
 ### `net_buffer_length`
 
@@ -538,6 +607,12 @@ current running txns on db xxx is xx, larger than limit xx
 
 ### `query_port`
 
+类型：int
+
+说明：FE负责监听MySQL请求的端口。
+
+默认值：9030
+
 ### `query_timeout`
 
 ### `remote_fragment_exec_timeout_ms`
@@ -553,6 +628,14 @@ current running txns on db xxx is xx, larger than limit xx
 ### `resource_group`
 
 ### `rewrite_count_distinct_to_bitmap_hll`
+
+该变量为 session variable，session 级别生效。
+
++ 类型：boolean
++ 描述：**仅对于 AGG 模型的表来说**，当变量为 true 时，用户查询时包含 count(distinct c1) 这类聚合函数时，如果 c1 列本身类型为 bitmap，则 count distnct 会改写为 bitmap_union_count(c1)。
+        当 c1 列本身类型为 hll，则 count distinct 会改写为 hll_union_agg(c1)
+        如果变量为 false，则不发生任何改写。
++ 默认值：true。
 
 ### `rpc_port`
 
@@ -613,7 +696,7 @@ current running txns on db xxx is xx, larger than limit xx
 ### `thrift_client_timeout_ms`
 
 这是 thrift 服务端的关于连接超时和socket读取数据超时的配置。
-   
+
 thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.SocketInputStream.socketRead0的问题.
 
 ### `thrift_server_max_worker_threads`
@@ -687,14 +770,6 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 将此参数设置为 true，则 Doris 会自动使用空白副本填充所有副本都以损坏或丢失的 Tablet。
 
 默认为 false。
-
-
-### `enable_odbc_table`
-
-将此参数设置为 true，则 Doris 能够支持ODBC的外表建立，查询。具体ODBC表的使用方式，参考ODBC表的使用文档。
-
-在该功能仍然在实验阶段，所以当前改参数默认为 false。
-
 
 ### `default_db_data_quota_bytes`
 

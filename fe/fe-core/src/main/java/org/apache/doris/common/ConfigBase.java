@@ -24,7 +24,11 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileReader;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
@@ -45,17 +49,33 @@ public class ConfigBase {
         boolean mutable() default false;
         boolean masterOnly() default false;
         String comment() default "";
-    }   
-    
-    public static Properties props;
+    }
+
+    private static String confFile;
+    private static String customConfFile;
     public static Class<? extends ConfigBase> confClass;
-    
-    public void init(String profile) throws Exception {
-        props = new Properties();
+
+    public void init(String confFile) throws Exception {
         confClass = this.getClass();
-        props.load(new FileReader(profile));
-        replacedByEnv();
-        setFields();
+        this.confFile = confFile;
+        initConf(confFile);
+    }
+
+    public void initCustom(String customConfFile) throws Exception {
+        this.customConfFile = customConfFile;
+        File file = new File(customConfFile);
+        if (file.exists() && file.isFile()) {
+            // customConfFile is introduced in version 0.14, for compatibility, check if it exist
+            // config in customConfFile will overwrite the config in confFile
+            initConf(customConfFile);
+        }
+    }
+
+    private void initConf(String confFile) throws Exception {
+        Properties props = new Properties();
+        props.load(new FileReader(confFile));
+        replacedByEnv(props);
+        setFields(props);
     }
     
     public static HashMap<String, String> dump() throws Exception { 
@@ -94,9 +114,13 @@ public class ConfigBase {
         }
         return map;
     }
-    
-    private static void replacedByEnv() throws Exception {
-        Pattern pattern = Pattern.compile("\\$\\{([^\\}]*)\\}");    
+
+    // there is some config in fe.conf like:
+    // config_key={CONFIG_VALUE}
+    // the "CONFIG_VALUE" should be replaced be env variable CONFIG_VALUE
+    private void replacedByEnv(Properties props) throws Exception {
+        // pattern to match string like "{CONFIG_VALUE}"
+        Pattern pattern = Pattern.compile("\\$\\{([^\\}]*)\\}");
         for (String key : props.stringPropertyNames()) {
             String value = props.getProperty(key);
             Matcher m = pattern.matcher(value);
@@ -109,11 +133,11 @@ public class ConfigBase {
                     throw new Exception("no such env variable: " + m.group(1));
                 }
             }
-            props.setProperty(key, value);      
+            props.setProperty(key, value);
         }
     }
-    
-    private static void setFields() throws Exception {      
+
+    private static void setFields(Properties props) throws Exception {
         Field[] fields = confClass.getFields();     
         for (Field f : fields) {
             // ensure that field has "@ConfField" annotation
@@ -130,6 +154,11 @@ public class ConfigBase {
             }
             
             setConfigField(f, confVal);
+
+            // to be compatible with old version
+            if (confKey.equalsIgnoreCase("async_load_task_pool_size")) {
+                Config.async_loading_load_task_pool_size = Config.async_load_task_pool_size;
+            }
         }       
     }
 
@@ -284,4 +313,32 @@ public class ConfigBase {
 
         return anno.masterOnly();
     }
+
+    // overwrite configs to customConfFile.
+    // use synchronized to make sure only one thread modify this file
+    public synchronized static void persistConfig(Map<String, String> customConf) throws IOException {
+        File file = new File(customConfFile);
+        if (!file.exists()) {
+            file.createNewFile();
+        } else {
+            // clear the file content
+            try (PrintWriter writer = new PrintWriter(file)) {
+                writer.print("");
+            }
+        }
+
+        Properties props = new Properties();
+        props.load(new FileReader(customConfFile));
+
+        for (Map.Entry<String, String> entry : customConf.entrySet()) {
+            props.setProperty(entry.getKey(), entry.getValue());
+        }
+
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            props.store(fos, "THIS IS AN AUTO GENERATED CONFIG FILE.\n"
+                    + "You can modify this file manually, and the configurations in this file\n"
+                    + "will overwrite the configurations in fe.conf");
+        }
+    }
 }
+

@@ -73,7 +73,10 @@ public class SelectNode extends PlanNode {
     }
 
     @Override
-    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return "";
+        }
         StringBuilder output = new StringBuilder();
         if (!conjuncts.isEmpty()) {
             output.append(prefix + "predicates: " + getExplainString(conjuncts) + "\n");

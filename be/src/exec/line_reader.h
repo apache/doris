@@ -24,11 +24,10 @@ namespace doris {
 // This class is used for CSV scanner, to read content line by line
 class LineReader {
 public:
-    virtual ~LineReader() {
-    }
+    virtual ~LineReader() {}
     virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof) = 0;
 
     virtual void close() = 0;
 };
 
-}
+} // namespace doris

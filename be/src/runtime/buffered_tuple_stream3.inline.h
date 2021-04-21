@@ -19,7 +19,6 @@
 #define DORIS_BE_RUNTIME_BUFFERED_TUPLE_STREAM_INLINE_H
 
 #include "runtime/buffered_tuple_stream3.h"
-
 #include "runtime/descriptors.h"
 #include "runtime/tuple_row.h"
 #include "util/bit_util.h"
@@ -27,30 +26,30 @@
 namespace doris {
 
 inline int BufferedTupleStream3::NullIndicatorBytesPerRow() const {
-  DCHECK(has_nullable_tuple_);
-  return BitUtil::RoundUpNumBytes(fixed_tuple_sizes_.size());
+    DCHECK(has_nullable_tuple_);
+    return BitUtil::RoundUpNumBytes(fixed_tuple_sizes_.size());
 }
 
 inline uint8_t* BufferedTupleStream3::AddRowCustomBegin(int64_t size, Status* status) {
-  DCHECK(!closed_);
-  DCHECK(has_write_iterator());
-  if (UNLIKELY(write_page_ == nullptr || write_ptr_ + size > write_end_ptr_)) {
-    return AddRowCustomBeginSlow(size, status);
-  }
-  DCHECK(write_page_ != nullptr);
-  DCHECK(write_page_->is_pinned());
-  DCHECK_LE(write_ptr_ + size, write_end_ptr_);
-  ++num_rows_;
-  ++write_page_->num_rows;
+    DCHECK(!closed_);
+    DCHECK(has_write_iterator());
+    if (UNLIKELY(write_page_ == nullptr || write_ptr_ + size > write_end_ptr_)) {
+        return AddRowCustomBeginSlow(size, status);
+    }
+    DCHECK(write_page_ != nullptr);
+    DCHECK(write_page_->is_pinned());
+    DCHECK_LE(write_ptr_ + size, write_end_ptr_);
+    ++num_rows_;
+    ++write_page_->num_rows;
 
-  uint8_t* data = write_ptr_;
-  write_ptr_ += size;
-  return data;
+    uint8_t* data = write_ptr_;
+    write_ptr_ += size;
+    return data;
 }
 
 inline void BufferedTupleStream3::AddRowCustomEnd(int64_t size) {
-  if (UNLIKELY(size > default_page_len_)) AddLargeRowCustomEnd(size);
+    if (UNLIKELY(size > default_page_len_)) AddLargeRowCustomEnd(size);
 }
-}
+} // namespace doris
 
 #endif

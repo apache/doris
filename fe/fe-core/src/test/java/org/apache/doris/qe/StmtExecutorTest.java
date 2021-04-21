@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
@@ -44,6 +45,7 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 
+import org.glassfish.jersey.internal.guava.Sets;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -195,7 +197,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = false;
 
-                queryStmt.getDbs((Analyzer) any, (SortedMap) any);
+                queryStmt.getTables((Analyzer) any, (SortedMap) any, Sets.newHashSet());
                 minTimes = 0;
 
                 queryStmt.getRedirectStatus();
@@ -524,6 +526,16 @@ public class StmtExecutorTest {
         stmtExecutor.execute();
 
         Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+    }
+
+    @Test
+    public void testStmtWithUserInfo(@Mocked StatementBase stmt, @Mocked ConnectContext context) throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, stmt);
+        Deencapsulation.setField(stmtExecutor, "parsedStmt", null);
+        Deencapsulation.setField(stmtExecutor, "originStmt", new OriginStatement("show databases;", 1));
+        stmtExecutor.execute();
+        StatementBase newstmt = (StatementBase)Deencapsulation.getField(stmtExecutor, "parsedStmt");
+        Assert.assertTrue(newstmt.getUserInfo() != null);
     }
 
     @Test

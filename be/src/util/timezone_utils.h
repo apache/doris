@@ -18,8 +18,9 @@
 
 #pragma once
 
-#include "cctz/time_zone.h"
 #include <re2/re2.h>
+
+#include "cctz/time_zone.h"
 
 namespace doris {
 
@@ -34,4 +35,4 @@ private:
     // RE2 obj is thread safe
     static RE2 time_zone_offset_format_reg;
 };
-}
+} // namespace doris

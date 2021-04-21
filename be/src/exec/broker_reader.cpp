@@ -122,7 +122,7 @@ Status BrokerReader::open() {
 }
 
 //not support
-Status BrokerReader::read_one_message(uint8_t** buf, size_t* length) {
+Status BrokerReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) {
     return Status::NotSupported("Not support");
 }
 
@@ -155,7 +155,8 @@ Status BrokerReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_rea
             return status;
         }
 
-        VLOG_RPC << "send pread request to broker:" << broker_addr << " position:" << position << ", read bytes length:" << nbytes;
+        VLOG_RPC << "send pread request to broker:" << broker_addr << " position:" << position
+                 << ", read bytes length:" << nbytes;
 
         try {
             client->pread(response, request);
@@ -255,4 +256,3 @@ void BrokerReader::close() {
 }
 
 } // namespace doris
-

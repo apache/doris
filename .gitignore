@@ -36,7 +36,7 @@ fe/fe-core/src/main/resources/static/
 nohup.out
 
 
-#ignore eclipse project file & idea  project file
+#ignore eclipse project file & idea project file
 .cproject
 .project
 .settings/
@@ -50,8 +50,19 @@ be/src/gen_cpp/*.cc
 be/src/gen_cpp/*.cpp
 be/src/gen_cpp/*.h
 be/src/gen_cpp/opcode
-be/ut_build_ASAN/
+be/ut_build_*
 be/tags
+be/build*
+be/test/olap/test_data/tablet_meta_test.hdr
+build
+
+ui/dist
+ui/node_modules
+ui/package-lock.json
+docs/package-lock.json
+fe/fe-common/.classpath
+rpc_data/
+
 
 #ignore vscode project file
 .vscode

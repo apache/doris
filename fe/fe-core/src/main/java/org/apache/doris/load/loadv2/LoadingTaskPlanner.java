@@ -22,6 +22,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
@@ -32,6 +33,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.BrokerScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.OlapTableSink;
@@ -65,7 +67,8 @@ public class LoadingTaskPlanner {
     private final List<BrokerFileGroup> fileGroups;
     private final boolean strictMode;
     private final long timeoutS;    // timeout of load job, in second
-
+    private final int loadParallelism;
+    private UserIdentity userInfo;
     // Something useful
     // ConnectContext here is just a dummy object to avoid some NPE problem, like ctx.getDatabase()
     private Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), new ConnectContext());
@@ -79,7 +82,8 @@ public class LoadingTaskPlanner {
 
     public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
                               BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
-                              boolean strictMode, String timezone, long timeoutS) {
+                              boolean strictMode, String timezone, long timeoutS, int loadParallelism,
+                              UserIdentity userInfo) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
@@ -89,23 +93,23 @@ public class LoadingTaskPlanner {
         this.strictMode = strictMode;
         this.analyzer.setTimezone(timezone);
         this.timeoutS = timeoutS;
-
-        /*
-         * TODO(cmy): UDF currently belongs to a database. Therefore, before using UDF,
-         * we need to check whether the user has corresponding permissions on this database.
-         * But here we have lost user information and therefore cannot check permissions.
-         * So here we first prohibit users from using UDF in load. If necessary, improve it later.
-         */
-        this.analyzer.setUDFAllowed(false);
+        this.loadParallelism = loadParallelism;
+        this.userInfo = userInfo;
+        if (Catalog.getCurrentCatalog().getAuth().checkDbPriv(userInfo,
+                Catalog.getCurrentCatalog().getDb(dbId).getFullName(), PrivPredicate.SELECT)) {
+            this.analyzer.setUDFAllowed(true);
+        } else {
+            this.analyzer.setUDFAllowed(false);
+        }
     }
 
     public void plan(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded)
             throws UserException {
         // Generate tuple descriptor
-        TupleDescriptor tupleDesc = descTable.createTupleDescriptor();
+        TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
         // use full schema to fill the descriptor table
         for (Column col : table.getFullSchema()) {
-            SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(destTupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             if (col.isAllowNull()) {
@@ -117,9 +121,9 @@ public class LoadingTaskPlanner {
 
         // Generate plan trees
         // 1. Broker scan node
-        BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), tupleDesc, "BrokerScanNode",
-                                                     fileStatusesList, filesAdded);
-        scanNode.setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups, strictMode);
+        BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), destTupleDesc, "BrokerScanNode",
+                fileStatusesList, filesAdded);
+        scanNode.setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups, strictMode, loadParallelism);
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         scanNodes.add(scanNode);
@@ -127,12 +131,13 @@ public class LoadingTaskPlanner {
 
         // 2. Olap table sink
         List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(table, tupleDesc, partitionIds);
+        OlapTableSink olapTableSink = new OlapTableSink(table, destTupleDesc, partitionIds);
         olapTableSink.init(loadId, txnId, dbId, timeoutS);
         olapTableSink.complete();
 
         // 3. Plan fragment
         PlanFragment sinkFragment = new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.RANDOM);
+        sinkFragment.setParallelExecNum(loadParallelism);
         sinkFragment.setSink(olapTableSink);
 
         fragments.add(sinkFragment);

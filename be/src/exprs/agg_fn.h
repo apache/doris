@@ -74,113 +74,106 @@ class TExprNode;
 ///                by an input row as it falls out of a sliding window.
 ///
 class AggFn : public Expr {
- public:
+public:
+    /// Override the base class' implementation.
+    virtual bool IsAggFn() const { return true; }
 
-  /// Override the base class' implementation.
-  virtual bool IsAggFn() const { return true; }
+    /// Enum for some built-in aggregation ops.
+    enum AggregationOp {
+        COUNT,
+        MIN,
+        MAX,
+        SUM,
+        AVG,
+        NDV,
+        SUM_DISTINCT,
+        COUNT_DISTINCT,
+        HLL_UNION_AGG,
+        OTHER,
+    };
 
-  /// Enum for some built-in aggregation ops.
-  enum AggregationOp {
-    COUNT,
-    MIN,
-    MAX,
-    SUM,
-    AVG,
-    NDV,
-    SUM_DISTINCT,
-    COUNT_DISTINCT,
-    HLL_UNION_AGG,
-    OTHER,  
-  };
+    /// Creates and initializes an aggregate function from 'texpr' and returns it in
+    /// 'agg_fn'. The returned AggFn lives in the ObjectPool of 'state'. 'row_desc' is
+    /// the row descriptor of the input tuple row; 'intermediate_slot_desc' is the slot
+    /// descriptor of the intermediate value; 'output_slot_desc' is the slot descriptor
+    /// of the output value. On failure, returns error status and sets 'agg_fn' to NULL.
+    static Status Create(const TExpr& texpr, const RowDescriptor& row_desc,
+                         const SlotDescriptor& intermediate_slot_desc,
+                         const SlotDescriptor& output_slot_desc, RuntimeState* state,
+                         AggFn** agg_fn) WARN_UNUSED_RESULT;
 
-  /// Creates and initializes an aggregate function from 'texpr' and returns it in
-  /// 'agg_fn'. The returned AggFn lives in the ObjectPool of 'state'. 'row_desc' is
-  /// the row descriptor of the input tuple row; 'intermediate_slot_desc' is the slot
-  /// descriptor of the intermediate value; 'output_slot_desc' is the slot descriptor
-  /// of the output value. On failure, returns error status and sets 'agg_fn' to NULL.
-  static Status Create(const TExpr& texpr, const RowDescriptor& row_desc,
-      const SlotDescriptor& intermediate_slot_desc,
-      const SlotDescriptor& output_slot_desc, RuntimeState* state, AggFn** agg_fn)
-      WARN_UNUSED_RESULT;
+    bool is_merge() const { return is_merge_; }
+    AggregationOp agg_op() const { return agg_op_; }
+    bool is_count_star() const { return agg_op_ == COUNT && _children.empty(); }
+    bool is_count_distinct() const { return agg_op_ == COUNT_DISTINCT; }
+    bool is_sum_distinct() const { return agg_op_ == SUM_DISTINCT; }
+    bool is_builtin() const { return _fn.binary_type == TFunctionBinaryType::BUILTIN; }
+    const std::string& fn_name() const { return _fn.name.function_name; }
+    const TypeDescriptor& intermediate_type() const { return intermediate_slot_desc_.type(); }
+    const SlotDescriptor& intermediate_slot_desc() const { return intermediate_slot_desc_; }
+    // Output type is the same as Expr::type().
+    const SlotDescriptor& output_slot_desc() const { return output_slot_desc_; }
+    void* remove_fn() const { return remove_fn_; }
+    void* merge_or_update_fn() const { return is_merge_ ? merge_fn_ : update_fn_; }
+    void* serialize_fn() const { return serialize_fn_; }
+    void* get_value_fn() const { return get_value_fn_; }
+    void* finalize_fn() const { return finalize_fn_; }
+    bool SupportsRemove() const { return remove_fn_ != nullptr; }
+    bool SupportsSerialize() const { return serialize_fn_ != nullptr; }
+    FunctionContext::TypeDesc GetIntermediateTypeDesc() const;
+    FunctionContext::TypeDesc GetOutputTypeDesc() const;
+    const std::vector<FunctionContext::TypeDesc>& arg_type_descs() const { return arg_type_descs_; }
 
-  bool is_merge() const { return is_merge_; }
-  AggregationOp agg_op() const { return agg_op_; }
-  bool is_count_star() const { return agg_op_ == COUNT && _children.empty(); }
-  bool is_count_distinct() const { return agg_op_ == COUNT_DISTINCT; }
-  bool is_sum_distinct() const { return agg_op_ == SUM_DISTINCT; }
-  bool is_builtin() const { return _fn.binary_type == TFunctionBinaryType::BUILTIN; }
-  const std::string& fn_name() const { return _fn.name.function_name; }
-  const TypeDescriptor& intermediate_type() const { return intermediate_slot_desc_.type(); }
-  const SlotDescriptor& intermediate_slot_desc() const { return intermediate_slot_desc_; }
-  // Output type is the same as Expr::type().
-  const SlotDescriptor& output_slot_desc() const { return output_slot_desc_; }
-  void* remove_fn() const { return remove_fn_; }
-  void* merge_or_update_fn() const { return is_merge_ ? merge_fn_ : update_fn_; }
-  void* serialize_fn() const { return serialize_fn_; }
-  void* get_value_fn() const { return get_value_fn_; }
-  void* finalize_fn() const { return finalize_fn_; }
-  bool SupportsRemove() const { return remove_fn_ != nullptr; }
-  bool SupportsSerialize() const { return serialize_fn_ != nullptr; }
-  FunctionContext::TypeDesc GetIntermediateTypeDesc() const;
-  FunctionContext::TypeDesc GetOutputTypeDesc() const;
-  const std::vector<FunctionContext::TypeDesc>& arg_type_descs() const {
-    return arg_type_descs_;
-  }
+    /// Releases all cache entries to libCache for all nodes in the expr tree.
+    virtual void Close();
+    static void Close(const std::vector<AggFn*>& exprs);
 
-  /// Releases all cache entries to libCache for all nodes in the expr tree.
-  virtual void Close();
-  static void Close(const std::vector<AggFn*>& exprs);
+    Expr* clone(ObjectPool* pool) const { return nullptr; }
 
-  Expr* clone(ObjectPool* pool) const {
-      return nullptr;
-  }
+    virtual std::string DebugString() const;
+    static std::string DebugString(const std::vector<AggFn*>& exprs);
 
-  virtual std::string DebugString() const;
-  static std::string DebugString(const std::vector<AggFn*>& exprs);
- 
-  const int get_vararg_start_idx() const {
-      return _vararg_start_idx;
-  }
+    const int get_vararg_start_idx() const { return _vararg_start_idx; }
 
 private:
-  friend class Expr;
-  friend class NewAggFnEvaluator;
+    friend class Expr;
+    friend class NewAggFnEvaluator;
 
-  /// True if this is a merging aggregation.
-  const bool is_merge_;
+    /// True if this is a merging aggregation.
+    const bool is_merge_;
 
-  /// Slot into which Update()/Merge()/Serialize() write their result. Not owned.
-  const SlotDescriptor& intermediate_slot_desc_;
+    /// Slot into which Update()/Merge()/Serialize() write their result. Not owned.
+    const SlotDescriptor& intermediate_slot_desc_;
 
-  /// Slot into which Finalize() results are written. Not owned. Identical to
-  /// intermediate_slot_desc_ if this agg fn has the same intermediate and result type.
-  const SlotDescriptor& output_slot_desc_;
+    /// Slot into which Finalize() results are written. Not owned. Identical to
+    /// intermediate_slot_desc_ if this agg fn has the same intermediate and result type.
+    const SlotDescriptor& output_slot_desc_;
 
-  /// The types of the arguments to the aggregate function.
-  const std::vector<FunctionContext::TypeDesc> arg_type_descs_;
+    /// The types of the arguments to the aggregate function.
+    const std::vector<FunctionContext::TypeDesc> arg_type_descs_;
 
-  /// The aggregation operation.
-  AggregationOp agg_op_;
+    /// The aggregation operation.
+    AggregationOp agg_op_;
 
-  /// Function pointers for the different phases of the aggregate function.
-  void* init_fn_ = nullptr;
-  void* update_fn_ = nullptr;
-  void* remove_fn_ = nullptr;
-  void* merge_fn_ = nullptr;
-  void* serialize_fn_ = nullptr;
-  void* get_value_fn_ = nullptr;
-  void* finalize_fn_ = nullptr;
-  
-  int _vararg_start_idx;
+    /// Function pointers for the different phases of the aggregate function.
+    void* init_fn_ = nullptr;
+    void* update_fn_ = nullptr;
+    void* remove_fn_ = nullptr;
+    void* merge_fn_ = nullptr;
+    void* serialize_fn_ = nullptr;
+    void* get_value_fn_ = nullptr;
+    void* finalize_fn_ = nullptr;
 
-  AggFn(const TExprNode& node, const SlotDescriptor& intermediate_slot_desc,
-      const SlotDescriptor& output_slot_desc);
+    int _vararg_start_idx;
 
-  /// Initializes the AggFn and its input expressions. May load the UDAF from LibCache
-  /// if necessary.
-  virtual Status Init(const RowDescriptor& desc, RuntimeState* state) WARN_UNUSED_RESULT;
+    AggFn(const TExprNode& node, const SlotDescriptor& intermediate_slot_desc,
+          const SlotDescriptor& output_slot_desc);
+
+    /// Initializes the AggFn and its input expressions. May load the UDAF from LibCache
+    /// if necessary.
+    virtual Status Init(const RowDescriptor& desc, RuntimeState* state) WARN_UNUSED_RESULT;
 };
 
-}
+} // namespace doris
 
 #endif

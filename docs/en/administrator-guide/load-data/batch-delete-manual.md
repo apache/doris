@@ -123,11 +123,13 @@ Routine load adds a mapping to the `columns` field. The mapping method is the sa
 ```
 
 ## Enable bulk delete support
-When creating a new table, if `enable_batch_delete_by_default` is true, all new tables support batch deletion. If it is false, the new table does not support batch deletion by default.
-For a table that does not support batch delete function, if you want to use batch delete, you can use the following statement:
-`ALTER TABLE tablename ENABLE FEATURE "BATCH_DELETE"` to enable the batch delete.
-If you determine whether a table supports batch deletion, you can set a session variable to display the hidden columns `SET show_hidden_columns=true`, then use `desc tablename`, if there is a `__DELETE_SIGN__` column in the output, it is supported, if not, it is not supported
+There are two ways of enabling batch delete support:
+1. By adding `enable_batch_delete_by_default=true` in the fe configuration file, all newly created tables after restarting fe support batch deletion, this option defaults to false
 
+2. For tables that have not changed the above fe configuration or for existing tables that do not support the bulk delete function, you can use the following statement:
+`ALTER TABLE tablename ENABLE FEATURE "BATCH_DELETE"` to enable the batch delete.
+
+If you want to determine whether a table supports batch delete, you can set a session variable to display the hidden columns `SET show_hidden_columns=true`, and then use `desc tablename`, if there is a `__DELETE_SIGN__` column in the output, it is supported, if not, it is not supported
 ## Note
 1. Since import operations other than stream load may be executed out of order inside doris, if it is not stream load when importing using the `MERGE` method, it needs to be used with load sequence. For the specific syntax, please refer to the sequence column related documents
 2. `DELETE ON` condition can only be used with MERGE

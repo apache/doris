@@ -75,10 +75,12 @@ public class OperationType {
     public static final short OP_EXPORT_CREATE = 36;
     public static final short OP_EXPORT_UPDATE_STATE = 37;
 
+    @Deprecated
     public static final short OP_FINISH_SYNC_DELETE = 40;
     public static final short OP_FINISH_DELETE = 41;
     public static final short OP_ADD_REPLICA = 42;
     public static final short OP_DELETE_REPLICA = 43;
+    @Deprecated
     public static final short OP_FINISH_ASYNC_DELETE = 44;
     public static final short OP_UPDATE_REPLICA = 45;
     public static final short OP_BACKEND_TABLETS_INFO = 46;
@@ -183,4 +185,7 @@ public class OperationType {
     // resource 276~290
     public static final short OP_CREATE_RESOURCE = 276;
     public static final short OP_DROP_RESOURCE = 277;
+
+    // alter external table
+    public static final short OP_ALTER_EXTERNAL_TABLE_SCHEMA = 280;
 }

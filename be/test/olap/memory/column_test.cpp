@@ -21,16 +21,17 @@
 
 #include "olap/memory/column_reader.h"
 #include "olap/memory/column_writer.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 namespace memory {
 
+static const size_t InsertCount = LOOP_LESS_OR_MORE(1000, 1000000);
+static const size_t UpdateTime = 70;
+static const size_t UpdateCount = LOOP_LESS_OR_MORE(10, 10000);
+
 template <class CppType, ColumnType CT>
 struct ColumnTest {
-    static const size_t InsertCount = 1000000;
-    static const size_t UpdateTime = 70;
-    static const size_t UpdateCount = 10000;
-
     static bool is_null(CppType v) { return ((int64_t)v) % 10 == 0; }
 
     static void test_not_null() {
@@ -38,7 +39,7 @@ struct ColumnTest {
         scoped_refptr<Column> c(new Column(cs, CT, 1));
         std::unique_ptr<ColumnWriter> writer;
         ASSERT_TRUE(c->create_writer(&writer).ok());
-        vector<CppType> values(InsertCount, 0);
+        std::vector<CppType> values(InsertCount, 0);
         for (size_t i = 0; i < values.size(); i++) {
             values[i] = (CppType)rand();
             EXPECT_TRUE(writer->insert((uint32_t)i, &values[i]).ok());
@@ -46,7 +47,11 @@ struct ColumnTest {
         scoped_refptr<Column> newc;
         ASSERT_TRUE(writer->finalize(2).ok());
         ASSERT_TRUE(writer->get_new_column(&newc).ok());
-        EXPECT_TRUE(c.get() != newc.get());
+        // The less `InsertCount` won't make COW performed，
+        // expect the new column object only when inserting more。
+        if (AllowSlowTests()) {
+            EXPECT_TRUE(c.get() != newc.get());
+        }
         std::unique_ptr<ColumnReader> readc;
         ASSERT_TRUE(newc->create_reader(2, &readc).ok());
         for (uint32_t i = 0; i < values.size(); i++) {
@@ -60,7 +65,7 @@ struct ColumnTest {
         scoped_refptr<Column> c(new Column(cs, CT, 1));
         std::unique_ptr<ColumnWriter> writer;
         ASSERT_TRUE(c->create_writer(&writer).ok());
-        vector<CppType> values(InsertCount, 0);
+        std::vector<CppType> values(InsertCount, 0);
         for (size_t i = 0; i < values.size(); i++) {
             values[i] = (CppType)rand();
             if (is_null(values[i])) {
@@ -73,7 +78,9 @@ struct ColumnTest {
         scoped_refptr<Column> newc;
         ASSERT_TRUE(writer->finalize(2).ok());
         ASSERT_TRUE(writer->get_new_column(&newc).ok());
-        EXPECT_TRUE(c.get() != newc.get());
+        if (AllowSlowTests()) {
+            EXPECT_TRUE(c.get() != newc.get());
+        }
         std::unique_ptr<ColumnReader> readc;
         ASSERT_TRUE(newc->create_reader(2, &readc).ok());
         for (uint32_t i = 0; i < values.size(); i++) {
@@ -94,7 +101,7 @@ struct ColumnTest {
         scoped_refptr<Column> c(new Column(cs, CT, 1));
         std::unique_ptr<ColumnWriter> writer;
         ASSERT_TRUE(c->create_writer(&writer).ok());
-        vector<CppType> values(InsertCount, 0);
+        std::vector<CppType> values(InsertCount, 0);
         for (size_t i = 0; i < values.size(); i++) {
             values[i] = (CppType)rand();
             EXPECT_TRUE(writer->insert((uint32_t)i, &values[i]).ok());
@@ -105,7 +112,7 @@ struct ColumnTest {
         scoped_refptr<Column> oldc = c;
         for (size_t u = 0; u < UpdateTime; u++) {
             ASSERT_TRUE(c->create_writer(&writer).ok());
-            vector<uint32_t> update_idxs;
+            std::vector<uint32_t> update_idxs;
             for (size_t i = 0; i < UpdateCount; i++) {
                 uint32_t idx = rand() % values.size();
                 //CppType oldv = values[idx];
@@ -138,7 +145,7 @@ struct ColumnTest {
         scoped_refptr<Column> c(new Column(cs, CT, 1));
         std::unique_ptr<ColumnWriter> writer;
         ASSERT_TRUE(c->create_writer(&writer).ok());
-        vector<CppType> values(InsertCount, 0);
+        std::vector<CppType> values(InsertCount, 0);
         for (size_t i = 0; i < values.size(); i++) {
             values[i] = (CppType)rand();
             if (is_null(values[i])) {
@@ -154,7 +161,7 @@ struct ColumnTest {
         scoped_refptr<Column> oldc = c;
         for (size_t u = 0; u < UpdateTime; u++) {
             ASSERT_TRUE(c->create_writer(&writer).ok());
-            vector<uint32_t> update_idxs;
+            std::vector<uint32_t> update_idxs;
             for (size_t i = 0; i < UpdateCount; i++) {
                 uint32_t idx = rand() % values.size();
                 //CppType oldv = values[idx];

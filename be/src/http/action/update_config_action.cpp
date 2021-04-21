@@ -38,25 +38,57 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
+const static std::string PERSIST_PARAM = "persist";
+
 void UpdateConfigAction::handle(HttpRequest* req) {
     LOG(INFO) << req->debug_string();
 
     Status s;
     std::string msg;
-    if (req->params()->size() != 1) {
+    // We only support set one config at a time, and along with a optional param "persist".
+    // So the number of query params should at most be 2.
+    if (req->params()->size() > 2 || req->params()->size() < 1) {
         s = Status::InvalidArgument("");
-        msg = "Now only support to set a single config once, via 'config_name=new_value'";
+        msg = "Now only support to set a single config once, via 'config_name=new_value', and with "
+              "an optional parameter 'persist'.";
     } else {
-        DCHECK(req->params()->size() == 1);
-        const std::string& config = req->params()->begin()->first;
-        const std::string& new_value = req->params()->begin()->second;
-        s = config::set_config(config, new_value);
-        if (s.ok()) {
-            LOG(INFO) << "set_config " << config << "=" << new_value << " success";
-        } else {
-            LOG(WARNING) << "set_config " << config << "=" << new_value << " failed";
-            msg = strings::Substitute("set $0=$1 failed, reason: $2", config, new_value,
-                                      s.to_string());
+        if (req->params()->size() == 1) {
+            const std::string& config = req->params()->begin()->first;
+            const std::string& new_value = req->params()->begin()->second;
+            s = config::set_config(config, new_value, false);
+            if (s.ok()) {
+                LOG(INFO) << "set_config " << config << "=" << new_value << " success";
+            } else {
+                LOG(WARNING) << "set_config " << config << "=" << new_value << " failed";
+                msg = strings::Substitute("set $0=$1 failed, reason: $2", config, new_value,
+                                          s.to_string());
+            }
+        } else if (req->params()->size() == 2) {
+            if (req->params()->find(PERSIST_PARAM) == req->params()->end()) {
+                s = Status::InvalidArgument("");
+                msg = "Now only support to set a single config once, via 'config_name=new_value', "
+                      "and with an optional parameter 'persist'.";
+            } else {
+                bool need_persist = false;
+                if (req->params()->find(PERSIST_PARAM)->second.compare("true") == 0) {
+                    need_persist = true;
+                }
+                for (auto const& iter : *(req->params())) {
+                    if (iter.first.compare(PERSIST_PARAM) == 0) {
+                        continue;
+                    }
+                    s = config::set_config(iter.first, iter.second, need_persist);
+                    if (s.ok()) {
+                        LOG(INFO) << "set_config " << iter.first << "=" << iter.second
+                                  << " success. persist: " << need_persist;
+                    } else {
+                        LOG(WARNING)
+                                << "set_config " << iter.first << "=" << iter.second << " failed";
+                        msg = strings::Substitute("set $0=$1 failed, reason: $2", iter.first,
+                                                  iter.second, s.to_string());
+                    }
+                }
+            }
         }
     }
 

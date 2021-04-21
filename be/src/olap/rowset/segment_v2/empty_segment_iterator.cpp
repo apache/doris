@@ -1,3 +1,5 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
@@ -20,7 +22,7 @@
 namespace doris {
 namespace segment_v2 {
 
-EmptySegmentIterator::EmptySegmentIterator(const doris::Schema &schema): _schema(schema) {}
+EmptySegmentIterator::EmptySegmentIterator(const doris::Schema& schema) : _schema(schema) {}
 
 Status EmptySegmentIterator::next_batch(RowBlockV2* block) {
     block->set_num_rows(0);

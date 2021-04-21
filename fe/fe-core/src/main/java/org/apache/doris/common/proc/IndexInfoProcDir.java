@@ -58,7 +58,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        db.readLock();
+        table.readLock();
         try {
             if (table.getType() == TableType.OLAP) {
                 OlapTable olapTable = (OlapTable) table;
@@ -97,7 +97,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
 
             return result;
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
     }
 
@@ -118,7 +118,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid index id format: " + idxIdStr);
         }
 
-        db.readLock();
+        table.readLock();
         try {
             List<Column> schema = null;
             Set<String> bfColumns = null;
@@ -129,21 +129,12 @@ public class IndexInfoProcDir implements ProcDirInterface {
                     throw new AnalysisException("Index " + idxId + " does not exist");
                 }
                 bfColumns = olapTable.getCopiedBfColumns();
-                // sequence col is the hidden column
-                if (olapTable.hasSequenceCol()) {
-                    for (Column column : schema) {
-                        if (column.isSequenceColumn()) {
-                            schema.remove(column);
-                            break;
-                        }
-                    }
-                }
             } else {
                 schema = table.getBaseSchema();
             }
             return new IndexSchemaProcNode(schema, bfColumns);
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
     }
 

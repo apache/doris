@@ -19,9 +19,10 @@
 #define DORIS_BE_SRC_RUNTIME_LOAD_PATH_MGR_H
 
 #include <pthread.h>
+
+#include <mutex>
 #include <string>
 #include <vector>
-#include <mutex>
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
@@ -46,15 +47,10 @@ public:
 
     void get_load_data_path(std::vector<std::string>* data_paths);
 
-    Status get_load_error_file_name(
-            const std::string& db,
-            const std::string&label,
-            const TUniqueId& fragment_instance_id,
-            std::string* error_path);
+    Status get_load_error_file_name(const std::string& db, const std::string& label,
+                                    const TUniqueId& fragment_instance_id, std::string* error_path);
     std::string get_load_error_absolute_path(const std::string& file_path);
-    const std::string& get_load_error_file_dir() const {
-        return _error_log_dir;
-    }
+    const std::string& get_load_error_file_dir() const { return _error_log_dir; }
 
 private:
     bool is_too_old(time_t cur_time, const std::string& label_dir, int64_t reserve_hours);
@@ -76,6 +72,6 @@ private:
     scoped_refptr<Thread> _clean_thread;
 };
 
-}
+} // namespace doris
 
 #endif

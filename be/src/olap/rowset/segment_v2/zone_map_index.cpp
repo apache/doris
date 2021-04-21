@@ -53,8 +53,16 @@ void ZoneMapIndexWriter::add_values(const void* values, size_t count) {
         if (_field->compare(_page_zone_map.max_value, vals) < 0) {
             _field->type_info()->direct_copy(_page_zone_map.max_value, vals);
         }
-        vals +=  _field->size();
+        vals += _field->size();
     }
+}
+
+void ZoneMapIndexWriter::reset_page_zone_map() {
+    _page_zone_map.pass_all  = true;
+}
+
+void ZoneMapIndexWriter::reset_segment_zone_map() {
+    _segment_zone_map.pass_all = true;
 }
 
 Status ZoneMapIndexWriter::flush() {
@@ -121,10 +129,11 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
 
     // read and cache all page zone maps
     for (int i = 0; i < reader.num_values(); ++i) {
-        Slice value;
-        uint8_t nullmap;
         size_t num_to_read = 1;
-        ColumnBlock block(reader.type_info(), (uint8_t*) &value, &nullmap, num_to_read, &pool);
+        std::unique_ptr<ColumnVectorBatch> cvb;
+        RETURN_IF_ERROR(
+                ColumnVectorBatch::create(num_to_read, false, reader.type_info(), nullptr, &cvb));
+        ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);
 
         RETURN_IF_ERROR(iter.seek_to_ordinal(i));
@@ -132,7 +141,8 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
         RETURN_IF_ERROR(iter.next_batch(&num_read, &column_block_view));
         DCHECK(num_to_read == num_read);
 
-        if (!_page_zone_maps[i].ParseFromArray(value.data, value.size)) {
+        Slice* value = reinterpret_cast<Slice*>(cvb->data());
+        if (!_page_zone_maps[i].ParseFromArray(value->data, value->size)) {
             return Status::Corruption("Failed to parse zone map");
         }
         pool.clear();

@@ -17,7 +17,7 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.analysis.ColumnSeparator;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.PartitionNames;
@@ -37,14 +37,20 @@ public interface LoadTaskInfo {
     public LoadTask.MergeType getMergeType();
     public Expr getDeleteCondition();
     public boolean hasSequenceCol();
+    public String getSequenceCol();
     public TFileType getFileType();
     public TFileFormatType getFormatType();
     public String getJsonPaths();
     public String getJsonRoot();
     public boolean isStripOuterArray();
+    public boolean isFuzzyParse();
+    public boolean isNumAsString();
     public String getPath();
     public List<ImportColumnDesc> getColumnExprDescs();
     public boolean isStrictMode();
+
+    public Expr getPrecedingFilter();
     public Expr getWhereExpr();
-    public ColumnSeparator getColumnSeparator();
+    public Separator getColumnSeparator();
+    public Separator getLineDelimiter();
 }

@@ -19,7 +19,9 @@
 #define DORIS_BE_SRC_OLAP_SCHEMA_CHANGE_H
 
 #include <deque>
+#include <functional>
 #include <queue>
+#include <utility>
 #include <vector>
 
 #include "gen_cpp/AgentService_types.h"
@@ -49,7 +51,7 @@ bool count_field(RowCursor* read_helper, RowCursor* write_helper, const TabletCo
 
 class RowBlockChanger {
 public:
-    RowBlockChanger(const TabletSchema& tablet_schema, const DeleteHandler& delete_handler);
+    RowBlockChanger(const TabletSchema& tablet_schema, const DeleteHandler* delete_handler);
 
     RowBlockChanger(const TabletSchema& tablet_schema);
 
@@ -57,24 +59,24 @@ public:
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
 
-    SchemaMapping get_schema_mapping() const { return _schema_mapping; }
+    const SchemaMapping& get_schema_mapping() const { return _schema_mapping; }
 
-    OLAPStatus change_row_block(const RowBlock* ref_block, int32_t data_version, RowBlock* mutable_block,
-                          uint64_t* filtered_rows) const;
+    OLAPStatus change_row_block(const RowBlock* ref_block, int32_t data_version,
+                                RowBlock* mutable_block, uint64_t* filtered_rows) const;
 
 private:
     // @brief column-mapping specification of new schema
     SchemaMapping _schema_mapping;
 
     // delete handler for filtering data which use specified in DELETE_DATA
-    DeleteHandler _delete_handler;
+    const DeleteHandler* _delete_handler = nullptr;
 
     DISALLOW_COPY_AND_ASSIGN(RowBlockChanger);
 };
 
 class RowBlockAllocator {
 public:
-    RowBlockAllocator(const TabletSchema& tablet_schema, size_t memory_limitation);
+    RowBlockAllocator(const TabletSchema& tablet_schema, std::shared_ptr<MemTracker> parent, size_t memory_limitation);
     virtual ~RowBlockAllocator();
 
     OLAPStatus allocate(RowBlock** row_block, size_t num_rows, bool null_supported);
@@ -83,17 +85,19 @@ public:
 private:
     const TabletSchema& _tablet_schema;
     size_t _memory_allocated;
+    std::shared_ptr<MemTracker> _mem_tracker;
     size_t _row_len;
     size_t _memory_limitation;
 };
 
 class SchemaChange {
 public:
-    SchemaChange() : _filtered_rows(0), _merged_rows(0) {}
-    virtual ~SchemaChange() {}
+    SchemaChange(std::shared_ptr<MemTracker> tracker) : _mem_tracker(std::move(tracker)), _filtered_rows(0), _merged_rows(0) {}
+    virtual ~SchemaChange() = default;
 
-    virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_builder,
-                         TabletSharedPtr tablet, TabletSharedPtr base_tablet) = 0;
+    virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader,
+                               RowsetWriter* new_rowset_builder, TabletSharedPtr tablet,
+                               TabletSharedPtr base_tablet) = 0;
 
     void add_filtered_rows(uint64_t filtered_rows) { _filtered_rows += filtered_rows; }
 
@@ -106,7 +110,8 @@ public:
     void reset_filtered_rows() { _filtered_rows = 0; }
 
     void reset_merged_rows() { _merged_rows = 0; }
-
+protected:
+    std::shared_ptr<MemTracker> _mem_tracker;
 private:
     uint64_t _filtered_rows;
     uint64_t _merged_rows;
@@ -114,12 +119,12 @@ private:
 
 class LinkedSchemaChange : public SchemaChange {
 public:
-    explicit LinkedSchemaChange(const RowBlockChanger& row_block_changer)
-            : _row_block_changer(row_block_changer) {}
+    explicit LinkedSchemaChange(const RowBlockChanger& row_block_changer, std::shared_ptr<MemTracker> mem_tracker)
+            : SchemaChange(mem_tracker), _row_block_changer(row_block_changer) {}
     ~LinkedSchemaChange() {}
 
     virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer,
-                 TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
+                               TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
 
 private:
     const RowBlockChanger& _row_block_changer;
@@ -131,11 +136,11 @@ class SchemaChangeDirectly : public SchemaChange {
 public:
     // @params tablet           the instance of tablet which has new schema.
     // @params row_block_changer    changer to modify the data of RowBlock
-    explicit SchemaChangeDirectly(const RowBlockChanger& row_block_changer);
+    explicit SchemaChangeDirectly(const RowBlockChanger& row_block_changer, std::shared_ptr<MemTracker> mem_tracker);
     virtual ~SchemaChangeDirectly();
 
     virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer,
-                         TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
+                               TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
 
 private:
     const RowBlockChanger& _row_block_changer;
@@ -150,12 +155,13 @@ private:
 // @breif schema change with sorting
 class SchemaChangeWithSorting : public SchemaChange {
 public:
-    explicit SchemaChangeWithSorting(const RowBlockChanger& row_block_changer,
+    explicit SchemaChangeWithSorting(const RowBlockChanger& row_block_changer, std::shared_ptr<MemTracker> mem_tracker,
                                      size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
-    virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_builder,
-                         TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
+    virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader,
+                               RowsetWriter* new_rowset_builder, TabletSharedPtr new_tablet,
+                               TabletSharedPtr base_tablet) override;
 
 private:
     bool _internal_sorting(const std::vector<RowBlock*>& row_block_arr,
@@ -176,8 +182,10 @@ private:
 
 class SchemaChangeHandler {
 public:
-    SchemaChangeHandler() {}
-    virtual ~SchemaChangeHandler() {}
+    static SchemaChangeHandler* instance() {
+        static SchemaChangeHandler instance;
+        return &instance;
+    }
 
     OLAPStatus schema_version_convert(TabletSharedPtr base_tablet, TabletSharedPtr new_tablet,
                                       RowsetSharedPtr* base_rowset, RowsetSharedPtr* new_rowset);
@@ -208,7 +216,7 @@ private:
         TabletSharedPtr base_tablet;
         TabletSharedPtr new_tablet;
         std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
-        DeleteHandler delete_handler;
+        DeleteHandler* delete_handler = nullptr;
         std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;
     };
 
@@ -224,26 +232,28 @@ private:
 
     OLAPStatus _validate_alter_result(TabletSharedPtr new_tablet, const TAlterTabletReqV2& request);
 
-    static OLAPStatus _convert_historical_rowsets(const SchemaChangeParams& sc_params);
+    OLAPStatus _convert_historical_rowsets(const SchemaChangeParams& sc_params);
 
-    static OLAPStatus _parse_request(TabletSharedPtr base_tablet,
-                                     TabletSharedPtr new_tablet,
-                                     RowBlockChanger* rb_changer,
-                                     bool* sc_sorting,
-                                     bool* sc_directly,
-                                     const std::unordered_map<std::string, AlterMaterializedViewParam>& materialized_function_map);
+    static OLAPStatus _parse_request(
+            TabletSharedPtr base_tablet, TabletSharedPtr new_tablet, RowBlockChanger* rb_changer,
+            bool* sc_sorting, bool* sc_directly,
+            const std::unordered_map<std::string, AlterMaterializedViewParam>&
+                    materialized_function_map);
 
     // 需要新建default_value时的初始化设置
     static OLAPStatus _init_column_mapping(ColumnMapping* column_mapping,
                                            const TabletColumn& column_schema,
                                            const std::string& value);
-
 private:
-    RowsetReaderContext _reader_context;
+    SchemaChangeHandler();
+    virtual ~SchemaChangeHandler();
+    SchemaChangeHandler(const SchemaChangeHandler&) = delete;
+    SchemaChangeHandler& operator=(const SchemaChangeHandler&) = delete;
 
-    DISALLOW_COPY_AND_ASSIGN(SchemaChangeHandler);
+    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
+using RowBlockDeleter = std::function<void(RowBlock*)>;
 } // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_SCHEMA_CHANGE_H

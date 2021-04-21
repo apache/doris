@@ -49,12 +49,13 @@ public class RestBaseAction extends BaseAction {
 
     @Override
     public void handleRequest(BaseRequest request) throws Exception {
-        LOG.info("receive http request. url={}", request.getRequest().uri());
+        LOG.debug("receive http request. url={}", request.getRequest().uri());
         BaseResponse response = new BaseResponse();
         try {
             execute(request, response);
         } catch (DdlException e) {
             if (e instanceof UnauthorizedException) {
+                response.appendContent(e.getMessage());
                 response.updateHeader(HttpHeaderNames.WWW_AUTHENTICATE.toString(), "Basic realm=\"\"");
                 writeResponse(request, response, HttpResponseStatus.UNAUTHORIZED);
             } else {

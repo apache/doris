@@ -21,6 +21,12 @@ import org.apache.doris.PaloFe;
 import org.apache.doris.http.HttpServer;
 
 public class Config extends ConfigBase {
+
+    /**
+     * Dir of custom config file
+     */
+    @ConfField
+    public static String custom_config_dir = PaloFe.DORIS_HOME_DIR + "/conf";
     
     /**
      * The max size of one sys log and audit log
@@ -62,7 +68,8 @@ public class Config extends ConfigBase {
     public static String sys_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
     @ConfField public static String sys_log_level = "INFO"; 
     @ConfField public static int sys_log_roll_num = 10;
-    @ConfField public static String[] sys_log_verbose_modules = {};
+    @ConfField
+    public static String[] sys_log_verbose_modules = {};
     @ConfField public static String sys_log_roll_interval = "DAY";
     @ConfField public static String sys_log_delete_age = "7d";
     @Deprecated
@@ -96,7 +103,7 @@ public class Config extends ConfigBase {
      */
     @ConfField public static String audit_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
     @ConfField public static int audit_log_roll_num = 90;
-    @ConfField public static String[] audit_log_modules = {"slow_query", "query"};
+    @ConfField public static String[] audit_log_modules = {"slow_query", "query", "load"};
     @ConfField(mutable = true) public static long qe_slow_log_ms = 5000;
     @ConfField public static String audit_log_roll_interval = "DAY";
     @ConfField public static String audit_log_delete_age = "30d";
@@ -243,7 +250,9 @@ public class Config extends ConfigBase {
      * Default is "0.0.0.0", which means not set.
      * CAN NOT set this as a hostname, only IP.
      */
-    @ConfField public static String frontend_address = "0.0.0.0";
+    @Deprecated
+    @ConfField
+    public static String frontend_address = "0.0.0.0";
 
     /**
      * Declare a selection strategy for those servers have many ips.
@@ -310,10 +319,10 @@ public class Config extends ConfigBase {
 
     /**
      * The connection timeout and socket timeout config for thrift server
-     * The value for thrift_client_timeout_ms is set to be larger than zero to prevent
-     * some hang up problems in java.net.SocketInputStream.socketRead0
+     * The default value for thrift_client_timeout_ms is set to be zero to prevent readtimeout
+     * 
      */
-    @ConfField public static int thrift_client_timeout_ms = 30000;
+    @ConfField public static int thrift_client_timeout_ms = 0;
 
     /**
      * The backlog_num for thrift server
@@ -385,7 +394,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_version_timeout_second = 30; // 30 seconds
-    
+
     /**
      * minimal intervals between two publish version action
      */
@@ -573,7 +582,7 @@ public class Config extends ConfigBase {
     /**
      * Default number of waiting jobs for routine load and version 2 of load
      * This is a desired number.
-     * In some situation, such as switch the master, the current number is maybe more then desired_max_waiting_jobs
+     * In some situation, such as switch the master, the current number is maybe more than desired_max_waiting_jobs
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int desired_max_waiting_jobs = 100;
@@ -586,12 +595,26 @@ public class Config extends ConfigBase {
     public static int max_running_txn_num_per_db = 100;
 
     /**
-     * The load task executor pool size. This pool size limits the max running load tasks.
-     * Currently, it only limits the load task of broker load, pending and loading phases.
-     * It should be less than 'max_running_txn_num_per_db'
+     * This configuration is just for compatible with old version, this config has been replaced by async_loading_load_task_pool_size,
+     * it will be removed in the future.
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int async_load_task_pool_size = 10;
+
+    /**
+     * The pending_load task executor pool size. This pool size limits the max running pending_load tasks.
+     * Currently, it only limits the pending_load task of broker load and spark load.
+     * It should be less than 'max_running_txn_num_per_db'
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int async_pending_load_task_pool_size = 10;
+
+    /**
+     * The loading_load task executor pool size. This pool size limits the max running loading_load tasks.
+     * Currently, it only limits the loading_load task of broker load.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int async_loading_load_task_pool_size = async_load_task_pool_size;
 
     /**
      * Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
@@ -757,13 +780,19 @@ public class Config extends ConfigBase {
      * exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
      */
     @ConfField(mutable = true)
-    public static int query_colocate_join_memory_limit_penalty_factor = 8;
+    public static int query_colocate_join_memory_limit_penalty_factor = 1;
 
     /**
-     * Deprecated after 0.10
+     * This configs can set to true to disable the automatic colocate tables's relocate and balance.
+     * If 'disable_colocate_balance' is set to true,
+     *   ColocateTableBalancer will not relocate and balance colocate tables.
+     * Attention:
+     *   Under normal circumstances, there is no need to turn off balance at all.
+     *   Because once the balance is turned off, the unstable colocate table may not be restored
+     *   Eventually the colocate plan cannot be used when querying.
      */
-    @ConfField
-    public static boolean disable_colocate_join = false;
+    @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
+
     /**
      * The default user resource publishing timeout.
      */
@@ -871,13 +900,6 @@ public class Config extends ConfigBase {
     // All frontends will get tablet stat from all backends at each interval
     @ConfField public static int tablet_stat_update_interval_second = 300;  // 5 min
 
-    // May be necessary to modify the following BRPC configurations in high concurrency scenarios. 
-    // The number of concurrent requests BRPC can processed
-    @ConfField public static int brpc_number_of_concurrent_requests_processed = 4096;
-
-    // BRPC idle wait time (ms)
-    @ConfField public static int brpc_idle_wait_max_time = 10000;
-    
     /**
      * if set to false, auth check will be disable, in case some goes wrong with the new privilege system. 
      */
@@ -1004,6 +1026,18 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_balancing_tablets = 100;
 
+    // Rebalancer type(ignore case): BeLoad, Partition. If type parse failed, use BeLoad as default.
+    @ConfField(masterOnly = true)
+    public static String tablet_rebalancer_type = "BeLoad";
+
+    // Valid only if use PartitionRebalancer. If this changed, cached moves will be cleared.
+    @ConfField(mutable = true, masterOnly = true)
+    public static long partition_rebalance_move_expire_after_access = 600; // 600s
+
+    // Valid only if use PartitionRebalancer
+    @ConfField(mutable = true, masterOnly = true)
+    public static int partition_rebalance_max_moves_num_per_selection = 10;
+
     // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
     // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
     // several seconds after some modification of metadata(drop partition, etc..).
@@ -1060,14 +1094,6 @@ public class Config extends ConfigBase {
      * Save small files
      */
     @ConfField public static String small_file_dir = PaloFe.DORIS_HOME_DIR + "/small_files";
-    
-    /**
-     * The following 2 configs can set to true to disable the automatic colocate tables's relocate and balance.
-     * if 'disable_colocate_relocate' is set to true, ColocateTableBalancer will not relocate colocate tables when Backend unavailable.
-     * if 'disable_colocate_balance' is set to true, ColocateTableBalancer will not balance colocate tables.
-     */
-    @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_relocate = false;
-    @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
 
     /**
      * If set to true, the insert stmt with processing error will still return a label to user.
@@ -1134,7 +1160,7 @@ public class Config extends ConfigBase {
      * If set to true, Doris will check if the compiled and running versions of Java are compatible
      */
     @ConfField
-    public static boolean check_java_version = true;
+    public static boolean check_java_version = false;
 
     /**
      * control materialized view
@@ -1287,4 +1313,46 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String http_api_extra_base_path = "";
+
+    /**
+     * Whether to support the creation of alpha rowset tables.
+     * The default is false and should only be used in emergency situations,
+     * this config should be remove in some future version
+     */
+    @ConfField
+    public static boolean enable_alpha_rowset = false;
+
+    /**
+     * This config is used to solve fe heartbeat response read_timeout problem,
+     * When config is set to be true, master will get fe heartbeat response by thrift protocol
+     * instead of http protocol. In order to maintain compatibility with the old version,
+     * the default is false, and the configuration cannot be changed to true until all fe are upgraded.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_fe_heartbeat_by_thrift = false;
+
+    /**
+     * If set to true, FE will be started in BDBJE debug mode
+     */
+    @ConfField
+    public static boolean enable_bdbje_debug_mode = false;
+
+    /**
+     * This config is used to try skip broker when access bos or other cloud storage via broker
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_access_file_without_broker = false;
+
+    /**
+     * Whether to allow the outfile function to export the results to the local disk.
+     */
+    @ConfField
+    public static boolean enable_outfile_to_local = false;
+
+    /**
+     * Used to set the initial flow window size of the GRPC client channel, and also used to max message size.
+     * When the result set is large, you may need to increase this value.
+     */
+    @ConfField
+    public static int grpc_max_message_size_bytes = 1 * 1024 * 1024 * 1024; // 1GB
 }

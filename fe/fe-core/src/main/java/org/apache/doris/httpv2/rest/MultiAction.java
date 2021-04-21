@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.http.rest.RestBaseResult;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -130,6 +131,12 @@ public class MultiAction extends RestBaseController {
                 properties.put(key, value);
             }
         }
+        for (String key : keys) {
+            String value = request.getHeader(key);
+            if (!Strings.isNullOrEmpty(value)) {
+                properties.put(key, value);
+            }
+        }
         execEnv.getMultiLoadMgr().startMulti(fullDbName, label, properties);
         return ResponseEntityBuilder.ok();
     }
@@ -188,8 +195,12 @@ public class MultiAction extends RestBaseController {
         if (redirectView != null) {
             return redirectView;
         }
-
-        execEnv.getMultiLoadMgr().commit(fullDbName, label);
+        RestBaseResult result =  new RestBaseResult();
+        try {
+            execEnv.getMultiLoadMgr().commit(fullDbName, label);
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
         return ResponseEntityBuilder.ok();
     }
 

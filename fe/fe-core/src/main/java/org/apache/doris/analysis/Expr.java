@@ -45,6 +45,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
@@ -361,6 +362,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 throw new AnalysisException(String.format("Exceeded the maximum depth of an " +
                         "expression tree (%s).", Config.expr_depth_limit));
             }
+        } else {
+            throw new AnalysisException("analyzer is null.");
         }
 
         for (Expr child: children) {
@@ -482,13 +485,40 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     /**
      * Return true if l1 equals l2 when both lists are interpreted as sets.
-     * TODO: come up with something better than O(n^2)?
      */
     public static <C extends Expr> boolean equalSets(List<C> l1, List<C> l2) {
         if (l1.size() != l2.size()) {
             return false;
         }
-        return l1.containsAll(l2) && l2.containsAll(l1);
+        Map cMap1 = toCountMap(l1);
+        Map cMap2 = toCountMap(l2);
+        if (cMap1.size() != cMap2.size()) {
+            return false;
+        }
+        Iterator it = cMap1.keySet().iterator();
+        while (it.hasNext()) {
+            C obj = (C) it.next();
+            Integer count1 = (Integer) cMap1.get(obj);
+            Integer count2 = (Integer) cMap2.get(obj);
+            if (count2 == null || count1 != count2) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static <C extends Expr> HashMap<C, Integer> toCountMap(List<C> list) {
+        HashMap countMap = new HashMap<C,Integer>();
+        for (int i = 0; i < list.size(); i++) {
+            C obj = list.get(i);
+            Integer count = (Integer) countMap.get(obj);
+            if (count == null) {
+                countMap.put(obj, 1);
+            } else {
+                countMap.put(obj, count+1);
+            }
+        }
+        return countMap;
     }
 
     public void analyzeNoThrow(Analyzer analyzer) {
@@ -1304,7 +1334,34 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     @Override
     public String toString() {
         return MoreObjects.toStringHelper(this.getClass()).add("id", id).add("type", type).add("sel",
-          selectivity).add("#distinct", numDistinctValues).add("scale", outputScale).toString();
+                selectivity).add("#distinct", numDistinctValues).add("scale", outputScale).toString();
+    }
+
+    /**
+     * This method is mainly used to find the original column corresponding to the current expr.
+     * Find the initial slotRef from the current slot ref.
+     * 
+     * If the initial expr is not a slotRef, it returns null directly.
+     * If the current slotRef comes from another expression transformation,
+     *   rather than directly from another slotRef, null will also be returned.
+     */
+    public SlotRef getSrcSlotRef() {
+        SlotRef unwrapSloRef = this.unwrapSlotRef();
+        if (unwrapSloRef == null) {
+            return null;
+        }
+        SlotDescriptor slotDescriptor = unwrapSloRef.getDesc();
+        if (slotDescriptor == null) {
+            return null;
+        }
+        List<Expr> sourceExpr = slotDescriptor.getSourceExprs();
+        if (sourceExpr == null || sourceExpr.isEmpty()) {
+            return unwrapSloRef;
+        }
+        if (sourceExpr.size() > 1) {
+            return null;
+        }
+        return sourceExpr.get(0).getSrcSlotRef();
     }
 
     /**

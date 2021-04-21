@@ -151,11 +151,11 @@ under the License.
             3) 只能修改列的类型，列的其他属性维持原样（即其他属性需在语句中按照原属性显式的写出，参见 example 8）
             4) 分区列不能做任何修改
             5) 目前支持以下类型的转换（精度损失由用户保证）
-                TINYINT/SMALLINT/INT/BIGINT 转换成 TINYINT/SMALLINT/INT/BIGINT/DOUBLE。
+                TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE 类型向范围更大的数字类型转换
                 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL 转换成 VARCHAR
                 VARCHAR 支持修改最大长度
-                VARCHAR 转换成 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE
-                VARCHAR 转换成 DATE (目前支持"%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d"六种格式化格式)
+                VARCHAR/CHAR 转换成 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE
+                VARCHAR/CHAR 转换成 DATE (目前支持"%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d"六种格式化格式)
                 DATETIME 转换成 DATE(仅保留年-月-日信息, 例如: `2019-12-09 21:47:05` <--> `2019-12-09`)
                 DATE 转换成 DATETIME(时分秒自动补零， 例如: `2019-12-09` <--> `2019-12-09 00:00:00`)
                 FLOAT 转换成 DOUBLE
@@ -220,7 +220,7 @@ under the License.
 
     [table]
     1. 修改表的默认副本数量, 新建分区副本数量默认使用此值
-        ATLER TABLE example_db.my_table 
+        ALTER TABLE example_db.my_table 
         SET ("default.replication_num" = "2");
         
     2. 修改单分区表的实际副本数量(只限单分区表)
@@ -316,9 +316,10 @@ under the License.
         DROP COLUMN col2
         FROM example_rollup_index;
         
-    7. 修改 base index 的 col1 列的类型为 BIGINT，并移动到 col2 列后面
+    7. 修改 base index 的 key 列 col1 的类型为 BIGINT，并移动到 col2 列后面
+       (*注意，无论是修改 key 列还是 value 列都需要声明完整的 column 信息*) 例如：MODIFY COLUMN xxx COLUMNTYPE [KEY|agg_type] 
         ALTER TABLE example_db.my_table
-        MODIFY COLUMN col1 BIGINT DEFAULT "1" AFTER col2;
+        MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
 
     8. 修改 base index 的 val1 列最大长度。原 val1 为 (val1 VARCHAR(32) REPLACE DEFAULT "abc")
         ALTER TABLE example_db.my_table

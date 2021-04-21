@@ -17,46 +17,44 @@
 
 #include "exprs/expr.h"
 
+#include <thrift/protocol/TDebugProtocol.h>
+
 #include <sstream>
 #include <vector>
-#include <thrift/protocol/TDebugProtocol.h>
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
-#include "exprs/literal.h"
+#include "exprs/arithmetic_expr.h"
 #include "exprs/binary_predicate.h"
 #include "exprs/case_expr.h"
 #include "exprs/cast_expr.h"
 #include "exprs/compound_predicate.h"
 #include "exprs/conditional_functions.h"
+#include "exprs/expr_context.h"
 #include "exprs/in_predicate.h"
-#include "exprs/arithmetic_expr.h"
-#include "exprs/is_null_predicate.h"
-#include "exprs/null_literal.h"
 #include "exprs/info_func.h"
+#include "exprs/is_null_predicate.h"
+#include "exprs/literal.h"
+#include "exprs/null_literal.h"
 #include "exprs/scalar_fn_call.h"
+#include "exprs/slot_ref.h"
 #include "exprs/tuple_is_null_predicate.h"
-#include "exprs/slot_ref.h"
-#include "exprs/aggregate_functions.h"
-#include "exprs/slot_ref.h"
-#include "exprs/aggregate_functions.h"
-#include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Data_types.h"
-#include "runtime/runtime_state.h"
-#include "runtime/raw_value.h"
-#include "runtime/user_function_cache.h"
-#include "util/debug_util.h"
-
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/PaloService_types.h"
+#include "runtime/raw_value.h"
+#include "runtime/runtime_state.h"
+#include "runtime/user_function_cache.h"
+#include "util/debug_util.h"
 
 using std::vector;
 namespace doris {
 
 const char* Expr::_s_get_constant_symbol_prefix = "_ZN4doris4Expr12get_constant";
 
-template<class T>
+template <class T>
 bool parse_string(const std::string& str, T* val) {
     std::stringstream stream(str);
     stream >> *val;
@@ -70,8 +68,8 @@ void init_builtins_dummy() {
     AggregateFunctions::init_null(NULL, NULL);
 }
 
-FunctionContext* Expr::register_function_context(
-        ExprContext* ctx, RuntimeState* state, int varargs_buffer_size) {
+FunctionContext* Expr::register_function_context(ExprContext* ctx, RuntimeState* state,
+                                                 int varargs_buffer_size) {
     FunctionContext::TypeDesc return_type = AnyValUtil::column_type_to_type_desc(_type);
     std::vector<FunctionContext::TypeDesc> arg_types;
     for (int i = 0; i < _children.size(); ++i) {
@@ -82,28 +80,27 @@ FunctionContext* Expr::register_function_context(
 }
 
 // No children here
-Expr::Expr(const Expr& expr) 
+Expr::Expr(const Expr& expr)
         : _cache_entry(expr._cache_entry),
-        _node_type(expr._node_type),
-        _opcode(expr._opcode),
-        _is_slotref(expr._is_slotref),
-        _type(expr._type),
-        _output_scale(expr._output_scale),
-        _output_column(expr._output_column),
-        _fn(expr._fn),
-        _fn_context_index(expr._fn_context_index),
-        _constant_val(expr._constant_val),
-        _vector_compute_fn(expr._vector_compute_fn) {
-}
+          _node_type(expr._node_type),
+          _opcode(expr._opcode),
+          _is_slotref(expr._is_slotref),
+          _type(expr._type),
+          _output_scale(expr._output_scale),
+          _output_column(expr._output_column),
+          _fn(expr._fn),
+          _fn_context_index(expr._fn_context_index),
+          _constant_val(expr._constant_val),
+          _vector_compute_fn(expr._vector_compute_fn) {}
 
-Expr::Expr(const TypeDescriptor& type) :
-        _opcode(TExprOpcode::INVALID_OPCODE),
-        // _vector_opcode(TExprOpcode::INVALID_OPCODE),
-        _is_slotref(false),
-        _type(type),
-        _output_scale(-1),
-        _output_column(-1),
-        _fn_context_index(-1) {
+Expr::Expr(const TypeDescriptor& type)
+        : _opcode(TExprOpcode::INVALID_OPCODE),
+          // _vector_opcode(TExprOpcode::INVALID_OPCODE),
+          _is_slotref(false),
+          _type(type),
+          _output_scale(-1),
+          _output_column(-1),
+          _fn_context_index(-1) {
     switch (_type.type) {
     case TYPE_BOOLEAN:
         _node_type = (TExprNodeType::BOOL_LITERAL);
@@ -152,14 +149,14 @@ Expr::Expr(const TypeDescriptor& type) :
     }
 }
 
-Expr::Expr(const TypeDescriptor& type, bool is_slotref) :
-        _opcode(TExprOpcode::INVALID_OPCODE),
-        // _vector_opcode(TExprOpcode::INVALID_OPCODE),
-        _is_slotref(is_slotref),
-        _type(type),
-        _output_scale(-1),
-        _output_column(-1),
-        _fn_context_index(-1) {
+Expr::Expr(const TypeDescriptor& type, bool is_slotref)
+        : _opcode(TExprOpcode::INVALID_OPCODE),
+          // _vector_opcode(TExprOpcode::INVALID_OPCODE),
+          _is_slotref(is_slotref),
+          _type(type),
+          _output_scale(-1),
+          _output_column(-1),
+          _fn_context_index(-1) {
     if (is_slotref) {
         _node_type = (TExprNodeType::SLOT_REF);
     } else {
@@ -211,38 +208,37 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref) :
     }
 }
 
-Expr::Expr(const TExprNode& node) :
-        _node_type(node.node_type),
-        _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE),
-        // _vector_opcode(
-                // node.__isset.vector_opcode ? node.vector_opcode : TExprOpcode::INVALID_OPCODE),
-        _is_slotref(false),
-        _type(TypeDescriptor::from_thrift(node.type)),
-        _output_scale(node.output_scale),
-        _output_column(node.__isset.output_column ? node.output_column : -1),
-        _fn_context_index(-1) {
+Expr::Expr(const TExprNode& node)
+        : _node_type(node.node_type),
+          _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE),
+          // _vector_opcode(
+          // node.__isset.vector_opcode ? node.vector_opcode : TExprOpcode::INVALID_OPCODE),
+          _is_slotref(false),
+          _type(TypeDescriptor::from_thrift(node.type)),
+          _output_scale(node.output_scale),
+          _output_column(node.__isset.output_column ? node.output_column : -1),
+          _fn_context_index(-1) {
     if (node.__isset.fn) {
         _fn = node.fn;
     }
 }
 
-Expr::Expr(const TExprNode& node, bool is_slotref) :
-        _node_type(node.node_type),
-        _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE),
-        // _vector_opcode(
-                // node.__isset.vector_opcode ? node.vector_opcode : TExprOpcode::INVALID_OPCODE),
-        _is_slotref(is_slotref),
-        _type(TypeDescriptor::from_thrift(node.type)),
-        _output_scale(node.output_scale),
-        _output_column(node.__isset.output_column ? node.output_column : -1),
-        _fn_context_index(-1) {
+Expr::Expr(const TExprNode& node, bool is_slotref)
+        : _node_type(node.node_type),
+          _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE),
+          // _vector_opcode(
+          // node.__isset.vector_opcode ? node.vector_opcode : TExprOpcode::INVALID_OPCODE),
+          _is_slotref(is_slotref),
+          _type(TypeDescriptor::from_thrift(node.type)),
+          _output_scale(node.output_scale),
+          _output_column(node.__isset.output_column ? node.output_column : -1),
+          _fn_context_index(-1) {
     if (node.__isset.fn) {
         _fn = node.fn;
     }
 }
 
-Expr::~Expr() {
-}
+Expr::~Expr() {}
 
 Status Expr::create_expr_tree(ObjectPool* pool, const TExpr& texpr, ExprContext** ctx) {
     // input is empty
@@ -255,19 +251,18 @@ Status Expr::create_expr_tree(ObjectPool* pool, const TExpr& texpr, ExprContext*
     Status status = create_tree_from_thrift(pool, texpr.nodes, NULL, &node_idx, &e, ctx);
     if (status.ok() && node_idx + 1 != texpr.nodes.size()) {
         status = Status::InternalError(
-            "Expression tree only partially reconstructed. Not all thrift nodes were used.");
+                "Expression tree only partially reconstructed. Not all thrift nodes were used.");
     }
     if (!status.ok()) {
-        LOG(ERROR) << "Could not construct expr tree.\n" << status.get_error_msg() << "\n"
-            << apache::thrift::ThriftDebugString(texpr);
+        LOG(ERROR) << "Could not construct expr tree.\n"
+                   << status.get_error_msg() << "\n"
+                   << apache::thrift::ThriftDebugString(texpr);
     }
     return status;
 }
 
-Status Expr::create_expr_trees(
-        ObjectPool* pool,
-        const std::vector<TExpr>& texprs,
-        std::vector<ExprContext*>* ctxs) {
+Status Expr::create_expr_trees(ObjectPool* pool, const std::vector<TExpr>& texprs,
+                               std::vector<ExprContext*>* ctxs) {
     ctxs->clear();
     for (int i = 0; i < texprs.size(); ++i) {
         ExprContext* ctx = nullptr;
@@ -277,13 +272,9 @@ Status Expr::create_expr_trees(
     return Status::OK();
 }
 
-Status Expr::create_tree_from_thrift(
-        ObjectPool* pool,
-        const vector<TExprNode>& nodes,
-        Expr* parent,
-        int* node_idx,
-        Expr** root_expr,
-        ExprContext** ctx) {
+Status Expr::create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprNode>& nodes,
+                                     Expr* parent, int* node_idx, Expr** root_expr,
+                                     ExprContext** ctx) {
     // propagate error case
     if (*node_idx >= nodes.size()) {
         return Status::InternalError("Failed to reconstruct expression tree from thrift.");
@@ -451,10 +442,8 @@ struct MemLayoutData {
     }
 };
 
-int Expr::compute_results_layout(
-        const std::vector<Expr*>& exprs,
-        std::vector<int>* offsets,
-        int* var_result_begin) {
+int Expr::compute_results_layout(const std::vector<Expr*>& exprs, std::vector<int>* offsets,
+                                 int* var_result_begin) {
     if (exprs.size() == 0) {
         *var_result_begin = -1;
         return 0;
@@ -467,16 +456,15 @@ int Expr::compute_results_layout(
     for (int i = 0; i < exprs.size(); ++i) {
         data[i].expr_idx = i;
 
-        if (exprs[i]->type().type == TYPE_CHAR
-                || exprs[i]->type().type == TYPE_VARCHAR) {
+        if (exprs[i]->type().type == TYPE_CHAR || exprs[i]->type().type == TYPE_VARCHAR) {
             data[i].byte_size = 16;
             data[i].variable_length = true;
         } else if (exprs[i]->type().type == TYPE_DECIMAL) {
             data[i].byte_size = get_byte_size(exprs[i]->type().type);
 
-            // Although the current decimal has a fix-length, for the 
+            // Although the current decimal has a fix-length, for the
             // same value, it will work out different hash value due to the
-            // different memory represent if the variable_length here is set 
+            // different memory represent if the variable_length here is set
             // to false, so we have to keep it.
             data[i].variable_length = true;
         } else {
@@ -524,10 +512,8 @@ int Expr::compute_results_layout(
     return byte_offset;
 }
 
-int Expr::compute_results_layout(
-        const std::vector<ExprContext*>& ctxs,
-        std::vector<int>* offsets,
-        int* var_result_begin) {
+int Expr::compute_results_layout(const std::vector<ExprContext*>& ctxs, std::vector<int>* offsets,
+                                 int* var_result_begin) {
     std::vector<Expr*> exprs;
     for (int i = 0; i < ctxs.size(); ++i) {
         exprs.push_back(ctxs[i]->root());
@@ -535,19 +521,15 @@ int Expr::compute_results_layout(
     return compute_results_layout(exprs, offsets, var_result_begin);
 }
 
-Status Expr::prepare(
-        const std::vector<ExprContext*>& ctxs,
-        RuntimeState* state,
-        const RowDescriptor& row_desc,
-        const std::shared_ptr<MemTracker>& tracker) {
+Status Expr::prepare(const std::vector<ExprContext*>& ctxs, RuntimeState* state,
+                     const RowDescriptor& row_desc, const std::shared_ptr<MemTracker>& tracker) {
     for (int i = 0; i < ctxs.size(); ++i) {
         RETURN_IF_ERROR(ctxs[i]->prepare(state, row_desc, tracker));
     }
     return Status::OK();
 }
 
-Status Expr::prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                     ExprContext* context) {
+Status Expr::prepare(RuntimeState* state, const RowDescriptor& row_desc, ExprContext* context) {
     DCHECK(_type.type != INVALID_TYPE);
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state, row_desc, context));
@@ -562,10 +544,8 @@ Status Expr::open(const std::vector<ExprContext*>& ctxs, RuntimeState* state) {
     return Status::OK();
 }
 
-Status Expr::open(
-        RuntimeState* state,
-        ExprContext* context,
-        FunctionContext::FunctionStateScope scope) {
+Status Expr::open(RuntimeState* state, ExprContext* context,
+                  FunctionContext::FunctionStateScope scope) {
     DCHECK(_type.type != INVALID_TYPE);
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->open(state, context, scope));
@@ -579,10 +559,8 @@ void Expr::close(const std::vector<ExprContext*>& ctxs, RuntimeState* state) {
     }
 }
 
-void Expr::close(
-        RuntimeState* state,
-        ExprContext* context,
-        FunctionContext::FunctionStateScope scope) {
+void Expr::close(RuntimeState* state, ExprContext* context,
+                 FunctionContext::FunctionStateScope scope) {
     for (int i = 0; i < _children.size(); ++i) {
         _children[i]->close(state, context, scope);
     }
@@ -598,10 +576,8 @@ void Expr::close(
 #endif
 }
 
-Status Expr::clone_if_not_exists(
-        const std::vector<ExprContext*>& ctxs,
-        RuntimeState* state,
-        std::vector<ExprContext*>* new_ctxs) {
+Status Expr::clone_if_not_exists(const std::vector<ExprContext*>& ctxs, RuntimeState* state,
+                                 std::vector<ExprContext*>* new_ctxs) {
     DCHECK(new_ctxs != NULL);
     if (!new_ctxs->empty()) {
         // 'ctxs' was already cloned into '*new_ctxs', nothing to do.
@@ -627,7 +603,8 @@ std::string Expr::debug_string() const {
         out << " opcode=" << _opcode;
     }
 
-    out << " codegen=" << "false";
+    out << " codegen="
+        << "false";
 
     if (!_children.empty()) {
         out << " children=" << debug_string(_children);
@@ -859,13 +836,13 @@ Expr* Expr::copy(ObjectPool* pool, Expr* old_expr) {
 }
 
 void Expr::assign_fn_ctx_idx(int* next_fn_ctx_idx) {
-  _fn_ctx_idx_start = *next_fn_ctx_idx;
-  if (has_fn_ctx()) {
-    _fn_ctx_idx = *next_fn_ctx_idx;
-    ++(*next_fn_ctx_idx);
-  }
-  for (Expr* child : children()) child->assign_fn_ctx_idx(next_fn_ctx_idx);
-  _fn_ctx_idx_end = *next_fn_ctx_idx;
+    _fn_ctx_idx_start = *next_fn_ctx_idx;
+    if (has_fn_ctx()) {
+        _fn_ctx_idx = *next_fn_ctx_idx;
+        ++(*next_fn_ctx_idx);
+    }
+    for (Expr* child : children()) child->assign_fn_ctx_idx(next_fn_ctx_idx);
+    _fn_ctx_idx_end = *next_fn_ctx_idx;
 }
 
 Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
@@ -874,89 +851,92 @@ Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeSt
     *scalar_expr = nullptr;
     Expr* root;
     RETURN_IF_ERROR(create_expr(pool, texpr.nodes[0], &root));
-  RETURN_IF_ERROR(create_tree(texpr, pool, root));
-  // TODO pengyubing replace by Init()
-  ExprContext* ctx = pool->add(new ExprContext(root));
-  // TODO chenhao check node type in ScalarExpr Init()
-  Status status = Status::OK();
-  if (texpr.nodes[0].node_type != TExprNodeType::CASE_EXPR) {
-      status = root->prepare(state, row_desc, ctx);
-  }
-  if (UNLIKELY(!status.ok())) {
-    root->close();
-    return status;
-  }
-  int fn_ctx_idx = 0;
-  root->assign_fn_ctx_idx(&fn_ctx_idx);
-  *scalar_expr = root;
-  return Status::OK();
+    RETURN_IF_ERROR(create_tree(texpr, pool, root));
+    // TODO pengyubing replace by Init()
+    ExprContext* ctx = pool->add(new ExprContext(root));
+    // TODO chenhao check node type in ScalarExpr Init()
+    Status status = Status::OK();
+    if (texpr.nodes[0].node_type != TExprNodeType::CASE_EXPR) {
+        status = root->prepare(state, row_desc, ctx);
+    }
+    if (UNLIKELY(!status.ok())) {
+        root->close();
+        return status;
+    }
+    int fn_ctx_idx = 0;
+    root->assign_fn_ctx_idx(&fn_ctx_idx);
+    *scalar_expr = root;
+    return Status::OK();
 }
 
-Status Expr::create(const vector<TExpr>& texprs, const RowDescriptor& row_desc, RuntimeState* state,
-                    ObjectPool* pool, vector<Expr*>* exprs,
+Status Expr::create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
+                    RuntimeState* state, ObjectPool* pool, std::vector<Expr*>* exprs,
                     const std::shared_ptr<MemTracker>& tracker) {
     exprs->clear();
-  for (const TExpr& texpr: texprs) {
-    Expr* expr;
-    RETURN_IF_ERROR(create(texpr, row_desc, state, pool, &expr, tracker));
-    DCHECK(expr != nullptr);
-    exprs->push_back(expr);
-  }
-  return Status::OK();
+    for (const TExpr& texpr : texprs) {
+        Expr* expr;
+        RETURN_IF_ERROR(create(texpr, row_desc, state, pool, &expr, tracker));
+        DCHECK(expr != nullptr);
+        exprs->push_back(expr);
+    }
+    return Status::OK();
 }
 
-Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc,
-    RuntimeState* state, Expr** scalar_expr, const std::shared_ptr<MemTracker>& tracker) {
-  return Expr::create(texpr, row_desc, state, state->obj_pool(), scalar_expr, tracker);
+Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
+                    Expr** scalar_expr, const std::shared_ptr<MemTracker>& tracker) {
+    return Expr::create(texpr, row_desc, state, state->obj_pool(), scalar_expr, tracker);
 }
 
-Status Expr::create(const vector<TExpr>& texprs, const RowDescriptor& row_desc,
-    RuntimeState* state, vector<Expr*>* exprs, const std::shared_ptr<MemTracker>& tracker) {
-  return Expr::create(texprs, row_desc, state, state->obj_pool(), exprs, tracker);
+Status Expr::create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
+                    RuntimeState* state, std::vector<Expr*>* exprs,
+                    const std::shared_ptr<MemTracker>& tracker) {
+    return Expr::create(texprs, row_desc, state, state->obj_pool(), exprs, tracker);
 }
 
 Status Expr::create_tree(const TExpr& texpr, ObjectPool* pool, Expr* root) {
-  DCHECK(!texpr.nodes.empty());
-  DCHECK(root != nullptr);
-  // The root of the tree at nodes[0] is already created and stored in 'root'.
-  int child_node_idx = 0;
-  int num_children = texpr.nodes[0].num_children;
-  for (int i = 0; i < num_children; ++i) {
-    ++child_node_idx;
-    Status status = create_tree_internal(texpr.nodes, pool, root, &child_node_idx);
-    if (UNLIKELY(!status.ok())) {
-      LOG(ERROR) << "Could not construct expr tree.\n" << status.get_error_msg() << "\n"
-                 << apache::thrift::ThriftDebugString(texpr);
-      return status;
+    DCHECK(!texpr.nodes.empty());
+    DCHECK(root != nullptr);
+    // The root of the tree at nodes[0] is already created and stored in 'root'.
+    int child_node_idx = 0;
+    int num_children = texpr.nodes[0].num_children;
+    for (int i = 0; i < num_children; ++i) {
+        ++child_node_idx;
+        Status status = create_tree_internal(texpr.nodes, pool, root, &child_node_idx);
+        if (UNLIKELY(!status.ok())) {
+            LOG(ERROR) << "Could not construct expr tree.\n"
+                       << status.get_error_msg() << "\n"
+                       << apache::thrift::ThriftDebugString(texpr);
+            return status;
+        }
     }
-  }
-  if (UNLIKELY(child_node_idx + 1 != texpr.nodes.size())) {
-    return Status::InternalError("Expression tree only partially reconstructed. Not all thrift " \
-                  "nodes were used.");
-  }
-  return Status::OK();
+    if (UNLIKELY(child_node_idx + 1 != texpr.nodes.size())) {
+        return Status::InternalError(
+                "Expression tree only partially reconstructed. Not all thrift "
+                "nodes were used.");
+    }
+    return Status::OK();
 }
 
-Status Expr::create_tree_internal(const vector<TExprNode>& nodes, ObjectPool* pool,
-    Expr* root, int* child_node_idx) {
-  // propagate error case
-  if (*child_node_idx >= nodes.size()) {
-    return Status::InternalError("Failed to reconstruct expression tree from thrift.");
-  }
+Status Expr::create_tree_internal(const std::vector<TExprNode>& nodes, ObjectPool* pool, Expr* root,
+                                  int* child_node_idx) {
+    // propagate error case
+    if (*child_node_idx >= nodes.size()) {
+        return Status::InternalError("Failed to reconstruct expression tree from thrift.");
+    }
 
-  const TExprNode& texpr_node = nodes[*child_node_idx];
-  DCHECK_NE(texpr_node.node_type, TExprNodeType::AGG_EXPR);
-  Expr* child_expr;
-  RETURN_IF_ERROR(create_expr(pool, texpr_node, &child_expr));
-  root->_children.push_back(child_expr);
+    const TExprNode& texpr_node = nodes[*child_node_idx];
+    DCHECK_NE(texpr_node.node_type, TExprNodeType::AGG_EXPR);
+    Expr* child_expr;
+    RETURN_IF_ERROR(create_expr(pool, texpr_node, &child_expr));
+    root->_children.push_back(child_expr);
 
-  int num_children = nodes[*child_node_idx].num_children;
-  for (int i = 0; i < num_children; ++i) {
-    *child_node_idx += 1;
-    RETURN_IF_ERROR(create_tree_internal(nodes, pool, child_expr, child_node_idx));
-    DCHECK(child_expr->get_child(i) != nullptr);
-  }
-  return Status::OK();
+    int num_children = nodes[*child_node_idx].num_children;
+    for (int i = 0; i < num_children; ++i) {
+        *child_node_idx += 1;
+        RETURN_IF_ERROR(create_tree_internal(nodes, pool, child_expr, child_node_idx));
+        DCHECK(child_expr->get_child(i) != nullptr);
+    }
+    return Status::OK();
 }
 
 // TODO chenhao
@@ -972,8 +952,8 @@ void Expr::close() {
     }
 }
 
-void Expr::close(const vector<Expr*>& exprs) {
-  for (Expr* expr : exprs) expr->close();
+void Expr::close(const std::vector<Expr*>& exprs) {
+    for (Expr* expr : exprs) expr->close();
 }
 
-}
+} // namespace doris

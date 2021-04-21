@@ -84,12 +84,16 @@ public class SearchContext {
     // the ES cluster version
     private EsMajorVersion version;
 
+    // whether the nodes needs to be discovered
+    private boolean nodesDiscovery;
+
 
     public SearchContext(EsTable table) {
         this.table = table;
         fullSchema = table.getFullSchema();
         sourceIndex = table.getIndexName();
         type = table.getMappingType();
+        nodesDiscovery = table.isNodesDiscovery();
     }
 
 
@@ -141,5 +145,9 @@ public class SearchContext {
     // this will be refactor soon
     public EsTablePartitions tablePartitions() throws Exception {
         return EsTablePartitions.fromShardPartitions(table, shardPartitions);
+    }
+
+    public boolean nodesDiscovery() {
+        return nodesDiscovery;
     }
 }

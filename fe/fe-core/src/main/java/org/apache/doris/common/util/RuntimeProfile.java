@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Formatter;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -46,7 +47,7 @@ import java.util.TreeSet;
  */
 public class RuntimeProfile {
     private static final Logger LOG = LogManager.getLogger(RuntimeProfile.class);
-    private static String ROOT_COUNTER = "";
+    public static String ROOT_COUNTER = "";
     private Counter counterTotalTime;
     private double localTimePercent;
 
@@ -58,10 +59,10 @@ public class RuntimeProfile {
     private Map<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
 
     private Map<String, TreeSet<String>> childCounterMap = Maps.newHashMap();
-    private List<Pair<RuntimeProfile, Boolean>> childList = Lists.newArrayList();
+    private LinkedList<Pair<RuntimeProfile, Boolean>> childList = Lists.newLinkedList();
 
     private String name;
-    
+
     public RuntimeProfile(String name) {
         this();
         this.name = name;
@@ -72,7 +73,11 @@ public class RuntimeProfile {
         this.localTimePercent = 0;
         this.counterMap.put("TotalTime", counterTotalTime);
     }
-    
+
+    public String getName() {
+        return name;
+    }
+
     public Counter getCounterTotalTime() {
         return counterTotalTime;
     }
@@ -85,12 +90,20 @@ public class RuntimeProfile {
         return childList;
     }
 
-    public Map<String, RuntimeProfile> getChildMap () {
+    public Map<String, RuntimeProfile> getChildMap() {
         return childMap;
     }
 
+    public Map<String, TreeSet<String>> getChildCounterMap() {
+        return childCounterMap;
+    }
+
+    public double getLocalTimePercent() {
+        return localTimePercent;
+    }
+
     public Counter addCounter(String name, TUnit type, String parentCounterName) {
-        Counter counter = this.counterMap.get(name); 
+        Counter counter = this.counterMap.get(name);
         if (counter != null) {
             return counter;
         } else {
@@ -240,8 +253,8 @@ public class RuntimeProfile {
             this.printChildCounters(prefix + "  ", childCounterName, builder);
         }
     }
-    
-    private String printCounter(long value, TUnit type) {
+
+    public static String printCounter(long value, TUnit type) {
         StringBuilder builder = new StringBuilder();
         long tmpValue = value;
         switch (type) {
@@ -318,6 +331,16 @@ public class RuntimeProfile {
         this.childList.add(pair);
     }
 
+    public void addFirstChild(RuntimeProfile child) {
+        if (child == null) {
+            return;
+        }
+
+        this.childMap.put(child.name, child);
+        Pair<RuntimeProfile, Boolean> pair = Pair.create(child, true);
+        this.childList.addFirst(pair);
+    }
+
     // Because the profile of summary and child fragment is not a real parent-child relationship
     // Each child profile needs to calculate the time proportion consumed by itself
     public void computeTimeInChildProfile() {
@@ -358,9 +381,8 @@ public class RuntimeProfile {
             @Override
             public int compare(Pair<RuntimeProfile, Boolean> profile1, Pair<RuntimeProfile, Boolean> profile2)
             {
-                long distance = profile2.first.getCounterTotalTime().getValue() 
-                        - profile1.first.getCounterTotalTime().getValue();
-                return (int) distance;
+                return Long.valueOf(profile2.first.getCounterTotalTime().getValue())
+                    .compareTo(profile1.first.getCounterTotalTime().getValue());
             }
         });
     }

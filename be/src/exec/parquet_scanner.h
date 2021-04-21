@@ -17,19 +17,19 @@
 
 #pragma once
 
-#include <memory>
-#include <vector>
-#include <string>
 #include <map>
+#include <memory>
 #include <sstream>
+#include <string>
+#include <vector>
 
-#include "exec/base_scanner.h"
 #include "common/status.h"
+#include "exec/base_scanner.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
-#include "util/slice.h"
 #include "util/runtime_profile.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -48,13 +48,13 @@ class StreamLoadPipe;
 // Broker scanner convert the data read from broker to doris's tuple.
 class ParquetScanner : public BaseScanner {
 public:
-    ParquetScanner(
-        RuntimeState* state,
-        RuntimeProfile* profile,
-        const TBrokerScanRangeParams& params, 
-        const std::vector<TBrokerRangeDesc>& ranges,
-        const std::vector<TNetworkAddress>& broker_addresses,
-        ScannerCounter* counter);
+    ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
+                   const TBrokerScanRangeParams& params,
+                   const std::vector<TBrokerRangeDesc>& ranges,
+                   const std::vector<TNetworkAddress>& broker_addresses,
+                   const std::vector<ExprContext*>& pre_filter_ctxs,
+                   ScannerCounter* counter);
+
     ~ParquetScanner();
 
     // Open this scanner, will initialize information need to
@@ -85,4 +85,4 @@ private:
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
 };
 
-}
+} // namespace doris

@@ -40,7 +40,7 @@
 #include "util/file_utils.h"
 #include "util/json_util.h"
 
-using boost::filesystem::path;
+using std::filesystem::path;
 
 namespace doris {
 

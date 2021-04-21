@@ -35,4 +35,4 @@ BrpcStubCache::~BrpcStubCache() {
         delete stub.second;
     }
 }
-}
+} // namespace doris

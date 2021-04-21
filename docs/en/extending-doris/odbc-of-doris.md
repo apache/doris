@@ -31,6 +31,7 @@ ODBC external table of Doris provides Doris access to external tables through th
 
 1. Support various data sources to access Doris
 2. Support Doris query with tables in various data sources to perform more complex analysis operations
+3. Use insert into to write the query results executed by Doris to the external data source
 
 
 This document mainly introduces the implementation principle and usage of this ODBC external table.
@@ -98,13 +99,13 @@ PROPERTIES (
 );
 ```
 
-The following parameters are accepted by ODBC external table:：
+The following parameters are accepted by ODBC external table:
 
 Parameter | Description
 ---|---
 **hosts** | IP address of external database
 **driver** | The driver name of ODBC Driver, which needs to be/conf/odbcinst.ini. The driver names should be consistent.
-**type** | The type of external database, currently supports Oracle and MySQL
+**type** | The type of external database, currently supports Oracle, MySQL and PostgerSQL
 **user** | The user name of database
 **password** | password for the user
 
@@ -122,33 +123,50 @@ Description     = ODBC for MySQL
 Driver          = /usr/lib64/libmyodbc8w.so
 FileUsage       = 1 
 ```
-* `[]`:The corresponding driver name in is the driver name. When creating an external table, the driver name of the external table should be consistent with that in the configuration file.
-* `Driver=`:  This should be setted in according to the actual be installation path of the driver. It is essentially the path of a dynamic library. Here, we need to ensure that the pre dependencies of the dynamic library are met.
+* `[]`: The corresponding driver name in is the driver name. When creating an external table, the driver name of the external table should be consistent with that in the configuration file.
+* `Driver=`: This should be setted in according to the actual be installation path of the driver. It is essentially the path of a dynamic library. Here, we need to ensure that the pre dependencies of the dynamic library are met.
 
 **Remember, all BE nodes are required to have the same driver installed, the same installation path and the same be/conf/odbcinst.ini config.**
 
 
 ### Query usage
 
-After the ODBC external table is built in Doris, it is no different from ordinary Doris tables except that the data model (rollup, pre aggregation, materialized view, etc.) in Doris cannot be used.
+After the ODBC external table is create in Doris, it is no different from ordinary Doris tables except that the data model (rollup, pre aggregation, materialized view, etc.) in Doris cannot be used.
 
 ```
 select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
 ```
 
+### Data write
 
+After the ODBC external table is create in Doris, the data can be written directly by the `insert into` statement, the query results of Doris can be written to the ODBC external table, or the data can be imported from one ODBC table to another.
+
+```
+insert into oracle_table values(1, "doris");
+insert into oracle_table select * from postgre_table;
+```
+#### Transaction
+
+
+The data of Doris is written to the external table by a group of batch. If the import is interrupted, the data written before may need to be rolled back. Therefore, the ODBC external table supports transactions when data is written. Transaction support needs to be supported set by session variable: `enable_odbc_transcation`.
+
+```
+set enable_odbc_transcation = true; 
+```
+
+Transactions ensure the atomicity of ODBC external table writing, but it will reduce the performance of data writing ., so we can consider turning on the way as appropriate.
 
 ## Data type mapping
 
-There are different data types among different database. Here, the types in each database and the data type matching in Doris are listed.
+There are different data types among different databases. Here, the types in each database and the data type matching in Doris are listed.
 
-### MySQL Type
+### MySQL 
 
 |  MySQL  | Doris  |             Alternation rules              |
 | :------: | :----: | :-------------------------------: |
 |  BOOLEAN  | BOOLEAN  |                         |
-|   CHAR   |  CHAR  |            Only utf8 encoding is supported           |
-| VARCHAR | VARCHAR |       Only utf8 encoding is supported      |
+|   CHAR   |  CHAR  |            Only UTF8 encoding is supported           |
+| VARCHAR | VARCHAR |       Only UTF8 encoding is supported      |
 |   DATE   |  DATE  |                                   |
 |  FLOAT   |  FLOAT  |                                   |
 |   TINYINT   | TINYINT |  |
@@ -160,7 +178,23 @@ There are different data types among different database. Here, the types in each
 |   DATETIME  | DATETIME |  |
 |   DECIMAL  | DECIMAL |  |
 
-### Oracle Type                          
+### PostgreSQL
+
+|  PostgreSQL  | Doris  |             Alternation rules              |
+| :------: | :----: | :-------------------------------: |
+|  BOOLEAN  | BOOLEAN  |                         |
+|   CHAR   |  CHAR  |            Only UTF8 encoding is supported            |
+| VARCHAR | VARCHAR |       Only UTF8 encoding is supported
+|   DATE   |  DATE  |                                   |
+|  REAL   |  FLOAT  |                                   |
+|   SMALLINT  | SMALLINT |  |
+|   INT  | INT |  |
+|   BIGINT  | BIGINT |  |
+|   DOUBLE  | DOUBLE |  |
+|   TIMESTAMP  | DATETIME |  |
+|   DECIMAL  | DECIMAL |  |
+
+### Oracle                          
 
 |  Oracle  | Doris  |            Alternation rules               |
 | :------: | :----: | :-------------------------------: |
@@ -180,23 +214,23 @@ There are different data types among different database. Here, the types in each
 
 ## Q&A
 
-1. Relationship with the original external table of MySQL
+1. Relationship with the original external table of MySQL?
 
 After accessing the ODBC external table, the original way to access the MySQL external table will be gradually abandoned. If you have not used the MySQL external table before, it is recommended that the newly accessed MySQL tables use ODBC external table directly.
     
-2. Besides MySQL and Oracle, can doris support more databases
+2. Besides MySQL and Oracle, can doris support more databases?
 
-Currently, Doris only adapts to MySQL and Oracle. The adaptation of other databases is under planning. In principle, any database that supports ODBC access can be accessed through the ODBC external table. If you need to access other database, you are welcome to modify the code and contribute to Doris.
+Currently, Doris only adapts to MySQL and Oracle. The adaptation of other databases is under planning. In principle, any database that supports ODBC access can be accessed through the ODBC external table. If you need to access other databases, you are welcome to modify the code and contribute to Doris.
 
-3. When is it appropriate to use ODBC external tables.
+3. When is it appropriate to use ODBC external tables?
 
-    Generally, when the amount of external data is small and less than 100W. It can be accessed through ODBC external table. Since external table the can not play the role of Doris in the storage engine and will bring additional network overhead. it is recommended to determine whether to access through external tables or import data into Doris according to the actual access delay requirements for queries.
+    Generally, when the amount of external data is small and less than 100W, it can be accessed through ODBC external table. Since external table the cannot play the role of Doris in the storage engine and will bring additional network overhead, it is recommended to determine whether to access through external tables or import data into Doris according to the actual access delay requirements for queries.
 
-4. Garbled code in Oracle access
+4. Garbled code in Oracle access?
 
-   Add the following parameters to the BE start up script：`export NLS_LANG=AMERICAN_AMERICA.AL32UTF8`， Restart all be
+   Add the following parameters to the BE start up script: `export NLS_LANG=AMERICAN_AMERICA.AL32UTF8`R, Restart all be
 
-5. ANSI Driver or Unicode Driver ？
+5. ANSI Driver or Unicode Driver?
 
    Currently, ODBC supports both ANSI and Unicode driver forms, while Doris only supports Unicode driver. If you force the use of ANSI driver, the query results may be wrong.
 
@@ -204,9 +238,9 @@ Currently, Doris only adapts to MySQL and Oracle. The adaptation of other databa
 
    The driver for the corresponding data is not installed on each BE, or it is not installed in the be/conf/odbcinst.ini configure the correct path, or create the table with the driver namebe/conf/odbcinst.ini different
 
-7. Report Errors: `fail to convert odbc value 'PALO ' TO INT`
+7. Report Errors: `Fail to convert odbc value 'PALO ' TO INT on column:'A'`
 
-    Type conversion error, type mapping of column needs to be modified
+    Type conversion error, type of column `A` mapping of actual column type is different, needs to be modified
 
 8. BE crash occurs when using old MySQL table and ODBC external driver at the same time
 
@@ -219,7 +253,7 @@ This is the compatibility problem between MySQL database ODBC driver and existin
 
 9. Push down the filtering condition
 
-   The current ODBC appearance supports push down under filtering conditions。MySQL external table can support push down under all conditions. The functions of other databases are different from Doris, which will cause the push down query to fail. At present, except for the MySQL, other databases do not support push down of function calls. Whether Doris pushes down the required filter conditions can be confirmed by the 'explain' query statement.
+   The current ODBC appearance supports push down under filtering conditions. MySQL external table can support push down under all conditions. The functions of other databases are different from Doris, which will cause the push down query to fail. At present, except for the MySQL, other databases do not support push down of function calls. Whether Doris pushes down the required filter conditions can be confirmed by the 'explain' query statement.
 
 10. Report Errors: `driver connect Err: xxx`
 

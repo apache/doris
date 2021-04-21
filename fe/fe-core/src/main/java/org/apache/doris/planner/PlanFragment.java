@@ -150,6 +150,12 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         }
     }
 
+    // Manually set parallel exec number
+    // Currently for broker load
+    public void setParallelExecNum(int parallelExecNum) {
+        this.parallelExecNum = parallelExecNum;
+    }
+
     public void setOutputExprs(List<Expr> outputExprs) {
         this.outputExprs = Expr.cloneList(outputExprs, null);
     }
@@ -239,6 +245,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public boolean isPartitioned() {
         return (dataPartition.getType() != TPartitionType.UNPARTITIONED);
     }
+
+    public PlanFragmentId getId() { return fragmentId; }
 
     public PlanFragment getDestFragment() {
         if (destNode == null) return null;

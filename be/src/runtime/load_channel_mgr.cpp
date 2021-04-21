@@ -28,6 +28,8 @@
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_channel_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_mem_consumption, MetricUnit::BYTES, "",
+                                   mem_consumption, Labels({{"type", "load"}}));
 
 // Calculate the total memory limit of all load tasks on this BE
 static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
@@ -44,7 +46,7 @@ static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
 static int64_t calc_job_max_load_memory(int64_t mem_limit_in_req, int64_t total_mem_limit) {
     // default mem limit is used to be compatible with old request.
     // new request should be set load_mem_limit.
-    const int64_t default_load_mem_limit = 2 * 1024 * 1024 * 1024L; // 2GB
+    constexpr int64_t default_load_mem_limit = 2 * 1024 * 1024 * 1024L; // 2GB
     int64_t load_mem_limit = default_load_mem_limit;
     if (mem_limit_in_req != -1) {
         // mem-limit of a certain load should between config::write_buffer_size
@@ -68,11 +70,12 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
         std::lock_guard<std::mutex> l(_lock);
         return _load_channels.size();
     });
-    _last_success_channel = new_lru_cache(1024);
+    _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024, _mem_tracker);
 }
 
 LoadChannelMgr::~LoadChannelMgr() {
     DEREGISTER_HOOK_METRIC(load_channel_count);
+    DEREGISTER_HOOK_METRIC(load_mem_consumption);
     _stop_background_threads_latch.count_down();
     if (_load_channels_clean_thread) {
         _load_channels_clean_thread->join();
@@ -82,7 +85,10 @@ LoadChannelMgr::~LoadChannelMgr() {
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     int64_t load_mem_limit = calc_process_max_load_memory(process_mem_limit);
-    _mem_tracker = MemTracker::CreateTracker(load_mem_limit, "load channel mgr");
+    _mem_tracker = MemTracker::CreateTracker(load_mem_limit, "Load");
+    REGISTER_HOOK_METRIC(load_mem_consumption, [this]() {
+        return _mem_tracker->consumption();
+    });
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }
@@ -98,15 +104,14 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new load channel
             int64_t mem_limit_in_req = params.has_load_mem_limit() ? params.load_mem_limit() : -1;
-            int64_t job_max_memory = calc_job_max_load_memory(mem_limit_in_req,
-                                                              _mem_tracker->limit());
+            int64_t job_max_memory =
+                    calc_job_max_load_memory(mem_limit_in_req, _mem_tracker->limit());
 
-            int64_t timeout_in_req_s = params.has_load_channel_timeout_s()
-                    ? params.load_channel_timeout_s() : -1;
+            int64_t timeout_in_req_s =
+                    params.has_load_channel_timeout_s() ? params.load_channel_timeout_s() : -1;
             int64_t job_timeout_s = calc_job_timeout_s(timeout_in_req_s);
 
-            channel.reset(new LoadChannel(load_id, job_max_memory,
-                                          job_timeout_s, _mem_tracker));
+            channel.reset(new LoadChannel(load_id, job_max_memory, job_timeout_s, _mem_tracker));
             _load_channels.insert({load_id, channel});
         }
     }
@@ -115,13 +120,10 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
-static void dummy_deleter(const CacheKey& key, void* value) {
-}
+static void dummy_deleter(const CacheKey& key, void* value) {}
 
-Status LoadChannelMgr::add_batch(
-        const PTabletWriterAddBatchRequest& request,
-        google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-        int64_t* wait_lock_time_ns) {
+Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
+                                 google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
     UniqueId load_id(request.id());
     // 1. get load channel
     std::shared_ptr<LoadChannel> channel;
@@ -138,7 +140,7 @@ Status LoadChannelMgr::add_batch(
                 }
             }
             return Status::InternalError(strings::Substitute(
-                     "fail to add batch in load channel. unknown load_id=$0", load_id.to_string()));
+                    "fail to add batch in load channel. unknown load_id=$0", load_id.to_string()));
         }
         channel = it->second;
     }
@@ -157,11 +159,11 @@ Status LoadChannelMgr::add_batch(
         {
             std::lock_guard<std::mutex> l(_lock);
             _load_channels.erase(load_id);
-            auto handle = _last_success_channel->insert(
-                    load_id.to_string(), nullptr, 1, dummy_deleter);
+            auto handle =
+                    _last_success_channel->insert(load_id.to_string(), nullptr, 1, dummy_deleter);
             _last_success_channel->release(handle);
         }
-        VLOG(1) << "removed load channel " << load_id;
+        VLOG_CRITICAL << "removed load channel " << load_id;
     }
     return Status::OK();
 }
@@ -189,9 +191,8 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
     DCHECK(channel.get() != nullptr);
 
     // force reduce mem limit of the selected channel
-    LOG(INFO) << "reducing memory of " << *channel
-              << " because total load mem consumption " << _mem_tracker->consumption()
-              << " has exceeded limit " << _mem_tracker->limit();
+    LOG(INFO) << "reducing memory of " << *channel << " because total load mem consumption "
+              << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
     channel->handle_mem_exceed_limit(true);
 }
 
@@ -215,21 +216,22 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
 }
 
 Status LoadChannelMgr::_start_bg_worker() {
-    RETURN_IF_ERROR(
-        Thread::create("LoadChannelMgr", "cancel_timeout_load_channels",
-                       [this]() {
+    RETURN_IF_ERROR(Thread::create(
+            "LoadChannelMgr", "cancel_timeout_load_channels",
+            [this]() {
 #ifdef GOOGLE_PROFILER
-                           ProfilerRegisterThread();
+                ProfilerRegisterThread();
 #endif
 #ifndef BE_TEST
-                           uint32_t interval = 60;
+                uint32_t interval = 60;
 #else
-                           uint32_t interval = 1;
+                uint32_t interval = 1;
 #endif
-                           while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval))) {
-                               _start_load_channels_clean();
-                           }},
-                       &_load_channels_clean_thread));
+                while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval))) {
+                    _start_load_channels_clean();
+                }
+            },
+            &_load_channels_clean_thread));
 
     return Status::OK();
 }
@@ -241,10 +243,10 @@ Status LoadChannelMgr::_start_load_channels_clean() {
     {
         std::vector<UniqueId> need_delete_channel_ids;
         std::lock_guard<std::mutex> l(_lock);
-        VLOG(1) << "there are " << _load_channels.size() << " running load channels";
+        VLOG_CRITICAL << "there are " << _load_channels.size() << " running load channels";
         int i = 0;
         for (auto& kv : _load_channels) {
-            VLOG(1) << "load channel[" << i++ << "]: " << *(kv.second);
+            VLOG_CRITICAL << "load channel[" << i++ << "]: " << *(kv.second);
             time_t last_updated_time = kv.second->last_updated_time();
             if (difftime(now, last_updated_time) >= kv.second->timeout()) {
                 need_delete_channel_ids.emplace_back(kv.first);
@@ -252,7 +254,7 @@ Status LoadChannelMgr::_start_load_channels_clean() {
             }
         }
 
-        for(auto& key: need_delete_channel_ids) {
+        for (auto& key : need_delete_channel_ids) {
             _load_channels.erase(key);
             LOG(INFO) << "erase timeout load channel: " << key;
         }
@@ -270,10 +272,10 @@ Status LoadChannelMgr::_start_load_channels_clean() {
     // this log print every 1 min, so that we could observe the mem consumption of load process
     // on this Backend
     LOG(INFO) << "load mem consumption(bytes). limit: " << _mem_tracker->limit()
-            << ", current: " << _mem_tracker->consumption()
-            << ", peak: " << _mem_tracker->peak_consumption();
+              << ", current: " << _mem_tracker->consumption()
+              << ", peak: " << _mem_tracker->peak_consumption();
 
     return Status::OK();
 }
 
-}
+} // namespace doris

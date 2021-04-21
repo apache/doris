@@ -27,11 +27,11 @@ namespace doris {
 // Broker scanner convert the data read from broker to doris's tuple.
 class ORCScanner : public BaseScanner {
 public:
-    ORCScanner(RuntimeState* state,
-               RuntimeProfile* profile,
-               const TBrokerScanRangeParams& params,
+    ORCScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
                const std::vector<TBrokerRangeDesc>& ranges,
-               const std::vector<TNetworkAddress>& broker_addresses, ScannerCounter* counter);
+               const std::vector<TNetworkAddress>& broker_addresses,
+               const std::vector<ExprContext*>& pre_filter_ctxs,
+               ScannerCounter* counter);
 
     ~ORCScanner() override;
 
@@ -74,5 +74,5 @@ private:
     int64_t _current_line_of_group;
 };
 
-}
+} // namespace doris
 #endif //ORC_SCANNER_H

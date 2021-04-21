@@ -17,59 +17,66 @@
 
 #include "common/daemon.h"
 
+#include <signal.h>
+
+#include <aws/core/Aws.h>
 #include <gflags/gflags.h>
 #include <gperftools/malloc_extension.h>
 
 #include "common/config.h"
+#include "exprs/bitmap_function.h"
+#include "exprs/cast_functions.h"
+#include "exprs/compound_predicate.h"
+#include "exprs/decimal_operators.h"
+#include "exprs/decimalv2_operators.h"
+#include "exprs/encryption_functions.h"
+#include "exprs/es_functions.h"
+#include "exprs/grouping_sets_functions.h"
+#include "exprs/hash_functions.h"
+#include "exprs/hll_function.h"
+#include "exprs/hll_hash_function.h"
+#include "exprs/is_null_predicate.h"
+#include "exprs/json_functions.h"
+#include "exprs/like_predicate.h"
+#include "exprs/math_functions.h"
+#include "exprs/new_in_predicate.h"
+#include "exprs/operators.h"
+#include "exprs/string_functions.h"
+#include "exprs/time_operators.h"
+#include "exprs/timestamp_functions.h"
+#include "exprs/topn_function.h"
+#include "exprs/utility_functions.h"
+#include "geo/geo_functions.h"
+#include "olap/options.h"
+#include "runtime/bufferpool/buffer_pool.h"
+#include "runtime/exec_env.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/memory/chunk_allocator.h"
+#include "runtime/user_function_cache.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
+#include "util/doris_metrics.h"
 #include "util/logging.h"
 #include "util/mem_info.h"
 #include "util/network_util.h"
-#include "util/thrift_util.h"
-#include "util/doris_metrics.h"
-#include "runtime/bufferpool/buffer_pool.h"
-#include "runtime/exec_env.h"
-#include "runtime/memory/chunk_allocator.h"
-#include "runtime/mem_tracker.h"
-#include "runtime/user_function_cache.h"
-#include "exprs/operators.h"
-#include "exprs/is_null_predicate.h"
-#include "exprs/like_predicate.h"
-#include "exprs/compound_predicate.h"
-#include "exprs/new_in_predicate.h"
-#include "exprs/string_functions.h"
-#include "exprs/cast_functions.h"
-#include "exprs/math_functions.h"
-#include "exprs/encryption_functions.h"
-#include "exprs/es_functions.h"
-#include "exprs/hash_functions.h"
-#include "exprs/timestamp_functions.h"
-#include "exprs/decimal_operators.h"
-#include "exprs/decimalv2_operators.h"
-#include "exprs/time_operators.h"
-#include "exprs/utility_functions.h"
-#include "exprs/json_functions.h"
-#include "exprs/hll_hash_function.h"
-#include "exprs/grouping_sets_functions.h"
-#include "exprs/bitmap_function.h"
-#include "exprs/hll_function.h"
-#include "geo/geo_functions.h"
-#include "olap/options.h"
-#include "util/time.h"
 #include "util/system_metrics.h"
+#include "util/thrift_util.h"
+#include "util/time.h"
 
 namespace doris {
 
 bool k_doris_exit = false;
+
+Aws::SDKOptions aws_options;
 
 void Daemon::tcmalloc_gc_thread() {
     while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(10))) {
         size_t used_size = 0;
         size_t free_size = 0;
 
-        MallocExtension::instance()->GetNumericProperty("generic.current_allocated_bytes", &used_size);
+        MallocExtension::instance()->GetNumericProperty("generic.current_allocated_bytes",
+                                                        &used_size);
         MallocExtension::instance()->GetNumericProperty("tcmalloc.pageheap_free_bytes", &free_size);
         size_t alloc_size = used_size + free_size;
 
@@ -83,7 +90,8 @@ void Daemon::tcmalloc_gc_thread() {
 }
 
 void Daemon::memory_maintenance_thread() {
-    while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(config::memory_maintenance_sleep_time_s))) {
+    while (!_stop_background_threads_latch.wait_for(
+            MonoDelta::FromSeconds(config::memory_maintenance_sleep_time_s))) {
         ExecEnv* env = ExecEnv::GetInstance();
         // ExecEnv may not have been created yet or this may be the catalogd or statestored,
         // which don't have ExecEnvs.
@@ -98,7 +106,7 @@ void Daemon::memory_maintenance_thread() {
             // if the system is idle, we need to refresh the tracker occasionally since
             // untracked memory may be allocated or freed, e.g. by background threads.
             if (env->process_mem_tracker() != nullptr &&
-                     !env->process_mem_tracker()->is_consumption_metric_null()) {
+                !env->process_mem_tracker()->is_consumption_metric_null()) {
                 env->process_mem_tracker()->RefreshConsumptionFromMetric();
             }
         }
@@ -130,29 +138,31 @@ void Daemon::calculate_metrics_thread() {
             lst_push_bytes = DorisMetrics::instance()->push_request_write_bytes->value();
             lst_query_bytes = DorisMetrics::instance()->query_scan_bytes->value();
             DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
-            DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
+            DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes,
+                                                                            &lst_net_receive_bytes);
         } else {
             int64_t current_ts = GetCurrentTimeMicros() / 1000;
             long interval = (current_ts - last_ts) / 1000;
             last_ts = current_ts;
 
             // 1. push bytes per second
-            int64_t current_push_bytes = DorisMetrics::instance()->push_request_write_bytes->value();
+            int64_t current_push_bytes =
+                    DorisMetrics::instance()->push_request_write_bytes->value();
             int64_t pps = (current_push_bytes - lst_push_bytes) / (interval + 1);
-            DorisMetrics::instance()->push_request_write_bytes_per_second->set_value(
-                pps < 0 ? 0 : pps);
+            DorisMetrics::instance()->push_request_write_bytes_per_second->set_value(pps < 0 ? 0
+                                                                                             : pps);
             lst_push_bytes = current_push_bytes;
 
             // 2. query bytes per second
             int64_t current_query_bytes = DorisMetrics::instance()->query_scan_bytes->value();
             int64_t qps = (current_query_bytes - lst_query_bytes) / (interval + 1);
-            DorisMetrics::instance()->query_scan_bytes_per_second->set_value(
-                qps < 0 ? 0 : qps);
+            DorisMetrics::instance()->query_scan_bytes_per_second->set_value(qps < 0 ? 0 : qps);
             lst_query_bytes = current_query_bytes;
 
             // 3. max disk io util
             DorisMetrics::instance()->max_disk_io_util_percent->set_value(
-                DorisMetrics::instance()->system_metrics()->get_max_io_util(lst_disks_io_time, 15));
+                    DorisMetrics::instance()->system_metrics()->get_max_io_util(lst_disks_io_time,
+                                                                                15));
             // update lst map
             DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
 
@@ -160,11 +170,12 @@ void Daemon::calculate_metrics_thread() {
             int64_t max_send = 0;
             int64_t max_receive = 0;
             DorisMetrics::instance()->system_metrics()->get_max_net_traffic(
-                lst_net_send_bytes, lst_net_receive_bytes, 15, &max_send, &max_receive);
+                    lst_net_send_bytes, lst_net_receive_bytes, 15, &max_send, &max_receive);
             DorisMetrics::instance()->max_network_send_bytes_rate->set_value(max_send);
             DorisMetrics::instance()->max_network_receive_bytes_rate->set_value(max_receive);
             // update lst map
-            DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
+            DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes,
+                                                                            &lst_net_receive_bytes);
         }
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(15)));
 }
@@ -189,15 +200,14 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
             return;
         }
     }
-    DorisMetrics::instance()->initialize(
-        init_system_metrics, disk_devices, network_interfaces);
+    DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
 }
 
 void sigterm_handler(int signo) {
     k_doris_exit = true;
 }
 
-int install_signal(int signo, void(*handler)(int)) {
+int install_signal(int signo, void (*handler)(int)) {
     struct sigaction sa;
     memset(&sa, 0, sizeof(struct sigaction));
     sa.sa_handler = handler;
@@ -205,9 +215,8 @@ int install_signal(int signo, void(*handler)(int)) {
     auto ret = sigaction(signo, &sa, nullptr);
     if (ret != 0) {
         char buf[64];
-        LOG(ERROR) << "install signal failed, signo=" << signo
-            << ", errno=" << errno
-            << ", errmsg=" << strerror_r(errno, buf, sizeof(buf));
+        LOG(ERROR) << "install signal failed, signo=" << signo << ", errno=" << errno
+                   << ", errmsg=" << strerror_r(errno, buf, sizeof(buf));
     }
     return ret;
 }
@@ -258,6 +267,15 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     BitmapFunctions::init();
     HllFunctions::init();
     HashFunctions::init();
+    TopNFunctions::init();
+    // disable EC2 metadata service
+    setenv("AWS_EC2_METADATA_DISABLED", "true", false);
+    Aws::Utils::Logging::LogLevel logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
+    aws_options.loggingOptions.logLevel = logLevel;
+    aws_options.loggingOptions.logger_create_fn = [logLevel] {
+        return std::make_shared<DorisAWSLogger>(logLevel);
+    };
+    Aws::InitAPI(aws_options);
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();
@@ -272,20 +290,25 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
 void Daemon::start() {
     Status st;
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
-    st = Thread::create("Daemon", "tcmalloc_gc_thread",
-                        [this]() { this->tcmalloc_gc_thread(); },
-                        &_tcmalloc_gc_thread);
+    st = Thread::create(
+            "Daemon", "tcmalloc_gc_thread", [this]() { this->tcmalloc_gc_thread(); },
+            &_tcmalloc_gc_thread);
     CHECK(st.ok()) << st.to_string();
 #endif
-    st = Thread::create("Daemon", "memory_maintenance_thread",
-                        [this]() { this->memory_maintenance_thread(); },
-                        &_memory_maintenance_thread);
+    st = Thread::create(
+            "Daemon", "memory_maintenance_thread", [this]() { this->memory_maintenance_thread(); },
+            &_memory_maintenance_thread);
     CHECK(st.ok()) << st.to_string();
 
     if (config::enable_metric_calculator) {
-        st = Thread::create("Daemon", "calculate_metrics_thread",
-                            [this]() { this->calculate_metrics_thread(); },
-                            &_calculate_metrics_thread);
+        CHECK(DorisMetrics::instance()->is_inited())
+                << "enable metric calculator failed, maybe you set enable_system_metrics to false "
+                << " or there may be some hardware error which causes metric init failed, please check log first;"
+                << " you can set enable_metric_calculator = false to quickly recover ";
+
+        st = Thread::create(
+                "Daemon", "calculate_metrics_thread",
+                [this]() { this->calculate_metrics_thread(); }, &_calculate_metrics_thread);
         CHECK(st.ok()) << st.to_string();
     }
 }
@@ -302,6 +325,7 @@ void Daemon::stop() {
     if (_calculate_metrics_thread) {
         _calculate_metrics_thread->join();
     }
+    Aws::ShutdownAPI(aws_options);
 }
 
-}  // namespace doris
+} // namespace doris

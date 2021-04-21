@@ -24,11 +24,11 @@
 #include "common/status.h"
 #include "common/utils.h"
 #include "env/env.h"
-#include "util/file_utils.h"
-#include "http/http_common.h"
 #include "http/http_channel.h"
+#include "http/http_common.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
+#include "util/file_utils.h"
 #include "util/path_util.h"
 #include "util/url_coding.h"
 
@@ -89,9 +89,8 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
 // Do a simple decision, only deal a few type
 std::string get_content_type(const std::string& file_name) {
     std::string file_ext = path_util::file_extension(file_name);
-    LOG(INFO) << "file_name: " << file_name << "; file extension: [" << file_ext << "]";
-    if (file_ext == std::string(".html")
-        || file_ext == std::string(".htm")) {
+    VLOG_TRACE << "file_name: " << file_name << "; file extension: [" << file_ext << "]";
+    if (file_ext == std::string(".html") || file_ext == std::string(".htm")) {
         return std::string("text/html; charset=utf-8");
     } else if (file_ext == std::string(".js")) {
         return std::string("application/javascript; charset=utf-8");
@@ -109,7 +108,7 @@ std::string get_content_type(const std::string& file_name) {
     return "";
 }
 
-void do_file_response(const std::string& file_path, HttpRequest *req) {
+void do_file_response(const std::string& file_path, HttpRequest* req) {
     if (file_path.find("..") != std::string::npos) {
         LOG(WARNING) << "Not allowed to read relative path: " << file_path;
         HttpChannel::send_error(req, HttpStatus::FORBIDDEN);
@@ -153,7 +152,7 @@ void do_file_response(const std::string& file_path, HttpRequest *req) {
     HttpChannel::send_file(req, fd, 0, file_size);
 }
 
-void do_dir_response(const std::string& dir_path, HttpRequest *req) {
+void do_dir_response(const std::string& dir_path, HttpRequest* req) {
     std::vector<std::string> files;
     Status status = FileUtils::list_files(Env::Default(), dir_path, &files);
     if (!status.ok()) {
@@ -173,4 +172,4 @@ void do_dir_response(const std::string& dir_path, HttpRequest *req) {
     return;
 }
 
-}
+} // namespace doris

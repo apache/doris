@@ -18,13 +18,13 @@
 #ifndef DORIS_BE_RUNTIME_DPP_SINK_INTERNAL_H
 #define DORIS_BE_RUNTIME_DPP_SINK_INTERNAL_H
 
-#include <vector>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
-#include "runtime/raw_value.h"
 #include "runtime/primitive_type.h"
+#include "runtime/raw_value.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
@@ -45,31 +45,23 @@ public:
 
     ~RollupSchema();
 
-    static Status from_thrift(ObjectPool* pool,
-                              const TRollupSchema& t_schema,
+    static Status from_thrift(ObjectPool* pool, const TRollupSchema& t_schema,
                               RollupSchema* schema);
 
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc, const std::shared_ptr<MemTracker>& mem_tracker);
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                   const std::shared_ptr<MemTracker>& mem_tracker);
 
     Status open(RuntimeState* state);
 
     void close(RuntimeState* state);
 
-    const std::string& keys_type() const {
-        return _keys_type;
-    }
+    const std::string& keys_type() const { return _keys_type; }
 
-    const std::vector<ExprContext*>& keys() const {
-        return _key_ctxs;
-    }
+    const std::vector<ExprContext*>& keys() const { return _key_ctxs; }
 
-    const std::vector<ExprContext*>& values() const {
-        return _value_ctxs;
-    }
+    const std::vector<ExprContext*>& values() const { return _value_ctxs; }
 
-    const std::vector<TAggregationType::type>& value_ops() const {
-        return _value_ops;
-    }
+    const std::vector<TAggregationType::type>& value_ops() const { return _value_ops; }
 
 private:
     std::string _keys_type;
@@ -80,28 +72,17 @@ private:
 
 class PartRangeKey {
 public:
-    PartRangeKey() {
-    }
+    PartRangeKey() {}
 
-    ~PartRangeKey() {
-    }
+    ~PartRangeKey() {}
 
-    static const PartRangeKey& pos_infinite() {
-        return _s_pos_infinite;
-    }
+    static const PartRangeKey& pos_infinite() { return _s_pos_infinite; }
 
-    static const PartRangeKey& neg_infinite() {
-        return _s_neg_infinite;
-    }
+    static const PartRangeKey& neg_infinite() { return _s_neg_infinite; }
 
-    static Status from_thrift(ObjectPool* pool,
-            const TPartitionKey& t_key,
-            PartRangeKey* key);
+    static Status from_thrift(ObjectPool* pool, const TPartitionKey& t_key, PartRangeKey* key);
 
-    static Status from_value(
-            PrimitiveType type,
-            void* value,
-            PartRangeKey* key);
+    static Status from_value(PrimitiveType type, void* value, PartRangeKey* key);
 
     bool operator==(const PartRangeKey& other) const {
         if (_sign != other._sign) {
@@ -114,9 +95,7 @@ public:
         return RawValue::compare(_key, other._key, TypeDescriptor(_type)) == 0;
     }
 
-    bool operator!=(const PartRangeKey& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const PartRangeKey& other) const { return !(*this == other); }
 
     bool operator<(const PartRangeKey& other) const {
         if (_sign < other._sign) {
@@ -130,29 +109,23 @@ public:
         return RawValue::compare(_key, other._key, TypeDescriptor(_type)) < 0;
     }
 
-    bool operator<=(const PartRangeKey& other) const {
-        return *this < other || *this == other;
-    }
+    bool operator<=(const PartRangeKey& other) const { return *this < other || *this == other; }
 
-    bool operator>(const PartRangeKey& other) const {
-        return !(*this <= other);
-    }
+    bool operator>(const PartRangeKey& other) const { return !(*this <= other); }
 
-    bool operator>=(const PartRangeKey& other) const {
-        return !(*this < other);
-    }
+    bool operator>=(const PartRangeKey& other) const { return !(*this < other); }
 
     std::string debug_string() const {
         std::stringstream debug_str;
         debug_str << "sign: " << _sign << "; "
-                << "type: " << type_to_string(_type) << "; "
-                << "key: " << _str_key;
+                  << "type: " << type_to_string(_type) << "; "
+                  << "key: " << _str_key;
         return debug_str.str();
     }
 
 private:
     // Used for static variables
-    PartRangeKey(int sign) : _sign(sign) { }
+    PartRangeKey(int sign) : _sign(sign) {}
     // When sign is less than 0, that key represent negative infinite
     // When sign is greater than 0, that key represent positive infinite
     // When sign is equal 0, that key represent normal key
@@ -167,18 +140,13 @@ private:
 
 class PartRange {
 public:
-    PartRange() {
-    }
+    PartRange() {}
 
-    ~PartRange() {
-    }
+    ~PartRange() {}
 
-    static const PartRange& all() {
-        return _s_all_range;
-    }
+    static const PartRange& all() { return _s_all_range; }
 
-    static Status from_thrift(ObjectPool* pool,
-                              const TPartitionRange& t_part_range,
+    static Status from_thrift(ObjectPool* pool, const TPartitionRange& t_part_range,
                               PartRange* range);
 
     // return -1 : 'this' range is on the left of 'key'
@@ -207,8 +175,8 @@ public:
     // e.g. [1, 3) is neither '<' nor '=' nor '>' [2, 4)
     bool operator<(const PartRange& other) const {
         VLOG_ROW << "in PartRange::operator<: " << std::endl
-            << "this: " << debug_string() << std::endl
-            << "other: " << other.debug_string() << std::endl;
+                 << "this: " << debug_string() << std::endl
+                 << "other: " << other.debug_string() << std::endl;
         if (_end_key < other._start_key) {
             VLOG_ROW << "in PartRange::operator<: result: " << true << std::endl;
             return true;
@@ -218,29 +186,29 @@ public:
                 return true;
             }
             VLOG_ROW << "in PartRange::operator<. "
-                    << "first.end=other.end. but include judge failed." << std::endl;
+                     << "first.end=other.end. but include judge failed." << std::endl;
         }
 
         VLOG_ROW << "in PartRange::operator<: result: " << false << std::endl;
         return false;
     }
 
-    std::string debug_string() const{
+    std::string debug_string() const {
         std::stringstream debug_str;
         debug_str << "start_key: [" << _start_key.debug_string() << "]; "
-                << "end_key: [" << _end_key.debug_string() << "]; "
-                << "include_start: " << _include_start_key << "; "
-                << "include_end: " << _include_end_key << ";";
+                  << "end_key: [" << _end_key.debug_string() << "]; "
+                  << "include_start: " << _include_start_key << "; "
+                  << "include_end: " << _include_end_key << ";";
         return debug_str.str();
     }
+
 private:
-    PartRange(const PartRangeKey& start_key, const PartRangeKey& end_key,
-              bool include_start, bool include_end) :
-            _start_key(start_key),
-            _end_key(end_key),
-            _include_start_key(include_start),
-            _include_end_key(include_end) {
-    }
+    PartRange(const PartRangeKey& start_key, const PartRangeKey& end_key, bool include_start,
+              bool include_end)
+            : _start_key(start_key),
+              _end_key(end_key),
+              _include_start_key(include_start),
+              _include_end_key(include_end) {}
 
     PartRangeKey _start_key;
     PartRangeKey _end_key;
@@ -252,34 +220,28 @@ private:
 
 class PartitionInfo {
 public:
-    PartitionInfo() : _id(-1), _distributed_bucket(0) {
-    }
+    PartitionInfo() : _id(-1), _distributed_bucket(0) {}
 
-    static Status from_thrift(ObjectPool* pool,
-                              const TRangePartition& t_partition,
+    static Status from_thrift(ObjectPool* pool, const TRangePartition& t_partition,
                               PartitionInfo* partition);
 
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc, const std::shared_ptr<MemTracker>& mem_tracker);
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                   const std::shared_ptr<MemTracker>& mem_tracker);
 
     Status open(RuntimeState* state);
 
     void close(RuntimeState* state);
 
-    int64_t id() const {
-        return _id;
-    }
+    int64_t id() const { return _id; }
 
     const std::vector<ExprContext*>& distributed_expr_ctxs() const {
         return _distributed_expr_ctxs;
     }
 
-    int distributed_bucket() const {
-        return _distributed_bucket;
-    }
+    int distributed_bucket() const { return _distributed_bucket; }
 
-    const PartRange& range() const {
-        return _range;
-    }
+    const PartRange& range() const { return _range; }
+
 private:
     int64_t _id;
     PartRange _range;
@@ -300,12 +262,12 @@ struct TabletDesc {
     }
 };
 
-}
+} // namespace doris
 
 namespace std {
 
 // TODO(zc)
-template<>
+template <>
 struct hash<doris::TabletDesc> {
     std::size_t operator()(const doris::TabletDesc& desc) const {
         uint32_t seed = 0;
@@ -315,6 +277,6 @@ struct hash<doris::TabletDesc> {
     }
 };
 
-}
+} // namespace std
 
 #endif

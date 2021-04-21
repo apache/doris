@@ -64,7 +64,7 @@ Syntax:
             Range: -2^127 + 1 ~ 2^127 - 1
         FLOAT(4 Bytes)
             Support scientific notation
-        DOUBLE(12 Bytes)
+        DOUBLE(8 Bytes)
             Support scientific notation
         DECIMAL[(precision, scale)] (16 Bytes)
             Default is DECIMAL(10, 0)
@@ -93,15 +93,13 @@ Syntax:
        * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will   occur if and only if the newly imported data is a non-null value. If the newly imported   data is null, Doris will still retain the original value. Note: if NOT NULL is specified  in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it     to NULL and will not report an error to the user. Users can leverage this aggregate type    to achieve importing some of columns.
        * BITMAP_UNION: Only for BITMAP type
     Allow NULL: Default is NOT NULL. NULL value should be represented as `\N` in load source file.
-    Notice:  
-    
-        The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
+    Notice: The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
 2. index_definition
     Syntax:
         `INDEX index_name (col_name[, col_name, ...]) [USING BITMAP] COMMENT 'xxxxxx'`
     Explain:
-        index_name：index name
-        col_name：column name
+        index_name: index name
+        col_name: column name
     Notice:
         Only support BITMAP index in current version, BITMAP can only apply to single column
 3. ENGINE type
@@ -253,7 +251,7 @@ Syntax:
         ```
         PROPERTIES (
             "dynamic_partition.enable" = "true|false",
-            "dynamic_partition.time_unit" = "DAY|WEEK|MONTH",
+            "dynamic_partition.time_unit" = "HOUR|DAY|WEEK|MONTH",
             "dynamic_partitoin.end" = "${integer_value}",
             "dynamic_partition.prefix" = "${string_value}",
             "dynamic_partition.buckets" = "${integer_value}
@@ -262,7 +260,8 @@ Syntax:
        
        Dynamic_partition. Enable: specifies whether dynamic partitioning at the table level is enabled
        
-       Dynamic_partition. Time_unit: used to specify the time unit for dynamically adding partitions, which can be selected as DAY, WEEK, and MONTH.
+       Dynamic_partition. Time_unit: used to specify the time unit for dynamically adding partitions, which can be selected as HOUR, DAY, WEEK, and MONTH.
+                                     Attention: When the time unit is HOUR, the data type of partition column cannot be DATE.
        
        Dynamic_partition. End: used to specify the number of partitions created in advance
        
@@ -603,7 +602,7 @@ Syntax:
     PROPERTIES("replication_num" = "3");
 ```
 
-12. Create a inmemory table:
+13. Create a inmemory table:
 
 ```
     CREATE TABLE example_db.table_hash
@@ -621,7 +620,7 @@ Syntax:
     PROPERTIES ("in_memory"="true");
 ```
 
-13. Create a hive external table
+14. Create a hive external table
 ```
     CREATE TABLE example_db.table_hive
     (

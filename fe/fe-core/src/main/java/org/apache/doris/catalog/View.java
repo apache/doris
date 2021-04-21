@@ -21,13 +21,17 @@ import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -47,7 +51,7 @@ import java.util.List;
  * affect the metadata of the underlying tables (if any).
  */
 public class View extends Table {
-    private static final Logger LOG = LogManager.getLogger(Catalog.class);
+    private static final Logger LOG = LogManager.getLogger(View.class);
 
     // The original SQL-string given as view definition. Set during analysis.
     // Corresponds to Hive's viewOriginalText.
@@ -136,7 +140,16 @@ public class View extends Table {
         this.sqlMode = sqlMode;
     }
 
+    public void setSqlMode(long sqlMode) {
+        this.sqlMode = sqlMode;
+    }
+
     public String getInlineViewDef() {
+        return inlineViewDef;
+    }
+
+    @Override
+    public String getDdlSql() {
         return inlineViewDef;
     }
 
@@ -194,7 +207,41 @@ public class View extends Table {
         return explicitColLabels;
     }
 
-    public boolean hasColLabels() { return colLabels_ != null; }
+    public boolean hasColLabels() {
+        return colLabels_ != null;
+    }
+
+    // Get the md5 of signature string of this view.
+    // This method is used to determine whether the views have the same schema.
+    // Contains:
+    // view name, type, full schema, inline view def, sql mode
+    @Override
+    public String getSignature(int signatureVersion) {
+        StringBuilder sb = new StringBuilder(signatureVersion);
+        sb.append(name);
+        sb.append(type);
+        sb.append(Util.getSchemaSignatureString(fullSchema));
+        sb.append(inlineViewDef);
+        sb.append(sqlMode);
+        String md5 = DigestUtils.md5Hex(sb.toString());
+        LOG.debug("get signature of view {}: {}. signature string: {}", name, md5, sb.toString());
+        return md5;
+    }
+
+    @Override
+    public View clone() {
+        View copied = new View();
+        if (!DeepCopy.copy(this, copied, View.class, FeConstants.meta_version)) {
+            LOG.warn("failed to copy view: " + getName());
+            return null;
+        }
+        copied.setSqlMode(this.sqlMode);
+        return copied;
+    }
+
+    public void resetIdsForRestore(Catalog catalog){
+        id = catalog.getNextId();
+    }
 
     @Override
     public void write(DataOutput out) throws IOException {

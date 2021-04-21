@@ -14,8 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "gen_cpp/internal_service.pb.h"
 #include "runtime/cache/result_cache.h"
+
+#include "gen_cpp/internal_service.pb.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -55,9 +56,9 @@ void ResultNodeList::move_tail(ResultNode* node) {
     _tail = node;
 }
 
-void ResultNodeList::delete_node(ResultNode** node) { 
+void ResultNodeList::delete_node(ResultNode** node) {
     (*node)->clear();
-    SAFE_DELETE(*node); 
+    SAFE_DELETE(*node);
 }
 
 void ResultNodeList::clear() {
@@ -80,7 +81,7 @@ void ResultCache::update(const PUpdateCacheRequest* request, PCacheResponse* res
     bool update_first = false;
     UniqueId sql_key = request->sql_key();
     LOG(INFO) << "update cache, sql key:" << sql_key;
-    
+
     CacheWriteLock write_lock(_cache_mtx);
     auto it = _node_map.find(sql_key);
     if (it != _node_map.end()) {
@@ -115,7 +116,7 @@ void ResultCache::fetch(const PFetchCacheRequest* request, PFetchCacheResult* re
     const UniqueId sql_key = request->sql_key();
     LOG(INFO) << "fetch cache, sql key:" << sql_key;
     {
-        CacheReadLock read_lock(_cache_mtx);    
+        CacheReadLock read_lock(_cache_mtx);
         node_it = _node_map.find(sql_key);
         if (node_it == _node_map.end()) {
             result->set_status(PCacheStatus::NO_SQL_KEY);
@@ -125,8 +126,9 @@ void ResultCache::fetch(const PFetchCacheRequest* request, PFetchCacheResult* re
         ResultNode* node = node_it->second;
         PartitionRowBatchList part_rowbatch_list;
         PCacheStatus status = node->fetch_partition(request, part_rowbatch_list, hit_first);
-        
-        for (auto part_it = part_rowbatch_list.begin(); part_it != part_rowbatch_list.end(); part_it++) {
+
+        for (auto part_it = part_rowbatch_list.begin(); part_it != part_rowbatch_list.end();
+             part_it++) {
             PCacheValue* srcValue = (*part_it)->get_value();
             if (srcValue != NULL) {
                 PCacheValue* value = result->add_values();
@@ -267,4 +269,3 @@ void ResultCache::update_monitor() {
 }
 
 } // namespace doris
-

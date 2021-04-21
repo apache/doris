@@ -19,26 +19,25 @@
 #define DORIS_BE_SRC_QUERY_EXEC_OLAP_SCANNER_H
 
 #include <list>
-#include <vector>
-#include <string>
 #include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
-#include "exec/olap_common.h"
 #include "exec/exec_node.h"
+#include "exec/olap_utils.h"
 #include "exprs/expr.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "olap/delete_handler.h"
+#include "olap/olap_cond.h"
+#include "olap/reader.h"
+#include "olap/rowset/column_data.h"
+#include "olap/storage_engine.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
 #include "runtime/vectorized_row_batch.h"
-
-#include "olap/delete_handler.h"
-#include "olap/rowset/column_data.h"
-#include "olap/olap_cond.h"
-#include "olap/storage_engine.h"
-#include "olap/reader.h"
 
 namespace doris {
 
@@ -49,21 +48,14 @@ class Field;
 
 class OlapScanner {
 public:
-    OlapScanner(
-        RuntimeState* runtime_state,
-        OlapScanNode* parent,
-        bool aggregation,
-        bool need_agg_finalize,
-        const TPaloScanRange& scan_range,
-        const std::vector<OlapScanRange*>& key_ranges);
+    OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
+                bool need_agg_finalize, const TPaloScanRange& scan_range,
+                const std::vector<OlapScanRange*>& key_ranges);
 
     ~OlapScanner();
 
-    Status prepare(
-        const TPaloScanRange& scan_range,
-        const std::vector<OlapScanRange*>& key_ranges,
-        const std::vector<TCondition>& filters,
-        const std::vector<TCondition>& is_nulls);
+    Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
+                   const std::vector<TCondition>& filters);
 
     Status open();
 
@@ -71,13 +63,9 @@ public:
 
     Status close(RuntimeState* state);
 
-    RuntimeState* runtime_state() {
-        return _runtime_state;
-    }
+    RuntimeState* runtime_state() { return _runtime_state; }
 
-    std::vector<ExprContext*>* conjunct_ctxs() {
-        return &_conjunct_ctxs;
-    }
+    std::vector<ExprContext*>* conjunct_ctxs() { return &_conjunct_ctxs; }
 
     int id() const { return _id; }
     void set_id(int id) { _id = id; }
@@ -88,23 +76,32 @@ public:
 
     void update_counter();
 
-    const std::string& scan_disk() const {
-        return _tablet->data_dir()->path();
+    const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
+
+    void start_wait_worker_timer() {
+        _watcher.reset();
+        _watcher.start();
     }
+
+    int64_t update_wait_worker_timer() {
+        return _watcher.elapsed_time();
+    }
+
+
 private:
-    Status _init_params(
-        const std::vector<OlapScanRange*>& key_ranges,
-        const std::vector<TCondition>& filters,
-        const std::vector<TCondition>& is_nulls);
+    Status _init_params(const std::vector<OlapScanRange*>& key_ranges,
+                        const std::vector<TCondition>& filters);
     Status _init_return_columns();
     void _convert_row_to_tuple(Tuple* tuple);
 
     // Update profile that need to be reported in realtime.
     void _update_realtime_counter();
 
+private:
+
     RuntimeState* _runtime_state;
     OlapScanNode* _parent;
-    const TupleDescriptor* _tuple_desc;      /**< tuple descriptor */
+    const TupleDescriptor* _tuple_desc; /**< tuple descriptor */
     RuntimeProfile* _profile;
     const std::vector<SlotDescriptor*>& _string_slots;
 
@@ -146,6 +143,8 @@ private:
     int64_t _num_rows_pushed_cond_filtered = 0;
 
     bool _is_closed = false;
+
+    MonotonicStopWatch _watcher;
 };
 
 } // namespace doris

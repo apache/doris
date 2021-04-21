@@ -49,7 +49,7 @@ None
 
     Specify the log type. The following types are supported:
     
-    * `fe.audit.log`：FE 审计日志
+    * `fe.audit.log`: Audit log of Frontend.
 
 * `file`
 
@@ -82,7 +82,7 @@ None
 1. Get the log file list of the corresponding type
 
     ```
-    HEAD /api/get_log/file?type=fe.audit.log
+    HEAD /api/get_log_file?type=fe.audit.log
     
     Response:
     
@@ -97,7 +97,7 @@ None
 2. Download log file
     
     ```
-    GET /api/get_log/file?type=fe.audit.log&file=fe.audit.log.20190528.1
+    GET /api/get_log_file?type=fe.audit.log&file=fe.audit.log.20190528.1
     
     Response:
     

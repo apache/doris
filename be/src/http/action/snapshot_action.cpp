@@ -17,10 +17,9 @@
 
 #include "http/action/snapshot_action.h"
 
-#include <string>
-#include <sstream>
-
 #include <boost/lexical_cast.hpp>
+#include <sstream>
+#include <string>
 
 #include "agent/cgroups_mgr.h"
 #include "common/logging.h"
@@ -30,21 +29,19 @@
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "http/http_status.h"
-#include "runtime/exec_env.h"
 #include "olap/olap_define.h"
-#include "olap/storage_engine.h"
 #include "olap/snapshot_manager.h"
+#include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-SnapshotAction::SnapshotAction(ExecEnv* exec_env) :
-        _exec_env(exec_env) {
-}
+SnapshotAction::SnapshotAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
 
-void SnapshotAction::handle(HttpRequest *req) {
+void SnapshotAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
 
     // add tid to cgroup in order to limit read bandwidth
@@ -52,8 +49,7 @@ void SnapshotAction::handle(HttpRequest *req) {
     // Get tablet id
     const std::string& tablet_id_str = req->param(TABLET_ID);
     if (tablet_id_str.empty()) {
-        std::string error_msg = std::string(
-                "parameter " + TABLET_ID + " not specified in url.");
+        std::string error_msg = std::string("parameter " + TABLET_ID + " not specified in url.");
 
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
@@ -62,8 +58,7 @@ void SnapshotAction::handle(HttpRequest *req) {
     // Get schema hash
     const std::string& schema_hash_str = req->param(SCHEMA_HASH);
     if (schema_hash_str.empty()) {
-        std::string error_msg = std::string(
-                "parameter " + SCHEMA_HASH + " not specified in url.");
+        std::string error_msg = std::string("parameter " + SCHEMA_HASH + " not specified in url.");
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
     }
@@ -105,17 +100,17 @@ int64_t SnapshotAction::make_snapshot(int64_t tablet_id, int32_t schema_hash,
     request.schema_hash = schema_hash;
 
     OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
-    res = SnapshotManager::instance()->make_snapshot(request, snapshot_path);
+    bool allow_incremental_clone; // not used
+    res = SnapshotManager::instance()->make_snapshot(request, snapshot_path, &allow_incremental_clone);
     if (res != OLAPStatus::OLAP_SUCCESS) {
-        LOG(WARNING) << "make snapshot failed. status: " << res
-                     << ", signature: " << tablet_id;
+        LOG(WARNING) << "make snapshot failed. status: " << res << ", signature: " << tablet_id;
         return -1L;
     } else {
-        LOG(INFO) << "make snapshot success. status: " << res
-                  << ", signature: " << tablet_id << ". path: " << *snapshot_path;
+        LOG(INFO) << "make snapshot success. status: " << res << ", signature: " << tablet_id
+                  << ". path: " << *snapshot_path;
     }
 
     return 0L;
-} 
+}
 
 } // end namespace doris

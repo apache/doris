@@ -24,6 +24,8 @@
 #include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
 
+#include <fmt/format.h>
+
 namespace doris {
 
 // the first byte:
@@ -55,11 +57,8 @@ static char* pack_vlen(char* packet, uint64_t length) {
     int8store(packet, length);
     return packet + 8;
 }
-MysqlRowBuffer::MysqlRowBuffer():
-    _pos(_default_buf),
-    _buf(_default_buf),
-    _buf_size(sizeof(_default_buf)) {
-}
+MysqlRowBuffer::MysqlRowBuffer()
+        : _pos(_default_buf), _buf(_default_buf), _buf_size(sizeof(_default_buf)) {}
 
 MysqlRowBuffer::~MysqlRowBuffer() {
     if (_buf != _default_buf) {
@@ -80,7 +79,7 @@ int MysqlRowBuffer::reserve(int size) {
     }
 
     int alloc_size = std::max(need_size, _buf_size * 2);
-    char* new_buf = new(std::nothrow) char[alloc_size];
+    char* new_buf = new (std::nothrow) char[alloc_size];
 
     if (NULL == new_buf) {
         LOG(ERROR) << "alloc memory failed. size = " << alloc_size;
@@ -100,6 +99,16 @@ int MysqlRowBuffer::reserve(int size) {
     return 0;
 }
 
+template<typename T>
+static char* add_int(T data, char* pos)
+{
+    auto fi = fmt::format_int(data);
+    int length = fi.size();
+    int1store(pos++, length);
+    memcpy(pos, fi.data(), length);
+    return pos + length;
+}
+
 int MysqlRowBuffer::push_tinyint(int8_t data) {
     // 1 for string trail, 1 for length, 1 for sign, other for digits
     int ret = reserve(3 + MAX_TINYINT_WIDTH);
@@ -109,15 +118,7 @@ int MysqlRowBuffer::push_tinyint(int8_t data) {
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_TINYINT_WIDTH + 2, "%d", data);
-
-    if (length < 0) {
-        LOG(ERROR) << "snprintf failed. data = " << data;
-        return length;
-    }
-
-    int1store(_pos, length);
-    _pos += length + 1;
+    _pos = add_int(data, _pos);
     return 0;
 }
 
@@ -130,15 +131,7 @@ int MysqlRowBuffer::push_smallint(int16_t data) {
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_SMALLINT_WIDTH + 2, "%d", data);
-
-    if (length < 0) {
-        LOG(ERROR) << "snprintf failed. data = " << data;
-        return length;
-    }
-
-    int1store(_pos, length);
-    _pos += length + 1;
+    _pos = add_int(data, _pos);
     return 0;
 }
 
@@ -151,15 +144,7 @@ int MysqlRowBuffer::push_int(int32_t data) {
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_INT_WIDTH + 2, "%d", data);
-
-    if (length < 0) {
-        LOG(ERROR) << "snprintf failed. data = " << data;
-        return length;
-    }
-
-    int1store(_pos, length);
-    _pos += length + 1;
+    _pos = add_int(data, _pos);
     return 0;
 }
 
@@ -172,15 +157,7 @@ int MysqlRowBuffer::push_bigint(int64_t data) {
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_BIGINT_WIDTH + 2, "%ld", data);
-
-    if (length < 0) {
-        LOG(ERROR) << "snprintf failed. data = " << data;
-        return length;
-    }
-
-    int1store(_pos, length);
-    _pos += length + 1;
+    _pos = add_int(data, _pos);
     return 0;
 }
 
@@ -261,7 +238,7 @@ int MysqlRowBuffer::push_string(const char* str, int length) {
         return ret;
     }
 
-    _pos =  pack_vlen(_pos, length);
+    _pos = pack_vlen(_pos, length);
     memcpy(_pos, str, length);
     _pos += length;
     return 0;
@@ -294,6 +271,6 @@ char* MysqlRowBuffer::reserved(int size) {
     return old_buf;
 }
 
-}
+} // namespace doris
 
 /* vim: set ts=4 sw=4 sts=4 tw=100 */

@@ -56,7 +56,6 @@ class SmallFileMgr;
 class FileBlockManager;
 class PluginMgr;
 
-
 class BackendServiceClient;
 class FrontendServiceClient;
 class TPaloBrokerServiceClient;
@@ -148,6 +147,9 @@ private:
     Status _init_mem_tracker();
     /// Initialise 'buffer_pool_' and 'buffer_reservation_' with given capacity.
     void _init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit);
+
+    void _register_metrics();
+    void _deregister_metrics();
 
 private:
     bool _is_init;

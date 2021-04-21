@@ -48,6 +48,7 @@ struct TColumnDesc {
   3: optional i32 columnLength
   4: optional i32 columnPrecision
   5: optional i32 columnScale
+  6: optional bool isAllowNull
 }
 
 // A column definition; used by CREATE TABLE and DESCRIBE <table> statements. A column
@@ -302,6 +303,7 @@ struct TGetTablesParams {
   3: optional string user   // deprecated
   4: optional string user_ip    // deprecated
   5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
+  6: optional string type
 }
 
 struct TTableStatus {
@@ -311,6 +313,7 @@ struct TTableStatus {
     4: optional string engine
     5: optional i64 last_check_time
     6: optional i64 create_time
+    7: optional string ddl_sql
 }
 
 struct TListTableStatusResult {
@@ -320,6 +323,18 @@ struct TListTableStatusResult {
 // getTableNames returns a list of unqualified table names
 struct TGetTablesResult {
   1: list<string> tables
+}
+
+struct TPrivilegeStatus {
+    1: optional string table_name
+    2: optional string privilege_type
+    3: optional string grantee
+    4: optional string schema
+    5: optional string is_grantable
+}
+
+struct TListPrivilegesResult{
+  1: required list<TPrivilegeStatus> privileges
 }
 
 struct TReportExecStatusResult {
@@ -400,6 +415,7 @@ struct TMiniLoadRequest {
     11: optional i64 timestamp
     12: optional string user_ip
     13: optional bool is_retry
+    14: optional list<i64> file_size
 }
 
 struct TUpdateMiniEtlTaskStatusRequest {
@@ -417,15 +433,18 @@ struct TMasterOpRequest {
     6: optional i64 execMemLimit // deprecated, move into query_options
     7: optional i32 queryTimeout // deprecated, move into query_options
     8: optional string user_ip
-    9: optional string time_zone
+    9: optional string time_zone // deprecated, move into session_variables
     10: optional i64 stmt_id
-    11: optional i64 sqlMode
+    11: optional i64 sqlMode // deprecated, move into session_variables
     12: optional i64 loadMemLimit // deprecated, move into query_options
-    13: optional bool enableStrictMode
+    13: optional bool enableStrictMode // deprecated, move into session_variables
     // this can replace the "user" field
     14: optional Types.TUserIdentity current_user_ident
     15: optional i32 stmtIdx  // the idx of the sql in multi statements
     16: optional PaloInternalService.TQueryOptions query_options
+    17: optional Types.TUniqueId query_id // when this is a query, we translate this query id to master
+    18: optional i64 insert_visible_timeout_ms // deprecated, move into session_variables
+    19: optional map<string, string> session_variables
 }
 
 struct TColumnDefinition {
@@ -448,6 +467,7 @@ struct TMasterOpResult {
     1: required i64 maxJournalId;
     2: required binary packet;
     3: optional TShowResultSet resultSet;
+    4: optional Types.TUniqueId queryId;
 }
 
 struct TLoadCheckRequest {
@@ -556,6 +576,9 @@ struct TStreamLoadPutRequest {
     27: optional Types.TMergeType merge_type
     28: optional string delete_condition
     29: optional string sequence_col
+    30: optional bool num_as_string
+    31: optional bool fuzzy_parse
+    32: optional string line_delimiter
 }
 
 struct TStreamLoadPutResult {
@@ -638,6 +661,25 @@ struct TSnapshotLoaderReportRequest {
     5: optional i32 total_num
 }
 
+enum TFrontendPingFrontendStatusCode {
+   OK = 0,
+   FAILED = 1
+}
+
+struct TFrontendPingFrontendRequest {
+   1: required i32 clusterId
+   2: required string token
+}
+
+struct TFrontendPingFrontendResult {
+    1: required TFrontendPingFrontendStatusCode status
+    2: required string msg
+    3: required i32 queryPort
+    4: required i32 rpcPort
+    5: required i64 replayedJournalId
+    6: required string version
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1:TGetDbsParams params)
     TGetTablesResult getTableNames(1:TGetTablesParams params)
@@ -660,6 +702,9 @@ service FrontendService {
     TMasterOpResult forward(TMasterOpRequest params)
 
     TListTableStatusResult listTableStatus(1:TGetTablesParams params)
+    TListPrivilegesResult listTablePrivilegeStatus(1:TGetTablesParams params)
+    TListPrivilegesResult listSchemaPrivilegeStatus(1:TGetTablesParams params)
+    TListPrivilegesResult listUserPrivilegeStatus(1:TGetTablesParams params)
 
     TFeResult updateExportTaskStatus(1:TUpdateExportTaskStatusRequest request)
 
@@ -670,4 +715,6 @@ service FrontendService {
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
+
+    TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
 }

@@ -18,9 +18,9 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
@@ -51,21 +51,21 @@ public class TabletsProcDir implements ProcDirInterface {
             .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
             .build();
 
-    private Database db;
+    private Table table;
     private MaterializedIndex index;
 
-    public TabletsProcDir(Database db, MaterializedIndex index) {
-        this.db = db;
+    public TabletsProcDir(Table table, MaterializedIndex index) {
+        this.table = table;
         this.index = index;
     }
 
     public List<List<Comparable>> fetchComparableResult(long version, long backendId, Replica.ReplicaState state) {
-        Preconditions.checkNotNull(db);
+        Preconditions.checkNotNull(table);
         Preconditions.checkNotNull(index);
         ImmutableMap<Long, Backend> backendMap = Catalog.getCurrentSystemInfo().getIdToBackend();
 
         List<List<Comparable>> tabletInfos = new ArrayList<List<Comparable>>();
-        db.readLock();
+        table.readLock();
         try {
             // get infos
             for (Tablet tablet : index.getTablets()) {
@@ -143,7 +143,7 @@ public class TabletsProcDir implements ProcDirInterface {
                 }
             }
         } finally {
-            db.readUnlock();
+            table.readUnlock();
         }
         return tabletInfos;
     }
@@ -181,7 +181,7 @@ public class TabletsProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String tabletIdStr) throws AnalysisException {
-        Preconditions.checkNotNull(db);
+        Preconditions.checkNotNull(table);
         Preconditions.checkNotNull(index);
 
         long tabletId = -1L;

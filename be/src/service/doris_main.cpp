@@ -119,9 +119,19 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
+    // init config.
+    // the config in be_custom.conf will overwrite the config in be.conf
+    // Must init custom config after init config, separately.
+    // Because the path of custom config file is defined in be.conf
     string conffile = string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), true)) {
+    if (!doris::config::init(conffile.c_str(), true, true, true)) {
         fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
+
+    string custom_conffile = doris::config::custom_config_dir + "/be_custom.conf";
+    if (!doris::config::init(custom_conffile.c_str(), true, false, false)) {
+        fprintf(stderr, "error read custom config file. \n");
         return -1;
     }
 
@@ -131,7 +141,8 @@ int main(int argc, char** argv) {
     MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 1);
     // Change the total TCMalloc thread cache size if necessary.
     if (!MallocExtension::instance()->SetNumericProperty(
-                "tcmalloc.max_total_thread_cache_bytes", doris::config::tc_max_total_thread_cache_bytes)) {
+                "tcmalloc.max_total_thread_cache_bytes",
+                doris::config::tc_max_total_thread_cache_bytes)) {
         fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
         return -1;
     }
@@ -144,7 +155,7 @@ int main(int argc, char** argv) {
         exit(-1);
     }
     auto it = paths.begin();
-    for (;it != paths.end();) {
+    for (; it != paths.end();) {
         if (!doris::check_datapath_rw(it->path)) {
             if (doris::config::ignore_broken_disk) {
                 LOG(WARNING) << "read write test file failed, path=" << it->path;

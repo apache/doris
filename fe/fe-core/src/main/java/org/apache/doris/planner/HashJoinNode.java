@@ -26,6 +26,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TEqJoinCondition;
@@ -34,13 +35,14 @@ import org.apache.doris.thrift.THashJoinNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -58,7 +60,7 @@ public class HashJoinNode extends PlanNode {
     private List<BinaryPredicate> eqJoinConjuncts = Lists.newArrayList();
     // join conjuncts from the JOIN clause that aren't equi-join predicates
     private  List<Expr> otherJoinConjuncts;
-    private boolean isPushDown;
+    private boolean isPushDown = false;
     private DistributionMode distrMode;
     private boolean isColocate = false; //the flag for colocate join
     private String colocateReason = ""; // if can not do colocate join, set reason here
@@ -83,7 +85,9 @@ public class HashJoinNode extends PlanNode {
         this.otherJoinConjuncts = otherJoinConjuncts;
         children.add(outer);
         children.add(inner);
-        this.isPushDown = false;
+        if (this.joinOp.isInnerJoin() || this.joinOp.isLeftSemiJoin()) {
+            this.isPushDown = true;
+        }
 
         // Inherits all the nullable tuple from the children
         // Mark tuples that form the "nullable" side of the outer join as nullable.
@@ -139,6 +143,10 @@ public class HashJoinNode extends PlanNode {
         // Set smap to the combined children's smaps and apply that to all conjuncts_.
         createDefaultSmap(analyzer);
 
+        // outSmap replace in outer join may cause NULL be replace by literal
+        // so need replace the outsmap in nullableTupleID
+        replaceOutputSmapForOuterJoin();
+
         computeStats(analyzer);
         //assignedConjuncts = analyzr.getAssignedConjuncts();
 
@@ -149,6 +157,30 @@ public class HashJoinNode extends PlanNode {
                 .map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
         otherJoinConjuncts =
                 Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
+    }
+
+    private void replaceOutputSmapForOuterJoin() {
+        if (joinOp.isOuterJoin()) {
+            List<Expr> lhs = new ArrayList<>();
+            List<Expr> rhs = new ArrayList<>();
+
+            for (int i = 0; i < outputSmap.size(); i++) {
+                Expr expr = outputSmap.getLhs().get(i);
+                boolean isInNullableTuple = false;
+                for (TupleId tupleId : nullableTupleIds) {
+                    if (expr.isBound(tupleId)) {
+                        isInNullableTuple = true;
+                        break;
+                    }
+                }
+
+                if (!isInNullableTuple) {
+                    lhs.add(outputSmap.getLhs().get(i));
+                    rhs.add(outputSmap.getRhs().get(i));
+                }
+            }
+            outputSmap = new ExprSubstitutionMap(lhs, rhs);
+        }
     }
 
     @Override
@@ -272,25 +304,27 @@ public class HashJoinNode extends PlanNode {
     }
 
     @Override
-    protected String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
         String distrModeStr =
-          (distrMode != DistributionMode.NONE) ? (" (" + distrMode.toString() + ")") : "";
-        StringBuilder output = new StringBuilder().append(
-          detailPrefix + "join op: " + joinOp.toString() + distrModeStr + "\n").append(
-          detailPrefix + "hash predicates:\n");
+                (distrMode != DistributionMode.NONE) ? (" (" + distrMode.toString() + ")") : "";
+        StringBuilder output = new StringBuilder()
+                .append(detailPrefix).append("join op: ").append(joinOp.toString()).append(distrModeStr).append("\n");
 
-        output.append(detailPrefix + "colocate: " + isColocate + (isColocate? "" : ", reason: " + colocateReason) + "\n");
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return output.toString();
+        }
+
+        output.append(detailPrefix).append("hash predicates:\n")
+                .append(detailPrefix).append("colocate: ").append(isColocate).append(isColocate ? "" : ", reason: " + colocateReason).append("\n");
 
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
-            output.append(detailPrefix).append("equal join conjunct: ").append(eqJoinPredicate.toSql() +  "\n");
+            output.append(detailPrefix).append("equal join conjunct: ").append(eqJoinPredicate.toSql()).append("\n");
         }
         if (!otherJoinConjuncts.isEmpty()) {
-            output.append(detailPrefix + "other join predicates: ").append(
-              getExplainString(otherJoinConjuncts) + "\n");
+            output.append(detailPrefix).append("other join predicates: ").append(getExplainString(otherJoinConjuncts)).append("\n");
         }
         if (!conjuncts.isEmpty()) {
-            output.append(detailPrefix + "other predicates: ").append(
-              getExplainString(conjuncts) + "\n");
+            output.append(detailPrefix).append("other predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
         return output.toString();
     }

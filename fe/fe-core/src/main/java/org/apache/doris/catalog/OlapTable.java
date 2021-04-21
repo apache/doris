@@ -52,19 +52,19 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -75,7 +75,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.zip.Adler32;
 
 /**
  * Internal representation of tableFamilyGroup-related metadata. A OlaptableFamilyGroup contains several tableFamily.
@@ -101,7 +100,7 @@ public class OlapTable extends Table {
         WAITING_STABLE
     }
 
-    private OlapTableState state;
+    private volatile OlapTableState state;
 
     // index id -> index meta
     private Map<Long, MaterializedIndexMeta> indexIdToMeta = Maps.newHashMap();
@@ -372,8 +371,9 @@ public class OlapTable extends Table {
     }
 
     public List<MaterializedIndex> getVisibleIndex() {
-        Partition partition = idToPartition.values().stream().findFirst().get();
-        return partition.getMaterializedIndices(IndexExtState.VISIBLE);
+        Optional<Partition> partition = idToPartition.values().stream().findFirst();
+        return partition.isPresent() ? partition.get().getMaterializedIndices(IndexExtState.VISIBLE)
+                : Collections.emptyList();
     }
 
     public Column getVisibleColumn(String columnName) {
@@ -667,7 +667,15 @@ public class OlapTable extends Table {
         nameToPartition.put(partition.getName(), partition);
     }
 
-    public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop) {
+    // This is a private methid.
+    // Call public "dropPartitionAndReserveTablet" and "dropPartition"
+    private Partition dropPartition(long dbId, String partitionName, boolean isForceDrop, boolean reserveTablets) {
+        // 1. If "isForceDrop" is false, the partition will be added to the Catalog Recyle bin, and all tablets of this
+        //    partition will not be deleted.
+        // 2. If "ifForceDrop" is true, the partition will be dropped the immediately, but whether to drop the tablets
+        //    of this partition depends on "reserveTablets"
+        //    If "reserveTablets" is true, the tablets of this partition will not to deleted.
+        //    Otherwise, the tablets of this partition will be deleted immediately.
         Partition partition = nameToPartition.get(partitionName);
         if (partition != null) {
             idToPartition.remove(partition.getId());
@@ -675,14 +683,16 @@ public class OlapTable extends Table {
 
             Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE);
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-            
+
             if (!isForceDrop) {
                 // recycle partition
                 Catalog.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
-                                          rangePartitionInfo.getRange(partition.getId()),
-                                          rangePartitionInfo.getDataProperty(partition.getId()),
-                                          rangePartitionInfo.getReplicationNum(partition.getId()),
-                                          rangePartitionInfo.getIsInMemory(partition.getId()));
+                        rangePartitionInfo.getRange(partition.getId()),
+                        rangePartitionInfo.getDataProperty(partition.getId()),
+                        rangePartitionInfo.getReplicationNum(partition.getId()),
+                        rangePartitionInfo.getIsInMemory(partition.getId()));
+            } else if (!reserveTablets) {
+                Catalog.getCurrentCatalog().onErasePartition(partition);
             }
 
             // drop partition info
@@ -691,54 +701,58 @@ public class OlapTable extends Table {
         return partition;
     }
 
-    public Partition dropPartitionForBackup(String partitionName) {
-        return dropPartition(-1, partitionName, true);
+    public Partition dropPartitionAndReserveTablet(String partitionName) {
+        return dropPartition(-1, partitionName, true, true);
+    }
+
+    public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop) {
+        return dropPartition(dbId, partitionName, isForceDrop, !isForceDrop);
     }
 
     /*
      * A table may contain both formal and temporary partitions.
      * There are several methods to get the partition of a table.
      * Typically divided into two categories:
-     * 
+     *
      * 1. Get partition by id
      * 2. Get partition by name
-     * 
+     *
      * According to different requirements, the caller may want to obtain
      * a formal partition or a temporary partition. These methods are
      * described below in order to obtain the partition by using the correct method.
-     * 
+     *
      * 1. Get by name
-     * 
+     *
      * This type of request usually comes from a user with partition names. Such as
      * `select * from tbl partition(p1);`.
      * This type of request has clear information to indicate whether to obtain a
      * formal or temporary partition.
      * Therefore, we need to get the partition through this method:
-     * 
+     *
      * `getPartition(String partitionName, boolean isTemp)`
-     * 
+     *
      * To avoid modifying too much code, we leave the `getPartition(String
      * partitionName)`, which is same as:
-     * 
+     *
      * `getPartition(partitionName, false)`
-     * 
+     *
      * 2. Get by id
-     * 
+     *
      * This type of request usually means that the previous step has obtained
      * certain partition ids in some way,
      * so we only need to get the corresponding partition through this method:
-     * 
+     *
      * `getPartition(long partitionId)`.
-     * 
+     *
      * This method will try to get both formal partitions and temporary partitions.
-     * 
+     *
      * 3. Get all partition instances
-     * 
+     *
      * Depending on the requirements, the caller may want to obtain all formal
      * partitions,
      * all temporary partitions, or all partitions. Therefore we provide 3 methods,
      * the caller chooses according to needs.
-     * 
+     *
      * `getPartitions()`
      * `getTempPartitions()`
      * `getAllPartitions()`
@@ -861,6 +875,10 @@ public class OlapTable extends Table {
         this.indexes.setIndexes(indexes);
     }
 
+    public boolean isColocateTable() {
+        return colocateGroup != null;
+    }
+
     public String getColocateGroup() {
         return colocateGroup;
     }
@@ -898,85 +916,60 @@ public class OlapTable extends Table {
         throw new RuntimeException("Don't support anymore");
     }
 
-    public int getSignature(int signatureVersion, List<String> partNames) {
-        Adler32 adler32 = new Adler32();
-        adler32.update(signatureVersion);
-        final String charsetName = "UTF-8";
-
-        try {
-            // table name
-            adler32.update(name.getBytes(charsetName));
-            LOG.debug("signature. table name: {}", name);
-            // type
-            adler32.update(type.name().getBytes(charsetName));
-            LOG.debug("signature. table type: {}", type.name());
-
-            // all indices(should be in order)
-            Set<String> indexNames = Sets.newTreeSet();
-            indexNames.addAll(indexNameToId.keySet());
-            for (String indexName : indexNames) {
-                long indexId = indexNameToId.get(indexName);
-                adler32.update(indexName.getBytes(charsetName));
-                LOG.debug("signature. index name: {}", indexName);
-                MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
-                // schema hash
-                adler32.update(indexMeta.getSchemaHash());
-                LOG.debug("signature. index schema hash: {}", indexMeta.getSchemaHash());
-                // short key column count
-                adler32.update(indexMeta.getShortKeyColumnCount());
-                LOG.debug("signature. index short key: {}", indexMeta.getShortKeyColumnCount());
-                // storage type
-                adler32.update(indexMeta.getStorageType().name().getBytes(charsetName));
-                LOG.debug("signature. index storage type: {}", indexMeta.getStorageType());
-            }
-
-            // bloom filter
-            if (bfColumns != null && !bfColumns.isEmpty()) {
-                for (String bfCol : bfColumns) {
-                    adler32.update(bfCol.getBytes());
-                    LOG.debug("signature. bf col: {}", bfCol);
-                }
-                adler32.update(String.valueOf(bfFpp).getBytes());
-                LOG.debug("signature. bf fpp: {}", bfFpp);
-            }
-
-            // partition type
-            adler32.update(partitionInfo.getType().name().getBytes(charsetName));
-            LOG.debug("signature. partition type: {}", partitionInfo.getType().name());
-            // partition columns
-            if (partitionInfo.getType() == PartitionType.RANGE) {
-                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-                List<Column> partitionColumns = rangePartitionInfo.getPartitionColumns();
-                adler32.update(Util.schemaHash(0, partitionColumns, null, 0));
-                LOG.debug("signature. partition col hash: {}", Util.schemaHash(0, partitionColumns, null, 0));
-            }
-
-            // partition and distribution
-            Collections.sort(partNames, String.CASE_INSENSITIVE_ORDER);
-            for (String partName : partNames) {
-                Partition partition = getPartition(partName);
-                Preconditions.checkNotNull(partition, partName);
-                adler32.update(partName.getBytes(charsetName));
-                LOG.debug("signature. partition name: {}", partName);
-                DistributionInfo distributionInfo = partition.getDistributionInfo();
-                adler32.update(distributionInfo.getType().name().getBytes(charsetName));
-                if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                    adler32.update(Util.schemaHash(0, hashDistributionInfo.getDistributionColumns(), null, 0));
-                    LOG.debug("signature. distribution col hash: {}",
-                              Util.schemaHash(0, hashDistributionInfo.getDistributionColumns(), null, 0));
-                    adler32.update(hashDistributionInfo.getBucketNum());
-                    LOG.debug("signature. bucket num: {}", hashDistributionInfo.getBucketNum());
-                }
-            }
-
-        } catch (UnsupportedEncodingException e) {
-            LOG.error("encoding error", e);
-            return -1;
+    // Get the md5 of signature string of this table with specified partitions.
+    // This method is used to determine whether the tables have the same schema.
+    // Contains:
+    // table name, table type, index name, index schema, short key column count, storage type
+    // bloom filter, partition type and columns, distribution type and columns.
+    // buckets number.
+    public String getSignature(int signatureVersion, List<String> partNames) {
+        StringBuilder sb = new StringBuilder(signatureVersion);
+        sb.append(name);
+        sb.append(type);
+        Set<String> indexNames = Sets.newTreeSet(indexNameToId.keySet());
+        for (String indexName : indexNames) {
+            long indexId = indexNameToId.get(indexName);
+            MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
+            sb.append(indexName);
+            sb.append(Util.getSchemaSignatureString(indexMeta.getSchema()));
+            sb.append(indexMeta.getShortKeyColumnCount());
+            sb.append(indexMeta.getStorageType());
         }
 
-        LOG.debug("signature: {}", Math.abs((int) adler32.getValue()));
-        return Math.abs((int) adler32.getValue());
+        // bloom filter
+        if (bfColumns != null && !bfColumns.isEmpty()) {
+            for (String bfCol : bfColumns) {
+                sb.append(bfCol);
+            }
+            sb.append(bfFpp);
+        }
+
+        // partition type
+        sb.append(partitionInfo.getType());
+        if (partitionInfo.getType() == PartitionType.RANGE) {
+            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+            List<Column> partitionColumns = rangePartitionInfo.getPartitionColumns();
+            sb.append(Util.getSchemaSignatureString(partitionColumns));
+        }
+
+        // partition and distribution
+        Collections.sort(partNames, String.CASE_INSENSITIVE_ORDER);
+        for (String partName : partNames) {
+            Partition partition = getPartition(partName);
+            Preconditions.checkNotNull(partition, partName);
+            DistributionInfo distributionInfo = partition.getDistributionInfo();
+            sb.append(partName);
+            sb.append(distributionInfo.getType());
+            if (distributionInfo.getType() == DistributionInfoType.HASH) {
+                HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                sb.append(Util.getSchemaSignatureString(hashDistributionInfo.getDistributionColumns()));
+                sb.append(hashDistributionInfo.getBucketNum());
+            }
+        }
+
+        String md5 = DigestUtils.md5Hex(sb.toString());
+        LOG.debug("get signature of table {}: {}. signature string: {}", name, md5, sb.toString());
+        return md5;
     }
 
     // get intersect partition names with the given table "anotherTbl". not including temp partitions
@@ -1002,6 +995,7 @@ public class OlapTable extends Table {
         }
         return false;
     }
+
 
     @Override
     public void write(DataOutput out) throws IOException {
@@ -1229,7 +1223,7 @@ public class OlapTable extends Table {
 
     public OlapTable selectiveCopy(Collection<String> reservedPartitions, boolean resetState, IndexExtState extState) {
         OlapTable copied = new OlapTable();
-        if (!DeepCopy.copy(this, copied, OlapTable.class)) {
+        if (!DeepCopy.copy(this, copied, OlapTable.class, FeConstants.meta_version)) {
             LOG.warn("failed to copy olap table: " + getName());
             return null;
         }
@@ -1270,7 +1264,7 @@ public class OlapTable extends Table {
         
         for (String partName : partNames) {
             if (!reservedPartitions.contains(partName)) {
-                copied.dropPartitionForBackup(partName);
+                copied.dropPartitionAndReserveTablet(partName);
             }
         }
         
@@ -1577,10 +1571,9 @@ public class OlapTable extends Table {
         
         // begin to replace
         // 1. drop old partitions
-        List<Partition> droppedPartitions = Lists.newArrayList();
         for (String partitionName : partitionNames) {
-            Partition partition = dropPartition(-1, partitionName, true);
-            droppedPartitions.add(partition);
+            // This will also drop all tablets of the partition from TabletInvertedIndex
+            dropPartition(-1, partitionName, true);
         }
 
         // 2. add temp partitions' range info to rangeInfo, and remove them from tempPartitionInfo
@@ -1592,15 +1585,6 @@ public class OlapTable extends Table {
             tempPartitions.dropPartition(partitionName, false);
             // move the range from idToTempRange to idToRange
             rangeInfo.moveRangeFromTempToFormal(partition.getId());
-        }
-
-        // 3. delete old partition's tablets in inverted index
-        for (Partition partition : droppedPartitions) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                for (Tablet tablet : index.getTablets()) {
-                    Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
-                }
-            }
         }
 
         // change the name so that after replacing, the partition name remain unchanged

@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-cmake_minimum_required(VERSION 2.8.10)
+cmake_minimum_required(VERSION 3.19.2)
 
 # set CMAKE_C_COMPILER, this must set before project command
 if (DEFINED ENV{DORIS_GCC_HOME})
@@ -27,6 +27,31 @@ else()
 endif()
 
 project(doris CXX C)
+
+# set platforms
+
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64")
+    set (ARCH_AMD64 1)
+endif ()
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)")
+    set (ARCH_AARCH64 1)
+endif ()
+if (ARCH_AARCH64 OR CMAKE_SYSTEM_PROCESSOR MATCHES "arm")
+    set (ARCH_ARM 1)
+endif ()
+if (CMAKE_LIBRARY_ARCHITECTURE MATCHES "i386")
+    set (ARCH_I386 1)
+endif ()
+if ((ARCH_ARM AND NOT ARCH_AARCH64) OR ARCH_I386)
+    message (FATAL_ERROR "32bit platforms are not supported")
+endif ()
+
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(ppc64le.*|PPC64LE.*)")
+    set (ARCH_PPC64LE 1)
+endif ()
+
+option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
+message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
 
 # set CMAKE_BUILD_TYPE
 if (NOT CMAKE_BUILD_TYPE)
@@ -64,16 +89,10 @@ option(WITH_MYSQL "Support access MySQL" ON)
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "4.8.2")
-        message(FATAL_ERROR "Need GCC version at least 4.8.2")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "7.3.0")
+        message(FATAL_ERROR "Need GCC version at least 7.3.0")
     endif()
-
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER "7.3.0")
-        message(STATUS "GCC version is greater than 7.3.0, disable -Werror. Be careful with compile warnings.")
-    else()
-        #   -Werror: compile warnings should be errors when using the toolchain compiler.
-        set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -Werror")
-    endif()
+    message(STATUS "GCC version is greater than 7.3.0, disable -Werror. Be careful with compile warnings.")
 elseif (NOT APPLE)
     message(FATAL_ERROR "Compiler should be GNU")
 endif()
@@ -111,14 +130,13 @@ endif()
 set(Boost_DEBUG FALSE)
 set(Boost_USE_MULTITHREADED ON)
 set(BOOST_ROOT ${THIRDPARTY_DIR})
+set(Boost_NO_BOOST_CMAKE OFF)
 
 if (NOT APPLE)
-    find_package(Boost 1.55.0 REQUIRED COMPONENTS thread regex filesystem system date_time program_options)
+    find_package(Boost 1.73.0 REQUIRED COMPONENTS regex system filesystem thread date_time program_options)
 else()
-    find_package(Boost 1.55.0 COMPONENTS thread regex filesystem system date_time program_options)
+    find_package(Boost 1.73.0 COMPONENTS thread regex system filesystem date_time program_options)
 endif()
-include_directories(${Boost_INCLUDE_DIRS})
-message(STATUS ${Boost_LIBRARIES})
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
@@ -240,11 +258,41 @@ set_target_properties(bitshuffle PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/
 add_library(roaring STATIC IMPORTED)
 set_target_properties(roaring PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libroaring.a)
 
+add_library(fmt STATIC IMPORTED)
+set_target_properties(fmt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libfmt.a)
+
 add_library(orc STATIC IMPORTED)
 set_target_properties(orc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liborc.a)
 
 add_library(cctz STATIC IMPORTED)
 set_target_properties(cctz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcctz.a)
+
+add_library(aws-sdk-core STATIC IMPORTED)
+set_target_properties(aws-sdk-core PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-core.a)
+
+add_library(aws-sdk-s3 STATIC IMPORTED)
+set_target_properties(aws-sdk-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-s3.a)
+
+add_library(aws-c-cal STATIC IMPORTED)
+set_target_properties(aws-c-cal PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-cal.a)
+
+add_library(aws-c-common STATIC IMPORTED)
+set_target_properties(aws-c-common PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-common.a)
+
+add_library(aws-c-event-stream STATIC IMPORTED)
+set_target_properties(aws-c-event-stream PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-event-stream.a)
+
+add_library(aws-c-io STATIC IMPORTED)
+set_target_properties(aws-c-io PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-io.a)
+
+add_library(aws-checksums STATIC IMPORTED)
+set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-checksums.a)
+
+add_library(aws-s2n STATIC IMPORTED)
+set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
+
+add_library(minzip STATIC IMPORTED)
+set_target_properties(minzip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
 
 add_library(hdfs3 STATIC IMPORTED)
 set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhdfs3.a)
@@ -281,10 +329,13 @@ check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fno-strict-aliasing -fno-omit-frame-pointer")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++11 -D__STDC_FORMAT_MACROS")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
+# https://github.com/boostorg/uuid/issues/92
+# We need to avoid using SYS_getrandom system calls
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1")
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
 endif()
@@ -312,7 +363,7 @@ set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
 # Debug information is stored as dwarf2 to be as compatible as possible
 #   -Werror: compile warnings should be errors when using the toolchain compiler.
 # Only enable for debug builds because this is what we test in pre-commit tests.
-set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Werror -ggdb -O0 -gdwarf-2")
+set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2")
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
@@ -333,7 +384,8 @@ SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fno-wrapv -fsanitize
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -ggdb3 -fsanitize=thread -DTHREAD_SANITIZER")
+# Use -Wno-builtin-declaration-mismatch to mute warnings like "new declaration ‘__tsan_atomic16 __tsan_atomic16_fetch_nand(..."
+SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -ggdb3 -fsanitize=thread -DTHREAD_SANITIZER -Wno-builtin-declaration-mismatch")
 
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
@@ -357,6 +409,12 @@ SET(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS}")
 
 message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS}")
 
+if (CMAKE_GENERATOR STREQUAL "Ninja" AND NOT DISABLE_COLORED_BUILD)
+    # Turn on colored output. https://github.com/ninja-build/ninja/wiki/FAQ
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
+    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
+endif ()
+
 # Thrift requires these two definitions for some types that we use
 add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
 
@@ -373,6 +431,8 @@ include_directories(
 
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
+
+set(AWS_LIBS aws-sdk-s3 aws-sdk-core aws-checksums aws-c-io aws-c-event-stream aws-c-common aws-c-cal aws-s2n)
 
 # Set Palo libraries
 set(DORIS_LINK_LIBS
@@ -408,7 +468,12 @@ set(DORIS_DEPENDENCIES
     librdkafka
     libs2
     snappy
-    ${Boost_LIBRARIES}
+    Boost::regex
+    Boost::system
+    Boost::filesystem
+    Boost::thread
+    Boost::date_time
+    Boost::program_options
     thrift
     thriftnb
     glog
@@ -428,6 +493,7 @@ set(DORIS_DEPENDENCIES
     leveldb
     bitshuffle
     roaring
+    fmt
     double-conversion
     jemalloc
     brotlicommon
@@ -439,10 +505,12 @@ set(DORIS_DEPENDENCIES
     orc
     odbc
     cctz
+    minzip
     hdfs3
     gsasl
     xml2
     lzma
+    ${AWS_LIBS}
     ${WL_END_GROUP}
 )
 
@@ -483,17 +551,24 @@ elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-libubsan tcmalloc)
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "TSAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-libtsan)
+    add_definitions("-DTHREAD_SANITIZER")
 else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
 
 set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    -lrt -lbfd -liberty -lc -lm -ldl -pthread
+    -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
 )
+
+if (GLIBC_COMPATIBILITY)
+    add_subdirectory(${SRC_DIR}/glibc-compatibility)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} glibc-compatibility)
+endif()
 
 # Set libraries for test
 set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_START_GROUP}
+    Test_util
     gmock
     gtest
     ${WL_END_GROUP}
@@ -529,15 +604,17 @@ add_subdirectory(${SRC_DIR}/plugin)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
 FUNCTION(ADD_BE_TEST TEST_NAME)
+    # use argn to add additional files
+    set(ADDITIONAL_FILES ${ARGN})
     set(BUILD_OUTPUT_ROOT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/")
     # This gets the directory where the test is from (e.g. 'exprs' or 'runtime')
     get_filename_component(DIR_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
     get_filename_component(TEST_DIR_NAME ${TEST_NAME} PATH)
     get_filename_component(TEST_FILE_NAME ${TEST_NAME} NAME)
 
-    ADD_EXECUTABLE(${TEST_FILE_NAME} ${TEST_NAME}.cpp)
+    ADD_EXECUTABLE(${TEST_FILE_NAME} ${TEST_NAME}.cpp ${ADDITIONAL_FILES})
     TARGET_LINK_LIBRARIES(${TEST_FILE_NAME} ${TEST_LINK_LIBS})
-    SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control")
+    SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control" ENABLE_EXPORTS 1)
     if (NOT "${TEST_DIR_NAME}" STREQUAL "")
         SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_DIR_NAME}")
     endif()
@@ -563,6 +640,7 @@ FUNCTION(ADD_BE_PLUGIN PLUGIN_NAME)
 ENDFUNCTION()
 
 if (${MAKE_TEST} STREQUAL "ON")
+    add_subdirectory(${TEST_DIR}/test_util)
     add_subdirectory(${TEST_DIR}/agent)
     add_subdirectory(${TEST_DIR}/common)
     add_subdirectory(${TEST_DIR}/env)

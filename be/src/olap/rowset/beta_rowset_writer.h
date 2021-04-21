@@ -18,9 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_WRITER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_WRITER_H
 
-#include "vector"
-
 #include "olap/rowset/rowset_writer.h"
+#include "vector"
 
 namespace doris {
 
@@ -40,21 +39,20 @@ public:
 
     OLAPStatus init(const RowsetWriterContext& rowset_writer_context) override;
 
-    OLAPStatus add_row(const RowCursor& row) override {
-        return _add_row(row);
-    }
+    OLAPStatus add_row(const RowCursor& row) override { return _add_row(row); }
     // For Memtable::flush()
-    OLAPStatus add_row(const ContiguousRow& row) override {
-        return _add_row(row);
-    }
+    OLAPStatus add_row(const ContiguousRow& row) override { return _add_row(row); }
 
     // add rowset by create hard link
     OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
 
-    OLAPStatus add_rowset_for_linked_schema_change(
-            RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) override;
+    OLAPStatus add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
+                                                   const SchemaMapping& schema_mapping) override;
 
     OLAPStatus flush() override;
+
+    // Return the file size flushed to disk in "flush_size"
+    OLAPStatus flush_single_memtable(MemTable* memtable, int64_t* flush_size) override;
 
     RowsetSharedPtr build() override;
 
@@ -65,30 +63,35 @@ public:
     RowsetId rowset_id() override { return _context.rowset_id; }
 
 private:
-    template<typename RowType>
+    template <typename RowType>
     OLAPStatus _add_row(const RowType& row);
 
-    OLAPStatus _create_segment_writer();
+    OLAPStatus _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
-    OLAPStatus _flush_segment_writer();
+    OLAPStatus _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
 private:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
-    int _num_segment;
+    AtomicInt<int32_t> _num_segment;
+    /// When flushing the memtable in the load process, we do not use this writer but an independent writer.
+    /// Because we want to flush memtables in parallel.
+    /// In other processes, such as merger or schema change, we will use this unified writer for data writing.
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
+    mutable SpinLock _lock; // lock to protect _wblocks.
     // TODO(lingbin): it is better to wrapper in a Batch?
     std::vector<std::unique_ptr<fs::WritableBlock>> _wblocks;
 
     // counters and statistics maintained during data write
-    int64_t _num_rows_written;
-    int64_t _total_data_size;
-    int64_t _total_index_size;
+    AtomicInt<int64_t> _num_rows_written;
+    AtomicInt<int64_t> _total_data_size;
+    AtomicInt<int64_t> _total_index_size;
     // TODO rowset Zonemap
 
     bool _is_pending = false;
     bool _already_built = false;
+
 };
 
 } // namespace doris

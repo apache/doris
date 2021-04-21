@@ -20,11 +20,11 @@
 #include <sstream>
 
 #include "exprs/expr.h"
-#include "runtime/runtime_state.h"
-#include "runtime/mysql_table_sink.h"
 #include "runtime/mem_tracker.h"
-#include "util/runtime_profile.h"
+#include "runtime/mysql_table_sink.h"
+#include "runtime/runtime_state.h"
 #include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -33,7 +33,9 @@ MysqlTableSink::MysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
         : _pool(pool),
           _row_desc(row_desc),
           _t_output_expr(t_exprs),
-          _mem_tracker(MemTracker::CreateTracker(-1, "MysqlTableSink")) {}
+          _mem_tracker(MemTracker::CreateTracker(-1, "MysqlTableSink")) {
+    _name = "MysqlTableSink";
+}
 
 MysqlTableSink::~MysqlTableSink() {}
 
@@ -82,4 +84,4 @@ Status MysqlTableSink::close(RuntimeState* state, Status exec_status) {
     return Status::OK();
 }
 
-}
+} // namespace doris

@@ -25,17 +25,15 @@ namespace doris {
 // This class is used to defer a function when this object is deconstruct
 class DeferOp {
 public:
-    typedef std::function<void ()> DeferFunction;
-    DeferOp(const DeferFunction& func) : _func(func) {
-    }
+    typedef std::function<void()> DeferFunction;
+    DeferOp(const DeferFunction& func) : _func(func) {}
 
-    ~DeferOp() {
-        _func();
-    };
+    ~DeferOp() { _func(); };
+
 private:
     DeferFunction _func;
 };
 
-}
+} // namespace doris
 
 #endif

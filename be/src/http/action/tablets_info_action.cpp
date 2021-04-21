@@ -20,12 +20,12 @@
 #include <string>
 
 #include "http/http_channel.h"
-#include "http/http_request.h"
 #include "http/http_headers.h"
+#include "http/http_request.h"
 #include "http/http_status.h"
-#include "service/backend_options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "service/backend_options.h"
 
 namespace doris {
 
@@ -35,33 +35,31 @@ TabletsInfoAction::TabletsInfoAction() {
     _host = BackendOptions::get_localhost();
 }
 
-void TabletsInfoAction::handle(HttpRequest *req) {
+void TabletsInfoAction::handle(HttpRequest* req) {
     const std::string& tablet_num_to_return = req->param("limit");
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
     HttpChannel::send_reply(req, HttpStatus::OK, get_tablets_info(tablet_num_to_return).ToString());
 }
 
 EasyJson TabletsInfoAction::get_tablets_info(string tablet_num_to_return) {
-    std::vector<TabletInfo> tablets_info;
-    TabletManager* tablet_manager = StorageEngine::instance()->tablet_manager();
-    tablet_manager->obtain_all_tablets(tablets_info);
-
     int64_t number;
     std::string msg;
     if (tablet_num_to_return == "") {
         number = 1000; // default
         msg = "OK";
     } else if (tablet_num_to_return == "all") {
-        number = tablets_info.size();
+        number = std::numeric_limits<std::int64_t>::max();
         msg = "OK";
     } else if (std::all_of(tablet_num_to_return.begin(), tablet_num_to_return.end(), ::isdigit)) {
-        int64_t tablet_num = std::atol(tablet_num_to_return.c_str());
-        number = tablet_num < tablets_info.size() ? tablet_num : tablets_info.size();
+        number = std::atol(tablet_num_to_return.c_str());
         msg = "OK";
     } else {
         number = 0;
         msg = "Parameter Error";
     }
+    std::vector<TabletInfo> tablets_info;
+    TabletManager* tablet_manager = StorageEngine::instance()->tablet_manager();
+    tablet_manager->obtain_specific_quantity_tablets(tablets_info, number);
 
     EasyJson tablets_info_ej;
     tablets_info_ej["msg"] = msg;
@@ -69,13 +67,12 @@ EasyJson TabletsInfoAction::get_tablets_info(string tablet_num_to_return) {
     EasyJson data = tablets_info_ej.Set("data", EasyJson::kObject);
     data["host"] = _host;
     EasyJson tablets = data.Set("tablets", EasyJson::kArray);
-    for (int64_t i = 0; i < number; i++) {
+    for (TabletInfo tablet_info : tablets_info) {
         EasyJson tablet = tablets.PushBack(EasyJson::kObject);
-        tablet["tablet_id"] = tablets_info[i].tablet_id;
-        tablet["schema_hash"] = tablets_info[i].schema_hash;
+        tablet["tablet_id"] = tablet_info.tablet_id;
+        tablet["schema_hash"] = tablet_info.schema_hash;
     }
-    tablets_info_ej["count"] = number;
+    tablets_info_ej["count"] = tablets_info.size();
     return tablets_info_ej;
 }
 } // namespace doris
-

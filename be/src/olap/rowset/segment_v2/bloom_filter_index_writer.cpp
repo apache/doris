@@ -22,10 +22,10 @@
 
 #include "env/env.h"
 #include "olap/fs/block_manager.h"
+#include "olap/rowset/segment_v2/bloom_filter.h" // for BloomFilterOptions, BloomFilter
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
-#include "olap/rowset/segment_v2/bloom_filter.h" // for BloomFilterOptions, BloomFilter
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
@@ -37,12 +37,12 @@ namespace segment_v2 {
 
 namespace {
 
-template<typename CppType>
+template <typename CppType>
 struct BloomFilterTraits {
     using ValueDict = std::set<CppType>;
 };
 
-template<>
+template <>
 struct BloomFilterTraits<Slice> {
     using ValueDict = std::set<Slice, Slice::Comparator>;
 };
@@ -53,7 +53,7 @@ struct Int128Comparator {
     }
 };
 
-template<>
+template <>
 struct BloomFilterTraits<int128_t> {
     using ValueDict = std::set<PackedInt128, Int128Comparator>;
 };
@@ -85,11 +85,11 @@ public:
         const CppType* v = (const CppType*)values;
         for (int i = 0; i < count; ++i) {
             if (_values.find(*v) == _values.end()) {
-                if (_is_slice_type()) {
+                if constexpr (_is_slice_type()) {
                     CppType new_value;
                     _typeinfo->deep_copy(&new_value, v, &_pool);
                     _values.insert(new_value);
-                } else if (_is_int128()) {
+                } else if constexpr (_is_int128()) {
                     PackedInt128 new_value;
                     memcpy(&new_value.value, v, sizeof(PackedInt128));
                     _values.insert((*reinterpret_cast<CppType*>(&new_value)));
@@ -101,9 +101,7 @@ public:
         }
     }
 
-    void add_nulls(uint32_t count) override {
-        _has_null = true;
-    }
+    void add_nulls(uint32_t count) override { _has_null = true; }
 
     Status flush() override {
         std::unique_ptr<BloomFilter> bf;
@@ -111,7 +109,7 @@ public:
         RETURN_IF_ERROR(bf->init(_values.size(), _bf_options.fpp, _bf_options.strategy));
         bf->set_has_null(_has_null);
         for (auto& v : _values) {
-            if (_is_slice_type()) {
+            if constexpr (_is_slice_type()) {
                 Slice* s = (Slice*)&v;
                 bf->add_bytes(s->data, s->size);
             } else {
@@ -134,7 +132,7 @@ public:
         meta->set_algorithm(BLOCK_BLOOM_FILTER);
 
         // write bloom filters
-        const TypeInfo* bf_typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        const TypeInfo* bf_typeinfo = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
         IndexedColumnWriterOptions options;
         options.write_ordinal_index = true;
         options.write_value_index = false;
@@ -157,13 +155,11 @@ public:
 
 private:
     // supported slice types are: OLAP_FIELD_TYPE_CHAR|OLAP_FIELD_TYPE_VARCHAR
-    bool _is_slice_type() const {
+    static constexpr bool _is_slice_type() {
         return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR;
     }
 
-    bool _is_int128() const {
-        return field_type == OLAP_FIELD_TYPE_LARGEINT;
-    }
+    static constexpr bool _is_int128() { return field_type == OLAP_FIELD_TYPE_LARGEINT; }
 
 private:
     BloomFilterOptions _bf_options;
@@ -181,44 +177,46 @@ private:
 
 // TODO currently we don't support bloom filter index for tinyint/hll/float/double
 Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
-        const TypeInfo* typeinfo, std::unique_ptr<BloomFilterIndexWriter>* res) {
+                                      const TypeInfo* typeinfo,
+                                      std::unique_ptr<BloomFilterIndexWriter>* res) {
     FieldType type = typeinfo->type();
     switch (type) {
-        case OLAP_FIELD_TYPE_SMALLINT:
-            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_SMALLINT>(bf_options, typeinfo));
-            break;
-        case OLAP_FIELD_TYPE_INT:
-            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_INT>(bf_options, typeinfo));
-            break;
-        case OLAP_FIELD_TYPE_UNSIGNED_INT:
-            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_UNSIGNED_INT>(bf_options, typeinfo));
-            break;
-        case OLAP_FIELD_TYPE_BIGINT:
-            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_BIGINT>(bf_options, typeinfo));
-            break;
-        case OLAP_FIELD_TYPE_LARGEINT:
-            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_LARGEINT>(bf_options, typeinfo));
-            break;
-        case OLAP_FIELD_TYPE_CHAR:
-            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_CHAR>(bf_options, typeinfo));
-            break;
-        case OLAP_FIELD_TYPE_VARCHAR:
-            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_VARCHAR>(bf_options, typeinfo));
-            break;
-        case OLAP_FIELD_TYPE_DATE:
-            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATE>(bf_options, typeinfo));
-            break;
-        case OLAP_FIELD_TYPE_DATETIME:
-            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATETIME>(bf_options, typeinfo));
-            break;
-        case OLAP_FIELD_TYPE_DECIMAL:
-            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL>(bf_options, typeinfo));
-            break;
-        default:
-            return Status::NotSupported("unsupported type for bitmap index: " + std::to_string(type));
+    case OLAP_FIELD_TYPE_SMALLINT:
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_SMALLINT>(bf_options, typeinfo));
+        break;
+    case OLAP_FIELD_TYPE_INT:
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_INT>(bf_options, typeinfo));
+        break;
+    case OLAP_FIELD_TYPE_UNSIGNED_INT:
+        res->reset(
+                new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_UNSIGNED_INT>(bf_options, typeinfo));
+        break;
+    case OLAP_FIELD_TYPE_BIGINT:
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_BIGINT>(bf_options, typeinfo));
+        break;
+    case OLAP_FIELD_TYPE_LARGEINT:
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_LARGEINT>(bf_options, typeinfo));
+        break;
+    case OLAP_FIELD_TYPE_CHAR:
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_CHAR>(bf_options, typeinfo));
+        break;
+    case OLAP_FIELD_TYPE_VARCHAR:
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_VARCHAR>(bf_options, typeinfo));
+        break;
+    case OLAP_FIELD_TYPE_DATE:
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATE>(bf_options, typeinfo));
+        break;
+    case OLAP_FIELD_TYPE_DATETIME:
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATETIME>(bf_options, typeinfo));
+        break;
+    case OLAP_FIELD_TYPE_DECIMAL:
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL>(bf_options, typeinfo));
+        break;
+    default:
+        return Status::NotSupported("unsupported type for bitmap index: " + std::to_string(type));
     }
     return Status::OK();
 }
 
-} // segment_v2
+} // namespace segment_v2
 } // namespace doris

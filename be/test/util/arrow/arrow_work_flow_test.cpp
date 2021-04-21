@@ -15,17 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/csv_scan_node.h"
-
 #include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
 #include <gtest/gtest.h>
+
 #include <boost/scoped_ptr.hpp>
 #include <vector>
 
 #include "common/logging.h"
+#include "exec/csv_scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/row.h"
@@ -99,7 +99,8 @@ void ArrowWorkFlowTest::init_runtime_state() {
     query_id.hi = 100;
     _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _exec_env);
     _state->init_instance_mem_tracker();
-    _mem_tracker = MemTracker::CreateTracker(-1, "ArrowWorkFlowTest", _state->instance_mem_tracker());
+    _mem_tracker =
+            MemTracker::CreateTracker(-1, "ArrowWorkFlowTest", _state->instance_mem_tracker());
     _state->set_desc_tbl(_desc_tbl);
     _state->_load_dir = "./test_run/output/";
     _state->init_mem_trackers(TUniqueId());
@@ -247,10 +248,10 @@ void ArrowWorkFlowTest::init_desc_tbl() {
 
     DescriptorTbl::create(&_obj_pool, _t_desc_table, &_desc_tbl);
 
-    vector<TTupleId> row_tids;
+    std::vector<TTupleId> row_tids;
     row_tids.push_back(0);
 
-    vector<bool> nullable_tuples;
+    std::vector<bool> nullable_tuples;
     nullable_tuples.push_back(false);
 
     // node

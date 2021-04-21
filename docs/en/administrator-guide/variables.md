@@ -53,7 +53,7 @@ SET forward_to_master = true;
 SET time_zone = "Asia/Shanghai";
 ```
 
-For global-level, set by `SET GLOBALE var_name=xxx;`. Such as:
+For global-level, set by `SET GLOBAL var_name=xxx;`. Such as:
 
 ```
 SET GLOBAL exec_mem_limit = 137438953472
@@ -73,6 +73,8 @@ Variables that support both session-level and global-level setting include:
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
 * `parallel_exchange_instance_num`
+* `allow_partition_column_nullable`
+* `insert_visible_timeout_ms`
 
 Variables that support only global-level setting include:
 
@@ -92,7 +94,7 @@ The SET_VAR hint sets the session value of a system variable temporarily (for th
 
 ```
 SELECT /*+ SET_VAR(exec_mem_limit = 8589934592) */ name FROM people ORDER BY name;
-SELECT /*+ SET_VAR(query_timeout = 1) */ sleep(3);
+SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 ```
 
 Note that the comment must start with /*+ and can only follow the SELECT.
@@ -149,17 +151,28 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     Used for compatibility with MySQL clients. No practical effect.
 
+* `delete_without_partition`
+
+    When set to true. When using the delete command to delete partition table data, no partition is required. The delete operation will be automatically applied to all partitions.
+
+     Note, however, that the automatic application to all partitions may cause the delete command to take a long time to trigger a large number of subtasks and cause a long time. If it is not necessary, it is not recommended to turn it on.
+
 * `disable_colocate_join`
 
-    Controls whether the [Colocation Join] (./colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
+    Controls whether the [Colocation Join](./colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
     
+
+* `enable_bucket_shuffle_join`
+
+    Controls whether the [Bucket Shuffle Join] (./bucket-shuffle-join.md) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
+
 * `disable_streaming_preaggregations`
 
     Controls whether streaming pre-aggregation is turned on. The default is false, which is enabled. Currently not configurable and enabled by default.
     
 * `enable_insert_strict`
 
-    Used to set the `strict` mode when loading data via INSERT statement. The default is false, which means that the `strict` mode is not turned on. For an introduction to this mode, see [here] (./load-data/insert-into-manual.md).
+    Used to set the `strict` mode when loading data via INSERT statement. The default is false, which means that the `strict` mode is not turned on. For an introduction to this mode, see [here](./load-data/insert-into-manual.md).
 
 * `enable_spilling`
 
@@ -305,7 +318,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
 * `sql_mode`
 
-    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here] (./sql-mode.md).
+    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here](./sql-mode.md).
     
 * `sql_safe_updates`
 
@@ -321,7 +334,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
 * `time_zone`
 
-    Used to set the time zone of the current session. The time zone has an effect on the results of certain time functions. For the time zone, see [here] (./time-zone.md).
+    Used to set the time zone of the current session. The time zone has an effect on the results of certain time functions. For the time zone, see [here](./time-zone.md).
     
 * `tx_isolation`
 
@@ -360,3 +373,18 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     When choosing the join method(broadcast join or shuffle join), if the broadcast join cost and shuffle join cost are equal, which join method should we prefer.
 
     Currently, the optional values for this variable are "broadcast" or "shuffle".
+
+* `allow_partition_column_nullable`
+
+    Whether to allow the partition column to be NULL when creating the table. The default is true, which means NULL is allowed. false means the partition column must be defined as NOT NULL.
+
+* `insert_visible_timeout_ms`
+
+    When execute insert statement, doris will wait for the transaction to commit and visible after the import is completed.
+    This parameter controls the timeout of waiting for transaction to be visible. The default value is 10000, and the minimum value is 1000.
+
+*  `enable_exchange_node_parallel_merge`
+
+    In a sort query, when an upper level node receives the ordered data of the lower level node, it will sort the corresponding data on the exchange node to ensure that the final data is ordered. However, when a single thread merges multiple channels of data, if the amount of data is too large, it will lead to a single point of exchange node merge bottleneck.
+
+    Doris optimizes this part if there are too many data nodes in the lower layer. Exchange node will start multithreading for parallel merging to speed up the sorting process. This parameter is false by default, which means that exchange node does not adopt parallel merge sort to reduce the extra CPU and memory consumption.

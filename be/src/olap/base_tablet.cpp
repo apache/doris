@@ -26,10 +26,13 @@ namespace doris {
 
 extern MetricPrototype METRIC_query_scan_bytes;
 extern MetricPrototype METRIC_query_scan_rows;
+extern MetricPrototype METRIC_query_scan_count;
 
 BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
         : _state(tablet_meta->tablet_state()),
           _tablet_meta(tablet_meta),
+          // TODO: Think we really copy tablet schema here, which cost double mem
+          // cost in TabletManager
           _schema(tablet_meta->tablet_schema()),
           _data_dir(data_dir) {
     _gen_tablet_path();
@@ -40,11 +43,11 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
     _full_name = ss.str();
 
     _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
-        strings::Substitute("Tablet.$0", tablet_id()),
-        {{"tablet_id", std::to_string(tablet_id())}},
-        MetricEntityType::kTablet);
+            strings::Substitute("Tablet.$0", tablet_id()),
+            {{"tablet_id", std::to_string(tablet_id())}}, MetricEntityType::kTablet);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_rows);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_count);
 }
 
 BaseTablet::~BaseTablet() {

@@ -81,7 +81,11 @@ public class PaloFe {
             }
 
             // init config
-            new Config().init(dorisHomeDir + "/conf/fe.conf");
+            Config config = new Config();
+            config.init(dorisHomeDir + "/conf/fe.conf");
+            // Must init custom config after init config, separately.
+            // Because the path of custom config file is defined in fe.conf
+            config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
 
             // check it after Config is initialized, otherwise the config 'check_java_version' won't work.
             if (!JdkUtils.checkJavaVersion()) {
@@ -99,7 +103,6 @@ public class PaloFe {
             LOG.info("Palo FE starting...");
 
             FrontendOptions.init();
-            ExecuteEnv.setup();
 
             // init catalog and wait it be ready
             Catalog.getCurrentCatalog().initialize(args);
@@ -111,7 +114,6 @@ public class PaloFe {
             // 3. HttpServer for HTTP Server
             QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
-
 
             feServer.start();
 

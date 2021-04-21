@@ -84,6 +84,13 @@ enum TTypeNodeType {
     STRUCT
 }
 
+enum TStorageBackendType {
+    BROKER,
+    S3,
+    HDFS,
+    LOCAL
+}
+
 struct TScalarType {
     1: required TPrimitiveType type
 
@@ -182,6 +189,7 @@ enum TStmtType {
 // level of verboseness for "explain" output
 // TODO: should this go somewhere else?
 enum TExplainLevel {
+  BRIEF,
   NORMAL,
   VERBOSE
 }
@@ -369,6 +377,8 @@ enum TFileType {
     FILE_LOCAL,
     FILE_BROKER,
     FILE_STREAM,    // file content is streaming in the buffer
+    FILE_S3,
+    FILE_HDFS,
 }
 
 struct TTabletCommitInfo {

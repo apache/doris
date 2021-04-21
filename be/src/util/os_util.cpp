@@ -18,6 +18,7 @@
 #include "util/os_util.h"
 
 #include <fcntl.h>
+#include <glog/logging.h>
 #include <sys/resource.h>
 #include <unistd.h>
 
@@ -26,8 +27,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-#include <glog/logging.h>
 
 #include "env/env_util.h"
 #include "gutil/macros.h"
@@ -79,7 +78,7 @@ Status parse_stat(const std::string& buffer, std::string* name, ThreadStats* sta
     }
     string extracted_name = buffer.substr(open_paren + 1, close_paren - (open_paren + 1));
     string rest = buffer.substr(close_paren + 2);
-    vector<string> splits = Split(rest, " ", strings::SkipEmpty());
+    std::vector<string> splits = Split(rest, " ", strings::SkipEmpty());
     if (splits.size() < kMaxOffset) {
         return Status::IOError("Unrecognised /proc format");
     }
@@ -107,7 +106,7 @@ Status get_thread_stats(int64_t tid, ThreadStats* stats) {
     }
     faststring buf;
     RETURN_IF_ERROR(env_util::read_file_to_string(
-            Env::Default(), Substitute("/proc/self/task/$0/stat", tid), &buf));
+            Env::Default(), strings::Substitute("/proc/self/task/$0/stat", tid), &buf));
 
     return parse_stat(buf.ToString(), nullptr, stats);
 }
@@ -146,7 +145,7 @@ bool is_being_debugged() {
         return false;
     }
     StringPiece buf_sp(reinterpret_cast<const char*>(buf.data()), buf.size());
-    vector<StringPiece> lines = Split(buf_sp, "\n");
+    std::vector<StringPiece> lines = Split(buf_sp, "\n");
     for (const auto& l : lines) {
         if (!HasPrefixString(l, "TracerPid:")) continue;
         std::pair<StringPiece, StringPiece> key_val = Split(l, "\t");

@@ -36,7 +36,7 @@ under the License.
 
 `DATETIME TIME_ROUND(DATETIME expr, INT period, DATETIME origin)`
 
-The function name `TIME_ROUND` consists of two parts，Each part consists of the following optional values.
+The function name `TIME_ROUND` consists of two parts, Each part consists of the following optional values.
 - `TIME`: `SECOND`, `MINUTE`, `HOUR`, `DAY`, `WEEK`, `MONTH`, `YEAR`
 - `ROUND`: `FLOOR`, `CEIL`
 

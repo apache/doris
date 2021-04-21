@@ -20,8 +20,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <string>
 #include <sstream>
+#include <string>
 
 #include "agent/cgroups_mgr.h"
 #include "env/env.h"
@@ -43,9 +43,8 @@ const std::string DB_PARAMETER = "db";
 const std::string LABEL_PARAMETER = "label";
 const std::string TOKEN_PARAMETER = "token";
 
-DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs) :
-    _exec_env(exec_env),
-    _download_type(NORMAL) {
+DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs)
+        : _exec_env(exec_env), _download_type(NORMAL) {
     for (auto& dir : allow_dirs) {
         std::string p;
         WARN_IF_ERROR(FileUtils::canonicalize(dir, &p), "canonicalize path " + dir + " failed");
@@ -53,16 +52,13 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
     }
 }
 
-DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir) :
-    _exec_env(exec_env),
-    _download_type(ERROR_LOG) {
+DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir)
+        : _exec_env(exec_env), _download_type(ERROR_LOG) {
     WARN_IF_ERROR(FileUtils::canonicalize(error_log_root_dir, &_error_log_root_dir),
                   "canonicalize path " + error_log_root_dir + " failed");
 }
 
-void DownloadAction::handle_normal(
-        HttpRequest *req,
-        const std::string& file_param) {
+void DownloadAction::handle_normal(HttpRequest* req, const std::string& file_param) {
     // check token
     Status status;
     if (config::enable_token_check) {
@@ -88,9 +84,7 @@ void DownloadAction::handle_normal(
     }
 }
 
-void DownloadAction::handle_error_log(
-        HttpRequest *req,
-        const std::string& file_param) {
+void DownloadAction::handle_error_log(HttpRequest* req, const std::string& file_param) {
     const std::string absolute_path = _error_log_root_dir + "/" + file_param;
 
     Status status = check_log_path_is_allowed(absolute_path);
@@ -109,7 +103,7 @@ void DownloadAction::handle_error_log(
     do_file_response(absolute_path, req);
 }
 
-void DownloadAction::handle(HttpRequest *req) {
+void DownloadAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one download request " << req->debug_string();
 
     // add tid to cgroup in order to limit read bandwidth
@@ -118,8 +112,8 @@ void DownloadAction::handle(HttpRequest *req) {
     // Get 'file' parameter, then assembly file absolute path
     const std::string& file_path = req->param(FILE_PARAMETER);
     if (file_path.empty()) {
-        std::string error_msg = std::string(
-                "parameter " + FILE_PARAMETER + " not specified in url.");
+        std::string error_msg =
+                std::string("parameter " + FILE_PARAMETER + " not specified in url.");
         HttpChannel::send_reply(req, error_msg);
         return;
     }
@@ -133,7 +127,7 @@ void DownloadAction::handle(HttpRequest *req) {
     LOG(INFO) << "deal with download request finished! ";
 }
 
-Status DownloadAction::check_token(HttpRequest *req) {
+Status DownloadAction::check_token(HttpRequest* req) {
     const std::string& token_str = req->param(TOKEN_PARAMETER);
     if (token_str.empty()) {
         return Status::InternalError("token is not specified.");
@@ -179,4 +173,3 @@ Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
 }
 
 } // end namespace doris
-

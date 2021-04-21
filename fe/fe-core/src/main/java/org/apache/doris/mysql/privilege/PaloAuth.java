@@ -43,14 +43,15 @@ import org.apache.doris.load.DppConfig;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFetchResourceResult;
+import org.apache.doris.thrift.TPrivilegeStatus;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -67,6 +68,8 @@ public class PaloAuth implements Writable {
     // each Palo system has only one root user.
     public static final String ROOT_USER = "root";
     public static final String ADMIN_USER = "admin";
+    // unknown user does not have any privilege, this is just to be compatible with old version.
+    public static final String UNKNOWN_USER = "unknown";
 
     private UserPrivTable userPrivTable = new UserPrivTable();
     private DbPrivTable dbPrivTable = new DbPrivTable();
@@ -1295,6 +1298,113 @@ public class PaloAuth implements Writable {
             List<List<String>> results = Lists.newArrayList();
             roleManager.getRoleInfo(results);
             return results;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    // Used for creating table_privileges table in information_schema.
+    public void getTablePrivStatus(List<TPrivilegeStatus> tblPrivResult, UserIdentity currentUser) {
+        readLock();
+        try {
+            for (PrivEntry entry : tablePrivTable.getEntries()) {
+                TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;
+                String dbName = ClusterNamespace.getNameFromFullName(tblPrivEntry.getOrigDb());
+                String tblName = tblPrivEntry.getOrigTbl();
+
+                if (dbName.equals("information_schema" /* Don't show privileges in information_schema */)
+                        || !checkTblPriv(currentUser, tblPrivEntry.getOrigDb(), tblName, PrivPredicate.SHOW)) {
+                    continue;
+                }
+
+                String grantee = new String("\'").concat(ClusterNamespace.getNameFromFullName(tblPrivEntry.getOrigUser()))
+                        .concat("\'@\'").concat(tblPrivEntry.getOrigHost()).concat("\'");
+                String isGrantable = tblPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
+                for (PaloPrivilege paloPriv : tblPrivEntry.getPrivSet().toPrivilegeList()) {
+                    if (!PaloPrivilege.privInPaloToMysql.containsKey(paloPriv)) {
+                        continue;
+                    }
+                    TPrivilegeStatus status = new TPrivilegeStatus();
+                    status.setTableName(tblName);
+                    status.setPrivilegeType(PaloPrivilege.privInPaloToMysql.get(paloPriv));
+                    status.setGrantee(grantee);
+                    status.setSchema(dbName);
+                    status.setIsGrantable(isGrantable);
+                    tblPrivResult.add(status);
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+    }
+
+    // Used for creating schema_privileges table in information_schema.
+    public void getSchemaPrivStatus(List<TPrivilegeStatus> dbPrivResult, UserIdentity currentUser) {
+        readLock();
+        try {
+            for (PrivEntry entry : dbPrivTable.getEntries()) {
+                DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
+                String origDb = dbPrivEntry.getOrigDb();
+                String dbName = ClusterNamespace.getNameFromFullName(dbPrivEntry.getOrigDb());
+
+                if (dbName.equals("information_schema" /* Don't show privileges in information_schema */)
+                        || !checkDbPriv(currentUser, origDb, PrivPredicate.SHOW)) {
+                    continue;
+                }
+
+                String grantee = new String("\'").concat(ClusterNamespace.getNameFromFullName(dbPrivEntry.getOrigUser()))
+                        .concat("\'@\'").concat(dbPrivEntry.getOrigHost()).concat("\'");
+                String isGrantable = dbPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
+                for (PaloPrivilege paloPriv : dbPrivEntry.getPrivSet().toPrivilegeList()) {
+                    if (!PaloPrivilege.privInPaloToMysql.containsKey(paloPriv)) {
+                        continue;
+                    }
+                    TPrivilegeStatus status = new TPrivilegeStatus();
+                    status.setPrivilegeType(PaloPrivilege.privInPaloToMysql.get(paloPriv));
+                    status.setGrantee(grantee);
+                    status.setSchema(dbName);
+                    status.setIsGrantable(isGrantable);
+                    dbPrivResult.add(status);
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+    }
+
+    // Used for creating user_privileges table in information_schema.
+    public void getGlobalPrivStatus(List<TPrivilegeStatus> userPrivResult, UserIdentity currentUser) {
+        readLock();
+        try {
+            if (!checkGlobalPriv(currentUser, PrivPredicate.SHOW)) {
+                return;
+            }
+
+            for (PrivEntry userPrivEntry : userPrivTable.getEntries()) {
+                String grantee = new String("\'").concat(ClusterNamespace.getNameFromFullName(userPrivEntry.getOrigUser()))
+                        .concat("\'@\'").concat(userPrivEntry.getOrigHost()).concat("\'");
+                String isGrantable = userPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
+                for (PaloPrivilege paloPriv : userPrivEntry.getPrivSet().toPrivilegeList()) {
+                    if (paloPriv == PaloPrivilege.ADMIN_PRIV) {
+                        for (String priv : PaloPrivilege.privInPaloToMysql.values()) { // ADMIN_PRIV includes all privileges of table and resource.
+                            TPrivilegeStatus status = new TPrivilegeStatus();
+                            status.setPrivilegeType(priv);
+                            status.setGrantee(grantee);
+                            status.setIsGrantable("YES");
+                            userPrivResult.add(status);
+                        }
+                        break;
+                    }
+                    if (!PaloPrivilege.privInPaloToMysql.containsKey(paloPriv)) {
+                        continue;
+                    }
+                    TPrivilegeStatus status = new TPrivilegeStatus();
+                    status.setPrivilegeType(PaloPrivilege.privInPaloToMysql.get(paloPriv));
+                    status.setGrantee(grantee);
+                    status.setIsGrantable(isGrantable);
+                    userPrivResult.add(status);
+                }
+            }
         } finally {
             readUnlock();
         }

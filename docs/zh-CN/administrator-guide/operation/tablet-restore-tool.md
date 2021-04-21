@@ -123,7 +123,7 @@ sh restore_tablet_tool.sh --backend "http://127.0.0.1:8040" --file tablets.txt
     ADMIN SET FRONTEND CONFIG ("recover_with_empty_tablet" = "true");
     ```
 
-    * 注：可以先通过 `AMDIN SHOW FRONTEND CONFIG;` 命令查看当前版本是否支持该参数。
+    * 注：可以先通过 `ADMIN SHOW FRONTEND CONFIG;` 命令查看当前版本是否支持该参数。
 
 3. 设置完成几分钟后，应该会在 Master FE 日志 `fe.log` 中看到如下日志：
 

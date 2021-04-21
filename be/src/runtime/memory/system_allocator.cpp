@@ -19,7 +19,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-
 #include <sys/mman.h>
 
 #include "common/config.h"
@@ -43,7 +42,7 @@ void SystemAllocator::free(uint8_t* ptr, size_t length) {
         if (res != 0) {
             char buf[64];
             LOG(ERROR) << "fail to free memory via munmap, errno=" << errno
-                << ", errmsg=" << strerror_r(errno, buf, 64);
+                       << ", errmsg=" << strerror_r(errno, buf, 64);
         }
     } else {
         ::free(ptr);
@@ -57,22 +56,22 @@ uint8_t* SystemAllocator::allocate_via_malloc(size_t length) {
     if (res != 0) {
         char buf[64];
         LOG(ERROR) << "fail to allocate mem via posix_memalign, res=" << res
-            << ", errmsg=" << strerror_r(res, buf, 64);
+                   << ", errmsg=" << strerror_r(res, buf, 64);
         return nullptr;
     }
     return (uint8_t*)ptr;
 }
 
 uint8_t* SystemAllocator::allocate_via_mmap(size_t length) {
-    auto ptr = (uint8_t*)mmap(nullptr, length, PROT_READ | PROT_WRITE,
-                    MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    auto ptr = (uint8_t*)mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE,
+                              -1, 0);
     if (ptr == MAP_FAILED) {
         char buf[64];
         LOG(ERROR) << "fail to allocate memory via mmap, errno=" << errno
-            << ", errmsg=" << strerror_r(errno, buf, 64);
+                   << ", errmsg=" << strerror_r(errno, buf, 64);
         return nullptr;
     }
     return ptr;
 }
 
-}
+} // namespace doris

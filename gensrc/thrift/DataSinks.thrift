@@ -31,7 +31,8 @@ enum TDataSinkType {
     MYSQL_TABLE_SINK,
     EXPORT_SINK,
     OLAP_TABLE_SINK,
-    MEMORY_SCRATCH_SINK
+    MEMORY_SCRATCH_SINK,
+    ODBC_TABLE_SINK
 }
 
 enum TResultSinkType {
@@ -47,6 +48,7 @@ struct TResultFileSinkOptions {
     5: optional i64 max_file_size_bytes
     6: optional list<Types.TNetworkAddress> broker_addresses; // only for remote file
     7: optional map<string, string> broker_properties // only for remote file
+    8: optional string success_file_name
 }
 
 struct TMemoryScratchSink {
@@ -80,6 +82,12 @@ struct TMysqlTableSink {
     4: required string passwd
     5: required string db
     6: required string table
+}
+
+struct TOdbcTableSink {
+    1: optional string connect_string
+    2: optional string table
+    3: optional bool use_transaction
 }
 
 // Following is used to split data read from 
@@ -133,5 +141,6 @@ struct TDataSink {
   6: optional TExportSink export_sink
   7: optional TOlapTableSink olap_table_sink
   8: optional TMemoryScratchSink memory_scratch_sink
+  9: optional TOdbcTableSink odbc_table_sink
 }
 

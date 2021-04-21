@@ -50,6 +50,13 @@
                 <scope>system</scope>
                 <systemPath>${doris.home}/fe/fe-core/target/palo-fe.jar</systemPath>
             </dependency>
+            <dependency>
+                <groupId>org.apache</groupId>
+                <artifactId>doris-fe-common</artifactId>
+                <version>1.0.0</version>
+                <scope>system</scope>
+                <systemPath>${doris.home}/fe/fe-common/target/doris-fe-common.jar</systemPath>
+            </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
             <dependency>

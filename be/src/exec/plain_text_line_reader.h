@@ -28,9 +28,9 @@ class Status;
 
 class PlainTextLineReader : public LineReader {
 public:
-    PlainTextLineReader(RuntimeProfile* profile, FileReader* file_reader, 
-                        Decompressor* decompressor,
-                        size_t length, uint8_t line_delimiter);
+    PlainTextLineReader(RuntimeProfile* profile, FileReader* file_reader,
+                        Decompressor* decompressor, size_t length,
+                        const std::string& line_delimiter, size_t line_delimiter_length);
 
     virtual ~PlainTextLineReader();
 
@@ -41,17 +41,11 @@ public:
 private:
     bool update_eof();
 
-    inline size_t output_buf_read_remaining() {
-        return _output_buf_limit - _output_buf_pos;
-    }
+    inline size_t output_buf_read_remaining() { return _output_buf_limit - _output_buf_pos; }
 
-    inline size_t input_buf_read_remaining() {
-        return _input_buf_limit - _input_buf_pos;
-    }
+    inline size_t input_buf_read_remaining() { return _input_buf_limit - _input_buf_pos; }
 
-    inline bool done() {
-        return _file_eof && output_buf_read_remaining() == 0;
-    }
+    inline bool done() { return _file_eof && output_buf_read_remaining() == 0; }
 
     // find line delimiter from 'start' to 'start' + len,
     // return line delimiter pos if found, otherwise return nullptr.
@@ -68,7 +62,8 @@ private:
     Decompressor* _decompressor;
     size_t _min_length;
     size_t _total_read_bytes;
-    uint8_t _line_delimiter;
+    std::string _line_delimiter;
+    size_t _line_delimiter_length;
 
     // save the data read from file reader
     uint8_t* _input_buf;
@@ -95,4 +90,4 @@ private:
     RuntimeProfile::Counter* _decompress_timer;
 };
 
-}
+} // namespace doris

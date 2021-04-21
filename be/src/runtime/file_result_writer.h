@@ -17,9 +17,9 @@
 
 #pragma once
 
+#include "gen_cpp/DataSinks_types.h"
 #include "runtime/result_writer.h"
 #include "runtime/runtime_state.h"
-#include "gen_cpp/DataSinks_types.h"
 
 namespace doris {
 
@@ -39,14 +39,15 @@ struct ResultFileOptions {
     size_t max_file_size_bytes = 1 * 1024 * 1024 * 1024; // 1GB
     std::vector<TNetworkAddress> broker_addresses;
     std::map<std::string, std::string> broker_properties;
+    std::string success_file_name = "";
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
         file_format = t_opt.file_format;
         column_separator = t_opt.__isset.column_separator ? t_opt.column_separator : "\t";
         line_delimiter = t_opt.__isset.line_delimiter ? t_opt.line_delimiter : "\n";
-        max_file_size_bytes = t_opt.__isset.max_file_size_bytes ?
-                t_opt.max_file_size_bytes : max_file_size_bytes;
+        max_file_size_bytes =
+                t_opt.__isset.max_file_size_bytes ? t_opt.max_file_size_bytes : max_file_size_bytes;
 
         is_local_file = true;
         if (t_opt.__isset.broker_addresses) {
@@ -56,20 +57,28 @@ struct ResultFileOptions {
         if (t_opt.__isset.broker_properties) {
             broker_properties = t_opt.broker_properties;
         }
+        if (t_opt.__isset.success_file_name) {
+            success_file_name = t_opt.success_file_name;
+        }
     }
 };
 
+class BufferControlBlock;
 // write result to file
 class FileResultWriter final : public ResultWriter {
 public:
     FileResultWriter(const ResultFileOptions* file_option,
-            const std::vector<ExprContext*>& output_expr_ctxs,
-            RuntimeProfile* parent_profile);
+                     const std::vector<ExprContext*>& output_expr_ctxs,
+                     RuntimeProfile* parent_profile,
+                     BufferControlBlock* sinker);
     virtual ~FileResultWriter();
 
     virtual Status init(RuntimeState* state) override;
     virtual Status append_row_batch(const RowBatch* batch) override;
     virtual Status close() override;
+
+    // file result writer always return statistic result in one row
+    virtual int64_t get_written_rows() const { return 1; }
 
 private:
     Status _write_csv_file(const RowBatch& batch);
@@ -80,17 +89,23 @@ private:
     Status _flush_plain_text_outstream(bool eos);
     void _init_profile();
 
-    Status _create_file_writer();
+    Status _create_file_writer(const std::string& file_name);
+    Status _create_next_file_writer();
+    Status _create_success_file();
     // get next export file name
-    std::string _get_next_file_name();
+    Status _get_next_file_name(std::string* file_name);
+    Status _get_success_file_name(std::string* file_name);
     std::string _file_format_to_name();
-    // close file writer, and if !done, it will create new writer for next file
-    Status _close_file_writer(bool done);
+    // close file writer, and if !done, it will create new writer for next file.
+    // if only_close is true, this method will just close the file writer and return.
+    Status _close_file_writer(bool done, bool only_close = false);
     // create a new file if current file size exceed limit
     Status _create_new_file_if_exceed_size();
+    // send the final statistic result
+    Status _send_result();
 
 private:
-    RuntimeState* _state;   // not owned, set when init
+    RuntimeState* _state; // not owned, set when init
     const ResultFileOptions* _file_opts;
     const std::vector<ExprContext*>& _output_expr_ctxs;
 
@@ -113,7 +128,7 @@ private:
     // the suffix idx of export file name, start at 0
     int _file_idx = 0;
 
-    RuntimeProfile* _parent_profile;    // profile from result sink, not owned
+    RuntimeProfile* _parent_profile; // profile from result sink, not owned
     // total time cost on append batch operation
     RuntimeProfile::Counter* _append_row_batch_timer = nullptr;
     // tuple convert timer, child timer of _append_row_batch_timer
@@ -126,7 +141,10 @@ private:
     RuntimeProfile::Counter* _written_rows_counter = nullptr;
     // bytes of written data
     RuntimeProfile::Counter* _written_data_bytes = nullptr;
+
+    BufferControlBlock* _sinker;
+    // set to true if the final statistic result is sent
+    bool _is_result_sent = false;
 };
 
-} // end of namespace
-
+} // namespace doris

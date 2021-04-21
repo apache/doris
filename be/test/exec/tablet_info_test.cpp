@@ -28,9 +28,10 @@ namespace doris {
 
 class OlapTablePartitionParamTest : public testing::Test {
 public:
-    OlapTablePartitionParamTest() { }
-    virtual ~OlapTablePartitionParamTest() { }
-    void SetUp() override { }
+    OlapTablePartitionParamTest() {}
+    virtual ~OlapTablePartitionParamTest() {}
+    void SetUp() override {}
+
 private:
 };
 
@@ -46,11 +47,11 @@ TOlapTableSchemaParam get_schema(TDescriptorTable* desc_tbl) {
         TTupleDescriptorBuilder tuple_builder;
 
         tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_INT).column_name("c1").column_pos(1).build());
+                TSlotDescriptorBuilder().type(TYPE_INT).column_name("c1").column_pos(1).build());
         tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("c2").column_pos(2).build());
+                TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("c2").column_pos(2).build());
         tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(20).column_name("c3").column_pos(3).build());
+                TSlotDescriptorBuilder().string_type(20).column_name("c3").column_pos(3).build());
 
         tuple_builder.build(&dtb);
 
@@ -157,7 +158,7 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         str_val->len = 3;
         memcpy(str_val->ptr, "abc", str_val->len);
 
-        // 9: 
+        // 9:
         uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_tablet(tuple, &partition, &dist_hash);
@@ -176,7 +177,7 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         str_val->len = 4;
         memcpy(str_val->ptr, "abcd", str_val->len);
 
-        // 25: 
+        // 25:
         uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_tablet(tuple, &partition, &dist_hash);
@@ -195,7 +196,7 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         str_val->len = 5;
         memcpy(str_val->ptr, "abcde", str_val->len);
 
-        // 50: 
+        // 50:
         uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_tablet(tuple, &partition, &dist_hash);
@@ -214,7 +215,7 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         str_val->len = 6;
         memcpy(str_val->ptr, "abcdef", str_val->len);
 
-        // 60: 
+        // 60:
         uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_tablet(tuple, &partition, &dist_hash);
@@ -294,7 +295,7 @@ TEST_F(OlapTablePartitionParamTest, unpartitioned) {
         str_val->len = 3;
         memcpy(str_val->ptr, "abc", str_val->len);
 
-        // 9: 
+        // 9:
         uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
         auto found = part.find_tablet(tuple, &partition, &dist_hash);
@@ -433,7 +434,7 @@ TEST_F(OlapTablePartitionParamTest, NodesInfo) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

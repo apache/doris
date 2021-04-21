@@ -25,41 +25,36 @@
 
 namespace doris {
 
-SlotRef::SlotRef(const TExprNode& node) :
-        Expr(node, true),
-    _slot_offset(-1),  // invalid
-    _null_indicator_offset(0, 0),
-    _slot_id(node.slot_ref.slot_id),
-    _tuple_id(node.slot_ref.tuple_id) {
+SlotRef::SlotRef(const TExprNode& node)
+        : Expr(node, true),
+          _slot_offset(-1), // invalid
+          _null_indicator_offset(0, 0),
+          _slot_id(node.slot_ref.slot_id),
+          _tuple_id(node.slot_ref.tuple_id) {
     // _slot/_null_indicator_offset are set in Prepare()
 }
 
-SlotRef::SlotRef(const SlotDescriptor* desc) :
-        Expr(desc->type(), true),
-    _slot_offset(-1),
-    _null_indicator_offset(0, 0),
-    _slot_id(desc->id()) {
+SlotRef::SlotRef(const SlotDescriptor* desc)
+        : Expr(desc->type(), true),
+          _slot_offset(-1),
+          _null_indicator_offset(0, 0),
+          _slot_id(desc->id()) {
     // _slot/_null_indicator_offset are set in Prepare()
 }
 
-SlotRef::SlotRef(const SlotDescriptor* desc, const TypeDescriptor& type) :
-        Expr(type, true),
-        _slot_offset(-1),
-        _null_indicator_offset(0, 0),
-        _slot_id(desc->id()) {
+SlotRef::SlotRef(const SlotDescriptor* desc, const TypeDescriptor& type)
+        : Expr(type, true), _slot_offset(-1), _null_indicator_offset(0, 0), _slot_id(desc->id()) {
     // _slot/_null_indicator_offset are set in Prepare()
 }
 
-SlotRef::SlotRef(const TypeDescriptor& type, int offset) :
-        Expr(type, true),
-        _tuple_idx(0),
-        _slot_offset(offset),
-        _null_indicator_offset(0, -1),
-        _slot_id(-1) {
-}
+SlotRef::SlotRef(const TypeDescriptor& type, int offset)
+        : Expr(type, true),
+          _tuple_idx(0),
+          _slot_offset(offset),
+          _null_indicator_offset(0, -1),
+          _slot_id(-1) {}
 
-Status SlotRef::prepare(const SlotDescriptor* slot_desc,
-                        const RowDescriptor& row_desc) {
+Status SlotRef::prepare(const SlotDescriptor* slot_desc, const RowDescriptor& row_desc) {
     if (!slot_desc->is_materialized()) {
         std::stringstream error;
         error << "reference to non-materialized slot. slot_id: " << _slot_id;
@@ -76,14 +71,13 @@ Status SlotRef::prepare(const SlotDescriptor* slot_desc,
     return Status::OK();
 }
 
-Status SlotRef::prepare(
-        RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx) {
+Status SlotRef::prepare(RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx) {
     DCHECK_EQ(_children.size(), 0);
     if (_slot_id == -1) {
         return Status::OK();
     }
 
-    const SlotDescriptor* slot_desc  = state->desc_tbl().get_slot_descriptor(_slot_id);
+    const SlotDescriptor* slot_desc = state->desc_tbl().get_slot_descriptor(_slot_id);
     if (slot_desc == NULL) {
         // TODO: create macro MAKE_ERROR() that returns a stream
         std::stringstream error;
@@ -127,10 +121,9 @@ bool SlotRef::is_bound(std::vector<TupleId>* tuple_ids) const {
 
 std::string SlotRef::debug_string() const {
     std::stringstream out;
-    out << "SlotRef(slot_id=" << _slot_id
-        << " tuple_idx=" << _tuple_idx << " slot_offset=" << _slot_offset
-        << " null_indicator=" << _null_indicator_offset
-        << " " << Expr::debug_string() << ")";
+    out << "SlotRef(slot_id=" << _slot_id << " tuple_idx=" << _tuple_idx
+        << " slot_offset=" << _slot_offset << " null_indicator=" << _null_indicator_offset << " "
+        << Expr::debug_string() << ")";
     return out.str();
 }
 
@@ -252,4 +245,4 @@ DecimalV2Val SlotRef::get_decimalv2_val(ExprContext* context, TupleRow* row) {
     return DecimalV2Val(reinterpret_cast<PackedInt128*>(t->get_slot(_slot_offset))->value);
 }
 
-}
+} // namespace doris

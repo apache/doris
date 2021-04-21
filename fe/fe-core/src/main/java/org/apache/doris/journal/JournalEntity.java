@@ -36,7 +36,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.bdbje.Timestamp;
-import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.LoadErrorHub;
@@ -70,6 +69,7 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
@@ -173,6 +173,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_DROP_TABLE: {
                 data = new DropInfo();
                 ((DropInfo) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
+                data = RefreshExternalTableInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -289,20 +294,8 @@ public class JournalEntity implements Writable {
                 ((ExportJob.StateTransfer) data).readFields(in);
                 isRead = true;
                 break;
-            case OperationType.OP_FINISH_SYNC_DELETE: {
-                data = new DeleteInfo();
-                ((DeleteInfo) data).readFields(in);
-                isRead = true;
-                break;
-            }
             case OperationType.OP_FINISH_DELETE: {
-                data = new DeleteInfo();
-                ((DeleteInfo) data).readFields(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_FINISH_ASYNC_DELETE: {
-                data = AsyncDeleteJob.read(in);
+                data = DeleteInfo.read(in);
                 isRead = true;
                 break;
             }

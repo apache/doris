@@ -17,18 +17,19 @@
 
 #pragma once
 
+#include <time.h>
+
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
-#include <time.h>
 #include <thread>
 #include <utility>
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
-#include "runtime/exec_env.h"
 #include "gutil/ref_counted.h"
+#include "runtime/exec_env.h"
 #include "util/countdown_latch.h"
 #include "util/thread.h"
 
@@ -44,13 +45,12 @@ public:
     std::string context_id;
     short keep_alive_min;
     ScanContext(std::string id) : context_id(std::move(id)) {}
-    ScanContext(const TUniqueId& fragment_id, int64_t offset) : fragment_instance_id(fragment_id), offset(offset) {}
+    ScanContext(const TUniqueId& fragment_id, int64_t offset)
+            : fragment_instance_id(fragment_id), offset(offset) {}
 };
 
 class ExternalScanContextMgr {
-
 public:
-
     ExternalScanContextMgr(ExecEnv* exec_env);
     ~ExternalScanContextMgr();
 
@@ -71,4 +71,4 @@ private:
     std::mutex _lock;
 };
 
-}
+} // namespace doris

@@ -20,8 +20,8 @@ package org.apache.doris.common.proc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.ImmutableList;
@@ -44,7 +44,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Name").add("IP").add("HostName").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
             .add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
-            .add("ReplayedJournalId").add("LastHeartbeat").add("IsHelper").add("ErrMsg")
+            .add("ReplayedJournalId").add("LastHeartbeat").add("IsHelper").add("ErrMsg").add("Version")
             .build();
     
     public static final int HOSTNAME_INDEX = 2;
@@ -95,7 +95,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(fe.getNodeName());
             info.add(fe.getHost());
 
-            info.add(FrontendOptions.getHostnameByIp(fe.getHost()));
+            info.add(NetUtils.getHostnameByIp(fe.getHost()));
             info.add(Integer.toString(fe.getEditLogPort()));
             info.add(Integer.toString(Config.http_port));
 
@@ -125,6 +125,8 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(String.valueOf(isHelperNode(helperNodes, fe)));
 
             info.add(fe.getHeartbeatErrMsg());
+
+            info.add(fe.getVersion());
 
             infos.add(info);
         }

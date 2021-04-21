@@ -34,7 +34,7 @@ under the License.
 ## 语法说明
 
 ```
-ALTER TABLE [db.]tbl1 REPLACE WITH tbl2
+ALTER TABLE [db.]tbl1 REPLACE WITH TABLE tbl2
 [PROPERTIES('swap' = 'true')];
 ```
 
@@ -42,7 +42,7 @@ ALTER TABLE [db.]tbl1 REPLACE WITH tbl2
 
 如果 `swap` 参数为 `true`，则替换后，名称为 `tbl1` 表中的数据为原 `tbl2` 表中的数据。而名称为 `tbl2` 表中的数据为原 `tbl1` 表中的数据。即两张表数据发生了互换。
 
-如果 `swap` 参数为 `true`，则替换后，名称为 `tbl1` 表中的数据为原 `tbl2` 表中的数据。而名称为 `tbl2` 表被删除。 
+如果 `swap` 参数为 `false`，则替换后，名称为 `tbl1` 表中的数据为原 `tbl2` 表中的数据。而名称为 `tbl2` 表被删除。 
 
 
 ## 原理
@@ -54,7 +54,7 @@ ALTER TABLE [db.]tbl1 REPLACE WITH tbl2
 1. 将表 B 重名为表 A。
 2. 将表 A 重名为表 B。
 
-如果 `swap` 为 `true`，则操作如下：
+如果 `swap` 为 `false`，则操作如下：
 
 1. 删除表 A。
 2. 将表 B 重名为表 A。

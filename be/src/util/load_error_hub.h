@@ -34,22 +34,16 @@ public:
         std::string msg;
         // enum ErrType type;
 
-        ErrorMsg(int64_t id, const std::string& message) :
-                job_id(id), msg(message) {
-        }
+        ErrorMsg(int64_t id, const std::string& message) : job_id(id), msg(message) {}
     };
 
-    LoadErrorHub() {
-    }
+    LoadErrorHub() {}
 
-    virtual ~LoadErrorHub() {
-    }
+    virtual ~LoadErrorHub() {}
 
-    static Status create_hub(
-            ExecEnv* env,
-            const TLoadErrorHubInfo* t_hub_info,
-            const std::string& error_log_file_name,
-            std::unique_ptr<LoadErrorHub>* hub);
+    static Status create_hub(ExecEnv* env, const TLoadErrorHubInfo* t_hub_info,
+                             const std::string& error_log_file_name,
+                             std::unique_ptr<LoadErrorHub>* hub);
 
     virtual Status prepare() = 0;
 

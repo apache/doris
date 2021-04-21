@@ -19,16 +19,16 @@
 #define DORIS_BE_SRC_QUERY_EXEC_CROSS_JOIN_NODE_H
 
 #include <boost/scoped_ptr.hpp>
-#include <boost/unordered_set.hpp>
 #include <boost/thread.hpp>
+#include <boost/unordered_set.hpp>
 #include <string>
 
-#include "exec/exec_node.h"
 #include "exec/blocking_join_node.h"
+#include "exec/exec_node.h"
 #include "exec/row_batch_list.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 
@@ -73,6 +73,6 @@ private:
     std::string build_list_debug_string();
 };
 
-}
+} // namespace doris
 
 #endif
