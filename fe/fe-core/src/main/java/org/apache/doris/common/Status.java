@@ -17,7 +17,7 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.proto.PStatus;
+import org.apache.doris.proto.Status.PStatus;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
@@ -81,9 +81,9 @@ public class Status {
     }
 
     public void setPstatus(PStatus status) {
-        this.errorCode = TStatusCode.findByValue(status.status_code);
-        if (status.error_msgs != null && !status.error_msgs.isEmpty()) {
-            this.errorMsg = status.error_msgs.get(0);
+        this.errorCode = TStatusCode.findByValue(status.getStatusCode());
+        if (!status.getErrorMsgsList().isEmpty()) {
+            this.errorMsg = status.getErrorMsgs(0);
         }
     }
 

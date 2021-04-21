@@ -44,7 +44,7 @@ import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.plugin.AuditEvent.EventType;
-import org.apache.doris.proto.PQueryStatistics;
+import org.apache.doris.proto.Data;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
@@ -107,16 +107,16 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
-    private void auditAfterExec(String origStmt, StatementBase parsedStmt, PQueryStatistics statistics) {
+    private void auditAfterExec(String origStmt, StatementBase parsedStmt, Data.PQueryStatistics statistics) {
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
         
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
             .setState(ctx.getState().toString()).setQueryTime(elapseMs)
-            .setScanBytes(statistics == null ? 0 : statistics.scan_bytes)
-            .setScanRows(statistics == null ? 0 : statistics.scan_rows)
-            .setCpuTimeMs(statistics == null ? 0 : statistics.cpu_ms)
+            .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
+            .setScanRows(statistics == null ? 0 : statistics.getScanRows())
+            .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
             .setReturnRows(ctx.getReturnRows())
             .setStmtId(ctx.getStmtId())
             .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
@@ -181,7 +181,7 @@ public class ConnectProcessor {
 
         // execute this query.
         StatementBase parsedStmt = null;
-        List<Pair<StatementBase, PQueryStatistics>> auditInfoList = Lists.newArrayList();
+        List<Pair<StatementBase, Data.PQueryStatistics>> auditInfoList = Lists.newArrayList();
         boolean alreadyAddedToAuditInfoList = false;
         try {
             List<StatementBase> stmts = analyze(originStmt);
@@ -232,7 +232,7 @@ public class ConnectProcessor {
 
         // audit after exec
         if (!auditInfoList.isEmpty()) {
-            for (Pair<StatementBase, PQueryStatistics> audit : auditInfoList) {
+            for (Pair<StatementBase, Data.PQueryStatistics> audit : auditInfoList) {
                 auditAfterExec(originStmt.replace("\n", " "), audit.first, audit.second);
             }
         } else {

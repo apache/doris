@@ -18,7 +18,7 @@
 package org.apache.doris.qe.cache;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.proto.PUniqueId;
+import org.apache.doris.proto.Types;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.system.Backend;
 
@@ -68,13 +68,13 @@ public class CacheCoordinator {
      * @param sqlKey 128 bit's sql md5
      * @return Backend
      */
-    public Backend findBackend(PUniqueId sqlKey) {
+    public Backend findBackend(Types.PUniqueId sqlKey) {
         resetBackend();
         Backend virtualNode = null;
         try {
             belock.lock();
-            SortedMap<Long, Backend> headMap = virtualNodes.headMap(sqlKey.hi);
-            SortedMap<Long, Backend> tailMap = virtualNodes.tailMap(sqlKey.hi);
+            SortedMap<Long, Backend> headMap = virtualNodes.headMap(sqlKey.getHi());
+            SortedMap<Long, Backend> tailMap = virtualNodes.tailMap(sqlKey.getHi());
             int retryTimes = 0;
             while (true) {
                 if (tailMap == null || tailMap.size() == 0) {
@@ -131,9 +131,9 @@ public class CacheCoordinator {
             if (!idToBackend.containsKey(bid)) {
                 for (int i = 0; i < VIRTUAL_NODES; i++) {
                     String nodeName = String.valueOf(bid) + "::" + String.valueOf(i);
-                    PUniqueId nodeId = CacheBeProxy.getMd5(nodeName);
-                    virtualNodes.remove(nodeId.hi);
-                    LOG.debug("remove backend id {}, virtual node name {} hashcode {}", bid, nodeName, nodeId.hi);
+                    Types.PUniqueId nodeId = CacheBeProxy.getMd5(nodeName);
+                    virtualNodes.remove(nodeId.getHi());
+                    LOG.debug("remove backend id {}, virtual node name {} hashcode {}", bid, nodeName, nodeId.getHi());
                 }
                 itr.remove();
             }
@@ -147,9 +147,9 @@ public class CacheCoordinator {
         realNodes.put(backend.getId(), backend);
         for (int i = 0; i < VIRTUAL_NODES; i++) {
             String nodeName = String.valueOf(backend.getId()) + "::" + String.valueOf(i);
-            PUniqueId nodeId = CacheBeProxy.getMd5(nodeName);
-            virtualNodes.put(nodeId.hi, backend);
-            LOG.debug("add backend id {}, virtual node name {} hashcode {}", backend.getId(), nodeName, nodeId.hi);
+            Types.PUniqueId nodeId = CacheBeProxy.getMd5(nodeName);
+            virtualNodes.put(nodeId.getHi(), backend);
+            LOG.debug("add backend id {}, virtual node name {} hashcode {}", backend.getId(), nodeName, nodeId.getHi());
         }
     }
 

@@ -18,14 +18,8 @@
 package org.apache.doris.qe.cache;
 
 import org.apache.doris.common.Status;
-import org.apache.doris.proto.PCacheResponse;
-import org.apache.doris.proto.PCacheStatus;
-import org.apache.doris.proto.PClearCacheRequest;
-import org.apache.doris.proto.PClearType;
-import org.apache.doris.proto.PFetchCacheRequest;
-import org.apache.doris.proto.PFetchCacheResult;
-import org.apache.doris.proto.PUniqueId;
-import org.apache.doris.proto.PUpdateCacheRequest;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -48,8 +42,8 @@ import java.util.concurrent.TimeoutException;
 public class CacheBeProxy extends CacheProxy {
     private static final Logger LOG = LogManager.getLogger(CacheBeProxy.class);
 
-    public void updateCache(UpdateCacheRequest request, int timeoutMs, Status status) {
-        PUniqueId sqlKey = request.sql_key;
+    public void updateCache(InternalService.PUpdateCacheRequest request, int timeoutMs, Status status) {
+        Types.PUniqueId sqlKey = request.getSqlKey();
         Backend backend = CacheCoordinator.getInstance().findBackend(sqlKey);
         if (backend == null) {
             LOG.warn("update cache can't find backend, sqlKey {}", sqlKey);
@@ -57,13 +51,13 @@ public class CacheBeProxy extends CacheProxy {
         }
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
-            PUpdateCacheRequest updateRequest = request.getRpcRequest();
-            Future<PCacheResponse> future = BackendServiceProxy.getInstance().updateCache(address, updateRequest);
-            PCacheResponse response = future.get(timeoutMs, TimeUnit.MICROSECONDS);
-            if (response.status == PCacheStatus.CACHE_OK) {
+            Future<InternalService.PCacheResponse> future = BackendServiceProxy.getInstance()
+                    .updateCache(address, request);
+            InternalService.PCacheResponse response = future.get(timeoutMs, TimeUnit.MICROSECONDS);
+            if (response.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
             } else {
-                status.setStatus(response.status.toString());
+                status.setStatus(response.getStatus().toString());
             }
         } catch (Exception e) {
             LOG.warn("update cache exception, sqlKey {}", sqlKey, e);
@@ -72,35 +66,18 @@ public class CacheBeProxy extends CacheProxy {
         }
     }
 
-    public FetchCacheResult fetchCache(FetchCacheRequest request, int timeoutMs, Status status) {
-        PUniqueId sqlKey = request.sql_key;
+    public InternalService.PFetchCacheResult fetchCache(InternalService.PFetchCacheRequest request,
+                                                        int timeoutMs, Status status) {
+        Types.PUniqueId sqlKey = request.getSqlKey();
         Backend backend = CacheCoordinator.getInstance().findBackend(sqlKey);
         if (backend == null) {
             return null;
         }
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-        long timeoutTs = System.currentTimeMillis() + timeoutMs;
-        FetchCacheResult result = null;
         try {
-            PFetchCacheRequest fetchRequest = request.getRpcRequest();
-            Future<PFetchCacheResult> future = BackendServiceProxy.getInstance().fetchCache(address, fetchRequest);
-            PFetchCacheResult fetchResult = null;
-            while (fetchResult == null) {
-                long currentTs = System.currentTimeMillis();
-                if (currentTs >= timeoutTs) {
-                    throw new TimeoutException("query cache timeout");
-                }
-                fetchResult = future.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
-                if (fetchResult.status == PCacheStatus.CACHE_OK) {
-                    status = new Status(TStatusCode.OK, "");
-                    result = new FetchCacheResult();
-                    result.setResult(fetchResult);
-                    return result;
-                } else {
-                    status.setStatus(fetchResult.status.toString());
-                    return null;
-                }
-            }
+            Future<InternalService.PFetchCacheResult> future = BackendServiceProxy.getInstance()
+                    .fetchCache(address, request);
+            return future.get(timeoutMs, TimeUnit.MILLISECONDS);
         } catch (RpcException e) {
             LOG.warn("fetch catch rpc exception, sqlKey {}, backend {}", sqlKey, backend.getId(), e);
             status.setRpcStatus(e.getMessage());
@@ -114,16 +91,15 @@ public class CacheBeProxy extends CacheProxy {
         } catch (TimeoutException e) {
             LOG.warn("fetch result timeout, sqlKey {}, backend {}", sqlKey, backend.getId(), e);
             status.setStatus("query timeout");
-        } finally {
         }
-        return result;
+        return null;
     }
 
-    public void clearCache(PClearCacheRequest request) {
+    public void clearCache(InternalService.PClearCacheRequest request) {
         this.clearCache(request, CacheCoordinator.getInstance().getBackendList());
     }
 
-    public void clearCache(PClearCacheRequest request, List<Backend> beList) {
+    public void clearCache(InternalService.PClearCacheRequest request, List<Backend> beList) {
         int retry;
         Status status = new Status();
         for (Backend backend : beList) {
@@ -143,18 +119,18 @@ public class CacheBeProxy extends CacheProxy {
         }
     }
 
-    protected boolean clearCache(PClearCacheRequest request, Backend backend, int timeoutMs, Status status) {
+    protected boolean clearCache(InternalService.PClearCacheRequest request, Backend backend, int timeoutMs, Status status) {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
-            request.clear_type = PClearType.CLEAR_ALL;
+            request = request.toBuilder().setClearType(InternalService.PClearType.CLEAR_ALL).build();
             LOG.info("clear all backend cache, backendId {}", backend.getId());
-            Future<PCacheResponse> future = BackendServiceProxy.getInstance().clearCache(address, request);
-            PCacheResponse response = future.get(timeoutMs, TimeUnit.MICROSECONDS);
-            if (response.status == PCacheStatus.CACHE_OK) {
+            Future<InternalService.PCacheResponse> future = BackendServiceProxy.getInstance().clearCache(address, request);
+            InternalService.PCacheResponse response = future.get(timeoutMs, TimeUnit.MICROSECONDS);
+            if (response.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
                 return true;
             } else {
-                status.setStatus(response.status.toString());
+                status.setStatus(response.getStatus().toString());
                 return false;
             }
         } catch (Exception e) {
