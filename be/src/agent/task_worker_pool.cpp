@@ -419,8 +419,9 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         TStatusCode::type status_code = TStatusCode::OK;
         std::vector<string> error_msgs;
         TStatus task_status;
+        string err;
         TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
+                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash, &err);
         if (dropped_tablet != nullptr) {
             OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
                     drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
@@ -433,6 +434,9 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
             StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
                     dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
                     drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
+        } else {
+            status_code = TStatusCode::NOT_FOUND;
+            error_msgs.push_back(err);
         }
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
