@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.proto.PQueryStatistics;
+import org.apache.doris.proto.Data.PQueryStatistics;
 import org.apache.doris.thrift.TResultBatch;
 
 public final class RowBatch {
