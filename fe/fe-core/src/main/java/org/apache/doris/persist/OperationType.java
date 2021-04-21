@@ -164,6 +164,8 @@ public class OperationType {
     public static final short OP_END_LOAD_JOB = 231;
     // update job info, used by spark load
     public static final short OP_UPDATE_LOAD_JOB = 232;
+    // fetch stream load record
+    public static final short OP_FETCH_STREAM_LOAD_RECORD = 233;
 
     // small files 251~260
     public static final short OP_CREATE_SMALL_FILE = 251;
