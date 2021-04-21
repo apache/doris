@@ -40,6 +40,7 @@
 #include "util/cpu_info.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
+#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -309,7 +310,7 @@ TEST_F(HashTableTest, ScanTest) {
 // This test continues adding to the hash table to trigger the resize code paths
 TEST_F(HashTableTest, GrowTableTest) {
     int build_row_val = 0;
-    int num_to_add = 4;
+    int num_to_add = LOOP_LESS_OR_MORE(2, 4);
     int expected_size = 0;
 
     std::shared_ptr<MemTracker> mem_tracker =
@@ -321,8 +322,7 @@ TEST_F(HashTableTest, GrowTableTest) {
                          mem_tracker, num_buckets);
     EXPECT_FALSE(mem_tracker->limit_exceeded());
 
-    // This inserts about 5M entries
-    for (int i = 0; i < 20; ++i) {
+    for (int i = 0; i < LOOP_LESS_OR_MORE(1, 20); ++i) {
         for (int j = 0; j < num_to_add; ++build_row_val, ++j) {
             hash_table.insert(create_tuple_row(build_row_val));
         }
@@ -333,7 +333,7 @@ TEST_F(HashTableTest, GrowTableTest) {
     }
     LOG(INFO) << "consume:" << mem_tracker->consumption() << ",expected_size:" << expected_size;
 
-    EXPECT_TRUE(mem_tracker->limit_exceeded());
+    EXPECT_EQ(LOOP_LESS_OR_MORE(0, 1), mem_tracker->limit_exceeded());
 
     // Validate that we can find the entries
     for (int i = 0; i < expected_size * 5; i += 100000) {

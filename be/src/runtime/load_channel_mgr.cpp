@@ -28,6 +28,8 @@
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_channel_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_mem_consumption, MetricUnit::BYTES, "",
+                                   mem_consumption, Labels({{"type", "load"}}));
 
 // Calculate the total memory limit of all load tasks on this BE
 static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
@@ -73,6 +75,7 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
 
 LoadChannelMgr::~LoadChannelMgr() {
     DEREGISTER_HOOK_METRIC(load_channel_count);
+    DEREGISTER_HOOK_METRIC(load_mem_consumption);
     _stop_background_threads_latch.count_down();
     if (_load_channels_clean_thread) {
         _load_channels_clean_thread->join();
@@ -83,6 +86,9 @@ LoadChannelMgr::~LoadChannelMgr() {
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     int64_t load_mem_limit = calc_process_max_load_memory(process_mem_limit);
     _mem_tracker = MemTracker::CreateTracker(load_mem_limit, "Load");
+    REGISTER_HOOK_METRIC(load_mem_consumption, [this]() {
+        return _mem_tracker->consumption();
+    });
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }

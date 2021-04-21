@@ -283,6 +283,9 @@ public:
 #define DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(name, unit, desc) \
     DEFINE_METRIC_PROTOTYPE(name, MetricType::GAUGE, unit, desc, "", Labels(), false)
 
+#define DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(name, unit, desc, group, labels) \
+    DEFINE_METRIC_PROTOTYPE(name, MetricType::GAUGE, unit, desc, #group, labels, false)
+
 #define INT_COUNTER_METRIC_REGISTER(entity, metric) \
     metric = (IntCounter*)(entity->register_metric<IntCounter>(&METRIC_##metric))
 

@@ -66,6 +66,8 @@ namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(etl_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(query_mem_consumption, MetricUnit::BYTES, "",
+                                   mem_consumption, Labels({{"type", "query"}}));
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
     return env->_init(store_paths);
@@ -199,6 +201,10 @@ Status ExecEnv::_init_mem_tracker() {
     int32_t index_page_cache_percentage = config::index_page_cache_percentage;
     StoragePageCache::create_global_cache(storage_cache_limit, index_page_cache_percentage);
 
+    REGISTER_HOOK_METRIC(query_mem_consumption, [this]() {
+      return _mem_tracker->consumption();
+    });
+
     // TODO(zc): The current memory usage configuration is a bit confusing,
     // we need to sort out the use of memory
     return Status::OK();
@@ -260,6 +266,9 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
+
+    DEREGISTER_HOOK_METRIC(query_mem_consumption);
+
     _is_init = false;
 }
 
