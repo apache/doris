@@ -55,6 +55,7 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -691,6 +692,11 @@ public class EditLog {
                     catalog.getLoadManager().replayUpdateLoadJobStateInfo(info);
                     break;
                 }
+                case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
+                    FetchStreamLoadRecord fetchStreamLoadRecord = (FetchStreamLoadRecord) journal.getData();
+                    catalog.getStreamLoadRecordMgr().replayFetchStreamLoadRecord(fetchStreamLoadRecord);
+                    break;
+                }
                 case OperationType.OP_CREATE_RESOURCE: {
                     final Resource resource = (Resource) journal.getData();
                     catalog.getResourceMgr().replayCreateResource(resource);
@@ -1290,6 +1296,10 @@ public class EditLog {
 
     public void logUpdateLoadJob(LoadJobStateUpdateInfo info) {
         logEdit(OperationType.OP_UPDATE_LOAD_JOB, info);
+    }
+
+    public void logFetchStreamLoadRecord(FetchStreamLoadRecord fetchStreamLoadRecord) {
+        logEdit(OperationType.OP_FETCH_STREAM_LOAD_RECORD, fetchStreamLoadRecord);
     }
 
     public void logCreateResource(Resource resource) {

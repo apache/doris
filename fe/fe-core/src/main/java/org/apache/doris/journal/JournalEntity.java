@@ -43,6 +43,7 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -505,6 +506,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_UPDATE_LOAD_JOB: {
                 data = LoadJobStateUpdateInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
+                data = FetchStreamLoadRecord.read(in);
                 isRead = true;
                 break;
             }

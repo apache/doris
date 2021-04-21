@@ -50,6 +50,7 @@
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
 #include "runtime/heartbeat_flags.h"
+#include "runtime/stream_load/stream_load_recorder.h"
 #include "util/countdown_latch.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -174,6 +175,8 @@ public:
     void create_base_compaction(TabletSharedPtr best_tablet,
                                 std::shared_ptr<BaseCompaction>& base_compaction);
 
+    std::shared_ptr<StreamLoadRecorder> get_stream_load_recorder() { return _stream_load_recorder; }
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -241,6 +244,8 @@ private:
                                                         std::vector<DataDir*> data_dirs);
     void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet);
     void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet);
+
+    Status _init_stream_load_recorder();
 
 private:
     struct CompactionCandidate {
@@ -346,6 +351,8 @@ private:
 
     std::mutex _compaction_producer_sleep_mutex;
     std::condition_variable _compaction_producer_sleep_cv;
+
+    std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
