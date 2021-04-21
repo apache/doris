@@ -173,7 +173,11 @@ public:
     UIntGauge* brpc_endpoint_stub_count;
     UIntGauge* tablet_writer_count;
 
-    UIntGauge* compaction_mem_current_consumption;
+    UIntGauge* compaction_mem_consumption;
+    UIntGauge* load_mem_consumption;
+    UIntGauge* query_mem_consumption;
+    UIntGauge* schema_change_mem_consumption;
+    UIntGauge* tablet_meta_mem_consumption;
 
     // Cache metrics
     UIntGauge* query_cache_memory_total_byte;

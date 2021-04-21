@@ -84,14 +84,14 @@ using strings::Substitute;
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_mem_current_consumption, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(compaction_mem_consumption, MetricUnit::BYTES, "",
+                                   mem_consumption, Labels({{"type", "compaction"}}));
 
 StorageEngine* StorageEngine::_s_instance = nullptr;
 
 static Status _validate_options(const EngineOptions& options) {
     if (options.store_paths.empty()) {
         return Status::InternalError("store paths is empty");
-        ;
     }
     return Status::OK();
 }
@@ -129,7 +129,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         MutexLock lock(&_gc_mutex);
         return _unused_rowsets.size();
     });
-    REGISTER_HOOK_METRIC(compaction_mem_current_consumption, [this]() {
+    REGISTER_HOOK_METRIC(compaction_mem_consumption, [this]() {
         return _compaction_mem_tracker->consumption();
         // We can get each compaction's detail usage
         // LOG(INFO) << _compaction_mem_tracker=>LogUsage(2);
@@ -138,10 +138,10 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 
 StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
-    DEREGISTER_HOOK_METRIC(compaction_mem_current_consumption);
+    DEREGISTER_HOOK_METRIC(compaction_mem_consumption);
     _clear();
 
-    if(_compaction_thread_pool){
+    if (_compaction_thread_pool) {
         _compaction_thread_pool->shutdown();
     }
 }
