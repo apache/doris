@@ -410,45 +410,50 @@ public abstract class AlterHandler extends MasterDaemon {
             throw new MetaNotFoundException("database " + task.getDbId() + " does not exist");
         }
 
-        OlapTable tbl = (OlapTable) db.getTableOrThrowException(task.getTableId(), Table.TableType.OLAP);
-        tbl.writeLock();
+        db.readLock();
         try {
-            Partition partition = tbl.getPartition(task.getPartitionId());
-            if (partition == null) {
-                throw new MetaNotFoundException("partition " + task.getPartitionId() + " does not exist");
-            }
-            MaterializedIndex index = partition.getIndex(task.getIndexId());
-            if (index == null) {
-                throw new MetaNotFoundException("index " + task.getIndexId() + " does not exist");
-            }
-            Tablet tablet = index.getTablet(task.getTabletId());
-            Preconditions.checkNotNull(tablet, task.getTabletId());
-            Replica replica = tablet.getReplicaById(task.getNewReplicaId());
-            if (replica == null) {
-                throw new MetaNotFoundException("replica " + task.getNewReplicaId() + " does not exist");
-            }
-            
-            LOG.info("before handle alter task tablet {}, replica: {}, task version: {}-{}",
-                    task.getSignature(), replica, task.getVersion(), task.getVersionHash());
-            boolean versionChanged = false;
-            if (replica.getVersion() < task.getVersion()) {
-                replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
-                versionChanged = true;
-            }
+            OlapTable tbl = (OlapTable) db.getTableOrThrowException(task.getTableId(), Table.TableType.OLAP);
+            tbl.writeLock();
+            try {
+                Partition partition = tbl.getPartition(task.getPartitionId());
+                if (partition == null) {
+                    throw new MetaNotFoundException("partition " + task.getPartitionId() + " does not exist");
+                }
+                MaterializedIndex index = partition.getIndex(task.getIndexId());
+                if (index == null) {
+                    throw new MetaNotFoundException("index " + task.getIndexId() + " does not exist");
+                }
+                Tablet tablet = index.getTablet(task.getTabletId());
+                Preconditions.checkNotNull(tablet, task.getTabletId());
+                Replica replica = tablet.getReplicaById(task.getNewReplicaId());
+                if (replica == null) {
+                    throw new MetaNotFoundException("replica " + task.getNewReplicaId() + " does not exist");
+                }
 
-            if (versionChanged) {
-                ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
-                        task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
-                        replica.getId(), replica.getVersion(), replica.getVersionHash(), -1,
-                        replica.getDataSize(), replica.getRowCount(),
-                        replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
-                        replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
-                Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
+                LOG.info("before handle alter task tablet {}, replica: {}, task version: {}-{}",
+                        task.getSignature(), replica, task.getVersion(), task.getVersionHash());
+                boolean versionChanged = false;
+                if (replica.getVersion() < task.getVersion()) {
+                    replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
+                    versionChanged = true;
+                }
+
+                if (versionChanged) {
+                    ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
+                            task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
+                            replica.getId(), replica.getVersion(), replica.getVersionHash(), -1,
+                            replica.getDataSize(), replica.getRowCount(),
+                            replica.getLastFailedVersion(), replica.getLastFailedVersionHash(),
+                            replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
+                    Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
+                }
+
+                LOG.info("after handle alter task tablet: {}, replica: {}", task.getSignature(), replica);
+            } finally {
+                tbl.writeUnlock();
             }
-            
-            LOG.info("after handle alter task tablet: {}, replica: {}", task.getSignature(), replica);
         } finally {
-            tbl.writeUnlock();
+            db.readUnlock();
         }
     }
 
