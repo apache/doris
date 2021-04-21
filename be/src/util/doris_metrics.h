@@ -28,16 +28,19 @@
 
 namespace doris {
 
-#define REGISTER_HOOK_METRIC(metric, func)                                                      \
-    DorisMetrics::instance()->metric =                                                          \
-            (UIntGauge*)(DorisMetrics::instance()->server_entity()->register_metric<UIntGauge>( \
-                    &METRIC_##metric));                                                         \
-    DorisMetrics::instance()->server_entity()->register_hook(                                   \
-            #metric, [&]() { DorisMetrics::instance()->metric->set_value(func()); });
+#define REGISTER_ENTITY_HOOK_METRIC(entity, owner, metric, func)                                \
+    owner->metric = (UIntGauge*)(entity->register_metric<UIntGauge>(&METRIC_##metric));         \
+    entity->register_hook(#metric, [&]() { owner->metric->set_value(func()); });
 
-#define DEREGISTER_HOOK_METRIC(name)                                              \
-    DorisMetrics::instance()->server_entity()->deregister_metric(&METRIC_##name); \
-    DorisMetrics::instance()->server_entity()->deregister_hook(#name);
+#define REGISTER_HOOK_METRIC(metric, func)                                                      \
+    REGISTER_ENTITY_HOOK_METRIC(DorisMetrics::instance()->server_entity(), DorisMetrics::instance(), metric, func)
+
+#define DEREGISTER_ENTITY_HOOK_METRIC(entity, name)                                             \
+    entity->deregister_metric(&METRIC_##name);                                                  \
+    entity->deregister_hook(#name);
+
+#define DEREGISTER_HOOK_METRIC(name)                                                            \
+    DEREGISTER_ENTITY_HOOK_METRIC(DorisMetrics::instance()->server_entity(), name)
 
 class DorisMetrics {
 public:
