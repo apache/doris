@@ -177,7 +177,7 @@ public:
     }
 
 private:
-    mutable boost::shared_mutex _node_mtx;
+    mutable std::shared_mutex _node_mtx;
     UniqueId _sql_key;
     ResultNode* _prev;
     ResultNode* _next;
