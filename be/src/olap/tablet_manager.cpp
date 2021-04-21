@@ -62,6 +62,9 @@ using strings::Substitute;
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTES, "",
+                                   mem_consumption, Labels({{"type", "tablet_meta"}}));
+
 static bool _cmp_tablet_by_create_time(const TabletSharedPtr& a, const TabletSharedPtr& b) {
     return a->creation_time() < b->creation_time();
 }
@@ -77,6 +80,14 @@ TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
     for (auto& tablets_shard : _tablets_shards) {
         tablets_shard.lock = std::unique_ptr<RWMutex>(new RWMutex());
     }
+    REGISTER_HOOK_METRIC(tablet_meta_mem_consumption, [this]() {
+      return _mem_tracker->consumption();
+    });
+}
+
+TabletManager::~TabletManager() {
+    _mem_tracker->Release(_mem_tracker->consumption());
+    DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
 }
 
 OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,

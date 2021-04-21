@@ -48,7 +48,6 @@ static StorageEngine* k_engine = nullptr;
 class TabletMgrTest : public testing::Test {
 public:
     virtual void SetUp() {
-        string test_engine_data_path = "./be/test/olap/test_data/converter_test_data/data";
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
         std::filesystem::remove_all(_engine_data_path);
         FileUtils::create_dir(_engine_data_path);
@@ -66,16 +65,7 @@ public:
 
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();
-        string tmp_data_path = _engine_data_path + "/data";
-        if (std::filesystem::exists(tmp_data_path)) {
-            std::filesystem::remove_all(tmp_data_path);
-        }
-        copy_dir(test_engine_data_path, tmp_data_path);
-        _tablet_id = 15007;
-        _schema_hash = 368169781;
-        _tablet_data_path = tmp_data_path + "/" + std::to_string(0) + "/" +
-                            std::to_string(_tablet_id) + "/" + std::to_string(_schema_hash);
-        _tablet_mgr.reset(new TabletManager(1));
+        _tablet_mgr = k_engine->tablet_manager();
     }
 
     virtual void TearDown() {
@@ -86,13 +76,9 @@ public:
     }
 
 private:
-    DataDir* _data_dir;
-    std::string _json_rowset_meta;
+    DataDir* _data_dir = nullptr;
     std::string _engine_data_path;
-    int64_t _tablet_id;
-    int32_t _schema_hash;
-    string _tablet_data_path;
-    std::unique_ptr<TabletManager> _tablet_mgr;
+    TabletManager* _tablet_mgr = nullptr;
 };
 
 TEST_F(TabletMgrTest, CreateTablet) {
@@ -138,6 +124,12 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_tablet_req.__set_tablet_schema(tablet_schema);
     create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_ERR_CE_TABLET_ID_EXIST);
+
+    OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, 3333, false);
+    ASSERT_TRUE(drop_st == OLAP_SUCCESS);
+    tablet.reset();
+    OLAPStatus trash_st = _tablet_mgr->start_trash_sweep();
+    ASSERT_TRUE(trash_st == OLAP_SUCCESS);
 }
 
 TEST_F(TabletMgrTest, CreateTabletWithSequence) {
@@ -169,7 +161,6 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     tablet_schema.__set_storage_type(TStorageType::COLUMN);
     tablet_schema.__set_columns(cols);
     tablet_schema.__set_sequence_col_idx(1);
-
     TCreateTabletReq create_tablet_req;
     create_tablet_req.__set_tablet_schema(tablet_schema);
     create_tablet_req.__set_tablet_id(111);
@@ -179,15 +170,22 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_SUCCESS);
+
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111, 3333);
     ASSERT_TRUE(tablet != nullptr);
     // check dir exist
     bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
-    ASSERT_TRUE(dir_exist);
+    ASSERT_TRUE(dir_exist) << tablet->tablet_path();
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
     OLAPStatus check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
     ASSERT_TRUE(check_meta_st == OLAP_SUCCESS);
+
+    OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, 3333, false);
+    ASSERT_TRUE(drop_st == OLAP_SUCCESS);
+    tablet.reset();
+    OLAPStatus trash_st = _tablet_mgr->start_trash_sweep();
+    ASSERT_TRUE(trash_st == OLAP_SUCCESS);
 }
 
 TEST_F(TabletMgrTest, DropTablet) {
