@@ -713,6 +713,49 @@ build_js_and_css() {
     cp bootstrap-table.min.css $TP_INSTALL_DIR/webroot/Bootstrap-3.3.7/css
 }
 
+# lzma
+build_lzma() {
+    check_if_source_exist $LZMA_SOURCE
+    cd $TP_SOURCE_DIR/$LZMA_SOURCE
+    export ACLOCAL_PATH=/usr/share/aclocal
+    sh autogen.sh
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    ../configure --prefix=$TP_INSTALL_DIR --enable-shared=no --with-pic
+    make -j $PARALLEL && make install
+}
+
+# xml2
+build_xml2() {
+    check_if_source_exist $XML2_SOURCE
+    cd $TP_SOURCE_DIR/$XML2_SOURCE
+    export ACLOCAL_PATH=/usr/share/aclocal
+    sh autogen.sh
+    make distclean
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    ../configure --prefix=$TP_INSTALL_DIR --enable-shared=no --with-pic --with-python=no
+    make -j $PARALLEL && make install
+}
+
+# gsasl
+build_gsasl() {
+    check_if_source_exist $GSASL_SOURCE
+    cd $TP_SOURCE_DIR/$GSASL_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    ../configure --prefix=$TP_INSTALL_DIR --enable-shared=no --with-pic
+    make -j $PARALLEL && make install
+}
+
+# hdfs3
+build_hdfs3() {
+    check_if_source_exist $HDFS3_SOURCE
+    cd $TP_SOURCE_DIR/$HDFS3_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    # export CC=/opt/compiler/gcc-10/bin/gcc
+    # export CXX=/opt/compiler/gcc-10/bin/g++
+    ../bootstrap --dependency=$TP_INSTALL_DIR --prefix=$TP_INSTALL_DIR
+    make -j $PARALLEL && make install
+}
+
 # See https://github.com/apache/incubator-doris/issues/2910
 # LLVM related codes have already be removed in master, so there is
 # no need to build llvm tool here.
@@ -751,5 +794,9 @@ build_croaringbitmap
 build_orc
 build_cctz
 build_js_and_css
+build_lzma
+build_xml2
+build_gsasl
+build_hdfs3
 
 echo "Finihsed to build all thirdparties"

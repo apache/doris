@@ -26,6 +26,7 @@
 #include "exprs/expr.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
+#include "exec/hdfs_file_reader.h"
 #include "exec/local_file_reader.h"
 #include "exec/broker_reader.h"
 #include "exec/buffered_reader.h"
@@ -113,6 +114,11 @@ Status ParquetScanner::open_next_reader() {
         switch (range.file_type) {
             case TFileType::FILE_LOCAL: {
                 file_reader.reset(new LocalFileReader(range.path, range.start_offset));
+                break;
+            }
+            case TFileType::FILE_HDFS: {
+                file_reader.reset(new HdfsFileReader(
+                        range.hdfs_params, range.path, range.start_offset));
                 break;
             }
             case TFileType::FILE_BROKER: {
