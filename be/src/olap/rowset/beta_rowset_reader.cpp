@@ -111,7 +111,12 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _input_block.reset(new RowBlockV2(schema, 1024, _parent_tracker));
 
     // init output block and row
-    _output_block.reset(new RowBlock(read_context->tablet_schema, _parent_tracker));
+    if (_parent_tracker == nullptr && read_context->runtime_state != nullptr) {
+        _output_block.reset(new RowBlock(read_context->tablet_schema,
+                                         read_context->runtime_state->instance_mem_tracker()));
+    } else {
+        _output_block.reset(new RowBlock(read_context->tablet_schema, _parent_tracker));
+    }
     RowBlockInfo output_block_info;
     output_block_info.row_num = 1024;
     output_block_info.null_supported = true;
