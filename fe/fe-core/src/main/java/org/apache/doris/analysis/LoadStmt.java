@@ -114,9 +114,6 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_SEQUENCE_COL = "sequence_col";
     public static final String KEY_IN_PARAM_BACKEND_ID = "backend_id";
 
-    //export
-    public static final String EXPORT_KEY_IN_PARAM_COLUMNS = "columns";
-
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;

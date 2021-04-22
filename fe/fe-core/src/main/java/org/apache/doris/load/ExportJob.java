@@ -17,6 +17,7 @@
 
 package org.apache.doris.load;
 
+import com.google.common.base.Splitter;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BrokerDesc;
@@ -46,7 +47,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -215,6 +215,10 @@ public class ExportJob implements Writable {
 
         this.exportTable = db.getTable(stmt.getTblName().getTbl());
 
+        if (!Strings.isNullOrEmpty(stmt.getColumns())) {
+            Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
+            this.exportColumns = split.splitToList(stmt.getColumns().toLowerCase());
+        }
         exportTable.readLock();
         try {
             this.dbId = db.getId();
@@ -223,7 +227,7 @@ public class ExportJob implements Writable {
             }
             this.tableId = exportTable.getId();
             this.tableName = stmt.getTblName();
-            genExecFragment(stmt);
+            genExecFragment();
         } finally {
             exportTable.readUnlock();
         }
@@ -238,8 +242,8 @@ public class ExportJob implements Writable {
         }
     }
 
-    private void genExecFragment(ExportStmt stmt) throws UserException {
-        registerToDesc(stmt);
+    private void genExecFragment() throws UserException {
+        registerToDesc();
         String tmpExportPathStr = getExportPath();
         // broker will upload file to tp path and than rename to the final file
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
@@ -255,15 +259,15 @@ public class ExportJob implements Writable {
         plan();
     }
 
-    private void registerToDesc(ExportStmt stmt) {
+    private void registerToDesc() {
         TableRef ref = new TableRef(tableName, null, partitions == null ? null : new PartitionNames(false, partitions));
         BaseTableRef tableRef = new BaseTableRef(ref, exportTable, tableName);
         exportTupleDesc = desc.createTupleDescriptor();
         exportTupleDesc.setTable(exportTable);
         exportTupleDesc.setRef(tableRef);
-        this.exportColumns = stmt.getColumns();
         for (Column col : exportTable.getBaseSchema()) {
-            if(!this.exportColumns.isEmpty() && this.exportColumns.contains(col.getName().toLowerCase())) {
+            String colName = col.getName().toLowerCase();
+            if (!this.exportColumns.isEmpty() && this.exportColumns.contains(colName)) {
                 SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
                 slot.setIsMaterialized(true);
                 slot.setColumn(col);
