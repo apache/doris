@@ -200,7 +200,7 @@ public:
     /// Wait for the in-flight write for 'page' to complete.
     /// 'lock_' must be held by the caller via 'client_lock'. page->buffer_lock should
     /// not be held.
-    //void WaitForWrite(boost::unique_lock<std::mutex>* client_lock, Page* page);
+    //void WaitForWrite(std::unique_lock<std::mutex>* client_lock, Page* page);
 
     /// Test helper: wait for all in-flight writes to complete.
     /// 'lock_' must not be held by the caller.

@@ -23,9 +23,9 @@
 
 #include <boost/function.hpp>
 #include <boost/scoped_ptr.hpp>
-#include <boost/thread/mutex.hpp>
 #include <boost/thread/thread.hpp>
 #include <iostream>
+#include <mutex>
 
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -48,13 +48,15 @@ namespace doris {
 #define ADD_TIMER(profile, name) (profile)->add_counter(name, TUnit::TIME_NS)
 #define ADD_CHILD_TIMER(profile, name, parent) (profile)->add_counter(name, TUnit::TIME_NS, parent)
 #define SCOPED_TIMER(c) ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
-#define SCOPED_CPU_TIMER(c) ScopedTimer<ThreadCpuStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
+#define SCOPED_CPU_TIMER(c) \
+    ScopedTimer<ThreadCpuStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
 #define CANCEL_SAFE_SCOPED_TIMER(c, is_cancelled) \
     ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c, is_cancelled)
 #define SCOPED_RAW_TIMER(c) \
     ScopedRawTimer<MonotonicStopWatch, int64_t> MACRO_CONCAT(SCOPED_RAW_TIMER, __COUNTER__)(c)
-#define SCOPED_ATOMIC_TIMER(c) \
-    ScopedRawTimer<MonotonicStopWatch, std::atomic<int64_t>> MACRO_CONCAT(SCOPED_ATOMIC_TIMER, __COUNTER__)(c)
+#define SCOPED_ATOMIC_TIMER(c)                                                                 \
+    ScopedRawTimer<MonotonicStopWatch, std::atomic<int64_t>> MACRO_CONCAT(SCOPED_ATOMIC_TIMER, \
+                                                                          __COUNTER__)(c)
 #define COUNTER_UPDATE(c, v) (c)->update(v)
 #define COUNTER_SET(c, v) (c)->set(v)
 #define ADD_THREAD_COUNTERS(profile, prefix) (profile)->add_thread_counters(prefix)
@@ -283,7 +285,7 @@ public:
     // invalidate pointers to profiles.
     template <class Compare>
     void sort_childer(const Compare& cmp) {
-        boost::lock_guard<boost::mutex> l(_children_lock);
+        std::lock_guard<std::mutex> l(_children_lock);
         std::sort(_children.begin(), _children.end(), cmp);
     }
 
@@ -481,7 +483,7 @@ private:
     std::set<std::vector<Counter*>*> _bucketing_counters;
 
     // protects _counter_map, _counter_child_map and _bucketing_counters
-    mutable boost::mutex _counter_map_lock;
+    mutable std::mutex _counter_map_lock;
 
     // Child profiles.  Does not own memory.
     // We record children in both a map (to facilitate updates) and a vector
@@ -491,7 +493,7 @@ private:
     // vector of (profile, indentation flag)
     typedef std::vector<std::pair<RuntimeProfile*, bool>> ChildVector;
     ChildVector _children;
-    mutable boost::mutex _children_lock; // protects _child_map and _children
+    mutable std::mutex _children_lock; // protects _child_map and _children
 
     typedef std::map<std::string, std::string> InfoStrings;
     InfoStrings _info_strings;
@@ -501,11 +503,11 @@ private:
     InfoStringsDisplayOrder _info_strings_display_order;
 
     // Protects _info_strings and _info_strings_display_order
-    mutable boost::mutex _info_strings_lock;
+    mutable std::mutex _info_strings_lock;
 
     typedef std::map<std::string, EventSequence*> EventSequenceMap;
     EventSequenceMap _event_sequence_map;
-    mutable boost::mutex _event_sequences_lock;
+    mutable std::mutex _event_sequences_lock;
 
     Counter _counter_total_time;
     // Time spent in just in this profile (i.e. not the children) as a fraction
@@ -545,7 +547,7 @@ private:
         ~PeriodicCounterUpdateState();
 
         // Lock protecting state below
-        boost::mutex lock;
+        std::mutex lock;
 
         // If true, tear down the update thread.
         volatile bool _done;

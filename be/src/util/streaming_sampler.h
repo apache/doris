@@ -20,7 +20,6 @@
 
 #include <string.h>
 
-#include <boost/thread/lock_guard.hpp>
 #include <iostream>
 
 #include "util/spinlock.h"
@@ -64,7 +63,7 @@ public:
     /// TODO: we can make this more complex by taking a weighted average of samples
     /// accumulated in a period.
     void AddSample(T sample, int ms) {
-        boost::lock_guard<SpinLock> l(lock_);
+        std::lock_guard<SpinLock> l(lock_);
         ++current_sample_count_;
         current_sample_sum_ += sample;
         current_sample_total_time_ += ms;
@@ -104,7 +103,7 @@ public:
     void SetSamples(int period, const std::vector<T>& samples) {
         DCHECK_LE(samples.size(), MAX_SAMPLES);
 
-        boost::lock_guard<SpinLock> l(lock_);
+        std::lock_guard<SpinLock> l(lock_);
         period_ = period;
         samples_collected_ = samples.size();
         memcpy(samples_, &samples[0], sizeof(T) * samples_collected_);
@@ -114,7 +113,7 @@ public:
     }
 
     std::string DebugString(const std::string& prefix = "") const {
-        boost::lock_guard<SpinLock> l(lock_);
+        std::lock_guard<SpinLock> l(lock_);
         std::stringstream ss;
         ss << prefix << "Period = " << period_ << std::endl
            << prefix << "Num = " << samples_collected_ << std::endl

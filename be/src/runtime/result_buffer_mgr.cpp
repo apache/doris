@@ -40,7 +40,7 @@ ResultBufferMgr::ResultBufferMgr() : _stop_background_threads_latch(1) {
     // Each BufferControlBlock has a limited queue size of 1024, it's not needed to count the
     // actual size of all BufferControlBlock.
     REGISTER_HOOK_METRIC(result_buffer_block_count, [this]() {
-        boost::lock_guard<boost::mutex> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         return _buffer_map.size();
     });
 }
@@ -71,7 +71,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
     boost::shared_ptr<BufferControlBlock> control_block(
             new BufferControlBlock(query_id, buffer_size));
     {
-        boost::lock_guard<boost::mutex> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         _buffer_map.insert(std::make_pair(query_id, control_block));
     }
     *sender = control_block;
@@ -81,7 +81,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
 boost::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(
         const TUniqueId& query_id) {
     // TODO(zhaochun): this lock can be bottleneck?
-    boost::lock_guard<boost::mutex> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     BufferMap::iterator iter = _buffer_map.find(query_id);
 
     if (_buffer_map.end() != iter) {
@@ -116,7 +116,7 @@ void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* c
 }
 
 Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
-    boost::lock_guard<boost::mutex> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     BufferMap::iterator iter = _buffer_map.find(query_id);
 
     if (_buffer_map.end() != iter) {
@@ -128,7 +128,7 @@ Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
 }
 
 Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& query_id) {
-    boost::lock_guard<boost::mutex> l(_timeout_lock);
+    std::lock_guard<std::mutex> l(_timeout_lock);
     TimeoutMap::iterator iter = _timeout_map.find(cancel_time);
 
     if (_timeout_map.end() == iter) {
@@ -149,7 +149,7 @@ void ResultBufferMgr::cancel_thread() {
         std::vector<TUniqueId> query_to_cancel;
         time_t now_time = time(NULL);
         {
-            boost::lock_guard<boost::mutex> l(_timeout_lock);
+            std::lock_guard<std::mutex> l(_timeout_lock);
             TimeoutMap::iterator end = _timeout_map.upper_bound(now_time + 1);
 
             for (TimeoutMap::iterator iter = _timeout_map.begin(); iter != end; ++iter) {

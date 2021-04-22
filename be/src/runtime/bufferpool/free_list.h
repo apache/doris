@@ -19,7 +19,6 @@
 #define DORIS_BE_RUNTIME_BUFFERPOOL_FREE_LIST_H
 
 #include <algorithm>
-#include <boost/thread/locks.hpp>
 #include <cstdint>
 #include <vector>
 
