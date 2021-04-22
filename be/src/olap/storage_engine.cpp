@@ -238,7 +238,7 @@ Status StorageEngine::_init_store_map() {
     return Status::OK();
 }
 
-Status StorageEngine::_init_stream_load_recorder(std::string stream_load_record_path) {
+Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_record_path) {
     LOG(INFO) << "stream load record path: " << stream_load_record_path;
     // init stream load record rocksdb
     _stream_load_recorder.reset(new StreamLoadRecorder(stream_load_record_path));
