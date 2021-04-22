@@ -93,11 +93,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 // NOTE: we must be carefully if we send next request
@@ -167,7 +163,7 @@ public class ExportJob implements Writable {
     private OriginStatement origStmt;
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
-    private List<String> exportColumns ;
+    private List<String> exportColumns = Lists.newArrayList();
 
 
     public ExportJob() {
