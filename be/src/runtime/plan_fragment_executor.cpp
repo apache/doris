@@ -19,8 +19,7 @@
 
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <boost/date_time/posix_time/posix_time_types.hpp>
-#include <boost/unordered_map.hpp>
+#include <unordered_map>
 
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -243,7 +242,7 @@ Status PlanFragmentExecutor::open() {
     // TODO: if no report thread is started, make sure to send a final profile
     // at end, otherwise the coordinator hangs in case we finish w/ an error
     if (!_report_status_cb.empty() && config::status_report_interval > 0) {
-        boost::unique_lock<boost::mutex> l(_report_thread_lock);
+        std::unique_lock<std::mutex> l(_report_thread_lock);
         _report_thread = boost::thread(&PlanFragmentExecutor::report_profile, this);
         // make sure the thread started up, otherwise report_profile() might get into a race
         // with stop_report_thread()
@@ -327,7 +326,7 @@ Status PlanFragmentExecutor::open_internal() {
         _collect_query_statistics();
         Status status;
         {
-            boost::lock_guard<boost::mutex> l(_status_lock);
+            std::lock_guard<std::mutex> l(_status_lock);
             status = _status;
         }
         status = _sink->close(runtime_state(), status);
@@ -355,7 +354,7 @@ void PlanFragmentExecutor::_collect_query_statistics() {
 void PlanFragmentExecutor::report_profile() {
     VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
     DCHECK(!_report_status_cb.empty());
-    boost::unique_lock<boost::mutex> l(_report_thread_lock);
+    std::unique_lock<std::mutex> l(_report_thread_lock);
     // tell Open() that we started
     _report_thread_started_cv.notify_one();
 
@@ -364,21 +363,18 @@ void PlanFragmentExecutor::report_profile() {
     // updates at once so its better for contention as well as smoother progress
     // reporting.
     int report_fragment_offset = rand() % config::status_report_interval;
-    boost::system_time timeout =
-            boost::get_system_time() + boost::posix_time::seconds(report_fragment_offset);
     // We don't want to wait longer than it takes to run the entire fragment.
-    _stop_report_thread_cv.timed_wait(l, timeout);
+    _stop_report_thread_cv.wait_for(l, std::chrono::seconds(report_fragment_offset));
     bool is_report_profile_interval = _is_report_success && config::status_report_interval > 0;
     while (_report_thread_active) {
         if (is_report_profile_interval) {
-            boost::system_time timeout = boost::get_system_time() +
-                                         boost::posix_time::seconds(config::status_report_interval);
-            // timed_wait can return because the timeout occurred or the condition variable
+            // wait_for can return because the timeout occurred or the condition variable
             // was signaled.  We can't rely on its return value to distinguish between the
             // two cases (e.g. there is a race here where the wait timed out but before grabbing
             // the lock, the condition variable was signaled).  Instead, we will use an external
             // flag, _report_thread_active, to coordinate this.
-            _stop_report_thread_cv.timed_wait(l, timeout);
+            _stop_report_thread_cv.wait_for(l,
+                                            std::chrono::seconds(config::status_report_interval));
         } else {
             // Artificial triggering, such as show proc "/current_queries".
             _stop_report_thread_cv.wait(l);
@@ -410,7 +406,7 @@ void PlanFragmentExecutor::send_report(bool done) {
 
     Status status;
     {
-        boost::lock_guard<boost::mutex> l(_status_lock);
+        std::lock_guard<std::mutex> l(_status_lock);
         status = _status;
     }
 
@@ -440,7 +436,7 @@ void PlanFragmentExecutor::stop_report_thread() {
     }
 
     {
-        boost::lock_guard<boost::mutex> l(_report_thread_lock);
+        std::lock_guard<std::mutex> l(_report_thread_lock);
         _report_thread_active = false;
     }
 
@@ -494,7 +490,7 @@ void PlanFragmentExecutor::update_status(const Status& new_status) {
     }
 
     {
-        boost::lock_guard<boost::mutex> l(_status_lock);
+        std::lock_guard<std::mutex> l(_status_lock);
         // if current `_status` is ok, set it to `new_status` to record the error.
         if (_status.ok()) {
             if (new_status.is_mem_limit_exceeded()) {
@@ -560,7 +556,7 @@ void PlanFragmentExecutor::close() {
             if (_prepared) {
                 Status status;
                 {
-                    boost::lock_guard<boost::mutex> l(_status_lock);
+                    std::lock_guard<std::mutex> l(_status_lock);
                     status = _status;
                 }
                 _sink->close(runtime_state(), status);

@@ -19,7 +19,7 @@
 #define DORIS_BE_SRC_UTIL_INTERNAL_QUEUE_H
 
 #include <boost/function.hpp>
-#include <boost/thread/locks.hpp>
+#include <mutex>
 
 #include "util/fake_lock.h"
 #include "util/spinlock.h"
@@ -56,11 +56,11 @@ public:
 
         /// Returns the Next/Prev node or NULL if this is the end/front.
         T* next() const {
-            boost::lock_guard<LockType> lock(parent_queue->lock_);
+            std::lock_guard<LockType> lock(parent_queue->lock_);
             return reinterpret_cast<T*>(next_node);
         }
         T* prev() const {
-            boost::lock_guard<LockType> lock(parent_queue->lock_);
+            std::lock_guard<LockType> lock(parent_queue->lock_);
             return reinterpret_cast<T*>(prev_node);
         }
 
@@ -78,7 +78,7 @@ public:
     /// Returns the element at the head of the list without dequeuing or NULL
     /// if the queue is empty. This is O(1).
     T* head() const {
-        boost::lock_guard<LockType> lock(lock_);
+        std::lock_guard<LockType> lock(lock_);
         if (empty()) return NULL;
         return reinterpret_cast<T*>(head_);
     }
@@ -86,7 +86,7 @@ public:
     /// Returns the element at the end of the list without dequeuing or NULL
     /// if the queue is empty. This is O(1).
     T* tail() {
-        boost::lock_guard<LockType> lock(lock_);
+        std::lock_guard<LockType> lock(lock_);
         if (empty()) return NULL;
         return reinterpret_cast<T*>(tail_);
     }
@@ -99,7 +99,7 @@ public:
         DCHECK(node->parent_queue == NULL);
         node->parent_queue = this;
         {
-            boost::lock_guard<LockType> lock(lock_);
+            std::lock_guard<LockType> lock(lock_);
             if (tail_ != NULL) tail_->next_node = node;
             node->prev_node = tail_;
             tail_ = node;
@@ -113,7 +113,7 @@ public:
     T* dequeue() {
         Node* result = NULL;
         {
-            boost::lock_guard<LockType> lock(lock_);
+            std::lock_guard<LockType> lock(lock_);
             if (empty()) return NULL;
             --size_;
             result = head_;
@@ -135,7 +135,7 @@ public:
     T* pop_back() {
         Node* result = NULL;
         {
-            boost::lock_guard<LockType> lock(lock_);
+            std::lock_guard<LockType> lock(lock_);
             if (empty()) return NULL;
             --size_;
             result = tail_;
@@ -158,7 +158,7 @@ public:
         Node* node = (Node*)n;
         if (node->parent_queue != this) return false;
         {
-            boost::lock_guard<LockType> lock(lock_);
+            std::lock_guard<LockType> lock(lock_);
             if (node->next_node == NULL && node->prev_node == NULL) {
                 // Removing only node
                 DCHECK(node == head_);
@@ -192,7 +192,7 @@ public:
 
     /// Clears all elements in the list.
     void clear() {
-        boost::lock_guard<LockType> lock(lock_);
+        std::lock_guard<LockType> lock(lock_);
         Node* cur = head_;
         while (cur != NULL) {
             Node* tmp = cur;
@@ -213,7 +213,7 @@ public:
     /// Validates the internal structure of the list
     bool validate() {
         int num_elements_found = 0;
-        boost::lock_guard<LockType> lock(lock_);
+        std::lock_guard<LockType> lock(lock_);
         if (head_ == NULL) {
             if (tail_ != NULL) return false;
             if (size() != 0) return false;
@@ -241,7 +241,7 @@ public:
     // false, terminate iteration. It is invalid to call other InternalQueue methods
     // from 'fn'.
     void iterate(boost::function<bool(T*)> fn) {
-        boost::lock_guard<LockType> lock(lock_);
+        std::lock_guard<LockType> lock(lock_);
         for (Node* current = head_; current != NULL; current = current->next_node) {
             if (!fn(reinterpret_cast<T*>(current))) return;
         }
@@ -252,7 +252,7 @@ public:
         std::stringstream ss;
         ss << "(";
         {
-            boost::lock_guard<LockType> lock(lock_);
+            std::lock_guard<LockType> lock(lock_);
             Node* curr = head_;
             while (curr != NULL) {
                 ss << (void*)curr;

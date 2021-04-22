@@ -19,12 +19,12 @@
 #define DORIS_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
 
 #include <boost/shared_ptr.hpp>
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
-#include <boost/unordered_map.hpp>
-#include <boost/unordered_set.hpp>
+#include <condition_variable>
 #include <list>
+#include <mutex>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -91,14 +91,14 @@ private:
     friend class DataStreamSender;
 
     // protects all fields below
-    boost::mutex _lock;
+    std::mutex _lock;
 
     // map from hash value of fragment instance id/node id pair to stream receivers;
     // Ownership of the stream revcr is shared between this instance and the caller of
     // create_recvr().
     // we don't want to create a map<pair<TUniqueId, PlanNodeId>, DataStreamRecvr*>,
     // because that requires a bunch of copying of ids for lookup
-    typedef boost::unordered_multimap<uint32_t, boost::shared_ptr<DataStreamRecvr>> StreamMap;
+    typedef std::unordered_multimap<uint32_t, boost::shared_ptr<DataStreamRecvr>> StreamMap;
     StreamMap _receiver_map;
 
     // less-than ordering for pair<TUniqueId, PlanNodeId>

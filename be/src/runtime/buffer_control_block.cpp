@@ -95,7 +95,7 @@ Status BufferControlBlock::init() {
 }
 
 Status BufferControlBlock::add_batch(TFetchDataResult* result) {
-    boost::unique_lock<boost::mutex> l(_lock);
+    std::unique_lock<std::mutex> l(_lock);
 
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
@@ -128,7 +128,7 @@ Status BufferControlBlock::add_batch(TFetchDataResult* result) {
 Status BufferControlBlock::get_batch(TFetchDataResult* result) {
     TFetchDataResult* item = NULL;
     {
-        boost::unique_lock<boost::mutex> l(_lock);
+        std::unique_lock<std::mutex> l(_lock);
 
         while (_batch_queue.empty() && !_is_close && !_is_cancelled) {
             _data_arrival.wait(l);
@@ -172,7 +172,7 @@ Status BufferControlBlock::get_batch(TFetchDataResult* result) {
 }
 
 void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
-    boost::lock_guard<boost::mutex> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     if (!_status.ok()) {
         ctx->on_failure(_status);
         return;
@@ -205,7 +205,7 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
 }
 
 Status BufferControlBlock::close(Status exec_status) {
-    boost::unique_lock<boost::mutex> l(_lock);
+    std::unique_lock<std::mutex> l(_lock);
     _is_close = true;
     _status = exec_status;
 
@@ -227,7 +227,7 @@ Status BufferControlBlock::close(Status exec_status) {
 }
 
 Status BufferControlBlock::cancel() {
-    boost::unique_lock<boost::mutex> l(_lock);
+    std::unique_lock<std::mutex> l(_lock);
     _is_cancelled = true;
     _data_removal.notify_all();
     _data_arrival.notify_all();

@@ -40,7 +40,7 @@
 using std::filesystem::directory_iterator;
 using std::filesystem::remove;
 using boost::scoped_ptr;
-using boost::unordered_map;
+using std::unordered_map;
 using boost::thread;
 
 using std::string;

@@ -21,7 +21,6 @@
 #include <stdint.h>
 
 #include <boost/scoped_ptr.hpp>
-#include <boost/thread/locks.hpp>
 #include <string>
 
 #include "common/status.h"

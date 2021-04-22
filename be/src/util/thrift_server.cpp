@@ -28,8 +28,8 @@
 #include <thrift/transport/TSocket.h>
 
 #include <boost/thread.hpp>
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
+#include <condition_variable>
+#include <mutex>
 #include <sstream>
 
 #include "util/doris_metrics.h"
@@ -80,11 +80,11 @@ private:
     // Lock used to ensure that there are no missed notifications between starting the
     // supervision thread and calling _signal_cond.timed_wait. Also used to ensure
     // thread-safe access to members of _thrift_server
-    boost::mutex _signal_lock;
+    std::mutex _signal_lock;
 
     // Condition variable that is notified by the supervision thread once either
     // a) all is well or b) an error occurred.
-    boost::condition_variable _signal_cond;
+    std::condition_variable _signal_cond;
 
     // The ThriftServer under management. This class is a friend of ThriftServer, and
     // reaches in to change member variables at will.
@@ -105,20 +105,18 @@ const int ThriftServer::ThriftServerEventProcessor::TIMEOUT_MS = 2500;
 
 Status ThriftServer::ThriftServerEventProcessor::start_and_wait_for_server() {
     // Locking here protects against missed notifications if Supervise executes quickly
-    boost::unique_lock<boost::mutex> lock(_signal_lock);
+    std::unique_lock<std::mutex> lock(_signal_lock);
     _thrift_server->_started = false;
 
     _thrift_server->_server_thread.reset(
             new boost::thread(&ThriftServer::ThriftServerEventProcessor::supervise, this));
 
-    boost::system_time deadline =
-            boost::get_system_time() + boost::posix_time::milliseconds(TIMEOUT_MS);
-
     // Loop protects against spurious wakeup. Locks provide necessary fences to ensure
     // visibility.
     while (!_signal_fired) {
         // Yields lock and allows supervision thread to continue and signal
-        if (!_signal_cond.timed_wait(lock, deadline)) {
+        std::cv_status cvsts = _signal_cond.wait_for(lock, std::chrono::milliseconds(TIMEOUT_MS));
+        if (cvsts == std::cv_status::timeout) {
             std::stringstream ss;
             ss << "ThriftServer '" << _thrift_server->_name
                << "' (on port: " << _thrift_server->_port << ") did not start within " << TIMEOUT_MS
@@ -154,7 +152,7 @@ void ThriftServer::ThriftServerEventProcessor::supervise() {
 
     {
         // _signal_lock ensures mutual exclusion of access to _thrift_server
-        boost::lock_guard<boost::mutex> lock(_signal_lock);
+        std::lock_guard<std::mutex> lock(_signal_lock);
         _thrift_server->_started = false;
 
         // There may not be anyone waiting on this signal (if the
@@ -170,7 +168,7 @@ void ThriftServer::ThriftServerEventProcessor::supervise() {
 void ThriftServer::ThriftServerEventProcessor::preServe() {
     // Acquire the signal lock to ensure that StartAndWaitForServer is
     // waiting on _signal_cond when we notify.
-    boost::lock_guard<boost::mutex> lock(_signal_lock);
+    std::lock_guard<std::mutex> lock(_signal_lock);
     _signal_fired = true;
 
     // This is the (only) success path - if this is not reached within TIMEOUT_MS,
@@ -221,7 +219,7 @@ void* ThriftServer::ThriftServerEventProcessor::createContext(
     ss << socket->getPeerAddress() << ":" << socket->getPeerPort();
 
     {
-        boost::lock_guard<boost::mutex> _l(_thrift_server->_session_keys_lock);
+        std::lock_guard<std::mutex> _l(_thrift_server->_session_keys_lock);
 
         boost::shared_ptr<SessionKey> key_ptr(new std::string(ss.str()));
 
@@ -257,7 +255,7 @@ void ThriftServer::ThriftServerEventProcessor::deleteContext(
     }
 
     {
-        boost::lock_guard<boost::mutex> _l(_thrift_server->_session_keys_lock);
+        std::lock_guard<std::mutex> _l(_thrift_server->_session_keys_lock);
         _thrift_server->_session_keys.erase(_session_key);
     }
 

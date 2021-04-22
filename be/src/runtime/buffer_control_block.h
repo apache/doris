@@ -18,10 +18,10 @@
 #ifndef DORIS_BE_RUNTIME_BUFFER_CONTROL_BLOCK_H
 #define DORIS_BE_RUNTIME_BUFFER_CONTROL_BLOCK_H
 
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
+#include <condition_variable>
 #include <deque>
 #include <list>
+#include <mutex>
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
@@ -112,11 +112,11 @@ private:
     // blocking queue for batch
     ResultQueue _batch_queue;
     // protects all subsequent data in this block
-    boost::mutex _lock;
+    std::mutex _lock;
     // signal arrival of new batch or the eos/cancelled condition
-    boost::condition_variable _data_arrival;
+    std::condition_variable _data_arrival;
     // signal removal of data by stream consumer
-    boost::condition_variable _data_removal;
+    std::condition_variable _data_removal;
 
     std::deque<GetResultBatchCtx*> _waiting_rpc;
 

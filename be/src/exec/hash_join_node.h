@@ -20,8 +20,8 @@
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread.hpp>
-#include <boost/unordered_set.hpp>
 #include <string>
+#include <unordered_set>
 
 #include "exec/exec_node.h"
 #include "exec/hash_table.h"
@@ -67,7 +67,7 @@ private:
     bool _is_push_down;
 
     // for right outer joins, keep track of what's been joined
-    typedef boost::unordered_set<TupleRow*> BuildTupleRowSet;
+    typedef std::unordered_set<TupleRow*> BuildTupleRowSet;
     BuildTupleRowSet _joined_build_rows;
 
     TJoinOp::type _join_op;
@@ -106,7 +106,7 @@ private:
     boost::scoped_ptr<RowBatch> _probe_batch;
     int _probe_batch_pos; // current scan pos in _probe_batch
     int _probe_counter;
-    bool _probe_eos;      // if true, probe child has no more rows to process
+    bool _probe_eos; // if true, probe child has no more rows to process
     TupleRow* _current_probe_row;
 
     // _build_tuple_idx[i] is the tuple index of child(1)'s tuple[i] in the output row

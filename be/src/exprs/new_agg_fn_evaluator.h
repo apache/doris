@@ -163,8 +163,6 @@ public:
     static const size_t DOUBLE_SIZE = sizeof(double);
     static const size_t DECIMAL_SIZE = sizeof(DecimalValue);
     static const size_t DECIMALV2_SIZE = sizeof(DecimalV2Value);
-    static const size_t TIME_DURATION_SIZE = sizeof(boost::posix_time::time_duration);
-    static const size_t DATE_SIZE = sizeof(boost::gregorian::date);
     static const size_t LARGEINT_SIZE = sizeof(__int128);
 
     // DATETIME VAL has two part: packet_time is 8 byte, and type is 4 byte
