@@ -167,6 +167,9 @@ public class ExportJob implements Writable {
     private OriginStatement origStmt;
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
+    private List<String> exportColumns ;
+
+
     public ExportJob() {
         this.id = -1;
         this.dbId = -1;
@@ -220,7 +223,7 @@ public class ExportJob implements Writable {
             }
             this.tableId = exportTable.getId();
             this.tableName = stmt.getTblName();
-            genExecFragment();
+            genExecFragment(stmt);
         } finally {
             exportTable.readUnlock();
         }
@@ -235,8 +238,8 @@ public class ExportJob implements Writable {
         }
     }
 
-    private void genExecFragment() throws UserException {
-        registerToDesc();
+    private void genExecFragment(ExportStmt stmt) throws UserException {
+        registerToDesc(stmt);
         String tmpExportPathStr = getExportPath();
         // broker will upload file to tp path and than rename to the final file
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
@@ -252,17 +255,25 @@ public class ExportJob implements Writable {
         plan();
     }
 
-    private void registerToDesc() {
+    private void registerToDesc(ExportStmt stmt) {
         TableRef ref = new TableRef(tableName, null, partitions == null ? null : new PartitionNames(false, partitions));
         BaseTableRef tableRef = new BaseTableRef(ref, exportTable, tableName);
         exportTupleDesc = desc.createTupleDescriptor();
         exportTupleDesc.setTable(exportTable);
         exportTupleDesc.setRef(tableRef);
+        this.exportColumns = stmt.getColumns();
         for (Column col : exportTable.getBaseSchema()) {
-            SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
-            slot.setIsMaterialized(true);
-            slot.setColumn(col);
-            slot.setIsNullable(col.isAllowNull());
+            if(!this.exportColumns.isEmpty() && this.exportColumns.contains(col.getName().toLowerCase())) {
+                SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
+                slot.setIsMaterialized(true);
+                slot.setColumn(col);
+                slot.setIsNullable(col.isAllowNull());
+            } else {
+                SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
+                slot.setIsMaterialized(true);
+                slot.setColumn(col);
+                slot.setIsNullable(col.isAllowNull());
+            }
         }
         desc.computeMemLayout();
     }
@@ -782,7 +793,7 @@ public class ExportJob implements Writable {
             String value = Text.readString(in);
             sessionVariables.put(key, value);
         }
-        
+
         if (origStmt.originStmt.isEmpty()) {
             return;
         }

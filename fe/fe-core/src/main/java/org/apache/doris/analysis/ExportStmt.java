@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Splitter;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FsBroker;
@@ -43,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -69,6 +71,7 @@ public class ExportStmt extends StatementBase {
     private Map<String, String> properties = Maps.newHashMap();
     private String columnSeparator;
     private String lineDelimiter;
+    private List<String> columns = new ArrayList<>();
 
     private TableRef tableRef;
 
@@ -83,6 +86,10 @@ public class ExportStmt extends StatementBase {
         this.brokerDesc = brokerDesc;
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
+    }
+
+    public List<String> getColumns() {
+        return columns;
     }
 
     public TableName getTblName() {
@@ -264,6 +271,13 @@ public class ExportStmt extends StatementBase {
                 properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR));
         this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
                 properties, ExportStmt.DEFAULT_LINE_DELIMITER));
+        if(properties.containsKey(LoadStmt.EXPORT_KEY_IN_PARAM_COLUMNS)){
+            String cols = properties.get(LoadStmt.EXPORT_KEY_IN_PARAM_COLUMNS);
+            if(!Strings.isNullOrEmpty(cols)){
+                Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
+                this.columns = split.splitToList(cols.toLowerCase());
+            }
+        }
         // exec_mem_limit
         if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
             try {
