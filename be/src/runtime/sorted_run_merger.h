@@ -19,7 +19,7 @@
 #define DORIS_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
 
 #include <boost/scoped_ptr.hpp>
-#include <boost/thread/mutex.hpp>
+#include <mutex>
 
 #include "common/object_pool.h"
 #include "util/tuple_row_compare.h"
@@ -107,16 +107,14 @@ protected:
     RuntimeProfile::Counter* _get_next_batch_timer;
 };
 
-class ChildSortedRunMerger: public SortedRunMerger {
+class ChildSortedRunMerger : public SortedRunMerger {
 public:
-    ChildSortedRunMerger(const TupleRowComparator& compare_less_than,
-        RowDescriptor* row_desc,
-        RuntimeProfile* profile,
-        MemTracker* _parent,
-        uint32_t row_batch_size,
-        bool deep_copy_input);
+    ChildSortedRunMerger(const TupleRowComparator& compare_less_than, RowDescriptor* row_desc,
+                         RuntimeProfile* profile, MemTracker* _parent, uint32_t row_batch_size,
+                         bool deep_copy_input);
 
     Status get_batch(RowBatch** output_batch) override;
+
 private:
     // Ptr to prevent mem leak for api get_batch(Rowbatch**)
     std::unique_ptr<RowBatch> _current_row_batch;

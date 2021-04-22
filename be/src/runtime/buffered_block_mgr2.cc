@@ -41,11 +41,11 @@ using std::endl;
 
 using boost::bind;
 using boost::mem_fn;
-using boost::lock_guard;
-using boost::mutex;
+using std::lock_guard;
+using std::mutex;
 using boost::scoped_array;
 using boost::shared_ptr;
-using boost::unique_lock;
+using std::unique_lock;
 
 namespace doris {
 

@@ -19,9 +19,8 @@
 
 #include <google/protobuf/stubs/common.h>
 
-#include <boost/thread/locks.hpp>
-#include <boost/thread/mutex.hpp>
 #include <deque>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -39,13 +38,12 @@ using std::vector;
 using std::pair;
 using std::make_pair;
 
-using boost::condition_variable;
-using boost::mutex;
+using std::condition_variable;
+using std::mutex;
 using boost::scoped_ptr;
-using boost::unique_lock;
-using boost::try_lock;
-using boost::try_mutex;
-using boost::lock_guard;
+using std::unique_lock;
+using std::try_lock;
+using std::lock_guard;
 using boost::mem_fn;
 
 namespace doris {
@@ -53,7 +51,7 @@ namespace doris {
 class ThreadClosure : public google::protobuf::Closure {
 public:
     void Run() { _cv.notify_one(); }
-    void wait(unique_lock<boost::mutex>& lock) { _cv.wait(lock); }
+    void wait(unique_lock<std::mutex>& lock) { _cv.wait(lock); }
 
 private:
     condition_variable _cv;
@@ -330,7 +328,7 @@ void DataStreamRecvr::SenderQueue::cancel() {
     //         _recvr->_bytes_received_time_series_counter);
 
     {
-        boost::lock_guard<boost::mutex> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         for (auto closure_pair : _pending_closures) {
             closure_pair.first->Run();
         }
@@ -343,7 +341,7 @@ void DataStreamRecvr::SenderQueue::close() {
         // If _is_cancelled is not set to true, there may be concurrent send
         // which add batch to _batch_queue. The batch added after _batch_queue
         // is clear will be memory leak
-        boost::lock_guard<boost::mutex> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         _is_cancelled = true;
 
         for (auto closure_pair : _pending_closures) {

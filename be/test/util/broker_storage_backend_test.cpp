@@ -62,7 +62,7 @@ protected:
     virtual void TearDown() { remove(_test_file.c_str()); }
     std::string gen_uuid() {
         auto id = boost::uuids::random_generator()();
-        return boost::lexical_cast<std::string>(id);
+        return boost::uuids::to_string(id);
     }
     std::unique_ptr<BrokerStorageBackend> _broker;
     std::map<std::string, std::string> _broker_properties;

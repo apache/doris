@@ -17,7 +17,6 @@
 
 #include "util/runtime_profile.h"
 
-#include <boost/thread/locks.hpp>
 #include <boost/thread/thread.hpp>
 #include <iomanip>
 #include <iostream>
@@ -82,8 +81,8 @@ void RuntimeProfile::merge(RuntimeProfile* other) {
     {
         CounterMap::iterator dst_iter;
         CounterMap::const_iterator src_iter;
-        boost::lock_guard<boost::mutex> l(_counter_map_lock);
-        boost::lock_guard<boost::mutex> m(other->_counter_map_lock);
+        std::lock_guard<std::mutex> l(_counter_map_lock);
+        std::lock_guard<std::mutex> m(other->_counter_map_lock);
 
         for (src_iter = other->_counter_map.begin(); src_iter != other->_counter_map.end();
              ++src_iter) {
@@ -117,8 +116,8 @@ void RuntimeProfile::merge(RuntimeProfile* other) {
     }
 
     {
-        boost::lock_guard<boost::mutex> l(_children_lock);
-        boost::lock_guard<boost::mutex> m(other->_children_lock);
+        std::lock_guard<std::mutex> l(_children_lock);
+        std::lock_guard<std::mutex> m(other->_children_lock);
 
         // Recursively merge children with matching names
         for (int i = 0; i < other->_children.size(); ++i) {
@@ -152,7 +151,7 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
     DCHECK_LT(*idx, nodes.size());
     const TRuntimeProfileNode& node = nodes[*idx];
     {
-        boost::lock_guard<boost::mutex> l(_counter_map_lock);
+        std::lock_guard<std::mutex> l(_counter_map_lock);
         // update this level
         std::map<std::string, Counter*>::iterator dst_iter;
 
@@ -185,7 +184,7 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
     }
 
     {
-        boost::lock_guard<boost::mutex> l(_info_strings_lock);
+        std::lock_guard<std::mutex> l(_info_strings_lock);
         const InfoStrings& info_strings = node.info_strings;
         for (const std::string& key : node.info_strings_display_order) {
             // Look for existing info strings and update in place. If there
@@ -207,7 +206,7 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
 
     ++*idx;
     {
-        boost::lock_guard<boost::mutex> l(_children_lock);
+        std::lock_guard<std::mutex> l(_children_lock);
 
         // update children with matching names; create new ones if they don't match
         for (int i = 0; i < node.num_children; ++i) {
@@ -233,7 +232,7 @@ void RuntimeProfile::divide(int n) {
     DCHECK_GT(n, 0);
     std::map<std::string, Counter*>::iterator iter;
     {
-        boost::lock_guard<boost::mutex> l(_counter_map_lock);
+        std::lock_guard<std::mutex> l(_counter_map_lock);
 
         for (iter = _counter_map.begin(); iter != _counter_map.end(); ++iter) {
             if (iter->second->type() == TUnit::DOUBLE_VALUE) {
@@ -246,7 +245,7 @@ void RuntimeProfile::divide(int n) {
         }
     }
     {
-        boost::lock_guard<boost::mutex> l(_children_lock);
+        std::lock_guard<std::mutex> l(_children_lock);
 
         for (ChildMap::iterator i = _child_map.begin(); i != _child_map.end(); ++i) {
             i->second->divide(n);
@@ -265,7 +264,7 @@ void RuntimeProfile::compute_time_in_profile(int64_t total) {
 
     // Add all the total times in all the children
     int64_t total_child_time = 0;
-    boost::lock_guard<boost::mutex> l(_children_lock);
+    std::lock_guard<std::mutex> l(_children_lock);
 
     for (int i = 0; i < _children.size(); ++i) {
         total_child_time += _children[i].first->total_time_counter()->value();
@@ -284,7 +283,7 @@ void RuntimeProfile::compute_time_in_profile(int64_t total) {
 }
 
 RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool indent, bool prepend) {
-    boost::lock_guard<boost::mutex> l(_children_lock);
+    std::lock_guard<std::mutex> l(_children_lock);
     DCHECK(_child_map.find(name) == _child_map.end());
     RuntimeProfile* child = _pool->add(new RuntimeProfile(name));
     if (_children.empty()) {
@@ -314,13 +313,13 @@ void RuntimeProfile::add_child_unlock(RuntimeProfile* child, bool indent, Runtim
 }
 
 void RuntimeProfile::add_child(RuntimeProfile* child, bool indent, RuntimeProfile* loc) {
-    boost::lock_guard<boost::mutex> l(_children_lock);
+    std::lock_guard<std::mutex> l(_children_lock);
     add_child_unlock(child, indent, loc);
 }
 
 void RuntimeProfile::get_children(std::vector<RuntimeProfile*>* children) {
     children->clear();
-    boost::lock_guard<boost::mutex> l(_children_lock);
+    std::lock_guard<std::mutex> l(_children_lock);
 
     for (ChildMap::iterator i = _child_map.begin(); i != _child_map.end(); ++i) {
         children->push_back(i->second);
@@ -328,7 +327,7 @@ void RuntimeProfile::get_children(std::vector<RuntimeProfile*>* children) {
 }
 
 void RuntimeProfile::get_all_children(std::vector<RuntimeProfile*>* children) {
-    boost::lock_guard<boost::mutex> l(_children_lock);
+    std::lock_guard<std::mutex> l(_children_lock);
 
     for (ChildMap::iterator i = _child_map.begin(); i != _child_map.end(); ++i) {
         children->push_back(i->second);
@@ -337,7 +336,7 @@ void RuntimeProfile::get_all_children(std::vector<RuntimeProfile*>* children) {
 }
 
 void RuntimeProfile::add_info_string(const std::string& key, const std::string& value) {
-    boost::lock_guard<boost::mutex> l(_info_strings_lock);
+    std::lock_guard<std::mutex> l(_info_strings_lock);
     InfoStrings::iterator it = _info_strings.find(key);
 
     if (it == _info_strings.end()) {
@@ -349,7 +348,7 @@ void RuntimeProfile::add_info_string(const std::string& key, const std::string& 
 }
 
 const std::string* RuntimeProfile::get_info_string(const std::string& key) {
-    boost::lock_guard<boost::mutex> l(_info_strings_lock);
+    std::lock_guard<std::mutex> l(_info_strings_lock);
     InfoStrings::const_iterator it = _info_strings.find(key);
 
     if (it == _info_strings.end()) {
@@ -363,7 +362,7 @@ const std::string* RuntimeProfile::get_info_string(const std::string& key) {
     RuntimeProfile::T* RuntimeProfile::NAME(const std::string& name, TUnit::type unit,             \
                                             const std::string& parent_counter_name) {              \
         DCHECK_EQ(_is_averaged_profile, false);                                                    \
-        boost::lock_guard<boost::mutex> l(_counter_map_lock);                                      \
+        std::lock_guard<std::mutex> l(_counter_map_lock);                                          \
         if (_counter_map.find(name) != _counter_map.end()) {                                       \
             return reinterpret_cast<T*>(_counter_map[name]);                                       \
         }                                                                                          \
@@ -384,7 +383,7 @@ ADD_COUNTER_IMPL(AddHighWaterMarkCounter, HighWaterMarkCounter);
 std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> RuntimeProfile::AddSharedHighWaterMarkCounter(
         const std::string& name, TUnit::type unit, const std::string& parent_counter_name) {
     DCHECK_EQ(_is_averaged_profile, false);
-    boost::lock_guard<boost::mutex> l(_counter_map_lock);
+    std::lock_guard<std::mutex> l(_counter_map_lock);
     if (_shared_counter_pool.find(name) != _shared_counter_pool.end()) {
         return _shared_counter_pool[name];
     }
@@ -406,7 +405,7 @@ std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> RuntimeProfile::AddSharedH
 
 RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TUnit::type type,
                                                      const std::string& parent_counter_name) {
-    boost::lock_guard<boost::mutex> l(_counter_map_lock);
+    std::lock_guard<std::mutex> l(_counter_map_lock);
 
     // TODO(yingchun): Can we ensure that 'name' is not exist in '_counter_map'? Use CHECK instead?
     if (_counter_map.find(name) != _counter_map.end()) {
@@ -427,7 +426,7 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
 RuntimeProfile::DerivedCounter* RuntimeProfile::add_derived_counter(
         const std::string& name, TUnit::type type, const DerivedCounterFunction& counter_fn,
         const std::string& parent_counter_name) {
-    boost::lock_guard<boost::mutex> l(_counter_map_lock);
+    std::lock_guard<std::mutex> l(_counter_map_lock);
 
     if (_counter_map.find(name) != _counter_map.end()) {
         return NULL;
@@ -456,7 +455,7 @@ RuntimeProfile::ThreadCounters* RuntimeProfile::add_thread_counters(const std::s
 }
 
 RuntimeProfile::Counter* RuntimeProfile::get_counter(const std::string& name) {
-    boost::lock_guard<boost::mutex> l(_counter_map_lock);
+    std::lock_guard<std::mutex> l(_counter_map_lock);
 
     if (_counter_map.find(name) != _counter_map.end()) {
         return _counter_map[name];
@@ -472,7 +471,7 @@ void RuntimeProfile::get_counters(const std::string& name, std::vector<Counter*>
         counters->push_back(c);
     }
 
-    boost::lock_guard<boost::mutex> l(_children_lock);
+    std::lock_guard<std::mutex> l(_children_lock);
 
     for (int i = 0; i < _children.size(); ++i) {
         _children[i].first->get_counters(name, counters);
@@ -492,7 +491,7 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
     CounterMap counter_map;
     ChildCounterMap child_counter_map;
     {
-        boost::lock_guard<boost::mutex> l(_counter_map_lock);
+        std::lock_guard<std::mutex> l(_counter_map_lock);
         counter_map = _counter_map;
         child_counter_map = _child_counter_map;
     }
@@ -512,7 +511,7 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
     stream << std::endl;
 
     {
-        boost::lock_guard<boost::mutex> l(_info_strings_lock);
+        std::lock_guard<std::mutex> l(_info_strings_lock);
         for (const std::string& key : _info_strings_display_order) {
             stream << prefix << "   - " << key << ": " << _info_strings.find(key)->second
                    << std::endl;
@@ -526,7 +525,7 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
         //     - Event 2: 2s288ms (2s288ms)
         //     - Event 3: 2s410ms (121.138ms)
         // The times in parentheses are the time elapsed since the last event.
-        boost::lock_guard<boost::mutex> l(_event_sequences_lock);
+        std::lock_guard<std::mutex> l(_event_sequences_lock);
         for (const EventSequenceMap::value_type& event_sequence : _event_sequence_map) {
             stream << prefix << "  " << event_sequence.first << ": "
                    << PrettyPrinter::print(event_sequence.second->elapsed_time(), TUnit::TIME_NS)
@@ -549,7 +548,7 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
     // pretty_print() on the children
     ChildVector children;
     {
-        boost::lock_guard<boost::mutex> l(_children_lock);
+        std::lock_guard<std::mutex> l(_children_lock);
         children = _children;
     }
 
@@ -578,7 +577,7 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
 
     CounterMap counter_map;
     {
-        boost::lock_guard<boost::mutex> l(_counter_map_lock);
+        std::lock_guard<std::mutex> l(_counter_map_lock);
         counter_map = _counter_map;
         node.child_counters_map = _child_counter_map;
     }
@@ -593,14 +592,14 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     }
 
     {
-        boost::lock_guard<boost::mutex> l(_info_strings_lock);
+        std::lock_guard<std::mutex> l(_info_strings_lock);
         node.info_strings = _info_strings;
         node.info_strings_display_order = _info_strings_display_order;
     }
 
     ChildVector children;
     {
-        boost::lock_guard<boost::mutex> l(_children_lock);
+        std::lock_guard<std::mutex> l(_children_lock);
         children = _children;
     }
 
@@ -685,7 +684,7 @@ void RuntimeProfile::add_bucketing_counters(const std::string& name,
                                             Counter* src_counter, int num_buckets,
                                             std::vector<Counter*>* buckets) {
     {
-        boost::lock_guard<boost::mutex> l(_counter_map_lock);
+        std::lock_guard<std::mutex> l(_counter_map_lock);
         _bucketing_counters.insert(buckets);
     }
 
@@ -696,7 +695,7 @@ void RuntimeProfile::add_bucketing_counters(const std::string& name,
                 add_counter(counter_name.str(), TUnit::DOUBLE_VALUE, parent_counter_name));
     }
 
-    boost::lock_guard<boost::mutex> l(_s_periodic_counter_update_state.lock);
+    std::lock_guard<std::mutex> l(_s_periodic_counter_update_state.lock);
 
     if (_s_periodic_counter_update_state.update_thread.get() == NULL) {
         _s_periodic_counter_update_state.update_thread.reset(
@@ -710,7 +709,7 @@ void RuntimeProfile::add_bucketing_counters(const std::string& name,
 }
 
 RuntimeProfile::EventSequence* RuntimeProfile::add_event_sequence(const std::string& name) {
-    boost::lock_guard<boost::mutex> l(_event_sequences_lock);
+    std::lock_guard<std::mutex> l(_event_sequences_lock);
     EventSequenceMap::iterator timer_it = _event_sequence_map.find(name);
 
     if (timer_it != _event_sequence_map.end()) {
@@ -726,7 +725,7 @@ void RuntimeProfile::register_periodic_counter(Counter* src_counter, SampleFn sa
                                                Counter* dst_counter, PeriodicCounterType type) {
     DCHECK(src_counter == NULL || sample_fn == NULL);
 
-    boost::lock_guard<boost::mutex> l(_s_periodic_counter_update_state.lock);
+    std::lock_guard<std::mutex> l(_s_periodic_counter_update_state.lock);
 
     if (_s_periodic_counter_update_state.update_thread.get() == NULL) {
         _s_periodic_counter_update_state.update_thread.reset(
@@ -759,19 +758,19 @@ void RuntimeProfile::register_periodic_counter(Counter* src_counter, SampleFn sa
 }
 
 void RuntimeProfile::stop_rate_counters_updates(Counter* rate_counter) {
-    boost::lock_guard<boost::mutex> l(_s_periodic_counter_update_state.lock);
+    std::lock_guard<std::mutex> l(_s_periodic_counter_update_state.lock);
     _s_periodic_counter_update_state.rate_counters.erase(rate_counter);
 }
 
 void RuntimeProfile::stop_sampling_counters_updates(Counter* sampling_counter) {
-    boost::lock_guard<boost::mutex> l(_s_periodic_counter_update_state.lock);
+    std::lock_guard<std::mutex> l(_s_periodic_counter_update_state.lock);
     _s_periodic_counter_update_state.sampling_counters.erase(sampling_counter);
 }
 
 void RuntimeProfile::stop_bucketing_counters_updates(std::vector<Counter*>* buckets, bool convert) {
     int64_t num_sampled = 0;
     {
-        boost::lock_guard<boost::mutex> l(_s_periodic_counter_update_state.lock);
+        std::lock_guard<std::mutex> l(_s_periodic_counter_update_state.lock);
         PeriodicCounterUpdateState::BucketCountersMap::const_iterator itr =
                 _s_periodic_counter_update_state.bucketing_counters.find(buckets);
 
@@ -795,7 +794,7 @@ RuntimeProfile::PeriodicCounterUpdateState::~PeriodicCounterUpdateState() {
     if (_s_periodic_counter_update_state.update_thread.get() != NULL) {
         {
             // Lock to ensure the update thread will see the update to _done
-            boost::lock_guard<boost::mutex> l(_s_periodic_counter_update_state.lock);
+            std::lock_guard<std::mutex> l(_s_periodic_counter_update_state.lock);
             _done = true;
         }
         _s_periodic_counter_update_state.update_thread->join();
@@ -809,7 +808,7 @@ void RuntimeProfile::periodic_counter_update_loop() {
         boost::posix_time::time_duration elapsed = boost::get_system_time() - before_time;
         int elapsed_ms = elapsed.total_milliseconds();
 
-        boost::lock_guard<boost::mutex> l(_s_periodic_counter_update_state.lock);
+        std::lock_guard<std::mutex> l(_s_periodic_counter_update_state.lock);
 
         for (PeriodicCounterUpdateState::RateCounterMap::iterator it =
                      _s_periodic_counter_update_state.rate_counters.begin();
