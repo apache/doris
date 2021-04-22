@@ -56,16 +56,16 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataOutput;
 import java.io.IOException;
@@ -94,6 +94,9 @@ import java.util.stream.Collectors;
 public class DatabaseTransactionMgr {
 
     private static final Logger LOG = LogManager.getLogger(DatabaseTransactionMgr.class);
+    // the max number of txn that can be remove per round.
+    // set it to avoid holding lock too long when removing too many txns per round.
+    private static final int MAX_REMOVE_TXN_PER_ROUND = 10000;
 
     private long dbId;
 
@@ -1115,32 +1118,38 @@ public class DatabaseTransactionMgr {
     public void removeExpiredTxns(long currentMillis) {
         List<Long> expiredTxnIds = Lists.newArrayList();
         // delete expired txns
+        int leftNum = MAX_REMOVE_TXN_PER_ROUND;
         writeLock();
         try {
-            unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds, finalStatusTransactionStateDequeShort);
-            unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds, finalStatusTransactionStateDequeLong);
+            leftNum = unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds, finalStatusTransactionStateDequeShort, leftNum);
+            leftNum = unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds, finalStatusTransactionStateDequeLong, leftNum);
 
             Map<Long, List<Long>> dbExpiredTxnIds = Maps.newHashMap();
             dbExpiredTxnIds.put(dbId, expiredTxnIds);
             BatchRemoveTransactionsOperation op = new BatchRemoveTransactionsOperation(dbExpiredTxnIds);
             editLog.logBatchRemoveTransactions(op);
+            LOG.info("Remove {} expirted transactions", MAX_REMOVE_TXN_PER_ROUND - leftNum);
         } finally {
             writeUnlock();
         }
     }
 
-    private void unprotectedRemoveExpiredTxns(long currentMillis, List<Long> expiredTxnIds,
-                                              ArrayDeque<TransactionState> finalStatusTransactionStateDequeShort) {
-        while (!finalStatusTransactionStateDequeShort.isEmpty()) {
+    private int unprotectedRemoveExpiredTxns(long currentMillis, List<Long> expiredTxnIds,
+                                             ArrayDeque<TransactionState> finalStatusTransactionStateDequeShort,
+                                             int maxNumber) {
+        int left = maxNumber;
+        while (!finalStatusTransactionStateDequeShort.isEmpty() && left > 0) {
             TransactionState transactionState = finalStatusTransactionStateDequeShort.getFirst();
             if (transactionState.isExpired(currentMillis)) {
                 finalStatusTransactionStateDequeShort.pop();
                 clearTransactionState(transactionState.getTransactionId());
                 expiredTxnIds.add(transactionState.getTransactionId());
+                left--;
             } else {
                 break;
             }
         }
+        return left;
     }
 
     private void clearTransactionState(long txnId) {
