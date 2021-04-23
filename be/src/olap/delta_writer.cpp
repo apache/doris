@@ -108,7 +108,7 @@ OLAPStatus DeltaWriter::init() {
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
                      << ", exceed limit: " << config::max_tablet_version_num
                      << ". tablet: " << _tablet->full_name();
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        return OLAP_ERR_TOO_MANY_VERSION;
     }
 
     {
