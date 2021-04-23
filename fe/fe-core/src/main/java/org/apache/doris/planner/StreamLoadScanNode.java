@@ -39,11 +39,11 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.nio.charset.Charset;
 import java.util.List;
@@ -123,14 +123,16 @@ public class StreamLoadScanNode extends LoadScanNode {
         srcTupleDesc = analyzer.getDescTbl().createTupleDescriptor("StreamLoadScanNode");
 
         TBrokerScanRangeParams params = new TBrokerScanRangeParams();
-        List<ImportColumnDesc> columnExprDescs = taskInfo.getColumnExprDescs();
-        if (mergeType == LoadTask.MergeType.MERGE) {
-            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
-        }  else if (mergeType == LoadTask.MergeType.DELETE) {
-            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
-        }
-        if (taskInfo.hasSequenceCol()) {
-            columnExprDescs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, taskInfo.getSequenceCol())));
+        LoadTaskInfo.ImportColumnDescs columnExprDescs = taskInfo.getColumnExprDescs();
+        if (!columnExprDescs.isColumnDescsRewrited) {
+            if (mergeType == LoadTask.MergeType.MERGE) {
+                columnExprDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
+            } else if (mergeType == LoadTask.MergeType.DELETE) {
+                columnExprDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
+            }
+            if (taskInfo.hasSequenceCol()) {
+                columnExprDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, taskInfo.getSequenceCol())));
+            }
         }
 
         Load.initColumns(dstTable, columnExprDescs, null /* no hadoop function */,
