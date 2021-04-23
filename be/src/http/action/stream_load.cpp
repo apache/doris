@@ -161,10 +161,10 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // add new line at end
     str = str + '\n';
     HttpChannel::send_reply(req, str);
-
+#ifndef BE_TEST
     str = ctx->prepare_stream_load_record(str);
     _sava_stream_load_record(ctx, str);
-
+#endif
     // update statstics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
@@ -234,10 +234,10 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         str = str + '\n';
         HttpChannel::send_reply(req, str);
         streaming_load_current_processing->increment(-1);
-
+#ifndef BE_TEST
         str = ctx->prepare_stream_load_record(str);
         _sava_stream_load_record(ctx, str);
-
+#endif
         return -1;
     }
     return 0;
