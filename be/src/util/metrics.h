@@ -177,6 +177,7 @@ public:
     bool is_empty() const;
     void add(const uint64_t& value);
     void merge(const HistogramMetric& other);
+    void set_histogram(const HistogramStat& stats);
 
     uint64_t min() const { return _stats.min(); }
     uint64_t max() const { return _stats.max(); }
@@ -286,6 +287,9 @@ public:
 #define DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(name, unit, desc, group, labels) \
     DEFINE_METRIC_PROTOTYPE(name, MetricType::GAUGE, unit, desc, #group, labels, false)
 
+#define DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(name, unit) \
+    DEFINE_METRIC_PROTOTYPE(name, MetricType::HISTOGRAM, unit, "", "", Labels(), false)
+
 #define INT_COUNTER_METRIC_REGISTER(entity, metric) \
     metric = (IntCounter*)(entity->register_metric<IntCounter>(&METRIC_##metric))
 
@@ -300,6 +304,9 @@ public:
 
 #define INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, metric) \
     metric = (IntAtomicCounter*)(entity->register_metric<IntAtomicCounter>(&METRIC_##metric))
+
+#define HISTOGRAM_METRIC_REGISTER(entity, metric) \
+    metric = (HistogramMetric*)(entity->register_metric<HistogramMetric>(&METRIC_##metric))
 
 #define METRIC_DEREGISTER(entity, metric) entity->deregister_metric(&METRIC_##metric)
 
