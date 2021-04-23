@@ -210,7 +210,9 @@ private:
 
     // this should be set in init() using config
     int _rpc_timeout_ms = 60000;
+    static const int _min_rpc_timeout_ms = 1000; // The min query timeout is 1 second.
     int64_t _next_packet_seq = 0;
+    MonotonicStopWatch _timeout_watch;
 
     // user cancel or get some errors
     std::atomic<bool> _cancelled{false};
