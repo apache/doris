@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import com.google.common.base.Splitter;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BrokerDesc;
@@ -82,6 +81,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.common.base.Splitter;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -164,6 +164,7 @@ public class ExportJob implements Writable {
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
     private List<String> exportColumns = Lists.newArrayList();
+    private String columns ;
 
 
     public ExportJob() {
@@ -181,6 +182,7 @@ public class ExportJob implements Writable {
         this.exportPath = "";
         this.columnSeparator = "\t";
         this.lineDelimiter = "\n";
+        this.columns = "";
     }
 
     public ExportJob(long jobId) {
@@ -210,8 +212,8 @@ public class ExportJob implements Writable {
         this.partitions = stmt.getPartitions();
 
         this.exportTable = db.getTable(stmt.getTblName().getTbl());
-
-        if (!Strings.isNullOrEmpty(stmt.getColumns())) {
+        this.columns = stmt.getColumns();
+        if (!Strings.isNullOrEmpty(this.columns)) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
             this.exportColumns = split.splitToList(stmt.getColumns().toLowerCase());
         }
@@ -458,6 +460,10 @@ public class ExportJob implements Writable {
         LOG.info("create {} coordinators for export job: {}", coordList.size(), id);
     }
 
+    public String getColumns() {
+        return columns;
+    }
+
     public long getId() {
         return id;
     }
@@ -691,6 +697,7 @@ public class ExportJob implements Writable {
         Text.writeString(out, exportPath);
         Text.writeString(out, columnSeparator);
         Text.writeString(out, lineDelimiter);
+        Text.writeString(out, columns);
         out.writeInt(properties.size());
         for (Map.Entry<String, String> property : properties.entrySet()) {
             Text.writeString(out, property.getKey());
@@ -742,6 +749,7 @@ public class ExportJob implements Writable {
         exportPath = Text.readString(in);
         columnSeparator = Text.readString(in);
         lineDelimiter = Text.readString(in);
+        columns = Text.readString(in);
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_53) {
             int count = in.readInt();
