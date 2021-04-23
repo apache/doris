@@ -47,6 +47,7 @@
 #include "olap/utils.h"
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
+#include "util/histogram.h"
 #include "util/path_util.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
@@ -964,7 +965,7 @@ OLAPStatus TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTab
     LOG(INFO) << "find expired transactions for " << expire_txn_map.size() << " tablets";
 
     DorisMetrics::instance()->report_all_tablets_requests_total->increment(1);
-
+    HistogramStat tablet_version_num_hist;
     for (const auto& tablets_shard : _tablets_shards) {
         ReadLock rlock(tablets_shard.lock.get());
         for (const auto& item : tablets_shard.tablet_map) {
@@ -986,6 +987,9 @@ OLAPStatus TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTab
                     expire_txn_map.erase(find);
                 }
                 t_tablet.tablet_infos.push_back(tablet_info);
+                if (tablet_ptr->tablet_id() == tablet_id) {
+                    tablet_version_num_hist.add(tablet_ptr->version_count());
+                }
             }
 
             if (!t_tablet.tablet_infos.empty()) {
@@ -993,6 +997,7 @@ OLAPStatus TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTab
             }
         }
     }
+    DorisMetrics::instance()->tablet_version_num_distribution->set_histogram(tablet_version_num_hist);
     LOG(INFO) << "success to build all report tablets info. tablet_count=" << tablets_info->size();
     return OLAP_SUCCESS;
 }

@@ -140,6 +140,8 @@ public:
     // permits required by the compaction task which is waitting for permits
     IntGauge* compaction_waitting_permits;
 
+    HistogramMetric* tablet_version_num_distribution;
+
     // The following metrics will be calculated
     // by metric calculator
     IntGauge* push_request_write_bytes_per_second;
