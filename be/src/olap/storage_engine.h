@@ -224,7 +224,7 @@ private:
 
     void _path_scan_thread_callback(DataDir* data_dir);
 
-    void _tablet_checkpoint_callback(DataDir* data_dir);
+    void _tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs);
 
     // parse the default rowset type config to RowsetTypePB
     void _parse_default_rowset_type();
@@ -318,8 +318,8 @@ private:
     std::vector<scoped_refptr<Thread>> _path_gc_threads;
     // threads to scan disk paths
     std::vector<scoped_refptr<Thread>> _path_scan_threads;
-    // threads to run tablet checkpoint
-    std::vector<scoped_refptr<Thread>> _tablet_checkpoint_threads;
+    // thread to produce tablet checkpoint tasks
+    scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
 
     // For tablet and disk-stat report
     std::mutex _report_mtx;
@@ -341,6 +341,8 @@ private:
     HeartbeatFlags* _heartbeat_flags;
 
     std::unique_ptr<ThreadPool> _compaction_thread_pool;
+
+    std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
 
