@@ -241,8 +241,9 @@ private:
 
     void _compaction_tasks_producer_callback();
     vector<TabletSharedPtr> _compaction_tasks_generator(CompactionType compaction_type,
-                                                        std::vector<DataDir*> data_dirs);
-    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet);
+                                                        std::vector<DataDir*>& data_dirs,
+                                                        bool check_score);
+    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type);
     void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet);
 
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
@@ -347,7 +348,7 @@ private:
     CompactionPermitLimiter _permit_limiter;
 
     std::mutex _tablet_submitted_compaction_mutex;
-    std::map<DataDir*, vector<TTabletId>> _tablet_submitted_compaction;
+    std::map<DataDir*, std::map<TTabletId, CompactionType>> _tablet_submitted_compaction;
 
     AtomicInt32 _wakeup_producer_flag;
 

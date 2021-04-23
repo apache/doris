@@ -296,7 +296,11 @@ CONF_mInt64(total_permits_for_compaction_score, "10000");
 CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10")
 
 // Compaction task number per disk.
+// Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
 CONF_mInt32(compaction_task_num_per_disk, "2");
+CONF_Validator(compaction_task_num_per_disk, [](const int config) -> bool {
+  return config >= 2;
+});
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
