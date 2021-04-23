@@ -140,10 +140,13 @@ public class OperationType {
 
     //real time load 100 -108
     public static final short OP_UPSERT_TRANSACTION_STATE = 100;
+    @Deprecated
+    // use OP_BATCH_REMOVE_TXNS instead
     public static final short OP_DELETE_TRANSACTION_STATE = 101;
     public static final short OP_FINISHING_ROLLUP = 102;
     public static final short OP_FINISHING_SCHEMA_CHANGE = 103;
     public static final short OP_SAVE_TRANSACTION_ID = 104;
+    public static final short OP_BATCH_REMOVE_TXNS = 105;
 
     // routine load 110~120
     public static final short OP_ROUTINE_LOAD_JOB = 110;
