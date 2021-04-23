@@ -74,7 +74,7 @@ void WebPageHandler::register_template_page(const std::string& path, const strin
 
 void WebPageHandler::register_page(const std::string& path, const string& alias,
                                    const PageHandlerCallback& callback, bool is_on_nav_bar) {
-    boost::mutex::scoped_lock lock(_map_lock);
+    std::unique_lock lock(_map_lock);
     CHECK(_page_map.find(path) == _page_map.end());
     // first time, register this to web server
     _http_server->register_handler(HttpMethod::GET, path, this);
@@ -85,7 +85,7 @@ void WebPageHandler::handle(HttpRequest* req) {
     VLOG_TRACE << req->debug_string();
     PathHandler* handler = nullptr;
     {
-        boost::mutex::scoped_lock lock(_map_lock);
+        std::unique_lock lock(_map_lock);
         auto iter = _page_map.find(req->raw_path());
         if (iter != _page_map.end()) {
             handler = iter->second;

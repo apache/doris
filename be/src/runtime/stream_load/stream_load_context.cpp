@@ -17,6 +17,8 @@
 
 #include "runtime/stream_load/stream_load_context.h"
 
+#include <sstream>
+
 namespace doris {
 
 std::string StreamLoadContext::to_json() const {
@@ -69,7 +71,7 @@ std::string StreamLoadContext::to_json() const {
     writer.Key("LoadBytes");
     writer.Int64(receive_bytes);
     writer.Key("LoadTimeMs");
-    writer.Int64(load_cost_nanos / 1000000);
+    writer.Int64(load_cost_millis);
     writer.Key("BeginTxnTimeMs");
     writer.Int64(begin_txn_cost_nanos / 1000000);
     writer.Key("StreamLoadPutTimeMs");
@@ -87,6 +89,157 @@ std::string StreamLoadContext::to_json() const {
     }
     writer.EndObject();
     return s.GetString();
+}
+
+std::string StreamLoadContext::prepare_stream_load_record(const std::string& stream_load_record) {
+    rapidjson::Document document;
+    if (document.Parse(stream_load_record.data()).HasParseError()) {
+        LOG(WARNING) << "prepare stream load record failed. failed to parse json returned to client. label=" << label;
+        return "";
+    }
+    rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
+
+    rapidjson::Value cluster_value(rapidjson::kStringType);
+    cluster_value.SetString(auth.cluster.c_str(), auth.cluster.size());
+    if(!cluster_value.IsNull()) {
+        document.AddMember("cluster", cluster_value, allocator);
+    }
+
+    rapidjson::Value db_value(rapidjson::kStringType);
+    db_value.SetString(db.c_str(), db.size());
+    if(!db_value.IsNull()) {
+        document.AddMember("Db", db_value, allocator);
+    }
+
+    rapidjson::Value table_value(rapidjson::kStringType);
+    table_value.SetString(table.c_str(), table.size());
+    if(!table_value.IsNull()) {
+        document.AddMember("Table", table_value, allocator);
+    }
+
+    rapidjson::Value user_value(rapidjson::kStringType);
+    user_value.SetString(auth.user.c_str(), auth.user.size());
+    if(!user_value.IsNull()) {
+        document.AddMember("User", user_value, allocator);
+    }
+
+    rapidjson::Value client_ip_value(rapidjson::kStringType);
+    client_ip_value.SetString(auth.user_ip.c_str(), auth.user_ip.size());
+    if(!client_ip_value.IsNull()) {
+        document.AddMember("ClientIp", client_ip_value, allocator);
+    }
+
+    document.AddMember("StartTime", start_millis, allocator);
+    document.AddMember("FinishTime", start_millis + load_cost_millis, allocator);
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    document.Accept(writer);
+    return buffer.GetString();
+}
+
+void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_record, TStreamLoadRecord& stream_load_item) {
+
+    rapidjson::Document document;
+    std::stringstream ss;
+    if (document.Parse(stream_load_record.data()).HasParseError()) {
+        LOG(WARNING) << "failed to parse json from rocksdb.";
+        return;
+    }
+
+    if (document.HasMember("Label")) {
+        const rapidjson::Value& label = document["Label"];
+        stream_load_item.__set_label(label.GetString());
+        ss << "Label: " << label.GetString();
+    }
+
+    if (document.HasMember("Db")) {
+        const rapidjson::Value& db = document["Db"];
+        stream_load_item.__set_db(db.GetString());
+        ss << ", Db: " << db.GetString();
+    }
+
+    if (document.HasMember("Table")) {
+        const rapidjson::Value& table = document["Table"];
+        stream_load_item.__set_tbl(table.GetString());
+        ss << ", Table: " << table.GetString();
+    }
+
+    if (document.HasMember("User")) {
+        const rapidjson::Value& user = document["User"];
+        stream_load_item.__set_user(user.GetString());
+        ss << ", User: " << user.GetString();
+    }
+
+    if (document.HasMember("ClientIp")) {
+        const rapidjson::Value& client_ip = document["ClientIp"];
+        stream_load_item.__set_user_ip(client_ip.GetString());
+        ss << ", ClientIp: " << client_ip.GetString();
+    }
+
+    if (document.HasMember("Status")) {
+        const rapidjson::Value& status = document["Status"];
+        stream_load_item.__set_status(status.GetString());
+        ss << ", Status: " << status.GetString();
+    }
+
+    if (document.HasMember("Message")) {
+        const rapidjson::Value& message = document["Message"];
+        stream_load_item.__set_message(message.GetString());
+        ss << ", Message: " << message.GetString();
+    }
+
+    if (document.HasMember("ErrorURL")) {
+        const rapidjson::Value& error_url = document["ErrorURL"];
+        stream_load_item.__set_url(error_url.GetString());
+        ss << ", ErrorURL: " << error_url.GetString();
+    } else {
+        stream_load_item.__set_url("N/A");
+        ss << ", ErrorURL: N/A";
+    }
+
+    if (document.HasMember("NumberTotalRows")) {
+        const rapidjson::Value& total_rows = document["NumberTotalRows"];
+        stream_load_item.__set_total_rows(total_rows.GetInt());
+        ss << ", NumberTotalRows: " << total_rows.GetInt();
+    }
+
+    if (document.HasMember("NumberLoadedRows")) {
+        const rapidjson::Value& loaded_rows = document["NumberLoadedRows"];
+        stream_load_item.__set_loaded_rows(loaded_rows.GetInt());
+        ss << ", NumberLoadedRows: " << loaded_rows.GetInt();
+    }
+
+    if (document.HasMember("NumberFilteredRows")) {
+        const rapidjson::Value& filtered_rows = document["NumberFilteredRows"];
+        stream_load_item.__set_filtered_rows(filtered_rows.GetInt());
+        ss << ", NumberFilteredRows: " << filtered_rows.GetInt64();
+    }
+
+    if (document.HasMember("NumberUnselectedRows")) {
+        const rapidjson::Value& unselected_rows = document["NumberUnselectedRows"];
+        stream_load_item.__set_unselected_rows(unselected_rows.GetInt());
+        ss << ", NumberUnselectedRows: " << unselected_rows.GetInt64();
+    }
+
+    if (document.HasMember("LoadBytes")) {
+        const rapidjson::Value& load_bytes = document["LoadBytes"];
+        stream_load_item.__set_load_bytes(load_bytes.GetInt());
+        ss << ", LoadBytes: " << load_bytes.GetInt64();
+    }
+
+    if (document.HasMember("StartTime")) {
+        const rapidjson::Value& start_time = document["StartTime"];
+        stream_load_item.__set_start_time(start_time.GetInt64());
+        ss << ", StartTime: " << start_time.GetInt64();
+    }
+
+    if (document.HasMember("FinishTime")) {
+        const rapidjson::Value& finish_time = document["FinishTime"];
+        stream_load_item.__set_finish_time(finish_time.GetInt64());
+        ss << ", FinishTime: " << finish_time.GetInt64();
+    }
+
+    VLOG(1) << "parse json from rocksdb. " << ss.str();
 }
 
 /*

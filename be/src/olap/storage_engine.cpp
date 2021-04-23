@@ -121,7 +121,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
           _memtable_flush_executor(nullptr),
           _default_rowset_type(ALPHA_ROWSET),
-          _heartbeat_flags(nullptr) {
+          _heartbeat_flags(nullptr),
+          _stream_load_recorder(nullptr) {
     if (_s_instance == nullptr) {
         _s_instance = this;
     }
@@ -143,6 +144,9 @@ StorageEngine::~StorageEngine() {
 
     if (_compaction_thread_pool) {
         _compaction_thread_pool->shutdown();
+    }
+    if (_tablet_meta_checkpoint_thread_pool) {
+        _tablet_meta_checkpoint_thread_pool->shutdown();
     }
 }
 
@@ -224,6 +228,33 @@ Status StorageEngine::_init_store_map() {
 
     for (auto store : tmp_stores) {
         _store_map.emplace(store->path(), store);
+    }
+
+    std::string stream_load_record_path = "";
+    if (!tmp_stores.empty()) {
+        stream_load_record_path = tmp_stores[0]->path();
+    }
+
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_stream_load_recorder(stream_load_record_path),
+                                   "init StreamLoadRecorder failed");
+
+    return Status::OK();
+}
+
+Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_record_path) {
+    LOG(INFO) << "stream load record path: " << stream_load_record_path;
+    // init stream load record rocksdb
+    _stream_load_recorder.reset(new StreamLoadRecorder(stream_load_record_path));
+    if (_stream_load_recorder == nullptr) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::MemoryAllocFailed("allocate memory for StreamLoadRecorder failed"),
+                "new StreamLoadRecorder failed");
+    }
+    auto st = _stream_load_recorder->init();
+    if (!st.ok()) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError(Substitute("open StreamLoadRecorder rocksdb failed, path=$0", stream_load_record_path)),
+                "init StreamLoadRecorder failed");
     }
     return Status::OK();
 }
@@ -515,6 +546,7 @@ void StorageEngine::stop() {
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
     THREAD_JOIN(_fd_cache_clean_thread);
+    THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
 #undef THREAD_JOIN
 
 #define THREADS_JOIN(threads)           \
@@ -526,7 +558,6 @@ void StorageEngine::stop() {
 
     THREADS_JOIN(_path_gc_threads);
     THREADS_JOIN(_path_scan_threads);
-    THREADS_JOIN(_tablet_checkpoint_threads);
 #undef THREADS_JOIN
 }
 

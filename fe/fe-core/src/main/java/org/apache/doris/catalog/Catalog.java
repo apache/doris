@@ -148,7 +148,6 @@ import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadChecker;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
-import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadLoadingChecker;
@@ -157,6 +156,7 @@ import org.apache.doris.load.loadv2.LoadTimeoutChecker;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
+import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.meta.MetaContext;
@@ -227,10 +227,14 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import com.sleepycat.je.rep.InsufficientLogException;
+import com.sleepycat.je.rep.NetworkRestore;
+import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
@@ -259,11 +263,6 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-
-import com.sleepycat.je.rep.InsufficientLogException;
-import com.sleepycat.je.rep.NetworkRestore;
-import com.sleepycat.je.rep.NetworkRestoreConfig;
-import org.codehaus.jackson.map.ObjectMapper;
 
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
@@ -298,6 +297,7 @@ public class Catalog {
 
     private Load load;
     private LoadManager loadManager;
+    private StreamLoadRecordMgr streamLoadRecordMgr;
     private RoutineLoadManager routineLoadManager;
     private ExportMgr exportMgr;
     private Alter alter;
@@ -547,6 +547,7 @@ public class Catalog {
                 Config.async_loading_load_task_pool_size / 5, !isCheckpointCatalog);
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
+        this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager", Config.fetch_stream_load_record_interval_second * 1000);
         this.loadTimeoutChecker = new LoadTimeoutChecker(loadManager);
         this.loadEtlChecker = new LoadEtlChecker(loadManager);
         this.loadLoadingChecker = new LoadLoadingChecker(loadManager);
@@ -1293,6 +1294,7 @@ public class Catalog {
         dynamicPartitionScheduler.start();
         // start daemon thread to update db used data quota for db txn manager periodly
         updateDbUsedDataQuotaDaemon.start();
+        streamLoadRecordMgr.start();
     }
 
     // start threads that should running on all FE
@@ -1639,16 +1641,15 @@ public class Catalog {
 
             int loadJobCount = dis.readInt();
             newChecksum ^= loadJobCount;
+            long currentTimeMs = System.currentTimeMillis();
             for (int j = 0; j < loadJobCount; j++) {
                 LoadJob job = new LoadJob();
                 job.readFields(dis);
-                long currentTimeMs = System.currentTimeMillis();
 
                 // Delete the history load jobs that are older than
                 // LABEL_KEEP_MAX_MS
                 // This job must be FINISHED or CANCELLED
-                if ((currentTimeMs - job.getCreateTimeMs()) / 1000 <= Config.label_keep_max_second
-                        || (job.getState() != JobState.FINISHED && job.getState() != JobState.CANCELLED)) {
+                if (!job.isExpired(currentTimeMs)) {
                     load.unprotectAddLoadJob(job, true /* replay */);
                 }
             }
@@ -2208,7 +2209,7 @@ public class Catalog {
     }
 
     public void createTxnCleaner() {
-        txnCleaner = new MasterDaemon("txnCleaner", Config.transaction_clean_interval_second) {
+        txnCleaner = new MasterDaemon("txnCleaner", Config.transaction_clean_interval_second * 1000L) {
             @Override
             protected void runAfterCatalogReady() {
                 globalTransactionMgr.removeExpiredAndTimeoutTxns();
@@ -4781,6 +4782,10 @@ public class Catalog {
 
     public LoadManager getLoadManager() {
         return loadManager;
+    }
+
+    public StreamLoadRecordMgr getStreamLoadRecordMgr() {
+        return streamLoadRecordMgr;
     }
 
     public MasterTaskExecutor getPendingLoadTaskScheduler() {

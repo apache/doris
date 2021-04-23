@@ -19,8 +19,8 @@
 #define DORIS_BE_SRC_COMMON_UTIL_WEB_PAGE_HANDLER_H
 
 #include <boost/function.hpp>
-#include <boost/thread/mutex.hpp>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -112,7 +112,7 @@ private:
     std::string _www_path;
     EvHttpServer* _http_server;
     // Lock guarding the _path_handlers map
-    boost::mutex _map_lock;
+    std::mutex _map_lock;
     // Map of path to a PathHandler containing a list of handlers for that
     // path. More than one handler may register itself with a path so that many
     // components may contribute to a single page.

@@ -334,7 +334,7 @@ private:
         bool contains_null;
 
         /// The set of all non-NULL constant values in the IN list.
-        /// Note: boost::unordered_set and std::binary_search performed worse based on the
+        /// Note: std::unordered_set and std::binary_search performed worse based on the
         /// in-predicate-benchmark
         std::set<SetType> val_set;
 

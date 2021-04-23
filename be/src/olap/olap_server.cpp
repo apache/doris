@@ -81,16 +81,19 @@ Status StorageEngine::start_bg_threads() {
             &_compaction_tasks_producer_thread));
     LOG(INFO) << "compaction tasks producer thread started";
 
-    // tablet checkpoint thread
-    for (auto data_dir : data_dirs) {
-        scoped_refptr<Thread> tablet_checkpoint_thread;
-        RETURN_IF_ERROR(Thread::create(
-                "StorageEngine", "tablet_checkpoint_thread",
-                [this, data_dir]() { this->_tablet_checkpoint_callback(data_dir); },
-                &tablet_checkpoint_thread));
-        _tablet_checkpoint_threads.emplace_back(tablet_checkpoint_thread);
+    int32_t max_checkpoint_thread_num = config::max_meta_checkpoint_threads;
+    if (max_checkpoint_thread_num < 0) {
+        max_checkpoint_thread_num = data_dirs.size();
     }
-    LOG(INFO) << "tablet checkpoint thread started";
+    ThreadPoolBuilder("TabletMetaCheckpointTaskThreadPool")
+            .set_max_threads(max_checkpoint_thread_num)
+            .build(&_tablet_meta_checkpoint_thread_pool);
+
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "tablet_checkpoint_tasks_producer_thread",
+            [this, data_dirs]() { this->_tablet_checkpoint_callback(data_dirs); },
+            &_tablet_checkpoint_tasks_producer_thread));
+    LOG(INFO) << "tablet checkpoint tasks producer thread started";
 
     // fd cache clean thread
     RETURN_IF_ERROR(Thread::create(
@@ -290,22 +293,24 @@ void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
 }
 
-void StorageEngine::_tablet_checkpoint_callback(DataDir* data_dir) {
+void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
 
-    int64_t interval = config::tablet_meta_checkpoint_min_interval_secs;
+    int64_t interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
     do {
-        LOG(INFO) << "begin to do tablet meta checkpoint:" << data_dir->path();
-        int64_t start_time = UnixMillis();
-        _tablet_manager->do_tablet_meta_checkpoint(data_dir);
-        int64_t used_time = (UnixMillis() - start_time) / 1000;
-        if (used_time < config::tablet_meta_checkpoint_min_interval_secs) {
-            interval = config::tablet_meta_checkpoint_min_interval_secs - used_time;
-        } else {
-            interval = 1;
+        LOG(INFO) << "begin to produce tablet meta checkpoint tasks.";
+        for (auto data_dir : data_dirs) {
+            auto st =_tablet_meta_checkpoint_thread_pool->submit_func([=]() {
+                CgroupsMgr::apply_system_cgroup();
+                _tablet_manager->do_tablet_meta_checkpoint(data_dir);
+            });
+            if (!st.ok()) {
+                LOG(WARNING) << "submit tablet checkpoint tasks failed.";
+            }
         }
+        interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
 }
 
@@ -315,7 +320,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 #endif
     LOG(INFO) << "try to start compaction producer process!";
 
-    std::vector<TTabletId> tablet_submitted;
+    std::map<TTabletId, CompactionType> tablet_submitted;
     std::vector<DataDir*> data_dirs;
     for (auto& tmp_store : _store_map) {
         data_dirs.push_back(tmp_store.second);
@@ -325,18 +330,37 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     int round = 0;
     CompactionType compaction_type;
 
+    // Used to record the time when the score metric was last updated.
+    // The update of the score metric is accompanied by the logic of selecting the tablet.
+    // If there is no slot available, the logic of selecting the tablet will be terminated,
+    // which causes the score metric update to be terminated.
+    // In order to avoid this situation, we need to update the score regularly.
+    int64_t last_cumulative_score_update_time = 0;
+    int64_t last_base_score_update_time = 0;
+    static const int64_t check_score_interval_ms = 5000; // 5 secs
+
     int64_t interval = config::generate_compaction_tasks_min_interval_ms;
     do {
         if (!config::disable_auto_compaction) {
+            bool check_score = false;
+            int64_t cur_time = UnixMillis();
             if (round < config::cumulative_compaction_rounds_for_each_base_compaction_round) {
                 compaction_type = CompactionType::CUMULATIVE_COMPACTION;
                 round++;
+                if (cur_time - last_cumulative_score_update_time >= check_score_interval_ms) {
+                    check_score = true;
+                    last_cumulative_score_update_time = cur_time;
+                }
             } else {
                 compaction_type = CompactionType::BASE_COMPACTION;
                 round = 0;
+                if (cur_time - last_base_score_update_time >= check_score_interval_ms) {
+                    check_score = true;
+                    last_base_score_update_time = cur_time;
+                }
             }
             std::vector<TabletSharedPtr> tablets_compaction =
-                    _compaction_tasks_generator(compaction_type, data_dirs);
+                    _compaction_tasks_generator(compaction_type, data_dirs, check_score);
             if (tablets_compaction.size() == 0) {
                 std::unique_lock<std::mutex> lock(_compaction_producer_sleep_mutex);
                 _wakeup_producer_flag = 0;
@@ -356,7 +380,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 int64_t permits = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet);
                 if (permits > 0 && _permit_limiter.request(permits)) {
                     // Push to _tablet_submitted_compaction before submitting task
-                    _push_tablet_into_submitted_compaction(tablet);
+                    _push_tablet_into_submitted_compaction(tablet, compaction_type);
                     auto st =_compaction_thread_pool->submit_func([=]() {
                       CgroupsMgr::apply_system_cgroup();
                       tablet->execute_compaction(compaction_type);
@@ -384,15 +408,43 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 }
 
 std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
-        CompactionType compaction_type, std::vector<DataDir*> data_dirs) {
+        CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
     std::vector<TabletSharedPtr> tablets_compaction;
     uint32_t max_compaction_score = 0;
+    bool need_pick_tablet = true;
     std::random_shuffle(data_dirs.begin(), data_dirs.end());
     for (auto data_dir : data_dirs) {
         std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
+        // We need to reserve at least one Slot for cumulative compaction.
+        // So when there is only one Slot, we have to judge whether there is a cumulative compaction
+        // in the currently submitted task.
+        // If so, the last Slot can be assigned to Base compaction,
+        // otherwise, this Slot needs to be reserved for cumulative compaction.
         if (_tablet_submitted_compaction[data_dir].size() >= config::compaction_task_num_per_disk) {
-            continue;
+            // Return if no available slot
+            need_pick_tablet = false;
+            if (!check_score) {
+                continue;
+            }
+        } else if (_tablet_submitted_compaction[data_dir].size() >= config::compaction_task_num_per_disk - 1) {
+            // Only one slot left, check if it can be assigned to base compaction task.
+            if (compaction_type == CompactionType::BASE_COMPACTION) {
+                bool has_cumu_submitted = false;
+                for (const auto& submitted : _tablet_submitted_compaction[data_dir]) {
+                    if (submitted.second == CompactionType::CUMULATIVE_COMPACTION) {
+                        has_cumu_submitted = true;
+                        break;
+                    }
+                }
+                if (!has_cumu_submitted) {
+                    need_pick_tablet = false;
+                    if (!check_score) {
+                        continue;
+                    }
+                }
+            }
         }
+
         if (!data_dir->reach_capacity_limit(0)) {
             uint32_t disk_max_score = 0;
             TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(
@@ -403,6 +455,7 @@ std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
             }
         }
     }
+
     if (!tablets_compaction.empty()) {
         if (compaction_type == CompactionType::BASE_COMPACTION) {
             DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(max_compaction_score);
@@ -410,24 +463,23 @@ std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
             DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(max_compaction_score);
         }
     }
+    if (!need_pick_tablet) {
+        // This is just for updating the compaction score metric, no need to return tablet.
+        tablets_compaction.clear();
+    }
     return tablets_compaction;
 }
 
-void StorageEngine::_push_tablet_into_submitted_compaction(TabletSharedPtr tablet) {
+void StorageEngine::_push_tablet_into_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type) {
     std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-    _tablet_submitted_compaction[tablet->data_dir()].emplace_back(
-            tablet->tablet_id());
+    _tablet_submitted_compaction[tablet->data_dir()].emplace(
+            tablet->tablet_id(), compaction_type);
 }
 
 void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet) {
     std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
-    std::vector<TTabletId>::iterator it_tablet =
-            find(_tablet_submitted_compaction[tablet->data_dir()].begin(),
-                 _tablet_submitted_compaction[tablet->data_dir()].end(),
-                 tablet->tablet_id());
-    if (it_tablet !=
-        _tablet_submitted_compaction[tablet->data_dir()].end()) {
-        _tablet_submitted_compaction[tablet->data_dir()].erase(it_tablet);
+    int removed = _tablet_submitted_compaction[tablet->data_dir()].erase(tablet->tablet_id());
+    if (removed == 1) {
         std::unique_lock<std::mutex> lock(_compaction_producer_sleep_mutex);
         _wakeup_producer_flag = 1;
         _compaction_producer_sleep_cv.notify_one();

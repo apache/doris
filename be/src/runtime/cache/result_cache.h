@@ -102,7 +102,7 @@ private:
 
     //At the same time, multithreaded reading
     //Single thread updating and cleaning(only single be, Fe is not affected)
-    mutable boost::shared_mutex _cache_mtx;
+    mutable std::shared_mutex _cache_mtx;
     ResultNodeMap _node_map;
     //List of result nodes corresponding to SqlKey,last recently used at the tail
     ResultNodeList _node_list;

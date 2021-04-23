@@ -18,8 +18,6 @@
 #include "runtime/tmp_file_mgr.h"
 
 #include <boost/algorithm/string.hpp>
-#include <boost/lexical_cast.hpp>
-#include <boost/thread/locks.hpp>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <filesystem>
@@ -147,7 +145,7 @@ Status TmpFileMgr::get_file(const DeviceId& device_id, const TUniqueId& query_id
     }
 
     // Generate the full file path.
-    string unique_name = boost::lexical_cast<string>(boost::uuids::random_generator()());
+    string unique_name = boost::uuids::to_string(boost::uuids::random_generator()());
     std::stringstream file_name;
     file_name << print_id(query_id) << "_" << unique_name;
     path new_file_path(_tmp_dirs[device_id].path());
@@ -169,7 +167,7 @@ void TmpFileMgr::blacklist_device(DeviceId device_id) {
     DCHECK(device_id >= 0 && device_id < _tmp_dirs.size());
     bool added = true;
     {
-        boost::lock_guard<SpinLock> l(_dir_status_lock);
+        std::lock_guard<SpinLock> l(_dir_status_lock);
         added = _tmp_dirs[device_id].blacklist();
     }
     if (added) {
@@ -180,13 +178,13 @@ void TmpFileMgr::blacklist_device(DeviceId device_id) {
 bool TmpFileMgr::is_blacklisted(DeviceId device_id) {
     DCHECK(_initialized);
     DCHECK(device_id >= 0 && device_id < _tmp_dirs.size());
-    boost::lock_guard<SpinLock> l(_dir_status_lock);
+    std::lock_guard<SpinLock> l(_dir_status_lock);
     return _tmp_dirs[device_id].is_blacklisted();
 }
 
 int TmpFileMgr::num_active_tmp_devices() {
     DCHECK(_initialized);
-    boost::lock_guard<SpinLock> l(_dir_status_lock);
+    std::lock_guard<SpinLock> l(_dir_status_lock);
     int num_active = 0;
     for (int device_id = 0; device_id < _tmp_dirs.size(); ++device_id) {
         if (!_tmp_dirs[device_id].is_blacklisted()) {
@@ -201,7 +199,7 @@ vector<TmpFileMgr::DeviceId> TmpFileMgr::active_tmp_devices() {
     // Allocate vector before we grab lock
     devices.reserve(_tmp_dirs.size());
     {
-        boost::lock_guard<SpinLock> l(_dir_status_lock);
+        std::lock_guard<SpinLock> l(_dir_status_lock);
         for (DeviceId device_id = 0; device_id < _tmp_dirs.size(); ++device_id) {
             if (!_tmp_dirs[device_id].is_blacklisted()) {
                 devices.push_back(device_id);

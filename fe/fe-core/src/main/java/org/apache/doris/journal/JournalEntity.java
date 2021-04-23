@@ -43,6 +43,7 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -51,6 +52,7 @@ import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
+import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
@@ -85,10 +87,10 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
 
+import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Preconditions;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -430,6 +432,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_BATCH_REMOVE_TXNS: {
+                data = BatchRemoveTransactionsOperation.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_REPOSITORY: {
                 data = Repository.read(in);
                 isRead = true;
@@ -505,6 +512,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_UPDATE_LOAD_JOB: {
                 data = LoadJobStateUpdateInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
+                data = FetchStreamLoadRecord.read(in);
                 isRead = true;
                 break;
             }

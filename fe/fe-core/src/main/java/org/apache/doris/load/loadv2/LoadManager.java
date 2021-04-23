@@ -439,8 +439,7 @@ public class LoadManager implements Writable{
             Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
             while (iter.hasNext()) {
                 LoadJob job = iter.next().getValue();
-                if (job.isCompleted()
-                        && ((currentTimeMs - job.getFinishTimestamp()) / 1000 > Config.label_keep_max_second)) {
+                if (job.isExpired(currentTimeMs)) {
                     iter.remove();
                     dbIdToLabelToLoadJobs.get(job.getDbId()).get(job.getLabel()).remove(job);
                     if (job instanceof SparkLoadJob) {
@@ -676,20 +675,6 @@ public class LoadManager implements Writable{
         lock.writeLock().unlock();
     }
 
-    // If load job will be removed by cleaner later, it will not be saved in image.
-    private boolean needSave(LoadJob loadJob) {
-        if (!loadJob.isCompleted()) {
-            return true;
-        }
-
-        long currentTimeMs = System.currentTimeMillis();
-        if (loadJob.isCompleted() && ((currentTimeMs - loadJob.getFinishTimestamp()) / 1000 <= Config.label_keep_max_second)) {
-            return true;
-        }
-
-        return false;
-    }
-
     public void initJobProgress(Long jobId, TUniqueId loadId, Set<TUniqueId> fragmentIds,
             List<Long> relatedBackendIds) {
         LoadJob job = idToLoadJob.get(jobId);
@@ -804,7 +789,8 @@ public class LoadManager implements Writable{
 
     @Override
     public void write(DataOutput out) throws IOException {
-        List<LoadJob> loadJobs = idToLoadJob.values().stream().filter(this::needSave).collect(Collectors.toList());
+        long currentTimeMs = System.currentTimeMillis();
+        List<LoadJob> loadJobs = idToLoadJob.values().stream().filter(t -> !t.isExpired(currentTimeMs)).collect(Collectors.toList());
 
         out.writeInt(loadJobs.size());
         for (LoadJob loadJob : loadJobs) {

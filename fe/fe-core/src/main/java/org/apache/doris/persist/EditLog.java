@@ -55,6 +55,7 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -595,6 +596,11 @@ public class EditLog {
                     LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
                     break;
                 }
+                case OperationType.OP_BATCH_REMOVE_TXNS: {
+                    final BatchRemoveTransactionsOperation operation = (BatchRemoveTransactionsOperation) journal.getData();
+                    Catalog.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactions(operation);
+                    break;
+                }
                 case OperationType.OP_CREATE_REPOSITORY: {
                     Repository repository = (Repository) journal.getData();
                     catalog.getBackupHandler().getRepoMgr().addAndInitRepoIfNotExist(repository, true);
@@ -689,6 +695,11 @@ public class EditLog {
                 case OperationType.OP_UPDATE_LOAD_JOB: {
                     LoadJobStateUpdateInfo info = (LoadJobStateUpdateInfo) journal.getData();
                     catalog.getLoadManager().replayUpdateLoadJobStateInfo(info);
+                    break;
+                }
+                case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
+                    FetchStreamLoadRecord fetchStreamLoadRecord = (FetchStreamLoadRecord) journal.getData();
+                    catalog.getStreamLoadRecordMgr().replayFetchStreamLoadRecord(fetchStreamLoadRecord);
                     break;
                 }
                 case OperationType.OP_CREATE_RESOURCE: {
@@ -1199,11 +1210,7 @@ public class EditLog {
     public void logInsertTransactionState(TransactionState transactionState) {
         logEdit(OperationType.OP_UPSERT_TRANSACTION_STATE, transactionState);
     }
-
-    public void logDeleteTransactionState(TransactionState transactionState) {
-        logEdit(OperationType.OP_DELETE_TRANSACTION_STATE, transactionState);
-    }
-
+    
     public void logBackupJob(BackupJob job) {
         logEdit(OperationType.OP_BACKUP_JOB, job);
     }
@@ -1292,6 +1299,10 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_LOAD_JOB, info);
     }
 
+    public void logFetchStreamLoadRecord(FetchStreamLoadRecord fetchStreamLoadRecord) {
+        logEdit(OperationType.OP_FETCH_STREAM_LOAD_RECORD, fetchStreamLoadRecord);
+    }
+
     public void logCreateResource(Resource resource) {
         logEdit(OperationType.OP_CREATE_RESOURCE, resource);
     }
@@ -1362,5 +1373,9 @@ public class EditLog {
 
     public void logReplaceTable(ReplaceTableOperationLog log) {
         logEdit(OperationType.OP_REPLACE_TABLE, log);
+    }
+
+    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperation op) {
+        logEdit(OperationType.OP_BATCH_REMOVE_TXNS, op);
     }
 }

@@ -286,6 +286,9 @@ CONF_mInt64(min_compaction_failure_interval_sec, "600"); // 10 min
 CONF_mInt32(min_compaction_threads, "10");
 CONF_mInt32(max_compaction_threads, "10");
 
+// Thread count to do tablet meta checkpoint, -1 means use the data directories count.
+CONF_Int32(max_meta_checkpoint_threads, "-1");
+
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
 
@@ -293,7 +296,11 @@ CONF_mInt64(total_permits_for_compaction_score, "10000");
 CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10")
 
 // Compaction task number per disk.
+// Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
 CONF_mInt32(compaction_task_num_per_disk, "2");
+CONF_Validator(compaction_task_num_per_disk, [](const int config) -> bool {
+  return config >= 2;
+});
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
@@ -348,6 +355,12 @@ CONF_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 CONF_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 CONF_mBool(tablet_writer_ignore_eovercrowded, "false");
+// batch size of stream load record reported to FE
+CONF_mInt32(stream_load_record_batch_size, "50");
+// expire time of stream load record in rocksdb.
+CONF_Int32(stream_load_record_expire_time_secs, "28800");
+// time interval to clean expired stream load records
+CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -516,6 +529,7 @@ CONF_Int32(flush_thread_num_per_store, "2");
 // config for tablet meta checkpoint
 CONF_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
 CONF_mInt32(tablet_meta_checkpoint_min_interval_secs, "600");
+CONF_Int32(generate_tablet_meta_checkpoint_tasks_interval_secs, "600");
 
 // config for default rowset type
 // Valid configs: ALPHA, BETA
