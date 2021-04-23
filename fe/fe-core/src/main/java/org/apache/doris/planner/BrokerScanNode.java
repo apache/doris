@@ -40,6 +40,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.system.Backend;
+import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TBrokerScanRange;
@@ -230,22 +231,22 @@ public class BrokerScanNode extends LoadScanNode {
 
         // for load job, column exprs is got from file group
         // for query, there is no column exprs, they will be got from table's schema in "Load.initColumns"
-        List<ImportColumnDesc> columnExprs = Lists.newArrayList();
+        LoadTaskInfo.ImportColumnDescs columnDescs = new LoadTaskInfo.ImportColumnDescs();
         if (isLoad()) {
-            columnExprs = context.fileGroup.getColumnExprList();
+            columnDescs.descs = context.fileGroup.getColumnExprList();
             if (mergeType == LoadTask.MergeType.MERGE) {
-                columnExprs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
+                columnDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
             } else if (mergeType == LoadTask.MergeType.DELETE) {
-                columnExprs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
+                columnDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
             }
             // add columnExpr for sequence column
             if (context.fileGroup.hasSequenceCol()) {
-                columnExprs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
                         new SlotRef(null, context.fileGroup.getSequenceCol())));
             }
         }
 
-        Load.initColumns(targetTable, columnExprs,
+        Load.initColumns(targetTable, columnDescs,
                 context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
                 context.srcTupleDescriptor, context.slotDescByName, context.params);
     }
