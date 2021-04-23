@@ -60,6 +60,8 @@ public class ExportStmt extends StatementBase {
 
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
+    private static final String DEFAULT_COLUMNS = "";
+
 
     private TableName tblName;
     private List<String> partitions;
@@ -84,6 +86,7 @@ public class ExportStmt extends StatementBase {
         this.brokerDesc = brokerDesc;
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
+        this.columns = DEFAULT_COLUMNS;
     }
 
     public String getColumns() {

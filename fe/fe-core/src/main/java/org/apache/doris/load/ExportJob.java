@@ -43,11 +43,7 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.Status;
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.*;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -697,7 +693,6 @@ public class ExportJob implements Writable {
         Text.writeString(out, exportPath);
         Text.writeString(out, columnSeparator);
         Text.writeString(out, lineDelimiter);
-        Text.writeString(out, columns);
         out.writeInt(properties.size());
         for (Map.Entry<String, String> property : properties.entrySet()) {
             Text.writeString(out, property.getKey());
@@ -749,7 +744,6 @@ public class ExportJob implements Writable {
         exportPath = Text.readString(in);
         columnSeparator = Text.readString(in);
         lineDelimiter = Text.readString(in);
-        columns = Text.readString(in);
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_53) {
             int count = in.readInt();
@@ -759,6 +753,7 @@ public class ExportJob implements Writable {
                 this.properties.put(propertyKey, propertyValue);
             }
         }
+        this.columns = this.properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
 
         boolean hasPartition = in.readBoolean();
         if (hasPartition) {
