@@ -227,15 +227,19 @@ Status StorageEngine::_init_store_map() {
         _store_map.emplace(store->path(), store);
     }
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(_init_stream_load_recorder(), "init StreamLoadRecorder failed");
+    std::string stream_load_record_path = "";
+    if (!tmp_stores.empty()) {
+        stream_load_record_path = tmp_stores[0]->path();
+    }
+
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_stream_load_recorder(stream_load_record_path),
+                                   "init StreamLoadRecorder failed");
 
     return Status::OK();
 }
 
-Status StorageEngine::_init_stream_load_recorder() {
-    std::string stream_load_record_path = config::stream_load_record_path;
+Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_record_path) {
     LOG(INFO) << "stream load record path: " << stream_load_record_path;
-
     // init stream load record rocksdb
     _stream_load_recorder.reset(new StreamLoadRecorder(stream_load_record_path));
     if (_stream_load_recorder == nullptr) {
