@@ -286,6 +286,9 @@ CONF_mInt64(min_compaction_failure_interval_sec, "600"); // 10 min
 CONF_mInt32(min_compaction_threads, "10");
 CONF_mInt32(max_compaction_threads, "10");
 
+// Thread count to do tablet meta checkpoint, -1 means use the data directories count.
+CONF_Int32(max_meta_checkpoint_threads, "-1");
+
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
 
@@ -522,6 +525,7 @@ CONF_Int32(flush_thread_num_per_store, "2");
 // config for tablet meta checkpoint
 CONF_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
 CONF_mInt32(tablet_meta_checkpoint_min_interval_secs, "600");
+CONF_Int32(generate_tablet_meta_checkpoint_tasks_interval_secs, "600");
 
 // config for default rowset type
 // Valid configs: ALPHA, BETA
