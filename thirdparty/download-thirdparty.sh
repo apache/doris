@@ -315,3 +315,11 @@ fi
 cd -
 echo "Finished patching $S2_SOURCE"
 
+# hdfs3 patch to fix compile error
+cd $TP_SOURCE_DIR/$HDFS3_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p1 < $TP_PATCH_DIR/libhdfs3-master.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $HDFS3_SOURCE"

@@ -36,6 +36,14 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
+#include "exprs/expr.h"
+#include "exec/text_converter.h"
+#include "exec/text_converter.hpp"
+#include "exec/plain_text_line_reader.h"
+#include "exec/hdfs_file_reader.h"
+#include "exec/local_file_reader.h"
+#include "exec/broker_reader.h"
+#include "exec/decompressor.h"
 #include "util/utf8_check.h"
 
 namespace doris {
@@ -155,6 +163,13 @@ Status BrokerScanner::open_file_reader() {
     switch (range.file_type) {
     case TFileType::FILE_LOCAL: {
         LocalFileReader* file_reader = new LocalFileReader(range.path, start_offset);
+        RETURN_IF_ERROR(file_reader->open());
+        _cur_file_reader = file_reader;
+        break;
+    }
+    case TFileType::FILE_HDFS: {
+        HdfsFileReader* file_reader = new HdfsFileReader(
+                range.hdfs_params, range.path, start_offset);
         RETURN_IF_ERROR(file_reader->open());
         _cur_file_reader = file_reader;
         break;
