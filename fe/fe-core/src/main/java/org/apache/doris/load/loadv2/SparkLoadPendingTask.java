@@ -33,6 +33,7 @@ import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -339,7 +340,7 @@ public class SparkLoadPendingTask extends LoadTask {
                 partitionColumnRefs.add(column.getName());
             }
 
-            for (Map.Entry<Long, Range<PartitionKey>> entry : rangePartitionInfo.getSortedRangeMap(false)) {
+            for (Map.Entry<Long, PartitionItem> entry : rangePartitionInfo.getSortedItemMap(false)) {
                 long partitionId = entry.getKey();
                 if (!partitionIds.contains(partitionId)) {
                     continue;
@@ -354,7 +355,7 @@ public class SparkLoadPendingTask extends LoadTask {
                 int bucketNum = partition.getDistributionInfo().getBucketNum();
 
                 // is max partition
-                Range<PartitionKey> range = entry.getValue();
+                Range<PartitionKey> range = entry.getValue().getItems();
                 boolean isMaxPartition = range.upperEndpoint().isMaxValue();
 
                 // start keys
@@ -380,8 +381,7 @@ public class SparkLoadPendingTask extends LoadTask {
 
                 etlPartitions.add(new EtlPartition(partitionId, startKeys, endKeys, isMaxPartition, bucketNum));
             }
-        } else {
-            Preconditions.checkState(type == PartitionType.UNPARTITIONED);
+        } else if (type == PartitionType.UNPARTITIONED) {
             Preconditions.checkState(partitionIds.size() == 1);
 
             for (Long partitionId : partitionIds) {
@@ -394,8 +394,10 @@ public class SparkLoadPendingTask extends LoadTask {
                 int bucketNum = partition.getDistributionInfo().getBucketNum();
 
                 etlPartitions.add(new EtlPartition(partitionId, Lists.newArrayList(), Lists.newArrayList(),
-                                                   true, bucketNum));
+                        true, bucketNum));
             }
+        } else {
+            throw new LoadException("Spark Load does not support list partition yet");
         }
 
         // distribution column refs

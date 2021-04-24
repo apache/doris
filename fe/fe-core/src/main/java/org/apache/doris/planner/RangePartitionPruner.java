@@ -21,6 +21,7 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -43,11 +44,11 @@ import java.util.Set;
 public class RangePartitionPruner implements PartitionPruner {
     private static final Logger LOG = LogManager.getLogger(RangePartitionPruner.class);
 
-    private Map<Long, Range<PartitionKey>> partitionRangeMap;
+    private Map<Long, PartitionItem> partitionRangeMap;
     private List<Column> partitionColumns;
     private Map<String, PartitionColumnFilter> partitionColumnFilters;
 
-    public RangePartitionPruner(Map<Long, Range<PartitionKey>> rangeMap,
+    public RangePartitionPruner(Map<Long, PartitionItem> rangeMap,
                                 List<Column> columns,
                                 Map<String, PartitionColumnFilter> filters) {
         partitionRangeMap = rangeMap;
@@ -186,8 +187,8 @@ public class RangePartitionPruner implements PartitionPruner {
         PartitionKey maxKey = new PartitionKey();
         // Map to RangeMapTree
         RangeMap<PartitionKey, Long> rangeMap = TreeRangeMap.create();
-        for (Map.Entry<Long, Range<PartitionKey>> entry : partitionRangeMap.entrySet()) {
-            rangeMap.put(entry.getValue(), entry.getKey());
+        for (Map.Entry<Long, PartitionItem> entry : partitionRangeMap.entrySet()) {
+            rangeMap.put(entry.getValue().getItems(), entry.getKey());
         }
         return prune(rangeMap, 0, minKey, maxKey, 1);
     }

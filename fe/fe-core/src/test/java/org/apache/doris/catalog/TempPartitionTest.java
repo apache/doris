@@ -68,9 +68,9 @@ public class TempPartitionTest {
 
     @BeforeClass
     public static void setup() throws Exception {
+        FeConstants.default_scheduler_interval_millisecond = 100;
         UtFrameUtils.createMinDorisCluster(runningDir);
         ctx = UtFrameUtils.createDefaultCtx();
-        FeConstants.default_scheduler_interval_millisecond = 100;
     }
 
     @AfterClass
@@ -557,6 +557,657 @@ public class TempPartitionTest {
         // now base range is [min, 10), [50, 60) -> p1,tp5
         checkShowPartitionsResultNum("db3.tbl3", false, 2);
         checkShowPartitionsResultNum("db3.tbl3", true, 0);
+    }
+
+    @Test
+    public void testForListPartitionTable() throws Exception {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
+
+        // create database db4
+        String createDbStmtStr = "create database db4;";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        System.out.println(Catalog.getCurrentCatalog().getDbNames());
+
+        // create table tbl4
+        String createTblStmtStr1 = "create table db4.tbl4 (k1 int, k2 int)\n" +
+                "partition by list(k1)\n" +
+                "(\n" +
+                "partition p1 values in ('1', '2', '3'),\n" +
+                "partition p2 values in ('4', '5', '6'),\n" +
+                "partition p3 values in ('7', '8', '9')\n" +
+                ")\n" +
+                "distributed by hash(k2) buckets 1\n" +
+                "properties('replication_num' = '1');";
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+
+        Database db4 = Catalog.getCurrentCatalog().getDb("default_cluster:db4");
+        OlapTable tbl4 = (OlapTable) db4.getTable("tbl4");
+
+        testSerializeOlapTable(tbl4);
+
+        Map<String, Long> originPartitionTabletIds = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db4.tbl4", false, originPartitionTabletIds);
+        Assert.assertEquals(3, originPartitionTabletIds.keySet().size());
+
+        // show temp partition
+        checkShowPartitionsResultNum("db4.tbl4", true, 0);
+        checkShowPartitionsResultNum("db4.tbl4", false, 3);
+
+        // add temp partition with duplicate name
+        String stmtStr = "alter table db4.tbl4 add temporary partition p1 values in ('1', '2', '3');";
+        alterTable(stmtStr, true);
+
+        // add temp partition
+        stmtStr = "alter table db4.tbl4 add temporary partition tp1 values in ('1', '2', '3');";
+        alterTable(stmtStr, false);
+
+        stmtStr = "alter table db4.tbl4 add temporary partition tp2 values in ('1', '2', '3');";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db4.tbl4 add temporary partition tp1 values in ('4', '5', '6');";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db4.tbl4 add temporary partition tp2 values in ('4', '5', '6');";
+        alterTable(stmtStr, false);
+
+        stmtStr = "alter table db4.tbl4 add temporary partition tp3 values in ('6', '7', '8', '9');";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db4.tbl4 add temporary partition tp3 values in ('7', '8', '9');";
+        alterTable(stmtStr, false);
+
+        Map<String, Long> tempPartitionTabletIds = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db4.tbl4", true, tempPartitionTabletIds);
+        Assert.assertEquals(3, tempPartitionTabletIds.keySet().size());
+
+        System.out.println("partition tablets: " + originPartitionTabletIds);
+        System.out.println("temp partition tablets: " + tempPartitionTabletIds);
+
+        testSerializeOlapTable(tbl4);
+
+        // drop non exist temp partition
+        stmtStr = "alter table db4.tbl4 drop temporary partition tp4;";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db4.tbl4 drop temporary partition if exists tp4;";
+        alterTable(stmtStr, false);
+
+        stmtStr = "alter table db4.tbl4 drop temporary partition tp3;";
+        alterTable(stmtStr, false);
+
+        Map<String, Long> originPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db4.tbl4", false, originPartitionTabletIds2);
+        Assert.assertEquals(originPartitionTabletIds2, originPartitionTabletIds);
+
+        Map<String, Long> tempPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db4.tbl4", true, tempPartitionTabletIds2);
+        Assert.assertEquals(2, tempPartitionTabletIds2.keySet().size());
+        Assert.assertTrue(!tempPartitionTabletIds2.containsKey("tp3"));
+
+        checkShowPartitionsResultNum("db4.tbl4", true, 2);
+        checkShowPartitionsResultNum("db4.tbl4", false, 3);
+
+        stmtStr = "alter table db4.tbl4 add temporary partition tp3 values in ('7', '8', '9');";
+        alterTable(stmtStr, false);
+        checkShowPartitionsResultNum("db4.tbl4", true, 3);
+
+        stmtStr = "alter table db4.tbl4 drop partition p1;";
+        alterTable(stmtStr, false);
+        checkShowPartitionsResultNum("db4.tbl4", true, 3);
+        checkShowPartitionsResultNum("db4.tbl4", false, 2);
+
+        originPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db4.tbl4", false, originPartitionTabletIds2);
+        Assert.assertEquals(2, originPartitionTabletIds2.size());
+        Assert.assertTrue(!originPartitionTabletIds2.containsKey("p1"));
+
+        String recoverStr = "recover partition p1 from db4.tbl4;";
+        RecoverPartitionStmt recoverStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverStr, ctx);
+        Catalog.getCurrentCatalog().recoverPartition(recoverStmt);
+        checkShowPartitionsResultNum("db4.tbl4", true, 3);
+        checkShowPartitionsResultNum("db4.tbl4", false, 3);
+
+        originPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db4.tbl4", false, originPartitionTabletIds2);
+        Assert.assertEquals(originPartitionTabletIds2, originPartitionTabletIds);
+
+        tempPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db4.tbl4", true, tempPartitionTabletIds2);
+        Assert.assertEquals(3, tempPartitionTabletIds2.keySet().size());
+
+        // Here, we should have 3 partitions p1,p2,p3, and 3 temp partitions tp1,tp2,tp3
+        System.out.println("we have partition tablets: " + originPartitionTabletIds2);
+        System.out.println("we have temp partition tablets: " + tempPartitionTabletIds2);
+
+        stmtStr = "alter table db4.tbl4 replace partition(p1, p2) with temporary partition(tp2, tp3);";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db4.tbl4 replace partition(p1, p2) with temporary partition(tp1, tp2) properties('invalid' = 'invalid');";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db4.tbl4 replace partition(p1, p2) with temporary partition(tp2, tp3);";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db4.tbl4 replace partition(p1, p2) with temporary partition(tp1, tp2) properties('use_temp_partition_name' = 'true');";
+        alterTable(stmtStr, false);
+        checkShowPartitionsResultNum("db4.tbl4", true, 1); // tp3
+        checkShowPartitionsResultNum("db4.tbl4", false, 3);// tp1, tp2, p3
+
+        checkTabletExists(tempPartitionTabletIds2.values(), true);
+        checkTabletExists(Lists.newArrayList(originPartitionTabletIds2.get("p3")), true);
+        checkTabletExists(Lists.newArrayList(originPartitionTabletIds2.get("p1"), originPartitionTabletIds2.get("p2")), false);
+
+        String truncateStr = "truncate table db4.tbl4 partition (p3);";
+        TruncateTableStmt truncateTableStmt = (TruncateTableStmt)UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
+        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        checkShowPartitionsResultNum("db4.tbl4", true, 1);
+        checkShowPartitionsResultNum("db4.tbl4", false, 3);
+        checkPartitionExist(tbl4, "tp1", false, true);
+        checkPartitionExist(tbl4, "tp2", false, true);
+        checkPartitionExist(tbl4, "p3", false, true);
+        checkPartitionExist(tbl4, "tp3", true, true);
+
+        stmtStr = "alter table db4.tbl4 drop partition p3;";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db4.tbl4 add partition p31 values in ('7', '8');";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db4.tbl4 add partition p32 values in ('9');";
+        alterTable(stmtStr, false);
+
+        // for now, we have 4 partitions: tp1, tp2, p31, p32, 1 temp partition: tp3
+        checkShowPartitionsResultNum("db4.tbl4", false, 4);
+        checkShowPartitionsResultNum("db4.tbl4", true, 1);
+
+        stmtStr = "alter table db4.tbl4 replace partition(p31) with temporary partition(tp3);";
+        alterTable(stmtStr, true);
+        stmtStr = "alter table db4.tbl4 replace partition(p31, p32) with temporary partition(tp3);";
+        alterTable(stmtStr, false);
+        checkShowPartitionsResultNum("db4.tbl4", false, 3);
+        checkShowPartitionsResultNum("db4.tbl4", true, 0);
+        checkPartitionExist(tbl4, "tp1", false, true);
+        checkPartitionExist(tbl4, "tp2", false, true);
+        checkPartitionExist(tbl4, "tp3", false, true);
+
+        stmtStr = "alter table db4.tbl4 add temporary partition p1 values in ('1', '2', '3');";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db4.tbl4 add temporary partition p2 values in ('4', '5', '6');";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db4.tbl4 add temporary partition p3 values in ('7', '8', '9');";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db4.tbl4 replace partition(tp1, tp2) with temporary partition(p1, p2);";
+        alterTable(stmtStr, false);
+        checkPartitionExist(tbl4, "tp1", false, true);
+        checkPartitionExist(tbl4, "tp2", false, true);
+        checkPartitionExist(tbl4, "tp3", false, true);
+        checkPartitionExist(tbl4, "p1", true, false);
+        checkPartitionExist(tbl4, "p2", true, false);
+        checkPartitionExist(tbl4, "p3", true, true);
+
+        stmtStr = "alter table db4.tbl4 replace partition(tp3) with temporary partition(p3) properties('use_temp_partition_name' = 'true');";
+        alterTable(stmtStr, false);
+        checkPartitionExist(tbl4, "tp1", false, true);
+        checkPartitionExist(tbl4, "tp2", false, true);
+        checkPartitionExist(tbl4, "p3", false, true);
+        checkPartitionExist(tbl4, "p1", true, false);
+        checkPartitionExist(tbl4, "p2", true, false);
+        checkPartitionExist(tbl4, "p3", true, false);
+        checkShowPartitionsResultNum("db4.tbl4", false, 3);
+        checkShowPartitionsResultNum("db4.tbl4", true, 0);
+
+        stmtStr = "alter table db4.tbl4 add temporary partition tp1 values in ('1', '2', '3');"; // name conflict
+        alterTable(stmtStr, true);
+        stmtStr = "alter table db4.tbl4 rename partition p3 tp3;";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db4.tbl4 add temporary partition p1 values in ('1', '2', '3');";
+        alterTable(stmtStr, false);
+
+        originPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db4.tbl4", false, originPartitionTabletIds2);
+        Assert.assertEquals(3, originPartitionTabletIds2.size());
+
+        tempPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db4.tbl4", true, tempPartitionTabletIds2);
+        Assert.assertEquals(1, tempPartitionTabletIds2.keySet().size());
+
+        // for now , we have 3 partitions: tp1, tp2, tp3, 1 temp partition: p1
+        System.out.println("we have partition tablets: " + originPartitionTabletIds2);
+        System.out.println("we have temp partition tablets: " + tempPartitionTabletIds2);
+
+        stmtStr = "alter table db4.tbl4 add rollup r1(k1);";
+        alterTable(stmtStr, true);
+
+        // truncate table will delete temporary partitions
+        truncateStr = "truncate table db4.tbl4";
+        truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
+        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        checkShowPartitionsResultNum("db4.tbl4", false, 3);
+        checkShowPartitionsResultNum("db4.tbl4", true, 0);
+
+        stmtStr = "alter table db4.tbl4 add rollup r1(k1);";
+        alterTable(stmtStr, false);
+
+        stmtStr = "alter table db4.tbl4 add temporary partition p2 values in ('1', '2', '3', '4', '5', '6');";
+        alterTable(stmtStr, true);
+
+        // wait rollup finish
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        for (AlterJobV2 alterJobV2 : alterJobs.values()) {
+            while (!alterJobV2.getJobState().isFinalState()) {
+                System.out.println(
+                        "alter job " + alterJobV2.getDbId() + " is running. state: " + alterJobV2.getJobState());
+                Thread.sleep(5000);
+            }
+            System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
+            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+        }
+        // waiting table state to normal
+        Thread.sleep(500);
+
+        stmtStr = "alter table db4.tbl4 add temporary partition p2 values in ('1', '2', '3', '4', '5', '6');";
+        alterTable(stmtStr, false);
+
+        TempPartitions tempPartitions = Deencapsulation.getField(tbl4, "tempPartitions");
+        testSerializeTempPartitions(tempPartitions);
+
+        stmtStr = "alter table db4.tbl4 replace partition (tp1, tp2) with temporary partition (p2);";
+        alterTable(stmtStr, false);
+        checkShowPartitionsResultNum("db4.tbl4", false, 2);
+        checkShowPartitionsResultNum("db4.tbl4", true, 0);
+        checkPartitionExist(tbl4, "p2", false, true);
+        checkPartitionExist(tbl4, "tp3", false, true);
+        checkPartitionExist(tbl4, "tp1", false, false);
+        checkPartitionExist(tbl4, "tp2", false, false);
+        checkPartitionExist(tbl4, "p2", true, false);
+
+        checkTablet("db4.tbl4", "p2", false, 2);
+        checkTablet("db4.tbl4", "tp3", false, 2);
+
+        // for now, we have 2 partitions: p2, tp3, ('1', '2', '3', '4', '5', '6'), ('7', '8', '9'). 0 temp partition.
+        stmtStr = "alter table db4.tbl4 add temporary partition tp4 values in ('1', '2', '3', '4', '5', '6') ('in_memory' = 'true') distributed by hash(k1) buckets 3";
+        alterTable(stmtStr, true);
+        stmtStr = "alter table db4.tbl4 add temporary partition tp4 values in ('1', '2', '3', '4', '5', '6') ('in_memory' = 'true', 'replication_num' = '2') distributed by hash(k2) buckets 3";
+        alterTable(stmtStr, true);
+        stmtStr = "alter table db4.tbl4 add temporary partition tp4 values in ('1', '2', '3', '4', '5', '6') ('in_memory' = 'true', 'replication_num' = '1') distributed by hash(k2) buckets 3";
+        alterTable(stmtStr, false);
+
+        Partition p2 = tbl4.getPartition("p2");
+        Assert.assertNotNull(p2);
+        Assert.assertFalse(tbl4.getPartitionInfo().getIsInMemory(p2.getId()));
+        Assert.assertEquals(1, p2.getDistributionInfo().getBucketNum());
+
+        stmtStr = "alter table db4.tbl4 replace partition (p2) with temporary partition (tp4)";
+        alterTable(stmtStr, false);
+
+        // for now, we have 2 partitions: p2, tp3, ('1', '2', '3', '4', '5', '6'), ('7', '8', '9'). 0 temp partition. and p2 bucket is 3, 'in_memory' is true.
+        p2 = tbl4.getPartition("p2");
+        Assert.assertNotNull(p2);
+        Assert.assertTrue(tbl4.getPartitionInfo().getIsInMemory(p2.getId()));
+        Assert.assertEquals(3, p2.getDistributionInfo().getBucketNum());
+
+        stmtStr = "alter table db4.tbl4 add temporary partition tp1 values in ('1', '2', '3');";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db4.tbl4 add temporary partition tp2 values in ('4', '5', '6');";
+        alterTable(stmtStr, false);
+
+        checkShowPartitionsResultNum("db4.tbl4", false, 2);
+        checkShowPartitionsResultNum("db4.tbl4", true, 2);
+        checkPartitionExist(tbl4, "p2", false, true);
+        checkPartitionExist(tbl4, "tp3", false, true);
+        checkPartitionExist(tbl4, "tp1", true, true);
+        checkPartitionExist(tbl4, "tp2", true, true);
+
+        stmtStr = "alter table db4.tbl4 replace partition (p2) with temporary partition (tp1, tp2)";
+        alterTable(stmtStr, false);
+
+        checkShowPartitionsResultNum("db4.tbl4", false, 3);
+        checkShowPartitionsResultNum("db4.tbl4", true, 0);
+        checkPartitionExist(tbl4, "tp1", false, true);
+        checkPartitionExist(tbl4, "tp2", false, true);
+        checkPartitionExist(tbl4, "tp3", false, true);
+        checkPartitionExist(tbl4, "tp1", true, false);
+        checkPartitionExist(tbl4, "tp2", true, false);
+
+        // for now, tbl4 has 3 formal partition:
+        // tp1 (1, 2, 3)
+        // tp2 (4, 5, 6)
+        // tp3 (7, 8, 9)
+        // Test strict range
+        stmtStr = "alter table db4.tbl4 add temporary partition p2 values in ('4', '5')";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db4.tbl4 add temporary partition p31 values in ('7', '8')";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db4.tbl4 add temporary partition p32 values in ('9')";
+        alterTable(stmtStr, false);
+
+        stmtStr = "alter table db4.tbl4 replace partition (tp2) with temporary partition (p2) properties('strict_range' = 'true');";
+        alterTable(stmtStr, true);
+        stmtStr = "alter table db4.tbl4 replace partition (tp2) with temporary partition (p2) properties('strict_range' = 'false', 'use_temp_partition_name' = 'true');";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db4.tbl4 replace partition (tp3) with temporary partition (p31, p32) properties('strict_range' = 'true', 'use_temp_partition_name' = 'true');";
+        alterTable(stmtStr, false);
+
+        stmtStr = "alter table db4.tbl4 add temporary partition p4 values in ('1', '2', '3', '4')";
+        alterTable(stmtStr, false);
+
+        stmtStr = "alter table db4.tbl4 replace partition (tp1) with temporary partition (p4) properties('strict_range' = 'false');";
+        alterTable(stmtStr, true);
+    }
+    @Test
+    public void testForMultiListPartitionTable() throws Exception {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
+
+        // create database db5
+        String createDbStmtStr = "create database db5;";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        System.out.println(Catalog.getCurrentCatalog().getDbNames());
+
+        // create table tbl5
+        String createTblStmtStr1 = "create table db5.tbl5 (k1 int, k2 varchar)\n" +
+                "partition by list(k1, k2)\n" +
+                "(\n" +
+                "partition p1 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\")),\n" +
+                "partition p2 values in ((\"2\",\"beijing\"), (\"2\", \"shanghai\")),\n" +
+                "partition p3 values in ((\"3\",\"beijing\"), (\"3\", \"shanghai\"))\n" +
+                ")\n" +
+                "distributed by hash(k2) buckets 1\n" +
+                "properties('replication_num' = '1');";
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+
+        Database db5 = Catalog.getCurrentCatalog().getDb("default_cluster:db5");
+        OlapTable tbl5 = (OlapTable) db5.getTable("tbl5");
+
+        testSerializeOlapTable(tbl5);
+
+        Map<String, Long> originPartitionTabletIds = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db5.tbl5", false, originPartitionTabletIds);
+        Assert.assertEquals(3, originPartitionTabletIds.keySet().size());
+
+        // show temp partition
+        checkShowPartitionsResultNum("db5.tbl5", true, 0);
+        checkShowPartitionsResultNum("db5.tbl5", false, 3);
+
+        // add temp partition with duplicate name
+        String stmtStr = "alter table db5.tbl5 add temporary partition p1 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\"));";
+        alterTable(stmtStr, true);
+
+        // add temp partition
+        stmtStr = "alter table db5.tbl5 add temporary partition tp1 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\"));";
+        alterTable(stmtStr, false);
+
+        stmtStr = "alter table db5.tbl5 add temporary partition tp2 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\");";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db5.tbl5 add temporary partition tp1 values in ((\"2\",\"beijing\"), (\"2\", \"shanghai\"));";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db5.tbl5 add temporary partition tp2 values in ((\"2\",\"beijing\"), (\"2\", \"shanghai\"));";
+        alterTable(stmtStr, false);
+
+        stmtStr = "alter table db5.tbl5 add temporary partition tp3 values in ((\"2\",\"beijing\"), (\"3\",\"beijing\"), (\"3\", \"shanghai\"));";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db5.tbl5 add temporary partition tp3 values in ((\"3\",\"beijing\"), (\"3\", \"shanghai\"));";
+        alterTable(stmtStr, false);
+
+        Map<String, Long> tempPartitionTabletIds = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db5.tbl5", true, tempPartitionTabletIds);
+        Assert.assertEquals(3, tempPartitionTabletIds.keySet().size());
+
+        System.out.println("partition tablets: " + originPartitionTabletIds);
+        System.out.println("temp partition tablets: " + tempPartitionTabletIds);
+
+        testSerializeOlapTable(tbl5);
+
+        // drop non exist temp partition
+        stmtStr = "alter table db5.tbl5 drop temporary partition tp4;";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db5.tbl5 drop temporary partition if exists tp4;";
+        alterTable(stmtStr, false);
+
+        stmtStr = "alter table db5.tbl5 drop temporary partition tp3;";
+        alterTable(stmtStr, false);
+
+        Map<String, Long> originPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db5.tbl5", false, originPartitionTabletIds2);
+        Assert.assertEquals(originPartitionTabletIds2, originPartitionTabletIds);
+
+        Map<String, Long> tempPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db5.tbl5", true, tempPartitionTabletIds2);
+        Assert.assertEquals(2, tempPartitionTabletIds2.keySet().size());
+        Assert.assertTrue(!tempPartitionTabletIds2.containsKey("tp3"));
+
+        checkShowPartitionsResultNum("db5.tbl5", true, 2);
+        checkShowPartitionsResultNum("db5.tbl5", false, 3);
+
+        stmtStr = "alter table db5.tbl5 add temporary partition tp3 values in ((\"3\",\"beijing\"), (\"3\", \"shanghai\"));";
+        alterTable(stmtStr, false);
+        checkShowPartitionsResultNum("db5.tbl5", true, 3);
+
+        stmtStr = "alter table db5.tbl5 drop partition p1;";
+        alterTable(stmtStr, false);
+        checkShowPartitionsResultNum("db5.tbl5", true, 3);
+        checkShowPartitionsResultNum("db5.tbl5", false, 2);
+
+        originPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db5.tbl5", false, originPartitionTabletIds2);
+        Assert.assertEquals(2, originPartitionTabletIds2.size());
+        Assert.assertTrue(!originPartitionTabletIds2.containsKey("p1"));
+
+        String recoverStr = "recover partition p1 from db5.tbl5;";
+        RecoverPartitionStmt recoverStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverStr, ctx);
+        Catalog.getCurrentCatalog().recoverPartition(recoverStmt);
+        checkShowPartitionsResultNum("db5.tbl5", true, 3);
+        checkShowPartitionsResultNum("db5.tbl5", false, 3);
+
+        originPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db5.tbl5", false, originPartitionTabletIds2);
+        Assert.assertEquals(originPartitionTabletIds2, originPartitionTabletIds);
+
+        tempPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db5.tbl5", true, tempPartitionTabletIds2);
+        Assert.assertEquals(3, tempPartitionTabletIds2.keySet().size());
+
+        // Here, we should have 3 partitions p1,p2,p3, and 3 temp partitions tp1,tp2,tp3
+        System.out.println("we have partition tablets: " + originPartitionTabletIds2);
+        System.out.println("we have temp partition tablets: " + tempPartitionTabletIds2);
+
+        stmtStr = "alter table db5.tbl5 replace partition(p1, p2) with temporary partition(tp2, tp3);";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db5.tbl5 replace partition(p1, p2) with temporary partition(tp1, tp2) properties('invalid' = 'invalid');";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db5.tbl5 replace partition(p1, p2) with temporary partition(tp2, tp3);";
+        alterTable(stmtStr, true);
+
+        stmtStr = "alter table db5.tbl5 replace partition(p1, p2) with temporary partition(tp1, tp2) properties('use_temp_partition_name' = 'true');";
+        alterTable(stmtStr, false);
+        checkShowPartitionsResultNum("db5.tbl5", true, 1); // tp3
+        checkShowPartitionsResultNum("db5.tbl5", false, 3);// tp1, tp2, p3
+
+        checkTabletExists(tempPartitionTabletIds2.values(), true);
+        checkTabletExists(Lists.newArrayList(originPartitionTabletIds2.get("p3")), true);
+        checkTabletExists(Lists.newArrayList(originPartitionTabletIds2.get("p1"), originPartitionTabletIds2.get("p2")), false);
+
+        String truncateStr = "truncate table db5.tbl5 partition (p3);";
+        TruncateTableStmt truncateTableStmt = (TruncateTableStmt)UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
+        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        checkShowPartitionsResultNum("db5.tbl5", true, 1);
+        checkShowPartitionsResultNum("db5.tbl5", false, 3);
+        checkPartitionExist(tbl5, "tp1", false, true);
+        checkPartitionExist(tbl5, "tp2", false, true);
+        checkPartitionExist(tbl5, "p3", false, true);
+        checkPartitionExist(tbl5, "tp3", true, true);
+
+        stmtStr = "alter table db5.tbl5 drop partition p3;";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db5.tbl5 add partition p31 values in ((\"3\",\"beijing\"));";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db5.tbl5 add partition p32 values in ((\"3\", \"shanghai\"));";
+        alterTable(stmtStr, false);
+
+        // for now, we have 4 partitions: tp1, tp2, p31, p32, 1 temp partition: tp3
+        checkShowPartitionsResultNum("db5.tbl5", false, 4);
+        checkShowPartitionsResultNum("db5.tbl5", true, 1);
+
+        stmtStr = "alter table db5.tbl5 replace partition(p31) with temporary partition(tp3);";
+        alterTable(stmtStr, true);
+        stmtStr = "alter table db5.tbl5 replace partition(p31, p32) with temporary partition(tp3);";
+        alterTable(stmtStr, false);
+        checkShowPartitionsResultNum("db5.tbl5", false, 3);
+        checkShowPartitionsResultNum("db5.tbl5", true, 0);
+        checkPartitionExist(tbl5, "tp1", false, true);
+        checkPartitionExist(tbl5, "tp2", false, true);
+        checkPartitionExist(tbl5, "tp3", false, true);
+
+        stmtStr = "alter table db5.tbl5 add temporary partition p1 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\"));";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db5.tbl5 add temporary partition p2 values in ((\"2\",\"beijing\"), (\"2\", \"shanghai\"));";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db5.tbl5 add temporary partition p3 values in ((\"3\",\"beijing\"), (\"3\", \"shanghai\"));";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db5.tbl5 replace partition(tp1, tp2) with temporary partition(p1, p2);";
+        alterTable(stmtStr, false);
+        checkPartitionExist(tbl5, "tp1", false, true);
+        checkPartitionExist(tbl5, "tp2", false, true);
+        checkPartitionExist(tbl5, "tp3", false, true);
+        checkPartitionExist(tbl5, "p1", true, false);
+        checkPartitionExist(tbl5, "p2", true, false);
+        checkPartitionExist(tbl5, "p3", true, true);
+
+        stmtStr = "alter table db5.tbl5 replace partition(tp3) with temporary partition(p3) properties('use_temp_partition_name' = 'true');";
+        alterTable(stmtStr, false);
+        checkPartitionExist(tbl5, "tp1", false, true);
+        checkPartitionExist(tbl5, "tp2", false, true);
+        checkPartitionExist(tbl5, "p3", false, true);
+        checkPartitionExist(tbl5, "p1", true, false);
+        checkPartitionExist(tbl5, "p2", true, false);
+        checkPartitionExist(tbl5, "p3", true, false);
+        checkShowPartitionsResultNum("db5.tbl5", false, 3);
+        checkShowPartitionsResultNum("db5.tbl5", true, 0);
+
+        stmtStr = "alter table db5.tbl5 add temporary partition tp1 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\"));"; // name conflict
+        alterTable(stmtStr, true);
+        stmtStr = "alter table db5.tbl5 rename partition p3 tp3;";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db5.tbl5 add temporary partition p1 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\"));";
+        alterTable(stmtStr, false);
+
+        originPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db5.tbl5", false, originPartitionTabletIds2);
+        Assert.assertEquals(3, originPartitionTabletIds2.size());
+
+        tempPartitionTabletIds2 = Maps.newHashMap();
+        getPartitionNameToTabletIdMap("db5.tbl5", true, tempPartitionTabletIds2);
+        Assert.assertEquals(1, tempPartitionTabletIds2.keySet().size());
+
+        // for now , we have 3 partitions: tp1, tp2, tp3, 1 temp partition: p1
+        System.out.println("we have partition tablets: " + originPartitionTabletIds2);
+        System.out.println("we have temp partition tablets: " + tempPartitionTabletIds2);
+
+        stmtStr = "alter table db5.tbl5 add rollup r1(k1);";
+        alterTable(stmtStr, true);
+
+        // truncate table will delete temporary partitions
+        truncateStr = "truncate table db5.tbl5";
+        truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, ctx);
+        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        checkShowPartitionsResultNum("db5.tbl5", false, 3);
+        checkShowPartitionsResultNum("db5.tbl5", true, 0);
+
+        stmtStr = "alter table db5.tbl5 add rollup r1(k1);";
+        alterTable(stmtStr, false);
+
+        stmtStr = "alter table db5.tbl5 add temporary partition p2 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\"), (\"2\",\"beijing\"), (\"2\", \"shanghai\"));";
+        alterTable(stmtStr, true);
+
+        // wait rollup finish
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        for (AlterJobV2 alterJobV2 : alterJobs.values()) {
+            while (!alterJobV2.getJobState().isFinalState()) {
+                System.out.println(
+                        "alter job " + alterJobV2.getDbId() + " is running. state: " + alterJobV2.getJobState());
+                Thread.sleep(5000);
+            }
+            System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
+            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+        }
+        // waiting table state to normal
+        Thread.sleep(500);
+
+        stmtStr = "alter table db5.tbl5 add temporary partition p2 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\"), (\"2\",\"beijing\"), (\"2\", \"shanghai\"));";
+        alterTable(stmtStr, false);
+
+        TempPartitions tempPartitions = Deencapsulation.getField(tbl5, "tempPartitions");
+        testSerializeTempPartitions(tempPartitions);
+
+        stmtStr = "alter table db5.tbl5 replace partition (tp1, tp2) with temporary partition (p2);";
+        alterTable(stmtStr, false);
+        checkShowPartitionsResultNum("db5.tbl5", false, 2);
+        checkShowPartitionsResultNum("db5.tbl5", true, 0);
+        checkPartitionExist(tbl5, "p2", false, true);
+        checkPartitionExist(tbl5, "tp3", false, true);
+        checkPartitionExist(tbl5, "tp1", false, false);
+        checkPartitionExist(tbl5, "tp2", false, false);
+        checkPartitionExist(tbl5, "p2", true, false);
+
+        checkTablet("db5.tbl5", "p2", false, 2);
+        checkTablet("db5.tbl5", "tp3", false, 2);
+
+        // for now, we have 2 partitions: p2, tp3, (("1","beijing"), ("1", "shanghai"), ("2","beijing"), ("2", "shanghai")), ('7', '8', '9'). 0 temp partition.
+        stmtStr = "alter table db5.tbl5 add temporary partition tp4 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\"), (\"2\",\"beijing\"), (\"2\", \"shanghai\")) ('in_memory' = 'true') distributed by hash(k1) buckets 3";
+        alterTable(stmtStr, true);
+        stmtStr = "alter table db5.tbl5 add temporary partition tp4 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\"), (\"2\",\"beijing\"), (\"2\", \"shanghai\")) ('in_memory' = 'true', 'replication_num' = '2') distributed by hash(k2) buckets 3";
+        alterTable(stmtStr, true);
+        stmtStr = "alter table db5.tbl5 add temporary partition tp4 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\"), (\"2\",\"beijing\"), (\"2\", \"shanghai\")) ('in_memory' = 'true', 'replication_num' = '1') distributed by hash(k2) buckets 3";
+        alterTable(stmtStr, false);
+
+        Partition p2 = tbl5.getPartition("p2");
+        Assert.assertNotNull(p2);
+        Assert.assertFalse(tbl5.getPartitionInfo().getIsInMemory(p2.getId()));
+        Assert.assertEquals(1, p2.getDistributionInfo().getBucketNum());
+
+        stmtStr = "alter table db5.tbl5 replace partition (p2) with temporary partition (tp4)";
+        alterTable(stmtStr, false);
+
+        // for now, we have 2 partitions: p2, tp3, (("1","beijing"), ("1", "shanghai"), ("2","beijing"), ("2", "shanghai")), ('7', '8', '9'). 0 temp partition. and p2 bucket is 3, 'in_memory' is true.
+        p2 = tbl5.getPartition("p2");
+        Assert.assertNotNull(p2);
+        Assert.assertTrue(tbl5.getPartitionInfo().getIsInMemory(p2.getId()));
+        Assert.assertEquals(3, p2.getDistributionInfo().getBucketNum());
+
+        stmtStr = "alter table db5.tbl5 add temporary partition tp1 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\"));";
+        alterTable(stmtStr, false);
+        stmtStr = "alter table db5.tbl5 add temporary partition tp2 values in ((\"2\",\"beijing\"), (\"2\", \"shanghai\"));";
+        alterTable(stmtStr, false);
+
+        checkShowPartitionsResultNum("db5.tbl5", false, 2);
+        checkShowPartitionsResultNum("db5.tbl5", true, 2);
+        checkPartitionExist(tbl5, "p2", false, true);
+        checkPartitionExist(tbl5, "tp3", false, true);
+        checkPartitionExist(tbl5, "tp1", true, true);
+        checkPartitionExist(tbl5, "tp2", true, true);
+
+        stmtStr = "alter table db5.tbl5 replace partition (p2) with temporary partition (tp1, tp2)";
+        alterTable(stmtStr, false);
+
+        checkShowPartitionsResultNum("db5.tbl5", false, 3);
+        checkShowPartitionsResultNum("db5.tbl5", true, 0);
+        checkPartitionExist(tbl5, "tp1", false, true);
+        checkPartitionExist(tbl5, "tp2", false, true);
+        checkPartitionExist(tbl5, "tp3", false, true);
+        checkPartitionExist(tbl5, "tp1", true, false);
+        checkPartitionExist(tbl5, "tp2", true, false);
+
     }
     
     private void testSerializeOlapTable(OlapTable tbl) throws IOException, AnalysisException {

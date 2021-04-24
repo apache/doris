@@ -34,6 +34,9 @@ enum TPartitionType {
   // ordered partition on a list of exprs
   // (partition bounds don't overlap)
   RANGE_PARTITIONED,
+  
+  // partition on a list of exprs
+  LIST_PARTITIONED,
 
   // unordered partition on a set of exprs
   // (only use in bucket shuffle join)

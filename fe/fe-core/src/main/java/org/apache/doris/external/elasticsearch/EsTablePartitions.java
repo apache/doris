@@ -20,7 +20,7 @@ package org.apache.doris.external.elasticsearch;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.common.DdlException;
@@ -29,7 +29,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -96,13 +95,13 @@ public class EsTablePartitions {
             esShardPartitionsList.sort(Comparator.comparing(EsShardPartitions::getPartitionKey));
             long partitionId = 0;
             for (EsShardPartitions esShardPartitions : esShardPartitionsList) {
-                Range<PartitionKey> range = partitionInfo.handleNewSinglePartitionDesc(
+                PartitionItem item = partitionInfo.handleNewSinglePartitionDesc(
                         esShardPartitions.getPartitionDesc(), partitionId, false);
                 esTablePartitions.addPartition(esShardPartitions.getIndexName(), partitionId);
                 esShardPartitions.setPartitionId(partitionId);
                 ++partitionId;
                 LOG.debug("add partition to es table [{}] with range [{}]", esTable.getName(),
-                        range);
+                        item.getItems());
             }
         }
         return esTablePartitions;

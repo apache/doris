@@ -24,14 +24,17 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -45,6 +48,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TOlapTableIndexSchema;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
@@ -67,6 +71,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -213,32 +218,22 @@ public class OlapTableSink extends DataSink {
 
         PartitionType partType = table.getPartitionInfo().getType();
         switch (partType) {
+            case LIST:
             case RANGE: {
-                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) table.getPartitionInfo();
-                for (Column partCol : rangePartitionInfo.getPartitionColumns()) {
+                PartitionInfo partitionInfo = table.getPartitionInfo();
+                for (Column partCol : partitionInfo.getPartitionColumns()) {
                     partitionParam.addToPartitionColumns(partCol.getName());
                 }
 
-                int partColNum = rangePartitionInfo.getPartitionColumns().size();
+                int partColNum = partitionInfo.getPartitionColumns().size();
                 DistributionInfo selectedDistInfo = null;
 
                 for (Long partitionId : partitionIds) {
                     Partition partition = table.getPartition(partitionId);
                     TOlapTablePartition tPartition = new TOlapTablePartition();
                     tPartition.setId(partition.getId());
-                    Range<PartitionKey> range = rangePartitionInfo.getRange(partition.getId());
-                    // set start keys
-                    if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
-                        for (int i = 0; i < partColNum; i++) {
-                            tPartition.addToStartKeys(range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
-                        }
-                    }
-                    // set end keys
-                    if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
-                        for (int i = 0; i < partColNum; i++) {
-                            tPartition.addToEndKeys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
-                        }
-                    }
+                    // set partition keys
+                    setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
 
                     for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
@@ -285,6 +280,34 @@ public class OlapTableSink extends DataSink {
             }
         }
         return partitionParam;
+    }
+
+    private void setPartitionKeys(TOlapTablePartition tPartition, PartitionItem partitionItem, int partColNum) {
+        if (partitionItem instanceof RangePartitionItem) {
+            Range<PartitionKey> range = partitionItem.getItems();
+            // set start keys
+            if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
+                for (int i = 0; i < partColNum; i++) {
+                    tPartition.addToStartKeys(range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
+                }
+            }
+            // set end keys
+            if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
+                for (int i = 0; i < partColNum; i++) {
+                    tPartition.addToEndKeys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
+                }
+            }
+        } else if (partitionItem instanceof ListPartitionItem){
+            List<PartitionKey> partitionKeys = partitionItem.getItems();
+            // set in keys
+            for (PartitionKey partitionKey : partitionKeys) {
+                List<TExprNode> tExprNodes = new ArrayList<>();
+                for (int i = 0; i < partColNum; i++) {
+                    tExprNodes.add(partitionKey.getKeys().get(i).treeToThrift().getNodes().get(0));
+                }
+                tPartition.addToInKeys(tExprNodes);
+            }
+        }
     }
 
     private TOlapTableLocationParam createLocation(OlapTable table) throws UserException {

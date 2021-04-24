@@ -30,9 +30,9 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -54,7 +54,6 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -219,11 +218,11 @@ public class StreamLoadPlanner {
             }
         } else {
             List<Expr> conjuncts = scanNode.getConjuncts();
-            if (destTable.getPartitionInfo().getType() == PartitionType.RANGE && !conjuncts.isEmpty()) {
-                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo)(destTable.getPartitionInfo());
-                Map<Long, Range<PartitionKey>> keyRangeById = rangePartitionInfo.getIdToRange(false);
+            if (destTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED && !conjuncts.isEmpty()) {
+                PartitionInfo partitionInfo = destTable.getPartitionInfo();
+                Map<Long, PartitionItem> itemById = partitionInfo.getIdToItem(false);
                 Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
-                for (Column column : rangePartitionInfo.getPartitionColumns()) {
+                for (Column column : partitionInfo.getPartitionColumns()) {
                     SlotDescriptor slotDesc = tupleDesc.getColumnSlot(column.getName());
                     if (null == slotDesc) {
                         continue;
@@ -234,10 +233,16 @@ public class StreamLoadPlanner {
                     }
                 }
                 if (columnFilters.isEmpty()) {
-                    partitionIds.addAll(keyRangeById.keySet());
+                    partitionIds.addAll(itemById.keySet());
                 } else {
-                    PartitionPruner partitionPruner = new RangePartitionPruner(keyRangeById,
-                            rangePartitionInfo.getPartitionColumns(), columnFilters);
+                    PartitionPruner partitionPruner = null;
+                    if (destTable.getPartitionInfo().getType() == PartitionType.RANGE) {
+                        partitionPruner = new RangePartitionPruner(itemById,
+                                partitionInfo.getPartitionColumns(), columnFilters);
+                    } else if (destTable.getPartitionInfo().getType() == PartitionType.LIST) {
+                        partitionPruner = new ListPartitionPruner(itemById,
+                                partitionInfo.getPartitionColumns(), columnFilters);
+                    }
                     partitionIds.addAll(partitionPruner.prune());
                 }
             } else {

@@ -30,6 +30,8 @@ under the License.
 
 目前实现了动态添加分区及动态删除分区的功能。
 
+动态分区只支持 Range 分区。
+
 ## 名词解释
 
 * FE：Frontend，Doris 的前端节点。负责元数据管理和请求接入。
