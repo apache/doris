@@ -313,7 +313,7 @@ public class DynamicPartitionUtil {
         int end = DynamicPartitionProperty.MAX_END_OFFSET;
         if (properties.containsKey(DynamicPartitionProperty.END)) {
             String endValue = properties.get(DynamicPartitionProperty.END);
-            checkEnd(endValue);
+            end = checkEnd(endValue);
             properties.remove(DynamicPartitionProperty.END);
             analyzedProperties.put(DynamicPartitionProperty.END, endValue);
         }
