@@ -746,12 +746,12 @@ OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local
     }
 
     try {
-        path boost_scan_root(scan_root);
-        directory_iterator item(boost_scan_root);
-        directory_iterator item_end;
-        for (; item != item_end; ++item) {
-            string path_name = item->path().string();
-            string dir_name = item->path().filename().string();
+        // Sort pathes by name, that is by delete time.
+        std::vector<path> sorted_pathes;
+        std::copy(directory_iterator(path(scan_root)), directory_iterator(), std::back_inserter(sorted_pathes));
+        std::sort(sorted_pathes.begin(), sorted_pathes.end());
+        for (const auto& sorted_path : sorted_pathes) {
+            string dir_name = sorted_path.filename().string();
             string str_time = dir_name.substr(0, dir_name.find('.'));
             tm local_tm_create;
             local_tm_create.tm_isdst = 0;
@@ -770,6 +770,7 @@ OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local
             }
             VLOG_TRACE << "get actual expire time " << actual_expire << " of dir: " << dir_name;
 
+            string path_name = sorted_path.string();
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
                 Status ret = FileUtils::remove_all(path_name);
                 if (!ret.ok()) {
@@ -778,6 +779,9 @@ OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local
                     res = OLAP_ERR_OS_ERROR;
                     continue;
                 }
+            } else {
+                // Because files are ordered by filename, i.e. by create time, so all the left files are not expired.
+                break;
             }
         }
     } catch (...) {
