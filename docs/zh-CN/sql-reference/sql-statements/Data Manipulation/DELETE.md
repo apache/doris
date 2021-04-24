@@ -40,7 +40,7 @@ under the License.
         2) 当选定的 key 列不存在于某个 rollup 中时，无法进行 delete。
         3) 条件之间只能是“与”的关系。
            若希望达成“或”的关系，需要将条件分写在两个 DELETE 语句中。
-        4) 如果为RANGE分区表，可以指定分区，如不指定，且会话变量 delete_without_partition 为 true，则会应用到所有分区。如果是单分区表，可以不指定。
+        4) 如果为分区表，可以指定分区，如不指定，且会话变量 delete_without_partition 为 true，则会应用到所有分区。如果是单分区表，可以不指定。
            
     注意：
         该语句可能会降低执行后一段时间内的查询效率。

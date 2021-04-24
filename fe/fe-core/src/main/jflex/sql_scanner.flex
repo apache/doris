@@ -245,6 +245,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("like", new Integer(SqlParserSymbols.KW_LIKE));
         keywordMap.put("limit", new Integer(SqlParserSymbols.KW_LIMIT));
         keywordMap.put("link", new Integer(SqlParserSymbols.KW_LINK));
+        keywordMap.put("list", new Integer(SqlParserSymbols.KW_LIST));
         keywordMap.put("load", new Integer(SqlParserSymbols.KW_LOAD));
         keywordMap.put("local", new Integer(SqlParserSymbols.KW_LOCAL));
         keywordMap.put("location", new Integer(SqlParserSymbols.KW_LOCATION));

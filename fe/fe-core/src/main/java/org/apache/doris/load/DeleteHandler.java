@@ -149,9 +149,10 @@ public class DeleteHandler implements Writable {
                 }
 
                 if (noPartitionSpecified) {
-                    if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
+                    if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE ||
+                            olapTable.getPartitionInfo().getType() == PartitionType.LIST) {
                         if (!ConnectContext.get().getSessionVariable().isDeleteWithoutPartition()) {
-                            throw new DdlException("This is a range partitioned table."
+                            throw new DdlException("This is a range or list partitioned table."
                                     + " You should specify partition in delete stmt, or set delete_without_partition to true");
                         } else {
                             partitionNames.addAll(olapTable.getPartitionNames());

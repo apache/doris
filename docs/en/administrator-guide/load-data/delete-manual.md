@@ -67,7 +67,7 @@ Explanation:
 2. The column in the WHERE condition can only be the `key` column.
 3. Cannot delete when the `key` column does not exist in any rollup table.
 4. Each condition in WHERE condition can only be connected by `and`. If you want `or`, you are suggested to write these conditions into two delete statements.
-5. If the specified table is a range partitioned table, `PARTITION` must be specified unless the table is a single partition table,.
+5. If the specified table is a range or list partitioned table, `PARTITION` must be specified unless the table is a single partition table,.
 6. Unlike the insert into command, delete statement cannot specify `label` manually. You can view the concept of `label` in [Insert Into](./insert-into-manual.md)
 
 ## Delete Result
