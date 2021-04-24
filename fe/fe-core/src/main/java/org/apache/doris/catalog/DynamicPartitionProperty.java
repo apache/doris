@@ -39,6 +39,7 @@ public class DynamicPartitionProperty {
     public static final String CREATE_HISTORY_PARTITION = "dynamic_partition.create_history_partition";
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
+    public static final int MAX_END_OFFSET = Integer.MAX_VALUE;
     public static final int NOT_SET_REPLICATION_NUM = -1;
 
     private boolean exist;
@@ -53,7 +54,7 @@ public class DynamicPartitionProperty {
     private StartOfDate startOfMonth;
     private TimeZone tz = TimeUtils.getSystemTimeZone();
     private int replicationNum;
-    private boolean createHistoryPartition;
+    private boolean createHistoryPartition = false;
 
     public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {

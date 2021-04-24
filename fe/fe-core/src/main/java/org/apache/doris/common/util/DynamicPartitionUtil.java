@@ -30,6 +30,7 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -88,27 +89,33 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkStart(String start) throws DdlException {
+    private static int checkStart(String start) throws DdlException {
         try {
-            if (Integer.parseInt(start) >= 0) {
+            int startInt = Integer.parseInt(start);
+            if (startInt >= 0) {
                 ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_START_ZERO, start);
             }
+            return startInt;
         } catch (NumberFormatException e) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_START_FORMAT, start);
         }
+        return DynamicPartitionProperty.MIN_START_OFFSET;
     }
 
-    private static void checkEnd(String end) throws DdlException {
+    private static int checkEnd(String end) throws DdlException {
         if (Strings.isNullOrEmpty(end)) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_END_EMPTY);
         }
         try {
-            if (Integer.parseInt(end) <= 0) {
+            int endInt = Integer.parseInt(end);
+            if (endInt <= 0) {
                 ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_END_ZERO, end);
             }
+            return endInt;
         } catch (NumberFormatException e) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_END_FORMAT, end);
         }
+        return DynamicPartitionProperty.MAX_END_OFFSET;
     }
 
     private static void checkBuckets(String buckets) throws DdlException {
@@ -131,11 +138,12 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkCreateHistoryPartition(String create) throws DdlException {
+    private static boolean checkCreateHistoryPartition(String create) throws DdlException {
         if (Strings.isNullOrEmpty(create)
                 || (!Boolean.TRUE.toString().equalsIgnoreCase(create) && !Boolean.FALSE.toString().equalsIgnoreCase(create))) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_CREATE_HISTORY_PARTITION, create);
         }
+        return Boolean.valueOf(create);
     }
 
     private static void checkStartDayOfMonth(String val) throws DdlException {
@@ -279,12 +287,7 @@ public class DynamicPartitionUtil {
             properties.remove(DynamicPartitionProperty.PREFIX);
             analyzedProperties.put(DynamicPartitionProperty.PREFIX, prefixValue);
         }
-        if (properties.containsKey(DynamicPartitionProperty.END)) {
-            String endValue = properties.get(DynamicPartitionProperty.END);
-            checkEnd(endValue);
-            properties.remove(DynamicPartitionProperty.END);
-            analyzedProperties.put(DynamicPartitionProperty.END, endValue);
-        }
+
         if (properties.containsKey(DynamicPartitionProperty.BUCKETS)) {
             String bucketsValue = properties.get(DynamicPartitionProperty.BUCKETS);
             checkBuckets(bucketsValue);
@@ -299,25 +302,37 @@ public class DynamicPartitionUtil {
         }
 
         // If dynamic property "start" is not specified, use Integer.MIN_VALUE as default
+        int start = DynamicPartitionProperty.MIN_START_OFFSET;
         if (properties.containsKey(DynamicPartitionProperty.START)) {
             String startValue = properties.get(DynamicPartitionProperty.START);
-            checkStart(startValue);
+            start = checkStart(startValue);
             properties.remove(DynamicPartitionProperty.START);
             analyzedProperties.put(DynamicPartitionProperty.START, startValue);
         }
 
+        int end = DynamicPartitionProperty.MAX_END_OFFSET;
+        if (properties.containsKey(DynamicPartitionProperty.END)) {
+            String endValue = properties.get(DynamicPartitionProperty.END);
+            checkEnd(endValue);
+            properties.remove(DynamicPartitionProperty.END);
+            analyzedProperties.put(DynamicPartitionProperty.END, endValue);
+        }
+
+        boolean createHistoryPartition = false;
         if (properties.containsKey(DynamicPartitionProperty.CREATE_HISTORY_PARTITION)) {
             String val = properties.get(DynamicPartitionProperty.CREATE_HISTORY_PARTITION);
-            checkCreateHistoryPartition(val);
+            createHistoryPartition = checkCreateHistoryPartition(val);
             properties.remove(DynamicPartitionProperty.CREATE_HISTORY_PARTITION);
             analyzedProperties.put(DynamicPartitionProperty.CREATE_HISTORY_PARTITION, val);
+        }
 
-            if (!analyzedProperties.containsKey(DynamicPartitionProperty.START)
-                    && Boolean.TRUE.toString().equalsIgnoreCase(val)) {
-                // if "create_history_partition" is set to true but "start" property is not set.
-                // throw exception.
-                throw new DdlException("Can not create history partition if 'start' property is not set.");
-            }
+        // Check the number of dynamic partitions that need to be created to avoid creating too many partitions at once.
+        // If create_history_partition is false, history partition is not considered.
+        if (!createHistoryPartition) {
+            start = 0;
+        }
+        if (end - start > Config.max_dynamic_partition_num) {
+            throw new DdlException("Too many dynamic partitions: " + (end - start) + ". Limit: " + Config.max_dynamic_partition_num);
         }
 
         if (properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH)) {
