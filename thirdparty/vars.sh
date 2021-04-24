@@ -349,6 +349,30 @@ TSAN_HEADER_NAME="tsan_interface_atomic.h"
 TSAN_HEADER_FILE="tsan_interface_atomic.h"
 TSAN_HEADER_MD5SUM="d72679bea167d6a513d959f5abd149dc"
 
+# lzma
+LZMA_DOWNLOAD="https://github.com/kobolabs/liblzma/archive/refs/heads/master.zip"
+LZMA_NAME="liblzma-master.zip"
+LZMA_SOURCE="liblzma-master"
+LZMA_MD5SUM="ef11f2fbbfa6893b629f207a32bf730e"
+
+# xml2
+XML2_DOWNLOAD="https://gitlab.gnome.org/GNOME/libxml2/-/archive/v2.9.10/libxml2-v2.9.10.tar.gz"
+XML2_NAME="libxml2-v2.9.10.tar.gz"
+XML2_SOURCE="libxml2-v2.9.10"
+XML2_MD5SUM="b18faee9173c3378c910f6d7d1493115"
+
+# gsasl
+GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.10.0.tar.gz"
+GSASL_NAME="libgsasl-1.10.0.tar.gz"
+GSASL_SOURCE="libgsasl-1.10.0"
+GSASL_MD5SUM="9c8fc632da4ce108fb7581b33de2a5ce"
+
+# hdfs3
+HDFS3_DOWNLOAD="https://github.com/ClickHouse-Extras/libhdfs3/archive/refs/heads/master.zip"
+HDFS3_NAME="libhdfs3-master.zip"
+HDFS3_SOURCE="libhdfs3-master"
+HDFS3_MD5SUM="9e46a16009cf86b5e187d302b3582628"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
 OPENSSL
@@ -399,4 +423,8 @@ AWS_C_CAL
 AWS_C_IO
 AWS_CHECKSUMS
 AWS_S2N
-AWS_SDK"
+AWS_SDK
+LZMA
+XML2
+GSASL
+HDFS3"

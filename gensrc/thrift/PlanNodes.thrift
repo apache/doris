@@ -108,6 +108,21 @@ enum TFileFormatType {
     FORMAT_JSON,
 }
 
+struct THdfsConf {
+    1: required string key
+    2: required string value
+}
+
+struct THdfsParams {
+    1: optional string host
+    2: optional i32 port
+    3: optional string user
+    4: optional string kerb_principal
+    5: optional string kerb_ticket_cache_path
+    6: optional string token
+    7: optional list<THdfsConf> hdfs_conf
+}
+
 // One broker range information.
 struct TBrokerRangeDesc {
     1: required Types.TFileType file_type
@@ -134,6 +149,7 @@ struct TBrokerRangeDesc {
     //  it's usefull when format_type == FORMAT_JSON
     14: optional bool num_as_string;
     15: optional bool fuzzy_parse;
+    16: optional THdfsParams hdfs_params
 }
 
 struct TBrokerScanRangeParams {

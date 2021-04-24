@@ -32,6 +32,16 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
+#include "exec/parquet_reader.h"
+#include "exprs/expr.h"
+#include "exec/text_converter.h"
+#include "exec/text_converter.hpp"
+#include "exec/hdfs_file_reader.h"
+#include "exec/local_file_reader.h"
+#include "exec/broker_reader.h"
+#include "exec/buffered_reader.h"
+#include "exec/decompressor.h"
+#include "exec/parquet_reader.h"
 
 namespace doris {
 
@@ -115,6 +125,11 @@ Status ParquetScanner::open_next_reader() {
         switch (range.file_type) {
         case TFileType::FILE_LOCAL: {
             file_reader.reset(new LocalFileReader(range.path, range.start_offset));
+            break;
+        }
+        case TFileType::FILE_HDFS: {
+            file_reader.reset(new HdfsFileReader(
+                    range.hdfs_params, range.path, range.start_offset));
             break;
         }
         case TFileType::FILE_BROKER: {

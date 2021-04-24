@@ -40,6 +40,7 @@ set(EXEC_FILES
     hash_join_node.cpp
     hash_join_node_ir.cpp
     hash_table.cpp
+    hdfs_file_reader.cpp
     local_file_reader.cpp
     merge_node.cpp
     merge_join_node.cpp
