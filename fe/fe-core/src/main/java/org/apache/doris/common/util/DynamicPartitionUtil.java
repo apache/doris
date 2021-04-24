@@ -36,11 +36,11 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -131,6 +131,13 @@ public class DynamicPartitionUtil {
         }
     }
 
+    private static void checkCreateHistoryPartition(String create) throws DdlException {
+        if (Strings.isNullOrEmpty(create)
+                || (!Boolean.TRUE.toString().equalsIgnoreCase(create) && !Boolean.FALSE.toString().equalsIgnoreCase(create))) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_CREATE_HISTORY_PARTITION, create);
+        }
+    }
+
     private static void checkStartDayOfMonth(String val) throws DdlException {
         if (Strings.isNullOrEmpty(val)) {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.START_DAY_OF_MONTH);
@@ -204,13 +211,15 @@ public class DynamicPartitionUtil {
         String end = properties.get(DynamicPartitionProperty.END);
         String buckets = properties.get(DynamicPartitionProperty.BUCKETS);
         String enable = properties.get(DynamicPartitionProperty.ENABLE);
+        String createHistoryPartition = properties.get(DynamicPartitionProperty.CREATE_HISTORY_PARTITION);
         if (!(Strings.isNullOrEmpty(enable) &&
                 Strings.isNullOrEmpty(timeUnit) &&
                 Strings.isNullOrEmpty(timeZone) &&
                 Strings.isNullOrEmpty(prefix) &&
                 Strings.isNullOrEmpty(start) &&
                 Strings.isNullOrEmpty(end) &&
-                Strings.isNullOrEmpty(buckets))) {
+                Strings.isNullOrEmpty(buckets) &&
+                Strings.isNullOrEmpty(createHistoryPartition))) {
             if (Strings.isNullOrEmpty(enable)) {
                 properties.put(DynamicPartitionProperty.ENABLE, "true");
             }
@@ -231,6 +240,9 @@ public class DynamicPartitionUtil {
             }
             if (Strings.isNullOrEmpty(timeZone)) {
                 properties.put(DynamicPartitionProperty.TIME_ZONE, TimeUtils.getSystemTimeZone().getID());
+            }
+            if (Strings.isNullOrEmpty(createHistoryPartition)) {
+                properties.put(DynamicPartitionProperty.CREATE_HISTORY_PARTITION, "false");
             }
         }
         return true;
@@ -285,12 +297,27 @@ public class DynamicPartitionUtil {
             properties.remove(DynamicPartitionProperty.ENABLE);
             analyzedProperties.put(DynamicPartitionProperty.ENABLE, enableValue);
         }
-        // If dynamic property is not specified.Use Integer.MIN_VALUE as default
+
+        // If dynamic property "start" is not specified, use Integer.MIN_VALUE as default
         if (properties.containsKey(DynamicPartitionProperty.START)) {
             String startValue = properties.get(DynamicPartitionProperty.START);
             checkStart(startValue);
             properties.remove(DynamicPartitionProperty.START);
             analyzedProperties.put(DynamicPartitionProperty.START, startValue);
+        }
+
+        if (properties.containsKey(DynamicPartitionProperty.CREATE_HISTORY_PARTITION)) {
+            String val = properties.get(DynamicPartitionProperty.CREATE_HISTORY_PARTITION);
+            checkCreateHistoryPartition(val);
+            properties.remove(DynamicPartitionProperty.CREATE_HISTORY_PARTITION);
+            analyzedProperties.put(DynamicPartitionProperty.CREATE_HISTORY_PARTITION, val);
+
+            if (!analyzedProperties.containsKey(DynamicPartitionProperty.START)
+                    && Boolean.TRUE.toString().equalsIgnoreCase(val)) {
+                // if "create_history_partition" is set to true but "start" property is not set.
+                // throw exception.
+                throw new DdlException("Can not create history partition if 'start' property is not set.");
+            }
         }
 
         if (properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH)) {
@@ -414,9 +441,9 @@ public class DynamicPartitionUtil {
             return getPartitionRangeOfDay(current, offset, format);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             return getPartitionRangeOfWeek(current, offset, property.getStartOfWeek(), format);
-        } else if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) { // MONTH
+        } else if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
             return getPartitionRangeOfHour(current, offset, format);
-        } else {
+        } else { // MONTH
             return getPartitionRangeOfMonth(current, offset, property.getStartOfMonth(), format);
         }
     }

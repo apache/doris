@@ -239,7 +239,9 @@ public enum ErrorCode {
     ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_FORMAT(5072, new byte[] {'4', '2', '0', '0', '0'},
             "Invalid dynamic partition replication num: %s."),
     ERROR_CREATE_TABLE_LIKE_EMPTY(5073, new byte[] {'4', '2', '0', '0', '0'},
-            "Origin create table stmt is empty");
+            "Origin create table stmt is empty"),
+    ERROR_DYNAMIC_PARTITION_CREATE_HISTORY_PARTITION(5074, new byte[]{'4', '2', '0', '0', '0'},
+            "Invalid dynamic partition create_history_partition: %s. Expected true or false");
 
     ErrorCode(int code, byte[] sqlState, String errorMsg) {
         this.code = code;
