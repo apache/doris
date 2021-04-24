@@ -117,7 +117,7 @@ public abstract class LiteralExpr extends Expr {
      * return real value
      */
     public Object getRealValue() {
-        // implemented: TINYINT/SMALLINT/INT/BIGINT/LARGEINT/DATE/DATETIME
+        // implemented: TINYINT/SMALLINT/INT/BIGINT/LARGEINT/DATE/DATETIME/CHAR/VARCHAR/BOOLEAN
         Preconditions.checkState(false, "should implement this in derived class. " + this.type.toSql());
         return null;
     }

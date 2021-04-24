@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -41,7 +42,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.system.SystemInfoService;
@@ -52,15 +52,15 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -428,19 +428,16 @@ public class OlapTable extends Table {
         }
 
         // reset partition info and idToPartition map
-        if (partitionInfo.getType() == PartitionType.RANGE) {
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+        if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
             for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
                 long newPartId = catalog.getNextId();
-                rangePartitionInfo.idToDataProperty.put(newPartId,
-                                                        rangePartitionInfo.idToDataProperty.remove(entry.getValue()));
-                rangePartitionInfo.idToReplicationNum.remove(entry.getValue());
-                rangePartitionInfo.idToReplicationNum.put(newPartId,
-                                                          (short) restoreReplicationNum);
-                rangePartitionInfo.getIdToRange(false).put(newPartId,
-                        rangePartitionInfo.getIdToRange(false).remove(entry.getValue()));
-
-                rangePartitionInfo.idToInMemory.put(newPartId, rangePartitionInfo.idToInMemory.remove(entry.getValue()));
+                partitionInfo.idToDataProperty.put(newPartId,
+                                                        partitionInfo.idToDataProperty.remove(entry.getValue()));
+                partitionInfo.idToReplicationNum.remove(entry.getValue());
+                partitionInfo.idToReplicationNum.put(newPartId, (short) restoreReplicationNum);
+                partitionInfo.getIdToItem(false).put(newPartId,
+                        partitionInfo.getIdToItem(false).remove(entry.getValue()));
+                partitionInfo.idToInMemory.put(newPartId, partitionInfo.idToInMemory.remove(entry.getValue()));
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         } else {
@@ -681,22 +678,44 @@ public class OlapTable extends Table {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
 
-            Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE);
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+            Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE ||
+                    partitionInfo.getType() == PartitionType.LIST);
 
             if (!isForceDrop) {
                 // recycle partition
-                Catalog.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
-                        rangePartitionInfo.getRange(partition.getId()),
-                        rangePartitionInfo.getDataProperty(partition.getId()),
-                        rangePartitionInfo.getReplicationNum(partition.getId()),
-                        rangePartitionInfo.getIsInMemory(partition.getId()));
+                if (partitionInfo.getType() == PartitionType.RANGE) {
+                    Catalog.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                                              partitionInfo.getItem(partition.getId()).getItems(),
+                                              new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
+                                              partitionInfo.getDataProperty(partition.getId()),
+                                              partitionInfo.getReplicationNum(partition.getId()),
+                                              partitionInfo.getIsInMemory(partition.getId()));
+
+                } else if (partitionInfo.getType() == PartitionType.LIST) {
+                    // construct a dummy range
+                    List<Column> dummyColumns = new ArrayList<>();
+                    dummyColumns.add(new Column("dummy", PrimitiveType.INT));
+                    PartitionKey dummyKey = null;
+                    try {
+                        dummyKey = PartitionKey.createInfinityPartitionKey(dummyColumns, false);
+                    } catch (AnalysisException e) {
+                        e.printStackTrace();
+                    }
+                    Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
+
+                    Catalog.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                            dummyRange,
+                            partitionInfo.getItem(partition.getId()),
+                            partitionInfo.getDataProperty(partition.getId()),
+                            partitionInfo.getReplicationNum(partition.getId()),
+                            partitionInfo.getIsInMemory(partition.getId()));
+                }
             } else if (!reserveTablets) {
                 Catalog.getCurrentCatalog().onErasePartition(partition);
             }
 
             // drop partition info
-            rangePartitionInfo.dropPartition(partition.getId());
+            partitionInfo.dropPartition(partition.getId());
         }
         return partition;
     }
@@ -1133,7 +1152,9 @@ public class OlapTable extends Table {
             partitionInfo = SinglePartitionInfo.read(in);
         } else if (partType == PartitionType.RANGE) {
             partitionInfo = RangePartitionInfo.read(in);
-        } else {
+        } else if (partType == PartitionType.LIST) {
+            partitionInfo = ListPartitionInfo.read(in);
+        }else {
             throw new IOException("invalid partition type: " + partType);
         }
 
@@ -1197,9 +1218,9 @@ public class OlapTable extends Table {
             if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_77) {
                 RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
                 if (tempRangeInfo != null) {
-                    for (long partitionId : tempRangeInfo.getIdToRange(false).keySet()) {
-                        ((RangePartitionInfo) this.partitionInfo).addPartition(partitionId, true,
-                                tempRangeInfo.getRange(partitionId), tempRangeInfo.getDataProperty(partitionId),
+                    for (long partitionId : tempRangeInfo.getIdToItem(false).keySet()) {
+                        this.partitionInfo.addPartition(partitionId, true,
+                                tempRangeInfo.getItem(partitionId), tempRangeInfo.getDataProperty(partitionId),
                                 tempRangeInfo.getReplicationNum(partitionId), tempRangeInfo.getIsInMemory(partitionId));
                     }
                 }
@@ -1288,11 +1309,11 @@ public class OlapTable extends Table {
         short replicationNum = partitionInfo.getReplicationNum(oldPartition.getId());
         boolean isInMemory = partitionInfo.getIsInMemory(oldPartition.getId());
 
-        if (partitionInfo.getType() == PartitionType.RANGE) {
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-            Range<PartitionKey> range = rangePartitionInfo.getRange(oldPartition.getId());
-            rangePartitionInfo.dropPartition(oldPartition.getId());
-            rangePartitionInfo.addPartition(newPartition.getId(), false, range, dataProperty,
+        if (partitionInfo.getType() == PartitionType.RANGE
+                || partitionInfo.getType() == PartitionType.LIST) {
+            PartitionItem item = partitionInfo.getItem(oldPartition.getId());
+            partitionInfo.dropPartition(oldPartition.getId());
+            partitionInfo.addPartition(newPartition.getId(), false, item, dataProperty,
                     replicationNum, isInMemory);
         } else {
             partitionInfo.dropPartition(oldPartition.getId());
@@ -1533,41 +1554,8 @@ public class OlapTable extends Table {
      */
     public void replaceTempPartitions(List<String> partitionNames, List<String> tempPartitionNames,
             boolean strictRange, boolean useTempPartitionName) throws DdlException {
-        RangePartitionInfo rangeInfo = (RangePartitionInfo) partitionInfo;
-
-        if (strictRange) {
-            // check if range of partitions and temp partitions are exactly same
-            List<Range<PartitionKey>> rangeList = Lists.newArrayList();
-            List<Range<PartitionKey>> tempRangeList = Lists.newArrayList();
-            for (String partName : partitionNames) {
-                Partition partition = nameToPartition.get(partName);
-                Preconditions.checkNotNull(partition);
-                rangeList.add(rangeInfo.getRange(partition.getId()));
-            }
-
-            for (String partName : tempPartitionNames) {
-                Partition partition = tempPartitions.getPartition(partName);
-                Preconditions.checkNotNull(partition);
-                tempRangeList.add(rangeInfo.getRange(partition.getId()));
-            }
-            RangeUtils.checkRangeListsMatch(rangeList, tempRangeList);
-        } else {
-            // check after replacing, whether the range will conflict
-            Set<Long> replacePartitionIds = Sets.newHashSet();
-            for (String partName : partitionNames) {
-                Partition partition = nameToPartition.get(partName);
-                Preconditions.checkNotNull(partition);
-                replacePartitionIds.add(partition.getId());
-            }
-            List<Range<PartitionKey>> replacePartitionRanges = Lists.newArrayList();
-            for (String partName : tempPartitionNames) {
-                Partition partition = tempPartitions.getPartition(partName);
-                Preconditions.checkNotNull(partition);
-                replacePartitionRanges.add(rangeInfo.getRange(partition.getId()));
-            }
-            List<Range<PartitionKey>> sortedRangeList = rangeInfo.getRangeList(replacePartitionIds, false);
-            RangeUtils.checkRangeConflict(sortedRangeList, replacePartitionRanges);
-        }
+        // check partition items
+        checkPartition(partitionNames, tempPartitionNames, strictRange);
         
         // begin to replace
         // 1. drop old partitions
@@ -1584,7 +1572,7 @@ public class OlapTable extends Table {
             // drop
             tempPartitions.dropPartition(partitionName, false);
             // move the range from idToTempRange to idToRange
-            rangeInfo.moveRangeFromTempToFormal(partition.getId());
+            partitionInfo.moveFromTempToFormal(partition.getId());
         }
 
         // change the name so that after replacing, the partition name remain unchanged
@@ -1592,6 +1580,44 @@ public class OlapTable extends Table {
             for (int i = 0; i < tempPartitionNames.size(); i++) {
                 renamePartition(tempPartitionNames.get(i), partitionNames.get(i));
             }
+        }
+    }
+
+    private void checkPartition(List<String> partitionNames, List<String> tempPartitionNames,
+                                boolean strictRange) throws DdlException {
+        if (strictRange) {
+            List<PartitionItem> list = Lists.newArrayList();
+            List<PartitionItem> tempList = Lists.newArrayList();
+            for (String partName : partitionNames) {
+                Partition partition = nameToPartition.get(partName);
+                Preconditions.checkNotNull(partition);
+                list.add(partitionInfo.getItem(partition.getId()));
+            }
+            for (String partName : tempPartitionNames) {
+                Partition partition = tempPartitions.getPartition(partName);
+                Preconditions.checkNotNull(partition);
+                tempList.add(partitionInfo.getItem(partition.getId()));
+            }
+            partitionInfo.checkPartitionItemListsMatch(list, tempList);
+        } else {
+            // check after replacing, whether the range will conflict
+            Set<Long> replacePartitionIds = Sets.newHashSet();
+            for (String partName : partitionNames) {
+                Partition partition = nameToPartition.get(partName);
+                Preconditions.checkNotNull(partition);
+                replacePartitionIds.add(partition.getId());
+            }
+            // get all items except for partitions in "replacePartitionIds"
+            List<PartitionItem> currentItemList = partitionInfo.getItemList(replacePartitionIds, false);
+
+            List<PartitionItem> replacePartitionItems = Lists.newArrayList();
+            for (String partName : tempPartitionNames) {
+                Partition partition = tempPartitions.getPartition(partName);
+                Preconditions.checkNotNull(partition);
+                replacePartitionItems.add(partitionInfo.getItem(partition.getId()));
+            }
+
+            partitionInfo.checkPartitionItemListsConflict(currentItemList, replacePartitionItems);
         }
     }
 

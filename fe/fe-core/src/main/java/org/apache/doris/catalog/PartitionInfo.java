@@ -17,23 +17,29 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-
-import com.google.common.base.Preconditions;
-
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /*
  * Repository of a partition's related infos
@@ -42,6 +48,12 @@ public class PartitionInfo implements Writable {
     private static final Logger LOG = LogManager.getLogger(PartitionInfo.class);
 
     protected PartitionType type;
+    // partition columns for list and range partitions
+    protected List<Column> partitionColumns = Lists.newArrayList();
+    // formal partition id -> partition item
+    protected Map<Long, PartitionItem> idToItem = Maps.newHashMap();
+    // temp partition id -> partition item
+    protected Map<Long, PartitionItem> idToTempItem = Maps.newHashMap();
     // partition id -> data property
     protected Map<Long, DataProperty> idToDataProperty;
     // partition id -> replication num
@@ -71,8 +83,120 @@ public class PartitionInfo implements Writable {
         this.idToTabletType = new HashMap<>();
     }
 
+    public PartitionInfo(PartitionType type, List<Column> partitionColumns) {
+        this(type);
+        this.partitionColumns = partitionColumns;
+        this.isMultiColumnPartition = partitionColumns.size() > 1;
+    }
+
     public PartitionType getType() {
         return type;
+    }
+
+    public List<Column> getPartitionColumns(){
+        return partitionColumns;
+    }
+
+    public Map<Long, PartitionItem> getIdToItem(boolean isTemp) {
+        if (isTemp) {
+            return idToTempItem;
+        } else {
+            return idToItem;
+        }
+    }
+
+    public PartitionItem getItem(long partitionId) {
+        PartitionItem item = idToItem.get(partitionId);
+        if (item == null) {
+            item = idToTempItem.get(partitionId);
+        }
+        return item;
+    }
+
+    public void setItem(long partitionId, boolean isTemp, PartitionItem item) {
+        setItemInternal(partitionId, isTemp, item);
+    }
+
+    private void setItemInternal(long partitionId, boolean isTemp, PartitionItem item) {
+        if (isTemp) {
+            idToTempItem.put(partitionId, item);
+        } else {
+            idToItem.put(partitionId, item);
+        }
+    }
+
+    public PartitionItem handleNewSinglePartitionDesc(SinglePartitionDesc desc,
+                                              long partitionId, boolean isTemp) throws DdlException {
+        Preconditions.checkArgument(desc.isAnalyzed());
+        PartitionItem partitionItem = createAndCheckPartitionItem(desc, isTemp);
+        setItemInternal(partitionId, isTemp, partitionItem);
+
+        idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
+        idToReplicationNum.put(partitionId, desc.getReplicationNum());
+        idToInMemory.put(partitionId, desc.isInMemory());
+
+        return partitionItem;
+    }
+
+    public PartitionItem createAndCheckPartitionItem(SinglePartitionDesc desc, boolean isTemp) throws DdlException {
+        return null;
+    }
+
+    public void unprotectHandleNewSinglePartitionDesc(long partitionId, boolean isTemp, PartitionItem partitionItem,
+                                                      DataProperty dataProperty, short replicationNum,
+                                                      boolean isInMemory) {
+        setItemInternal(partitionId, isTemp, partitionItem);
+        idToDataProperty.put(partitionId, dataProperty);
+        idToReplicationNum.put(partitionId, replicationNum);
+        idToInMemory.put(partitionId, isInMemory);
+    }
+
+    public List<Map.Entry<Long, PartitionItem>> getSortedItemMap(boolean isTemp) {
+        Map<Long, PartitionItem> tmpMap = idToItem;
+        if (isTemp) {
+            tmpMap = idToTempItem;
+        }
+        List<Map.Entry<Long, PartitionItem>> sortedList = Lists.newArrayList(tmpMap.entrySet());
+        Collections.sort(sortedList, PartitionItem.ITEM_MAP_ENTRY_COMPARATOR);
+        return sortedList;
+    }
+
+    // get sorted item list, exclude partitions which ids are in 'excludePartitionIds'
+    public List<PartitionItem> getItemList(Set<Long> excludePartitionIds, boolean isTemp) {
+        Map<Long, PartitionItem> tempMap = idToItem;
+        if (isTemp) {
+            tempMap = idToTempItem;
+        }
+        List<PartitionItem> resultList = Lists.newArrayList();
+        for (Map.Entry<Long, PartitionItem> entry : tempMap.entrySet()) {
+            if (!excludePartitionIds.contains(entry.getKey())) {
+                resultList.add(entry.getValue());
+            }
+        }
+        return resultList;
+    }
+
+    // return any item intersect with the newItem.
+    // return null if no item intersect.
+    public PartitionItem getAnyIntersectItem(PartitionItem newItem, boolean isTemp) {
+        Map<Long, PartitionItem> tmpMap = idToItem;
+        if (isTemp) {
+            tmpMap = idToTempItem;
+        }
+        PartitionItem retItem;
+        for (PartitionItem item : tmpMap.values()) {
+            retItem = item.getIntersect(newItem);
+            if (null != retItem) {
+                return retItem;
+            }
+        }
+        return null;
+    }
+
+    public void checkPartitionItemListsMatch(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
+    }
+
+    public void checkPartitionItemListsConflict(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
     }
 
     public DataProperty getDataProperty(long partitionId) {
@@ -117,6 +241,14 @@ public class PartitionInfo implements Writable {
         idToDataProperty.remove(partitionId);
         idToReplicationNum.remove(partitionId);
         idToInMemory.remove(partitionId);
+        idToItem.remove(partitionId);
+        idToTempItem.remove(partitionId);
+    }
+
+    public void addPartition(long partitionId, boolean isTemp, PartitionItem item, DataProperty dataProperty,
+                                 short replicationNum, boolean isInMemory){
+        addPartition(partitionId, dataProperty, replicationNum, isInMemory);
+        setItemInternal(partitionId, isTemp, item);
     }
 
     public void addPartition(long partitionId, DataProperty dataProperty,
@@ -139,6 +271,13 @@ public class PartitionInfo implements Writable {
 
     public String toSql(OlapTable table, List<Long> partitionId) {
         return "";
+    }
+
+    public void moveFromTempToFormal(long tempPartitionId) {
+        PartitionItem item = idToTempItem.remove(tempPartitionId);
+        if (item != null) {
+            idToItem.put(tempPartitionId, item);
+        }
     }
 
     @Override

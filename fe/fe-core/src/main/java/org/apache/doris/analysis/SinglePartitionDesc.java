@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.analysis.PartitionKeyDesc.PartitionRangeType;
+import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -33,7 +33,7 @@ import org.apache.doris.thrift.TTabletType;
 
 import java.util.Map;
 
-public class SingleRangePartitionDesc {
+public class SinglePartitionDesc {
     private boolean isAnalyzed;
 
     private boolean ifNotExists;
@@ -48,10 +48,10 @@ public class SingleRangePartitionDesc {
     private TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
     private Pair<Long, Long> versionInfo;
 
-    public SingleRangePartitionDesc(boolean ifNotExists, String partName, PartitionKeyDesc partitionKeyDesc,
-                                    Map<String, String> properties) {
+    public SinglePartitionDesc(boolean ifNotExists, String partName, PartitionKeyDesc partitionKeyDesc,
+                               Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
-        
+
         this.isAnalyzed = false;
 
         this.partName = partName;
@@ -146,8 +146,8 @@ public class SingleRangePartitionDesc {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("PARTITION ").append(partName);
-        if (partitionKeyDesc.getPartitionType() == PartitionRangeType.LESS_THAN) {
-            sb.append(" VALUES LESS THEN ");
+        if (partitionKeyDesc.getPartitionType() == PartitionKeyValueType.LESS_THAN) {
+            sb.append(" VALUES LESS THAN ");
         } else {
             sb.append(" VALUES ");
         }

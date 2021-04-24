@@ -30,6 +30,8 @@ Dynamic partition is a new feature introduced in Doris version 0.12. It's design
 
 At present, the functions of dynamically adding partitions and dynamically deleting partitions are realized.
 
+Dynamic partitioning is only supported for Range partitions.
+
 ## Noun Interpretation
 
 * FE: Frontend, the front-end node of Doris. Responsible for metadata management and request access.

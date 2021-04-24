@@ -33,7 +33,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -214,9 +213,8 @@ public class PartitionsProcDir implements ProcDirInterface {
 
             // for range partitions, we return partitions in ascending range order by default.
             // this is to be consistent with the behaviour before 0.12
-            if (tblPartitionInfo.getType() == PartitionType.RANGE) {
-                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) tblPartitionInfo;
-                partitionIds = rangePartitionInfo.getSortedRangeMap(isTempPartition).stream()
+            if (tblPartitionInfo.getType() == PartitionType.RANGE || tblPartitionInfo.getType() == PartitionType.LIST) {
+                partitionIds = tblPartitionInfo.getSortedItemMap(isTempPartition).stream()
                         .map(Map.Entry::getKey).collect(Collectors.toList());
             } else {
                 Collection<Partition> partitions = isTempPartition ? olapTable.getTempPartitions() : olapTable.getPartitions();
@@ -236,15 +234,15 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(partition.getVisibleVersionHash());
                 partitionInfo.add(partition.getState());
 
-                if (tblPartitionInfo.getType() == PartitionType.RANGE) {
-                    // partition range info
-                    List<Column> partitionColumns = ((RangePartitionInfo) tblPartitionInfo).getPartitionColumns();
-                    List<String> colNames = new ArrayList<String>();
+                if (tblPartitionInfo.getType() == PartitionType.RANGE
+                        || tblPartitionInfo.getType() == PartitionType.LIST) {
+                    List<Column> partitionColumns = tblPartitionInfo.getPartitionColumns();
+                    List<String> colNames = new ArrayList<>();
                     for (Column column : partitionColumns) {
                         colNames.add(column.getName());
                     }
                     partitionInfo.add(joiner.join(colNames));
-                    partitionInfo.add(((RangePartitionInfo) tblPartitionInfo).getRange(partitionId).toString());
+                    partitionInfo.add(tblPartitionInfo.getItem(partitionId).getItems().toString());
                 } else {
                     partitionInfo.add("");
                     partitionInfo.add("");

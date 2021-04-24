@@ -19,7 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.analysis.SingleRangePartitionDesc;
+import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -245,13 +245,12 @@ public class CatalogTestUtil {
 
         // table
         List<Column> partitionColumns = Lists.newArrayList();
-        List<SingleRangePartitionDesc> singleRangePartitionDescs = Lists.newArrayList();
+        List<SinglePartitionDesc> singlePartitionDescs = Lists.newArrayList();
         partitionColumns.add(userId);
 
-        singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
-                                                                   new PartitionKeyDesc(Lists
-                                                                           .newArrayList(new PartitionValue("100"))),
-                                                                   null));
+        singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
+                PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("100"))),
+                null));
 
         RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
         Map<String, String> properties = Maps.newHashMap();

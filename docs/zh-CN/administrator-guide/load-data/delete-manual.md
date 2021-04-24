@@ -64,10 +64,10 @@ DELETE FROM my_table PARTITION p1 WHERE k1 < 3 AND k2 = "abc";
 
 1. `Where`语句中的op的类型可包括`=, >, <, >=, <=, !=, in, not in`。
 2. `Where`语句中的列只能是`key`列
-3.  当选定的`key`列不存在某个rollup表内时，无法进行delete
-4.  条件语句中各个条件只能是`and`关系，如希望达成`or`可将条件分别写入两个delete语句中
-5.  如果指定表为RANGE分区表，则必须指定 `PARTITION`。如果是单分区表，可以不指定。
-6.  不同于Insert into命令，delete不能手动指定`label`，有关label的概念可以查看[Insert Into文档](./insert-into-manual.md)
+3.  当选定的`key`列不存在某个 rollup 表内时，无法进行 delete
+4.  条件语句中各个条件只能是`and`关系，如希望达成`or`可将条件分别写入两个 delete 语句中
+5.  如果指定表为 RANGE 或者 LIST 分区表，则必须指定 `PARTITION`。如果是单分区表，可以不指定。
+6.  不同于 Insert into 命令，delete 不能手动指定`label`，有关 label 的概念可以查看[Insert Into文档](./insert-into-manual.md)
 
 ## 返回结果
 
