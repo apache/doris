@@ -78,6 +78,12 @@ public class DynamicPartitionUtil {
             ErrorReport.reportDdlException(DynamicPartitionProperty.TIME_UNIT + " could not be "
                     + TimeUnit.HOUR.toString() + " when type of partition column "
                     + partitionColumn.getDisplayName() + " is " + PrimitiveType.DATE.toString());
+        } else if (PrimitiveType.getIntegerTypes().contains(partitionColumn.getDataType())
+           && timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
+            // The partition column's type is INT, not support HOUR
+            ErrorReport.reportDdlException(DynamicPartitionProperty.TIME_UNIT + " could not be "
+                    + TimeUnit.HOUR.toString() + " when type of partition column "
+                    + partitionColumn.getDisplayName() + " is Integer");
         }
     }
 
