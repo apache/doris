@@ -572,7 +572,7 @@ public class TempPartitionTest {
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
 
         // create table tbl4
-        String createTblStmtStr1 = "create table db4.tbl4 (k1 int, k2 int)\n" +
+        String createTblStmtStr1 = "create table db4.tbl4 (k1 int not null, k2 int)\n" +
                 "partition by list(k1)\n" +
                 "(\n" +
                 "partition p1 values in ('1', '2', '3'),\n" +
@@ -896,6 +896,7 @@ public class TempPartitionTest {
         stmtStr = "alter table db4.tbl4 replace partition (tp1) with temporary partition (p4) properties('strict_range' = 'false');";
         alterTable(stmtStr, true);
     }
+
     @Test
     public void testForMultiListPartitionTable() throws Exception {
         MetaContext metaContext = new MetaContext();
@@ -909,7 +910,7 @@ public class TempPartitionTest {
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
 
         // create table tbl5
-        String createTblStmtStr1 = "create table db5.tbl5 (k1 int, k2 varchar)\n" +
+        String createTblStmtStr1 = "create table db5.tbl5 (k1 int not null, k2 varchar not null)\n" +
                 "partition by list(k1, k2)\n" +
                 "(\n" +
                 "partition p1 values in ((\"1\",\"beijing\"), (\"1\", \"shanghai\")),\n" +
