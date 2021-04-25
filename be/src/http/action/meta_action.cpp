@@ -69,7 +69,6 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     tablet->generate_tablet_meta_copy(tablet_meta);
     json2pb::Pb2JsonOptions json_options;
     json_options.pretty_json = true;
-    // default value of bytes_to_base64 is true, compatible with previous config
     json_options.bytes_to_base64 = enable_byte_to_base64;
     tablet_meta->to_json(json_meta, json_options);
     return Status::OK();
