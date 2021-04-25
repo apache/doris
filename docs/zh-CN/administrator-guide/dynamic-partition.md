@@ -122,6 +122,12 @@ under the License.
 * `dynamic_partition.start_day_of_month`
 
     当 `time_unit` 为 `MONTH` 时，该参数用于指定每月的起始日期。取值为 1 到 28。其中 1 表示每月1号，28 表示每月28号。默认为 1，即表示每月以1号位起始点。暂不支持以29、30、31号为起始日，以避免因闰年或闰月带来的歧义。
+
+* `dynamic_partition.create_history_partition`
+
+    默认为 false。当置为 true 时，Doris 会自动创建由 start 到 end 的所有分区。同时，FE 的参数 `max_dynamic_partition_num` 会限制总分区数量，以避免一次性创建过多分区。
+
+	当不指定 `start` 属性时，该参数不生效。
   
 ### 注意事项 
  
