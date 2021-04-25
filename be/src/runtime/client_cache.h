@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_RUNTIME_CLIENT_CACHE_H
 #define DORIS_BE_RUNTIME_CLIENT_CACHE_H
 
-#include <boost/bind/bind.hpp>
 #include <list>
 #include <mutex>
 #include <string>
@@ -60,7 +59,7 @@ public:
     ~ClientCacheHelper();
     // Callback method which produces a client object when one cannot be
     // found in the cache. Supplied by the ClientCache wrapper.
-    typedef boost::function<ThriftClientImpl*(const TNetworkAddress& hostport, void** client_key)>
+    typedef std::function<ThriftClientImpl*(const TNetworkAddress& hostport, void** client_key)>
             client_factory;
 
     // Return client for specific host/port in 'client'. If a client
@@ -192,14 +191,14 @@ public:
 
     ClientCache() : _client_cache_helper() {
         _client_factory =
-                boost::bind<ThriftClientImpl*>(boost::mem_fn(&ClientCache::make_client), this,
-                                               boost::placeholders::_1, boost::placeholders::_2);
+                std::bind<ThriftClientImpl*>(std::mem_fn(&ClientCache::make_client), this,
+                                             std::placeholders::_1, std::placeholders::_2);
     }
 
     ClientCache(int max_cache_size) : _client_cache_helper(max_cache_size) {
         _client_factory =
-                boost::bind<ThriftClientImpl*>(boost::mem_fn(&ClientCache::make_client), this,
-                                               boost::placeholders::_1, boost::placeholders::_2);
+                std::bind<ThriftClientImpl*>(std::mem_fn(&ClientCache::make_client), this,
+                                             std::placeholders::_1, std::placeholders::_2);
     }
 
     // Close all clients connected to the supplied address, (e.g., in

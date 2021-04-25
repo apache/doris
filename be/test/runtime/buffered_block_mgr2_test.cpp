@@ -529,8 +529,8 @@ protected:
 
         boost::thread_group workers;
         for (int i = 0; i < num_threads; ++i) {
-            thread* t = new boost::thread(boost::bind(&BufferedBlockMgrTest::TestRandomInternalImpl,
-                                                      this, state, block_mgr, max_num_buffers, i));
+            thread* t = new boost::thread(std::bind(&BufferedBlockMgrTest::TestRandomInternalImpl,
+                                                    this, state, block_mgr, max_num_buffers, i));
             workers.add_thread(t);
         }
         workers.join_all();
@@ -561,7 +561,7 @@ protected:
                                                       _test_env->exec_env());
         for (int i = 0; i < num_threads; ++i) {
             thread* t = new boost::thread(
-                    boost::bind(&BufferedBlockMgrTest::CreateDestroyThread, this, i, shared_state));
+                    std::bind(&BufferedBlockMgrTest::CreateDestroyThread, this, i, shared_state));
             workers.add_thread(t);
         }
         workers.join_all();

@@ -17,8 +17,6 @@
 
 #include <gutil/strings/substitute.h>
 
-#include <boost/bind/bind.hpp>
-
 #include "runtime/buffered_tuple_stream3.inline.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 //#include "runtime/collection_value.h"

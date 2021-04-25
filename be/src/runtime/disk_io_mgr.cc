@@ -387,7 +387,7 @@ Status DiskIoMgr::init(const std::shared_ptr<MemTracker>& process_mem_tracker) {
             // _disk_thread_group.AddThread(new Thread("disk-io-mgr", ss.str(),
             //             &DiskIoMgr::work_loop, this, _disk_queues[i]));
             _disk_thread_group.add_thread(
-                    new boost::thread(boost::bind(&DiskIoMgr::work_loop, this, _disk_queues[i])));
+                    new boost::thread(std::bind(&DiskIoMgr::work_loop, this, _disk_queues[i])));
         }
     }
     _request_context_cache.reset(new RequestContextCache(this));

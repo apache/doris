@@ -1294,7 +1294,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         auto iter = olap_scanners.begin();
         while (iter != olap_scanners.end()) {
             PriorityThreadPool::Task task;
-            task.work_function = boost::bind(&OlapScanNode::scanner_thread, this, *iter);
+            task.work_function = std::bind(&OlapScanNode::scanner_thread, this, *iter);
             task.priority = _nice;
             (*iter)->start_wait_worker_timer();
             if (thread_pool->offer(task)) {
