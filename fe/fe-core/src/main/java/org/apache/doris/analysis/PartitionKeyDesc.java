@@ -67,6 +67,7 @@ public class PartitionKeyDesc {
         PartitionKeyDesc desc = new PartitionKeyDesc();
         desc.lowerValues = lowerValues;
         desc.upperValues = upperValues;
+        desc.partitionKeyValueType = PartitionKeyValueType.FIXED;
         return desc;
     }
 

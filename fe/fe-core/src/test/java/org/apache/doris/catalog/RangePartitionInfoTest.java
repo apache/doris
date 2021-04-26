@@ -206,7 +206,7 @@ public class RangePartitionInfoTest {
                 Lists.newArrayList(new PartitionValue("2019-02-01"), new PartitionValue("100"), new PartitionValue("200")));
         PartitionKeyDesc p2 = PartitionKeyDesc.createFixed(
                 Lists.newArrayList(new PartitionValue("2020-02-01"), new PartitionValue("100"), new PartitionValue("200")),
-                Lists.newArrayList(new PartitionValue("10000000000")));
+                Lists.newArrayList(new PartitionValue("2020-03-01")));
         PartitionKeyDesc p3 = PartitionKeyDesc.createLessThan(
                 Lists.newArrayList(new PartitionValue("2021-02-01")));
 

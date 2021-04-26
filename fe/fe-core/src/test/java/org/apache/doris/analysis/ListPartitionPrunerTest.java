@@ -21,6 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -48,8 +49,8 @@ public class ListPartitionPrunerTest {
         UtFrameUtils.createMinDorisCluster(runningDir);
 
         String createSinglePartColWithSinglePartKey = "create table test.t1\n"
-                + "(k1 int, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                +"partition by list(k1)\n"
+                + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
+                + "partition by list(k1)\n"
                 + "(\n"
                 + "partition p1 values in (\"1\"),\n"
                 + "partition p2 values in (\"2\")\n"
@@ -57,8 +58,8 @@ public class ListPartitionPrunerTest {
                 + "distributed by hash(k2) buckets 1\n"
                 + "properties('replication_num' = '1');";
         String createSinglePartColWithMultiPartKey = "create table test.t2\n"
-                + "(k1 int, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                +"partition by list(k1)\n"
+                + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
+                + "partition by list(k1)\n"
                 + "(\n"
                 + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
                 + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
@@ -67,8 +68,8 @@ public class ListPartitionPrunerTest {
                 + "distributed by hash(k2) buckets 1\n"
                 + "properties('replication_num' = '1');";
         String createMultiPartColWithSinglePartKey = "create table test.t3\n"
-                + "(k1 int, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                +"partition by list(k1, k2)\n"
+                + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
+                + "partition by list(k1, k2)\n"
                 + "(\n"
                 + "partition p1 values in ((\"1\", \"beijing\")),\n"
                 + "partition p2 values in ((\"2\", \"beijing\"))\n"
@@ -76,8 +77,8 @@ public class ListPartitionPrunerTest {
                 + "distributed by hash(k2) buckets 1\n"
                 + "properties('replication_num' = '1');";
         String createMultiPartColWithMultiPartKey = "create table test.t4\n"
-                + "(k1 int, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                +"partition by list(k1, k2)\n"
+                + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
+                + "partition by list(k1, k2)\n"
                 + "(\n"
                 + "partition p1 values in ((\"1\", \"beijing\"), (\"2\", \"shanghai\")),\n"
                 + "partition p2 values in ((\"2\", \"beijing\")),\n"
