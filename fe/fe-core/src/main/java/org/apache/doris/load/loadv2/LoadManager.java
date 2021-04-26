@@ -59,7 +59,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -82,6 +81,7 @@ public class LoadManager implements Writable{
     private static final Logger LOG = LogManager.getLogger(LoadManager.class);
 
     private Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
+    private List<LoadJob> loadJobList = Lists.newArrayList();
     private Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
     private LoadJobScheduler loadJobScheduler;
 
@@ -260,6 +260,7 @@ public class LoadManager implements Writable{
 
     private void addLoadJob(LoadJob loadJob) {
         idToLoadJob.put(loadJob.getId(), loadJob);
+        loadJobList.add(loadJob);
         long dbId = loadJob.getDbId();
         if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
             dbIdToLabelToLoadJobs.put(loadJob.getDbId(), new ConcurrentHashMap<>());
@@ -349,35 +350,6 @@ public class LoadManager implements Writable{
         }
     }
 
-    public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDbName());
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + stmt.getDbName());
-        }
-
-        LoadJob loadJob = null;
-        readLock();
-        try {
-            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
-            if (labelToLoadJobs == null) {
-                throw new DdlException("Load job does not exist");
-            }
-            List<LoadJob> loadJobList = labelToLoadJobs.get(stmt.getLabel());
-            if (loadJobList == null) {
-                throw new DdlException("Load job does not exist");
-            }
-            Optional<LoadJob> loadJobOptional = loadJobList.stream().filter(entity -> !entity.isTxnDone()).findFirst();
-            if (!loadJobOptional.isPresent()) {
-                throw new DdlException("There is no uncompleted job which label is " + stmt.getLabel());
-            }
-            loadJob = loadJobOptional.get();
-        } finally {
-            readUnlock();
-        }
-
-        loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
-    }
-
     public void replayEndLoadJob(LoadJobFinalOperation operation) {
         LoadJob job = idToLoadJob.get(operation.getId());
         if (job == null) {
@@ -435,10 +407,8 @@ public class LoadManager implements Writable{
         long currentTimeMs = System.currentTimeMillis();
         writeLock();
         try {
-            List<LoadJob> loadJobList = idToLoadJob.entrySet()
-                    .stream().map(entry -> entry.getValue()).filter(LoadJob::isCompleted).
-                            sorted(Comparator.comparing(LoadJob::getFinishTimestamp).reversed()).collect(Collectors.toList());
             Map<Long, Long> dbIdToHistoryJobNum = Maps.newHashMap();
+            List<LoadJob> newLoadJobList = Lists.newArrayList();
             for (LoadJob job : loadJobList) {
                 boolean shouldRemove = false;
                 if (job.isExpired(currentTimeMs)) {
@@ -459,8 +429,11 @@ public class LoadManager implements Writable{
                     if (job instanceof SparkLoadJob) {
                         ((SparkLoadJob) job).clearSparkLauncherLog();
                     }
+                } else {
+                    newLoadJobList.add(job);
                 }
             }
+            loadJobList = newLoadJobList;
         } finally {
             writeUnlock();
         }
