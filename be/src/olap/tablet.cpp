@@ -87,10 +87,12 @@ OLAPStatus Tablet::_init_once_action() {
     VLOG_NOTICE << "begin to load tablet. tablet=" << full_name()
             << ", version_size=" << _tablet_meta->version_count();
 
+#ifdef BE_TEST
     // init cumulative compaction policy by type
     _cumulative_compaction_policy =
             CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
                     _cumulative_compaction_type);
+#endif
 
     for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
         Version version = rs_meta->version();
@@ -720,18 +722,26 @@ bool Tablet::can_do_compaction() {
     return true;
 }
 
-const uint32_t Tablet::calc_compaction_score(CompactionType compaction_type) const {
+uint32_t Tablet::calc_compaction_score(CompactionType compaction_type,
+            std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
     // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
     ReadLock rdlock(&_meta_lock);
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-        return _calc_cumulative_compaction_score();
+        return _calc_cumulative_compaction_score(cumulative_compaction_policy);
     } else {
         DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
         return _calc_base_compaction_score();
     }
 }
 
-const uint32_t Tablet::_calc_cumulative_compaction_score() const {
+const uint32_t Tablet::_calc_cumulative_compaction_score(
+        std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+#ifndef BE_TEST
+    if (_cumulative_compaction_policy == nullptr || _cumulative_compaction_policy->name() !=
+                                                        cumulative_compaction_policy->name()) {
+        _cumulative_compaction_policy = cumulative_compaction_policy;
+    }
+#endif
     uint32_t score = 0;
     _cumulative_compaction_policy->calc_cumulative_compaction_score(
             _tablet_meta->all_rs_metas(), cumulative_layer_point(), &score);

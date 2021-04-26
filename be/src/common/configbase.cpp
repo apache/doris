@@ -41,6 +41,8 @@ std::map<std::string, std::string>* full_conf_map = nullptr;
 
 std::mutex custom_conf_lock;
 
+std::mutex mutable_string_config_lock;
+
 // trim string
 std::string& trim(std::string& s) {
     // rtrim
@@ -416,11 +418,18 @@ Status set_config(const std::string& field, const std::string& value, bool need_
     UPDATE_FIELD(it->second, value, int32_t, need_persist);
     UPDATE_FIELD(it->second, value, int64_t, need_persist);
     UPDATE_FIELD(it->second, value, double, need_persist);
+    {
+        // add lock to ensure thread safe
+        std::lock_guard<std::mutex> lock(mutable_string_config_lock);
+        UPDATE_FIELD(it->second, value, std::string, need_persist);
+    }
 
     // The other types are not thread safe to change dynamically.
     return Status::NotSupported(strings::Substitute(
             "'$0' is type of '$1' which is not support to modify", field, it->second.type));
 }
+
+std::mutex* get_mutable_string_config_lock() { return &mutable_string_config_lock; }
 
 } // namespace config
 } // namespace doris

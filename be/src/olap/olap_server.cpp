@@ -64,9 +64,6 @@ Status StorageEngine::start_bg_threads() {
         data_dirs.push_back(tmp_store.second);
     }
 
-    // check cumulative compaction config
-    _check_cumulative_compaction_config();
-
     int32_t max_thread_num = config::max_compaction_threads;
     int32_t min_thread_num = config::min_compaction_threads;
     ThreadPoolBuilder("CompactionTaskThreadPool")
@@ -208,29 +205,23 @@ void StorageEngine::_disk_stat_monitor_thread_callback() {
 }
 
 void StorageEngine::_check_cumulative_compaction_config() {
-    std::string cumulative_compaction_type = config::cumulative_compaction_policy;
-    boost::to_upper(cumulative_compaction_type);
+    int64_t size_based_promotion_size = config::cumulative_size_based_promotion_size_mbytes;
+    int64_t size_based_promotion_min_size =
+            config::cumulative_size_based_promotion_min_size_mbytes;
+    int64_t size_based_compaction_lower_bound_size =
+            config::cumulative_size_based_compaction_lower_size_mbytes;
 
-    // if size_based policy is used, check size_based policy configs
-    if (cumulative_compaction_type == CUMULATIVE_SIZE_BASED_POLICY) {
-        int64_t size_based_promotion_size = config::cumulative_size_based_promotion_size_mbytes;
-        int64_t size_based_promotion_min_size =
-                config::cumulative_size_based_promotion_min_size_mbytes;
-        int64_t size_based_compaction_lower_bound_size =
-                config::cumulative_size_based_compaction_lower_size_mbytes;
+    // check size_based_promotion_size must be greater than size_based_promotion_min_size and 2 * size_based_compaction_lower_bound_size
+    int64_t should_min_size_based_promotion_size =
+            std::max(size_based_promotion_min_size, 2 * size_based_compaction_lower_bound_size);
 
-        // check size_based_promotion_size must be greater than size_based_promotion_min_size and 2 * size_based_compaction_lower_bound_size
-        int64_t should_min_size_based_promotion_size =
-                std::max(size_based_promotion_min_size, 2 * size_based_compaction_lower_bound_size);
-
-        if (size_based_promotion_size < should_min_size_based_promotion_size) {
-            size_based_promotion_size = should_min_size_based_promotion_size;
-            LOG(WARNING) << "the config size_based_promotion_size is adjusted to "
-                            "size_based_promotion_min_size or  2 * "
-                            "size_based_compaction_lower_bound_size "
-                         << should_min_size_based_promotion_size
-                         << ", because size_based_promotion_size is small";
-        }
+    if (size_based_promotion_size < should_min_size_based_promotion_size) {
+        size_based_promotion_size = should_min_size_based_promotion_size;
+        LOG(WARNING) << "the config size_based_promotion_size is adjusted to "
+                        "size_based_promotion_min_size or  2 * "
+                        "size_based_compaction_lower_bound_size "
+                     << should_min_size_based_promotion_size
+                     << ", because size_based_promotion_size is small";
     }
 }
 
@@ -409,6 +400,22 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 
 std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
         CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
+    std::string current_policy = "";
+    {
+        std::lock_guard<std::mutex> lock(*config::get_mutable_string_config_lock());
+        current_policy = config::cumulative_compaction_policy;
+    }
+    boost::to_upper(current_policy);
+    if (_cumulative_compaction_policy == nullptr ||
+        _cumulative_compaction_policy->name() != current_policy) {
+        if (current_policy == CUMULATIVE_SIZE_BASED_POLICY) {
+            // check size_based cumulative compaction config
+            _check_cumulative_compaction_config();
+        }
+        _cumulative_compaction_policy =
+                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(current_policy);
+    }
+
     std::vector<TabletSharedPtr> tablets_compaction;
     uint32_t max_compaction_score = 0;
     bool need_pick_tablet = true;
@@ -448,7 +455,8 @@ std::vector<TabletSharedPtr> StorageEngine::_compaction_tasks_generator(
         if (!data_dir->reach_capacity_limit(0)) {
             uint32_t disk_max_score = 0;
             TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(
-                    compaction_type, data_dir, _tablet_submitted_compaction[data_dir], &disk_max_score);
+                    compaction_type, data_dir, _tablet_submitted_compaction[data_dir], &disk_max_score,
+                    _cumulative_compaction_policy);
             if (tablet != nullptr) {
                 tablets_compaction.emplace_back(tablet);
                 max_compaction_score = std::max(max_compaction_score, disk_max_score);
