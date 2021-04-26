@@ -69,7 +69,7 @@ protected:
     // init segment groups
     OLAPStatus init() override;
 
-    OLAPStatus do_load(bool use_cache) override;
+    OLAPStatus do_load(bool use_cache, std::shared_ptr<MemTracker> parent) override;
 
     void do_close() override;
 

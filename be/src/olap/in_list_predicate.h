@@ -33,10 +33,11 @@ class VectorizedRowBatch;
     template <class type>                                                                \
     class CLASS : public ColumnPredicate {                                               \
     public:                                                                              \
-        CLASS(uint32_t column_id, std::set<type>&& values);                              \
-        virtual ~CLASS() {}                                                              \
+        CLASS(uint32_t column_id, std::set<type>&& values, bool is_opposite = false);    \
         virtual void evaluate(VectorizedRowBatch* batch) const override;                 \
         void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override; \
+        void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override;\
+        void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override;\
         virtual Status evaluate(const Schema& schema,                                    \
                                 const std::vector<BitmapIndexIterator*>& iterators,      \
                                 uint32_t num_rows, Roaring* bitmap) const override;      \

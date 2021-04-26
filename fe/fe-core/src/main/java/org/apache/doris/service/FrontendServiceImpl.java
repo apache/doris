@@ -822,7 +822,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + dbName);
         }
 
-        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
+        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
         Table table = db.getTableOrThrowException(request.getTbl(), TableType.OLAP);
         boolean ret = Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                         db, Lists.newArrayList(table), request.getTxnId(),

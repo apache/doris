@@ -65,7 +65,7 @@ If you are a new Release Manager, you can read up on the process from the follow
 
 Release manager needs Mr. A to sign his own public key before publishing and upload it to the public key 
 server. Then he can use this public key to sign the package ready for publication.
-If your key already exists in [key] (https://dist.apache.org/repos/dist/dev/initiator/doris/keys), you can skip this step.
+If your key already exists in [key](https://dist.apache.org/repos/dist/dev/initiator/doris/keys), you can skip this step.
 
 
 #### Installation and configuration of signature software GnuPG
@@ -223,7 +223,7 @@ You can also upload the contents of the above public-key.txt through the followi
 http://keys.gnupg.net
 ```
 
-After successful upload, you can query the website and enter 0x33DBF2E0:
+After successfully upload, you can query the website and enter 0x33DBF2E0:
 
 http://keys.gnupg.net
 
@@ -256,7 +256,7 @@ OpenPGP Public Key Primary Fingerprint:
 #### Generating keys
 
 ```
-svn co //dist.apache.org/repos/dist/dev/incubator/doris/
+svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
 # edit doris/KEY file
 gpg --list-sigs [用户 ID] >> doris/KEYS
 gpg --armor --export [用户 ID] >> doris/KEYS
@@ -340,7 +340,7 @@ $ git tag
 
 ### Packing Signature
 
-The following steps also need to log into user accounts directly through terminals such as SecureCRT, and can not be transferred through Su - user or ssh, otherwise the password input box will not show and error will be reported.
+The following steps also need to log into user accounts directly through terminals such as SecureCRT, and cannot be transferred through Su - user or ssh, otherwise the password input box will not show and error will be reported.
 
 ```
 $ git checkout 0.9.0-rc01

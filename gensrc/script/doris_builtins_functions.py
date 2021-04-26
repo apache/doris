@@ -802,6 +802,8 @@ visible_functions = [
         '_ZN5doris15BitmapFunctions9bitmap_orEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
     [['bitmap_xor'], 'BITMAP', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions10bitmap_xorEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
+    [['bitmap_not'], 'BITMAP', ['BITMAP','BITMAP'],
+        '_ZN5doris15BitmapFunctions10bitmap_notEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
     [['bitmap_and'], 'BITMAP', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions10bitmap_andEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
     [['bitmap_to_string'], 'VARCHAR', ['BITMAP'],
@@ -812,6 +814,8 @@ visible_functions = [
         '_ZN5doris15BitmapFunctions15bitmap_containsEPN9doris_udf15FunctionContextERKNS1_9StringValERKNS1_9BigIntValE'],
     [['bitmap_has_any'], 'BOOLEAN', ['BITMAP','BITMAP'],
         '_ZN5doris15BitmapFunctions14bitmap_has_anyEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
+    [['bitmap_min'], 'BIGINT', ['BITMAP'],
+        '_ZN5doris15BitmapFunctions10bitmap_minEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
 
     # hash functions
     [['murmur_hash3_32'], 'INT', ['VARCHAR', '...'],

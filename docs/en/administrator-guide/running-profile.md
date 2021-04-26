@@ -117,9 +117,13 @@ There are many statistical information collected at BE.  so we list the correspo
 #### `EXCHANGE_NODE`
   - BytesReceived: Size of bytes received by network
   - DataArrivalWaitTime: Total waiting time of sender to push data 
+  - MergeGetNext: When there is a sort in the lower level node, exchange node will perform a unified merge sort and output an ordered result. This indicator records the total time consumption of merge sorting, including the time consumption of MergeGetNextBatch.
+  - MergeGetNextBatch：It takes time for merge node to get data. If it is single-layer merge sort, the object to get data is network queue. For multi-level merge sorting, the data object is child merger.
+  - ChildMergeGetNext: When there are too many senders in the lower layer to send data, single thread merge will become a performance bottleneck. Doris will start multiple child merge threads to do merge sort in parallel. The sorting time of child merge is recorded, which is the cumulative value of multiple threads.
+  - ChildMergeGetNextBatch: It takes time for child merge to get data，If the time consumption is too large, the bottleneck may be the lower level data sending node.
   - FirstBatchArrivalWaitTime: The time waiting for the first batch come from sender
   - DeserializeRowBatchTimer: Time consuming to receive data deserialization
-  - SendersBlockedTotalTimer(*): When the DataStreamRecv's queue buffer is full，wait time of sender
+  - SendersBlockedTotalTimer(*): When the DataStreamRecv's queue buffer is full, wait time of sender
   - ConvertRowBatchTime: Time taken to transfer received data to RowBatch
   - RowsReturned: Number of receiving rows
   - RowsReturnedRate: Rate of rows received
@@ -135,16 +139,16 @@ There are many statistical information collected at BE.  so we list the correspo
 #### `AGGREGATION_NODE`
   - PartitionsCreated: Number of partition split by aggregate
   - GetResultsTime: Time to get aggregate results from each partition
-  - HTResizeTime:  Time spent in resizing hashtable
-  - HTResize:  Number of times hashtable resizes
+  - HTResizeTime: Time spent in resizing hashtable
+  - HTResize: Number of times hashtable resizes
   - HashBuckets: Number of buckets in hashtable
-  - HashBucketsWithDuplicate:  Number of buckets with duplicatenode in hashtable
-  - HashCollisions:  Number of hash conflicts generated 
-  - HashDuplicateNodes:  Number of duplicate nodes with the same buckets in hashtable
-  - HashFailedProbe:  Number of failed probe operations
-  - HashFilledBuckets:  Number of buckets filled data
-  - HashProbe:  Number of hashtable probe
-  - HashTravelLength:  The number of steps moved when hashtable queries
+  - HashBucketsWithDuplicate: Number of buckets with duplicatenode in hashtable
+  - HashCollisions: Number of hash conflicts generated 
+  - HashDuplicateNodes: Number of duplicate nodes with the same buckets in hashtable
+  - HashFailedProbe: Number of failed probe operations
+  - HashFilledBuckets: Number of buckets filled data
+  - HashProbe: Number of hashtable probe
+  - HashTravelLength: The number of steps moved when hashtable queries
 
 #### `HASH_JOIN_NODE`
   - ExecOption: The way to construct a HashTable for the right child (synchronous or asynchronous), the right child in Join may be a table or a subquery, the same is true for the left child
@@ -194,6 +198,8 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms,% non-child: 0.00%)
   - RowsReturnedRate: 6.979K /sec       # RowsReturned/ActiveTime
   - TabletCount: 20                     # The number of Tablets involved in this ScanNode.
   - TotalReadThroughput: 74.70 KB/sec   # BytesRead divided by the total time spent in this node (from Open to Close). For IO bounded queries, this should be very close to the total throughput of all the disks
+  - ScannerBatchWaitTime: 426.886us     # To count the time the transfer thread waits for the scaner thread to return rowbatch.
+  - ScannerWorkerWaitTime: 17.745us     # To count the time that the scanner thread waits for the available worker threads in the thread pool.
   OlapScanner:
     - BlockConvertTime: 8.941us         # The time it takes to convert a vectorized Block into a RowBlock with a row structure. The vectorized Block is VectorizedRowBatch in V1 and RowBlockV2 in V2.
     - BlockFetchTime: 468.974us         # Rowset Reader gets the time of the Block.

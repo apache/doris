@@ -17,7 +17,7 @@
 
 #include "agent/agent_server.h"
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <string>
 
 #include "agent/task_worker_pool.h"
@@ -39,9 +39,9 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     for (auto& path : exec_env->store_paths()) {
         try {
             string dpp_download_path_str = path.path + DPP_PREFIX;
-            boost::filesystem::path dpp_download_path(dpp_download_path_str);
-            if (boost::filesystem::exists(dpp_download_path)) {
-                boost::filesystem::remove_all(dpp_download_path);
+            std::filesystem::path dpp_download_path(dpp_download_path_str);
+            if (std::filesystem::exists(dpp_download_path)) {
+                std::filesystem::remove_all(dpp_download_path);
             }
         } catch (...) {
             LOG(WARNING) << "boost exception when remove dpp download path. path=" << path.path;
@@ -198,8 +198,9 @@ void AgentServer::make_snapshot(TAgentResult& t_agent_result,
                                 const TSnapshotRequest& snapshot_request) {
     Status ret_st;
     string snapshot_path;
+    bool allow_incremental_clone = false;
     OLAPStatus err_code =
-            SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path);
+            SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path, &allow_incremental_clone);
     if (err_code != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to make_snapshot. tablet_id=" << snapshot_request.tablet_id
                      << ", schema_hash=" << snapshot_request.schema_hash
@@ -211,13 +212,11 @@ void AgentServer::make_snapshot(TAgentResult& t_agent_result,
                   << ", schema_hash=" << snapshot_request.schema_hash
                   << ", snapshot_path: " << snapshot_path;
         t_agent_result.__set_snapshot_path(snapshot_path);
+        t_agent_result.__set_allow_incremental_clone(allow_incremental_clone);
     }
 
     ret_st.to_thrift(&t_agent_result.status);
     t_agent_result.__set_snapshot_version(snapshot_request.preferred_snapshot_version);
-    if (snapshot_request.__isset.allow_incremental_clone) {
-        t_agent_result.__set_allow_incremental_clone(snapshot_request.allow_incremental_clone);
-    }
 }
 
 void AgentServer::release_snapshot(TAgentResult& t_agent_result, const std::string& snapshot_path) {

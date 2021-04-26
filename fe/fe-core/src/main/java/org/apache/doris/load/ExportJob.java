@@ -23,10 +23,15 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -46,6 +51,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExportSink;
@@ -56,10 +62,15 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentClient;
 import org.apache.doris.thrift.TAgentResult;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -79,6 +90,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.io.StringReader;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Collections;
@@ -106,6 +118,7 @@ public class ExportJob implements Writable {
     private String clusterName;
     private long tableId;
     private BrokerDesc brokerDesc;
+    private Expr whereExpr;
     private String exportPath;
     private String columnSeparator;
     private String lineDelimiter;
@@ -149,6 +162,11 @@ public class ExportJob implements Writable {
     // backend_address => snapshot path
     private List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();
 
+    // this is the origin stmt of ExportStmt, we use it to persist where expr of Export job,
+    // because we can not serialize the Expressions contained in job.
+    private OriginStatement origStmt;
+    protected Map<String, String> sessionVariables = Maps.newHashMap();
+
     public ExportJob() {
         this.id = -1;
         this.dbId = -1;
@@ -187,6 +205,7 @@ public class ExportJob implements Writable {
 
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
+        this.whereExpr = stmt.getWhereExpr();
         this.exportPath = path;
 
         this.partitions = stmt.getPartitions();
@@ -207,11 +226,22 @@ public class ExportJob implements Writable {
         }
 
         this.sql = stmt.toSql();
+        this.origStmt = stmt.getOrigStmt();
+        if (ConnectContext.get() != null) {
+            SessionVariable var = ConnectContext.get().getSessionVariable();
+            this.sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+        } else {
+            this.sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
+        }
     }
 
     private void genExecFragment() throws UserException {
         registerToDesc();
-        String tmpExportPathStr = getExportPath() + "/__doris_export_tmp_" + id + "/";
+        String tmpExportPathStr = getExportPath();
+        // broker will upload file to tp path and than rename to the final file
+        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
+            tmpExportPathStr = tmpExportPathStr + "/__doris_export_tmp_" + id + "/";
+        }
         try {
             URI uri = new URI(tmpExportPathStr);
             tmpExportPathStr = uri.normalize().toString();
@@ -241,14 +271,19 @@ public class ExportJob implements Writable {
         List<PlanFragment> fragments = Lists.newArrayList();
         List<ScanNode> scanNodes = Lists.newArrayList();
 
-        ScanNode scanNode = genScanNode();
-        tabletLocations = scanNode.getScanRangeLocations(0);
-        if (tabletLocations == null) {
+        // analyze where expr
+        analyzeWhereExpr();
+        // only for
+        if (exportTable.getType() != Table.TableType.OLAP) {
             // not olap scan node
+            ScanNode scanNode = genScanNode();
             PlanFragment fragment = genPlanFragment(exportTable.getType(), scanNode);
             scanNodes.add(scanNode);
             fragments.add(fragment);
         } else {
+            // The function of this scan node is only to get the tabletlocation.
+            ScanNode tmpOlapScanNode = genScanNode();
+            tabletLocations = tmpOlapScanNode.getScanRangeLocations(0);
             for (TScanRangeLocations tablet : tabletLocations) {
                 List<TScanRangeLocation> locations = tablet.getLocations();
                 Collections.shuffle(locations);
@@ -273,7 +308,45 @@ public class ExportJob implements Writable {
                     size, id, fragments.size());
         }
 
+        // add conjunct
+        if (whereExpr != null) {
+            for (ScanNode scanNode: scanNodes) {
+                scanNode.addConjuncts(whereExpr.getConjuncts());
+            }
+        }
+
         genCoordinators(fragments, scanNodes);
+    }
+
+    private void analyzeWhereExpr() throws UserException {
+        if (whereExpr == null) {
+            return;
+        }
+        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
+
+        // analyze where slot ref
+        Map<String, SlotDescriptor> dstDescMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (SlotDescriptor slotDescriptor : exportTupleDesc.getSlots()) {
+            dstDescMap.put(slotDescriptor.getColumn().getName(), slotDescriptor);
+        }
+        List<SlotRef> slots = Lists.newArrayList();
+        whereExpr.collect(SlotRef.class, slots);
+        ExprSubstitutionMap smap = new ExprSubstitutionMap();
+        for (SlotRef slot : slots) {
+            SlotDescriptor slotDesc = dstDescMap.get(slot.getColumnName());
+            if (slotDesc == null) {
+                throw new UserException("unknown column reference in where statement, reference="
+                        + slot.getColumnName());
+            }
+            smap.getLhs().add(slot);
+            smap.getRhs().add(new SlotRef(slotDesc));
+        }
+        whereExpr = whereExpr.clone(smap);
+
+        whereExpr.analyze(analyzer);
+        if (!whereExpr.getType().equals(Type.BOOLEAN)) {
+            throw new UserException("where statement is not a valid statement return bool");
+        }
     }
 
     private ScanNode genScanNode() throws UserException {
@@ -386,6 +459,10 @@ public class ExportJob implements Writable {
         return this.tableId;
     }
 
+    public Expr getWhereExpr() {
+        return whereExpr;
+    }
+
     public JobState getState() {
         return state;
     }
@@ -399,6 +476,16 @@ public class ExportJob implements Writable {
     }
 
     public String getExportPath() {
+        return exportPath;
+    }
+
+    public String getShowExportPath() {
+        if (brokerDesc.getFileType() == TFileType.FILE_LOCAL) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(OutFileClause.LOCAL_FILE_PREFIX.substring(0, OutFileClause.LOCAL_FILE_PREFIX.length() - 1));
+            sb.append(exportPath);
+            return sb.toString();
+        }
         return exportPath;
     }
 
@@ -626,8 +713,14 @@ public class ExportJob implements Writable {
             out.writeBoolean(true);
             brokerDesc.write(out);
         }
-
         tableName.write(out);
+
+        origStmt.write(out);
+        out.writeInt(sessionVariables.size());
+        for (Map.Entry<String, String> entry : sessionVariables.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            Text.writeString(out, entry.getValue());
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -674,6 +767,34 @@ public class ExportJob implements Writable {
             tableName.readFields(in);
         } else {
             tableName = new TableName("DUMMY", "DUMMY");
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_97) {
+            origStmt = new OriginStatement("", 0);
+            // old version of export does not have sqlmode, set it to default
+            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
+            return;
+        }
+        origStmt = OriginStatement.read(in);
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            String key = Text.readString(in);
+            String value = Text.readString(in);
+            sessionVariables.put(key, value);
+        }
+        
+        if (origStmt.originStmt.isEmpty()) {
+            return;
+        }
+        // parse the origin stmt to get where expr
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
+                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
+        ExportStmt stmt = null;
+        try {
+            stmt = (ExportStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
+            this.whereExpr = stmt.getWhereExpr();
+        } catch (Exception e) {
+            throw new IOException("error happens when parsing create routine load stmt: " + origStmt, e);
         }
     }
 

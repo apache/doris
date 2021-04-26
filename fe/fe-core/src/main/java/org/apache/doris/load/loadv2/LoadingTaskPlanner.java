@@ -106,10 +106,10 @@ public class LoadingTaskPlanner {
     public void plan(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded)
             throws UserException {
         // Generate tuple descriptor
-        TupleDescriptor tupleDesc = descTable.createTupleDescriptor();
+        TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
         // use full schema to fill the descriptor table
         for (Column col : table.getFullSchema()) {
-            SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(destTupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             if (col.isAllowNull()) {
@@ -121,8 +121,8 @@ public class LoadingTaskPlanner {
 
         // Generate plan trees
         // 1. Broker scan node
-        BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), tupleDesc, "BrokerScanNode",
-                                                     fileStatusesList, filesAdded);
+        BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), destTupleDesc, "BrokerScanNode",
+                fileStatusesList, filesAdded);
         scanNode.setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups, strictMode, loadParallelism);
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -131,7 +131,7 @@ public class LoadingTaskPlanner {
 
         // 2. Olap table sink
         List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(table, tupleDesc, partitionIds);
+        OlapTableSink olapTableSink = new OlapTableSink(table, destTupleDesc, partitionIds);
         olapTableSink.init(loadId, txnId, dbId, timeoutS);
         olapTableSink.complete();
 

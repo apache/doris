@@ -461,9 +461,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         // we use zero size represent this slice is a agg object
         dst_slice->size = 0;
         auto* hll = new HyperLogLog(*src_slice);
+        
         dst_slice->data = reinterpret_cast<char*>(hll);
-
-        mem_pool->mem_tracker()->Consume(sizeof(HyperLogLog));
 
         agg_pool->add(hll);
     }
@@ -510,8 +509,6 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
         auto bitmap = new BitmapValue(src_slice->data);
 
         dst_slice->data = (char*)bitmap;
-
-        mem_pool->mem_tracker()->Consume(sizeof(BitmapValue));
 
         agg_pool->add(bitmap);
     }

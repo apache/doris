@@ -29,8 +29,9 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
@@ -44,6 +45,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.io.File;
 import java.util.List;
@@ -144,7 +146,6 @@ public class AlterTest {
                 "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
                 "PROPERTIES('replication_num' = '1');");
 
-        Config.enable_odbc_table = true;
         createTable("create external table test.odbc_table\n" +
                 "(  `k1` bigint(20) COMMENT \"\",\n" +
                 "  `k2` datetime COMMENT \"\",\n" +
@@ -391,6 +392,11 @@ public class AlterTest {
             }
             System.out.println(alterJobV2.getType() + " alter job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+            Database db = Catalog.getCurrentCatalog().getDb(alterJobV2.getDbId());
+            OlapTable tbl = (OlapTable) db.getTable(alterJobV2.getTableId());
+            while (tbl.getState() != OlapTable.OlapTableState.NORMAL) {
+                Thread.sleep(1000);
+            }
         }
     }
 
@@ -528,6 +534,49 @@ public class AlterTest {
         createTable(stmt4);
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
 
+        // table name -> tabletIds
+        Map<String, List<Long>> tblNameToTabletIds = Maps.newHashMap();
+        OlapTable replace1Tbl = (OlapTable) db.getTable("replace1");
+        OlapTable r1Tbl = (OlapTable) db.getTable("r1");
+        OlapTable replace2Tbl = (OlapTable) db.getTable("replace2");
+        OlapTable replace3Tbl = (OlapTable) db.getTable("replace3");
+
+        tblNameToTabletIds.put("replace1", Lists.newArrayList());
+        for (Partition partition : replace1Tbl.getAllPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    tblNameToTabletIds.get("replace1").add(tablet.getId());
+                }
+            }
+        }
+
+        tblNameToTabletIds.put("r1", Lists.newArrayList());
+        for (Partition partition : r1Tbl.getAllPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    tblNameToTabletIds.get("r1").add(tablet.getId());
+                }
+            }
+        }
+
+        tblNameToTabletIds.put("replace2", Lists.newArrayList());
+        for (Partition partition : replace2Tbl.getAllPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    tblNameToTabletIds.get("replace2").add(tablet.getId());
+                }
+            }
+        }
+
+        tblNameToTabletIds.put("replace3", Lists.newArrayList());
+        for (Partition partition : replace3Tbl.getAllPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    tblNameToTabletIds.get("replace3").add(tablet.getId());
+                }
+            }
+        }
+
         // name conflict
         String replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE r1";
         alterTable(replaceStmt, true);
@@ -540,6 +589,8 @@ public class AlterTest {
         Assert.assertEquals(1, replace2.getPartition("replace2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
 
         alterTable(replaceStmt, false);
+        Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace1")));
+        Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace2")));
 
         replace1 = (OlapTable) db.getTable("replace1");
         replace2 = (OlapTable) db.getTable("replace2");
@@ -556,6 +607,8 @@ public class AlterTest {
         Assert.assertNull(replace2);
         Assert.assertEquals(3, replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
         Assert.assertEquals("replace1", replace1.getIndexNameById(replace1.getBaseIndexId()));
+        Assert.assertTrue(checkAllTabletsNotExists(tblNameToTabletIds.get("replace2")));
+        Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace1")));
 
         replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace3 properties('swap' = 'true')";
         alterTable(replaceStmt, false);
@@ -566,9 +619,39 @@ public class AlterTest {
         Assert.assertNotNull(replace1.getIndexIdByName("r3"));
         Assert.assertNotNull(replace1.getIndexIdByName("r4"));
 
+        Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace1")));
+        Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace3")));
+
         Assert.assertEquals(3, replace3.getPartition("replace3").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
         Assert.assertNotNull(replace3.getIndexIdByName("r1"));
         Assert.assertNotNull(replace3.getIndexIdByName("r2"));
+    }
+
+    private boolean checkAllTabletsExists(List<Long> tabletIds) {
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentCatalog().getTabletInvertedIndex();
+        for (long tabletId : tabletIds) {
+            if (invertedIndex.getTabletMeta(tabletId) == null) {
+                return false;
+            }
+            if (invertedIndex.getReplicasByTabletId(tabletId).isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean checkAllTabletsNotExists(List<Long> tabletIds) {
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentCatalog().getTabletInvertedIndex();
+        for (long tabletId : tabletIds) {
+            if (invertedIndex.getTabletMeta(tabletId) != null) {
+                return false;
+            }
+
+            if (!invertedIndex.getReplicasByTabletId(tabletId).isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Test

@@ -19,19 +19,17 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
+
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.After;
@@ -43,6 +41,10 @@ import java.io.File;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class DistributedPlannerTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
@@ -134,7 +136,7 @@ public class DistributedPlannerTest {
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
         List<PlanFragment> fragments = planner.getFragments();
-        String plan = planner.getExplainString(fragments, TExplainLevel.NORMAL);
+        String plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN (BROADCAST)"));
 
         sql = "explain select * from db1.tbl1 join [SHUFFLE] db1.tbl2 on tbl1.k1 = tbl2.k3";
@@ -142,7 +144,7 @@ public class DistributedPlannerTest {
         stmtExecutor.execute();
         planner = stmtExecutor.planner();
         fragments = planner.getFragments();
-        plan = planner.getExplainString(fragments, TExplainLevel.NORMAL);
+        plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN (PARTITIONED)"));
     }
 }

@@ -243,22 +243,28 @@ CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
 
 // config the cumulative compaction policy
-// Valid configs: num_base, size_based
+// Valid configs: num_based, size_based
 // num_based policy, the original version of cumulative compaction, cumulative version compaction once.
 // size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring
 // lower write amplification, trading off read amplification and space amplification.
-CONF_String(cumulative_compaction_policy, "size_based");
+CONF_mString(cumulative_compaction_policy, "size_based");
+CONF_Validator(cumulative_compaction_policy, [](const std::string config) -> bool {
+  return config == "size_based" || config == "num_based";
+});
 
 // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 CONF_mInt64(cumulative_size_based_promotion_size_mbytes, "1024");
+
 // In size_based policy, output rowset of cumulative compaction total disk size exceed this config ratio of
 // base rowset's total disk size, this rowset will be given to base compaction. The value must be between
 // 0 and 1.
 CONF_mDouble(cumulative_size_based_promotion_ratio, "0.05");
+
 // In size_based policy, the smallest size of rowset promotion. When the rowset is less than this config, this
 // rowset will be not given to base compaction. The unit is m byte.
 CONF_mInt64(cumulative_size_based_promotion_min_size_mbytes, "64");
+
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
 CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
@@ -280,11 +286,21 @@ CONF_mInt64(min_compaction_failure_interval_sec, "600"); // 10 min
 CONF_mInt32(min_compaction_threads, "10");
 CONF_mInt32(max_compaction_threads, "10");
 
+// Thread count to do tablet meta checkpoint, -1 means use the data directories count.
+CONF_Int32(max_meta_checkpoint_threads, "-1");
+
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
 
+// sleep interval in ms after generated compaction tasks
+CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10")
+
 // Compaction task number per disk.
+// Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
 CONF_mInt32(compaction_task_num_per_disk, "2");
+CONF_Validator(compaction_task_num_per_disk, [](const int config) -> bool {
+  return config >= 2;
+});
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
@@ -339,6 +355,12 @@ CONF_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 CONF_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 CONF_mBool(tablet_writer_ignore_eovercrowded, "false");
+// batch size of stream load record reported to FE
+CONF_mInt32(stream_load_record_batch_size, "50");
+// expire time of stream load record in rocksdb.
+CONF_Int32(stream_load_record_expire_time_secs, "28800");
+// time interval to clean expired stream load records
+CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -507,6 +529,7 @@ CONF_Int32(flush_thread_num_per_store, "2");
 // config for tablet meta checkpoint
 CONF_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
 CONF_mInt32(tablet_meta_checkpoint_min_interval_secs, "600");
+CONF_Int32(generate_tablet_meta_checkpoint_tasks_interval_secs, "600");
 
 // config for default rowset type
 // Valid configs: ALPHA, BETA
@@ -558,15 +581,26 @@ CONF_Int32(query_cache_max_partition_count, "1024");
 // This is to avoid too many version num.
 CONF_mInt32(max_tablet_version_num, "500");
 
-// Frontend mainly use two thrift sever type: THREAD_POOL, THREADED. if fe use THREADED model for thrift server,
-// the thrift_server_type_of_fe should be set THREADED to make be thrift client to fe constructed with TFramedTransport
+// Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
+// the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
 CONF_String(thrift_server_type_of_fe, "THREAD_POOL");
 
 // disable zone map index when page row is too few
 CONF_mInt32(zone_map_row_num_threshold, "20");
+
+// aws sdk log level
+//    Off = 0,
+//    Fatal = 1,
+//    Error = 2,
+//    Warn = 3,
+//    Info = 4,
+//    Debug = 5,
+//    Trace = 6
+CONF_Int32(aws_log_level, "3");
 
 } // namespace config
 
 } // namespace doris
 
 #endif // DORIS_BE_SRC_COMMON_CONFIG_H
+

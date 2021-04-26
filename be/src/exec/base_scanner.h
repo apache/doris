@@ -43,7 +43,7 @@ struct ScannerCounter {
 class BaseScanner {
 public:
     BaseScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
-                ScannerCounter* counter);
+                const std::vector<ExprContext*>& pre_filter_ctxs, ScannerCounter* counter);
     virtual ~BaseScanner() { Expr::close(_dest_expr_ctx, _state); };
 
     virtual Status init_expr_ctxes();
@@ -83,6 +83,9 @@ protected:
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
+
+    // to filter src tuple directly
+	const std::vector<ExprContext*>& _pre_filter_ctxs;
 
     bool _strict_mode;
     // Profile

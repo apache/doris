@@ -18,6 +18,8 @@
 #include "base_scanner.h"
 
 #include "common/logging.h"
+#include "exec/exec_node.h"
+#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
@@ -27,7 +29,9 @@
 namespace doris {
 
 BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
-                         const TBrokerScanRangeParams& params, ScannerCounter* counter)
+                         const TBrokerScanRangeParams& params,
+                         const std::vector<ExprContext*>& pre_filter_ctxs,
+                         ScannerCounter* counter)
         : _state(state),
           _params(params),
           _counter(counter),
@@ -37,10 +41,12 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _mem_tracker(new MemTracker()),
 #else
           _mem_tracker(
-                  MemTracker::CreateTracker(-1, "Broker Scanner", state->instance_mem_tracker())),
+                  MemTracker::CreateTracker(-1, "BaseScanner:" + std::to_string(state->load_job_id()),
+                                            state->instance_mem_tracker())),
 #endif
           _mem_pool(_mem_tracker.get()),
           _dest_tuple_desc(nullptr),
+          _pre_filter_ctxs(pre_filter_ctxs),
           _strict_mode(false),
           _profile(profile),
           _rows_read_counter(nullptr),
@@ -137,6 +143,13 @@ Status BaseScanner::init_expr_ctxes() {
 }
 
 bool BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
+    // filter src tuple by preceding filter first
+	if (!ExecNode::eval_conjuncts(&_pre_filter_ctxs[0], _pre_filter_ctxs.size(), _src_tuple_row)) {
+        _counter->num_rows_unselected++;
+        return false;
+    }
+
+    // convert and fill dest tuple
     int ctx_idx = 0;
     for (auto slot_desc : _dest_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {

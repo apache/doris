@@ -89,7 +89,7 @@ public:
                      PCacheResponse* response, google::protobuf::Closure* done) override;
 
 private:
-    Status _exec_plan_fragment(brpc::Controller* cntl);
+    Status _exec_plan_fragment(const std::string& s_request);
 
 private:
     ExecEnv* _exec_env;

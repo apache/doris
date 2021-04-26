@@ -54,7 +54,9 @@ class JsonScanner : public BaseScanner {
 public:
     JsonScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
                 const std::vector<TBrokerRangeDesc>& ranges,
-                const std::vector<TNetworkAddress>& broker_addresses, ScannerCounter* counter);
+                const std::vector<TNetworkAddress>& broker_addresses,
+                const std::vector<ExprContext*>& pre_filter_ctxs,
+                ScannerCounter* counter);
     ~JsonScanner();
 
     // Open this scanner, will initialize information needed

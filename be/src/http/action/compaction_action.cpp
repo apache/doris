@@ -214,7 +214,7 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
                                                           const std::string& compaction_type) {
     OLAPStatus status = OLAP_SUCCESS;
     if (compaction_type == PARAM_COMPACTION_BASE) {
-        std::string tracker_label = "base compaction " + std::to_string(syscall(__NR_gettid));
+        std::string tracker_label = "CompactionAction:BaseCompaction:" + std::to_string(syscall(__NR_gettid));
         BaseCompaction base_compaction(tablet, tracker_label, _compaction_mem_tracker);
         OLAPStatus res = base_compaction.compact();
         if (res != OLAP_SUCCESS) {
@@ -226,7 +226,7 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
         }
         status = res;
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
-        std::string tracker_label = "cumulative compaction " + std::to_string(syscall(__NR_gettid));
+        std::string tracker_label = "CompactionAction:CumulativeCompaction:" + std::to_string(syscall(__NR_gettid));
         CumulativeCompaction cumulative_compaction(tablet, tracker_label, _compaction_mem_tracker);
 
         OLAPStatus res = cumulative_compaction.compact();

@@ -483,8 +483,6 @@ bool MiniLoadAction::_is_streaming(HttpRequest* req) {
         LOG(INFO) << ss.str();
         return false;
     }
-    MiniLoadCtx* mini_load_ctx = new MiniLoadCtx(true);
-    req->set_handler_ctx(mini_load_ctx);
     return true;
 }
 

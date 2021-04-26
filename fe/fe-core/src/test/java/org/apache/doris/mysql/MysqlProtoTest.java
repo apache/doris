@@ -183,14 +183,14 @@ public class MysqlProtoTest {
         Assert.assertTrue(MysqlProto.negotiate(context));
     }
 
-    @Test(expected = IOException.class)
+    @Test
     public void testNegotiateSendFail() throws Exception {
         mockChannel("user", false);
         mockPassword(true);
         mockAccess();
         ConnectContext context = new ConnectContext(null);
         MysqlProto.negotiate(context);
-        Assert.fail("No Exception throws.");
+        Assert.assertFalse(MysqlProto.negotiate(context));
     }
 
     @Test

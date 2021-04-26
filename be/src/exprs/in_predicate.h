@@ -19,8 +19,8 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_IN_PREDICATE_H
 
 #include <boost/shared_ptr.hpp>
-#include <boost/unordered_set.hpp>
 #include <string>
+#include <unordered_set>
 
 #include "exprs/hybrid_set.h"
 #include "exprs/predicate.h"

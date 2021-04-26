@@ -103,7 +103,10 @@ private:
         ~Level0Iterator();
 
     private:
-        OLAPStatus _refresh_current_row();
+        OLAPStatus (Level0Iterator::*_refresh_current_row)() = nullptr;
+
+        OLAPStatus _refresh_current_row_v1();
+        OLAPStatus _refresh_current_row_v2();
 
         RowsetReaderSharedPtr _rs_reader;
         const RowCursor* _current_row = nullptr;

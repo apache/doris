@@ -50,8 +50,8 @@ using std::string;
 using std::stringstream;
 using std::vector;
 using std::map;
-using boost::lock_guard;
-using boost::mutex;
+using std::lock_guard;
+using std::mutex;
 
 // Superclass of all executor nodes.
 // All subclasses need to make sure to check RuntimeState::is_cancelled()
@@ -304,7 +304,7 @@ protected:
     // Execution options that are determined at runtime.  This is added to the
     // runtime profile at close().  Examples for options logged here would be
     // "Codegen Enabled"
-    boost::mutex _exec_options_lock;
+    std::mutex _exec_options_lock;
     std::string _runtime_exec_options;
 
     /// Buffer pool client for this node. Initialized with the node's minimum reservation

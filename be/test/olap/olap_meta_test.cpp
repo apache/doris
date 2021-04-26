@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <sstream>
 #include <string>
 
@@ -44,7 +44,7 @@ public:
         _meta = new OlapMeta(_root_path);
         OLAPStatus s = _meta->init();
         ASSERT_EQ(OLAP_SUCCESS, s);
-        ASSERT_TRUE(boost::filesystem::exists(_root_path + "/meta"));
+        ASSERT_TRUE(std::filesystem::exists(_root_path + "/meta"));
     }
 
     virtual void TearDown() {

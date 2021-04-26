@@ -28,11 +28,11 @@ import org.apache.doris.load.routineload.LoadDataSourceType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,7 +46,7 @@ import mockit.Mocked;
 
 public class CreateRoutineLoadStmtTest {
 
-    private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmtTest.class);
+    private static final Logger LOG = LoggerFactory.getLogger(CreateRoutineLoadStmtTest.class);
     @Mocked
     Database database;
 
@@ -94,7 +94,7 @@ public class CreateRoutineLoadStmtTest {
         List<String> partitionNameString = Lists.newArrayList();
         partitionNameString.add("p1");
         PartitionNames partitionNames = new PartitionNames(false, partitionNameString);
-        ColumnSeparator columnSeparator = new ColumnSeparator(",");
+        Separator columnSeparator = new Separator(",");
 
         // duplicate load property
         List<ParseNode> loadPropertyList = new ArrayList<>();
@@ -142,7 +142,7 @@ public class CreateRoutineLoadStmtTest {
         List<String> partitionNameString = Lists.newArrayList();
         partitionNameString.add("p1");
         PartitionNames partitionNames = new PartitionNames(false, partitionNameString);
-        ColumnSeparator columnSeparator = new ColumnSeparator(",");
+        Separator columnSeparator = new Separator(",");
 
         // duplicate load property
         TableName tableName = new TableName(dbName, tableNameString);

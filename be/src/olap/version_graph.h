@@ -171,7 +171,7 @@ public:
     PathVersionListSharedPtr fetch_and_delete_path_by_id(int64_t path_id);
 
     /// Print all expired version path in a tablet.
-    std::string _get_current_path_map_str();
+    std::string get_current_path_map_str();
 
     /// Get json document of _stale_version_path_map. Fill the path_id and version_path
     /// list in the document. The parameter path arr is used as return variable.

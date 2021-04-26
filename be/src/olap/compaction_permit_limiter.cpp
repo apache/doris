@@ -47,6 +47,7 @@ bool CompactionPermitLimiter::request(int64_t permits) {
 }
 
 void CompactionPermitLimiter::release(int64_t permits) {
+    std::unique_lock<std::mutex> lock(_permits_mutex);
     _used_permits -= permits;
     _permits_cv.notify_one();
     DorisMetrics::instance()->compaction_used_permits->set_value(_used_permits);

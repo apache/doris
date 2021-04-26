@@ -18,7 +18,6 @@
 #include "runtime/data_stream_mgr.h"
 
 #include <boost/functional/hash.hpp>
-#include <boost/thread/locks.hpp>
 #include <boost/thread/thread.hpp>
 #include <iostream>
 
@@ -37,11 +36,10 @@ namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(data_stream_receiver_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_endpoint_count, MetricUnit::NOUNIT);
 
-using boost::mutex;
+using std::mutex;
 using boost::shared_ptr;
-using boost::unique_lock;
-using boost::try_mutex;
-using boost::lock_guard;
+using std::unique_lock;
+using std::lock_guard;
 
 DataStreamMgr::DataStreamMgr() {
     REGISTER_HOOK_METRIC(data_stream_receiver_count, [this]() {

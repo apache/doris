@@ -36,7 +36,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
@@ -300,7 +299,7 @@ public class QueryPlanTest {
 
         createTable("CREATE TABLE test.`bucket_shuffle2` (\n" +
                 "  `k1` int NULL COMMENT \"\",\n" +
-                "  `k2` smallint(6) NULL COMMENT \"\"\n" +
+                "  `k2` int(6) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "COMMENT \"OLAP\"\n" +
                 "PARTITION BY RANGE(`k1`)\n" +
@@ -360,9 +359,8 @@ public class QueryPlanTest {
                 "\"replication_num\" = \"1\"\n" +
                 ");");
 
-        Config.enable_odbc_table = true;
         createTable("create external table test.odbc_oracle\n" +
-                "(k1 int, k2 int)\n" +
+                "(k1 float, k2 int)\n" +
                 "ENGINE=ODBC\n" +
                 "PROPERTIES (\n" +
                 "\"host\" = \"127.0.0.1\",\n" +
@@ -916,23 +914,24 @@ public class QueryPlanTest {
 
         // 2.3 test can not convert to constant,middle when expr is not constant
         String sql23 = "select case 'a' when 'b' then 'a' when substr(k7,2,1) then 2 when false then 3 else 0 end as col23 from test.baseall";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql23),
-                "OUTPUT EXPRS:CASE'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '0' THEN '3' ELSE '0' END"));
+        String a = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql23);
+        Assert.assertTrue(StringUtils.containsIgnoreCase(a,
+                "OUTPUT EXPRS:CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 2.3.1  first when expr is not constant
         String sql231 = "select case 'a' when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end as col231 from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql231),
-                "OUTPUT EXPRS:CASE'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
+                "OUTPUT EXPRS:CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 2.3.2 case expr is not constant
         String sql232 = "select case k1 when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end as col232 from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql232),
-                "OUTPUT EXPRS:CASE`k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
+                "OUTPUT EXPRS:CASE `k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 3.1 test float,float in case expr
         String sql31 = "select case cast(100 as float) when 1 then 'a' when 2 then 'b' else 'other' end as col31;";
         Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql31),
-                "constant exprs: \n         CASE100.0 WHEN 1.0 THEN 'a' WHEN 2.0 THEN 'b' ELSE 'other' END"));
+                "constant exprs: \n         CASE 100.0 WHEN 1.0 THEN 'a' WHEN 2.0 THEN 'b' ELSE 'other' END"));
 
         // 4.1 test null in case expr return else
         String sql41 = "select case null when 1 then 'a' when 2 then 'b' else 'other' end as col41";
@@ -1111,6 +1110,17 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
+        // left table is colocate table, should be bucket shuffle
+        queryStr = "explain select * from test.colocate1 t1, test.bucket_shuffle2 t2 where t1.k1 = t2.k1 and t1.k1 = t2.k2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
+
+        // support recurse of bucket shuffle join
+        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3 " +
+                "on t2.k1 = t3.k1 and t2.k2 = t3.k2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t3`.`k1`, `t3`.`k2`"));
         // disable bucket shuffle join again
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
     }
@@ -1276,7 +1286,7 @@ public class QueryPlanTest {
     @Test
     public void testPreferBroadcastJoin() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        String queryStr = "explain select * from (select k1 from jointest group by k1)t2, jointest t1 where t1.k1 = t2.k1";
+        String queryStr = "explain select * from (select k2 from jointest group by k2)t2, jointest t1 where t1.k1 = t2.k2";
 
         // default set PreferBroadcastJoin true
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
@@ -1421,6 +1431,65 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | 4"));
     }
+
+    @Test
+    public void testFromUnixTimeRewrite() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        //default format
+        String sql = "select * from test1 where from_unixtime(query_time) > '2021-03-02 10:01:28'";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
+        //format yyyy-MM-dd HH:mm:ss
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH:mm:ss') > '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
+        //format yyyy-MM-dd HH:mm
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH:mm') > '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650460"));
+        //format yyyy-MM-dd HH
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH') > '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650400"));
+        //format yyyy-MM-dd
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd') > '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
+        //format yyyy-MM
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM') > '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614528000"));
+        //format yyyy
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy') > '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1609430400"));
+
+        //format less than
+        sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd') < '2021-03-02 10:01:28'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println("wangxixu-explain:"+explainString);
+        Assert.assertTrue(explainString.contains("PREDICATES: `query_time` < 1614614400, `query_time` >= 0"));
+
+    }
+
+    @Test
+    public void testSetVarInQueryStmt() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        connectContext.resetSessionVariables();
+        try {
+            String sql = "select /*+ SET_VAR(query_timeout=1) */ 1;";
+            UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+            Assert.assertEquals(1, connectContext.getSessionVariable().getQueryTimeoutS());
+
+            sql = "select /*+ SET_VAR(query_timeout=10, enable_partition_cache=true, prefer_join_method=shuffle," +
+                    " sql_mode=STRICT_TRANS_TABLES) */ 1;";
+            UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+            Assert.assertEquals(10, connectContext.getSessionVariable().getQueryTimeoutS());
+            Assert.assertEquals(true, connectContext.getSessionVariable().isEnablePartitionCache());
+            Assert.assertEquals("shuffle", connectContext.getSessionVariable().getPreferJoinMethod());
+            Assert.assertEquals(2097152, connectContext.getSessionVariable().getSqlMode());
+        } finally {
+            connectContext.resetSessionVariables();
+        }
+    }
 }
-
-

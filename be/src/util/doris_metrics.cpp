@@ -143,6 +143,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_base_max_compaction_score, MetricUnit:
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_used_permits, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_waitting_permits, MetricUnit::NOUNIT);
 
+DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(tablet_version_num_distribution, MetricUnit::NOUNIT);
+
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(push_request_write_bytes_per_second, MetricUnit::BYTES);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_scan_bytes_per_second, MetricUnit::BYTES);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(max_disk_io_util_percent, MetricUnit::PERCENT);
@@ -250,6 +252,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_used_permits);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_waitting_permits);
 
+    HISTOGRAM_METRIC_REGISTER(_server_metric_entity, tablet_version_num_distribution);
+
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, push_request_write_bytes_per_second);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_per_second);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, max_disk_io_util_percent);
@@ -281,6 +285,7 @@ void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::stri
     if (init_system_metrics) {
         _system_metrics.reset(
                 new SystemMetrics(&_metric_registry, disk_devices, network_interfaces));
+        _is_inited = true;
     }
 }
 

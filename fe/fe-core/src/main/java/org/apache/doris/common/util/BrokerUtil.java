@@ -18,6 +18,10 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.backup.RemoteFile;
+import org.apache.doris.backup.S3Storage;
+import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
@@ -49,6 +53,7 @@ import org.apache.doris.thrift.TBrokerRenamePathRequest;
 import org.apache.doris.thrift.TBrokerVersion;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
@@ -60,6 +65,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -77,35 +83,50 @@ public class BrokerUtil {
      */
     public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
             throws UserException {
-        TNetworkAddress address = getAddress(brokerDesc);
-        TPaloBrokerService.Client client = borrowClient(address);
-        boolean failed = true;
-        try {
-            TBrokerListPathRequest request = new TBrokerListPathRequest(
-                    TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
-            TBrokerListResponse tBrokerListResponse = null;
+        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
+            TNetworkAddress address = getAddress(brokerDesc);
+            TPaloBrokerService.Client client = borrowClient(address);
+            boolean failed = true;
             try {
-                tBrokerListResponse = client.listPath(request);
-            } catch (TException e) {
-                reopenClient(client);
-                tBrokerListResponse = client.listPath(request);
-            }
-            if (tBrokerListResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
-                throw new UserException("Broker list path failed. path=" + path
-                        + ",broker=" + address + ",msg=" + tBrokerListResponse.getOpStatus().getMessage());
-            }
-            failed = false;
-            for (TBrokerFileStatus tBrokerFileStatus : tBrokerListResponse.getFiles()) {
-                if (tBrokerFileStatus.isDir) {
-                    continue;
+                TBrokerListPathRequest request = new TBrokerListPathRequest(
+                    TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
+                TBrokerListResponse tBrokerListResponse = null;
+                try {
+                    tBrokerListResponse = client.listPath(request);
+                } catch (TException e) {
+                    reopenClient(client);
+                    tBrokerListResponse = client.listPath(request);
                 }
-                fileStatuses.add(tBrokerFileStatus);
+                if (tBrokerListResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
+                    throw new UserException("Broker list path failed. path=" + path
+                        + ",broker=" + address + ",msg=" + tBrokerListResponse.getOpStatus().getMessage());
+                }
+                failed = false;
+                for (TBrokerFileStatus tBrokerFileStatus : tBrokerListResponse.getFiles()) {
+                    if (tBrokerFileStatus.isDir) {
+                        continue;
+                    }
+                    fileStatuses.add(tBrokerFileStatus);
+                }
+            } catch (TException e) {
+                LOG.warn("Broker list path exception, path={}, address={}, exception={}", path, address, e);
+                throw new UserException("Broker list path exception. path=" + path + ", broker=" + address);
+            } finally {
+                returnClient(client, address, failed);
             }
-        } catch (TException e) {
-            LOG.warn("Broker list path exception, path={}, address={}, exception={}", path, address, e);
-            throw new UserException("Broker list path exception. path=" + path + ", broker=" + address);
-        } finally {
-            returnClient(client, address, failed);
+        } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.S3) {
+            S3Storage s3 = new S3Storage(brokerDesc.getProperties());
+            List<RemoteFile> rfiles = new ArrayList<>();
+            Status st = s3.list(path, rfiles, false);
+            if (!st.ok()) {
+                throw new UserException("S3 list path failed. path=" + path
+                    + ",msg=" + st.getErrMsg());
+            }
+            for (RemoteFile r : rfiles) {
+                if (r.isFile()) {
+                    fileStatuses.add(new TBrokerFileStatus(r.getName(), !r.isFile(), r.getSize(), r.isFile()));
+                }
+            }
         }
     }
 

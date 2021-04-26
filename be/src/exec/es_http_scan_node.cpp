@@ -26,6 +26,7 @@
 #include "exec/es/es_scan_reader.h"
 #include "exec/es/es_scroll_query.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"

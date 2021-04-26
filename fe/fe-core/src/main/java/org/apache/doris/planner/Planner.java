@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.QueryStmt;
@@ -28,6 +29,8 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.PlanTreeBuilder;
+import org.apache.doris.common.profile.PlanTreePrinter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
@@ -115,7 +118,22 @@ public class Planner {
     /**
      * Return combined explain string for all plan fragments.
      */
-    public String getExplainString(List<PlanFragment> fragments, TExplainLevel explainLevel) {
+    public String getExplainString(List<PlanFragment> fragments, ExplainOptions explainOptions) {
+        Preconditions.checkNotNull(explainOptions);
+        if (explainOptions.isGraph()) {
+            // print the plan graph
+            PlanTreeBuilder builder = new PlanTreeBuilder(fragments);
+            try {
+                builder.build();
+            } catch (UserException e) {
+                LOG.warn("Failed to build explain plan tree", e);
+                return e.getMessage();
+            }
+            return PlanTreePrinter.printPlanExplanation(builder.getTreeRoot());
+        }
+
+        // print text plan
+        TExplainLevel explainLevel = explainOptions.isVerbose() ? TExplainLevel.VERBOSE : TExplainLevel.NORMAL;
         StringBuilder str = new StringBuilder();
         for (int i = 0; i < fragments.size(); ++i) {
             PlanFragment fragment = fragments.get(i);

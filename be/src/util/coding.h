@@ -168,6 +168,8 @@ inline const uint8_t* decode_varint32_ptr(const uint8_t* ptr, const uint8_t* lim
 }
 
 extern const uint8_t* decode_varint64_ptr(const uint8_t* p, const uint8_t* limit, uint64_t* value);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
 
 template <typename T>
 inline void put_varint32(T* dst, uint32_t v) {
@@ -196,6 +198,8 @@ inline void put_varint64_varint32(T* dst, uint64_t v1, uint32_t v2) {
     ptr = encode_varint32(ptr, v2);
     dst->append((char*)buf, static_cast<size_t>(ptr - buf));
 }
+
+#pragma GCC diagnostic pop
 
 // parse a varint32 from the start of `input` into `val`.
 // on success, return true and advance `input` past the parsed value.

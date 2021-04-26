@@ -148,6 +148,9 @@ private:
     /// Initialise 'buffer_pool_' and 'buffer_reservation_' with given capacity.
     void _init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit);
 
+    void _register_metrics();
+    void _deregister_metrics();
+
 private:
     bool _is_init;
     std::vector<StorePath> _store_paths;

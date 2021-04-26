@@ -20,7 +20,7 @@
 #include <gperftools/profiler.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <boost/bind.hpp>
+#include <boost/bind/bind.hpp>
 #include <memory>
 #include <sstream>
 
@@ -167,9 +167,9 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
           _fragment_instance_id(fragment_instance_id),
           _backend_num(backend_num),
           _exec_env(exec_env),
-          _executor(exec_env,
-                    boost::bind<void>(boost::mem_fn(&FragmentExecState::coordinator_callback), this,
-                                      _1, _2, _3)),
+          _executor(exec_env, boost::bind<void>(boost::mem_fn(&FragmentExecState::coordinator_callback),
+                                              this, boost::placeholders::_1, boost::placeholders::_2,
+                                              boost::placeholders::_3)),
           _timeout_second(-1),
           _fragments_ctx(fragments_ctx) {
     _start_time = DateTimeValue::local_time();
@@ -184,9 +184,9 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
           _backend_num(backend_num),
           _exec_env(exec_env),
           _coord_addr(coord_addr),
-          _executor(exec_env,
-                    boost::bind<void>(boost::mem_fn(&FragmentExecState::coordinator_callback), this,
-                                      _1, _2, _3)),
+          _executor(exec_env, boost::bind<void>(boost::mem_fn(&FragmentExecState::coordinator_callback),
+                                              this, boost::placeholders::_1, boost::placeholders::_2,
+                                              boost::placeholders::_3)),
           _timeout_second(-1) {
     _start_time = DateTimeValue::local_time();
 }
@@ -385,17 +385,17 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     });
 
     auto s = Thread::create(
-                  "FragmentMgr", "cancel_timeout_plan_fragment",
-                  [this]() { this->cancel_worker(); }, &_cancel_thread);
+            "FragmentMgr", "cancel_timeout_plan_fragment", [this]() { this->cancel_worker(); },
+            &_cancel_thread);
     CHECK(s.ok()) << s.to_string();
 
     // TODO(zc): we need a better thread-pool
     // now one user can use all the thread pool, others have no resource.
     s = ThreadPoolBuilder("FragmentMgrThreadPool")
-            .set_min_threads(config::fragment_pool_thread_num_min)
-            .set_max_threads(config::fragment_pool_thread_num_max)
-            .set_max_queue_size(config::fragment_pool_queue_size)
-            .build(&_thread_pool);
+                .set_min_threads(config::fragment_pool_thread_num_min)
+                .set_max_threads(config::fragment_pool_thread_num_max)
+                .set_max_queue_size(config::fragment_pool_queue_size)
+                .build(&_thread_pool);
     CHECK(s.ok()) << s.to_string();
 }
 

@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "olap/hll.h"
 #include "runtime/exec_env.h"
 #include "runtime/row_batch.h"
@@ -30,6 +31,7 @@
 #include "util/debug/sanitizer_scopes.h"
 #include "util/monotime.h"
 #include "util/uid_util.h"
+#include "util/time.h"
 
 namespace doris {
 namespace stream_load {
@@ -82,6 +84,7 @@ Status NodeChannel::init(RuntimeState* state) {
     _cur_add_batch_request.set_eos(false);
 
     _rpc_timeout_ms = state->query_options().query_timeout * 1000;
+    _timeout_watch.start();
 
     _load_info = "load_id=" + print_id(_parent->_load_id) +
                  ", txn_id=" + std::to_string(_parent->_txn_id);
@@ -298,7 +301,11 @@ void NodeChannel::cancel() {
     auto closure = new RefCountClosure<PTabletWriterCancelResult>();
 
     closure->ref();
-    closure->cntl.set_timeout_ms(_rpc_timeout_ms);
+    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
+    if (UNLIKELY(remain_ms < _min_rpc_timeout_ms)) {
+        remain_ms = _min_rpc_timeout_ms;
+    }
+    closure->cntl.set_timeout_ms(remain_ms);
     if (config::tablet_writer_ignore_eovercrowded) {
         closure->cntl.ignore_eovercrowded();
     }
@@ -335,7 +342,16 @@ int NodeChannel::try_send_and_fetch_status() {
         }
 
         _add_batch_closure->reset();
-        _add_batch_closure->cntl.set_timeout_ms(_rpc_timeout_ms);
+        int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
+        if (UNLIKELY(remain_ms < _min_rpc_timeout_ms)) {
+            if (remain_ms <= 0 && !request.eos()) {
+                cancel();
+                return 0;
+            } else {
+                remain_ms = _min_rpc_timeout_ms;
+            }
+        }
+        _add_batch_closure->cntl.set_timeout_ms(remain_ms);
         if (config::tablet_writer_ignore_eovercrowded) {
             _add_batch_closure->cntl.ignore_eovercrowded();
         }
@@ -446,6 +462,7 @@ OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
     if (!texprs.empty()) {
         *status = Expr::create_expr_trees(_pool, texprs, &_output_expr_ctxs);
     }
+    _name = "OlapTableSink";
 }
 
 OlapTableSink::~OlapTableSink() {
@@ -490,7 +507,8 @@ Status OlapTableSink::prepare(RuntimeState* state) {
 
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
-    _mem_tracker = MemTracker::CreateTracker(-1, "OlapTableSink", state->instance_mem_tracker());
+    _mem_tracker = MemTracker::CreateTracker(-1, "OlapTableSink:" + std::to_string(state->load_job_id()),
+                                             state->instance_mem_tracker());
 
     SCOPED_TIMER(_profile->total_time_counter());
 
@@ -562,12 +580,18 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _output_rows_counter = ADD_COUNTER(_profile, "RowsReturned", TUnit::UNIT);
     _filtered_rows_counter = ADD_COUNTER(_profile, "RowsFiltered", TUnit::UNIT);
     _send_data_timer = ADD_TIMER(_profile, "SendDataTime");
+    _wait_mem_limit_timer = ADD_CHILD_TIMER(_profile, "WaitMemLimitTime", "SendDataTime");
     _convert_batch_timer = ADD_TIMER(_profile, "ConvertBatchTime");
     _validate_data_timer = ADD_TIMER(_profile, "ValidateDataTime");
     _open_timer = ADD_TIMER(_profile, "OpenTime");
     _close_timer = ADD_TIMER(_profile, "CloseWaitTime");
     _non_blocking_send_timer = ADD_TIMER(_profile, "NonBlockingSendTime");
-    _serialize_batch_timer = ADD_TIMER(_profile, "SerializeBatchTime");
+    _non_blocking_send_work_timer = ADD_CHILD_TIMER(_profile, "NonBlockingSendWorkTime", "NonBlockingSendTime");
+    _serialize_batch_timer = ADD_CHILD_TIMER(_profile, "SerializeBatchTime", "NonBlockingSendWorkTime");
+    _total_add_batch_exec_timer = ADD_TIMER(_profile, "TotalAddBatchExecTime");
+    _max_add_batch_exec_timer = ADD_TIMER(_profile, "MaxAddBatchExecTime");
+    _add_batch_number = ADD_COUNTER(_profile, "NumberBatchAdded", TUnit::UNIT);
+    _num_node_channels = ADD_COUNTER(_profile, "NumberNodeChannels", TUnit::UNIT);
     _load_mem_limit = state->get_load_mem_limit();
 
     // open all channels
@@ -697,18 +721,23 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         // BE id -> add_batch method counter
         std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;
         int64_t serialize_batch_ns = 0, mem_exceeded_block_ns = 0, queue_push_lock_ns = 0,
-                actual_consume_ns = 0;
+                actual_consume_ns = 0, total_add_batch_exec_time_ns = 0,
+                max_add_batch_exec_time_ns = 0,
+                total_add_batch_num = 0, num_node_channels = 0;
         {
             SCOPED_TIMER(_close_timer);
             for (auto index_channel : _channels) {
                 index_channel->for_each_node_channel([](NodeChannel* ch) { ch->mark_close(); });
+                num_node_channels += index_channel->num_node_channels();
             }
 
             for (auto index_channel : _channels) {
+                int64_t add_batch_exec_time = 0;
                 index_channel->for_each_node_channel([&status, &state, &node_add_batch_counter_map,
                                                       &serialize_batch_ns, &mem_exceeded_block_ns,
-                                                      &queue_push_lock_ns,
-                                                      &actual_consume_ns](NodeChannel* ch) {
+                                                      &queue_push_lock_ns, &actual_consume_ns,
+                                                      &total_add_batch_exec_time_ns, &add_batch_exec_time,
+                                                      &total_add_batch_num](NodeChannel* ch) {
                     auto s = ch->close_wait(state);
                     if (!s.ok()) {
                         // 'status' will store the last non-ok status of all channels
@@ -719,8 +748,13 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                     }
                     ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
                                     &mem_exceeded_block_ns, &queue_push_lock_ns,
-                                    &actual_consume_ns);
+                                    &actual_consume_ns, &total_add_batch_exec_time_ns,
+                                    &add_batch_exec_time, &total_add_batch_num);
                 });
+
+                if (add_batch_exec_time > max_add_batch_exec_time_ns) {
+                    max_add_batch_exec_time_ns = add_batch_exec_time;
+                }
             }
         }
         // TODO need to be improved
@@ -732,9 +766,15 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         COUNTER_SET(_output_rows_counter, _number_output_rows);
         COUNTER_SET(_filtered_rows_counter, _number_filtered_rows);
         COUNTER_SET(_send_data_timer, _send_data_ns);
+        COUNTER_SET(_wait_mem_limit_timer, mem_exceeded_block_ns);
         COUNTER_SET(_convert_batch_timer, _convert_batch_ns);
         COUNTER_SET(_validate_data_timer, _validate_data_ns);
         COUNTER_SET(_serialize_batch_timer, serialize_batch_ns);
+        COUNTER_SET(_non_blocking_send_work_timer, actual_consume_ns);
+        COUNTER_SET(_total_add_batch_exec_timer, total_add_batch_exec_time_ns);
+        COUNTER_SET(_max_add_batch_exec_timer, max_add_batch_exec_time_ns);
+        COUNTER_SET(_add_batch_number, total_add_batch_num);
+        COUNTER_SET(_num_node_channels, num_node_channels);
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
         int64_t num_rows_load_total = _number_input_rows + state->num_rows_load_filtered() +
                                       state->num_rows_load_unselected();
@@ -744,11 +784,10 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         // print log of add batch time of all node, for tracing load performance easily
         std::stringstream ss;
         ss << "finished to close olap table sink. load_id=" << print_id(_load_id)
-           << ", txn_id=" << _txn_id << ", node add batch time(ms)/wait lock time(ms)/num: ";
+           << ", txn_id=" << _txn_id << ", node add batch time(ms)/num: ";
         for (auto const& pair : node_add_batch_counter_map) {
             ss << "{" << pair.first << ":(" << (pair.second.add_batch_execution_time_us / 1000)
-               << ")(" << (pair.second.add_batch_wait_lock_time_us / 1000) << ")("
-               << pair.second.add_batch_num << ")} ";
+               << ")(" << pair.second.add_batch_num << ")} ";
         }
         LOG(INFO) << ss.str();
     } else {

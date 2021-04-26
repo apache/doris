@@ -23,10 +23,10 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
-import com.google.common.base.MoreObjects;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.MoreObjects;
 
 /**
  * Cross join between left child and right child.
@@ -84,7 +84,10 @@ public class CrossJoinNode extends PlanNode {
     }
 
     @Override
-    protected String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return "";
+        }
         StringBuilder output = new StringBuilder().append(detailPrefix + "cross join:" + "\n");
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix + "predicates: ").append(getExplainString(conjuncts) + "\n");

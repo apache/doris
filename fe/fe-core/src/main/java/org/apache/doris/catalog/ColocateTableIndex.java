@@ -700,4 +700,10 @@ public class ColocateTableIndex implements Writable {
             writeUnlock();
         }
     }
+
+    // just for ut
+    public Map<Long, GroupId> getTable2Group() {
+        return table2Group;
+    }
+
 }

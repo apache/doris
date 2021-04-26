@@ -351,7 +351,7 @@ TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    decimal12_t value(5, 5);
+    decimal12_t value = {5, 5};
     ColumnPredicate* pred = new EqualPredicate<decimal12_t>(0, value);
 
     // for VectorizedBatch no nulls
@@ -996,7 +996,7 @@ TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    decimal12_t value(5, 5);
+    decimal12_t value = {5, 5};
     ColumnPredicate* pred = new LessPredicate<decimal12_t>(0, value);
 
     // for VectorizedBatch no nulls
@@ -1013,7 +1013,7 @@ TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
     pred->evaluate(_vectorized_batch);
     ASSERT_EQ(_vectorized_batch->size(), 5);
     uint16_t* sel = _vectorized_batch->selected();
-    decimal12_t sum(0, 0);
+    decimal12_t sum = {0, 0};
     for (int i = 0; i < _vectorized_batch->size(); ++i) {
         sum += *(col_data + sel[i]);
     }

@@ -134,7 +134,7 @@ The new UDAF aggregate function is created in mysql client link Session. It is c
 
 The bitmap intersection function
 
-Syntax：
+Syntax:
 
 orthogonal_bitmap_intersect(bitmap_column, column_to_filter, filter_values)
 
@@ -178,7 +178,7 @@ select BITMAP_COUNT(orthogonal_bitmap_intersect(user_id, tag, 13080800, 11110200
 
 To calculate the bitmap intersection count function, the syntax is the same as the original Intersect_Count, but the implementation is different
 
-Syntax：
+Syntax:
 
 orthogonal_bitmap_intersect_count(bitmap_column, column_to_filter, filter_values)
 
@@ -208,7 +208,7 @@ PROPERTIES (
 
 Figure out the bitmap union count function, syntax with the original bitmap_union_count, but the implementation is different.
 
-Syntax：
+Syntax:
 
 orthogonal_bitmap_union_count(bitmap_column)
 

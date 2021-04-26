@@ -17,7 +17,7 @@
 
 #include "runtime/bufferpool/buffer_allocator.h"
 
-#include <boost/bind.hpp>
+#include <boost/bind/bind.hpp>
 #include <mutex>
 
 #include "common/atomic.h"
@@ -721,8 +721,7 @@ std::string BufferPool::FreeBufferArena::DebugString() {
            << " free buffers: " << lists.num_free_buffers.load()
            << " low water mark: " << lists.low_water_mark
            << " clean pages: " << lists.num_clean_pages.load() << " ";
-        lists.clean_pages.iterate(boost::bind<bool>(Page::DebugStringCallback, &ss, _1));
-
+        lists.clean_pages.iterate(boost::bind<bool>(Page::DebugStringCallback, &ss, boost::placeholders::_1));
         ss << "\n";
     }
     return ss.str();

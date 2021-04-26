@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <functional>
 #include <iostream>
 
@@ -136,7 +136,7 @@ protected:
         ASSERT_TRUE(st.ok());
         ASSERT_TRUE(wblock->close().ok());
 
-        st = Segment::open(filename, 0, &query_schema, res);
+        st = Segment::open(filename, 0, &query_schema, MemTracker::CreateTracker(-1, "Segment", nullptr, false), res);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(nrows, (*res)->num_rows());
     }
@@ -644,7 +644,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     ASSERT_TRUE(writer.finalize(&file_size, &index_size).ok());
     ASSERT_TRUE(wblock->close().ok());
 
-    file_size = boost::filesystem::file_size(fname);
+    file_size = std::filesystem::file_size(fname);
     LOG(INFO) << "segment file size is:" << file_size;
 
     ASSERT_NE(segment_size, 0);
@@ -817,7 +817,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
     {
         std::shared_ptr<Segment> segment;
-        st = Segment::open(fname, 0, tablet_schema.get(), &segment);
+        st = Segment::open(fname, 0, tablet_schema.get(), MemTracker::CreateTracker(-1, "Segment", nullptr, false), &segment);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(4096, segment->num_rows());
         Schema schema(*tablet_schema);
