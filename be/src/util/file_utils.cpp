@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <iomanip>
+#include <memory>
 #include <sstream>
 
 #include "env/env.h"
@@ -240,7 +241,7 @@ Status FileUtils::copy_file(const std::string& src_path, const std::string& dest
     }
 
     const int64_t BUF_SIZE = 8192;
-    std::unique_ptr<char[]> buf(new char[BUF_SIZE]);
+    std::unique_ptr<char[]> buf = std::make_unique<char[]>(BUF_SIZE);
     int64_t src_length = src_file.length();
     int64_t offset = 0;
     while (src_length > 0) {
