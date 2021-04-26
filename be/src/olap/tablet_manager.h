@@ -72,7 +72,8 @@ public:
     TabletSharedPtr find_best_tablet_to_compaction(CompactionType compaction_type,
                                                    DataDir* data_dir,
                                                    const std::map<TTabletId, CompactionType>& tablet_submitted_compaction,
-                                                   uint32_t* score);
+                                                   uint32_t* score,
+                                                   std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                bool include_deleted = false, std::string* err = nullptr);
