@@ -152,7 +152,7 @@ public class Config extends ConfigBase {
     /**
      * Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
      */
-    @ConfField public static int label_clean_interval_second = 4 * 3600; // 4 hours
+    @ConfField public static int label_clean_interval_second = 600; // 10 minutes
   
     /**
      * the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted
