@@ -247,7 +247,7 @@ CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
 // num_based policy, the original version of cumulative compaction, cumulative version compaction once.
 // size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring
 // lower write amplification, trading off read amplification and space amplification.
-CONF_String(cumulative_compaction_policy, "size_based");
+CONF_mString(cumulative_compaction_policy, "size_based");
 CONF_Validator(cumulative_compaction_policy, [](const std::string config) -> bool {
   return config == "size_based" || config == "num_based";
 });

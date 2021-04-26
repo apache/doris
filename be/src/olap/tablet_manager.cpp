@@ -698,7 +698,8 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
-        const std::map<TTabletId, CompactionType>& tablet_submitted_compaction, uint32_t* score) {
+        const std::map<TTabletId, CompactionType>& tablet_submitted_compaction, uint32_t* score,
+        std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str =
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
@@ -764,7 +765,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 }
 
                 uint32_t current_compaction_score =
-                        tablet_ptr->calc_compaction_score(compaction_type);
+                        tablet_ptr->calc_compaction_score(compaction_type, cumulative_compaction_policy);
 
                 double scan_frequency = 0.0;
                 if (config::compaction_tablet_scan_frequency_factor != 0) {

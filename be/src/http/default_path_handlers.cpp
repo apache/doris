@@ -74,6 +74,7 @@ void logs_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* ou
 void config_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
     (*output) << "<h2>Configurations</h2>";
     (*output) << "<pre>";
+    std::lock_guard<std::mutex> lock(*config::get_mutable_string_config_lock());
     for (const auto& it : *(config::full_conf_map)) {
         (*output) << it.first << "=" << it.second << std::endl;
     }
