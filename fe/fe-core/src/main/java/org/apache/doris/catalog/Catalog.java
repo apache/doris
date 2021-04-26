@@ -4524,6 +4524,13 @@ public class Catalog {
     public void replayAddReplica(ReplicaPersistInfo info) {
         Database db = getDb(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
+        if (olapTable == null) {
+            /**
+             * Same as replayUpdateReplica()
+             */
+            LOG.warn("Olap table is null when the add replica log is replayed, {}", info);
+            return;
+        }
         olapTable.writeLock();
         try {
             unprotectAddReplica(info);
@@ -4568,6 +4575,13 @@ public class Catalog {
     public void replayDeleteReplica(ReplicaPersistInfo info) {
         Database db = getDb(info.getDbId());
         OlapTable tbl = (OlapTable) db.getTable(info.getTableId());
+        if (tbl == null) {
+            /**
+             * Same as replayUpdateReplica()
+             */
+            LOG.warn("Olap table is null when the delete replica log is replayed, {}", info);
+            return;
+        }
         tbl.writeLock();
         try {
             unprotectDeleteReplica(info);
