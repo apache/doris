@@ -149,8 +149,8 @@ public class CreateTableTest {
         // single partition column with single key
         ExceptionChecker
                 .expectThrowsNoException(() -> createTable("create table test.tbl9\n"
-                        + "(k1 int, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                        +"partition by list(k1)\n"
+                        + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
+                        + "partition by list(k1)\n"
                         + "(\n"
                         + "partition p1 values in (\"1\"),\n"
                         + "partition p2 values in (\"2\")\n"
@@ -161,8 +161,8 @@ public class CreateTableTest {
         // single partition column with multi keys
         ExceptionChecker
                 .expectThrowsNoException(() -> createTable("create table test.tbl10\n"
-                        + "(k1 int, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                        +"partition by list(k1)\n"
+                        + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
+                        + "partition by list(k1)\n"
                         + "(\n"
                         + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
                         + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
@@ -174,8 +174,8 @@ public class CreateTableTest {
         // multi partition columns with single key
         ExceptionChecker
                 .expectThrowsNoException(() -> createTable("create table test.tbl11\n"
-                        + "(k1 int, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                        +"partition by list(k1, k2)\n"
+                        + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
+                        + "partition by list(k1, k2)\n"
                         + "(\n"
                         + "partition p1 values in ((\"1\", \"beijing\")),\n"
                         + "partition p2 values in ((\"2\", \"beijing\"))\n"
@@ -186,8 +186,8 @@ public class CreateTableTest {
         // multi partition columns with multi keys
         ExceptionChecker
                 .expectThrowsNoException(() -> createTable("create table test.tbl12\n"
-                        + "(k1 int, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                        +"partition by list(k1, k2)\n"
+                        + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
+                        + "partition by list(k1, k2)\n"
                         + "(\n"
                         + "partition p1 values in ((\"1\", \"beijing\"), (\"1\", \"shanghai\")),\n"
                         + "partition p2 values in ((\"2\", \"beijing\"), (\"2\", \"shanghai\")),\n"
@@ -282,8 +282,8 @@ public class CreateTableTest {
         // single partition column with single key
         ExceptionChecker
                 .expectThrowsWithMsg(AnalysisException.class, "Syntax error", () -> createTable("create table test.tbl9\n"
-                        + "(k1 int, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                        +"partition by list(k1)\n"
+                        + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
+                        + "partition by list(k1)\n"
                         + "(\n"
                         + "partition p1 values in (\"1\"),\n"
                         + "partition p2 values in ()\n"
@@ -295,56 +295,56 @@ public class CreateTableTest {
         ExceptionChecker
                 .expectThrowsWithMsg(IllegalArgumentException.class, "partition key desc list size[2] is not equal to partition column size[1]",
                         () -> createTable("create table test.tbl10\n"
-                        + "(k1 int, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                        +"partition by list(k1)\n"
-                        + "(\n"
-                        + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
-                        + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
-                        + "partition p3 values in ((\"7\", \"8\"))\n"
-                        + ")\n"
-                        + "distributed by hash(k2) buckets 1\n"
-                        + "properties('replication_num' = '1');"));
+                                + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
+                                + "partition by list(k1)\n"
+                                + "(\n"
+                                + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
+                                + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
+                                + "partition p3 values in ((\"7\", \"8\"))\n"
+                                + ")\n"
+                                + "distributed by hash(k2) buckets 1\n"
+                                + "properties('replication_num' = '1');"));
 
         // multi partition columns with single key
         ExceptionChecker
                 .expectThrowsWithMsg(IllegalArgumentException.class, "partition key desc list size[1] is not equal to partition column size[2]",
                         () -> createTable("create table test.tbl11\n"
-                        + "(k1 int, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                        +"partition by list(k1, k2)\n"
-                        + "(\n"
-                        + "partition p1 values in ((\"1\", \"beijing\")),\n"
-                        + "partition p2 values in (\"2\", \"beijing\")\n"
-                        + ")\n"
-                        + "distributed by hash(k2) buckets 1\n"
-                        + "properties('replication_num' = '1');"));
+                                + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
+                                + "partition by list(k1, k2)\n"
+                                + "(\n"
+                                + "partition p1 values in ((\"1\", \"beijing\")),\n"
+                                + "partition p2 values in (\"2\", \"beijing\")\n"
+                                + ")\n"
+                                + "distributed by hash(k2) buckets 1\n"
+                                + "properties('replication_num' = '1');"));
 
         // multi partition columns with multi keys
         ExceptionChecker
                 .expectThrowsWithMsg(IllegalArgumentException.class, "partition key desc list size[3] is not equal to partition column size[2]",
                         () -> createTable("create table test.tbl12\n"
-                        + "(k1 int, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                        +"partition by list(k1, k2)\n"
-                        + "(\n"
-                        + "partition p1 values in ((\"1\", \"beijing\"), (\"1\", \"shanghai\")),\n"
-                        + "partition p2 values in ((\"2\", \"beijing\"), (\"2\", \"shanghai\")),\n"
-                        + "partition p3 values in ((\"3\", \"tianjin\", \"3\"))\n"
-                        + ")\n"
-                        + "distributed by hash(k2) buckets 1\n"
-                        + "properties('replication_num' = '1');"));
+                                + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
+                                + "partition by list(k1, k2)\n"
+                                + "(\n"
+                                + "partition p1 values in ((\"1\", \"beijing\"), (\"1\", \"shanghai\")),\n"
+                                + "partition p2 values in ((\"2\", \"beijing\"), (\"2\", \"shanghai\")),\n"
+                                + "partition p3 values in ((\"3\", \"tianjin\", \"3\"))\n"
+                                + ")\n"
+                                + "distributed by hash(k2) buckets 1\n"
+                                + "properties('replication_num' = '1');"));
 
         // multi partition columns with multi keys
         ExceptionChecker
                 .expectThrowsWithMsg(AnalysisException.class, "Syntax error",
                         () -> createTable("create table test.tbl13\n"
-                        + "(k1 int, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                        +"partition by list(k1, k2)\n"
-                        + "(\n"
-                        + "partition p1 values in ((\"1\", \"beijing\"), (\"1\", \"shanghai\")),\n"
-                        + "partition p2 values in ((\"2\", \"beijing\"), (\"2\", \"shanghai\")),\n"
-                        + "partition p3 values in ()\n"
-                        + ")\n"
-                        + "distributed by hash(k2) buckets 1\n"
-                        + "properties('replication_num' = '1');"));
+                                + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
+                                + "partition by list(k1, k2)\n"
+                                + "(\n"
+                                + "partition p1 values in ((\"1\", \"beijing\"), (\"1\", \"shanghai\")),\n"
+                                + "partition p2 values in ((\"2\", \"beijing\"), (\"2\", \"shanghai\")),\n"
+                                + "partition p3 values in ()\n"
+                                + ")\n"
+                                + "distributed by hash(k2) buckets 1\n"
+                                + "properties('replication_num' = '1');"));
 
         /**
          * create table with both list and range partition
@@ -353,7 +353,7 @@ public class CreateTableTest {
         ExceptionChecker
                 .expectThrowsWithMsg(AnalysisException.class, "You can only use in values to create list partitions",
                         () -> createTable("CREATE TABLE test.tbl14 (\n" +
-                                "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n" +
+                                "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n" +
                                 ")\n" +
                                 "PARTITION BY LIST(k1)\n" +
                                 "(\n" +
@@ -381,7 +381,7 @@ public class CreateTableTest {
         ExceptionChecker
                 .expectThrowsWithMsg(AnalysisException.class, "You can only use in values to create list partitions",
                         () -> createTable("CREATE TABLE test.tbl15 (\n" +
-                                "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n" +
+                                "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n" +
                                 ")\n" +
                                 "PARTITION BY LIST(k1)\n" +
                                 "(\n" +
@@ -423,7 +423,7 @@ public class CreateTableTest {
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class, "Invalid number format: beijing",
                         () -> createTable("CREATE TABLE test.tbl18 (\n" +
-                                "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n" +
+                                "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n" +
                                 ")\n" +
                                 "PARTITION BY list(k1)\n" +
                                 "(\n" +
@@ -441,7 +441,7 @@ public class CreateTableTest {
                 .expectThrowsWithMsg(DdlException.class, "Only support dynamic partition properties on range partition table",
                         () -> createTable("CREATE TABLE test.tbl19\n" +
                                 "(\n" +
-                                "    k1 DATE\n" +
+                                "    k1 DATE not null\n" +
                                 ")\n" +
                                 "PARTITION BY LIST(k1) ()\n" +
                                 "DISTRIBUTED BY HASH(k1)\n" +
