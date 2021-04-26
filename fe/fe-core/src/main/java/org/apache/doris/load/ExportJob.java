@@ -763,7 +763,10 @@ public class ExportJob implements Writable {
             }
         }
         this.columns = this.properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
-
+        if (!Strings.isNullOrEmpty(this.columns)) {
+            Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
+            this.exportColumns = split.splitToList(this.columns);
+        }
         boolean hasPartition = in.readBoolean();
         if (hasPartition) {
             partitions = Lists.newArrayList();
