@@ -37,6 +37,8 @@
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <doris.home>${basedir}/../../</doris.home>
+        <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
     </properties>
 
     <profiles>
@@ -207,7 +209,7 @@
                 <artifactId>maven-thrift-plugin</artifactId>
                 <version>0.1.11</version>
                 <configuration>
-                    <thriftExecutable>/var/local/thirdparty/installed/bin/thrift</thriftExecutable>
+                    <thriftExecutable>${doris.thirdparty}/installed/bin/thrift</thriftExecutable>
                 </configuration>
                 <executions>
                     <execution>
