@@ -18,12 +18,11 @@
 #include "runtime/tmp_file_mgr.h"
 
 #include <boost/algorithm/string.hpp>
-#include <filesystem>
-#include <boost/foreach.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid_io.hpp>
+#include <filesystem>
 // #include <gutil/strings/substitute.h>
 // #include <gutil/strings/join.h>
 
@@ -84,7 +83,8 @@ Status TmpFileMgr::init_custom(const vector<string>& tmp_dirs, bool one_dir_per_
     // For each tmp directory, find the disk it is on,
     // so additional tmp directories on the same disk can be skipped.
     for (int i = 0; i < tmp_dirs.size(); ++i) {
-        std::filesystem::path tmp_path = std::string_view(boost::trim_right_copy_if(tmp_dirs[i], is_any_of("/")));
+        std::filesystem::path tmp_path =
+                std::string_view(boost::trim_right_copy_if(tmp_dirs[i], is_any_of("/")));
         tmp_path = std::filesystem::absolute(tmp_path);
         path scratch_subdir_path(tmp_path / _s_tmp_sub_dir_name);
         // tmp_path must be a writable directory.

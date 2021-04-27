@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_H
 #define DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_H
 
-#include <boost/foreach.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread/condition_variable.hpp>
 #include <boost/thread/mutex.hpp>

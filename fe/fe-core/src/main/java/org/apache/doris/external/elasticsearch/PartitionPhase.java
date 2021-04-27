@@ -19,6 +19,7 @@ package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.catalog.EsTable;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -37,7 +38,15 @@ public class PartitionPhase implements SearchPhase {
     @Override
     public void execute(SearchContext context) throws DorisEsException {
         shardPartitions = client.searchShards(context.sourceIndex());
-        nodesInfo = client.getHttpNodes();
+        if (context.nodesDiscovery()) {
+            nodesInfo = client.getHttpNodes();
+        } else {
+            nodesInfo = new HashMap<>();
+            String[] seeds = context.esTable().getSeeds();
+            for (int i = 0; i < seeds.length; i++) {
+                nodesInfo.put(String.valueOf(i), new EsNodeInfo(String.valueOf(i), seeds[i]));
+            }
+        }
     }
 
 

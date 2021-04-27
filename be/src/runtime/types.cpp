@@ -17,7 +17,6 @@
 
 #include "runtime/types.h"
 
-#include <boost/foreach.hpp>
 #include <ostream>
 #include <sstream>
 
@@ -92,7 +91,9 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
                 node.struct_fields.back().name = field_name;
             }
         }
-        BOOST_FOREACH (const TypeDescriptor& child, children) { child.to_thrift(thrift_type); }
+        for (const TypeDescriptor& child : children) {
+            child.to_thrift(thrift_type);
+        }
     } else {
         node.type = TTypeNodeType::SCALAR;
         node.__set_scalar_type(TScalarType());

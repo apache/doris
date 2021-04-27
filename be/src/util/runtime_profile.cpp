@@ -17,7 +17,6 @@
 
 #include "util/runtime_profile.h"
 
-#include <boost/foreach.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/thread.hpp>
 #include <iomanip>
@@ -188,7 +187,7 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
     {
         boost::lock_guard<boost::mutex> l(_info_strings_lock);
         const InfoStrings& info_strings = node.info_strings;
-        BOOST_FOREACH (const std::string& key, node.info_strings_display_order) {
+        for (const std::string& key : node.info_strings_display_order) {
             // Look for existing info strings and update in place. If there
             // are new strings, add them to the end of the display order.
             // TODO: Is nodes.info_strings always a superset of
@@ -514,7 +513,7 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
 
     {
         boost::lock_guard<boost::mutex> l(_info_strings_lock);
-        BOOST_FOREACH (const std::string& key, _info_strings_display_order) {
+        for (const std::string& key : _info_strings_display_order) {
             stream << prefix << "   - " << key << ": " << _info_strings.find(key)->second
                    << std::endl;
         }
@@ -528,13 +527,13 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
         //     - Event 3: 2s410ms (121.138ms)
         // The times in parentheses are the time elapsed since the last event.
         boost::lock_guard<boost::mutex> l(_event_sequences_lock);
-        BOOST_FOREACH (const EventSequenceMap::value_type& event_sequence, _event_sequence_map) {
+        for (const EventSequenceMap::value_type& event_sequence : _event_sequence_map) {
             stream << prefix << "  " << event_sequence.first << ": "
                    << PrettyPrinter::print(event_sequence.second->elapsed_time(), TUnit::TIME_NS)
                    << std::endl;
 
             int64_t last = 0L;
-            BOOST_FOREACH (const EventSequence::Event& event, event_sequence.second->events()) {
+            for (const EventSequence::Event& event : event_sequence.second->events()) {
                 stream << prefix << "     - " << event.first << ": "
                        << PrettyPrinter::print(event.second, TUnit::TIME_NS) << " ("
                        << PrettyPrinter::print(event.second - last, TUnit::TIME_NS) << ")"
@@ -783,7 +782,7 @@ void RuntimeProfile::stop_bucketing_counters_updates(std::vector<Counter*>* buck
     }
 
     if (convert && num_sampled > 0) {
-        BOOST_FOREACH (Counter* counter, *buckets) {
+        for (Counter* counter : *buckets) {
             double perc = 100 * counter->value() / (double)num_sampled;
             counter->set(perc);
         }
@@ -873,7 +872,7 @@ void RuntimeProfile::print_child_counters(const std::string& prefix,
 
     if (itr != child_counter_map.end()) {
         const std::set<std::string>& child_counters = itr->second;
-        BOOST_FOREACH (const std::string& child_counter, child_counters) {
+        for (const std::string& child_counter : child_counters) {
             CounterMap::const_iterator iter = counter_map.find(child_counter);
             DCHECK(iter != counter_map.end());
             stream << prefix << "   - " << iter->first << ": "

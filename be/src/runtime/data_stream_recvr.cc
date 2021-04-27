@@ -374,7 +374,8 @@ Status DataStreamRecvr::create_merger(const TupleRowComparator& less_than) {
     return Status::OK();
 }
 
-Status DataStreamRecvr::create_parallel_merger(const TupleRowComparator& less_than, uint32_t batch_size, MemTracker* mem_tracker) {
+Status DataStreamRecvr::create_parallel_merger(const TupleRowComparator& less_than,
+                                               uint32_t batch_size, MemTracker* mem_tracker) {
     DCHECK(_is_merging);
     vector<SortedRunMerger::RunBatchSupplier> child_input_batch_suppliers;
 
@@ -424,7 +425,7 @@ void DataStreamRecvr::transfer_all_resources(RowBatch* transfer_batch) {
     if (!_child_mergers.empty()) {
         _merger->transfer_all_resources(transfer_batch);
     } else {
-        BOOST_FOREACH (SenderQueue* sender_queue, _sender_queues) {
+        for (SenderQueue* sender_queue : _sender_queues) {
             if (sender_queue->current_batch() != NULL) {
                 sender_queue->current_batch()->transfer_resource_ownership(transfer_batch);
             }
@@ -447,9 +448,8 @@ DataStreamRecvr::DataStreamRecvr(
           _num_buffered_bytes(0),
           _profile(profile),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    _mem_tracker = MemTracker::CreateTracker(_profile, -1,
-                                             "DataStreamRecvr:" + print_id(_fragment_instance_id),
-                                             parent_tracker);
+    _mem_tracker = MemTracker::CreateTracker(
+            _profile, -1, "DataStreamRecvr:" + print_id(_fragment_instance_id), parent_tracker);
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;

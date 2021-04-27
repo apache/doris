@@ -121,8 +121,7 @@ public class ColocateTableTest {
 
         GroupId groupId = index.getGroup(tableId);
         List<Long> backendIds = index.getBackendsPerBucketSeq(groupId).get(0);
-        System.out.println(backendIds);
-        Assert.assertEquals(Collections.singletonList(10001L), backendIds);
+        Assert.assertEquals(1, backendIds.size());
 
         String fullGroupName = dbId + "_" + groupName;
         Assert.assertEquals(tableId, index.getTableIdByGroup(fullGroupName));

@@ -54,7 +54,7 @@ Note: For different versions of Oris, you need to download the corresponding mir
 | apachedoris/doris-dev:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x or later |
 | apachedoris/doris-dev:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | 0.14.x or later |
 
-Doris 0.14.0 will use apachedoris/doris-dev:build-env-1.2
+Warning: Doris 0.14.0 still used apachedoris/doris-dev:build-env-1.2 to compile.  After thie version, the code will use apachedoris/doris-dev:build-env-1.3 to compile . **In the docker image of build-env-1.3, the default JDK version is upgraded to 11. So FE will use OPENJDK 11 to compile. If the docker image after build-env-1.3 is used for compilation of FE, the Java version of FE running env also needs to be upgraded to JDK11 or above. Otherwise unexpected running errors may be caused. **
 
 2. Running Mirror
 
@@ -119,7 +119,7 @@ You can try to compile Doris directly in your own Linux environment.
        sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
        sudo apt update
        sudo apt install gcc-10 g++-10 
-       ```    
+       ```
         If you are using CentOS you can use the following command to install the dependencies
     
        ```
@@ -136,7 +136,7 @@ You can try to compile Doris directly in your own Linux environment.
        gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
        gpgcheck=1
        enabled=1
-        ```
+       ```
     After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
     Doris 0.14.0 will use gcc7 env to compile.
 

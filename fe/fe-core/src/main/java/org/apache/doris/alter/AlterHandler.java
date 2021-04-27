@@ -393,16 +393,16 @@ public abstract class AlterHandler extends MasterDaemon {
      * We assume that the specified version is X.
      * Case 1:
      *      After alter table process starts, there is no new load job being submitted. So the new replica
-     *      should be with version (1-0). So we just modify the replica's version to partition's visible version, which is X.
+     *      should be with version (0-1). So we just modify the replica's version to partition's visible version, which is X.
      * Case 2:
      *      After alter table process starts, there are some load job being processed.
      * Case 2.1:
-     *      Only one new load job, and it failed on this replica. so the replica's last failed version should be X + 1
-     *      and version is still 1. We should modify the replica's version to (last failed version - 1)
+     *      None of them succeed on this replica. so the version is still 1. We should modify the replica's version to X.
      * Case 2.2 
      *      There are new load jobs after alter task, and at least one of them is succeed on this replica.
      *      So the replica's version should be larger than X. So we don't need to modify the replica version
      *      because its already looks like normal.
+     * In summary, we only need to update replica's version when replica's version is smaller than X
      */
     public void handleFinishAlterTask(AlterReplicaTask task) throws MetaNotFoundException {
         Database db = Catalog.getCurrentCatalog().getDb(task.getDbId());
@@ -431,19 +431,9 @@ public abstract class AlterHandler extends MasterDaemon {
             LOG.info("before handle alter task tablet {}, replica: {}, task version: {}-{}",
                     task.getSignature(), replica, task.getVersion(), task.getVersionHash());
             boolean versionChanged = false;
-            if (replica.getVersion() > task.getVersion()) {
-                // Case 2.2, do nothing
-            } else {
-                if (replica.getLastFailedVersion() > task.getVersion()) {
-                    // Case 2.1
-                    replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
-                    versionChanged = true;
-                } else {
-                    // Case 1
-                    Preconditions.checkState(replica.getLastFailedVersion() == -1, replica.getLastFailedVersion());
-                    replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
-                    versionChanged = true;
-                }
+            if (replica.getVersion() < task.getVersion()) {
+                replica.updateVersionInfo(task.getVersion(), task.getVersionHash(), replica.getDataSize(), replica.getRowCount());
+                versionChanged = true;
             }
 
             if (versionChanged) {

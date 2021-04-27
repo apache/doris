@@ -253,7 +253,7 @@ public class StmtExecutor {
     // Exception:
     //  IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
-	
+
         plannerProfile.setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
@@ -367,7 +367,7 @@ public class StmtExecutor {
                 VariableMgr.revertSessionValue(sessionVariable);
                 // origin value init
                 sessionVariable.setIsSingleSetVar(false);
-                sessionVariable.clearMapSessionOriginValue();
+                sessionVariable.clearSessionOriginValue();
             } catch (DdlException e) {
                 LOG.warn("failed to revert Session value.", e);
                 context.getState().setError(e.getMessage());
