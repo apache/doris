@@ -60,6 +60,8 @@ public class ExportStmt extends StatementBase {
 
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
+    private static final String DEFAULT_COLUMNS = "";
+
 
     private TableName tblName;
     private List<String> partitions;
@@ -69,6 +71,7 @@ public class ExportStmt extends StatementBase {
     private Map<String, String> properties = Maps.newHashMap();
     private String columnSeparator;
     private String lineDelimiter;
+    private String columns ;
 
     private TableRef tableRef;
 
@@ -83,6 +86,11 @@ public class ExportStmt extends StatementBase {
         this.brokerDesc = brokerDesc;
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
+        this.columns = DEFAULT_COLUMNS;
+    }
+
+    public String getColumns() {
+        return columns;
     }
 
     public TableName getTblName() {
@@ -264,6 +272,7 @@ public class ExportStmt extends StatementBase {
                 properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR));
         this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
                 properties, ExportStmt.DEFAULT_LINE_DELIMITER));
+       this.columns = properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
         // exec_mem_limit
         if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
             try {

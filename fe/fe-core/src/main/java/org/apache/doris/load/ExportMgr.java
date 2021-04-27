@@ -193,6 +193,7 @@ public class ExportMgr {
                 infoMap.put("column separator", job.getColumnSeparator());
                 infoMap.put("line delimiter", job.getLineDelimiter());
                 infoMap.put("exec mem limit", job.getExecMemLimit());
+                infoMap.put("columns", job.getColumns());
                 infoMap.put("coord num", job.getCoordList().size());
                 infoMap.put("tablet num", job.getTabletLocations() == null ? -1 : job.getTabletLocations().size());
                 jobInfo.add(new Gson().toJson(infoMap));

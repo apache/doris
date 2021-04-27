@@ -82,6 +82,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.common.base.Splitter;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -167,6 +168,10 @@ public class ExportJob implements Writable {
     private OriginStatement origStmt;
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
+    private List<String> exportColumns = Lists.newArrayList();
+    private String columns ;
+
+
     public ExportJob() {
         this.id = -1;
         this.dbId = -1;
@@ -182,6 +187,7 @@ public class ExportJob implements Writable {
         this.exportPath = "";
         this.columnSeparator = "\t";
         this.lineDelimiter = "\n";
+        this.columns = "";
     }
 
     public ExportJob(long jobId) {
@@ -211,7 +217,11 @@ public class ExportJob implements Writable {
         this.partitions = stmt.getPartitions();
 
         this.exportTable = db.getTable(stmt.getTblName().getTbl());
-
+        this.columns = stmt.getColumns();
+        if (!Strings.isNullOrEmpty(this.columns)) {
+            Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
+            this.exportColumns = split.splitToList(stmt.getColumns().toLowerCase());
+        }
         exportTable.readLock();
         try {
             this.dbId = db.getId();
@@ -259,10 +269,18 @@ public class ExportJob implements Writable {
         exportTupleDesc.setTable(exportTable);
         exportTupleDesc.setRef(tableRef);
         for (Column col : exportTable.getBaseSchema()) {
-            SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
-            slot.setIsMaterialized(true);
-            slot.setColumn(col);
-            slot.setIsNullable(col.isAllowNull());
+            String colName = col.getName().toLowerCase();
+            if (!this.exportColumns.isEmpty() && this.exportColumns.contains(colName)) {
+                SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
+                slot.setIsMaterialized(true);
+                slot.setColumn(col);
+                slot.setIsNullable(col.isAllowNull());
+            } else {
+                SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
+                slot.setIsMaterialized(true);
+                slot.setColumn(col);
+                slot.setIsNullable(col.isAllowNull());
+            }
         }
         desc.computeMemLayout();
     }
@@ -445,6 +463,10 @@ public class ExportJob implements Writable {
             this.coordList.add(coord);
         }
         LOG.info("create {} coordinators for export job: {}", coordList.size(), id);
+    }
+
+    public String getColumns() {
+        return columns;
     }
 
     public long getId() {
@@ -740,7 +762,11 @@ public class ExportJob implements Writable {
                 this.properties.put(propertyKey, propertyValue);
             }
         }
-
+        this.columns = this.properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
+        if (!Strings.isNullOrEmpty(this.columns)) {
+            Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
+            this.exportColumns = split.splitToList(this.columns);
+        }
         boolean hasPartition = in.readBoolean();
         if (hasPartition) {
             partitions = Lists.newArrayList();
@@ -782,7 +808,7 @@ public class ExportJob implements Writable {
             String value = Text.readString(in);
             sessionVariables.put(key, value);
         }
-        
+
         if (origStmt.originStmt.isEmpty()) {
             return;
         }
