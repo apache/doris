@@ -427,7 +427,7 @@ public abstract class AlterHandler extends MasterDaemon {
             if (replica == null) {
                 throw new MetaNotFoundException("replica " + task.getNewReplicaId() + " does not exist");
             }
-            
+
             LOG.info("before handle alter task tablet {}, replica: {}, task version: {}-{}",
                     task.getSignature(), replica, task.getVersion(), task.getVersionHash());
             boolean versionChanged = false;
@@ -445,7 +445,7 @@ public abstract class AlterHandler extends MasterDaemon {
                         replica.getLastSuccessVersion(), replica.getLastSuccessVersionHash());
                 Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
             }
-            
+
             LOG.info("after handle alter task tablet: {}, replica: {}", task.getSignature(), replica);
         } finally {
             tbl.writeUnlock();
