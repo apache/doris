@@ -433,7 +433,7 @@ public class Database extends MetaObject implements Writable {
      */
     public Table getTableOrThrowException(long tableId, TableType tableType) throws MetaNotFoundException {
         Table table = idToTable.get(tableId);
-        if(table == null) {
+        if (table == null) {
             throw new MetaNotFoundException("unknown table, tableId=" + tableId);
         }
         if (table.getType() != tableType) {
