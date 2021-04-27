@@ -531,10 +531,17 @@ public class SelectStmtTest {
                 "where datekey=20200726 group by 1";
         planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
         Assert.assertEquals(8589934592L, planner.getPlannerContext().getQueryOptions().mem_limit);
+
+        int queryTimeOut = dorisAssert.getSessionVariable().getQueryTimeoutS();
+        long execMemLimit = dorisAssert.getSessionVariable().getMaxExecMemByte();
         sql = "select /*+ SET_VAR(exec_mem_limit = 8589934592, query_timeout = 1) */ 1 + 2;";
         planner = dorisAssert.query(sql).internalExecuteOneAndGetPlan();
+        // session variable have been changed
         Assert.assertEquals(1, planner.getPlannerContext().getQueryOptions().query_timeout);
         Assert.assertEquals(8589934592L, planner.getPlannerContext().getQueryOptions().mem_limit);
+        // session variable change have been reverted
+        Assert.assertEquals(queryTimeOut, dorisAssert.getSessionVariable().getQueryTimeoutS());
+        Assert.assertEquals(execMemLimit, dorisAssert.getSessionVariable().getMaxExecMemByte());
     }
 
     @Test

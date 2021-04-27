@@ -112,6 +112,10 @@ public class DorisAssert {
         return this;
     }
 
+    public sessionVariable getSessionVariable() {
+        return ctx.getSessionVariable();
+    }
+
     private void checkAlterJob() throws InterruptedException {
         // check alter job
         Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();

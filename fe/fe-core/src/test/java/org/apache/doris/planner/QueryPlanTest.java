@@ -1472,25 +1472,6 @@ public class QueryPlanTest {
         
     }
 
-    @Test
-    public void testRevertSetVarInQueryStmt() throws Exception {
-        connectContext.setDatabase("default_cluster:test");
-        connectContext.resetSessionVariables();
-        try {
-            int originQuerytimeoutValue = connectContext.getSessionVariable().getQueryTimeoutS();
-            boolean originEnablepartitioncacheValue = connectContext.getSessionVariable().isEnablePartitionCache();
-
-            String sql = "select /*+ SET_VAR(query_timeout=0) */ 1;";
-            UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-            sql = "select /*+ SET_VAR(query_timeout=10, enable_partition_cache=true, prefer_join_method=shuffle," +
-                    " sql_mode=STRICT_TRANS_TABLES) */ 1;";
-            UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-            Assert.assertEquals(originQuerytimeoutValue, connectContext.getSessionVariable().getQueryTimeoutS());
-            Assert.assertEquals(originEnablepartitioncacheValue, connectContext.getSessionVariable().isEnablePartitionCache());
-        } finally {
-            connectContext.resetSessionVariables();
-        }
-    }
 }
 
 
