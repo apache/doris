@@ -38,6 +38,8 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
 
+import org.apache.doris.qe.SessionVariable;
+
 import org.apache.commons.lang.StringUtils;
 import org.junit.Assert;
 
