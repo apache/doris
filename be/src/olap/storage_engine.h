@@ -177,6 +177,8 @@ public:
 
     std::shared_ptr<StreamLoadRecorder> get_stream_load_recorder() { return _stream_load_recorder; }
 
+    Status get_compaction_status_json(std::string* result);
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -240,11 +242,11 @@ private:
     void _start_disk_stat_monitor();
 
     void _compaction_tasks_producer_callback();
-    vector<TabletSharedPtr> _compaction_tasks_generator(CompactionType compaction_type,
-                                                        std::vector<DataDir*>& data_dirs,
-                                                        bool check_score);
+    vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
+                                                       std::vector<DataDir*>& data_dirs,
+                                                       bool check_score);
     void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type);
-    void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet);
+    void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type);
 
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 
@@ -348,7 +350,9 @@ private:
     CompactionPermitLimiter _permit_limiter;
 
     std::mutex _tablet_submitted_compaction_mutex;
-    std::map<DataDir*, std::map<TTabletId, CompactionType>> _tablet_submitted_compaction;
+    // a tablet can do base and cumulative compaction at same time
+    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
+    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
 
     AtomicInt32 _wakeup_producer_flag;
 

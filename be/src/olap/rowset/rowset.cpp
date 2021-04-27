@@ -53,7 +53,7 @@ OLAPStatus Rowset::load(bool use_cache, std::shared_ptr<MemTracker> parent) {
         }
     }
     // load is done
-    LOG(INFO) << "rowset is loaded. " << rowset_id() << ", rowset version:" << rowset_meta()->version()
+    VLOG_CRITICAL << "rowset is loaded. " << rowset_id() << ", rowset version:" << rowset_meta()->version()
               << ", state from ROWSET_UNLOADED to ROWSET_LOADED. tabletid:"
               << _rowset_meta->tablet_id();
     return OLAP_SUCCESS;
