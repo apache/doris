@@ -480,11 +480,7 @@ public class DistributedPlanner {
 
     /**
      * Colocate Join can be performed when the following 4 conditions are met at the same time.
-<<<<<<< HEAD
      * 1. Session variables disable_colocate_plan = false
-=======
-     * 1. Session variables disable_colocate_plan = true
->>>>>>> 26f4e1fa8 ([Colocate plan][Step1] Colocate join covers more situations)
      * 2. There is no join hints in HashJoinNode
      * 3. There are no exchange node between source scan node and HashJoinNode.
      * 4. The scan nodes which are related by EqConjuncts in HashJoinNode are colocate and group can be matched.
@@ -986,13 +982,13 @@ public class DistributedPlanner {
 
     /**
      * Colocate Agg can be performed when the following 2 conditions are met at the same time.
-     * 1. Session variables disable_colocate_plan = true
+     * 1. Session variables disable_colocate_plan = false
      * 2. The input data partition of child fragment < agg node partition exprs
      */
     private boolean canColocateAgg(AggregateInfo aggregateInfo, List<DataPartition> childFragmentDataPartition) {
         // Condition1
         if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
-            LOG.info("Agg node is not colocate in:" + ConnectContext.get().getQueryDetail().getQueryId()
+            LOG.debug("Agg node is not colocate in:" + ConnectContext.get().getQueryDetail().getQueryId()
                     + ", reason:" + DistributedPlanColocateRule.SESSION_DISABLED);
             return false;
         }
