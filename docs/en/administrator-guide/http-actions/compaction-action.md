@@ -32,7 +32,27 @@ This API is used to view the overall compaction status of a BE node or the compa
 
 ### The overall compaction status of the node
 
-(TODO)
+```
+curl -X GET http://be_host:webserver_port/api/compaction/run_status
+```
+
+Return JSON:
+
+```
+{
+    "/home/disk1/palo": {
+        "47855429": "BaseCompaction",
+        "47855249": "CumulativeCompaction",
+    },
+    "/home/disk2/palo": {
+        "47855429": "CumulativeCompaction",
+        "47855249": "CumulativeCompaction",
+        "47863939": "BaseCompaction"
+    }
+}
+```
+
+This structure represents the id of the tablet that is performing the compaction task in a certain data directory, and the type of compaction.
 
 ### Specify the compaction status of the tablet
 

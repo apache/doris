@@ -32,7 +32,27 @@ under the License.
 
 ### 节点整体 compaction 状态
 
-(TODO)
+```
+curl -X GET http://be_host:webserver_port/api/compaction/run_status
+```
+
+返回 JSON 格式
+
+```
+{
+    "/home/disk1/palo": {
+        "47855429": "BaseCompaction",
+        "47855249": "CumulativeCompaction",
+    },
+    "/home/disk2/palo": {
+        "47855429": "CumulativeCompaction",
+        "47855249": "CumulativeCompaction",
+        "47863939": "BaseCompaction"
+    }
+}
+```
+
+该结构表示某个数据目录下，正在执行 compaction 任务的 tablet 的 id，以及 compaction 的类型。
 
 ### 指定 tablet 的 compaction 状态
 

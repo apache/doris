@@ -1035,4 +1035,48 @@ void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
     base_compaction.reset(new BaseCompaction(best_tablet, tracker_label, _compaction_mem_tracker));
 }
 
+// Return json:
+// {
+//   "/home/disk1": {
+//          "10010" : "BaseCompaction",
+//          "10011" : "CumulativeCompaction"
+//   },
+//   "/home/disk2": {
+//          "10012" : "BaseCompaction",
+//          "10013" : "CumulativeCompaction"
+//   }
+// }
+Status StorageEngine::get_compaction_status_json(std::string* result) {
+    rapidjson::Document root;
+    root.SetObject();
+
+    std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
+    for (auto& it : _tablet_submitted_compaction) {
+        rapidjson::Document path_obj;
+        path_obj.SetObject();
+        for (auto& jt : it.second) {
+            rapidjson::Value key;
+            const std::string& key_str = std::to_string(jt.first);
+            key.SetString(key_str.c_str(), key_str.length(), path_obj.GetAllocator());
+
+            rapidjson::Value value;
+            std::string compaction_type = "CumulativeCompaction";
+            if (jt.second == CompactionType::BASE_COMPACTION) {
+                compaction_type = "BaseCompaction";
+            }
+            value.SetString(compaction_type.c_str(), compaction_type.length(), path_obj.GetAllocator());
+            path_obj.AddMember(key, value, path_obj.GetAllocator());
+        }
+        rapidjson::Value path_key;
+        path_key.SetString(it.first->path().c_str(), it.first->path().length(), root.GetAllocator());
+        root.AddMember(path_key, path_obj, root.GetAllocator());
+    }    
+
+    rapidjson::StringBuffer strbuf;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
+    root.Accept(writer);
+    *result = std::string(strbuf.GetString());
+    return Status::OK();
+}
+
 }  // namespace doris

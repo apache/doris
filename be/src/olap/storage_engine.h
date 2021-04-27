@@ -177,6 +177,8 @@ public:
 
     std::shared_ptr<StreamLoadRecorder> get_stream_load_recorder() { return _stream_load_recorder; }
 
+    Status get_compaction_status_json(std::string* result);
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
