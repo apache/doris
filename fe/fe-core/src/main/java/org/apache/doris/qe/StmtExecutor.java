@@ -404,8 +404,6 @@ public class StmtExecutor {
     private void writeProfile() {
         initProfile(plannerProfile);
         profile.computeTimeInChildProfile();
-        StringBuilder builder = new StringBuilder();
-        profile.prettyPrint(builder, "");
         ProfileManager.getInstance().pushProfile(profile);
     }
 
