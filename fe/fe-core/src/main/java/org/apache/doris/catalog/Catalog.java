@@ -4423,6 +4423,14 @@ public class Catalog {
             DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, stmt.isForceDrop());
             table.writeLock();
             try {
+                if (table instanceof OlapTable && !stmt.isForceDrop()) {
+                    OlapTable olapTable = (OlapTable) table;
+                    if ((olapTable.getState() != OlapTableState.NORMAL)) {
+                        throw new DdlException("The table [" + tableName +"]'s state is " + olapTable.getState() + ", cannot be dropped." +
+                                " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered)," +
+                                " please use \"DROP table FORCE\".");
+                    }
+                }
                 unprotectDropTable(db, table, stmt.isForceDrop(), false);
             } finally {
                 table.writeUnlock();
