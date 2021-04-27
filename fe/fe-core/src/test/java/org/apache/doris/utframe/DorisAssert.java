@@ -114,7 +114,7 @@ public class DorisAssert {
         return this;
     }
 
-    public sessionVariable getSessionVariable() {
+    public SessionVariable getSessionVariable() {
         return ctx.getSessionVariable();
     }
 
