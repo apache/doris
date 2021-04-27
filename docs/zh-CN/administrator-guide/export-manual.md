@@ -111,6 +111,7 @@ TO "hdfs://host/path/to/export/"
 PROPERTIES
 (
     "column_separator"=",",
+    "columns":"col1,col2"
     "exec_mem_limit"="2147483648",
     "timeout" = "3600"
 )
@@ -122,6 +123,7 @@ WITH BROKER "hdfs"
 ```
 
 * `column_separator`：列分隔符。默认为 `\t`。支持不可见字符，比如 '\x07'。
+* columns：要导出的列，使用英文状态逗号隔开，如果不填这个参数默认是导出表的所有列
 * `line_delimiter`：行分隔符。默认为 `\n`。支持不可见字符，比如 '\x07'。
 * `exec_mem_limit`： 表示 Export 作业中，一个查询计划在单个 BE 上的内存使用限制。默认 2GB。单位字节。
 * `timeout`：作业超时时间。默认 2小时。单位秒。
