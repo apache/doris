@@ -1475,6 +1475,10 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     // Do not access class members after this code.
     std::unique_lock<std::mutex> l(_scan_batches_lock);
     _running_thread--;
+    // Both cv of _scan_batch_added_cv and _scan_thread_exit_cv should be notify after
+    // change the value of _running_thread, because transfer thread lock will check the value
+    // of _running_thread after be notify. Otherwise there could be dead lock between scanner_thread
+    // and transfer thread
     _scan_batch_added_cv.notify_one();
     _scan_thread_exit_cv.notify_one();
 }
