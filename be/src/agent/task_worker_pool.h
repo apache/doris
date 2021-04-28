@@ -220,6 +220,9 @@ private:
     bool _is_work;
     std::unique_ptr<ThreadPool> _thread_pool;
     std::deque<TAgentTaskRequest> _tasks;
+    // Only for single thread pool, now for
+    // REPORT_DISK_STATE, REPORT_OLAP_TABLE and REPORT_TASK
+    std::atomic<bool> _is_doing_work;
 
     std::shared_ptr<MetricEntity> _metric_entity;
     UIntGauge* agent_task_queue_size;
