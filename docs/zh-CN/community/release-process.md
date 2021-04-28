@@ -647,8 +647,8 @@ https://dist.apache.org/repos/dist/dev/incubator/doris/
 2. 将 Doris 官网的下载页面中，旧版本包的下载地址改为归档页面的地址 
 
 ```
-下载页面 : http://doris.apache.org/downloads.html
-归档页面：http://archive.apache.org/dist/incubator/doris
+下载页面: http://doris.apache.org/downloads.html
+归档页面: http://archive.apache.org/dist/incubator/doris
 ```
 
 Apache 会有同步机制去将历史的发布版本进行一个归档，具体操作见：(how to archive)[https://www.apache.org/legal/release-policy.html#how-to-archive]
