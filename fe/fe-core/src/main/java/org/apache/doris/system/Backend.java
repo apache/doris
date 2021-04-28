@@ -26,12 +26,12 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.apache.doris.thrift.TStorageMedium;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -517,6 +517,7 @@ public class Backend implements Writable {
         out.writeInt(decommissionType);
 
         out.writeInt(brpcPort);
+        out.writeLong(lastStreamLoadTime);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -561,6 +562,10 @@ public class Backend implements Writable {
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_40) {
             brpcPort = in.readInt();
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_99) {
+            lastStreamLoadTime = in.readLong();
         }
     }
 
