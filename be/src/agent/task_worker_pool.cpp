@@ -90,7 +90,6 @@ TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* e
           _thread_model(thread_model),
           _is_doing_work(false),
           _task_worker_type(task_worker_type) {
-    CHECK(_thread_model == ThreadModel::MULTI_THREADS || _worker_count == 1);
     _backend.__set_host(BackendOptions::get_localhost());
     _backend.__set_be_port(config::be_port);
     _backend.__set_http_port(config::webserver_port);
@@ -205,6 +204,7 @@ void TaskWorkerPool::start() {
         // pass
         break;
     }
+    CHECK(_thread_model == MULTI_THREADS || _worker_count == 1);
 
 #ifndef BE_TEST
     ThreadPoolBuilder(_name)
