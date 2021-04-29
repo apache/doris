@@ -62,6 +62,7 @@ import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
 import org.apache.doris.analysis.ShowSmallFilesStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowStmt;
+import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
@@ -209,6 +210,8 @@ public class ShowExecutor {
             handleShowColumn();
         } else if (stmt instanceof ShowLoadStmt) {
             handleShowLoad();
+        } else if (stmt instanceof ShowStreamLoadStmt) {
+                     handleShowStreamLoad();
         } else if (stmt instanceof ShowLoadWarningsStmt) {
             handleShowLoadWarnings();
         } else if (stmt instanceof ShowRoutineLoadStmt) {
@@ -840,6 +843,59 @@ public class ShowExecutor {
             }
         }
 
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    // Show stream load statement.
+    private void handleShowStreamLoad() throws AnalysisException {
+        ShowStreamLoadStmt showStmt = (ShowStreamLoadStmt) stmt;
+
+        Catalog catalog = Catalog.getCurrentCatalog();
+        Database db = catalog.getDb(showStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
+        }
+        long dbId = db.getId();
+
+        List<List<Comparable>> streamLoadRecords = catalog.getStreamLoadRecordMgr().getStreamLoadRecordByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), showStmt.getState());
+
+        // order the result of List<StreamLoadRecord> by orderByPairs in show stmt
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+        if (orderByPairs == null) {
+            orderByPairs = showStmt.getOrderByFinishTime();
+        }
+        ListComparator<List<Comparable>> comparator = null;
+        if (orderByPairs != null) {
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+        } else {
+            // sort by id asc
+            comparator = new ListComparator<List<Comparable>>(0);
+        }
+        Collections.sort(streamLoadRecords, comparator);
+
+        List<List<String>> rows = Lists.newArrayList();
+        for (List<Comparable> streamLoadRecord : streamLoadRecords) {
+            List<String> oneInfo = new ArrayList<String>(streamLoadRecord.size());
+
+            for (Comparable element : streamLoadRecord) {
+                oneInfo.add(element.toString());
+            }
+            rows.add(oneInfo);
+        }
+
+        // filter by limit
+        long limit = showStmt.getLimit();
+        long offset = showStmt.getOffset() == -1L ? 0 : showStmt.getOffset();
+        if (offset >= rows.size()) {
+            rows = Lists.newArrayList();
+        } else if (limit != -1L) {
+            if ((limit + offset) < rows.size()) {
+                rows = rows.subList((int) offset, (int) (limit + offset));
+            } else {
+                rows = rows.subList((int) offset, rows.size());
+            }
+        }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
