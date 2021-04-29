@@ -204,7 +204,7 @@ void TaskWorkerPool::start() {
         // pass
         break;
     }
-    CHECK(_thread_model == MULTI_THREADS || _worker_count == 1);
+    CHECK(_thread_model == ThreadModel::MULTI_THREADS || _worker_count == 1);
 
 #ifndef BE_TEST
     ThreadPoolBuilder(_name)
