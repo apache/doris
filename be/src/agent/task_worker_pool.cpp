@@ -72,9 +72,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(agent_task_queue_size, MetricUnit::NOUNIT);
 
 const uint32_t TASK_FINISH_MAX_RETRY = 3;
 const uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
-const uint32_t REPORT_TASK_WORKER_COUNT = 1;
-const uint32_t REPORT_DISK_STATE_WORKER_COUNT = 1;
-const uint32_t REPORT_OLAP_TABLE_WORKER_COUNT = 1;
 
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(NULL) * 10000);
 Mutex TaskWorkerPool::_s_task_signatures_lock;
@@ -82,7 +79,7 @@ map<TTaskType::type, set<int64_t>> TaskWorkerPool::_s_task_signatures;
 FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache;
 
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
-                               const TMasterInfo& master_info)
+                               const TMasterInfo& master_info, ThreadModel thread_model)
         : _master_info(master_info),
           _agent_utils(new AgentUtils()),
           _master_client(new MasterServerClient(_master_info, &_master_service_client_cache)),
@@ -90,8 +87,10 @@ TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* e
           _worker_thread_condition_variable(&_worker_thread_lock),
           _stop_background_threads_latch(1),
           _is_work(false),
+          _thread_model(thread_model),
           _is_doing_work(false),
           _task_worker_type(task_worker_type) {
+    CHECK(_thread_model == MULTI_THREADS || _worker_count == 1);
     _backend.__set_host(BackendOptions::get_localhost());
     _backend.__set_be_port(config::be_port);
     _backend.__set_http_port(config::webserver_port);
@@ -102,12 +101,9 @@ TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* e
     _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
             task_worker_type_name, {{"type", task_worker_type_name}});
     REGISTER_ENTITY_HOOK_METRIC(_metric_entity, this, agent_task_queue_size, [this]() -> uint64_t {
-        switch (_task_worker_type) {
-        case REPORT_DISK_STATE:
-        case REPORT_OLAP_TABLE:
-        case REPORT_TASK:
+        if (_thread_model == SINGLE_THREAD) {
             return _is_doing_work.load();
-        default:
+        } else {
             lock_guard<Mutex> lock(_worker_thread_lock);
             return _tasks.size();
         }
@@ -125,6 +121,9 @@ TaskWorkerPool::~TaskWorkerPool() {
 void TaskWorkerPool::start() {
     // Init task pool and task workers
     _is_work = true;
+    if (_thread_model == SINGLE_THREAD) {
+        _worker_count = 1;
+    }
     std::function<void()> cb;
     switch (_task_worker_type) {
     case TaskWorkerType::CREATE_TABLE:
@@ -170,15 +169,12 @@ void TaskWorkerPool::start() {
         cb = std::bind<void>(&TaskWorkerPool::_check_consistency_worker_thread_callback, this);
         break;
     case TaskWorkerType::REPORT_TASK:
-        _worker_count = REPORT_TASK_WORKER_COUNT;
         cb = std::bind<void>(&TaskWorkerPool::_report_task_worker_thread_callback, this);
         break;
     case TaskWorkerType::REPORT_DISK_STATE:
-        _worker_count = REPORT_DISK_STATE_WORKER_COUNT;
         cb = std::bind<void>(&TaskWorkerPool::_report_disk_state_worker_thread_callback, this);
         break;
     case TaskWorkerType::REPORT_OLAP_TABLE:
-        _worker_count = REPORT_OLAP_TABLE_WORKER_COUNT;
         cb = std::bind<void>(&TaskWorkerPool::_report_tablet_worker_thread_callback, this);
         break;
     case TaskWorkerType::UPLOAD:
