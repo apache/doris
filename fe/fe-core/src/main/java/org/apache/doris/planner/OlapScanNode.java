@@ -490,6 +490,9 @@ public class OlapScanNode extends ScanNode {
         selectedPartitionNum = selectedPartitionIds.size();
         LOG.debug("partition prune cost: {} ms, partitions: {}",
                 (System.currentTimeMillis() - start), selectedPartitionIds);
+        for (long partitiionId:selectedPartitionIds) {
+            olapTable.getPartition(partitiionId).partition_query_count.getAndIncrement();
+        }
     }
 
     public void selectBestRollupByRollupSelector(Analyzer analyzer) throws UserException {

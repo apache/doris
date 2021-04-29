@@ -32,6 +32,10 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
+import org.apache.doris.metric.GaugeMetric;
+import org.apache.doris.metric.Metric;
+import org.apache.doris.metric.MetricLabel;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,6 +45,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Internal representation of partition-related metadata.
@@ -50,6 +55,7 @@ public class Partition extends MetaObject implements Writable {
 
     public static final long PARTITION_INIT_VERSION = 1L;
     public static final long PARTITION_INIT_VERSION_HASH = 0L;
+    public AtomicLong partition_query_count = new AtomicLong(0);
 
     public enum PartitionState {
         NORMAL,
@@ -123,6 +129,7 @@ public class Partition extends MetaObject implements Writable {
         this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
 
         this.distributionInfo = distributionInfo;
+        registerMetric(this);
     }
 
     public void setIdForRestore(long id) {
@@ -339,6 +346,7 @@ public class Partition extends MetaObject implements Writable {
     public static Partition read(DataInput in) throws IOException {
         Partition partition = new Partition();
         partition.readFields(in);
+        registerMetric(partition);
         return partition;
     }
 
@@ -499,5 +507,18 @@ public class Partition extends MetaObject implements Writable {
             hasChanged = true;
         }
         return hasChanged;
+    }
+
+    private static void registerMetric(Partition partition) {
+        GaugeMetric<Long> gauge = new GaugeMetric<Long>("partition_query_count",
+                Metric.MetricUnit.NOUNIT, "partition query count") {
+            @Override
+            public Long getValue() {
+                return partition.partition_query_count.longValue();
+            }
+        };
+        gauge.addLabel(new MetricLabel("partition_name", partition.getName()));
+        gauge.addLabel(new MetricLabel("partition_id", String.valueOf(partition.getId())));
+        MetricRepo.addMetric(gauge);
     }
 }

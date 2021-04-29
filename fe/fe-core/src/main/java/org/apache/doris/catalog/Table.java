@@ -22,6 +22,10 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.metric.GaugeMetric;
+import org.apache.doris.metric.Metric;
+import org.apache.doris.metric.MetricLabel;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import org.apache.commons.lang.NotImplementedException;
@@ -40,6 +44,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -52,6 +57,8 @@ public class Table extends MetaObject implements Writable {
     // empirical value.
     // assume that the time a lock is held by thread is less then 100ms
     public static final long TRY_LOCK_TIMEOUT_MS = 100L;
+
+    public AtomicLong table_query_count = new AtomicLong(0);
 
     public enum TableType {
         MYSQL,
@@ -131,6 +138,7 @@ public class Table extends MetaObject implements Writable {
         }
         this.rwLock = new ReentrantReadWriteLock();
         this.createTime = Instant.now().getEpochSecond();
+        registerMetric(this);
     }
 
     public void readLock() {
@@ -317,6 +325,7 @@ public class Table extends MetaObject implements Writable {
         } else {
             this.createTime = -1L;
         }
+        registerMetric(this);
     }
 
     public boolean equals(Table table) {
@@ -419,5 +428,18 @@ public class Table extends MetaObject implements Writable {
         }
 
         return true;
+    }
+
+    private void registerMetric(Table table) {
+        GaugeMetric<Long> gauge = new GaugeMetric<Long>("table_query_count",
+                Metric.MetricUnit.NOUNIT, "table query count") {
+            @Override
+            public Long getValue() {
+                return table.table_query_count.longValue();
+            }
+        };
+        gauge.addLabel(new MetricLabel("table_name", table.getName()));
+        gauge.addLabel(new MetricLabel("table_id", String.valueOf(table.getId())));
+        MetricRepo.addMetric(gauge);
     }
 }

@@ -1367,7 +1367,7 @@ public class SingleNodePlanner {
         switch (tblRef.getTable().getType()) {
             case OLAP:
                 OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "OlapScanNode");
-
+                tblRef.getTable().table_query_count.getAndIncrement();
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
                 scanNode = olapNode;
                 break;
