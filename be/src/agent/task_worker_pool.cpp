@@ -90,7 +90,7 @@ TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* e
           _thread_model(thread_model),
           _is_doing_work(false),
           _task_worker_type(task_worker_type) {
-    CHECK(_thread_model == MULTI_THREADS || _worker_count == 1);
+    CHECK(_thread_model == ThreadModel::MULTI_THREADS || _worker_count == 1);
     _backend.__set_host(BackendOptions::get_localhost());
     _backend.__set_be_port(config::be_port);
     _backend.__set_http_port(config::webserver_port);
@@ -101,7 +101,7 @@ TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* e
     _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
             task_worker_type_name, {{"type", task_worker_type_name}});
     REGISTER_ENTITY_HOOK_METRIC(_metric_entity, this, agent_task_queue_size, [this]() -> uint64_t {
-        if (_thread_model == SINGLE_THREAD) {
+        if (_thread_model == ThreadModel::SINGLE_THREAD) {
             return _is_doing_work.load();
         } else {
             lock_guard<Mutex> lock(_worker_thread_lock);
@@ -121,7 +121,7 @@ TaskWorkerPool::~TaskWorkerPool() {
 void TaskWorkerPool::start() {
     // Init task pool and task workers
     _is_work = true;
-    if (_thread_model == SINGLE_THREAD) {
+    if (_thread_model == ThreadModel::SINGLE_THREAD) {
         _worker_count = 1;
     }
     std::function<void()> cb;
