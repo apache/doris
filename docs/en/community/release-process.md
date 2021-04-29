@@ -48,7 +48,7 @@ The general process of publication is as follows:
 	5. send result email to general@incubator.apache.org
 5. Finalizing and posting a release
 	1. Upload the signature package to [Apache release repo](https://dist.apache.org/repos/dist/release/incubator/doris) and generate relevant links
-	2. Publish download links on Doris website and GitHub
+	2. Publish download links on Doris website and GitHub, clean up old version packages on svn
 	3. Send Announce mail to general@incubator.apache.org
 
 
@@ -646,6 +646,29 @@ https://github.com/apache/incubator-doris/releases/tag/0.9.0-rc01
 ```
 http://doris.apache.org /downloads.html
 ```
+
+#### clean up the old release package from svn
+
+1. clean up old release package 
+
+Since svn only needs to save the latest version of the package, when a new version is released, the old version of the package should be cleaned up from svn.
+
+```
+https://dist.apache.org/repos/dist/release/incubator/doris/
+https://dist.apache.org/repos/dist/dev/incubator/doris/
+```
+
+Keep only the latest version of the package in these two addresses.
+
+2. Change the download link of the old version package on the download page to the address of the archive page
+
+```
+Download page: http://doris.apache.org/downloads.html
+Archive page: http://archive.apache.org/dist/incubator/doris
+```
+
+Apache will have a synchronization mechanism to archive historical release versions. For details, see: (how to archive)[https://www.apache.org/legal/release-policy.html#how-to-archive]
+So even if the old package is removed from svn, it can still be found on the archive page.
 
 ### Send Announce e-mail to general@incubator.apache.org
 
