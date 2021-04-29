@@ -355,6 +355,9 @@ CONF_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 CONF_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 CONF_mBool(tablet_writer_ignore_eovercrowded, "false");
+// Whether to enable stream load record function, the default is false.
+// False: disable stream load record
+CONF_mBool(enable_stream_load_record, "false");
 // batch size of stream load record reported to FE
 CONF_mInt32(stream_load_record_batch_size, "50");
 // expire time of stream load record in rocksdb.
