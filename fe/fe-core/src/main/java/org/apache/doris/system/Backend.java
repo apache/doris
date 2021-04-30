@@ -503,7 +503,6 @@ public class Backend implements Writable {
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_99) {
             Backend backend = new Backend();
             backend.readFields(in);
-            LOG.info("read backend by old version");
             return backend;
         }
         String json = Text.readString(in);
