@@ -298,8 +298,7 @@ public class Repository implements Writable {
     // Check if this repo is available.
     // If failed to connect this repo, set errMsg and return false.
     public boolean ping() {
-        String checkPath = Joiner.on(PATH_DELIMITER).join(location,
-                joinPrefix(PREFIX_REPO, name));
+        String checkPath = Paths.get(location, joinPrefix(PREFIX_REPO, name)).toString();
         Status st = storage.checkPathExist(checkPath);
         if (!st.ok()) {
             errMsg = TimeUtils.longToTimeString(System.currentTimeMillis()) + ": " + st.getErrMsg();
