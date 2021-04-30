@@ -186,4 +186,26 @@ public class AlterJobV2Test {
             Assert.assertTrue(e.getMessage().contains("Nothing is changed"));
         }
     }
+
+    @Test
+    public void testReplicaNumLimit() throws Exception {
+        Config.min_replica_num = 3;
+        Config.max_replica_num = 3;
+        // 1. process a schema change job
+        String alterStmtStr = "alter table test.schema_change_test set (\"default.replication_num\" = \"1\")";
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
+        try {
+            Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("replica number is out of limit range"));
+        }
+
+        alterStmtStr = "alter table test.schema_change_test set (\"default.replication_num\" = \"3\")";
+        alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
+        try {
+            Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        } catch (Exception e) {
+            Assert.fail();
+        }
+    }
 }

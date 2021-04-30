@@ -36,21 +36,19 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
-
 import com.google.common.collect.Lists;
-
 import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
 import java.io.File;
 import java.util.List;
 import java.util.UUID;
@@ -1581,5 +1579,41 @@ public class QueryPlanTest {
         sql = "select day from tbl_int_date where date = '1604031150000'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("EMPTYSET"));
+    }
+
+    public void testReplicaLimit() throws Exception {
+        Config.min_replica_num = 3;
+        Config.max_replica_num = 3;
+        String sql = "CREATE TABLE test.test_table (\n" +
+                "  `id` int(11) NULL COMMENT \"\",\n" +
+                "  `id2` bitmap bitmap_union NULL\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`id`)\n" +
+                "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\"\n" +
+                ");";
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        try {
+            Catalog.getCurrentCatalog().createTable(createTableStmt);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("replication num is out of range limit"));
+        }
+
+        sql = "CREATE TABLE test.test_table (\n" +
+                "  `id` int(11) NULL COMMENT \"\",\n" +
+                "  `id2` bitmap bitmap_union NULL\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`id`)\n" +
+                "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"3\"\n" +
+                ");";
+        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        try {
+            Catalog.getCurrentCatalog().createTable(createTableStmt);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("Failed to find enough host in all backends"));
+        }
     }
 }

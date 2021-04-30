@@ -1637,6 +1637,11 @@ public class SchemaChangeHandler extends AlterHandler {
                         return;
                     } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
                         Preconditions.checkNotNull(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+                        short replicaNum = Short.parseShort(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                                String.valueOf(FeConstants.default_replication_num)));
+                        if (replicaNum > Config.max_replica_num || replicaNum < Config.min_replica_num) {
+                            throw new UserException("replica number is out of limit range");
+                        }
                         Catalog.getCurrentCatalog().modifyTableDefaultReplicationNum(db, olapTable, properties);
                         return;
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {

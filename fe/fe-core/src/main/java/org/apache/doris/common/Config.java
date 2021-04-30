@@ -1396,4 +1396,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_dynamic_partition_num = 500;
+
+    /**
+     * min/max replica number limit
+     */
+    @ConfField(mutable = true)
+    public static int min_replica_num = 1;
+    @ConfField(mutable = true)
+    public static int max_replica_num = Integer.MAX_VALUE;
 }
