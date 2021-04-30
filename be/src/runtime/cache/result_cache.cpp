@@ -140,6 +140,9 @@ void ResultCache::fetch(const PFetchCacheRequest* request, PFetchCacheResult* re
                 break;
             }
         }
+        if (part_rowbatch_list.empty()) {
+            status = PCacheStatus::EMPTY_DATA;
+        }
         result->set_status(status);
     }
 
