@@ -801,7 +801,6 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
 OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
                                                 TSchemaHash schema_hash, const string& meta_binary,
                                                 bool update_meta, bool force, bool restore, bool check_path) {
-    WriteLock wlock(_get_tablets_shard_lock(tablet_id));
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     OLAPStatus status = tablet_meta->deserialize(meta_binary);
     if (status != OLAP_SUCCESS) {
@@ -872,6 +871,8 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
 
     RETURN_NOT_OK_LOG(tablet->init(),
                       strings::Substitute("tablet init failed. tablet=$0", tablet->full_name()));
+
+    WriteLock wlock(_get_tablets_shard_lock(tablet_id));
     RETURN_NOT_OK_LOG(_add_tablet_unlocked(tablet_id, schema_hash, tablet, update_meta, force),
                       strings::Substitute("fail to add tablet. tablet=$0", tablet->full_name()));
 
