@@ -32,7 +32,9 @@ OdbcTableSink::OdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
         : _pool(pool),
           _row_desc(row_desc),
           _t_output_expr(t_exprs),
-          _mem_tracker(MemTracker::CreateTracker(-1, "OdbcTableSink")) {}
+          _mem_tracker(MemTracker::CreateTracker(-1, "OdbcTableSink")) {
+    _name = "OdbcTableSink";
+}
 
 OdbcTableSink::~OdbcTableSink() {}
 

@@ -28,11 +28,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.RangeUtils;
-import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.RecoverInfo;
-import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -47,7 +43,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -111,7 +106,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     public synchronized boolean recyclePartition(long dbId, long tableId, Partition partition,
-                                                 Range<PartitionKey> range, DataProperty dataProperty,
+                                                 Range<PartitionKey> range, PartitionItem listPartitionItem,
+                                                 DataProperty dataProperty,
                                                  short replicationNum,
                                                  boolean isInMemory) {
         if (idToPartition.containsKey(partition.getId())) {
@@ -124,7 +120,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         // recycle partition
         RecyclePartitionInfo partitionInfo = new RecyclePartitionInfo(dbId, tableId, partition,
-                                                                      range, dataProperty, replicationNum,
+                                                                      range, listPartitionItem, dataProperty, replicationNum,
                                                                       isInMemory);
         idToRecycleTime.put(partition.getId(), System.currentTimeMillis());
         idToPartition.put(partition.getId(), partitionInfo);
@@ -147,19 +143,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 // erase db
                 dbIter.remove();
                 idToRecycleTime.remove(entry.getKey());
-
-                // remove jobs
-                Catalog.getCurrentCatalog().getLoadInstance().removeDbLoadJob(db.getId());
-                Catalog.getCurrentCatalog().getLoadInstance().removeDbDeleteJob(db.getId());
-                Catalog.getCurrentCatalog().getSchemaChangeHandler().removeDbAlterJob(db.getId());
-                Catalog.getCurrentCatalog().getRollupHandler().removeDbAlterJob(db.getId());
-
-                // remove database transaction manager
-                Catalog.getCurrentCatalog().getGlobalTransactionMgr().removeDatabaseTransactionMgr(db.getId());
-
-                // log
-                Catalog.getCurrentCatalog().getEditLog().logEraseDb(entry.getKey());
-                LOG.info("erase db[{}]", entry.getKey());
+                Catalog.getCurrentCatalog().eraseDatabase(db.getId(), true);
+                LOG.info("erase db[{}]", db.getId());
             }
         }
     }
@@ -185,15 +170,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     public synchronized void replayEraseDatabase(long dbId) {
         idToDatabase.remove(dbId);
         idToRecycleTime.remove(dbId);
-
-        // remove jobs
-        Catalog.getCurrentCatalog().getLoadInstance().removeDbLoadJob(dbId);
-        Catalog.getCurrentCatalog().getLoadInstance().removeDbDeleteJob(dbId);
-        Catalog.getCurrentCatalog().getSchemaChangeHandler().removeDbAlterJob(dbId);
-        Catalog.getCurrentCatalog().getRollupHandler().removeDbAlterJob(dbId);
-
-        // remove database transaction manager
-        Catalog.getCurrentCatalog().getGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
+        Catalog.getCurrentCatalog().eraseDatabase(dbId, false);
         LOG.info("replay erase db[{}]", dbId);
     }
 
@@ -207,7 +184,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             if (isExpire(tableId, currentTimeMs)) {
                 if (table.getType() == TableType.OLAP) {
-                    onEraseOlapTable((OlapTable) table);
+                    Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, false);
                 }
 
                 // erase table
@@ -219,45 +196,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 LOG.info("erase table[{}]", tableId);
             }
         } // end for tables
-    }
-
-    private void onEraseOlapTable(OlapTable olapTable) {
-        // inverted index
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        Collection<Partition> allPartitions = olapTable.getAllPartitions();
-        for (Partition partition : allPartitions) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                for (Tablet tablet : index.getTablets()) {
-                    invertedIndex.deleteTablet(tablet.getId());
-                }
-            }
-        }
-
-        // drop all replicas
-        AgentBatchTask batchTask = new AgentBatchTask();
-        for (Partition partition : olapTable.getAllPartitions()) {
-            List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
-            for (MaterializedIndex materializedIndex : allIndices) {
-                long indexId = materializedIndex.getId();
-                int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                for (Tablet tablet : materializedIndex.getTablets()) {
-                    long tabletId = tablet.getId();
-                    List<Replica> replicas = tablet.getReplicas();
-                    for (Replica replica : replicas) {
-                        long backendId = replica.getBackendId();
-                        DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId, schemaHash);
-                        batchTask.addTask(dropTask);
-                    } // end for replicas
-                } // end for tablets
-            } // end for indices
-        } // end for partitions
-        AgentTaskExecutor.submit(batchTask);
-
-        // colocation
-        if (Catalog.getCurrentColocateIndex().removeTable(olapTable.getId())) {
-            Catalog.getCurrentCatalog().getEditLog().logColocateRemoveTable(
-                    ColocatePersistInfo.createForRemoveTable(olapTable.getId()));
-        }
     }
 
     private synchronized void eraseTableWithSameName(long dbId, String tableName) {
@@ -272,7 +210,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             Table table = tableInfo.getTable();
             if (table.getName().equals(tableName)) {
                 if (table.getType() == TableType.OLAP) {
-                    onEraseOlapTable((OlapTable) table);
+                    Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, false);
                 }
 
                 iterator.remove();
@@ -288,21 +226,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         Table table = tableInfo.getTable();
         if (table.getType() == TableType.OLAP && !Catalog.isCheckpointThread()) {
-            OlapTable olapTable = (OlapTable) table;
-
-            // remove tablet from inverted index
-            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-            for (Partition partition : olapTable.getAllPartitions()) {
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                    for (Tablet tablet : index.getTablets()) {
-                        invertedIndex.deleteTablet(tablet.getId());
-                    }
-                }
-            }
+            Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, true);
         }
-
-        // colocation
-        Catalog.getCurrentColocateIndex().removeTable(tableId);
 
         LOG.info("replay erase table[{}]", tableId);
     }
@@ -316,14 +241,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             long partitionId = entry.getKey();
             if (isExpire(partitionId, currentTimeMs)) {
-                // remove tablet in inverted index
-                TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                    for (Tablet tablet : index.getTablets()) {
-                        invertedIndex.deleteTablet(tablet.getId());
-                    }
-                }
-
+                Catalog.getCurrentCatalog().onErasePartition(partition);
                 // erase partition
                 iterator.remove();
                 idToRecycleTime.remove(partitionId);
@@ -346,14 +264,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             Partition partition = partitionInfo.getPartition();
             if (partition.getName().equals(partitionName)) {
-                // remove tablet in inverted index
-                TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                    for (Tablet tablet : index.getTablets()) {
-                        invertedIndex.deleteTablet(tablet.getId());
-                    }
-                }
-
+                Catalog.getCurrentCatalog().onErasePartition(partition);
                 iterator.remove();
                 idToRecycleTime.remove(entry.getKey());
 
@@ -368,13 +279,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         Partition partition = partitionInfo.getPartition();
         if (!Catalog.isCheckpointThread()) {
-            // remove tablet from inverted index
-            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                for (Tablet tablet : index.getTablets()) {
-                    invertedIndex.deleteTablet(tablet.getId());
-                }
-            }
+            Catalog.getCurrentCatalog().onErasePartition(partition);
         }
 
         LOG.info("replay erase partition[{}]", partitionId);
@@ -522,22 +427,28 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         if (recoverPartitionInfo == null) {
             throw new DdlException("No partition named " + partitionName + " in table " + table.getName());
         }
-        
-        // check if range is invalid
+
+        PartitionInfo partitionInfo = table.getPartitionInfo();
         Range<PartitionKey> recoverRange = recoverPartitionInfo.getRange();
-        RangePartitionInfo partitionInfo = (RangePartitionInfo) table.getPartitionInfo();
-        if (partitionInfo.getAnyIntersectRange(recoverRange, false) != null) {
-            throw new DdlException("Can not recover partition[" + partitionName + "]. Range conflict.");
+        PartitionItem recoverItem = null;
+        if (partitionInfo.getType() == PartitionType.RANGE) {
+            recoverItem = new RangePartitionItem(recoverRange);
+        } else if (partitionInfo.getType() == PartitionType.LIST) {
+            recoverItem = recoverPartitionInfo.getListPartitionItem();;
+        }
+        // check if partition item is invalid
+        if (partitionInfo.getAnyIntersectItem(recoverItem, false) != null) {
+            throw new DdlException("Can not recover partition[" + partitionName + "]. Partition item conflict.");
         }
 
         // recover partition
         Partition recoverPartition = recoverPartitionInfo.getPartition();
         Preconditions.checkState(recoverPartition.getName().equalsIgnoreCase(partitionName));
         table.addPartition(recoverPartition);
-        
+
         // recover partition info
         long partitionId = recoverPartition.getId();
-        partitionInfo.setRange(partitionId, false, recoverRange);
+        partitionInfo.setItem(partitionId, false, recoverItem);
         partitionInfo.setDataProperty(partitionId, recoverPartitionInfo.getDataProperty());
         partitionInfo.setReplicationNum(partitionId, recoverPartitionInfo.getReplicationNum());
         partitionInfo.setIsInMemory(partitionId, recoverPartitionInfo.isInMemory());
@@ -557,19 +468,25 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, RecyclePartitionInfo> entry = iterator.next();
-            RecyclePartitionInfo partitionInfo = entry.getValue();
-            if (partitionInfo.getPartition().getId() != partitionId) {
+            RecyclePartitionInfo recyclePartitionInfo = entry.getValue();
+            if (recyclePartitionInfo.getPartition().getId() != partitionId) {
                 continue;
             }
 
-            Preconditions.checkState(partitionInfo.getTableId() == table.getId());
+            Preconditions.checkState(recyclePartitionInfo.getTableId() == table.getId());
 
-            table.addPartition(partitionInfo.getPartition());
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) table.getPartitionInfo();
-            rangePartitionInfo.setRange(partitionId, false, partitionInfo.getRange());
-            rangePartitionInfo.setDataProperty(partitionId, partitionInfo.getDataProperty());
-            rangePartitionInfo.setReplicationNum(partitionId, partitionInfo.getReplicationNum());
-            rangePartitionInfo.setIsInMemory(partitionId, partitionInfo.isInMemory());
+            table.addPartition(recyclePartitionInfo.getPartition());
+            PartitionInfo partitionInfo = table.getPartitionInfo();
+            PartitionItem recoverItem = null;
+            if (partitionInfo.getType() == PartitionType.RANGE) {
+                recoverItem = new RangePartitionItem(recyclePartitionInfo.getRange());
+            } else if (partitionInfo.getType() == PartitionType.LIST) {
+                recoverItem = recyclePartitionInfo.getListPartitionItem();
+            }
+            partitionInfo.setItem(partitionId, false, recoverItem);
+            partitionInfo.setDataProperty(partitionId, recyclePartitionInfo.getDataProperty());
+            partitionInfo.setReplicationNum(partitionId, recyclePartitionInfo.getReplicationNum());
+            partitionInfo.setIsInMemory(partitionId, recyclePartitionInfo.isInMemory());
 
             iterator.remove();
             idToRecycleTime.remove(partitionId);
@@ -821,6 +738,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         private long tableId;
         private Partition partition;
         private Range<PartitionKey> range;
+        private PartitionItem listPartitionItem;
         private DataProperty dataProperty;
         private short replicationNum;
         private boolean isInMemory;
@@ -830,12 +748,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         public RecyclePartitionInfo(long dbId, long tableId, Partition partition,
-                                    Range<PartitionKey> range, DataProperty dataProperty, short replicationNum,
+                                    Range<PartitionKey> range, PartitionItem listPartitionItem,
+                                    DataProperty dataProperty, short replicationNum,
                                     boolean isInMemory) {
             this.dbId = dbId;
             this.tableId = tableId;
             this.partition = partition;
             this.range = range;
+            this.listPartitionItem = listPartitionItem;
             this.dataProperty = dataProperty;
             this.replicationNum = replicationNum;
             this.isInMemory = isInMemory;
@@ -857,6 +777,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             return range;
         }
 
+        public PartitionItem getListPartitionItem() {
+            return listPartitionItem;
+        }
+
         public DataProperty getDataProperty() {
             return dataProperty;
         }
@@ -875,6 +799,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             out.writeLong(tableId);
             partition.write(out);
             RangeUtils.writeRange(out, range);
+            listPartitionItem.write(out);
             dataProperty.write(out);
             out.writeShort(replicationNum);
             out.writeBoolean(isInMemory);
@@ -885,6 +810,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             tableId = in.readLong();
             partition = Partition.read(in);
             range = RangeUtils.readRange(in);
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_98) {
+                listPartitionItem = ListPartitionItem.read(in);
+            } else {
+                listPartitionItem = ListPartitionItem.DUMMY_ITEM;
+            }
+
             dataProperty = DataProperty.read(in);
             replicationNum = in.readShort();
             if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {

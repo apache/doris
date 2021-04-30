@@ -34,15 +34,9 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TNetworkAddress;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.io.StringReader;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -51,6 +45,13 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import java.io.StringReader;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 // used to describe data info which is needed to import.
 //
@@ -95,13 +96,14 @@ public class DataDescription {
     private final String tableName;
     private final PartitionNames partitionNames;
     private final List<String> filePaths;
-    private final ColumnSeparator columnSeparator;
+    private final Separator columnSeparator;
     private final String fileFormat;
     private final boolean isNegative;
     // column names in the path
     private final List<String> columnsFromPath;
     // save column mapping in SET(xxx = xxx) clause
     private final List<Expr> columnMappingList;
+    private final Expr precedingFilterExpr;
     private final Expr whereExpr;
     private final String srcTableName;
     // this only used in multi load, all filePaths is file not dir
@@ -110,7 +112,7 @@ public class DataDescription {
     private List<String> fileFieldNames;
     // Used for mini load
     private TNetworkAddress beAddr;
-    private String lineDelimiter;
+    private Separator lineDelimiter;
     private String columnDef;
     private long backendId;
     private boolean stripOuterArray = false;
@@ -139,23 +141,24 @@ public class DataDescription {
                            PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
-                           ColumnSeparator columnSeparator,
+                           Separator columnSeparator,
                            String fileFormat,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
-                isNegative, columnMappingList, null, LoadTask.MergeType.APPEND, null, null);
+                isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null);
     }
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
-                           ColumnSeparator columnSeparator,
+                           Separator columnSeparator,
                            String fileFormat,
                            List<String> columnsFromPath,
                            boolean isNegative,
                            List<Expr> columnMappingList,
+                           Expr fileFilterExpr,
                            Expr whereExpr,
                            LoadTask.MergeType mergeType,
                            Expr deleteCondition,
@@ -169,6 +172,7 @@ public class DataDescription {
         this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = fileFilterExpr;
         this.whereExpr = whereExpr;
         this.srcTableName = null;
         this.mergeType = mergeType;
@@ -194,6 +198,7 @@ public class DataDescription {
         this.columnsFromPath = null;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = null; // external hive table does not support file filter expr
         this.whereExpr = whereExpr;
         this.srcTableName = srcTableName;
         this.mergeType = mergeType;
@@ -381,6 +386,10 @@ public class DataDescription {
         return partitionNames;
     }
 
+    public Expr getPrecdingFilterExpr() {
+        return precedingFilterExpr;
+    }
+
     public Expr getWhereExpr() {
         return whereExpr;
     }
@@ -419,7 +428,7 @@ public class DataDescription {
         if (columnSeparator == null) {
             return null;
         }
-        return columnSeparator.getColumnSeparator();
+        return columnSeparator.getSeparator();
     }
 
     public boolean isNegative() {
@@ -435,10 +444,13 @@ public class DataDescription {
     }
 
     public String getLineDelimiter() {
-        return lineDelimiter;
+        if (lineDelimiter == null) {
+            return null;
+        }
+        return lineDelimiter.getSeparator();
     }
 
-    public void setLineDelimiter(String lineDelimiter) {
+    public void setLineDelimiter(Separator lineDelimiter) {
         this.lineDelimiter = lineDelimiter;
     }
 

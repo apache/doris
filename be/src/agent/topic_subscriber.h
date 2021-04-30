@@ -20,6 +20,7 @@
 
 #include <boost/thread.hpp>
 #include <map>
+#include <shared_mutex>
 
 #include "agent/topic_listener.h"
 #include "gen_cpp/AgentService_types.h"
@@ -37,7 +38,7 @@ public:
 
 private:
     std::map<TTopicType::type, std::vector<TopicListener*>> _registered_listeners;
-    boost::shared_mutex _listener_mtx;
+    std::shared_mutex _listener_mtx;
 };
 } // namespace doris
 #endif

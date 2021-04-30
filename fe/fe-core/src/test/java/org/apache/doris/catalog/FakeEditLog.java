@@ -22,6 +22,7 @@ import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.RollupJob;
 import org.apache.doris.alter.SchemaChangeJob;
 import org.apache.doris.cluster.Cluster;
+import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
@@ -110,6 +111,11 @@ public class FakeEditLog extends MockUp<EditLog> {
 
     @Mock
     public void logDynamicPartition(ModifyTablePropertyOperationLog info) {
+
+    }
+
+    @Mock
+    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperation info) {
 
     }
 

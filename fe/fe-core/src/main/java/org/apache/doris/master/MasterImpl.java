@@ -35,7 +35,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.DeleteJob;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob;
@@ -95,9 +94,12 @@ public class MasterImpl {
         // check task status
         // retry task by report process
         TStatus taskStatus = request.getTaskStatus();
-        LOG.debug("get task report: {}", request.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get task report: {}", request);
+        }
+
         if (taskStatus.getStatusCode() != TStatusCode.OK) {
-            LOG.warn("finish task reports bad. request: {}", request.toString());
+            LOG.warn("finish task reports bad. request: {}", request);
         }
 
         // get backend
@@ -110,7 +112,7 @@ public class MasterImpl {
             List<String> errorMsgs = new ArrayList<>();
             errorMsgs.add("backend not exist.");
             tStatus.setErrorMsgs(errorMsgs);
-            LOG.warn("backend does not found. host: {}, be port: {}. task: {}", host, bePort, request.toString());
+            LOG.warn("backend does not found. host: {}, be port: {}. task: {}", host, bePort, request);
             return result;
         }
 
@@ -394,7 +396,7 @@ public class MasterImpl {
                     Replica replica = findRelatedReplica(olapTable, partition,
                             backendId, tabletId, tabletMeta.getIndexId());
                     if (replica != null) {
-                        deleteJob.addFinishedReplica(pushTabletId, replica);
+                        deleteJob.addFinishedReplica(partitionId, pushTabletId, replica);
                         pushTask.countDownLatch(backendId, pushTabletId);
                     }
                 }
@@ -602,22 +604,6 @@ public class MasterImpl {
                 if (pushTask.getVersion() != request.getRequestVersion()) {
                     throw new MetaNotFoundException("delete task is not match. [" + pushTask.getVersion() + "-"
                             + request.getRequestVersion() + "]");
-                }
-
-                if (pushTask.isSyncDelete()) {
-                    pushTask.countDownLatch(backendId, signature);
-                } else {
-                    long asyncDeleteJobId = pushTask.getAsyncDeleteJobId();
-                    Preconditions.checkState(asyncDeleteJobId != -1);
-                    AsyncDeleteJob job = Catalog.getCurrentCatalog().getLoadInstance().getAsyncDeleteJob(asyncDeleteJobId);
-                    if (job == null) {
-                        throw new MetaNotFoundException("cannot find async delete job, job[" + asyncDeleteJobId + "]");
-                    }
-
-                    Preconditions.checkState(!infos.isEmpty());
-                    for (ReplicaPersistInfo info : infos) {
-                        job.addReplicaPersistInfos(info);
-                    }
                 }
             }
 

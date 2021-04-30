@@ -48,10 +48,6 @@ You can use Gitter as well as Wechat, and get functions that are more comfortabl
 
 Don't forget to click on the Pentagon in the upper right corner to collect, which will make the chat room easier for you to find.
 
-For more gitter usage tips, you can refer to:
-
-[http://www.gitter.net.cn/book/gitter/roomsettings-1.html](http://www.gitter.net.cn/book/gitter/roomsettings-1.html)
-
 ## Install Mobile Client
 
 You can download Gitter's mobile client and participate in technical discussions on your mobile phone at any time and anywhere. Download links:

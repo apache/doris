@@ -53,7 +53,7 @@ Suppose you want to replace table A with table B, and `swap` is `true`, the oper
 1. Rename table B to table A.
 2. Rename table A to table B.
 
-If `swap` is `true`, the operation is as follows:
+If `swap` is `false`, the operation is as follows:
 
 1. Drop table A.
 2. Rename table B to table A.

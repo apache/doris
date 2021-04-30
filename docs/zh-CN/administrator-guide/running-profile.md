@@ -115,6 +115,10 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
 
 #### `EXCHANGE_NODE`
   - BytesReceived: 通过网络接收的数据量大小
+  - MergeGetNext: 当下层节点存在排序时，会在EXCHANGE NODE进行统一的归并排序，输出有序结果。该指标记录了Merge排序的总耗时，包含了MergeGetNextBatch耗时。
+  - MergeGetNextBatch：Merge节点取数据的耗时，如果为单层Merge排序，则取数据的对象为网络队列。若为多层Merge排序取数据对象为Child Merger。
+  - ChildMergeGetNext: 当下层的发送数据的Sender过多时，单线程的Merge会成为性能瓶颈，Doris会启动多个Child Merge线程并行归并排序。记录了Child Merge的排序耗时  该数值是多个线程的累加值。
+  - ChildMergeGetNextBatch: Child Merge节点从取数据的耗时，如果耗时过大，可能的瓶颈为下层的数据发送节点。 
   - DataArrivalWaitTime: 等待Sender发送数据的总时间
   - FirstBatchArrivalWaitTime: 等待第一个batch从Sender获取的时间
   - DeserializeRowBatchTimer: 反序列化网络数据的耗时
@@ -193,6 +197,8 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms, % non-child: 0.00%)
   - RowsReturnedRate: 6.979K /sec       # RowsReturned/ActiveTime
   - TabletCount : 20                    # 该 ScanNode 涉及的 Tablet 数量。
   - TotalReadThroughput: 74.70 KB/sec   # BytesRead除以该节点运行的总时间（从Open到Close），对于IO受限的查询，接近磁盘的总吞吐量。
+  - ScannerBatchWaitTime: 426.886us     # 用于统计transfer 线程等待scaner 线程返回rowbatch的时间。
+  - ScannerWorkerWaitTime: 17.745us     # 用于统计scanner thread 等待线程池中可用工作线程的时间。
   OlapScanner:
     - BlockConvertTime: 8.941us         # 将向量化Block转换为行结构的 RowBlock 的耗时。向量化 Block 在 V1 中为 VectorizedRowBatch，V2中为 RowBlockV2。
     - BlockFetchTime: 468.974us         # Rowset Reader 获取 Block 的时间。

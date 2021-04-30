@@ -20,10 +20,9 @@
 
 #include <atomic>
 #include <boost/scoped_ptr.hpp>
-#include <boost/thread/locks.hpp>
-#include <boost/thread/mutex.hpp>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -154,7 +153,7 @@ public:
     }
 
     Status query_status() {
-        boost::lock_guard<boost::mutex> l(_process_status_lock);
+        std::lock_guard<std::mutex> l(_process_status_lock);
         return _process_status;
     };
 
@@ -182,7 +181,7 @@ public:
 
     // Returns true if the error log has not reached _max_errors.
     bool log_has_space() {
-        boost::lock_guard<boost::mutex> l(_error_log_lock);
+        std::lock_guard<std::mutex> l(_error_log_lock);
         return _error_log.size() < _query_options.max_errors;
     }
 
@@ -205,7 +204,7 @@ public:
 
     // Sets _process_status with err_msg if no error has been set yet.
     void set_process_status(const std::string& err_msg) {
-        boost::lock_guard<boost::mutex> l(_process_status_lock);
+        std::lock_guard<std::mutex> l(_process_status_lock);
         if (!_process_status.ok()) {
             return;
         }
@@ -216,7 +215,7 @@ public:
         if (status.ok()) {
             return;
         }
-        boost::lock_guard<boost::mutex> l(_process_status_lock);
+        std::lock_guard<std::mutex> l(_process_status_lock);
         if (!_process_status.ok()) {
             return;
         }
@@ -342,6 +341,10 @@ public:
 
     bool enable_spill() const { return _query_options.enable_spilling; }
 
+    bool enable_exchange_node_parallel_merge() const {
+        return _query_options.enable_enable_exchange_node_parallel_merge;
+    }
+
     // the following getters are only valid after Prepare()
     InitialReservations* initial_reservations() const { return _initial_reservations; }
 
@@ -361,7 +364,6 @@ public:
     int64_t get_load_mem_limit();
 
 private:
-
     // Use a custom block manager for the query for testing purposes.
     void set_block_mgr2(const boost::shared_ptr<BufferedBlockMgr2>& block_mgr) {
         _block_mgr2 = block_mgr;
@@ -392,7 +394,7 @@ private:
     std::shared_ptr<ObjectPool> _obj_pool;
 
     // Protects _data_stream_recvrs_pool
-    boost::mutex _data_stream_recvrs_lock;
+    std::mutex _data_stream_recvrs_lock;
 
     // Data stream receivers created by a plan fragment are gathered here to make sure
     // they are destroyed before _obj_pool (class members are destroyed in reverse order).
@@ -402,7 +404,7 @@ private:
     boost::scoped_ptr<ObjectPool> _data_stream_recvrs_pool;
 
     // Lock protecting _error_log and _unreported_error_idx
-    boost::mutex _error_log_lock;
+    std::mutex _error_log_lock;
 
     // Logs error messages.
     std::vector<std::string> _error_log;
@@ -439,7 +441,7 @@ private:
     // Non-OK if an error has occurred and query execution should abort. Used only for
     // asynchronously reporting such errors (e.g., when a UDF reports an error), so this
     // will not necessarily be set in all error cases.
-    boost::mutex _process_status_lock;
+    std::mutex _process_status_lock;
     Status _process_status;
     //boost::scoped_ptr<MemPool> _udf_pool;
 

@@ -80,6 +80,31 @@ struct TProxyResult {
     2: optional TKafkaMetaProxyResult kafka_meta_result;
 }
 
+struct TStreamLoadRecord {
+    1: optional string cluster
+    2: required string user
+    3: required string passwd
+    4: required string db
+    5: required string tbl
+    6: optional string user_ip
+    7: required string label
+    8: required string status
+    9: required string message
+    10: optional string url
+    11: optional i64 auth_code;
+    12: required i64 total_rows
+    13: required i64 loaded_rows
+    14: required i64 filtered_rows
+    15: required i64 unselected_rows
+    16: required i64 load_bytes
+    17: required i64 start_time
+    18: required i64 finish_time
+}
+
+struct TStreamLoadRecordResult {
+    1: required map<string, TStreamLoadRecord> stream_load_record
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -133,5 +158,7 @@ service BackendService {
 
     // release the context resource associated with the context_id
     DorisExternalService.TScanCloseResult close_scanner(1: DorisExternalService.TScanCloseParams params);
+
+    TStreamLoadRecordResult get_stream_load_record(1: i64 last_stream_record_time);
 
 }

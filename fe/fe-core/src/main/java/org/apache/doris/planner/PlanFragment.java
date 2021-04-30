@@ -246,6 +246,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return (dataPartition.getType() != TPartitionType.UNPARTITIONED);
     }
 
+    public PlanFragmentId getId() { return fragmentId; }
+
     public PlanFragment getDestFragment() {
         if (destNode == null) return null;
         return destNode.getFragment();

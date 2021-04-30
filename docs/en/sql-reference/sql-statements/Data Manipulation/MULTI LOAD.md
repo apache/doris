@@ -79,10 +79,10 @@ NOTE:
 It is recommended that the amount of data imported should not exceed 1GB
 
 2. Currently, it is not possible to submit multiple files in the form of `curl-T', `{file1, file2}', because curl splits them into multiple files.
-Request sent, multiple requests can not share a label number, so it can not be used
+Request sent, multiple requests cannot share a label number, so it cannot be used
 
 3. Supports streaming-like ways to use curl to import data into Doris, but Doris will have to wait until the streaming is over
-Real import behavior will occur, and the amount of data in this way can not be too large.
+Real import behavior will occur, and the amount of data in this way cannot be too large.
 
 '35;'35; example
 

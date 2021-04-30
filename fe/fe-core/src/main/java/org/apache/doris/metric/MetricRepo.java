@@ -26,6 +26,8 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -36,12 +38,14 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedMap;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -117,10 +121,32 @@ public final class MetricRepo {
                     }
                 };
                 gauge.addLabel(new MetricLabel("job", "load"))
-                    .addLabel(new MetricLabel("type", jobType.name()))
-                    .addLabel(new MetricLabel("state", state.name()));
+                        .addLabel(new MetricLabel("type", jobType.name()))
+                        .addLabel(new MetricLabel("state", state.name()));
                 PALO_METRIC_REGISTER.addPaloMetrics(gauge);
             }
+        }
+
+        //  routine load jobs
+        RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
+        for (RoutineLoadJob.JobState jobState : RoutineLoadJob.JobState.values()) {
+            GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
+                    MetricUnit.NOUNIT, "routine load job statistics") {
+                @Override
+                public Long getValue() {
+                    if (!Catalog.getCurrentCatalog().isMaster()) {
+                        return 0L;
+                    }
+                    Set<RoutineLoadJob.JobState> states = Sets.newHashSet();
+                    states.add(jobState);
+                    List<RoutineLoadJob> jobs = routineLoadManager.getRoutineLoadJobByState(states);
+                    return Long.valueOf(jobs.size());
+                }
+            };
+            gauge.addLabel(new MetricLabel("job", "load"))
+                    .addLabel(new MetricLabel("type", "ROUTINE_LOAD"))
+                    .addLabel(new MetricLabel("state", jobState.name()));
+            PALO_METRIC_REGISTER.addPaloMetrics(gauge);
         }
 
         // running alter job
@@ -129,7 +155,7 @@ public final class MetricRepo {
             if (jobType != JobType.SCHEMA_CHANGE && jobType != JobType.ROLLUP) {
                 continue;
             }
-            
+
             GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
                     MetricUnit.NOUNIT, "job statistics") {
                 @Override

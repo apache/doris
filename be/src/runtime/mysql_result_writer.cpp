@@ -18,6 +18,7 @@
 #include "runtime/mysql_result_writer.h"
 
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/primitive_type.h"
@@ -60,12 +61,11 @@ Status MysqlResultWriter::init(RuntimeState* state) {
 void MysqlResultWriter::_init_profile() {
     _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
     _convert_tuple_timer = ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
-    _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultRendTime", "AppendBatchTime");
+    _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
     _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
 }
 
 Status MysqlResultWriter::_add_one_row(TupleRow* row) {
-    SCOPED_TIMER(_convert_tuple_timer);
     _row_buffer->reset();
     int num_columns = _output_expr_ctxs.size();
     int buf_ret = 0;
@@ -212,17 +212,21 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
     int num_rows = batch->num_rows();
     result->result_batch.rows.resize(num_rows);
 
-    for (int i = 0; status.ok() && i < num_rows; ++i) {
-        TupleRow* row = batch->get_row(i);
-        status = _add_one_row(row);
+    {
+        SCOPED_TIMER(_convert_tuple_timer);
+        for (int i = 0; status.ok() && i < num_rows; ++i) {
+            TupleRow* row = batch->get_row(i);
+            status = _add_one_row(row);
 
-        if (status.ok()) {
-            result->result_batch.rows[i].assign(_row_buffer->buf(), _row_buffer->length());
-        } else {
-            LOG(WARNING) << "convert row to mysql result failed.";
-            break;
+            if (status.ok()) {
+                result->result_batch.rows[i].assign(_row_buffer->buf(), _row_buffer->length());
+            } else {
+                LOG(WARNING) << "convert row to mysql result failed.";
+                break;
+            }
         }
     }
+
 
     if (status.ok()) {
         SCOPED_TIMER(_result_send_timer);

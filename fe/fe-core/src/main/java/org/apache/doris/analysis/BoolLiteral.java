@@ -69,6 +69,11 @@ public class BoolLiteral extends LiteralExpr {
     }
 
     @Override
+    public Object getRealValue() {
+        return getValue();
+    }
+
+    @Override
     public boolean isMinValue() {
         return false;
     }
@@ -77,6 +82,9 @@ public class BoolLiteral extends LiteralExpr {
     public int compareLiteral(LiteralExpr expr) {
         if (expr instanceof NullLiteral) {
             return 1;
+        }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
         }
         return Long.signum(getLongValue() - expr.getLongValue());
     }

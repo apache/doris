@@ -369,7 +369,7 @@ FileBlockManager::FileBlockManager(Env* env, BlockManagerOptions opts)
         : _env(DCHECK_NOTNULL(env)),
           _opts(std::move(opts)),
           _mem_tracker(
-                  MemTracker::CreateTracker(-1, "file_block_manager", _opts.parent_mem_tracker)) {
+                  MemTracker::CreateTracker(-1, "FileBlockManager", _opts.parent_mem_tracker)) {
     if (_opts.enable_metric) {
         _metrics.reset(new internal::BlockManagerMetrics());
     }

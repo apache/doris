@@ -32,7 +32,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.MetaLockUtils;
-import org.apache.doris.load.AsyncDeleteJob.DeleteState;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.task.AgentBatchTask;
@@ -40,11 +39,8 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.HadoopLoadEtlTask;
 import org.apache.doris.task.HadoopLoadPendingTask;
-import org.apache.doris.task.InsertLoadEtlTask;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.MasterTaskExecutor;
-import org.apache.doris.task.MiniLoadEtlTask;
-import org.apache.doris.task.MiniLoadPendingTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
@@ -173,9 +169,6 @@ public class LoadChecker extends MasterDaemon {
                     case HADOOP:
                         task = new HadoopLoadPendingTask(job);
                         break;
-                    case MINI:
-                        task = new MiniLoadPendingTask(job);
-                        break;
                     default:
                         LOG.warn("unknown etl job type. type: {}", etlJobType.name());
                         break;
@@ -200,12 +193,6 @@ public class LoadChecker extends MasterDaemon {
                 switch (etlJobType) {
                     case HADOOP:
                         task = new HadoopLoadEtlTask(job);
-                        break;
-                    case MINI:
-                        task = new MiniLoadEtlTask(job);
-                        break;
-                    case INSERT:
-                        task = new InsertLoadEtlTask(job);
                         break;
                     default:
                         LOG.warn("unknown etl job type. type: {}", etlJobType.name());
@@ -546,18 +533,6 @@ public class LoadChecker extends MasterDaemon {
                 LOG.warn("run quorum job error", e);
             }
         }
-
-        // handle async delete job
-        List<AsyncDeleteJob> quorumFinishedDeleteJobs =
-                Catalog.getCurrentCatalog().getLoadInstance().getQuorumFinishedDeleteJobs();
-        for (AsyncDeleteJob job : quorumFinishedDeleteJobs) {
-            try {
-                LOG.info("run quorum finished delete job. job: {}", job.getJobId());
-                runOneQuorumFinishedDeleteJob(job);
-            } catch (Exception e) {
-                LOG.warn("run quorum delete job error", e);
-            }
-        }
     }
     
     private void runOneQuorumFinishedJob(LoadJob job) {
@@ -573,24 +548,6 @@ public class LoadChecker extends MasterDaemon {
         if (load.updateLoadJobState(job, JobState.FINISHED)) {
             load.clearJob(job, JobState.QUORUM_FINISHED);
         }
-    }
-    
-    private void runOneQuorumFinishedDeleteJob(AsyncDeleteJob job) {
-        Load load = Catalog.getCurrentCatalog().getLoadInstance();
-        long dbId = job.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            load.removeDeleteJobAndSetState(job);
-            return;
-        }
-
-        // if the delete job is quorum finished, just set it to finished
-        job.clearTasks();
-        job.setState(DeleteState.FINISHED);
-        // log
-        Catalog.getCurrentCatalog().getEditLog().logFinishAsyncDelete(job);
-        load.removeDeleteJobAndSetState(job);
-        LOG.info("delete job {} finished", job.getJobId());
     }
 
     public static boolean checkTimeout(LoadJob job) {

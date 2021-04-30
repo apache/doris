@@ -327,9 +327,9 @@ public class HeartbeatMgr extends MasterDaemon {
                         long replayedJournalId = dataObj.getLong(BootstrapFinishAction.REPLAYED_JOURNAL_ID);
                         int queryPort = dataObj.getInt(BootstrapFinishAction.QUERY_PORT);
                         int rpcPort = dataObj.getInt(BootstrapFinishAction.RPC_PORT);
-                        // TODO(wb) support new return for version here
+                        String version = dataObj.getString(BootstrapFinishAction.VERSION);
                         return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
-                                System.currentTimeMillis(), "unknown");
+                                System.currentTimeMillis(), version);
                     }
                 } else {
                     throw new Exception("invalid return value: " + result);
@@ -342,7 +342,7 @@ public class HeartbeatMgr extends MasterDaemon {
 
         private HeartbeatResponse getHeartbeatResponseByThrift() {
             FrontendService.Client client = null;
-            TNetworkAddress addr = new TNetworkAddress(fe.getHost(), fe.getRpcPort());
+            TNetworkAddress addr = new TNetworkAddress(fe.getHost(), Config.rpc_port);
             boolean ok = false;
             try {
                 client = ClientPool.frontendHeartbeatPool.borrowObject(addr);

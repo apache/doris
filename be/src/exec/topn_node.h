@@ -23,6 +23,7 @@
 
 #include "exec/exec_node.h"
 #include "runtime/descriptors.h"
+#include "util/sort_heap.h"
 #include "util/tuple_row_compare.h"
 
 namespace doris {
@@ -101,12 +102,8 @@ private:
     // Number of rows skipped. Used for adhering to _offset.
     int64_t _num_rows_skipped;
 
-    // The priority queue will never have more elements in it than the LIMIT.  The stl
-    // priority queue doesn't support a max size, so to get that functionality, the order
-    // of the queue is the opposite of what the ORDER BY clause specifies, such that the top
-    // of the queue is the last sorted element.
-    boost::scoped_ptr<std::priority_queue<Tuple*, std::vector<Tuple*>, TupleRowComparator>>
-            _priority_queue;
+    // The priority queue will never have more elements in it than the LIMIT.      
+    std::unique_ptr<SortingHeap<Tuple*, std::vector<Tuple*>, TupleRowComparator>> _priority_queue;
 
     // END: Members that must be Reset()
     /////////////////////////////////////////

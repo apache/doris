@@ -66,7 +66,7 @@ public class BackendProcNode implements ProcNodeInterface {
             long totalB = entry.getValue().getTotalCapacityB();
             Pair<Double, String> totalUnitPair = DebugUtil.getByteUint(totalB);
             // other
-            long otherB = totalB - availB;
+            long otherB = totalB - availB - dataUsedB;
             Pair<Double, String> otherUnitPair = DebugUtil.getByteUint(otherB);
 
             info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(otherUnitPair.first) + " " + otherUnitPair.second);

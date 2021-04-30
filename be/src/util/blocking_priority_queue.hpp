@@ -18,10 +18,11 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_BLOCKING_PRIORITY_QUEUE_HPP
 #define DORIS_BE_SRC_COMMON_UTIL_BLOCKING_PRIORITY_QUEUE_HPP
 
-#include <queue>
 #include <unistd.h>
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
+
+#include <condition_variable>
+#include <mutex>
+#include <queue>
 
 #include "common/config.h"
 #include "util/stopwatch.hpp"
@@ -33,20 +34,19 @@ namespace doris {
 template <typename T>
 class BlockingPriorityQueue {
 public:
-    BlockingPriorityQueue(size_t max_elements) :
-            _shutdown(false),
-            _max_element(max_elements),
-            _upgrade_counter(0),
-            _total_get_wait_time(0),
-            _total_put_wait_time(0) {
-    }
+    BlockingPriorityQueue(size_t max_elements)
+            : _shutdown(false),
+              _max_element(max_elements),
+              _upgrade_counter(0),
+              _total_get_wait_time(0),
+              _total_put_wait_time(0) {}
 
     // Get an element from the queue, waiting indefinitely for one to become available.
     // Returns false if we were shut down prior to getting the element, and there
     // are no more elements available.
     bool blocking_get(T* out) {
         MonotonicStopWatch timer;
-        boost::unique_lock<boost::mutex> unique_lock(_lock);
+        std::unique_lock<std::mutex> unique_lock(_lock);
 
         while (true) {
             if (!_queue.empty()) {
@@ -83,7 +83,7 @@ public:
 
     bool non_blocking_get(T* out) {
         MonotonicStopWatch timer;
-        boost::unique_lock<boost::mutex> unique_lock(_lock);
+        std::unique_lock<std::mutex> unique_lock(_lock);
 
         while (true) {
             if (!_queue.empty()) {
@@ -119,7 +119,7 @@ public:
     // If the queue is shut down, returns false.
     bool blocking_put(const T& val) {
         MonotonicStopWatch timer;
-        boost::unique_lock<boost::mutex> unique_lock(_lock);
+        std::unique_lock<std::mutex> unique_lock(_lock);
 
         while (_queue.size() >= _max_element && !_shutdown) {
             timer.start();
@@ -146,35 +146,35 @@ public:
     }
 
     uint32_t get_size() const {
-        boost::unique_lock<boost::mutex> l(_lock);
+        std::unique_lock<std::mutex> l(_lock);
         return _queue.size();
     }
 
     // Returns the total amount of time threads have blocked in blocking_get.
     uint64_t total_get_wait_time() const {
-        boost::lock_guard<boost::mutex> guard(_lock);
+        std::lock_guard<std::mutex> guard(_lock);
         return _total_get_wait_time;
     }
 
     // Returns the total amount of time threads have blocked in blocking_put.
     uint64_t total_put_wait_time() const {
-        boost::lock_guard<boost::mutex> guard(_lock);
+        std::lock_guard<std::mutex> guard(_lock);
         return _total_put_wait_time;
     }
 
 private:
     std::atomic<bool> _shutdown;
     const int _max_element;
-    boost::condition_variable _get_cv;   // 'get' callers wait on this
-    boost::condition_variable _put_cv;   // 'put' callers wait on this
+    std::condition_variable _get_cv; // 'get' callers wait on this
+    std::condition_variable _put_cv; // 'put' callers wait on this
     // _lock guards access to _queue, total_get_wait_time, and total_put_wait_time
-    mutable boost::mutex _lock;
+    mutable std::mutex _lock;
     std::priority_queue<T> _queue;
     int _upgrade_counter;
     uint64_t _total_get_wait_time;
     uint64_t _total_put_wait_time;
 };
 
-}
+} // namespace doris
 
 #endif

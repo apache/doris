@@ -27,10 +27,10 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
 
-import org.apache.doris.system.SystemInfoService;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -119,7 +119,7 @@ public class DataDescriptionTest {
         Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, new IntLiteral(1),  new IntLiteral(1));
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("col1", "col2"), new ColumnSeparator(","), "csv", null, false, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null);
+                Lists.newArrayList("col1", "col2"), new Separator(","), "csv", null, false, null, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null);
         desc.analyze("testDb");
         Assert.assertEquals("MERGE DATA INFILE ('abc.txt') INTO TABLE testTable COLUMNS TERMINATED BY ',' (col1, col2) WHERE 1 = 1 DELETE ON 1 = 1", desc.toString());
         Assert.assertEquals("1 = 1", desc.getWhereExpr().toSql());
@@ -127,7 +127,7 @@ public class DataDescriptionTest {
         Assert.assertEquals(",", desc.getColumnSeparator());
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt", "bcd.txt"),
-                                                  Lists.newArrayList("col1", "col2"), new ColumnSeparator("\t"),
+                                                  Lists.newArrayList("col1", "col2"), new Separator("\t"),
                                                   null, true, null);
         desc.analyze("testDb");
         Assert.assertEquals("APPEND DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable"
@@ -136,7 +136,7 @@ public class DataDescriptionTest {
 
         // hive \x01 column separator
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt", "bcd.txt"),
-                                                  Lists.newArrayList("col1", "col2"), new ColumnSeparator("\\x01"),
+                                                  Lists.newArrayList("col1", "col2"), new Separator("\\x01"),
                                                   null, true, null);
         desc.analyze("testDb");
         Assert.assertEquals("APPEND DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable"
@@ -220,7 +220,7 @@ public class DataDescriptionTest {
         Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, new IntLiteral(1),  new IntLiteral(1));
 
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("col1", "col2"), new ColumnSeparator(","), "csv", null, true, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null);
+                Lists.newArrayList("col1", "col2"), new Separator(","), "csv", null, true, null, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null);
         desc.analyze("testDb");
     }
 
@@ -311,8 +311,8 @@ public class DataDescriptionTest {
     @Test
     public void testAnalyzeSequenceColumnNormal() throws AnalysisException {
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("k1", "k2", "source_sequence","v1"), new ColumnSeparator("\t"),
-                null, null,false, null, null, LoadTask.MergeType.APPEND, null, "source_sequence");
+                Lists.newArrayList("k1", "k2", "source_sequence", "v1"), new Separator("\t"),
+                null, null, false, null, null, null, LoadTask.MergeType.APPEND, null, "source_sequence");
         new Expectations() {
             {
                 tbl.getName();
@@ -330,8 +330,8 @@ public class DataDescriptionTest {
     @Test(expected = AnalysisException.class)
     public void testAnalyzeSequenceColumnWithoutSourceSequence() throws AnalysisException {
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("k1", "k2","v1"), new ColumnSeparator("\t"),
-                null, null,false, null, null, LoadTask.MergeType.APPEND, null, "source_sequence");
+                Lists.newArrayList("k1", "k2", "v1"), new Separator("\t"),
+                null, null, false, null, null, null, LoadTask.MergeType.APPEND, null, "source_sequence");
         new Expectations() {
             {
                 tbl.getName();

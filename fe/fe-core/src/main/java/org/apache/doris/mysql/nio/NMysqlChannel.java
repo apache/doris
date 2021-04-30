@@ -54,18 +54,22 @@ public class NMysqlChannel extends MysqlChannel {
      *
      * @param dstBuf
      * @return
-     * @throws IOException
      */
     @Override
-    protected int readAll(ByteBuffer dstBuf) throws IOException {
+    protected int readAll(ByteBuffer dstBuf) {
         int readLen = 0;
-        while (dstBuf.remaining() != 0) {
-            int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf);
-            // return -1 when remote peer close the channel
-            if (ret == -1) {
-                return readLen;
+        try {
+            while (dstBuf.remaining() != 0) {
+                int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf);
+                // return -1 when remote peer close the channel
+                if (ret == -1) {
+                    return readLen;
+                }
+                readLen += ret;
             }
-            readLen += ret;
+        } catch (IOException e) {
+            LOG.debug("Read channel exception, ignore.", e);
+            return 0;
         }
         return readLen;
     }

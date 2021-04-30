@@ -18,10 +18,10 @@
 #include "olap/rowset/rowset_meta_manager.h"
 
 #include <fstream>
+#include <filesystem>
 #include <sstream>
 #include <string>
 
-#include "boost/filesystem.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "json2pb/json_to_pb.h"
@@ -57,12 +57,12 @@ public:
         }
 
         std::string meta_path = "./meta";
-        ASSERT_TRUE(boost::filesystem::create_directory(meta_path));
+        ASSERT_TRUE(std::filesystem::create_directory(meta_path));
         _meta = new (std::nothrow) OlapMeta(meta_path);
         ASSERT_NE(nullptr, _meta);
         OLAPStatus st = _meta->init();
         ASSERT_TRUE(st == OLAP_SUCCESS);
-        ASSERT_TRUE(boost::filesystem::exists("./meta"));
+        ASSERT_TRUE(std::filesystem::exists("./meta"));
 
         std::ifstream infile(rowset_meta_path);
         char buffer[1024];
@@ -77,7 +77,7 @@ public:
 
     virtual void TearDown() {
         delete _meta;
-        ASSERT_TRUE(boost::filesystem::remove_all("./meta"));
+        ASSERT_TRUE(std::filesystem::remove_all("./meta"));
     }
 
 private:

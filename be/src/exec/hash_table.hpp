@@ -33,16 +33,14 @@ inline HashTable::Iterator HashTable::find(TupleRow* probe_row, bool probe) {
     int64_t bucket_idx = hash & (_num_buckets - 1);
 
     Bucket* bucket = &_buckets[bucket_idx];
-    int64_t node_idx = bucket->_node_idx;
+    Node* node = bucket->_node;
 
-    while (node_idx != -1) {
-        Node* node = get_node(node_idx);
-
+    while (node != nullptr) {
         if (node->_hash == hash && equals(node->data())) {
-            return Iterator(this, bucket_idx, node_idx, hash);
+            return Iterator(this, bucket_idx, node, hash);
         }
 
-        node_idx = node->_next_idx;
+        node = node->_next;
     }
 
     return end();
@@ -53,7 +51,7 @@ inline HashTable::Iterator HashTable::begin() {
     Bucket* bucket = next_bucket(&bucket_idx);
 
     if (bucket != NULL) {
-        return Iterator(this, bucket_idx, bucket->_node_idx, 0);
+        return Iterator(this, bucket_idx, bucket->_node, 0);
     }
 
     return end();
@@ -63,7 +61,7 @@ inline HashTable::Bucket* HashTable::next_bucket(int64_t* bucket_idx) {
     ++*bucket_idx;
 
     for (; *bucket_idx < _num_buckets; ++*bucket_idx) {
-        if (_buckets[*bucket_idx]._node_idx != -1) {
+        if (_buckets[*bucket_idx]._node != nullptr) {
             return &_buckets[*bucket_idx];
         }
     }
@@ -82,77 +80,78 @@ inline void HashTable::insert_impl(TupleRow* row) {
     uint32_t hash = hash_current_row();
     int64_t bucket_idx = hash & (_num_buckets - 1);
 
-    if (_num_nodes == _nodes_capacity) {
+    if (_current_used == _current_capacity) {
         grow_node_array();
     }
+    // get a node from memory pool
+    Node* node = reinterpret_cast<Node*>(_current_nodes + _node_byte_size * _current_used++);
 
-    Node* node = get_node(_num_nodes);
     TupleRow* data = node->data();
     node->_hash = hash;
     memcpy(data, row, sizeof(Tuple*) * _num_build_tuples);
-    add_to_bucket(&_buckets[bucket_idx], _num_nodes, node);
+    add_to_bucket(&_buckets[bucket_idx], node);
     ++_num_nodes;
 }
 
-inline void HashTable::add_to_bucket(Bucket* bucket, int64_t node_idx, Node* node) {
-    if (bucket->_node_idx == -1) {
+inline void HashTable::add_to_bucket(Bucket* bucket, Node* node) {
+    if (bucket->_node == nullptr) {
         ++_num_filled_buckets;
     }
 
-    node->_next_idx = bucket->_node_idx;
-    bucket->_node_idx = node_idx;
+    node->_next = bucket->_node;
+    bucket->_node = node;
 }
 
-inline void HashTable::move_node(Bucket* from_bucket, Bucket* to_bucket,
-                                int64_t node_idx, Node* node, Node* previous_node) {
-    int64_t next_idx = node->_next_idx;
+inline void HashTable::move_node(Bucket* from_bucket, Bucket* to_bucket, Node* node,
+                                 Node* previous_node) {
+    Node* next_node = node->_next;
 
     if (previous_node != NULL) {
-        previous_node->_next_idx = next_idx;
+        previous_node->_next = next_node;
     } else {
         // Update bucket directly
-        from_bucket->_node_idx = next_idx;
+        from_bucket->_node = next_node;
 
-        if (next_idx == -1) {
+        if (next_node == nullptr) {
             --_num_filled_buckets;
         }
     }
 
-    add_to_bucket(to_bucket, node_idx, node);
+    add_to_bucket(to_bucket, node);
 }
 
-template<bool check_match>
+template <bool check_match>
 inline void HashTable::Iterator::next() {
     if (_bucket_idx == -1) {
         return;
     }
 
     // TODO: this should prefetch the next tuplerow
-    Node* node = _table->get_node(_node_idx);
+    Node* node = _node;
 
     // Iterator is not from a full table scan, evaluate equality now.  Only the current
     // bucket needs to be scanned. '_expr_values_buffer' contains the results
     // for the current probe row.
     if (check_match) {
         // TODO: this should prefetch the next node
-        int64_t next_idx = node->_next_idx;
+        Node* next_node = node->_next;
 
-        while (next_idx != -1) {
-            node = _table->get_node(next_idx);
+        while (next_node != nullptr) {
+            node = next_node;
 
             if (node->_hash == _scan_hash && _table->equals(node->data())) {
-                _node_idx = next_idx;
+                _node = next_node;
                 return;
             }
 
-            next_idx = node->_next_idx;
+            next_node = node->_next;
         }
 
         *this = _table->end();
     } else {
         // Move onto the next chained node
-        if (node->_next_idx != -1) {
-            _node_idx = node->_next_idx;
+        if (node->_next != nullptr) {
+            _node = node->_next;
             return;
         }
 
@@ -161,13 +160,13 @@ inline void HashTable::Iterator::next() {
 
         if (bucket == NULL) {
             _bucket_idx = -1;
-            _node_idx = -1;
+            _node = nullptr;
         } else {
-            _node_idx = bucket->_node_idx;
+            _node = bucket->_node;
         }
     }
 }
 
-}
+} // namespace doris
 
 #endif

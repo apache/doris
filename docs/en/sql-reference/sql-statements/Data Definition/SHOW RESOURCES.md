@@ -40,7 +40,7 @@ under the License.
         [ORDER BY ...]
         [LIMIT limit][OFFSET offset];
         
-    Explain：
+    Explain:
         1) If use NAME LIKE, the name of resource is matched to show.
         2) If use NAME =, the specified name is exactly matched.
         3) RESOURCETYPE is specified, the corresponding rerouce type is matched.

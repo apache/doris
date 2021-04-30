@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_SRC_OLAP_OLAP_INDEX_H
 #define DORIS_BE_SRC_OLAP_OLAP_INDEX_H
 
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
+#include <condition_variable>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -47,8 +47,6 @@ class WrapperField;
 typedef uint32_t data_file_offset_t;
 
 struct OLAPIndexFixedHeader {
-    OLAPIndexFixedHeader() : data_length(0), num_rows(0) {}
-
     uint32_t data_length;
     uint64_t num_rows;
 };

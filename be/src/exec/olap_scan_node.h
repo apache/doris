@@ -327,6 +327,9 @@ private:
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
+
+    RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
+    RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
 };
 
 } // namespace doris

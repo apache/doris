@@ -10,7 +10,6 @@ docs/.temp
 docs/.vuepress/dist
 docs/node_modules
 docs/build
-docs/contents
 gensrc/build
 fe/fe-core/target
 thirdparty/src
@@ -37,7 +36,7 @@ fe/fe-core/src/main/resources/static/
 nohup.out
 
 
-#ignore eclipse project file & idea  project file
+#ignore eclipse project file & idea project file
 .cproject
 .project
 .settings/

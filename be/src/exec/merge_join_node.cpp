@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "exprs/in_predicate.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"

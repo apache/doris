@@ -54,6 +54,15 @@ public class Status {
     }
 
     @Override
+    public boolean equals(Object other) {
+        if (other instanceof Status) {
+            return errCode == ((Status) other).getErrCode();
+        } else {
+            return this == other;
+        }
+    }
+
+    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("[").append(errCode.name());

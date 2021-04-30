@@ -32,7 +32,7 @@ while true; do
     case "$1" in
         --daemon) RUN_DAEMON=1 ; shift ;;
         --) shift ;  break ;;
-        *) ehco "Internal error" ; exit 1 ;;
+        *) echo "Internal error" ; exit 1 ;;
     esac
 done
 

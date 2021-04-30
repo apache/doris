@@ -29,14 +29,14 @@ under the License.
     该语句用于创建仓库。仓库用于属于备份或恢复。仅 root 或 superuser 用户可以创建仓库。
     语法：
         CREATE [READ ONLY] REPOSITORY `repo_name`
-        WITH BROKER `broker_name`
+        WITH [BROKER `broker_name`|S3]
         ON LOCATION `repo_location`
         PROPERTIES ("key"="value", ...);
             
     说明：
-        1. 仓库的创建，依赖于已存在的 broker
+        1. 仓库的创建，依赖于已存在的 broker 或者直接通过AWS s3 协议访问云存储
         2. 如果是只读仓库，则只能在仓库上进行恢复。如果不是，则可以进行备份和恢复操作。
-        3. 根据 broker 的不同类型，PROPERTIES 有所不同，具体见示例。
+        3. 根据 broker 或者S3的不同类型，PROPERTIES 有所不同，具体见示例。
         
 ## example
     1. 创建名为 bos_repo 的仓库，依赖 BOS broker "bos_broker"，数据根目录为：bos://palo_backup
@@ -46,8 +46,8 @@ under the License.
         PROPERTIES
         (
             "bos_endpoint" = "http://gz.bcebos.com",
-            "bos_accesskey" = "069fc2786e664e63a5f111111114ddbs22",
-            "bos_secret_accesskey"="70999999999999de274d59eaa980a"
+            "bos_accesskey" = "bos_accesskey",
+            "bos_secret_accesskey"="bos_secret_accesskey"
         );
      
     2. 创建和示例 1 相同的仓库，但属性为只读：
@@ -57,8 +57,8 @@ under the License.
         PROPERTIES
         (
             "bos_endpoint" = "http://gz.bcebos.com",
-            "bos_accesskey" = "069fc2786e664e63a5f111111114ddbs22",
-            "bos_secret_accesskey"="70999999999999de274d59eaa980a"
+            "bos_accesskey" = "bos_accesskey",
+            "bos_secret_accesskey"="bos_accesskey"
         );
 
     3. 创建名为 hdfs_repo 的仓库，依赖 Baidu hdfs broker "hdfs_broker"，数据根目录为：hdfs://hadoop-name-node:54310/path/to/repo/
@@ -69,6 +69,18 @@ under the License.
         (
             "username" = "user",
             "password" = "password"
+        );
+    
+    4. 创建名为 s3_repo 的仓库，直接链接云存储，而不通过broker.
+        CREATE REPOSITORY `s3_repo`
+        WITH S3
+        ON LOCATION "s3://s3-repo"
+        PROPERTIES
+        (
+            "AWS_ENDPOINT" = "http://s3-REGION.amazonaws.com",
+            "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
+            "AWS_SECRET_KEY"="AWS_SECRET_KEY",
+            "AWS_REGION" = "REGION"
         );
         
 ## keyword

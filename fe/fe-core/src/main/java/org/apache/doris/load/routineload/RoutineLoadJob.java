@@ -18,13 +18,13 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
-import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
@@ -90,7 +90,6 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
 
 /**
  * Routine load job is a function which stream load data from streaming medium to doris.
@@ -155,9 +154,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected long authCode;
     //    protected RoutineLoadDesc routineLoadDesc; // optional
     protected PartitionNames partitions; // optional
-    protected List<ImportColumnDesc> columnDescs; // optional
+    protected ImportColumnDescs columnDescs; // optional
+    protected Expr precedingFilter; // optional
     protected Expr whereExpr; // optional
-    protected ColumnSeparator columnSeparator; // optional
+    protected Separator columnSeparator; // optional
+    protected Separator lineDelimiter;
     protected int desireTaskConcurrentNum; // optional
     protected JobState state = JobState.NEED_SCHEDULE;
     protected LoadDataSourceType dataSourceType;
@@ -343,20 +344,26 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     private void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
         if (routineLoadDesc != null) {
-            columnDescs = Lists.newArrayList();
+            columnDescs = new ImportColumnDescs();
             if (routineLoadDesc.getColumnsInfo() != null) {
                 ImportColumnsStmt columnsStmt = routineLoadDesc.getColumnsInfo();
                 if (columnsStmt.getColumns() != null || columnsStmt.getColumns().size() != 0) {
                     for (ImportColumnDesc columnDesc : columnsStmt.getColumns()) {
-                        columnDescs.add(columnDesc);
+                        columnDescs.descs.add(columnDesc);
                     }
                 }
+            }
+            if (routineLoadDesc.getPrecedingFilter() != null) {
+                precedingFilter = routineLoadDesc.getPrecedingFilter().getExpr();
             }
             if (routineLoadDesc.getWherePredicate() != null) {
                 whereExpr = routineLoadDesc.getWherePredicate().getExpr();
             }
             if (routineLoadDesc.getColumnSeparator() != null) {
                 columnSeparator = routineLoadDesc.getColumnSeparator();
+            }
+            if (routineLoadDesc.getLineDelimiter() != null) {
+                lineDelimiter = routineLoadDesc.getLineDelimiter();
             }
             if (routineLoadDesc.getPartitionNames() != null) {
                 partitions = routineLoadDesc.getPartitionNames();
@@ -471,12 +478,22 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return fileFormatType;
     }
 
+    @Override
+    public Expr getPrecedingFilter() {
+        return precedingFilter;
+    }
+
+    @Override
     public Expr getWhereExpr() {
         return whereExpr;
     }
 
-    public ColumnSeparator getColumnSeparator() {
+    public Separator getColumnSeparator() {
         return columnSeparator;
+    }
+
+    public Separator getLineDelimiter() {
+        return lineDelimiter;
     }
 
     public boolean isStrictMode() {
@@ -561,12 +578,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     @Override
-    public List<ImportColumnDesc> getColumnExprDescs() {
+    public ImportColumnDescs getColumnExprDescs() {
         if (columnDescs == null) {
-            return new ArrayList<>();
+            return new ImportColumnDescs();
         }
-        // use the copy of columnDescs avoid duplicated add delete condition
-        return columnDescs.stream().collect(Collectors.toList());
+        return columnDescs;
     }
 
     public String getJsonPaths() {
@@ -1333,12 +1349,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     private String jobPropertiesToJsonString() {
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
-        jobProperties.put("columnToColumnExpr", columnDescs == null ? STAR_STRING : Joiner.on(",").join(columnDescs));
+        jobProperties.put("columnToColumnExpr", columnDescs == null ? STAR_STRING : Joiner.on(",").join(columnDescs.descs));
+        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSql());
         jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
         if (getFormat().equalsIgnoreCase("json")) {
             jobProperties.put("dataFormat", "json");
         } else {
             jobProperties.put("columnSeparator", columnSeparator == null ? "\t" : columnSeparator.toString());
+            jobProperties.put("lineDelimiter", lineDelimiter == null ? "\n" : lineDelimiter.toString());
         }
         jobProperties.put("maxErrorNum", String.valueOf(maxErrorNum));
         jobProperties.put("maxBatchIntervalS", String.valueOf(maxBatchIntervalS));

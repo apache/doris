@@ -312,7 +312,7 @@ PROPERTIES
 
 Broker 导入是异步命令。以上命令执行成功只表示提交任务成功。导入是否成功需要通过 `SHOW LOAD;` 查看。如：
 
-`SHOW LOAD WHERE LABLE = "table1_20170708";`
+`SHOW LOAD WHERE LABEL = "table1_20170708";`
 
 返回结果中，`State` 字段为 FINISHED 则表示导入成功。
 
@@ -337,7 +337,7 @@ MySQL> SELECT * FROM table1 LIMIT 3;
 |      5 |        3 | 'helen'  |    3 |
 |      3 |        2 | 'tom'    |    2 |
 +--------+----------+----------+------+
-5 rows in set (0.01 sec)
+3 rows in set (0.01 sec)
 
 MySQL> SELECT * FROM table1 ORDER BY citycode;
 +--------+----------+----------+------+

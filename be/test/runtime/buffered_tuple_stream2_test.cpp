@@ -18,7 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <boost/bind.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <boost/scoped_ptr.hpp>
 #include <limits> // for std::numeric_limits<int>::max()
 #include <string>
