@@ -46,7 +46,7 @@ if ! ${MVN_CMD} --version; then
 fi
 export MVN_CMD
 
-${MVN_CMD} clean package
+${MVN_CMD} -Dio.netty.tryReflectionSetAccessible=true clean package
 
 
 mkdir -p output/
