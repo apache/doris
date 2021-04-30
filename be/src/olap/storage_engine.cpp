@@ -483,7 +483,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
 DataDir* StorageEngine::get_store(const std::string& path) {
     // _store_map is unchanged, no need to lock
     auto it = _store_map.find(path);
-    if (it == std::end(_store_map)) {
+    if (it == _store_map.end()) {
         return nullptr;
     }
     return it->second;
@@ -499,8 +499,9 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
     uint32_t unused_root_path_num = 0;
     uint32_t total_root_path_num = 0;
 
+    // TODO(yingchun): _store_map is only updated in main and ~StorageEngine, maybe we can remove it?
     std::lock_guard<std::mutex> l(_store_lock);
-    if (_store_map.size() == 0) {
+    if (_store_map.empty()) {
         return false;
     }
 

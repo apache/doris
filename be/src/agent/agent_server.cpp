@@ -54,10 +54,18 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 #ifndef BE_TEST
 #define CREATE_AND_START_POOL(type, pool_name)                                                 \
     pool_name.reset(                                                                           \
-            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, _exec_env, master_info)); \
+            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, _exec_env, master_info,   \
+                               TaskWorkerPool::ThreadModel::MULTI_THREADS));                   \
+    pool_name->start();
+
+#define CREATE_AND_START_THREAD(type, pool_name)                                               \
+    pool_name.reset(                                                                           \
+            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, _exec_env, master_info,   \
+                               TaskWorkerPool::ThreadModel::SINGLE_THREAD));                   \
     pool_name->start();
 #else
 #define CREATE_AND_START_POOL(type, pool_name)
+#define CREATE_AND_START_THREAD(type, pool_name)
 #endif // BE_TEST
 
     CREATE_AND_START_POOL(CREATE_TABLE, _create_tablet_workers);
@@ -71,16 +79,18 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     CREATE_AND_START_POOL(CLONE, _clone_workers);
     CREATE_AND_START_POOL(STORAGE_MEDIUM_MIGRATE, _storage_medium_migrate_workers);
     CREATE_AND_START_POOL(CHECK_CONSISTENCY, _check_consistency_workers);
-    CREATE_AND_START_POOL(REPORT_TASK, _report_task_workers);
-    CREATE_AND_START_POOL(REPORT_DISK_STATE, _report_disk_state_workers);
-    CREATE_AND_START_POOL(REPORT_OLAP_TABLE, _report_tablet_workers);
     CREATE_AND_START_POOL(UPLOAD, _upload_workers);
     CREATE_AND_START_POOL(DOWNLOAD, _download_workers);
     CREATE_AND_START_POOL(MAKE_SNAPSHOT, _make_snapshot_workers);
     CREATE_AND_START_POOL(RELEASE_SNAPSHOT, _release_snapshot_workers);
     CREATE_AND_START_POOL(MOVE, _move_dir_workers);
     CREATE_AND_START_POOL(UPDATE_TABLET_META_INFO, _update_tablet_meta_info_workers);
+
+    CREATE_AND_START_THREAD(REPORT_TASK, _report_task_workers);
+    CREATE_AND_START_THREAD(REPORT_DISK_STATE, _report_disk_state_workers);
+    CREATE_AND_START_THREAD(REPORT_OLAP_TABLE, _report_tablet_workers);
 #undef CREATE_AND_START_POOL
+#undef CREATE_AND_START_THREAD
 
 #ifndef BE_TEST
     // Add subscriber here and register listeners

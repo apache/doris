@@ -78,6 +78,11 @@ public:
         TABLET
     };
 
+    enum class ThreadModel {
+        SINGLE_THREAD,      // Only 1 thread allowed in the pool
+        MULTI_THREADS       // 1 or more threads allowed in the pool
+    };
+
     inline const std::string TYPE_STRING(TaskWorkerType type) {
         switch (type) {
         case CREATE_TABLE:
@@ -145,7 +150,7 @@ public:
     }
 
     TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
-                   const TMasterInfo& master_info);
+                   const TMasterInfo& master_info, ThreadModel thread_model);
     virtual ~TaskWorkerPool();
 
     // Start the task worker thread pool
@@ -218,12 +223,17 @@ private:
     ConditionVariable _worker_thread_condition_variable;
     CountDownLatch _stop_background_threads_latch;
     bool _is_work;
+    ThreadModel _thread_model;
     std::unique_ptr<ThreadPool> _thread_pool;
+    // Only meaningful when _thread_model is MULTI_THREADS
     std::deque<TAgentTaskRequest> _tasks;
+    // Only meaningful when _thread_model is SINGLE_THREAD
+    std::atomic<bool> _is_doing_work;
 
     std::shared_ptr<MetricEntity> _metric_entity;
     UIntGauge* agent_task_queue_size;
 
+    // Always 1 when _thread_model is SINGLE_THREAD
     uint32_t _worker_count;
     TaskWorkerType _task_worker_type;
 
