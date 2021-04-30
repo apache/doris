@@ -17,21 +17,12 @@
 
 package org.apache.doris.common;
 
-import static org.apache.doris.common.InternalErrorCode.META_NOT_FOUND_ERR;
+import org.apache.doris.common.util.DebugUtil;
 
-/**
- * Exception for meta info is null, like db table partition tablet replica job
- */
-public class MetaNotFoundException extends UserException {
-    public MetaNotFoundException(String msg) {
-        super(META_NOT_FOUND_ERR, msg);
-    }
+public class QuotaExceedException extends UserException {
 
-    public MetaNotFoundException(InternalErrorCode errcode, String msg) {
-        super(errcode, msg);
-    }
-
-    public MetaNotFoundException(String msg, Throwable e) {
-        super(msg, e);
+    public QuotaExceedException(String databaseName, long dataQuotaBytes) {
+        super("Database[" + databaseName + "] data size exceeds quota["
+                + DebugUtil.printByteWithUnit(dataQuotaBytes) + "]");
     }
 }
