@@ -17,8 +17,12 @@
 
 package org.apache.doris.http.rest;
 
+import com.google.common.base.Strings;
+import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpMethod;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
@@ -29,16 +33,10 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
-
-import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-
-import io.netty.handler.codec.http.HttpHeaders;
-import io.netty.handler.codec.http.HttpMethod;
 
 public class LoadAction extends RestBaseAction {
     private static final Logger LOG = LogManager.getLogger(LoadAction.class);
@@ -90,6 +88,14 @@ public class LoadAction extends RestBaseAction {
         String tableName = request.getSingleParameter(TABLE_KEY);
         if (Strings.isNullOrEmpty(tableName)) {
             throw new DdlException("No table selected.");
+        }
+
+        if (isStreamLoad) {
+            for (String config: Config.disable_config) {
+                if (config.equalsIgnoreCase("stream load")) {
+                    throw new DdlException("Stream Load is disabled, please contact Doris Manager.");
+                }
+            }
         }
         
         String fullDbName = ClusterNamespace.getFullName(clusterName, dbName);

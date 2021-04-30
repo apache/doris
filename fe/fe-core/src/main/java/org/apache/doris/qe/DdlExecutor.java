@@ -113,6 +113,12 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropMaterializedViewStmt) {
             catalog.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
+            for (String config: Config.disable_config) {
+                if (config.equalsIgnoreCase("alter table")) {
+                    throw new DdlException("Alter Table operation is disabled,"
+                            + " please contact Doris manager;'");
+                }
+            }
             catalog.alterTable((AlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterViewStmt) {
             catalog.alterView((AlterViewStmt) ddlStmt);
@@ -127,6 +133,14 @@ public class DdlExecutor {
             if (jobType == EtlJobType.HADOOP && Config.disable_hadoop_load) {
                 throw new DdlException("Load job by hadoop cluster is disabled."
                         + " Try using broker load. See 'help broker load;'");
+            }
+            if (jobType == EtlJobType.BROKER) {
+                for (String config:Config.disable_config) {
+                    if (config.equalsIgnoreCase("broker load")) {
+                        throw new DdlException("Broker Load is disabled,"
+                                + " please contact Doris manager;'");
+                    }
+                }
             }
             if (jobType == EtlJobType.HADOOP) {
                 catalog.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
@@ -207,6 +221,12 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof SyncStmt) {
             return;
         } else if (ddlStmt instanceof TruncateTableStmt) {
+            for (String config:Config.disable_config) {
+                if (config.equalsIgnoreCase("truncate table")) {
+                    throw new DdlException("Truncate Table is disabled,"
+                            + " please contact Doris manager;'");
+                }
+            }
             catalog.truncateTable((TruncateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminRepairTableStmt) {
             catalog.getTabletChecker().repairTable((AdminRepairTableStmt) ddlStmt);

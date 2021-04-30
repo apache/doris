@@ -1387,4 +1387,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_dynamic_partition_num = 500;
+
+    /**
+     * Array config to disable operations
+     * You can set config use command: admin set frontend config ("disable_config"="broker load, alter table, truncate table, stream load");
+     * It can be extended to add more disable operations, currently supports 4 operations.
+     */
+    @ConfField(mutable = true)
+    public static String[] disable_config = {};
 }
