@@ -55,9 +55,8 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id,
         *tablet_id = std::stoull(req_tablet_id);
         *schema_hash = std::stoul(req_schema_hash);
     } catch (const std::exception& e) {
-        LOG(WARNING) << "invalid argument.tablet_id:" << req_tablet_id
-                     << ", schema_hash:" << req_schema_hash;
-        return Status::InternalError(strings::Substitute("convert failed, $0", e.what()));
+        return Status::InternalError(
+            strings::Substitute("convert tablet_id and schema_hash failed, $0", e.what()));
     }
 
     return Status::OK();
@@ -67,14 +66,15 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id,
 Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
     uint32_t schema_hash = 0;
-
-    Status status = _check_param(req, &tablet_id, &schema_hash);
-    RETURN_IF_ERROR(status);
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &schema_hash),
+                                   "check param failed");
 
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
     if (tablet == nullptr) {
-        return Status::NotFound("Tablet not found");
+        return Status::NotFound(
+            strings::Substitute("Tablet not found. tablet_id=$0, schema_hash=$1",
+                                tablet_id, schema_hash));
     }
 
     tablet->get_compaction_status(json_result);
@@ -83,29 +83,27 @@ Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* 
 
 Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* json_result) {
     // 1. param check
+    // check req_tablet_id and req_schema_hash is not empty
     uint64_t tablet_id = 0;
     uint32_t schema_hash = 0;
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &schema_hash),
+                                   "check param failed");
 
-    // check req_tablet_id and req_schema_hash is not empty
-    Status check_status = _check_param(req, &tablet_id, &schema_hash);
-    RETURN_IF_ERROR(check_status);
-
+    // check compaction_type equals 'base' or 'cumulative'
     std::string compaction_type = req->param(PARAM_COMPACTION_TYPE);
-    // check compaction_type is not empty and equals base or cumulative
-    if (compaction_type == "" && !(compaction_type == PARAM_COMPACTION_BASE ||
-                                   compaction_type == PARAM_COMPACTION_CUMULATIVE)) {
-        return Status::NotSupported("The compaction type is not supported");
+    if (compaction_type != PARAM_COMPACTION_BASE &&
+        compaction_type != PARAM_COMPACTION_CUMULATIVE) {
+        return Status::NotSupported(
+            strings::Substitute("The compaction type '$0' is not supported", compaction_type));
     }
 
     // 2. fetch the tablet by tablet_id and schema_hash
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
-
     if (tablet == nullptr) {
-        LOG(WARNING) << "invalid argument.tablet_id:" << tablet_id
-                     << ", schema_hash:" << schema_hash;
-        return Status::InternalError(
-                strings::Substitute("fail to get $0, $1", tablet_id, schema_hash));
+        return Status::NotFound(
+            strings::Substitute("Tablet not found. tablet_id=$0, schema_hash=$1",
+                                tablet_id, schema_hash));
     }
 
     // 3. execute compaction task
@@ -152,8 +150,8 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
     uint32_t schema_hash = 0;
 
     // check req_tablet_id and req_schema_hash is not empty
-    Status check_status = _check_param(req, &tablet_id, &schema_hash);
-    RETURN_IF_ERROR(check_status);
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &schema_hash),
+                                   "check param failed");
 
     // fetch the tablet by tablet_id and schema_hash
     TabletSharedPtr tablet =
@@ -217,25 +215,20 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
         std::string tracker_label = "CompactionAction:BaseCompaction:" + std::to_string(syscall(__NR_gettid));
         BaseCompaction base_compaction(tablet, tracker_label, _compaction_mem_tracker);
         OLAPStatus res = base_compaction.compact();
-        if (res != OLAP_SUCCESS) {
-            if (res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
-                DorisMetrics::instance()->base_compaction_request_failed->increment(1);
-                LOG(WARNING) << "failed to init base compaction. res=" << res
-                             << ", table=" << tablet->full_name();
-            }
+        if (res != OLAP_SUCCESS && res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
+            DorisMetrics::instance()->base_compaction_request_failed->increment(1);
+            LOG(WARNING) << "failed to init base compaction. res=" << res
+                         << ", table=" << tablet->full_name();
         }
         status = res;
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
         std::string tracker_label = "CompactionAction:CumulativeCompaction:" + std::to_string(syscall(__NR_gettid));
         CumulativeCompaction cumulative_compaction(tablet, tracker_label, _compaction_mem_tracker);
-
         OLAPStatus res = cumulative_compaction.compact();
-        if (res != OLAP_SUCCESS) {
-            if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
-                DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
-                LOG(WARNING) << "failed to do cumulative compaction. res=" << res
-                             << ", table=" << tablet->full_name();
-            }
+        if (res != OLAP_SUCCESS && res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
+            DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
+            LOG(WARNING) << "failed to do cumulative compaction. res=" << res
+                         << ", table=" << tablet->full_name();
         }
         status = res;
     }
