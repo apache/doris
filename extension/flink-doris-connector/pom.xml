@@ -10,8 +10,8 @@
 
     <properties>
         <scala.version>2.12</scala.version>
-		<scala.sdk.version>2.12.8</scala.sdk.version>
-		<maven.compiler.source>1.8</maven.compiler.source>
+        <scala.sdk.version>2.12.8</scala.sdk.version>
+        <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <flink.version>1.11.2</flink.version>
         <libthrift.version>0.9.3</libthrift.version>
