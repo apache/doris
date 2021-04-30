@@ -504,6 +504,7 @@ public class Backend implements Writable {
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_99) {
             Backend backend = new Backend();
             backend.readFields(in);
+            LOG.info("read backend by old version");
             return backend;
         }
         String json = Text.readString(in);
@@ -695,7 +696,7 @@ public class Backend implements Writable {
         public String lastSuccessReportTabletsTime = "N/A";
         @SerializedName("lastStreamLoadTime")
         // the last time when the stream load status was reported by backend
-        private long lastStreamLoadTime = -1;
+        public long lastStreamLoadTime = -1;
 
     }
 }

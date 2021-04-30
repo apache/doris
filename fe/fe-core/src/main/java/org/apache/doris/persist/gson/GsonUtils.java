@@ -68,6 +68,7 @@ import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
+import sun.reflect.generics.reflectiveObjects.ParameterizedTypeImpl;
 
 /*
  * Some utilities about Gson.
@@ -129,7 +130,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(resourceTypeAdapterFactory)
             .registerTypeAdapterFactory(alterJobV2TypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory)
-            .registerTypeAdapterFactory(new ImmutableMapTypeAdapterFactory())
+            .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter());
 
     // this instance is thread-safe.
@@ -353,58 +354,15 @@ public class GsonUtils {
         }
     }
 
-    private static class ImmutableMapAdapter<K, V> implements JsonSerializer<ImmutableMap<K, V>>,
-            JsonDeserializer<ImmutableMap<K, V>> {
-
+    public final static class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?,?>> {
         @Override
-        public ImmutableMap<K, V> deserialize(JsonElement jsonElement, Type type,
-                                              JsonDeserializationContext jsonDeserializationContext)
-                throws JsonParseException {
-            ImmutableMap.Builder<K, V> resultBuilder = ImmutableMap.builder();
-            JsonObject jsonObject = jsonElement.getAsJsonObject();
-            JsonElement mapElement = jsonObject.get("map");
-            Map<K, V> asMap = jsonDeserializationContext.deserialize(mapElement, HashMap.class);
-            for (Map.Entry<K, V> entry : asMap.entrySet()) {
-                resultBuilder.put(entry.getKey(), entry.getValue());
-            }
-            return resultBuilder.build();
-        }
-
-        @Override
-        public JsonElement serialize(ImmutableMap<K, V> kvImmutableMap, Type typeOfSrc,
-                                     JsonSerializationContext jsonSerializationContext) {
-            JsonObject jsonObject = new JsonObject();
-            Map<K, V> asMap = Maps.newHashMap();
-            for (Map.Entry<K, V> entry: kvImmutableMap.entrySet()) {
-                asMap.put(entry.getKey(), entry.getValue());
-            }
-
-            JsonElement jsonElement = jsonSerializationContext.serialize(asMap, HashMap.class);
-            jsonObject.add("map", jsonElement);
-            return jsonObject;
-        }
-    }
-
-    public static class ImmutableMapTypeAdapterFactory implements TypeAdapterFactory {
-
-        @Override
-        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-            if (!ImmutableMap.class.isAssignableFrom(type.getRawType())) {
-                return null;
-            }
-            final TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
-            return new TypeAdapter<T>() {
-                @Override
-                public void write(JsonWriter out, T value) throws IOException {
-                    delegate.write(out, value);
-                }
-
-                @Override
-                @SuppressWarnings("unchecked")
-                public T read(JsonReader in) throws IOException {
-                    return (T) ImmutableMap.copyOf((Map) delegate.read(in));
-                }
-            };
+        public ImmutableMap<?,?> deserialize(final JsonElement json, final Type type,
+                                             final JsonDeserializationContext context) throws JsonParseException
+        {
+            final Type type2 =
+                    ParameterizedTypeImpl.make(Map.class, ((ParameterizedType) type).getActualTypeArguments(), null);
+            final Map<?,?> map = context.deserialize(json, type2);
+            return ImmutableMap.copyOf(map);
         }
     }
 

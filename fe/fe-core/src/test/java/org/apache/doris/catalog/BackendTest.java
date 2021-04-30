@@ -24,10 +24,6 @@ import org.apache.doris.thrift.TDisk;
 
 import com.google.common.collect.ImmutableMap;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -37,6 +33,10 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 public class BackendTest {
     private Backend backend;
@@ -165,7 +165,7 @@ public class BackendTest {
         Assert.assertEquals("/disk2", backend100DiskInfo2.getRootPath());
         // check backend status
         Backend.BackendStatus backend100BackendStatus = backend100.getBackendStatus();
-        Assert.assertEquals(100, backend100BackendStatus.lastSuccessReportTabletsTime);
+        Assert.assertEquals(100, backend100BackendStatus.lastStreamLoadTime);
 
         for (int count = 0; count < 200; count++) {
             Assert.assertTrue(list1.get(count).equals(list2.get(count)));
@@ -191,12 +191,12 @@ public class BackendTest {
         back2 = new Backend(1, "a", 2);
         back2.updateOnce(1, 1, 1);
         Assert.assertFalse(back1.equals(back2));
-        
+
         Assert.assertEquals("Backend [id=1, host=a, heartbeatPort=1, alive=true]", back1.toString());
-        
+
         // 3. delete files
         dis.close();
         file.delete();
     }
-    
+
 }
