@@ -43,9 +43,18 @@ JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
           _ranges(ranges),
           _broker_addresses(broker_addresses),
           _cur_file_reader(nullptr),
+          _cur_line_reader(nullptr),
           _next_range(0),
-          _cur_file_eof(false),
-          _scanner_eof(false) {}
+          _cur_line_reader_eof(false),
+          _scanner_eof(false) {
+    if (params.__isset.line_delimiter_length && params.line_delimiter_length > 1) {
+        _line_delimiter = params.line_delimiter_str;
+        _line_delimiter_length = params.line_delimiter_length;
+    } else {
+        _line_delimiter.push_back(static_cast<char>(params.line_delimiter));
+        _line_delimiter_length = 1;
+    }
+}
 
 JsonScanner::~JsonScanner() {
     close();
@@ -59,19 +68,17 @@ Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     SCOPED_TIMER(_read_timer);
     // Get one line
     while (!_scanner_eof) {
-        if (_cur_file_reader == nullptr || _cur_file_eof) {
+        if (_cur_line_reader == nullptr || _cur_line_reader_eof) {
             RETURN_IF_ERROR(open_next_reader());
             // If there isn't any more reader, break this
             if (_scanner_eof) {
                 break;
             }
-            _cur_file_eof = false;
         }
-        RETURN_IF_ERROR(
-                _cur_file_reader->read(_src_tuple, _src_slot_descs, tuple_pool, &_cur_file_eof));
-
-        if (_cur_file_eof) {
-            continue; // read next file
+        RETURN_IF_ERROR(_cur_line_reader->read_line(_src_tuple, _src_slot_descs, tuple_pool,
+                                                    &_cur_line_reader_eof));
+        if (_cur_line_reader_eof) {
+            continue; // read next line
         }
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
@@ -88,28 +95,40 @@ Status JsonScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
 }
 
 Status JsonScanner::open_next_reader() {
-    if (_cur_file_reader != nullptr) {
-        delete _cur_file_reader;
-        _cur_file_reader = nullptr;
-        if (_stream_load_pipe != nullptr) {
-            _stream_load_pipe.reset();
-        }
-    }
     if (_next_range >= _ranges.size()) {
         _scanner_eof = true;
         return Status::OK();
     }
-    const TBrokerRangeDesc& range = _ranges[_next_range++];
+
+    RETURN_IF_ERROR(open_file_reader());
+    RETURN_IF_ERROR(open_line_reader());
+    RETURN_IF_ERROR(open_json_reader());
+    _next_range++;
+
+    return Status::OK();
+}
+
+Status JsonScanner::open_file_reader() {
+    if (_cur_file_reader != nullptr) {
+        if (_stream_load_pipe != nullptr) {
+            _stream_load_pipe.reset();
+            _cur_file_reader = nullptr;
+        } else {
+            delete _cur_file_reader;
+            _cur_file_reader = nullptr;
+        }
+    }
+
+    const TBrokerRangeDesc& range = _ranges[_next_range];
     int64_t start_offset = range.start_offset;
     if (start_offset != 0) {
         start_offset -= 1;
     }
-    FileReader* file = nullptr;
     switch (range.file_type) {
     case TFileType::FILE_LOCAL: {
         LocalFileReader* file_reader = new LocalFileReader(range.path, start_offset);
         RETURN_IF_ERROR(file_reader->open());
-        file = file_reader;
+        _cur_file_reader = file_reader;
         break;
     }
     case TFileType::FILE_BROKER: {
@@ -117,7 +136,7 @@ Status JsonScanner::open_next_reader() {
                 new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
                                  range.path, start_offset);
         RETURN_IF_ERROR(broker_reader->open());
-        file = broker_reader;
+        _cur_file_reader = broker_reader;
         break;
     }
     case TFileType::FILE_S3: {
@@ -125,7 +144,7 @@ Status JsonScanner::open_next_reader() {
                 new BufferedReader(new S3Reader(_params.properties, range.path, start_offset),
                                    config::remote_storage_read_buffer_mb * 1024 * 1024);
         RETURN_IF_ERROR(s3_reader->open());
-        file = s3_reader;
+        _cur_file_reader = s3_reader;
         break;
     }
     case TFileType::FILE_STREAM: {
@@ -134,7 +153,7 @@ Status JsonScanner::open_next_reader() {
             VLOG_NOTICE << "unknown stream load id: " << UniqueId(range.load_id);
             return Status::InternalError("unknown stream load id");
         }
-        file = _stream_load_pipe.get();
+        _cur_file_reader = _stream_load_pipe.get();
         break;
     }
     default: {
@@ -142,6 +161,21 @@ Status JsonScanner::open_next_reader() {
         ss << "Unknown file type, type=" << range.file_type;
         return Status::InternalError(ss.str());
     }
+    }
+    return Status::OK();
+}
+
+Status JsonScanner::open_line_reader() {
+    if (_cur_line_reader != nullptr) {
+        delete _cur_line_reader;
+        _cur_line_reader = nullptr;
+    }
+
+    const TBrokerRangeDesc& range = _ranges[_next_range];
+    if (range.start_offset != 0) {
+        std::stringstream ss;
+        ss << "For now we do not support split json file";
+        return Status::InternalError(ss.str());
     }
 
     std::string json_root = "";
@@ -165,14 +199,65 @@ Status JsonScanner::open_next_reader() {
     if (range.__isset.fuzzy_parse) {
         fuzzy_parse = range.fuzzy_parse;
     }
-    _cur_file_reader = new JsonReader(_state, _counter, _profile, file, strip_outer_array,
-                                      num_as_string, fuzzy_parse);
-    RETURN_IF_ERROR(_cur_file_reader->init(jsonpath, json_root));
+    _cur_line_reader =
+            new JsonReader(_state, _counter, _profile, _cur_file_reader, strip_outer_array,
+                           num_as_string, fuzzy_parse, _line_delimiter, _line_delimiter_length);
+    RETURN_IF_ERROR(_cur_line_reader->init(jsonpath, json_root));
+    _cur_line_reader_eof = false;
+    return Status::OK();
+}
 
+Status JsonScanner::open_json_reader() {
+    if (_cur_line_reader != nullptr) {
+        delete _cur_line_reader;
+        _cur_line_reader = nullptr;
+    }
+
+    const TBrokerRangeDesc& range = _ranges[_next_range];
+    if (range.start_offset != 0) {
+        std::stringstream ss;
+        ss << "For now we do not support split json file";
+        return Status::InternalError(ss.str());
+    }
+
+    std::string json_root = "";
+    std::string jsonpath = "";
+    bool strip_outer_array = false;
+    bool num_as_string = false;
+    bool fuzzy_parse = false;
+
+    if (range.__isset.jsonpaths) {
+        jsonpath = range.jsonpaths;
+    }
+    if (range.__isset.json_root) {
+        json_root = range.json_root;
+    }
+    if (range.__isset.strip_outer_array) {
+        strip_outer_array = range.strip_outer_array;
+    }
+    if (range.__isset.num_as_string) {
+        num_as_string = range.num_as_string;
+    }
+    if (range.__isset.fuzzy_parse) {
+        fuzzy_parse = range.fuzzy_parse;
+    }
+    _cur_line_reader =
+            new JsonReader(_state, _counter, _profile, _cur_file_reader, strip_outer_array,
+                           num_as_string, fuzzy_parse, _line_delimiter, _line_delimiter_length);
+    RETURN_IF_ERROR(_cur_line_reader->init(jsonpath, json_root));
+    _cur_line_reader_eof = false;
     return Status::OK();
 }
 
 void JsonScanner::close() {
+    if (_cur_json_reader != nullptr) {
+        delete _cur_json_reader;
+        _cur_json_reader = nullptr;
+    }
+    if (_cur_line_reader != nullptr) {
+        delete _cur_line_reader;
+        _cur_line_reader = nullptr;
+    }
     if (_cur_file_reader != nullptr) {
         delete _cur_file_reader;
         _cur_file_reader = nullptr;
@@ -247,19 +332,24 @@ Status JsonReader::init(const std::string& jsonpath, const std::string& json_roo
 Status JsonReader::_generate_json_paths(const std::string& jsonpath,
                                         std::vector<std::vector<JsonPath>>* vect) {
     rapidjson::Document jsonpaths_doc;
+    LOG(WARNING) << "cch13 json path " << jsonpath;
     if (!jsonpaths_doc.Parse(jsonpath.c_str()).HasParseError()) {
         if (!jsonpaths_doc.IsArray()) {
             return Status::InvalidArgument("Invalid json path: " + jsonpath);
         } else {
             for (int i = 0; i < jsonpaths_doc.Size(); i++) {
                 const rapidjson::Value& path = jsonpaths_doc[i];
+                LOG(WARNING) << "cch13 json path child " << std::string(path.GetString());
                 if (!path.IsString()) {
                     return Status::InvalidArgument("Invalid json path: " + jsonpath);
                 }
-                path.GetString();
                 std::vector<JsonPath> parsed_paths;
                 JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
-                vect->push_back(parsed_paths);
+                LOG(WARNING) << "cch13 size " << parsed_paths.size();
+                for (JsonPath &p : parsed_paths) {
+                    LOG(WARNING) << "cch13 " << p.debug_string();
+                }
+                vect->push_back(std::move(parsed_paths));
             }
             return Status::OK();
         }
@@ -689,7 +779,7 @@ Status JsonReader::_handle_flat_array_complex_json(Tuple* tuple,
     return Status::OK();
 }
 
-Status JsonReader::read(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
+Status JsonReader::read_line(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
                         MemPool* tuple_pool, bool* eof) {
     return (this->*_handle_json_callback)(tuple, slot_descs, tuple_pool, eof);
 }
