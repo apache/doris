@@ -172,7 +172,10 @@ public class MysqlProto {
         // with password.
         // So Doris support the Protocol::AuthSwitchRequest to tell client to keep the default password plugin
         // which Doris is using now.
-        if (!handshakePacket.checkAuthPluginSameAsDoris(authPacket.getPluginName())) {
+        // Note: Check the authPacket whether support plugin auth firstly, before we check AuthPlugin between doris and client
+        // to compatible with older version: like mysql 5.1
+        if (authPacket.getCapability().isPluginAuth() &&
+                !handshakePacket.checkAuthPluginSameAsDoris(authPacket.getPluginName())) {
             // 1. clear the serializer
             serializer.reset();
             // 2. build the auth switch request and send to the client
