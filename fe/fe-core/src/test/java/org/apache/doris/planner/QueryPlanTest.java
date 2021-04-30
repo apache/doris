@@ -43,13 +43,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Lists;
+
 import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
 
 import java.io.File;
 import java.util.List;
@@ -1472,24 +1472,4 @@ public class QueryPlanTest {
 
     }
 
-    @Test
-    public void testSetVarInQueryStmt() throws Exception {
-        connectContext.setDatabase("default_cluster:test");
-        connectContext.resetSessionVariables();
-        try {
-            String sql = "select /*+ SET_VAR(query_timeout=1) */ 1;";
-            UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-            Assert.assertEquals(1, connectContext.getSessionVariable().getQueryTimeoutS());
-
-            sql = "select /*+ SET_VAR(query_timeout=10, enable_partition_cache=true, prefer_join_method=shuffle," +
-                    " sql_mode=STRICT_TRANS_TABLES) */ 1;";
-            UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-            Assert.assertEquals(10, connectContext.getSessionVariable().getQueryTimeoutS());
-            Assert.assertEquals(true, connectContext.getSessionVariable().isEnablePartitionCache());
-            Assert.assertEquals("shuffle", connectContext.getSessionVariable().getPreferJoinMethod());
-            Assert.assertEquals(2097152, connectContext.getSessionVariable().getSqlMode());
-        } finally {
-            connectContext.resetSessionVariables();
-        }
-    }
 }

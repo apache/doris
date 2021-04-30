@@ -223,7 +223,7 @@ under the License.
 
     [table]
     1. Modify the default number of replications of the table, which is used as default number of replications while creating new partition.
-        ATLER TABLE example_db.my_table 
+        ALTER TABLE example_db.my_table 
         SET ("default.replication_num" = "2");
         
     2. Modify the actual number of replications of a unpartitioned table (unpartitioned table only)

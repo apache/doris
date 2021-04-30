@@ -392,7 +392,6 @@ public class ReplicaPersistInfo implements Writable {
         sb.append("table id: ").append(tableId);
         sb.append(" partition id: ").append(partitionId);
         sb.append(" index id: ").append(indexId);
-        sb.append(" index id: ").append(indexId);
         sb.append(" tablet id: ").append(tabletId);
         sb.append(" backend id: ").append(backendId);
         sb.append(" replica id: ").append(replicaId);

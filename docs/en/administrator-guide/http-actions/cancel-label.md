@@ -30,7 +30,7 @@ under the License.
         cancel_label: cancel a transaction with label
         
     SYNOPSIS
-        curl -u user:passwd -XPOST http://host:port/api/{db}/{label}/_cancel
+        curl -u user:passwd -XPOST http://host:port/api/{db}/_cancel?label={label}
 
     DESCRIPTION
 
@@ -51,7 +51,7 @@ under the License.
 
     1. Cancel the transaction with label "testLabel" on database "testDb"
 
-        curl -u root -XPOST http://host:port/api/testDb/testLabel/_cancel
+        curl -u root -XPOST http://host:port/api/testDb/_cancel?label=testLabel
  
 ## keyword
 

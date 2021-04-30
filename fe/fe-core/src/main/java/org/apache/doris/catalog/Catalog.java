@@ -67,7 +67,6 @@ import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionRenameClause;
-import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
@@ -75,7 +74,7 @@ import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
-import org.apache.doris.analysis.SingleRangePartitionDesc;
+import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableRenameClause;
@@ -148,6 +147,7 @@ import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadChecker;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadLoadingChecker;
@@ -156,7 +156,6 @@ import org.apache.doris.load.loadv2.LoadTimeoutChecker;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
-import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.meta.MetaContext;
@@ -225,16 +224,11 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Queues;
-import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-import com.sleepycat.je.rep.InsufficientLogException;
-import com.sleepycat.je.rep.NetworkRestore;
-import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
@@ -263,6 +257,11 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+
+import com.sleepycat.je.rep.InsufficientLogException;
+import com.sleepycat.je.rep.NetworkRestore;
+import com.sleepycat.je.rep.NetworkRestoreConfig;
+import org.codehaus.jackson.map.ObjectMapper;
 
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
@@ -3048,7 +3047,7 @@ public class Catalog {
     }
 
     public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
-        SingleRangePartitionDesc singlePartitionDesc = addPartitionClause.getSingeRangePartitionDesc();
+        SinglePartitionDesc singlePartitionDesc = addPartitionClause.getSingeRangePartitionDesc();
         DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
         boolean isTempPartition = addPartitionClause.isTempPartition();
 
@@ -3081,8 +3080,8 @@ public class Catalog {
 
             // check partition type
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-            if (partitionInfo.getType() != PartitionType.RANGE) {
-                throw new DdlException("Only support adding partition to range partitioned table");
+            if (partitionInfo.getType() != PartitionType.RANGE && partitionInfo.getType() != PartitionType.LIST) {
+                throw new DdlException("Only support adding partition to range and list partitioned table");
             }
 
             // check partition name
@@ -3105,9 +3104,8 @@ public class Catalog {
                 properties.put(PropertyAnalyzer.PROPERTIES_INMEMORY, olapTable.isInMemory().toString());
             }
 
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-            singlePartitionDesc.analyze(rangePartitionInfo.getPartitionColumns().size(), properties);
-            rangePartitionInfo.checkAndCreateRange(singlePartitionDesc, isTempPartition);
+            singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
+            partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
 
             // get distributionInfo
             List<Column> baseSchema = olapTable.getBaseSchema();
@@ -3235,13 +3233,12 @@ public class Catalog {
 
                 // check partition type
                 PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                if (partitionInfo.getType() != PartitionType.RANGE) {
-                    throw new DdlException("Only support adding partition to range partitioned table");
+                if (partitionInfo.getType() != PartitionType.RANGE && partitionInfo.getType() != PartitionType.LIST) {
+                    throw new DdlException("Only support adding partition to range and list partitioned table");
                 }
 
                 // update partition info
-                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-                rangePartitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId, isTempPartition);
+                partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId, isTempPartition);
 
                 if (isTempPartition) {
                     olapTable.addTempPartition(partition);
@@ -3250,11 +3247,23 @@ public class Catalog {
                 }
 
                 // log
-                PartitionPersistInfo info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
-                        rangePartitionInfo.getRange(partitionId), dataProperty,
-                        rangePartitionInfo.getReplicationNum(partitionId),
-                        rangePartitionInfo.getIsInMemory(partitionId),
-                        isTempPartition);
+                PartitionPersistInfo info = null;
+                if (partitionInfo.getType() == PartitionType.RANGE) {
+                    info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
+                            partitionInfo.getItem(partitionId).getItems(),
+                            ListPartitionItem.DUMMY_ITEM,
+                            dataProperty,
+                            partitionInfo.getReplicationNum(partitionId),
+                            partitionInfo.getIsInMemory(partitionId),
+                            isTempPartition);
+                } else if (partitionInfo.getType() == PartitionType.LIST) {
+                    info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
+                            RangePartitionItem.DUMMY_ITEM,
+                            partitionInfo.getItem(partitionId), dataProperty,
+                            partitionInfo.getReplicationNum(partitionId),
+                            partitionInfo.getIsInMemory(partitionId),
+                            isTempPartition);
+                }
                 editLog.logAddPartition(info);
 
                 LOG.info("succeed in creating partition[{}], temp: {}", partitionId, isTempPartition);
@@ -3282,9 +3291,15 @@ public class Catalog {
                 olapTable.addPartition(partition);
             }
 
-            ((RangePartitionInfo) partitionInfo).unprotectHandleNewSinglePartitionDesc(partition.getId(),
-                    info.isTempPartition(), info.getRange(), info.getDataProperty(), info.getReplicationNum(),
-                    info.isInMemory());
+            PartitionItem partitionItem = null;
+            if (partitionInfo.getType() == PartitionType.RANGE) {
+                partitionItem = new RangePartitionItem(info.getRange());
+            } else if (partitionInfo.getType() == PartitionType.LIST) {
+                partitionItem = info.getListPartitionItem();
+            }
+
+            partitionInfo.unprotectHandleNewSinglePartitionDesc(partition.getId(), info.isTempPartition(),
+                    partitionItem, info.getDataProperty(), info.getReplicationNum(), info.isInMemory());
 
             if (!isCheckpointThread()) {
                 // add to inverted index
@@ -3328,7 +3343,7 @@ public class Catalog {
         }
 
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        if (partitionInfo.getType() != PartitionType.RANGE) {
+        if (partitionInfo.getType() != PartitionType.RANGE && partitionInfo.getType() != PartitionType.LIST) {
             throw new DdlException("Alter table [" + olapTable.getName() + "] failed. Not a partitioned table");
         }
 
@@ -3528,12 +3543,10 @@ public class Catalog {
         Map<String, Long> partitionNameToId = Maps.newHashMap();
         if (partitionDesc != null) {
             // gen partition id first
-            if (partitionDesc instanceof RangePartitionDesc) {
-                RangePartitionDesc rangeDesc = (RangePartitionDesc) partitionDesc;
-                for (SingleRangePartitionDesc desc : rangeDesc.getSingleRangePartitionDescs()) {
-                    long partitionId = getNextId();
-                    partitionNameToId.put(desc.getPartitionName(), partitionId);
-                }
+            PartitionDesc partDesc = partitionDesc;
+            for (SinglePartitionDesc desc : partDesc.getSinglePartitionDescs()) {
+                long partitionId = getNextId();
+                partitionNameToId.put(desc.getPartitionName(), partitionId);
             }
             partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId, false);
         } else {
@@ -3754,12 +3767,20 @@ public class Catalog {
                         tabletIdSet, olapTable.getCopiedIndexes(),
                         isInMemory, storageFormat, tabletType);
                 olapTable.addPartition(partition);
-            } else if (partitionInfo.getType() == PartitionType.RANGE) {
+            } else if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
                 try {
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
                     PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_DATA_PROPERTY);
-                    DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties);
+                    if (partitionInfo.getType() == PartitionType.RANGE) {
+                        DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties);
+
+                    } else if (partitionInfo.getType() == PartitionType.LIST) {
+                        if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+                            throw new DdlException("Only support dynamic partition properties on range partition table");
+
+                        }
+                    }
 
                     if (properties != null && !properties.isEmpty()) {
                         // here, all properties should be checked
@@ -3770,9 +3791,8 @@ public class Catalog {
                 }
 
                 // this is a 2-level partitioned tables
-                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
                 for (Map.Entry<String, Long> entry : partitionNameToId.entrySet()) {
-                    DataProperty dataProperty = rangePartitionInfo.getDataProperty(entry.getValue());
+                    DataProperty dataProperty = partitionInfo.getDataProperty(entry.getValue());
                     Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
                             olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(),
                             olapTable.getIndexIdToMeta(), distributionInfo,
@@ -3781,7 +3801,7 @@ public class Catalog {
                             versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(),
                             isInMemory, storageFormat,
-                            rangePartitionInfo.getTabletType(entry.getValue()));
+                            partitionInfo.getTabletType(entry.getValue()));
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -4000,7 +4020,7 @@ public class Catalog {
             if (separatePartition) {
                 partitionId = Lists.newArrayList();
             }
-            if (partitionInfo.getType() == PartitionType.RANGE) {
+            if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
                 sb.append("\n").append(partitionInfo.toSql(olapTable, partitionId));
             }
 
@@ -4167,28 +4187,38 @@ public class Catalog {
         createTableStmt.add(sb.toString());
 
         // 2. add partition
-        if (separatePartition && (table instanceof OlapTable)
-                && ((OlapTable) table).getPartitionInfo().getType() == PartitionType.RANGE
-                && ((OlapTable) table).getPartitions().size() > 1) {
-            OlapTable olapTable = (OlapTable) table;
-            RangePartitionInfo partitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
-            boolean first = true;
-            for (Map.Entry<Long, Range<PartitionKey>> entry : partitionInfo.getSortedRangeMap(false)) {
-                if (first) {
-                    first = false;
-                    continue;
+        if (separatePartition && (table instanceof OlapTable) && ((OlapTable) table).getPartitions().size() > 1) {
+            if (((OlapTable) table).getPartitionInfo().getType() == PartitionType.RANGE ||
+                    ((OlapTable) table).getPartitionInfo().getType() == PartitionType.LIST) {
+                OlapTable olapTable = (OlapTable) table;
+                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                boolean first = true;
+                for (Map.Entry<Long, PartitionItem> entry : partitionInfo.getSortedItemMap(false)) {
+                    if (first) {
+                        first = false;
+                        continue;
+                    }
+                    sb = new StringBuilder();
+                    Partition partition = olapTable.getPartition(entry.getKey());
+                    sb.append("ALTER TABLE ").append(table.getName());
+                    sb.append(" ADD PARTITION ").append(partition.getName()).append(" VALUES ");
+                    if (partitionInfo.getType() == PartitionType.RANGE) {
+                        sb.append("[");
+                        sb.append(((RangePartitionItem) entry.getValue()).getItems().lowerEndpoint().toSql());
+                        sb.append(", ");
+                        sb.append(((RangePartitionItem) entry.getValue()).getItems().upperEndpoint().toSql());
+                        sb.append(")");
+                    } else if (partitionInfo.getType() == PartitionType.LIST) {
+                        sb.append("IN (");
+                        sb.append(((ListPartitionItem) entry.getValue()).toSql());
+                        sb.append(")");
+                    }
+                    sb.append("(\"version_info\" = \"");
+                    sb.append(Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()))
+                            .append("\"");
+                    sb.append(");");
+                    addPartitionStmt.add(sb.toString());
                 }
-                sb = new StringBuilder();
-                Partition partition = olapTable.getPartition(entry.getKey());
-                sb.append("ALTER TABLE ").append(table.getName());
-                sb.append(" ADD PARTITION ").append(partition.getName()).append(" VALUES [");
-                sb.append(entry.getValue().lowerEndpoint().toSql());
-                sb.append(", ").append(entry.getValue().upperEndpoint().toSql()).append(")");
-                sb.append("(\"version_info\" = \"");
-                sb.append(Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()))
-                        .append("\"");
-                sb.append(");");
-                addPartitionStmt.add(sb.toString());
             }
         }
 
@@ -4494,6 +4524,13 @@ public class Catalog {
     public void replayAddReplica(ReplicaPersistInfo info) {
         Database db = getDb(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
+        if (olapTable == null) {
+            /**
+             * Same as replayUpdateReplica()
+             */
+            LOG.warn("Olap table is null when the add replica log is replayed, {}", info);
+            return;
+        }
         olapTable.writeLock();
         try {
             unprotectAddReplica(info);
@@ -4505,6 +4542,19 @@ public class Catalog {
     public void replayUpdateReplica(ReplicaPersistInfo info) {
         Database db = getDb(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
+        if (olapTable == null) {
+            /**
+             * In the following cases, doris may record metadata modification information for a table that no longer exists.
+             * 1. Thread 1: get TableA object
+             * 2. Thread 2: lock db and drop table and record edit log of the dropped TableA
+             * 3. Thread 1: lock table, modify table and record edit log of the modified TableA
+             * **The modified edit log is after the dropped edit log**
+             * Because the table has been dropped, the olapTable in here is null when the modified edit log is replayed.
+             * So in this case, we will ignore the edit log of the modified table after the table is dropped.
+             */
+            LOG.warn("Olap table is null when the update replica log is replayed, {}", info);
+            return;
+        }
         olapTable.writeLock();
         try {
             unprotectUpdateReplica(info);
@@ -4525,6 +4575,13 @@ public class Catalog {
     public void replayDeleteReplica(ReplicaPersistInfo info) {
         Database db = getDb(info.getDbId());
         OlapTable tbl = (OlapTable) db.getTable(info.getTableId());
+        if (tbl == null) {
+            /**
+             * Same as replayUpdateReplica()
+             */
+            LOG.warn("Olap table is null when the delete replica log is replayed, {}", info);
+            return;
+        }
         tbl.writeLock();
         try {
             unprotectDeleteReplica(info);
@@ -5128,7 +5185,7 @@ public class Catalog {
                 // user set a new colocate group,
                 // check if all partitions all this table has same buckets num and same replication number
                 PartitionInfo partitionInfo = table.getPartitionInfo();
-                if (partitionInfo.getType() == PartitionType.RANGE) {
+                if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
                     int bucketsNum = -1;
                     short replicationNum = -1;
                     for (Partition partition : table.getPartitions()) {
@@ -5279,7 +5336,7 @@ public class Catalog {
                 throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
             }
 
-            if (table.getPartitionInfo().getType() != PartitionType.RANGE) {
+            if (table.getPartitionInfo().getType() != PartitionType.RANGE && table.getPartitionInfo().getType() != PartitionType.LIST) {
                 throw new DdlException("Table[" + table.getName() + "] is single partitioned. "
                         + "no need to rename partition name.");
             }
@@ -5370,8 +5427,8 @@ public class Catalog {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         String defaultReplicationNumName = "default."+ PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
         PartitionInfo partitionInfo = table.getPartitionInfo();
-        if (partitionInfo.getType() == PartitionType.RANGE) {
-            throw new DdlException("This is a range partitioned table, you should specify partitions with MODIFY PARTITION clause." +
+        if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
+            throw new DdlException("This is a partitioned table, you should specify partitions with MODIFY PARTITION clause." +
                     " If you want to set default replication number, please use '" + defaultReplicationNumName +
                     "' instead of '" + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM + "' to escape misleading.");
         }

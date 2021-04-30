@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -382,12 +381,12 @@ public class CreateTableStmt extends DdlStmt {
         if (engineName.equals("olap")) {
             // analyze partition
             if (partitionDesc != null) {
-                if (partitionDesc.getType() != PartitionType.RANGE) {
-                    throw new AnalysisException("Currently only support range partition with engine type olap");
+                if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc) {
+                    partitionDesc.analyze(columnDefs, properties);
+                } else {
+                    throw new AnalysisException("Currently only support range and list partition with engine type olap");
                 }
 
-                RangePartitionDesc rangePartitionDesc = (RangePartitionDesc) partitionDesc;
-                rangePartitionDesc.analyze(columnDefs, properties);
             }
 
             // analyze distribution

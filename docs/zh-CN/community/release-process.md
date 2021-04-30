@@ -48,7 +48,7 @@ Apache 的发布必须至少是 IPMC 成员，拥有 apache 邮箱的committer�
 	5. 发 Result 邮件到 general@incubator.apache.org
 5. 完成工作
 	1. 上传签名的软件包到 [Apache release repo](https://dist.apache.org/repos/dist/release/incubator/doris)，并生成相关链接
-	2. 在 Doris 官网和 github 发布下载链接
+	2. 在 Doris 官网和 github 发布下载链接，并且清理 svn 上的旧版本包
 	3. 发送 Announce 邮件到 general@incubator.apache.org
 
 
@@ -631,6 +631,29 @@ https://github.com/apache/incubator-doris/releases/tag/0.9.0-rc01
 ```
 http://doris.apache.org/downloads.html
 ```
+
+#### svn 上清理旧版本的包
+
+1. svn 上删除旧版本的包
+
+由于 svn 只需要保存最新版本的包，所以当有新版本发布的时候，旧版本的包就应该从 svn 上清理。
+
+```
+https://dist.apache.org/repos/dist/release/incubator/doris/
+https://dist.apache.org/repos/dist/dev/incubator/doris/
+```
+保持这两个地址中，只有最新版本的包即可。
+
+2. 将 Doris 官网的下载页面中，旧版本包的下载地址改为归档页面的地址 
+
+```
+下载页面: http://doris.apache.org/downloads.html
+归档页面: http://archive.apache.org/dist/incubator/doris
+```
+
+Apache 会有同步机制去将历史的发布版本进行一个归档，具体操作见：(how to archive)[https://www.apache.org/legal/release-policy.html#how-to-archive]
+所以即使旧的包从 svn 上清除，还是可以在归档页面中找到。
+
 ### 发 Announce 邮件到 general@incubator.apache.org
 
 Title:

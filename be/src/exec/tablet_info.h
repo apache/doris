@@ -94,6 +94,7 @@ struct OlapTablePartition {
     int64_t id = 0;
     Tuple* start_key = nullptr;
     Tuple* end_key = nullptr;
+    std::vector<Tuple*> in_keys;
     int64_t num_buckets = 0;
     std::vector<OlapTableIndexTablets> indexes;
 
@@ -168,11 +169,23 @@ private:
 
     // check if this partition contain this key
     bool _part_contains(OlapTablePartition* part, Tuple* key) const {
-        if (part->start_key == nullptr) {
+        if ((part->start_key == nullptr) && (part->in_keys.size() == 0)) {
             // start_key is nullptr means the lower bound is boundless
             return true;
         }
         OlapTablePartKeyComparator comparator(_partition_slot_descs);
+        const TOlapTablePartition& t_part = _t_param.partitions[0];
+        // when list partition, return true if equals. 
+        if (t_part.__isset.in_keys) {
+            bool ret = false;
+            for (auto in_key : part->in_keys) {
+                ret = !comparator(key, in_key) && !comparator(in_key, key);
+                if (ret) {
+                    break;
+                }
+            }
+            return ret;
+        } 
         return !comparator(key, part->start_key);
     }
 

@@ -199,6 +199,7 @@ module.exports = [
       "odbc-of-doris",
       "plugin-development-manual",
       "spark-doris-connector",
+      "flink-doris-connector",
       {
         title: "UDF",
         directoryPath: "udf/",

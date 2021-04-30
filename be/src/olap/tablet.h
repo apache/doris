@@ -56,7 +56,7 @@ public:
                                                    DataDir* data_dir = nullptr);
 
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
-           const std::string& cumulative_compaction_type = config::cumulative_compaction_policy);
+           const std::string& cumulative_compaction_type = "");
 
     OLAPStatus init();
     inline bool init_succeeded();
@@ -162,7 +162,8 @@ public:
 
     // operation for compaction
     bool can_do_compaction();
-    const uint32_t calc_compaction_score(CompactionType compaction_type) const;
+    uint32_t calc_compaction_score(CompactionType compaction_type,
+               std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
     static void compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
                                                   VersionHash* version_hash);
 
@@ -263,7 +264,8 @@ private:
     OLAPStatus _capture_consistent_rowsets_unlocked(const vector<Version>& version_path,
                                                     vector<RowsetSharedPtr>* rowsets) const;
 
-    const uint32_t _calc_cumulative_compaction_score() const;
+    const uint32_t _calc_cumulative_compaction_score(
+            std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
     const uint32_t _calc_base_compaction_score() const;
 
 public:
@@ -307,7 +309,7 @@ private:
     std::atomic<int64_t> _last_checkpoint_time;
 
     // cumulative compaction policy
-    std::unique_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
+    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string _cumulative_compaction_type;
 
     // the value of metric 'query_scan_count' and timestamp will be recorded when every time

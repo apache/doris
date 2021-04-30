@@ -47,6 +47,7 @@
 #include "olap/utils.h"
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
+#include "util/histogram.h"
 #include "util/path_util.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
@@ -697,7 +698,8 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
-        const std::map<TTabletId, CompactionType>& tablet_submitted_compaction, uint32_t* score) {
+        const std::map<TTabletId, CompactionType>& tablet_submitted_compaction, uint32_t* score,
+        std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str =
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
@@ -763,7 +765,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 }
 
                 uint32_t current_compaction_score =
-                        tablet_ptr->calc_compaction_score(compaction_type);
+                        tablet_ptr->calc_compaction_score(compaction_type, cumulative_compaction_policy);
 
                 double scan_frequency = 0.0;
                 if (config::compaction_tablet_scan_frequency_factor != 0) {
@@ -799,7 +801,6 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
 OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
                                                 TSchemaHash schema_hash, const string& meta_binary,
                                                 bool update_meta, bool force, bool restore, bool check_path) {
-    WriteLock wlock(_get_tablets_shard_lock(tablet_id));
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     OLAPStatus status = tablet_meta->deserialize(meta_binary);
     if (status != OLAP_SUCCESS) {
@@ -870,6 +871,8 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
 
     RETURN_NOT_OK_LOG(tablet->init(),
                       strings::Substitute("tablet init failed. tablet=$0", tablet->full_name()));
+
+    WriteLock wlock(_get_tablets_shard_lock(tablet_id));
     RETURN_NOT_OK_LOG(_add_tablet_unlocked(tablet_id, schema_hash, tablet, update_meta, force),
                       strings::Substitute("fail to add tablet. tablet=$0", tablet->full_name()));
 
@@ -964,7 +967,7 @@ OLAPStatus TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTab
     LOG(INFO) << "find expired transactions for " << expire_txn_map.size() << " tablets";
 
     DorisMetrics::instance()->report_all_tablets_requests_total->increment(1);
-
+    HistogramStat tablet_version_num_hist;
     for (const auto& tablets_shard : _tablets_shards) {
         ReadLock rlock(tablets_shard.lock.get());
         for (const auto& item : tablets_shard.tablet_map) {
@@ -986,6 +989,9 @@ OLAPStatus TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTab
                     expire_txn_map.erase(find);
                 }
                 t_tablet.tablet_infos.push_back(tablet_info);
+                if (tablet_ptr->tablet_id() == tablet_id) {
+                    tablet_version_num_hist.add(tablet_ptr->version_count());
+                }
             }
 
             if (!t_tablet.tablet_infos.empty()) {
@@ -993,6 +999,7 @@ OLAPStatus TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTab
             }
         }
     }
+    DorisMetrics::instance()->tablet_version_num_distribution->set_histogram(tablet_version_num_hist);
     LOG(INFO) << "success to build all report tablets info. tablet_count=" << tablets_info->size();
     return OLAP_SUCCESS;
 }

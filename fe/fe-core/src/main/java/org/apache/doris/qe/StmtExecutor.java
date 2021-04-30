@@ -362,6 +362,17 @@ public class StmtExecutor {
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
             }
         } finally {
+            // revert Session Value
+            try {
+                SessionVariable sessionVariable = context.getSessionVariable();
+                VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
+            } catch (DdlException e) {
+                LOG.warn("failed to revert Session value.", e);
+                context.getState().setError(e.getMessage());
+            }
             if (parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 // The transaction of a insert operation begin at analyze phase.
@@ -387,6 +398,7 @@ public class StmtExecutor {
             SelectStmt selectStmt = (SelectStmt) parsedStmt;
             Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
             if (optHints != null) {
+                sessionVariable.setIsSingleSetVar(true);
                 for (String key : optHints.keySet()) {
                     VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
                 }
@@ -404,8 +416,6 @@ public class StmtExecutor {
     private void writeProfile() {
         initProfile(plannerProfile);
         profile.computeTimeInChildProfile();
-        StringBuilder builder = new StringBuilder();
-        profile.prettyPrint(builder, "");
         ProfileManager.getInstance().pushProfile(profile);
     }
 

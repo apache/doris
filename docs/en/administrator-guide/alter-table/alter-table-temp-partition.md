@@ -52,6 +52,15 @@ ALTER TABLE tbl2 ADD TEMPORARY PARTITION tp1 VALUES [("2020-01-01"), ("2020-02-0
 ALTER TABLE tbl1 ADD TEMPORARY PARTITION tp1 VALUES LESS THAN ("2020-02-01")
 ("in_memory" = "true", "replication_num" = "1")
 DISTRIBUTED BY HASH (k1) BUCKETS 5;
+
+ALTER TABLE tbl3 ADD TEMPORARY PARTITION tp1 VALUES IN ("Beijing", "Shanghai");
+
+ALTER TABLE tbl4 ADD TEMPORARY PARTITION tp1 VALUES IN ((1, "Beijing"), (1, "Shanghai"));
+
+ALTER TABLE tbl3 ADD TEMPORARY PARTITION tp1 VALUES IN ("Beijing", "Shanghai")
+("in_memory" = "true", "replication_num" = "1")
+DISTRIBUTED BY HASH(k1) BUCKETS 5;
+
 ```
 
 See `HELP ALTER TABLE;` for more help and examples.
@@ -97,7 +106,13 @@ The replace operation has two special optional parameters:
 
 1. `strict_range`
 
-    The default is true. When this parameter is true, the range union of all formal partitions to be replaced needs to be the same as the range union of the temporary partitions to be replaced. When set to false, you only need to ensure that the range between the new formal partitions does not overlap after replacement. Here are some examples:
+    The default is true. 
+    
+    For Range partition, When this parameter is true, the range union of all formal partitions to be replaced needs to be the same as the range union of the temporary partitions to be replaced. When set to false, you only need to ensure that the range between the new formal partitions does not overlap after replacement. 
+    
+    For List partition, this parameter is always true, and the enumeration values of all full partitions to be replaced must be identical to the enumeration values of the temporary partitions to be replaced.
+
+    Here are some examples:
 
     * Example 1
 
@@ -130,6 +145,38 @@ The replace operation has two special optional parameters:
         ```
 
         The union of ranges is not the same. If `strict_range` is true, you cannot use tp1 and tp2 to replace p1. If false, and the two partition ranges `[10, 30), [40, 50)` and the other formal partitions do not overlap, they can be replaced.
+
+    * Example 3
+
+        Enumerated values of partitions p1, p2 to be replaced (=> union).
+
+        ```
+        (1, 2, 3), (4, 5, 6) => (1, 2, 3, 4, 5, 6)
+        ```
+
+        Replace the enumerated values of partitions tp1, tp2, tp3 (=> union).
+
+        ```
+        (1, 2, 3), (4), (5, 6) => (1, 2, 3, 4, 5, 6)
+        ```
+
+        The enumeration values are the same, you can use tp1, tp2, tp3 to replace p1, p2
+
+    * Example 4
+
+        Enumerated values of partitions p1, p2, p3 to be replaced (=> union).
+
+        ```
+        (("1", "beijing"), ("1", "shanghai")), (("2", "beijing"), ("2", "shanghai")), (("3", "beijing"), ("3", "shanghai")) => (("1", "beijing"), ("3", "shanghai")) "), ("1", "shanghai"), ("2", "beijing"), ("2", "shanghai"), ("3", "beijing"), ("3", "shanghai"))
+        ```
+
+        Replace the enumerated values of partitions tp1, tp2 (=> union).
+
+        ```
+        (("1", "beijing"), ("1", "shanghai")), (("2", "beijing"), ("2", "shanghai"), ("3", "beijing"), ("3", "shanghai")) => (("1", "beijing") , ("1", "shanghai"), ("2", "beijing"), ("2", "shanghai"), ("3", "beijing"), ("3", "shanghai"))
+        ```
+
+        The enumeration values are the same, you can use tp1, tp2 to replace p1, p2, p3
 
 2. `use_temp_partition_name`
 

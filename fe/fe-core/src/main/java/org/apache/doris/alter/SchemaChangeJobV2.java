@@ -706,7 +706,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         
         this.watershedTxnId = replayedJob.watershedTxnId;
         jobState = JobState.WAITING_TXN;
-        LOG.info("replay pending schema change job: {}", jobId);
+        LOG.info("replay pending schema change job: {}, table id: {}", jobId, tableId);
     }
 
     /**
@@ -735,7 +735,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         // should still be in WAITING_TXN state, so that the alter tasks will be resend again
         this.jobState = JobState.WAITING_TXN;
         this.watershedTxnId = replayedJob.watershedTxnId;
-        LOG.info("replay waiting txn schema change job: {}", jobId);
+        LOG.info("replay waiting txn schema change job: {} table id: {}", jobId, tableId);
     }
 
     /**

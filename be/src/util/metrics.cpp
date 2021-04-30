@@ -138,6 +138,12 @@ void HistogramMetric::merge(const HistogramMetric& other) {
     _stats.merge(other._stats);
 }
 
+void HistogramMetric::set_histogram(const HistogramStat& stats) {
+    std::lock_guard<SpinLock> l(_lock);
+    _stats.clear();
+    _stats.merge(stats);
+}
+
 double HistogramMetric::median() const {
     return _stats.median();
 }
