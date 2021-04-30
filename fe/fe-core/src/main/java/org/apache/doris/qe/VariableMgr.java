@@ -206,6 +206,17 @@ public class VariableMgr {
         return true;
     }
 
+    // revert the operator[set_var] on select/*+ SET_VAR()*/  sql;
+    public static void revertSessionValue(SessionVariable obj) throws DdlException {
+        Map<Field, String> sessionOriginValue = obj.getSessionOriginValue();
+        if(!sessionOriginValue.isEmpty()) {
+            for (Field field : sessionOriginValue.keySet()) {
+                // revert session value
+                setValue(obj, field, sessionOriginValue.get(field));
+            }
+        }
+    }
+
     public static SessionVariable newSessionVariable() {
         wlock.lock();
         try {
@@ -268,7 +279,16 @@ public class VariableMgr {
             }
         } else {
             // set session variable
-            setValue(sessionVariable, ctx.getField(), value);
+            Field field = ctx.getField();
+            // if stmt is "Select /*+ SET_VAR(...)*/"
+            if(sessionVariable.getIsSingleSetVar()) {
+                try {
+                    sessionVariable.addSessionOriginValue(field, field.get(sessionVariable).toString());
+                } catch (Exception e) {
+                    LOG.warn("failed to collect origin session value ", e);
+                }
+            }
+            setValue(sessionVariable, field, value);
         }
     }
 
