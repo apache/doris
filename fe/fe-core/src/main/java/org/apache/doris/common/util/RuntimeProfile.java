@@ -344,15 +344,15 @@ public class RuntimeProfile {
     // Because the profile of summary and child fragment is not a real parent-child relationship
     // Each child profile needs to calculate the time proportion consumed by itself
     public void computeTimeInChildProfile() {
-        childMap.values().stream().
-                forEach(child -> child.computeTimeInProfile());
+        childMap.values().
+                forEach(RuntimeProfile::computeTimeInProfile);
     }
     
     public void computeTimeInProfile() {
         computeTimeInProfile(this.counterTotalTime.getValue());
     }
     
-    public void computeTimeInProfile(long total) {
+    private void computeTimeInProfile(long total) {
         if (total == 0) {
             return;
         }
