@@ -33,7 +33,7 @@ This statement is used to show the amount of data, the number of replica and num
 Syntax:
 
 ```
-SHOW DATA [FROM db_name[.table_name]];
+SHOW DATA [FROM db_name[.table_name]] [ORDER BY ...];
 ```
 
 Explain:
@@ -45,6 +45,10 @@ Explain:
 3. When counting the number of rows, the replica with the largest number of rows among multiple replicas shall prevail.
 
 4. The `Total` row in the result set represents the summary row. The `Quota` row indicates the current quota of the database. The `Left` line indicates the remaining quota.
+
+5. If you want to check the size of each Partition, please refer to `help show partitions`.
+
+6. Arbitrary column combinations can be sorted using ORDER BY.
 
 ## example
 

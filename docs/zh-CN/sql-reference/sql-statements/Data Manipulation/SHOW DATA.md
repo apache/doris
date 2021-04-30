@@ -33,7 +33,7 @@ under the License.
 语法：
 
 ```
-SHOW DATA [FROM db_name[.table_name]];
+SHOW DATA [FROM db_name[.table_name]] [ORDER BY ...];
 ```
     
 说明：
@@ -47,6 +47,8 @@ SHOW DATA [FROM db_name[.table_name]];
 4. 结果集中的 `Total` 行表示汇总行。`Quota` 行表示当前数据库设置的配额。`Left` 行表示剩余配额。
 
 5. 如果想查看各个 Partition 的大小，请参阅 `help show partitions`。
+
+6. 可以使用 ORDER BY 对任意列组合进行排序。
 
 ## example
 
