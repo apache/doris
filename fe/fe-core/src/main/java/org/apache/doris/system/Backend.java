@@ -24,7 +24,6 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;

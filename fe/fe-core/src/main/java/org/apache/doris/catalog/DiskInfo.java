@@ -22,7 +22,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 
 import org.apache.logging.log4j.LogManager;
