@@ -25,8 +25,8 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
-#include <filesystem>
 #include <cstdio>
+#include <filesystem>
 #include <new>
 #include <queue>
 #include <random>
@@ -162,8 +162,8 @@ OLAPStatus TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId tra
     _insert_txn_partition_map_unlocked(transaction_id, partition_id);
 
     VLOG_NOTICE << "add transaction to engine successfully."
-            << "partition_id: " << key.first << ", transaction_id: " << key.second
-            << ", tablet: " << tablet_info.to_string();
+                << "partition_id: " << key.first << ", transaction_id: " << key.second
+                << ", tablet: " << tablet_info.to_string();
     return OLAP_SUCCESS;
 }
 
@@ -229,10 +229,9 @@ OLAPStatus TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
     // save meta need access disk, it maybe very slow, so that it is not in global txn lock
     // it is under a single txn lock
     if (!is_recovery) {
-        RowsetMetaPB rowset_meta_pb;
-        rowset_ptr->rowset_meta()->to_rowset_pb(&rowset_meta_pb);
         OLAPStatus save_status =
-                RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(), rowset_meta_pb);
+                RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
+                                        rowset_ptr->rowset_meta()->get_rowset_pb());
         if (save_status != OLAP_SUCCESS) {
             LOG(WARNING) << "save committed rowset failed. when commit txn rowset_id:"
                          << rowset_ptr->rowset_id() << "tablet id: " << tablet_id
@@ -285,10 +284,9 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         // TODO(ygl): rowset is already set version here, memory is changed, if save failed
         // it maybe a fatal error
         rowset_ptr->make_visible(version, version_hash);
-        RowsetMetaPB rowset_meta_pb;
-        rowset_ptr->rowset_meta()->to_rowset_pb(&rowset_meta_pb);
         OLAPStatus save_status =
-                RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(), rowset_meta_pb);
+                RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
+                                        rowset_ptr->rowset_meta()->get_rowset_pb());
         if (save_status != OLAP_SUCCESS) {
             LOG(WARNING) << "save committed rowset failed. when publish txn rowset_id:"
                          << rowset_ptr->rowset_id() << ", tablet id: " << tablet_id
@@ -388,10 +386,11 @@ OLAPStatus TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
                 StorageEngine::instance()->add_unused_rowset(load_info.rowset);
 #endif
                 VLOG_NOTICE << "delete transaction from engine successfully."
-                        << " partition_id: " << key.first << ", transaction_id: " << key.second
-                        << ", tablet: " << tablet_info.to_string() << ", rowset: "
-                        << (load_info.rowset != nullptr ? load_info.rowset->rowset_id().to_string()
-                                                        : "0");
+                            << " partition_id: " << key.first << ", transaction_id: " << key.second
+                            << ", tablet: " << tablet_info.to_string() << ", rowset: "
+                            << (load_info.rowset != nullptr
+                                        ? load_info.rowset->rowset_id().to_string()
+                                        : "0");
             }
         }
     }
@@ -420,9 +419,9 @@ void TxnManager::get_tablet_related_txns(TTabletId tablet_id, SchemaHash schema_
                 *partition_id = it.first.first;
                 transaction_ids->insert(it.first.second);
                 VLOG_NOTICE << "find transaction on tablet."
-                        << "partition_id: " << it.first.first
-                        << ", transaction_id: " << it.first.second
-                        << ", tablet: " << tablet_info.to_string();
+                            << "partition_id: " << it.first.first
+                            << ", transaction_id: " << it.first.second
+                            << ", tablet: " << tablet_info.to_string();
             }
         }
     }
@@ -475,7 +474,7 @@ void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
     auto it = txn_tablet_map.find(key);
     if (it == txn_tablet_map.end()) {
         VLOG_NOTICE << "could not find tablet for"
-                << " partition_id=" << partition_id << ", transaction_id=" << transaction_id;
+                    << " partition_id=" << partition_id << ", transaction_id=" << transaction_id;
         return;
     }
     std::map<TabletInfo, TabletTxnInfo>& load_info_map = it->second;
@@ -525,8 +524,8 @@ void TxnManager::build_expire_txn_map(std::map<TabletInfo, std::vector<int64_t>>
                     (*expire_txn_map)[t_map.first].push_back(txn_id);
                     if (VLOG_IS_ON(3)) {
                         VLOG_NOTICE << "find expired txn."
-                                << " tablet=" << t_map.first.to_string()
-                                << " transaction_id=" << txn_id << " exist_sec=" << diff;
+                                    << " tablet=" << t_map.first.to_string()
+                                    << " transaction_id=" << txn_id << " exist_sec=" << diff;
                     }
                 }
             }
