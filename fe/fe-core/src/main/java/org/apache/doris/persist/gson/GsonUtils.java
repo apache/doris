@@ -21,8 +21,8 @@ import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.OdbcCatalogResource;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.OdbcCatalogResource;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ScalarType;
@@ -34,10 +34,21 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table;
+
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import com.google.gson.ExclusionStrategy;
 import com.google.gson.FieldAttributes;
 import com.google.gson.Gson;
@@ -56,14 +67,7 @@ import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
-
-import java.io.IOException;
-import java.lang.reflect.Method;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
+import sun.reflect.generics.reflectiveObjects.ParameterizedTypeImpl;
 
 /*
  * Some utilities about Gson.
@@ -124,7 +128,9 @@ public class GsonUtils {
             .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(resourceTypeAdapterFactory)
             .registerTypeAdapterFactory(alterJobV2TypeAdapterFactory)
-            .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory);
+            .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory)
+            .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
+            .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter());
 
     // this instance is thread-safe.
     public static final Gson GSON = GSON_BUILDER.create();
@@ -323,6 +329,39 @@ public class GsonUtils {
                 map.putAll(entry.getKey(), entry.getValue());
             }
             return map;
+        }
+    }
+
+    private static class AtomicBooleanAdapter
+            implements JsonSerializer<AtomicBoolean>, JsonDeserializer<AtomicBoolean> {
+
+        @Override
+        public AtomicBoolean deserialize(JsonElement jsonElement, Type type,
+                                         JsonDeserializationContext jsonDeserializationContext)
+                throws JsonParseException {
+            JsonObject jsonObject = jsonElement.getAsJsonObject();
+            boolean value = jsonObject.get("boolean").getAsBoolean();
+            return new AtomicBoolean(value);
+        }
+
+        @Override
+        public JsonElement serialize(AtomicBoolean atomicBoolean, Type type,
+                                     JsonSerializationContext jsonSerializationContext) {
+            JsonObject jsonObject = new JsonObject();
+            jsonObject.addProperty("boolean", atomicBoolean.get());
+            return jsonObject;
+        }
+    }
+
+    public final static class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?,?>> {
+        @Override
+        public ImmutableMap<?,?> deserialize(final JsonElement json, final Type type,
+                                             final JsonDeserializationContext context) throws JsonParseException
+        {
+            final Type type2 =
+                    ParameterizedTypeImpl.make(Map.class, ((ParameterizedType) type).getActualTypeArguments(), null);
+            final Map<?,?> map = context.deserialize(json, type2);
+            return ImmutableMap.copyOf(map);
         }
     }
 

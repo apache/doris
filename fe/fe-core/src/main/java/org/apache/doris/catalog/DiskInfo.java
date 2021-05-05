@@ -21,6 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
 import org.apache.logging.log4j.LogManager;
@@ -29,6 +30,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+
+import com.google.gson.annotations.SerializedName;
 
 public class DiskInfo implements Writable {
     private static final Logger LOG = LogManager.getLogger(DiskInfo.class);
@@ -40,10 +43,15 @@ public class DiskInfo implements Writable {
     
     private static final long DEFAULT_CAPACITY_B = 1024 * 1024 * 1024 * 1024L; // 1T
 
+    @SerializedName("rootPath")
     private String rootPath;
+    @SerializedName("totalCapacityB")
     private long totalCapacityB;
+    @SerializedName("dataUsedCapacityB")
     private long dataUsedCapacityB;
+    @SerializedName("diskAvailableCapacityB")
     private long diskAvailableCapacityB;
+    @SerializedName("state")
     private DiskState state;
 
     // path hash and storage medium are reported from Backend and no need to persist
@@ -155,11 +163,8 @@ public class DiskInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, rootPath);
-        out.writeLong(totalCapacityB);
-        out.writeLong(dataUsedCapacityB);
-        out.writeLong(diskAvailableCapacityB);
-        Text.writeString(out, state.name());
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -177,8 +182,13 @@ public class DiskInfo implements Writable {
     }
 
     public static DiskInfo read(DataInput in) throws IOException {
-        DiskInfo diskInfo = new DiskInfo();
-        diskInfo.readFields(in);
-        return diskInfo;
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_99) {
+            DiskInfo diskInfo = new DiskInfo();
+            diskInfo.readFields(in);
+            return diskInfo;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, DiskInfo.class);
+        }
     }
 }

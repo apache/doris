@@ -22,9 +22,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import com.google.common.collect.ImmutableMap;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -35,6 +33,10 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 public class BackendTest {
     private Backend backend;
@@ -116,7 +118,12 @@ public class BackendTest {
         
         List<Backend> list1 = new LinkedList<Backend>();
         List<Backend> list2 = new LinkedList<Backend>();
-        
+
+        DiskInfo diskInfo1 = new DiskInfo("/disk1");
+        DiskInfo diskInfo2 = new DiskInfo("/disk2");
+        ImmutableMap<String, DiskInfo> diskRefs = ImmutableMap.of(
+                "disk1", diskInfo1,
+                "disk2", diskInfo2);
         for (int count = 0; count < 100; ++count) {
             Backend backend = new Backend(count, "10.120.22.32" + count, 6000 + count);
             backend.updateOnce(7000 + count, 9000 + count, beRpcPort);
@@ -125,6 +132,8 @@ public class BackendTest {
         for (int count = 100; count < 200; count++) {
             Backend backend = new Backend(count, "10.120.22.32" + count, 6000 + count);
             backend.updateOnce(7000 + count, 9000 + count, beRpcPort);
+            backend.setDisks(diskRefs);
+            backend.setLastStreamLoadTime(count);
             list1.add(backend);
         }
         for (Backend backend : list1) {
@@ -135,21 +144,29 @@ public class BackendTest {
         
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        for (int count = 0; count < 100; ++count) {
-            Backend backend = new Backend();
-            backend.readFields(dis);
-            list2.add(backend);
-            Assert.assertEquals(count, backend.getId());
-            Assert.assertEquals("10.120.22.32" + count, backend.getHost());
-        }
-        
-        for (int count = 100; count < 200; ++count) {
+        for (int count = 0; count < 200; ++count) {
             Backend backend = Backend.read(dis);
             list2.add(backend);
             Assert.assertEquals(count, backend.getId());
             Assert.assertEquals("10.120.22.32" + count, backend.getHost());
         }
-        
+
+        // check isAlive
+        Backend backend100 = list2.get(100);
+        Assert.assertTrue(backend100.isAlive());
+        // check disksRef
+        ImmutableMap<String, DiskInfo> backend100DiskRef = backend100.getDisks();
+        Assert.assertEquals(2, backend100DiskRef.size());
+        Assert.assertTrue(backend100DiskRef.containsKey("disk1"));
+        Assert.assertTrue(backend100DiskRef.containsKey("disk2"));
+        DiskInfo backend100DiskInfo1 = backend100DiskRef.get("disk1");
+        Assert.assertEquals("/disk1", backend100DiskInfo1.getRootPath());
+        DiskInfo backend100DiskInfo2 = backend100DiskRef.get("disk2");
+        Assert.assertEquals("/disk2", backend100DiskInfo2.getRootPath());
+        // check backend status
+        Backend.BackendStatus backend100BackendStatus = backend100.getBackendStatus();
+        Assert.assertEquals(100, backend100BackendStatus.lastStreamLoadTime);
+
         for (int count = 0; count < 200; count++) {
             Assert.assertTrue(list1.get(count).equals(list2.get(count)));
         }
@@ -174,12 +191,12 @@ public class BackendTest {
         back2 = new Backend(1, "a", 2);
         back2.updateOnce(1, 1, 1);
         Assert.assertFalse(back1.equals(back2));
-        
+
         Assert.assertEquals("Backend [id=1, host=a, heartbeatPort=1, alive=true]", back1.toString());
-        
+
         // 3. delete files
         dis.close();
         file.delete();
     }
-    
+
 }
