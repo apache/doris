@@ -85,7 +85,7 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
 OLAPStatus Tablet::_init_once_action() {
     OLAPStatus res = OLAP_SUCCESS;
     VLOG_NOTICE << "begin to load tablet. tablet=" << full_name()
-            << ", version_size=" << _tablet_meta->version_count();
+                << ", version_size=" << _tablet_meta->version_count();
 
 #ifdef BE_TEST
     // init cumulative compaction policy by type
@@ -165,7 +165,7 @@ OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& ro
             new_tablet_meta->add_rs_meta(rs_meta);
         }
         VLOG_NOTICE << "load rowsets successfully when clone. tablet=" << full_name()
-                << ", added rowset size=" << rowsets_to_clone.size();
+                    << ", added rowset size=" << rowsets_to_clone.size();
         // save and reload tablet_meta
         res = new_tablet_meta->save_meta(_data_dir);
         if (res != OLAP_SUCCESS) {
@@ -238,10 +238,9 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
     modify_rowsets(empty_vec, rowsets_to_delete);
 
     if (need_persist) {
-        RowsetMetaPB rowset_meta_pb;
-        rowset->rowset_meta()->to_rowset_pb(&rowset_meta_pb);
-        OLAPStatus res = RowsetMetaManager::save(data_dir()->get_meta(), tablet_uid(),
-                                                 rowset->rowset_id(), rowset_meta_pb);
+        OLAPStatus res =
+                RowsetMetaManager::save(data_dir()->get_meta(), tablet_uid(), rowset->rowset_id(),
+                                        rowset->rowset_meta()->get_rowset_pb());
         if (res != OLAP_SUCCESS) {
             LOG(FATAL) << "failed to save rowset to local meta store" << rowset->rowset_id();
         }
@@ -272,7 +271,7 @@ void Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
             if (to_add[i]->version() != to_delete[i]->version()) {
                 same_version = false;
                 break;
-            } 
+            }
         }
     } else {
         same_version = false;
@@ -311,14 +310,15 @@ void Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
         // delete rowset in "to_delete" directly
         for (auto& rs : to_delete) {
             LOG(INFO) << "add unused rowset " << rs->rowset_id() << " because of same version";
-            StorageEngine::instance()->add_unused_rowset(rs); 
+            StorageEngine::instance()->add_unused_rowset(rs);
         }
     }
 }
 
 // snapshot manager may call this api to check if version exists, so that
 // the version maybe not exist
-const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version, bool find_in_stale) const {
+const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version,
+                                                    bool find_in_stale) const {
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
         if (find_in_stale) {
@@ -640,7 +640,7 @@ OLAPStatus Tablet::capture_rs_readers(const std::vector<Version>& version_path,
         auto it = _rs_version_map.find(version);
         if (it == _rs_version_map.end()) {
             VLOG_NOTICE << "fail to find Rowset in rs_version for version. tablet=" << full_name()
-                    << ", version='" << version.first << "-" << version.second;
+                        << ", version='" << version.first << "-" << version.second;
 
             it = _stale_rs_version_map.find(version);
             if (it == _rs_version_map.end()) {
@@ -722,8 +722,9 @@ bool Tablet::can_do_compaction() {
     return true;
 }
 
-uint32_t Tablet::calc_compaction_score(CompactionType compaction_type,
-            std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+uint32_t Tablet::calc_compaction_score(
+        CompactionType compaction_type,
+        std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
     // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
     ReadLock rdlock(&_meta_lock);
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
@@ -737,8 +738,8 @@ uint32_t Tablet::calc_compaction_score(CompactionType compaction_type,
 const uint32_t Tablet::_calc_cumulative_compaction_score(
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
 #ifndef BE_TEST
-    if (_cumulative_compaction_policy == nullptr || _cumulative_compaction_policy->name() !=
-                                                        cumulative_compaction_policy->name()) {
+    if (_cumulative_compaction_policy == nullptr ||
+        _cumulative_compaction_policy->name() != cumulative_compaction_policy->name()) {
         _cumulative_compaction_policy = cumulative_compaction_policy;
     }
 #endif
@@ -1125,12 +1126,13 @@ void Tablet::get_compaction_status(std::string* json_result) {
     for (int i = 0; i < stale_rowsets.size(); ++i) {
         const Version& ver = stale_rowsets[i]->version();
         rapidjson::Value value;
-        std::string disk_size =
-                PrettyPrinter::print(stale_rowsets[i]->rowset_meta()->total_disk_size(), TUnit::BYTES);
+        std::string disk_size = PrettyPrinter::print(
+                stale_rowsets[i]->rowset_meta()->total_disk_size(), TUnit::BYTES);
         std::string version_str = strings::Substitute(
                 "[$0-$1] $2 $3 $4", ver.first, ver.second, stale_rowsets[i]->num_segments(),
                 stale_rowsets[i]->rowset_id().to_string(), disk_size);
-        value.SetString(version_str.c_str(), version_str.length(), stale_versions_arr.GetAllocator());
+        value.SetString(version_str.c_str(), version_str.length(),
+                        stale_versions_arr.GetAllocator());
         stale_versions_arr.PushBack(value, stale_versions_arr.GetAllocator());
     }
     root.AddMember("stale_rowsets", stale_versions_arr, root.GetAllocator());
@@ -1414,4 +1416,4 @@ void Tablet::reset_compaction(CompactionType compaction_type) {
     }
 }
 
-}  // namespace doris
+} // namespace doris

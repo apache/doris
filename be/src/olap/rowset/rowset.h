@@ -160,6 +160,7 @@ public:
     bool delete_flag() const { return rowset_meta()->delete_flag(); }
     int64_t num_segments() const { return rowset_meta()->num_segments(); }
     void to_rowset_pb(RowsetMetaPB* rs_meta) { return rowset_meta()->to_rowset_pb(rs_meta); }
+    const RowsetMetaPB& get_rowset_pb() { return rowset_meta()->get_rowset_pb(); }
     inline KeysType keys_type() { return _schema->keys_type(); }
 
     // remove all files in this rowset
@@ -192,8 +193,8 @@ public:
             return;
         }
         VLOG_NOTICE << "rowset is close. rowset state from:" << old_state << " to "
-                << _rowset_state_machine.rowset_state() << ", version:" << start_version() << "-"
-                << end_version() << ", tabletid:" << _rowset_meta->tablet_id();
+                    << _rowset_state_machine.rowset_state() << ", version:" << start_version()
+                    << "-" << end_version() << ", tabletid:" << _rowset_meta->tablet_id();
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
@@ -238,7 +239,8 @@ public:
                 }
             }
             if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
-                VLOG_NOTICE << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
+                VLOG_NOTICE
+                        << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
                         << ", version:" << start_version() << "-" << end_version()
                         << ", tabletid:" << _rowset_meta->tablet_id();
             }
