@@ -270,7 +270,6 @@ CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
 // cumulative compaction policy: min and max delta file's number
 CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
 CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
-CONF_mInt64(cumulative_compaction_budgeted_bytes, "104857600");
 // cumulative compaction skips recently published deltas in order to prevent
 // compacting a version that might be queried (in case the query planning phase took some time).
 // the following config set the window size
