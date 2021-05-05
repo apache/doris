@@ -162,8 +162,10 @@ void StreamLoadAction::handle(HttpRequest* req) {
     str = str + '\n';
     HttpChannel::send_reply(req, str);
 #ifndef BE_TEST
-    str = ctx->prepare_stream_load_record(str);
-    _sava_stream_load_record(ctx, str);
+    if (config::enable_stream_load_record) {
+        str = ctx->prepare_stream_load_record(str);
+        _sava_stream_load_record(ctx, str);
+    }
 #endif
     // update statstics
     streaming_load_requests_total->increment(1);
