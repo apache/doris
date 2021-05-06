@@ -17,14 +17,12 @@
 
 package org.apache.doris.common;
 
-import static org.apache.doris.common.InternalErrorCode.META_NOT_FOUND_ERR;
-
 /**
  * Exception for meta info is null, like db table partition tablet replica job
  */
 public class MetaNotFoundException extends UserException {
     public MetaNotFoundException(String msg) {
-        super(META_NOT_FOUND_ERR, msg);
+        super(InternalErrorCode.META_NOT_FOUND_ERR, msg);
     }
 
     public MetaNotFoundException(InternalErrorCode errcode, String msg) {
