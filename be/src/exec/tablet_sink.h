@@ -198,6 +198,9 @@ public:
     void clear_all_batches();
 
 private:
+    void _cancel_with_msg(const std::string& msg);
+
+private:
     OlapTableSink* _parent = nullptr;
     int64_t _index_id = -1;
     int64_t _node_id = -1;
