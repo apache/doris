@@ -87,7 +87,7 @@ private:
 
     // Reader
     FileReader* _cur_file_reader;
-    JsonReader* _cur_line_reader;
+    LineReader* _cur_line_reader;
     JsonReader* _cur_json_reader;
     int _next_range;
     bool _cur_line_reader_eof;
@@ -121,7 +121,7 @@ struct JsonPath;
 class JsonReader {
 public:
     JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
-               FileReader* file_reader, bool strip_outer_array, bool num_as_string,
+               LineReader* line_reader, bool strip_outer_array, bool num_as_string,
                bool fuzzy_parse);
 
     ~JsonReader();
@@ -129,23 +129,23 @@ public:
     Status init(const std::string& jsonpath, const std::string& json_root); // must call before use
 
     Status read_line(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
-                bool* eof);
+                size_t* size, bool* eof);
 
 private:
     Status (JsonReader::*_handle_json_callback)(Tuple* tuple,
                                                 const std::vector<SlotDescriptor*>& slot_descs,
-                                                MemPool* tuple_pool, bool* eof);
+                                                MemPool* tuple_pool, size_t* size, bool* eof);
     Status _handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
-                               MemPool* tuple_pool, bool* eof);
+                               MemPool* tuple_pool, size_t* size, bool* eof);
     Status _handle_flat_array_complex_json(Tuple* tuple,
                                            const std::vector<SlotDescriptor*>& slot_descs,
-                                           MemPool* tuple_pool, bool* eof);
+                                           MemPool* tuple_pool, size_t* size, bool* eof);
     Status _handle_nested_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
-                                       MemPool* tuple_pool, bool* eof);
+                                       MemPool* tuple_pool, size_t* size, bool* eof);
 
     void _fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool,
                     const uint8_t* value, int32_t len);
-    Status _parse_json_doc(bool* eof);
+    Status _parse_json_doc(size_t* size, bool* eof);
     void _set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
                           const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
                           bool* valid);
@@ -166,7 +166,6 @@ private:
     RuntimeState* _state;
     ScannerCounter* _counter;
     RuntimeProfile* _profile;
-    FileReader* _file_reader;
     LineReader* _line_reader;
     bool _closed;
     bool _strip_outer_array;
