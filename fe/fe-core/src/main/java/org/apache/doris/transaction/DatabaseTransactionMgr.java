@@ -38,6 +38,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -257,7 +258,8 @@ public class DatabaseTransactionMgr {
 
     public long beginTransaction(List<Long> tableIdList, String label, TUniqueId requestId,
                                  TransactionState.TxnCoordinator coordinator, TransactionState.LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
-            throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+            throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException, AnalysisException,
+            QuotaExceedException, MetaNotFoundException {
         checkDatabaseDataQuota();
         writeLock();
         try {
@@ -324,10 +326,10 @@ public class DatabaseTransactionMgr {
     }
 
 
-    private void checkDatabaseDataQuota() throws AnalysisException {
+    private void checkDatabaseDataQuota() throws MetaNotFoundException, QuotaExceedException {
         Database db = catalog.getDb(dbId);
         if (db == null) {
-            throw new AnalysisException("Database[" + dbId + "] does not exist");
+            throw new MetaNotFoundException("Database[" + dbId + "] does not exist");
         }
 
         if (usedQuotaDataBytes == -1) {
@@ -336,11 +338,7 @@ public class DatabaseTransactionMgr {
 
         long dataQuotaBytes = db.getDataQuota();
         if (usedQuotaDataBytes >= dataQuotaBytes) {
-            Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuotaBytes);
-            String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
-                    + quotaUnitPair.second;
-            throw new AnalysisException("Database[" + db.getFullName()
-                    + "] data size exceeds quota[" + readableQuota + "]");
+            throw new QuotaExceedException(db.getFullName(), dataQuotaBytes);
         }
     }
 
