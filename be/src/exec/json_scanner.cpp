@@ -246,11 +246,10 @@ void JsonScanner::close() {
     if (_cur_file_reader != nullptr) {
         if (_stream_load_pipe != nullptr) {
             _stream_load_pipe.reset();
-            _cur_file_reader = nullptr;
         } else {
             delete _cur_file_reader;
-            _cur_file_reader = nullptr;
         }
+        _cur_file_reader = nullptr;
     }
 }
 
