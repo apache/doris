@@ -82,7 +82,7 @@ Here is a detailed list of  ```query ID, execution time, execution statement``` 
            - RowsReturned: 8.322K (8322)
            - MemoryUsed: 0.00 
            - RowsReturnedRate: 811
-```
+ ```
 The fragment ID is listed here; ``` hostname ``` show the be node executing the fragment; ```active: 10s270ms```show the total execution time of the node;  ```non child: 0.14%``` means the execution time of the execution node itself (not including the execution time of child nodes) as a percentage of the total time. 
 
 `PeakMemoryUsage` indicates the peak memory usage of `EXCHANGE_NODE`; `RowsReturned` indicates the number of rows returned by `EXCHANGE_NODE`; `RowsReturnedRate`=`RowsReturned`/`ActiveTime`; the meaning of these three statistics in other `NODE` the same.
@@ -113,6 +113,11 @@ There are many statistical information collected at BE.  so we list the correspo
  - OverallThroughput: Total throughput = BytesSent / Time
  - SerializeBatchTime: Sending data serialization time
  - UncompressedRowBatchSize: Size of rowbatch before sending data compression
+
+#### `ODBC_TABLE_SINK`
+   - NumSentRows: Total number of rows written to ODBC table
+   - TupleConvertTime: Time consuming of sending data serialization to insert statement
+   - ResultSendTime: Time consuming of writing through ODBC driver
 
 #### `EXCHANGE_NODE`
   - BytesReceived: Size of bytes received by network

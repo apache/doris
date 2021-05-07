@@ -42,6 +42,8 @@
 static constexpr uint32_t SMALL_COLUMN_SIZE_BUFFER = 100;
 // Now we only treat HLL, CHAR, VARCHAR as big column
 static constexpr uint32_t BIG_COLUMN_SIZE_BUFFER = 65535;
+// Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size
+static constexpr uint32_t INSERT_BUFFER_SIZE = 1024l * 1024 * 50;
 
 static std::u16string utf8_to_wstring(const std::string& str) {
     std::wstring_convert<std::codecvt_utf8<char16_t>, char16_t> utf8_ucs2_cvt;
@@ -54,7 +56,7 @@ ODBCConnector::ODBCConnector(const ODBCConnectorParam& param)
         : _connect_string(param.connect_string),
           _sql_str(param.query_string),
           _tuple_desc(param.tuple_desc),
-          _output_expr_ctxs(std::move(param.output_expr_ctxs)),
+          _output_expr_ctxs(param.output_expr_ctxs),
           _is_open(false),
           _field_num(0),
           _row_count(0),
@@ -180,133 +182,154 @@ Status ODBCConnector::get_next_row(bool* eos) {
     return Status::OK();
 }
 
-Status ODBCConnector::init_to_write() {
+void ODBCConnector::_init_profile(doris::RuntimeProfile* profile) {
+    _convert_tuple_timer = ADD_TIMER(profile, "TupleConvertTime");
+    _result_send_timer = ADD_TIMER(profile, "ResultSendTime");
+    _sent_rows_counter = ADD_COUNTER(profile, "NumSentRows", TUnit::UNIT);
+}
+
+Status ODBCConnector::init_to_write(doris::RuntimeProfile* profile) {
     if (!_is_open) {
         return Status::InternalError( "Init before open.");
     }
 
+    _init_profile(profile);
     // Allocate a statement handle
     ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC, SQLAllocHandle(SQL_HANDLE_STMT, _dbc, &_stmt), "alloc statement");
 
     return Status::OK();
 }
 
-Status ODBCConnector::append(const std::string& table_name, RowBatch *batch) {
-    if (batch == nullptr || batch->num_rows() == 0) {
-        return Status::OK();
-    }
+Status ODBCConnector::append(const std::string& table_name, RowBatch *batch, uint32_t start_send_row, uint32* num_rows_sent) {
+    _insert_stmt_buffer.clear();
+    std::u16string insert_stmt;
+    {
+        SCOPED_TIMER(_convert_tuple_timer);
+        fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", table_name);
 
-    int num_rows = batch->num_rows();
-    for (int i = 0; i < num_rows; ++i) {
-        RETURN_IF_ERROR(insert_row(table_name, batch->get_row(i)));
-    }
+        int num_rows = batch->num_rows();
+        for (int i = start_send_row; i < num_rows; ++i) {
+            auto row = batch->get_row(i);
+            (*num_rows_sent)++;
 
-    return Status::OK();
-}
-
-Status ODBCConnector::insert_row(const std::string& table_name, TupleRow *row) {
-    std::stringstream ss;
-
-    // Construct Insert statement of odbc table
-    ss << "INSERT INTO " << table_name << " VALUES (";
-    int num_columns = _output_expr_ctxs.size();
-    for (int i = 0; i < num_columns; ++i) {
-        if (i != 0) {
-            ss << ", ";
-        }
-        void* item = _output_expr_ctxs[i]->get_value(row);
-        if (item == nullptr) {
-            ss << "NULL";
-            continue;
-        }
-        switch (_output_expr_ctxs[i]->root()->type().type) {
-            case TYPE_BOOLEAN:
-            case TYPE_TINYINT:
-                ss << (int)*static_cast<int8_t*>(item);
-                break;
-            case TYPE_SMALLINT:
-                ss << *static_cast<int16_t*>(item);
-                break;
-            case TYPE_INT:
-                ss << *static_cast<int32_t*>(item);
-                break;
-            case TYPE_BIGINT:
-                ss << *static_cast<int64_t*>(item);
-                break;
-            case TYPE_FLOAT:
-                ss << *static_cast<float*>(item);
-                break;
-            case TYPE_DOUBLE:
-                ss << *static_cast<double*>(item);
-                break;
-            case TYPE_DATE:
-            case TYPE_DATETIME: {
-                char buf[64];
-                const DateTimeValue* time_val = (const DateTimeValue*)(item);
-                time_val->to_string(buf);
-                ss << "\'" << buf << "\'";
-                break;
-            }
-            case TYPE_VARCHAR:
-            case TYPE_CHAR: {
-                const StringValue* string_val = (const StringValue*)(item);
-
-                if (string_val->ptr == NULL) {
-                    if (string_val->len == 0) {
-                        ss << "\'\'";
-                    } else {
-                        ss << "NULL";
+            // Construct insert statement of odbc table
+            int num_columns = _output_expr_ctxs.size();
+            for (int j = 0; j < num_columns; ++j) {
+                if (j != 0) {
+                    fmt::format_to(_insert_stmt_buffer, "{}", ", ");
+                }
+                void *item = _output_expr_ctxs[j]->get_value(row);
+                if (item == nullptr) {
+                    fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
+                    continue;
+                }
+                switch (_output_expr_ctxs[j]->root()->type().type) {
+                    case TYPE_BOOLEAN:
+                    case TYPE_TINYINT:
+                        fmt::format_to(_insert_stmt_buffer, "{}", *static_cast<int8_t *>(item));
+                        break;
+                    case TYPE_SMALLINT:
+                        fmt::format_to(_insert_stmt_buffer, "{}", *static_cast<int16_t *>(item));
+                        break;
+                    case TYPE_INT:
+                        fmt::format_to(_insert_stmt_buffer, "{}", *static_cast<int32_t *>(item));
+                        break;
+                    case TYPE_BIGINT:
+                        fmt::format_to(_insert_stmt_buffer, "{}", *static_cast<int64_t *>(item));
+                        break;
+                    case TYPE_FLOAT:
+                        fmt::format_to(_insert_stmt_buffer, "{}", *static_cast<float *>(item));
+                        break;
+                    case TYPE_DOUBLE:
+                        fmt::format_to(_insert_stmt_buffer, "{}", *static_cast<double *>(item));
+                        break;
+                    case TYPE_DATE:
+                    case TYPE_DATETIME: {
+                        char buf[64];
+                        const auto *time_val = (const DateTimeValue *) (item);
+                        time_val->to_string(buf);
+                        fmt::format_to(_insert_stmt_buffer, "'{}'", buf);
+                        break;
                     }
-                } else {
-                    ss << "\'";
-                    for (int j = 0; j < string_val->len ; ++j) {
-                        ss << string_val->ptr[j];
+                    case TYPE_VARCHAR:
+                    case TYPE_CHAR: {
+                        const auto *string_val = (const StringValue *) (item);
+
+                        if (string_val->ptr == NULL) {
+                            if (string_val->len == 0) {
+                                fmt::format_to(_insert_stmt_buffer, "{}", "''");
+                            } else {
+                                fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
+                            }
+                        } else {
+                            fmt::format_to(_insert_stmt_buffer, "'{}'",
+                                           fmt::basic_string_view(string_val->ptr, string_val->len));
+                        }
+                        break;
                     }
-                    ss << "\'";
-                }
-                break;
-            }
-            case TYPE_DECIMAL: {
-                const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
-                std::string decimal_str;
-                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+                    case TYPE_DECIMAL: {
+                        const auto *decimal_val = reinterpret_cast<const DecimalValue *>(item);
+                        std::string decimal_str;
+                        int output_scale = _output_expr_ctxs[j]->root()->output_scale();
 
-                if (output_scale > 0 && output_scale <= 30) {
-                    decimal_str = decimal_val->to_string(output_scale);
-                } else {
-                    decimal_str = decimal_val->to_string();
-                }
-                ss << decimal_str;
-                break;
-            }
-            case TYPE_DECIMALV2: {
-                const DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
-                std::string decimal_str;
-                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+                        if (output_scale > 0 && output_scale <= 30) {
+                            decimal_str = decimal_val->to_string(output_scale);
+                        } else {
+                            decimal_str = decimal_val->to_string();
+                        }
+                        fmt::format_to(_insert_stmt_buffer, "{}", decimal_str);
+                        break;
+                    }
+                    case TYPE_DECIMALV2: {
+                        const DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128 *>(item)->value);
+                        std::string decimal_str;
+                        int output_scale = _output_expr_ctxs[j]->root()->output_scale();
 
-                if (output_scale > 0 && output_scale <= 30) {
-                    decimal_str = decimal_val.to_string(output_scale);
-                } else {
-                    decimal_str = decimal_val.to_string();
+                        if (output_scale > 0 && output_scale <= 30) {
+                            decimal_str = decimal_val.to_string(output_scale);
+                        } else {
+                            decimal_str = decimal_val.to_string();
+                        }
+                        fmt::format_to(_insert_stmt_buffer, "{}", decimal_str);
+                        break;
+                    }
+                    case TYPE_LARGEINT: {
+                        char buf[48];
+                        int len = 48;
+                        char *v = LargeIntValue::to_string(reinterpret_cast<const PackedInt128 *>(item)->value,
+                                                           buf, &len);
+                        fmt::format_to(_insert_stmt_buffer, "{}", std::string(v, len));
+                        break;
+                    }
+                    default: {
+                        fmt::memory_buffer err_out;
+                        fmt::format_to(err_out, "can't convert this type to mysql type. type = {}",
+                                       _output_expr_ctxs[j]->root()->type().type);
+                        return Status::InternalError(err_out.data());
+                    }
                 }
-                ss << decimal_str;
-                break;
             }
 
-            default: {
-                std::stringstream err_ss;
-                err_ss << "can't convert this type to mysql type. type = " <<
-                       _output_expr_ctxs[i]->root()->type();
-                return Status::InternalError(err_ss.str());
+
+            if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
+                fmt::format_to(_insert_stmt_buffer, "{}", "),(");
+            } else {
+                // batch exhausted or _insert_stmt_buffer is full, need to do real insert stmt
+                fmt::format_to(_insert_stmt_buffer, "{}", ")");
+                break;
             }
         }
+        // Translate utf8 string to utf16 to use unicode encodeing
+        insert_stmt = utf8_to_wstring(std::string(_insert_stmt_buffer.data(),
+                                           _insert_stmt_buffer.data() + _insert_stmt_buffer.size()));
     }
-    ss << ")";
 
-    // Translate utf8 string to utf16 to use unicode encodeing
-    auto insert_stmt = utf8_to_wstring(ss.str());
-    ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT, SQLExecDirectW(_stmt, (SQLWCHAR*)(insert_stmt.c_str()), SQL_NTS), ss.str().c_str());
-
+    {
+        SCOPED_TIMER(_result_send_timer);
+        ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT, SQLExecDirectW(_stmt, (SQLWCHAR *) (insert_stmt.c_str()), SQL_NTS),
+                     _insert_stmt_buffer.data());
+    }
+    COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
     return Status::OK();
 }
 
