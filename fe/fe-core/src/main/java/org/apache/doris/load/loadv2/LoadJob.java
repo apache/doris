@@ -32,6 +32,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -388,7 +389,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         isJobTypeRead = jobTypeRead;
     }
 
-    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
     }
 
     /**
@@ -401,7 +402,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * @throws DuplicatedRequestException
      */
     public void execute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException,
-            DuplicatedRequestException, LoadException {
+            DuplicatedRequestException, LoadException, QuotaExceedException, MetaNotFoundException {
         writeLock();
         try {
             unprotectedExecute();
@@ -411,7 +412,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public void unprotectedExecute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException,
-            DuplicatedRequestException, LoadException {
+            DuplicatedRequestException, LoadException, QuotaExceedException, MetaNotFoundException {
         // check if job state is pending
         if (state != JobState.PENDING) {
             return;

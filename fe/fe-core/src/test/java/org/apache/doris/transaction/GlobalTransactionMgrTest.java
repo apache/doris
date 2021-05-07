@@ -30,6 +30,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.routineload.KafkaProgress;
@@ -104,7 +106,7 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testBeginTransaction() throws LabelAlreadyUsedException, AnalysisException,
-            BeginTransactionException, DuplicatedRequestException {
+            BeginTransactionException, DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
                 CatalogTestUtil.testTxnLabel1,
@@ -129,6 +131,10 @@ public class GlobalTransactionMgrTest {
                     transactionSource,
                     LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         } catch (AnalysisException | LabelAlreadyUsedException e) {
+            e.printStackTrace();
+        } catch (MetaNotFoundException e) {
+            e.printStackTrace();
+        } catch (QuotaExceedException e) {
             e.printStackTrace();
         }
         TransactionState transactionState = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, transactionId);
