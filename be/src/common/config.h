@@ -204,8 +204,6 @@ CONF_mInt32(max_percentage_of_error_disk, "0");
 CONF_mInt32(default_num_rows_per_column_file_block, "1024");
 // pending data policy
 CONF_mInt32(pending_data_expire_time_sec, "1800");
-// inc_rowset expired interval
-CONF_mInt32(inc_rowset_expired_sec, "1800");
 // inc_rowset snapshot rs sweep time interval
 CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "1800");
 // garbage sweep policy
@@ -272,7 +270,6 @@ CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
 // cumulative compaction policy: min and max delta file's number
 CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
 CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
-CONF_mInt64(cumulative_compaction_budgeted_bytes, "104857600");
 // cumulative compaction skips recently published deltas in order to prevent
 // compacting a version that might be queried (in case the query planning phase took some time).
 // the following config set the window size
@@ -283,8 +280,7 @@ CONF_mInt32(cumulative_compaction_skip_window_seconds, "30");
 CONF_mInt64(min_compaction_failure_interval_sec, "600"); // 10 min
 
 // This config can be set to limit thread number in compaction thread pool.
-CONF_mInt32(min_compaction_threads, "10");
-CONF_mInt32(max_compaction_threads, "10");
+CONF_Int32(max_compaction_threads, "10");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");

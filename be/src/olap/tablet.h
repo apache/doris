@@ -224,7 +224,8 @@ public:
     // eco mode also means save money in palo
     inline bool in_eco_mode() { return false; }
 
-    void do_tablet_meta_checkpoint();
+	// return true if the checkpoint is actually done
+    bool do_tablet_meta_checkpoint();
 
     // Check whether the rowset is useful or not, unuseful rowset can be swept up then.
     // Rowset which is under tablet's management is useful, i.e. rowset is in
@@ -357,6 +358,9 @@ inline const int64_t Tablet::cumulative_layer_point() const {
 }
 
 inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
+    // cumulative point should only be reset to -1, or be increased
+    CHECK(new_point == Tablet::K_INVALID_CUMULATIVE_POINT || new_point >= _cumulative_point)
+        << "Unexpected cumulative point: " << new_point << ", origin: " << _cumulative_point.load();
     _cumulative_point = new_point;
 }
 
