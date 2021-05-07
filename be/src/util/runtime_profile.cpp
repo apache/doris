@@ -57,11 +57,12 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
 }
 
 RuntimeProfile::~RuntimeProfile() {
-    std::map<std::string, Counter*>::const_iterator iter;
+    for (auto iter = _rate_counters.begin(); iter != _rate_counters.end(); ++iter) {
+        stop_rate_counters_updates(*iter);
+    }
 
-    for (iter = _counter_map.begin(); iter != _counter_map.end(); ++iter) {
-        stop_rate_counters_updates(iter->second);
-        stop_sampling_counters_updates(iter->second);
+    for (auto iter = _sampling_counters.begin(); iter != _sampling_counters.end(); ++iter) {
+        stop_sampling_counters_updates(*iter);
     }
 
     std::set<std::vector<Counter*>*>::const_iterator buckets_iter;
@@ -653,6 +654,7 @@ RuntimeProfile::Counter* RuntimeProfile::add_rate_counter(const std::string& nam
     }
 
     Counter* dst_counter = add_counter(name, dst_type);
+    _rate_counters.push_back(dst_counter);
     register_periodic_counter(src_counter, NULL, dst_counter, RATE_COUNTER);
     return dst_counter;
 }
@@ -675,6 +677,7 @@ RuntimeProfile::Counter* RuntimeProfile::add_sampling_counter(const std::string&
 RuntimeProfile::Counter* RuntimeProfile::add_sampling_counter(const std::string& name,
                                                               SampleFn sample_fn) {
     Counter* dst_counter = add_counter(name, TUnit::DOUBLE_VALUE);
+    _sampling_counters.push_back(dst_counter);
     register_periodic_counter(NULL, sample_fn, dst_counter, SAMPLING_COUNTER);
     return dst_counter;
 }

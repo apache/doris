@@ -34,7 +34,6 @@ service PInternalService {
     rpc tablet_writer_open(doris.PTabletWriterOpenRequest) returns (doris.PTabletWriterOpenResult);
     rpc tablet_writer_add_batch(doris.PTabletWriterAddBatchRequest) returns (doris.PTabletWriterAddBatchResult);
     rpc tablet_writer_cancel(doris.PTabletWriterCancelRequest) returns (doris.PTabletWriterCancelResult);
-    rpc trigger_profile_report(doris.PTriggerProfileReportRequest) returns (doris.PTriggerProfileReportResult);
     rpc get_info(doris.PProxyRequest) returns (doris.PProxyResult);
     rpc update_cache(doris.PUpdateCacheRequest) returns (doris.PCacheResponse);
     rpc fetch_cache(doris.PFetchCacheRequest) returns (doris.PFetchCacheResult);
