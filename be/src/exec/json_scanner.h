@@ -128,20 +128,20 @@ public:
 
     Status init(const std::string& jsonpath, const std::string& json_root); // must call before use
 
-    Status read_line(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
-                size_t* size, bool* eof);
+    Status read_json_row(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
+                bool* is_empty_row, bool* eof);
 
 private:
     Status (JsonReader::*_handle_json_callback)(Tuple* tuple,
                                                 const std::vector<SlotDescriptor*>& slot_descs,
-                                                MemPool* tuple_pool, size_t* size, bool* eof);
+                                                MemPool* tuple_pool, bool* is_empty_row, bool* eof);
     Status _handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
-                               MemPool* tuple_pool, size_t* size, bool* eof);
+                               MemPool* tuple_pool, bool* is_empty_row, bool* eof);
     Status _handle_flat_array_complex_json(Tuple* tuple,
                                            const std::vector<SlotDescriptor*>& slot_descs,
-                                           MemPool* tuple_pool, size_t* size, bool* eof);
+                                           MemPool* tuple_pool, bool* is_empy_row, bool* eof);
     Status _handle_nested_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
-                                       MemPool* tuple_pool, size_t* size, bool* eof);
+                                       MemPool* tuple_pool, bool* is_empty_row, bool* eof);
 
     void _fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool,
                     const uint8_t* value, int32_t len);
