@@ -119,6 +119,13 @@ public class DebugUtil {
         return returnValue;
     }
 
+    public static String printByteWithUnit(long value) {
+        Pair<Double, String> quotaUnitPair = getByteUint(value);
+        String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
+                + quotaUnitPair.second;
+        return readableQuota;
+    }
+
     public static String printId(final TUniqueId id) {
         if (id == null) {
             return "";
