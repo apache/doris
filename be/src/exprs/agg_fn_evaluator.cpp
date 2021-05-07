@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#pragma GCC diagnostic ignored "-Wstringop-overflow="
 
 #include "exprs/agg_fn_evaluator.h"
 
@@ -981,3 +984,5 @@ std::string AggFnEvaluator::debug_string() const {
 }
 
 } // namespace doris
+
+#pragma GCC diagnostic pop
