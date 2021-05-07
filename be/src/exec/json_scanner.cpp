@@ -30,7 +30,6 @@
 #include "gutil/strings/split.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -45,6 +44,7 @@ JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
           _broker_addresses(broker_addresses),
           _cur_file_reader(nullptr),
           _cur_line_reader(nullptr),
+          _cur_json_reader(nullptr),
           _next_range(0),
           _cur_line_reader_eof(false),
           _scanner_eof(false) {
