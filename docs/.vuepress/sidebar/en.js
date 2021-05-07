@@ -547,6 +547,7 @@ module.exports = [
       "members",
       "gitter",
       "subscribe-mail-list",
+      "feedback",
       "how-to-contribute",
       "committer-guide",
       "pull-request",
