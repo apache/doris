@@ -1036,4 +1036,76 @@ void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
     base_compaction.reset(new BaseCompaction(best_tablet, tracker_label, _compaction_mem_tracker));
 }
 
+// Return json:
+// {
+//   "CumulativeCompaction": {
+//          "/home/disk1" : [10001, 10002],
+//          "/home/disk2" : [10003]
+//   },
+//   "BaseCompaction": {
+//          "/home/disk1" : [10001, 10002],
+//          "/home/disk2" : [10003]
+//   }
+// }
+Status StorageEngine::get_compaction_status_json(std::string* result) {
+    rapidjson::Document root;
+    root.SetObject();
+
+    std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
+    const std::string& cumu = "CumulativeCompaction";
+    rapidjson::Value cumu_key;
+    cumu_key.SetString(cumu.c_str(), cumu.length(), root.GetAllocator());
+    
+    // cumu
+    rapidjson::Document path_obj;
+    path_obj.SetObject();
+    for (auto& it : _tablet_submitted_cumu_compaction) {
+        const std::string& dir = it.first->path();
+        rapidjson::Value path_key;
+        path_key.SetString(dir.c_str(), dir.length(), path_obj.GetAllocator());
+
+        rapidjson::Document arr;
+        arr.SetArray();
+
+        for (auto& tablet_id : it.second) {
+            rapidjson::Value key;
+            const std::string& key_str = std::to_string(tablet_id);
+            key.SetString(key_str.c_str(), key_str.length(), path_obj.GetAllocator());
+            arr.PushBack(key, root.GetAllocator());
+        }
+        path_obj.AddMember(path_key, arr, path_obj.GetAllocator());
+    }
+    root.AddMember(cumu_key, path_obj, root.GetAllocator());
+
+    // base
+    const std::string& base = "BaseCompaction";
+    rapidjson::Value base_key;
+    base_key.SetString(base.c_str(), base.length(), root.GetAllocator());
+    rapidjson::Document path_obj2;
+    path_obj2.SetObject();
+    for (auto& it : _tablet_submitted_base_compaction) {
+        const std::string& dir = it.first->path();
+        rapidjson::Value path_key;
+        path_key.SetString(dir.c_str(), dir.length(), path_obj2.GetAllocator());
+
+        rapidjson::Document arr;
+        arr.SetArray();
+
+        for (auto& tablet_id : it.second) {
+            rapidjson::Value key;
+            const std::string& key_str = std::to_string(tablet_id);
+            key.SetString(key_str.c_str(), key_str.length(), path_obj2.GetAllocator());
+            arr.PushBack(key, root.GetAllocator());
+        }
+        path_obj2.AddMember(path_key, arr, path_obj2.GetAllocator());
+    }
+    root.AddMember(base_key, path_obj2, root.GetAllocator());
+
+    rapidjson::StringBuffer strbuf;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
+    root.Accept(writer);
+    *result = std::string(strbuf.GetString());
+    return Status::OK();
+}
+
 }  // namespace doris

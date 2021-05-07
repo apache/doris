@@ -603,7 +603,7 @@ OLAPStatus EngineCloneTask::_finish_clone(Tablet* tablet, const string& clone_di
 
         // if full clone success, need to update cumulative layer point
         if (!is_incremental_clone && res == OLAP_SUCCESS) {
-            tablet->set_cumulative_layer_point(-1);
+            tablet->set_cumulative_layer_point(Tablet::K_INVALID_CUMULATIVE_POINT);
         }
 
     } while (0);

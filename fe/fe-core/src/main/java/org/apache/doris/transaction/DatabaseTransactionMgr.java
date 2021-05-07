@@ -1128,7 +1128,7 @@ public class DatabaseTransactionMgr {
             dbExpiredTxnIds.put(dbId, expiredTxnIds);
             BatchRemoveTransactionsOperation op = new BatchRemoveTransactionsOperation(dbExpiredTxnIds);
             editLog.logBatchRemoveTransactions(op);
-            LOG.info("Remove {} expirted transactions", MAX_REMOVE_TXN_PER_ROUND - leftNum);
+            LOG.info("Remove {} expired transactions", MAX_REMOVE_TXN_PER_ROUND - leftNum);
         } finally {
             writeUnlock();
         }

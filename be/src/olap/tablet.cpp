@@ -862,7 +862,7 @@ void Tablet::calculate_cumulative_point() {
         return;
     }
 
-    _cumulative_point = ret_cumulative_point;
+    set_cumulative_layer_point(ret_cumulative_point);
 }
 
 OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
@@ -1147,15 +1147,15 @@ void Tablet::get_compaction_status(std::string* json_result) {
     *json_result = std::string(strbuf.GetString());
 }
 
-void Tablet::do_tablet_meta_checkpoint() {
+bool Tablet::do_tablet_meta_checkpoint() {
     WriteLock store_lock(&_meta_store_lock);
     if (_newly_created_rowset_num == 0) {
-        return;
+        return false;
     }
     if (UnixMillis() - _last_checkpoint_time <
                 config::tablet_meta_checkpoint_min_interval_secs * 1000 &&
         _newly_created_rowset_num < config::tablet_meta_checkpoint_min_new_rowsets_num) {
-        return;
+        return false;
     }
 
     // hold read-lock other than write-lock, because it will not modify meta structure
@@ -1164,7 +1164,7 @@ void Tablet::do_tablet_meta_checkpoint() {
         LOG(INFO) << "tablet is under state=" << tablet_state()
                   << ", not running, skip do checkpoint"
                   << ", tablet=" << full_name();
-        return;
+        return false;
     }
     LOG(INFO) << "start to do tablet meta checkpoint, tablet=" << full_name();
     save_meta();
@@ -1203,6 +1203,7 @@ void Tablet::do_tablet_meta_checkpoint() {
 
     _newly_created_rowset_num = 0;
     _last_checkpoint_time = UnixMillis();
+    return true;
 }
 
 bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
