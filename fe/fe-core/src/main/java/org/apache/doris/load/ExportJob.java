@@ -78,11 +78,11 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.common.base.Splitter;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -268,18 +268,22 @@ public class ExportJob implements Writable {
         exportTupleDesc = desc.createTupleDescriptor();
         exportTupleDesc.setTable(exportTable);
         exportTupleDesc.setRef(tableRef);
-        for (Column col : exportTable.getBaseSchema()) {
-            String colName = col.getName().toLowerCase();
-            if (!this.exportColumns.isEmpty() && this.exportColumns.contains(colName)) {
+        if (exportColumns.isEmpty()) {
+            for (Column column : exportTable.getBaseSchema()) {
                 SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
                 slot.setIsMaterialized(true);
-                slot.setColumn(col);
-                slot.setIsNullable(col.isAllowNull());
-            } else {
-                SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
-                slot.setIsMaterialized(true);
-                slot.setColumn(col);
-                slot.setIsNullable(col.isAllowNull());
+                slot.setColumn(column);
+                slot.setIsNullable(column.isAllowNull());
+            }
+        } else {
+            for (Column column : exportTable.getBaseSchema()) {
+                String colName = column.getName().toLowerCase();
+                if (exportColumns.contains(colName)) {
+                    SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
+                    slot.setIsMaterialized(true);
+                    slot.setColumn(column);
+                    slot.setIsNullable(column.isAllowNull());
+                }
             }
         }
         desc.computeMemLayout();
@@ -765,7 +769,7 @@ public class ExportJob implements Writable {
         this.columns = this.properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
         if (!Strings.isNullOrEmpty(this.columns)) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
-            this.exportColumns = split.splitToList(this.columns);
+            this.exportColumns = split.splitToList(this.columns.toLowerCase());
         }
         boolean hasPartition = in.readBoolean();
         if (hasPartition) {

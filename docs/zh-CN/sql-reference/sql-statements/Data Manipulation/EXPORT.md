@@ -58,6 +58,7 @@ under the License.
         
           可以指定如下参数：
             column_separator: 指定导出的列分隔符，默认为\t。支持不可见字符，比如 '\x07'。
+            column: 指定待导出的列，使用英文逗号隔开，如果不填这个参数默认是导出表的所有列。
             line_delimiter: 指定导出的行分隔符，默认为\n。支持不可见字符，比如 '\x07'。
             exec_mem_limit: 导出在单个 BE 节点的内存使用上限，默认为 2GB，单位为字节。
             timeout：导入作业的超时时间，默认为1天，单位是秒。
@@ -91,6 +92,9 @@ under the License.
 
     6. 将 testTbl 表中的所有数据导出到 hdfs 上，以不可见字符 "\x07" 作为列或者行分隔符。
         EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"="\\x07", "line_delimiter" = "\\x07") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy")
+ 
+    7. 将 testTbl 表的 k1, v1 列导出到本地。
+        EXPORT TABLE testTbl TO "file:///home/data/a" PROPERTIES ("columns" = "k1,v1");
 
 ## keyword
     EXPORT
