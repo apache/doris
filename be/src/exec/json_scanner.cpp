@@ -187,11 +187,6 @@ Status JsonScanner::open_line_reader() {
     const TBrokerRangeDesc& range = _ranges[_next_range];
     int64_t size = range.size;
     if (range.start_offset != 0) {
-        if (range.format_type != TFileFormatType::FORMAT_CSV_PLAIN) {
-            std::stringstream ss;
-            ss << "For now we do not support split compressed file";
-            return Status::InternalError(ss.str());
-        }
         size += 1;
         _skip_next_line = true;
     } else {
@@ -249,10 +244,12 @@ void JsonScanner::close() {
         _cur_line_reader = nullptr;
     }
     if (_cur_file_reader != nullptr) {
-        delete _cur_file_reader;
-        _cur_file_reader = nullptr;
         if (_stream_load_pipe != nullptr) {
             _stream_load_pipe.reset();
+            _cur_file_reader = nullptr;
+        } else {
+            delete _cur_file_reader;
+            _cur_file_reader = nullptr;
         }
     }
 }
@@ -322,23 +319,17 @@ Status JsonReader::init(const std::string& jsonpath, const std::string& json_roo
 Status JsonReader::_generate_json_paths(const std::string& jsonpath,
                                         std::vector<std::vector<JsonPath>>* vect) {
     rapidjson::Document jsonpaths_doc;
-    LOG(WARNING) << "cch13 json path " << jsonpath;
     if (!jsonpaths_doc.Parse(jsonpath.c_str()).HasParseError()) {
         if (!jsonpaths_doc.IsArray()) {
             return Status::InvalidArgument("Invalid json path: " + jsonpath);
         } else {
             for (int i = 0; i < jsonpaths_doc.Size(); i++) {
                 const rapidjson::Value& path = jsonpaths_doc[i];
-                LOG(WARNING) << "cch13 json path child " << std::string(path.GetString());
                 if (!path.IsString()) {
                     return Status::InvalidArgument("Invalid json path: " + jsonpath);
                 }
                 std::vector<JsonPath> parsed_paths;
                 JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
-                LOG(WARNING) << "cch13 size " << parsed_paths.size();
-                for (JsonPath &p : parsed_paths) {
-                    LOG(WARNING) << "cch13 " << p.debug_string();
-                }
                 vect->push_back(std::move(parsed_paths));
             }
             return Status::OK();
