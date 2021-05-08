@@ -37,11 +37,11 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -317,11 +317,13 @@ public class DynamicPartitionUtil {
         }
 
         int end = DynamicPartitionProperty.MAX_END_OFFSET;
+        boolean hasEnd = false;
         if (properties.containsKey(DynamicPartitionProperty.END)) {
             String endValue = properties.get(DynamicPartitionProperty.END);
             end = checkEnd(endValue);
             properties.remove(DynamicPartitionProperty.END);
             analyzedProperties.put(DynamicPartitionProperty.END, endValue);
+            hasEnd = true;
         }
 
         boolean createHistoryPartition = false;
@@ -337,7 +339,7 @@ public class DynamicPartitionUtil {
         if (!createHistoryPartition) {
             start = 0;
         }
-        if (end - start > Config.max_dynamic_partition_num) {
+        if (hasEnd && (end - start > Config.max_dynamic_partition_num)) {
             throw new DdlException("Too many dynamic partitions: " + (end - start) + ". Limit: " + Config.max_dynamic_partition_num);
         }
 
