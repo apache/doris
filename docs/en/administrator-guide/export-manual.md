@@ -118,6 +118,7 @@ WITH BROKER "hdfs"
 ```
 
 * `column_separator`: Column separator. The default is `\t`. Supports invisible characters, such as'\x07'.
+* `column`: columns to be exported, separated by commas, if this parameter is not filled in, all columns of the table will be exported by default.
 * `line_delimiter`: Line separator. The default is `\n`. Supports invisible characters, such as'\x07'.
 * `exec_mem_limit`: Represents the memory usage limitation of a query plan on a single BE in an Export job. Default 2GB. Unit bytes.
 * `timeout`: homework timeout. Default 2 hours. Unit seconds.
