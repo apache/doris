@@ -45,13 +45,13 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -142,9 +142,13 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
         ZonedDateTime now = ZonedDateTime.now(dynamicPartitionProperty.getTimeZone().toZoneId());
-        for (int i = 0; i <= dynamicPartitionProperty.getEnd(); i++) {
-            String prevBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty, now, i, partitionFormat);
-            String nextBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty, now, i + 1, partitionFormat);
+
+        boolean createHistoryPartition = dynamicPartitionProperty.isCreateHistoryPartition();
+        int idx = createHistoryPartition ? dynamicPartitionProperty.getStart() : 0;
+
+        for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
+            String prevBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty, now, idx, partitionFormat);
+            String nextBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty, now, idx + 1, partitionFormat);
             PartitionValue lowerValue = new PartitionValue(prevBorder);
             PartitionValue upperValue = new PartitionValue(nextBorder);
 
