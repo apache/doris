@@ -729,9 +729,6 @@ const TabletSchema& SegmentGroup::get_tablet_schema() {
 }
 
 int SegmentGroup::get_num_zone_map_columns() {
-    if (_schema->keys_type() != KeysType::AGG_KEYS) {
-        return _schema->num_columns();
-    }
     return _schema->num_key_columns();
 }
 

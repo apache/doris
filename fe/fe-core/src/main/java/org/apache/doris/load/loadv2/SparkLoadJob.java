@@ -52,6 +52,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
@@ -191,7 +192,8 @@ public class SparkLoadJob extends BulkLoadJob {
 
     @Override
     public void beginTxn()
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException {
        transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
                                   new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),

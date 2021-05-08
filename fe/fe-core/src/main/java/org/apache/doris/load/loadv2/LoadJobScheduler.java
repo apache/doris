@@ -23,6 +23,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MasterDaemon;
@@ -79,7 +81,7 @@ public class LoadJobScheduler extends MasterDaemon {
             // schedule job
             try {
                 loadJob.execute();
-            } catch (LabelAlreadyUsedException | AnalysisException e) {
+            } catch (LabelAlreadyUsedException | AnalysisException | MetaNotFoundException | QuotaExceedException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                                  .add("error_msg", "There are error properties in job. Job will be cancelled")
                                  .build(), e);

@@ -698,7 +698,7 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
-        const std::map<TTabletId, CompactionType>& tablet_submitted_compaction, uint32_t* score,
+        const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str =
@@ -1127,6 +1127,8 @@ OLAPStatus TabletManager::start_trash_sweep() {
                 break;
             }
         }
+    // >= 200 means there may be more tablets need to be handled
+    // So continue
     } while (clean_num >= 200);
     return OLAP_SUCCESS;
 } // start_trash_sweep
@@ -1244,9 +1246,17 @@ void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
             }
         }
     }
+    int counter = 0;
+    MonotonicStopWatch watch;
+    watch.start();
     for (TabletSharedPtr tablet : related_tablets) {
-        tablet->do_tablet_meta_checkpoint();
+        if (tablet->do_tablet_meta_checkpoint()) {
+            ++counter;
+        }
     }
+    int64_t cost = watch.elapsed_time() / 1000 / 1000;
+    LOG(INFO) << "finish to do meta checkpoint on dir: " << data_dir->path()
+            << ", number: " << counter << ", cost(ms): " << cost;
     return;
 }
 

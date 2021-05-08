@@ -24,7 +24,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -98,7 +100,8 @@ public class GlobalTransactionMgr implements Writable {
 
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TxnCoordinator coordinator, LoadJobSourceType sourceType,
             long timeoutSecond)
-            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException {
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException {
         return beginTransaction(dbId, tableIdList, label, null, coordinator, sourceType, -1, timeoutSecond);
     }
     
@@ -117,7 +120,8 @@ public class GlobalTransactionMgr implements Writable {
      */
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
                                  TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
-            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException {
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException {
 
         if (Config.disable_load_job) {
             throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
