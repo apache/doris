@@ -60,10 +60,18 @@ A label that is loaded at one time. The data of the same label cannot be loaded 
 Currently Palo internally retains the most recent successful label within 30 minutes.
 
 `column_separator`
-
+    
 Used to specify the column separator in the load file. The default is `\t`. If it is an invisible character, you need to add `\x` as a prefix and hexadecimal to indicate the separator.
 
-For example, the separator `\x01` of the hive file needs to be specified as `-H "column_separator:\x01"`
+For example, the separator `\x01` of the hive file needs to be specified as `-H "column_separator:\x01"`.
+
+You can use a combination of multiple characters as the column separator.
+
+`line_delimiter`
+   
+Used to specify the line delimiter in the load file. The default is `\n`.
+
+You can use a combination of multiple characters as the column separator.
 
 `columns`
 
@@ -157,6 +165,16 @@ After the load is completed, the related content of this load will be returned i
 
 * LoadTimeMs: Time spent on this load
 
+* BeginTxnTimeMs: The time cost for RPC to Fe to begin a transaction, Unit milliseconds.
+
+* StreamLoadPutTimeMs: The time cost for RPC to Fe to get a stream load plan, Unit milliseconds.
+  
+* ReadDataTimeMs: Read data time, Unit milliseconds.
+
+* WriteDataTimeMs: Write data time, Unit milliseconds.
+
+* CommitAndPublishTimeMs: The time cost for RPC to Fe to commit and publish a transaction, Unit milliseconds.
+
 * ErrorURL: The specific content of the filtered data, only the first 1000 items are retained
 
 ERRORS
@@ -215,12 +233,11 @@ Where url is the url given by ErrorURL.
            {"category":"C++","author":"avc","title":"C++ primer","price":895}
        load command by curl:
            curl --location-trusted -u root  -H "label:123" -H "format: json" -T testData http://host:port/api/testDb/testTbl/_stream_load
-         you can load multiple records, for example:
-               [
-               {"category":"C++","author":"avc","title":"C++ primer","price":89.5},
-               {"category":"Java","author":"avc","title":"Effective Java","price":95},
-               {"category":"Linux","author":"avc","title":"Linux kernel","price":195}
-              ]
+       In order to improve throughput, it supports importing multiple pieces of json data at one time. Each row is a json object. The default value for line delimeter is `\n`. The json data format is as follows:
+            {"category":"C++","author":"avc","title":"C++ primer","price":89.5}
+            {"category":"Java","author":"avc","title":"Effective Java","price":95}
+            {"category":"Linux","author":"avc","title":"Linux kernel","price":195}
+            
 11. Matched load json by jsonpaths
        For example json data:
            [
