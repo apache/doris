@@ -127,7 +127,7 @@ under the License.
 
     默认为 false。当置为 true 时，Doris 会自动创建由 start 到 end 的所有分区。同时，FE 的参数 `max_dynamic_partition_num` 会限制总分区数量，以避免一次性创建过多分区。当 end - start 的值大于 `max_dynamic_partition_num` 值时，操作将被禁止。
 
-	当不指定 `start` 属性时，该参数不生效。
+    当不指定 `start` 属性时，该参数不生效。
   
 ### 注意事项 
  
@@ -352,6 +352,6 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
 1. 创建动态分区表后提示 ```Could not create table with dynamic partition when fe config dynamic_partition_enable is false```
 
-	由于动态分区的总开关，也就是 FE 的配置 ```dynamic_partition_enable``` 为 false，导致无法创建动态分区表。
+    由于动态分区的总开关，也就是 FE 的配置 ```dynamic_partition_enable``` 为 false，导致无法创建动态分区表。
 
-        这时候请修改 FE 的配置文件，增加一行 ```dynamic_partition_enable=true```，并重启 FE。或者执行命令 ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") 将动态分区开关打开即可。
+    这时候请修改 FE 的配置文件，增加一行 ```dynamic_partition_enable=true```，并重启 FE。或者执行命令 ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") 将动态分区开关打开即可。
