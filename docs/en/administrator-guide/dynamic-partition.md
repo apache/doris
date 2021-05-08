@@ -127,7 +127,7 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
 * `dynamic_partition.create_history_partition`
 
-    The default is false. When set to true, Doris will automatically create all partitions from start to end. At the same time, the parameter `max_dynamic_partition_num` of FE will limit the total number of partitions to avoid creating too many partitions at once.
+    The default is false. When set to true, Doris will automatically create all partitions from start to end. At the same time, the parameter `max_dynamic_partition_num` of FE will limit the total number of partitions to avoid creating too many partitions at once. If (end - start) is larger than `max_dynamic_partition_num`, the operation will fail.
 
     When the `start` attribute is not specified, this parameter has no effect.
 

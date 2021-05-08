@@ -110,7 +110,7 @@ under the License.
 * `dynamic_partition.buckets`
 
     动态创建的分区所对应的分桶数量。
-  
+
 * `dynamic_partition.replication_num`
 
     动态创建的分区所对应的副本数量，如果不填写，则默认为该表创建时指定的副本数量。
@@ -125,7 +125,7 @@ under the License.
 
 * `dynamic_partition.create_history_partition`
 
-    默认为 false。当置为 true 时，Doris 会自动创建由 start 到 end 的所有分区。同时，FE 的参数 `max_dynamic_partition_num` 会限制总分区数量，以避免一次性创建过多分区。
+    默认为 false。当置为 true 时，Doris 会自动创建由 start 到 end 的所有分区。同时，FE 的参数 `max_dynamic_partition_num` 会限制总分区数量，以避免一次性创建过多分区。当 end - start 的值大于 `max_dynamic_partition_num` 值时，操作将被禁止。
 
 	当不指定 `start` 属性时，该参数不生效。
   
