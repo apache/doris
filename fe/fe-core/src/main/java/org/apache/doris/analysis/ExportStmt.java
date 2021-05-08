@@ -134,7 +134,7 @@ public class ExportStmt extends StatementBase {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         tableRef = analyzer.resolveTableRef(tableRef);
