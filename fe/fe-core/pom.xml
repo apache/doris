@@ -737,6 +737,7 @@ under the License.
                             <sources>
                                 <!-- add arbitrary num of src dirs here -->
                                 <source>${basedir}/target/generated-sources/build/</source>
+                                <source>${basedir}/target/generated-sources/</source>
                             </sources>
                         </configuration>
                     </execution>

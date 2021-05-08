@@ -453,7 +453,7 @@ TEST_F(OlapTableSinkTest, normal) {
     ASSERT_TRUE(st.ok());
     // close
     st = sink.close(&state, Status::OK());
-    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: already stopped, skip waiting for close. cancelled/!eos: : 1/1") << st.to_string();
+    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ") << st.to_string();
 
     // each node has a eof
     ASSERT_EQ(2, service->_eof_counters);
@@ -586,7 +586,7 @@ TEST_F(OlapTableSinkTest, convert) {
     ASSERT_TRUE(st.ok());
     // close
     st = sink.close(&state, Status::OK());
-    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: already stopped, skip waiting for close. cancelled/!eos: : 1/1") << st.to_string();
+    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ") << st.to_string();
 
     // each node has a eof
     ASSERT_EQ(2, service->_eof_counters);
@@ -966,7 +966,7 @@ TEST_F(OlapTableSinkTest, decimal) {
     ASSERT_TRUE(st.ok());
     // close
     st = sink.close(&state, Status::OK());
-    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: already stopped, skip waiting for close. cancelled/!eos: : 1/1") << st.to_string();
+    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ") << st.to_string();
 
     ASSERT_EQ(2, output_set.size());
     ASSERT_TRUE(output_set.count("[(12 12.3)]") > 0);

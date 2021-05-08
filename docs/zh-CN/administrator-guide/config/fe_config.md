@@ -794,3 +794,8 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 仅在 `enable_http_server_v2` 为 true 的情况下才有效。
 
 默认为空，即不设置。
+
+### `max_dynamic_partition_num`
+
+在创建动态分区表时，允许自动创建的最大分区数量。以防止一次性创建过多的分区。
+默认为 500。

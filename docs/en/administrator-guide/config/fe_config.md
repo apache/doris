@@ -789,3 +789,8 @@ And the new UI will also try to get this base path first to assemble the URL.
 Only valid when `enable_http_server_v2` is true.
 
 The default is empty, that is, not set.
+
+### `max_dynamic_partition_num`
+
+When creating a dynamic partition table, the maximum number of partitions allowed to be automatically created. To prevent creating too many partitions at once.
+The default is 500.

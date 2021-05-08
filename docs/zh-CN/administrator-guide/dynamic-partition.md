@@ -110,7 +110,7 @@ under the License.
 * `dynamic_partition.buckets`
 
     动态创建的分区所对应的分桶数量。
-  
+
 * `dynamic_partition.replication_num`
 
     动态创建的分区所对应的副本数量，如果不填写，则默认为该表创建时指定的副本数量。
@@ -122,6 +122,12 @@ under the License.
 * `dynamic_partition.start_day_of_month`
 
     当 `time_unit` 为 `MONTH` 时，该参数用于指定每月的起始日期。取值为 1 到 28。其中 1 表示每月1号，28 表示每月28号。默认为 1，即表示每月以1号位起始点。暂不支持以29、30、31号为起始日，以避免因闰年或闰月带来的歧义。
+
+* `dynamic_partition.create_history_partition`
+
+    默认为 false。当置为 true 时，Doris 会自动创建由 start 到 end 的所有分区。同时，FE 的参数 `max_dynamic_partition_num` 会限制总分区数量，以避免一次性创建过多分区。当 end - start 的值大于 `max_dynamic_partition_num` 值时，操作将被禁止。
+
+    当不指定 `start` 属性时，该参数不生效。
   
 ### 注意事项 
  
@@ -346,6 +352,6 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
 1. 创建动态分区表后提示 ```Could not create table with dynamic partition when fe config dynamic_partition_enable is false```
 
-	由于动态分区的总开关，也就是 FE 的配置 ```dynamic_partition_enable``` 为 false，导致无法创建动态分区表。
+    由于动态分区的总开关，也就是 FE 的配置 ```dynamic_partition_enable``` 为 false，导致无法创建动态分区表。
 
-        这时候请修改 FE 的配置文件，增加一行 ```dynamic_partition_enable=true```，并重启 FE。或者执行命令 ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") 将动态分区开关打开即可。
+    这时候请修改 FE 的配置文件，增加一行 ```dynamic_partition_enable=true```，并重启 FE。或者执行命令 ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") 将动态分区开关打开即可。

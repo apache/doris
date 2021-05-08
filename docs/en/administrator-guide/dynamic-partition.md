@@ -125,6 +125,12 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     When `time_unit` is` MONTH`, this parameter is used to specify the start date of each month. The value ranges from 1 to 28. 1 means the 1st of every month, and 28 means the 28th of every month. The default is 1, which means that every month starts at 1st. The 29, 30 and 31 are not supported at the moment to avoid ambiguity caused by lunar years or months.
 
+* `dynamic_partition.create_history_partition`
+
+    The default is false. When set to true, Doris will automatically create all partitions from start to end. At the same time, the parameter `max_dynamic_partition_num` of FE will limit the total number of partitions to avoid creating too many partitions at once. If (end - start) is larger than `max_dynamic_partition_num`, the operation will fail.
+
+    When the `start` attribute is not specified, this parameter has no effect.
+
 ### Notice
 
 If some partitions between `dynamic_partition.start` and `dynamic_partition.end` are lost due to some unexpected circumstances when using dynamic partition, the lost partitions between the current time and `dynamic_partition.end` will be recreated, but the lost partitions between `dynamic_partition.start` and the current time will not be recreated.
