@@ -845,6 +845,16 @@ public class Catalog {
                     nodeName = genFeNodeName(selfNode.first, selfNode.second, true/* old style */);
                     storage.writeFrontendRoleAndNodeName(role, nodeName);
                     LOG.info("forward compatibility. role: {}, node name: {}", role.name(), nodeName);
+                } else {
+                    // nodeName should be like "192.168.1.1_9217_1620296111213"
+                    // and the selfNode should be the prefix of nodeName.
+                    // If not, it means that the ip used last time is different from this time, which is not allowed.
+                    String[] split = nodeName.split("_");
+                    if (!selfNode.first.equalsIgnoreCase(split[0])) {
+                        throw new IOException("the self host " + selfNode.first + " does not equal to the host in ROLE" +
+                                " file " + split[0] + ". You need to set 'priority_networks' config in fe.conf to match" +
+                                " the host " + split[0]);
+                    }
                 }
             }
 
@@ -3025,6 +3035,10 @@ public class Catalog {
             Table table = db.getTable(stmt.getExistedTableName());
             if (table == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, stmt.getExistedTableName());
+            }
+
+            if (table.getType() == TableType.VIEW) {
+                throw new DdlException("Not support create table from a View");
             }
 
             List<String> createTableStmt = Lists.newArrayList();

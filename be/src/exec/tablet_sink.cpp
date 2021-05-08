@@ -55,6 +55,9 @@ NodeChannel::~NodeChannel() {
     _cur_add_batch_request.release_id();
 }
 
+// if "_cancelled" is set to true,
+// no need to set _cancel_msg because the error will be
+// returned directly via "TabletSink::prepare()" method.
 Status NodeChannel::init(RuntimeState* state) {
     _tuple_desc = _parent->_output_tuple_desc;
     _node_info = _parent->_nodes_info->find_node(_node_id);
@@ -123,14 +126,27 @@ void NodeChannel::open() {
     request.release_schema();
 }
 
+void NodeChannel::_cancel_with_msg(const std::string& msg) {
+    _cancelled = true;
+    LOG(WARNING) << msg;
+    {
+        std::lock_guard<SpinLock> l(_cancel_msg_lock);
+        if (_cancel_msg == "") {
+            _cancel_msg = msg;
+        }
+    }
+}
+
 Status NodeChannel::open_wait() {
     _open_closure->join();
     if (_open_closure->cntl.Failed()) {
-        LOG(WARNING) << "failed to open tablet writer, error="
-                     << berror(_open_closure->cntl.ErrorCode())
-                     << ", error_text=" << _open_closure->cntl.ErrorText();
+        std::stringstream ss;
+        ss << "failed to open tablet writer, error="
+            << berror(_open_closure->cntl.ErrorCode())
+            << ", error_text=" << _open_closure->cntl.ErrorText();
         _cancelled = true;
-        return Status::InternalError("failed to open tablet writer");
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
     }
     Status status(_open_closure->result.status());
     if (_open_closure->unref()) {
@@ -146,9 +162,10 @@ Status NodeChannel::open_wait() {
     // add batch closure
     _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
     _add_batch_closure->addFailedHandler([this]() {
-        _cancelled = true;
-        LOG(WARNING) << name() << " add batch req rpc failed, " << print_load_info()
-                     << ", node=" << node_info()->host << ":" << node_info()->brpc_port;
+        std::stringstream ss;
+        ss << name() << " add batch req rpc failed, " << print_load_info()
+           << ", node=" << node_info()->host << ":" << node_info()->brpc_port;
+        _cancel_with_msg(ss.str());
     });
 
     _add_batch_closure->addSuccessHandler(
@@ -165,19 +182,11 @@ Status NodeChannel::open_wait() {
                         _add_batches_finished = true;
                     }
                 } else {
-                    _cancelled = true;
-                    LOG(WARNING) << name() << " add batch req success but status isn't ok, "
+                    std::stringstream ss;
+                    ss << name() << " add batch req success but status isn't ok, "
                                  << print_load_info() << ", node=" << node_info()->host << ":"
                                  << node_info()->brpc_port << ", errmsg=" << status.get_error_msg();
-                    {
-                        std::lock_guard<SpinLock> l(_cancel_msg_lock);
-                        if (_cancel_msg == "") {
-                            std::stringstream ss;
-                            ss << "node=" << node_info()->host << ":" << node_info()->brpc_port
-                               << ", errmsg=" << status.get_error_msg();
-                            _cancel_msg = ss.str();
-                        }
-                    }
+                    _cancel_with_msg(ss.str());
                 }
 
                 if (result.has_execution_time_us()) {
@@ -194,7 +203,12 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     // If add_row() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
-        return st.clone_and_prepend("already stopped, can't add_row. cancelled/eos: ");
+        if (_cancelled) {
+            std::lock_guard<SpinLock> l(_cancel_msg_lock);
+            return Status::InternalError("add row failed. " + _cancel_msg);
+        } else {
+            return st.clone_and_prepend("already stopped, can't add row. cancelled/eos: ");
+        }
     }
 
     // We use OlapTableSink mem_tracker which has the same ancestor of _plan node,
@@ -234,7 +248,12 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
 Status NodeChannel::mark_close() {
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
-        return st.clone_and_prepend("already stopped, can't mark as closed. cancelled/eos: ");
+        if (_cancelled) {
+            std::lock_guard<SpinLock> l(_cancel_msg_lock);
+            return Status::InternalError("mark close failed. " + _cancel_msg);
+        } else {
+            return st.clone_and_prepend("already stopped, can't mark as closed. cancelled/eos: ");
+        }
     }
 
     _cur_add_batch_request.set_eos(true);
@@ -253,7 +272,12 @@ Status NodeChannel::mark_close() {
 Status NodeChannel::close_wait(RuntimeState* state) {
     auto st = none_of({_cancelled, !_eos_is_produced});
     if (!st.ok()) {
-        return st.clone_and_prepend("already stopped, skip waiting for close. cancelled/!eos: ");
+        if (_cancelled) {
+            std::lock_guard<SpinLock> l(_cancel_msg_lock);
+            return Status::InternalError("wait close failed. " + _cancel_msg);
+        } else {
+            return st.clone_and_prepend("already stopped, skip waiting for close. cancelled/!eos: ");
+        }
     }
 
     // waiting for finished, it may take a long time, so we couldn't set a timeout
@@ -434,16 +458,18 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
 Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
     auto it = _channels_by_tablet.find(tablet_id);
     DCHECK(it != _channels_by_tablet.end()) << "unknown tablet, tablet_id=" << tablet_id;
+    std::stringstream ss;
     for (auto channel : it->second) {
         // if this node channel is already failed, this add_row will be skipped
         auto st = channel->add_row(tuple, tablet_id);
         if (!st.ok()) {
             mark_as_failed(channel);
+            ss << st.get_error_msg() << "; ";
         }
     }
 
     if (has_intolerable_failure()) {
-        return Status::InternalError("index channel has intolerable failure");
+        return Status::InternalError(ss.str());
     }
 
     return Status::OK();
@@ -627,19 +653,23 @@ Status OlapTableSink::open(RuntimeState* state) {
     }
 
     for (auto index_channel : _channels) {
-        index_channel->for_each_node_channel([&index_channel](NodeChannel* ch) {
+        std::stringstream ss;
+        index_channel->for_each_node_channel([&index_channel, &ss](NodeChannel* ch) {
             auto st = ch->open_wait();
             if (!st.ok()) {
-                LOG(WARNING) << ch->name() << ": tablet open failed, " << ch->print_load_info()
-                             << ", node=" << ch->node_info()->host << ":"
-                             << ch->node_info()->brpc_port << ", errmsg=" << st.get_error_msg();
+                std::stringstream err;
+                err << ch->name() << ": tablet open failed, " << ch->print_load_info()
+                    << ", node=" << ch->node_info()->host << ":"
+                    << ch->node_info()->brpc_port << ", errmsg=" << st.get_error_msg();
+                LOG(WARNING) << err.str();
                 index_channel->mark_as_failed(ch);
+                ss << err.str() << "; ";
             }
         });
 
         if (index_channel->has_intolerable_failure()) {
-            LOG(WARNING) << "open failed, load_id=" << _load_id;
-            return Status::InternalError("intolerable failure in opening node channels");
+            LOG(WARNING) << "open failed, load_id=" << _load_id << ", err: " << ss.str();
+            return Status::InternalError(ss.str());
         }
     }
 
