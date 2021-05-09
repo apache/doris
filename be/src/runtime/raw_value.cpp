@@ -17,7 +17,6 @@
 
 #include "runtime/raw_value.h"
 
-#include <boost/functional/hash.hpp>
 #include <sstream>
 
 #include "olap/utils.h"

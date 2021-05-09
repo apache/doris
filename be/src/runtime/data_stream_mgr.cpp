@@ -17,7 +17,6 @@
 
 #include "runtime/data_stream_mgr.h"
 
-#include <boost/functional/hash.hpp>
 #include <boost/thread/thread.hpp>
 #include <iostream>
 

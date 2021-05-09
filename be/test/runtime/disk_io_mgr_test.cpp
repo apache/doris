@@ -36,7 +36,7 @@ using std::list;
 using std::lock_guard;
 using std::unique_lock;
 using std::mutex;
-using boost::mem_fn;
+using std::mem_fn;
 using std::condition_variable;
 using boost::scoped_ptr;
 using boost::thread;

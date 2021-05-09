@@ -17,7 +17,6 @@
 
 #include "runtime/spill_sorter.h"
 
-#include <boost/mem_fn.hpp>
 #include <sstream>
 #include <string>
 
@@ -32,9 +31,9 @@ using std::deque;
 using std::string;
 using std::vector;
 
-using boost::bind;
-using boost::function;
-using boost::mem_fn;
+using std::bind;
+using std::function;
+using std::mem_fn;
 using boost::scoped_ptr;
 
 namespace doris {
@@ -1319,7 +1318,7 @@ Status SpillSorter::create_merger(int num_runs) {
         // Run::get_next_batch() is used by the merger to retrieve a batch of rows to merge
         // from this run.
         merge_runs.push_back(
-                bind<Status>(mem_fn(&Run::get_next_batch), run, boost::placeholders::_1));
+                bind<Status>(mem_fn(&Run::get_next_batch), run, std::placeholders::_1));
         _sorted_runs.pop_front();
         _merging_runs.push_back(run);
     }

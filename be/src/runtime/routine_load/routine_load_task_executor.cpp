@@ -169,19 +169,19 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     _task_map[ctx->id] = ctx;
 
     // offer the task to thread pool
-    if (!_thread_pool.offer(boost::bind<void>(&RoutineLoadTaskExecutor::exec_task, this, ctx,
-                                              &_data_consumer_pool, [this](StreamLoadContext* ctx) {
-                                                  std::unique_lock<std::mutex> l(_lock);
-                                                  _task_map.erase(ctx->id);
-                                                  LOG(INFO) << "finished routine load task "
-                                                            << ctx->brief() << ", status: "
-                                                            << ctx->status.get_error_msg()
-                                                            << ", current tasks num: "
-                                                            << _task_map.size();
-                                                  if (ctx->unref()) {
-                                                      delete ctx;
-                                                  }
-                                              }))) {
+    if (!_thread_pool.offer(std::bind<void>(&RoutineLoadTaskExecutor::exec_task, this, ctx,
+                                            &_data_consumer_pool, [this](StreamLoadContext* ctx) {
+                                                std::unique_lock<std::mutex> l(_lock);
+                                                _task_map.erase(ctx->id);
+                                                LOG(INFO) << "finished routine load task "
+                                                          << ctx->brief() << ", status: "
+                                                          << ctx->status.get_error_msg()
+                                                          << ", current tasks num: "
+                                                          << _task_map.size();
+                                                if (ctx->unref()) {
+                                                    delete ctx;
+                                                }
+                                            }))) {
         // failed to submit task, clear and return
         LOG(WARNING) << "failed to submit routine load task: " << ctx->brief();
         _task_map.erase(ctx->id);

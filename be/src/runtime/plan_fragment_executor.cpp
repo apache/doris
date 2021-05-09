@@ -105,8 +105,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     _average_thread_tokens = profile()->add_sampling_counter(
             "AverageThreadTokens",
-            boost::bind<int64_t>(boost::mem_fn(&ThreadResourceMgr::ResourcePool::num_threads),
-                                 _runtime_state->resource_pool()));
+            std::bind<int64_t>(std::mem_fn(&ThreadResourceMgr::ResourcePool::num_threads),
+                               _runtime_state->resource_pool()));
 
     // if (_exec_env->process_mem_tracker() != NULL) {
     //     // we have a global limit
@@ -241,7 +241,7 @@ Status PlanFragmentExecutor::open() {
     // may block
     // TODO: if no report thread is started, make sure to send a final profile
     // at end, otherwise the coordinator hangs in case we finish w/ an error
-    if (!_report_status_cb.empty() && config::status_report_interval > 0) {
+    if (_report_status_cb && config::status_report_interval > 0) {
         std::unique_lock<std::mutex> l(_report_thread_lock);
         _report_thread = boost::thread(&PlanFragmentExecutor::report_profile, this);
         // make sure the thread started up, otherwise report_profile() might get into a race
@@ -353,7 +353,7 @@ void PlanFragmentExecutor::_collect_query_statistics() {
 
 void PlanFragmentExecutor::report_profile() {
     VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
-    DCHECK(!_report_status_cb.empty());
+    DCHECK(_report_status_cb);
     std::unique_lock<std::mutex> l(_report_thread_lock);
     // tell Open() that we started
     _report_thread_started_cv.notify_one();
@@ -400,7 +400,7 @@ void PlanFragmentExecutor::report_profile() {
 }
 
 void PlanFragmentExecutor::send_report(bool done) {
-    if (_report_status_cb.empty()) {
+    if (!_report_status_cb) {
         return;
     }
 

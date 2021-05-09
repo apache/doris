@@ -113,7 +113,7 @@ public:
         return page;
     }
 
-    void iterate(boost::function<bool(Page*)> fn) { list_.iterate(fn); }
+    void iterate(std::function<bool(Page*)> fn) { list_.iterate(fn); }
     bool contains(Page* page) { return list_.contains(page); }
     Page* tail() { return list_.tail(); }
     bool empty() const { return list_.empty(); }
