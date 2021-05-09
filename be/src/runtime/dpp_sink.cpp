@@ -912,7 +912,7 @@ Status DppSink::finish(RuntimeState* state) {
     for (auto& iter : _translator_map) {
         for (auto& trans : iter.second) {
             state->exec_env()->etl_thread_pool()->offer(
-                    boost::bind<void>(&DppSink::process, this, state, trans, &latch));
+                    std::bind<void>(&DppSink::process, this, state, trans, &latch));
         }
     }
 

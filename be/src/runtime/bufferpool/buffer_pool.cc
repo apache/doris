@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <boost/bind/bind.hpp>
 #include <limits>
 #include <sstream>
 
@@ -700,11 +699,13 @@ string BufferPool::Client::DebugString() {
        << " in_flight_write_bytes: " << in_flight_write_pages_.bytes()
        << " reservation: " << reservation_.DebugString();
     ss << "\n  " << pinned_pages_.size() << " pinned pages: ";
-    pinned_pages_.iterate(boost::bind<bool>(Page::DebugStringCallback, &ss, boost::placeholders::_1));
+    pinned_pages_.iterate(std::bind<bool>(Page::DebugStringCallback, &ss, std::placeholders::_1));
     ss << "\n  " << dirty_unpinned_pages_.size() << " dirty unpinned pages: ";
-    dirty_unpinned_pages_.iterate(boost::bind<bool>(Page::DebugStringCallback, &ss, boost::placeholders::_1));
+    dirty_unpinned_pages_.iterate(
+            std::bind<bool>(Page::DebugStringCallback, &ss, std::placeholders::_1));
     ss << "\n  " << in_flight_write_pages_.size() << " in flight write pages: ";
-    in_flight_write_pages_.iterate(boost::bind<bool>(Page::DebugStringCallback, &ss, boost::placeholders::_1));
+    in_flight_write_pages_.iterate(
+            std::bind<bool>(Page::DebugStringCallback, &ss, std::placeholders::_1));
     return ss.str();
 }
 

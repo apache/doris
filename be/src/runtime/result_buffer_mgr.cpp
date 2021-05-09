@@ -17,8 +17,6 @@
 
 #include "runtime/result_buffer_mgr.h"
 
-#include <boost/bind/bind.hpp>
-
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/types.pb.h"
 #include "runtime/buffer_control_block.h"
