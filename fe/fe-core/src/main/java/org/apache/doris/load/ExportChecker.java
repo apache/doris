@@ -125,6 +125,13 @@ public final class ExportChecker extends MasterDaemon {
         LOG.debug("exporting export job num: {}", jobs.size());
         for (ExportJob job : jobs) {
             try {
+                int leftTimeSecond = (int)(job.getTimeoutSecond() - (System.currentTimeMillis() - job.getCreateTimeMs()) / 1000L);
+                if (leftTimeSecond <= 0) {
+                    LOG.warn("export exporting job timeout. job: {}", job);
+                    String failMsg = "export exporting job timeout";
+                    job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
+                    continue;
+                }
                 MasterTask task = new ExportExportingTask(job);
                 if (executors.get(JobState.EXPORTING).submit(task)) {
                     LOG.info("run exporting export job. job: {}", job);
