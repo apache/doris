@@ -381,10 +381,10 @@ public class RestService implements Serializable {
     }
 
     /**
-     * find Doris RDD partitions from Doris FE.
+     * find Doris partitions from Doris FE.
      * @param options configuration of request
      * @param logger {@link Logger}
-     * @return an list of Doris RDD partitions
+     * @return an list of Doris partitions
      * @throws DorisException throw when find partition failed
      */
     public static List<PartitionDefinition> findPartitions(DorisOptions options, DorisReadOptions readOptions, Logger logger) throws DorisException {
@@ -512,7 +512,7 @@ public class RestService implements Serializable {
     }
 
     /**
-     * tablet count limit for one Doris RDD partition
+     * tablet count limit for one Doris partition
      * @param readOptions configuration of request
      * @param logger {@link Logger}
      * @return tablet count limit
@@ -533,14 +533,14 @@ public class RestService implements Serializable {
     }
 
     /**
-     * translate BE tablets map to Doris RDD partition.
+     * translate BE tablets map to Doris partition.
      * @param options configuration of request
      * @param be2Tablets BE to tablets {@link Map}
      * @param opaquedQueryPlan Doris BE execute plan getting from Doris FE
      * @param database database name of Doris table
      * @param table table name of Doris table
      * @param logger {@link Logger}
-     * @return Doris RDD partition {@link List}
+     * @return Doris partition {@link List}
      * @throws IllegalArgumentException throw when translate failed
      */
     @VisibleForTesting

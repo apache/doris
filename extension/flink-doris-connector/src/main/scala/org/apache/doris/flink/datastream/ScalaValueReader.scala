@@ -38,7 +38,7 @@ import scala.util.control.Breaks
 
 /**
  * read data from Doris BE to array.
- * @param partition Doris RDD partition
+ * @param partition Doris partition
  * @param options request configuration
  */
 class ScalaValueReader(partition: PartitionDefinition, options: DorisOptions, readOptions: DorisReadOptions) {

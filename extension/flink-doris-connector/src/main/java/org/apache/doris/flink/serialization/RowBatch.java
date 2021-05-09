@@ -284,9 +284,9 @@ public class RowBatch {
         return rowBatch.get(offsetInRowBatch++).getCols();
     }
 
-    private String typeMismatchMessage(final String sparkType, final Types.MinorType arrowType) {
+    private String typeMismatchMessage(final String flinkType, final Types.MinorType arrowType) {
         final String messageTemplate = "FLINK type is %1$s, but arrow type is %2$s.";
-        return String.format(messageTemplate, sparkType, arrowType.name());
+        return String.format(messageTemplate, flinkType, arrowType.name());
     }
 
     public int getReadRowCount() {
