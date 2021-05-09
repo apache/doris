@@ -507,7 +507,7 @@ public:
         // (TStatusCode::CANCELLED). The callback is only invoked if this WriteRange was
         // successfully added (i.e. add_write_range() succeeded). No locks are held while
         // the callback is invoked.
-        typedef boost::function<void(const Status&)> WriteDoneCallback;
+        typedef std::function<void(const Status&)> WriteDoneCallback;
         WriteRange(const std::string& file, int64_t file_offset, int disk_id,
                    WriteDoneCallback callback);
 

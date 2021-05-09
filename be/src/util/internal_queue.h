@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_SRC_UTIL_INTERNAL_QUEUE_H
 #define DORIS_BE_SRC_UTIL_INTERNAL_QUEUE_H
 
-#include <boost/function.hpp>
+#include <functional>
 #include <mutex>
 
 #include "util/fake_lock.h"
@@ -240,7 +240,7 @@ public:
     // Iterate over elements of queue, calling 'fn' for each element. If 'fn' returns
     // false, terminate iteration. It is invalid to call other InternalQueue methods
     // from 'fn'.
-    void iterate(boost::function<bool(T*)> fn) {
+    void iterate(std::function<bool(T*)> fn) {
         std::lock_guard<LockType> lock(lock_);
         for (Node* current = head_; current != NULL; current = current->next_node) {
             if (!fn(reinterpret_cast<T*>(current))) return;

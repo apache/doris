@@ -92,15 +92,15 @@ public:
     void Run() {
         for (int i = 0; i < _nthreads; ++i) {
             _threads.push_back(boost::shared_ptr<boost::thread>(
-                    new boost::thread(boost::bind(&MultiThreadTest::inserter_thread, this, i))));
+                    new boost::thread(std::bind(&MultiThreadTest::inserter_thread, this, i))));
             _threads.push_back(boost::shared_ptr<boost::thread>(
-                    new boost::thread(boost::bind(&MultiThreadTest::RemoverThread, this))));
+                    new boost::thread(std::bind(&MultiThreadTest::RemoverThread, this))));
         }
 
         // We add an extra thread to ensure that there aren't enough elements in
         // the queue to go around.  This way, we test removal after shutdown.
         _threads.push_back(boost::shared_ptr<boost::thread>(
-                new boost::thread(boost::bind(&MultiThreadTest::RemoverThread, this))));
+                new boost::thread(std::bind(&MultiThreadTest::RemoverThread, this))));
 
         for (int i = 0; i < _threads.size(); ++i) {
             _threads[i]->join();

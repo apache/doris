@@ -21,7 +21,6 @@
 #include <gperftools/malloc_extension.h>
 
 #include <boost/algorithm/string.hpp>
-#include <boost/bind/bind.hpp>
 #include <sstream>
 
 #include "agent/utils.h"
@@ -336,18 +335,21 @@ void add_default_path_handlers(WebPageHandler* web_page_handler,
     // TODO(yingchun): logs_handler is not implemented yet, so not show it on navigate bar
     web_page_handler->register_page("/logs", "Logs", logs_handler, false /* is_on_nav_bar */);
     web_page_handler->register_page("/varz", "Configs", config_handler, true /* is_on_nav_bar */);
-    web_page_handler->register_page(
-            "/memz", "Memory", boost::bind<void>(&mem_usage_handler, process_mem_tracker, boost::placeholders::_1, boost::placeholders::_2),
-            true /* is_on_nav_bar */);
+    web_page_handler->register_page("/memz", "Memory",
+                                    std::bind<void>(&mem_usage_handler, process_mem_tracker,
+                                                    std::placeholders::_1, std::placeholders::_2),
+                                    true /* is_on_nav_bar */);
     web_page_handler->register_page("/mem_tracker", "MemTracker", mem_tracker_handler,
                                     true /* is_on_nav_bar */);
     web_page_handler->register_page("/heap", "Heap Profile", heap_handler,
                                     true /* is_on_nav_bar */);
     web_page_handler->register_page("/cpu", "CPU Profile", cpu_handler, true /* is_on_nav_bar */);
     register_thread_display_page(web_page_handler);
-    web_page_handler->register_template_page("/tablets_page", "Tablets",
-                                             boost::bind<void>(&display_tablets_callback, boost::placeholders::_1, boost::placeholders::_2),
-                                             true /* is_on_nav_bar */);
+    web_page_handler->register_template_page(
+            "/tablets_page", "Tablets",
+            std::bind<void>(&display_tablets_callback, std::placeholders::_1,
+                            std::placeholders::_2),
+            true /* is_on_nav_bar */);
 }
 
 } // namespace doris
