@@ -28,9 +28,11 @@ namespace doris {
 
 Compaction::Compaction(TabletSharedPtr tablet, const std::string& label,
                        const std::shared_ptr<MemTracker>& parent_tracker)
-        : _mem_tracker(MemTracker::CreateTracker(-1, label, parent_tracker)),
-          _readers_tracker(MemTracker::CreateTracker(-1, "CompactionReaderTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker)),
-          _writer_tracker(MemTracker::CreateTracker(-1, "CompationWriterTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker)),
+        : _mem_tracker(MemTracker::CreateTracker(-1, label, parent_tracker, true, false)),
+          _readers_tracker(MemTracker::CreateTracker(-1, "CompactionReaderTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker,
+                  true, false)),
+          _writer_tracker(MemTracker::CreateTracker(-1, "CompationWriterTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker,
+                  true, false)),
           _tablet(tablet),
           _input_rowsets_size(0),
           _input_row_num(0),
@@ -171,7 +173,7 @@ OLAPStatus Compaction::construct_input_rowset_readers() {
         RETURN_NOT_OK(rowset->create_reader(
                 MemTracker::CreateTracker(
                         -1, "Compaction:RowsetReader:" + rowset->rowset_id().to_string(),
-                        _readers_tracker),
+                        _readers_tracker, true, true, MemTrackerLevel::DEBUG),
                 &rs_reader));
         _input_rs_readers.push_back(std::move(rs_reader));
     }

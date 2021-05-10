@@ -189,7 +189,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
         }
     }
     _seek_schema.reset(new Schema(key_fields, key_fields.size()));
-    _seek_block.reset(new RowBlockV2(*_seek_schema, 1));
+    _seek_block.reset(new RowBlockV2(*_seek_schema, 1, _mem_tracker));
 
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {

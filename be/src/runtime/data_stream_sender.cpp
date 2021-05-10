@@ -469,8 +469,7 @@ Status DataStreamSender::prepare(RuntimeState* state) {
     _profile = _pool->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
     _mem_tracker = MemTracker::CreateTracker(
-            _profile, -1, "DataStreamSender:" + print_id(state->fragment_instance_id()),
-            state->instance_mem_tracker());
+            _profile, -1, "DataStreamSender", state->instance_mem_tracker());
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
         // Randomize the order we open/transmit to channels to avoid thundering herd problems.

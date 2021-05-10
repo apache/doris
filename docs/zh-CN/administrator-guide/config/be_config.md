@@ -886,3 +886,13 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
   ```
 * 默认值: 3
 
+
+### `mem_tracker_level`
+
+* 类型: int16
+* 描述: MemTracker在Web页面上展示的级别，等于或低于这个级别的MemTracker会在Web页面上展示
+  ```
+    RELEASE = 0
+    DEBUG = 1
+  ```
+* 默认值: 0
