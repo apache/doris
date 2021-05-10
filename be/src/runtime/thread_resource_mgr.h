@@ -20,10 +20,10 @@
 
 #include <stdlib.h>
 
-#include <boost/function.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/thread/thread.hpp>
+#include <functional>
 #include <list>
 #include <mutex>
 
@@ -76,7 +76,7 @@ public:
     // variable semantics).
     // TODO: this is manageable now since it just needs to call into the io
     // mgr.  What's the best model for something more general.
-    typedef boost::function<void(ResourcePool*)> thread_available_cb;
+    typedef std::function<void(ResourcePool*)> thread_available_cb;
 
     // Pool abstraction for a single resource pool.
     // TODO: this is not quite sufficient going forward.  We need a hierarchy of pools,

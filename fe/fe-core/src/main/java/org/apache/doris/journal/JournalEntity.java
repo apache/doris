@@ -40,10 +40,10 @@ import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -312,8 +312,7 @@ public class JournalEntity implements Writable {
             case OperationType.OP_ADD_BACKEND:
             case OperationType.OP_DROP_BACKEND:
             case OperationType.OP_BACKEND_STATE_CHANGE: {
-                data = new Backend();
-                ((Backend) data).readFields(in);
+                data = Backend.read(in);
                 isRead = true;
                 break;
             }

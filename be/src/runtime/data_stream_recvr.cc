@@ -44,7 +44,7 @@ using boost::scoped_ptr;
 using std::unique_lock;
 using std::try_lock;
 using std::lock_guard;
-using boost::mem_fn;
+using std::mem_fn;
 
 namespace doris {
 
@@ -366,7 +366,7 @@ Status DataStreamRecvr::create_merger(const TupleRowComparator& less_than) {
 
     for (int i = 0; i < _sender_queues.size(); ++i) {
         child_input_batch_suppliers.emplace_back(
-                bind(mem_fn(&SenderQueue::get_batch), _sender_queues[i], boost::placeholders::_1));
+                bind(mem_fn(&SenderQueue::get_batch), _sender_queues[i], std::placeholders::_1));
     }
     RETURN_IF_ERROR(_merger->prepare(child_input_batch_suppliers));
     return Status::OK();
@@ -403,12 +403,12 @@ Status DataStreamRecvr::create_parallel_merger(const TupleRowComparator& less_th
         vector<SortedRunMerger::RunBatchSupplier> input_batch_suppliers;
         for (int j = i; j < std::min((size_t)i + step, _sender_queues.size()); ++j) {
             input_batch_suppliers.emplace_back(bind(mem_fn(&SenderQueue::get_batch),
-                                                    _sender_queues[j], boost::placeholders::_1));
+                                                    _sender_queues[j], std::placeholders::_1));
         }
         child_merger->prepare(input_batch_suppliers);
 
         child_input_batch_suppliers.emplace_back(bind(mem_fn(&SortedRunMerger::get_batch),
-                                                      child_merger.get(), boost::placeholders::_1));
+                                                      child_merger.get(), std::placeholders::_1));
         _child_mergers.emplace_back(std::move(child_merger));
     }
     RETURN_IF_ERROR(_merger->prepare(child_input_batch_suppliers, true));

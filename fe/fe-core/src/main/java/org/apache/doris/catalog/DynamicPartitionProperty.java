@@ -36,8 +36,10 @@ public class DynamicPartitionProperty {
     public static final String START_DAY_OF_MONTH = "dynamic_partition.start_day_of_month";
     public static final String TIME_ZONE = "dynamic_partition.time_zone";
     public static final String REPLICATION_NUM = "dynamic_partition.replication_num";
+    public static final String CREATE_HISTORY_PARTITION = "dynamic_partition.create_history_partition";
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
+    public static final int MAX_END_OFFSET = Integer.MAX_VALUE;
     public static final int NOT_SET_REPLICATION_NUM = -1;
 
     private boolean exist;
@@ -52,6 +54,7 @@ public class DynamicPartitionProperty {
     private StartOfDate startOfMonth;
     private TimeZone tz = TimeUtils.getSystemTimeZone();
     private int replicationNum;
+    private boolean createHistoryPartition = false;
 
     public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
@@ -65,6 +68,7 @@ public class DynamicPartitionProperty {
             this.prefix = properties.get(PREFIX);
             this.buckets = Integer.parseInt(properties.get(BUCKETS));
             this.replicationNum = Integer.parseInt(properties.getOrDefault(REPLICATION_NUM, String.valueOf(NOT_SET_REPLICATION_NUM)));
+            this.createHistoryPartition = Boolean.parseBoolean(properties.get(CREATE_HISTORY_PARTITION));
             createStartOfs(properties);
         } else {
             this.exist = false;
@@ -123,6 +127,10 @@ public class DynamicPartitionProperty {
         return startOfMonth;
     }
 
+    public boolean isCreateHistoryPartition() {
+        return createHistoryPartition;
+    }
+
     public String getStartOfInfo() {
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             return startOfWeek.toDisplayInfo();
@@ -156,7 +164,8 @@ public class DynamicPartitionProperty {
                 ",\n\"" + END + "\" = \"" + end + "\"" +
                 ",\n\"" + PREFIX + "\" = \"" + prefix + "\"" +
                 ",\n\"" + REPLICATION_NUM + "\" = \"" + useReplicationNum + "\"" +
-                ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"";
+                ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"" +
+                ",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\"";
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";
         } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
