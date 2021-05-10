@@ -1,3 +1,0 @@
-# or
-## keyword
-LOGICAL
