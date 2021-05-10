@@ -282,7 +282,36 @@ public class ConfigBase {
             }
             String confVal;
             try {
-                confVal = String.valueOf(f.get(null));
+                switch (f.getType().getSimpleName()) {
+                    case "short":
+                    case "int":
+                    case "long":
+                    case "double":
+                    case "boolean":
+                    case "String":
+                        confVal = String.valueOf(f.get(null));
+                        break;
+                    case "short[]":
+                        confVal = Arrays.toString((short[])f.get(null));
+                        break;
+                    case "int[]":
+                        confVal = Arrays.toString((int[])f.get(null));
+                        break;
+                    case "long[]":
+                        confVal = Arrays.toString((long[])f.get(null));
+                        break;
+                    case "double[]":
+                        confVal = Arrays.toString((double[])f.get(null));
+                        break;
+                    case "boolean[]":
+                        confVal = Arrays.toString((boolean[])f.get(null));
+                        break;
+                    case "String[]":
+                        confVal = Arrays.toString((String[])f.get(null));
+                        break;
+                    default:
+                        throw new DdlException("unknown type: " + f.getType().getSimpleName());
+                }
             } catch (IllegalArgumentException | IllegalAccessException e) {
                 throw new DdlException("Failed to get config '" + confKey + "'. err: " + e.getMessage());
             }
