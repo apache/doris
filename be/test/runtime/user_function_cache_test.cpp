@@ -96,7 +96,7 @@ public:
         hostname = "http://127.0.0.1:" + std::to_string(real_port);
 
         // compile code to so
-        system("g++ -shared ./be/test/runtime/test_data/user_function_cache/lib/my_add.cc -o "
+        system("g++ -shared -fPIC ./be/test/runtime/test_data/user_function_cache/lib/my_add.cc -o "
                "./be/test/runtime/test_data/user_function_cache/lib/my_add.so");
 
         my_add_md5sum =
