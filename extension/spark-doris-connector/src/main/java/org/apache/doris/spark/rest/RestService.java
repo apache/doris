@@ -31,7 +31,12 @@ import static org.apache.doris.spark.util.ErrorMessages.ILLEGAL_ARGUMENT_MESSAGE
 import static org.apache.doris.spark.util.ErrorMessages.PARSE_NUMBER_FAILED_MESSAGE;
 import static org.apache.doris.spark.util.ErrorMessages.SHOULD_NOT_HAPPEN_MESSAGE;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.io.Serializable;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -112,12 +117,9 @@ public class RestService implements Serializable {
                 .build();
 
         request.setConfig(requestConfig);
-
         String user = cfg.getProperty(DORIS_REQUEST_AUTH_USER, "");
         String password = cfg.getProperty(DORIS_REQUEST_AUTH_PASSWORD, "");
-
         logger.info("Send request to Doris FE '{}' with user '{}'.", request.getURI(), user);
-
         IOException ex = null;
         int statusCode = -1;
 
@@ -125,25 +127,22 @@ public class RestService implements Serializable {
             logger.debug("Attempt {} to request {}.", attempt, request.getURI());
             try {
                 String response;
-                if(request instanceof HttpGet){
+                if (request instanceof HttpGet){
                     response = getConnectionGet(request.getURI().toString(), user, password,logger);
-                }else{
-                    response = getConnection(request,user, password,logger);
+                } else {
+                    response = getConnectionPost(request,user, password,logger);
                 }
                 if (response == null) {
                     logger.warn("Failed to get response from Doris FE {}, http code is {}",
                             request.getURI(), statusCode);
                     continue;
                 }
-
                 logger.trace("Success get response from Doris FE: {}, response is: {}.",
                         request.getURI(), response);
-
                 ObjectMapper mapper = new ObjectMapper();
-
                 Map map = mapper.readValue(response, Map.class);
                 //Handle the problem of inconsistent data format returned by http v1 and v2
-                if(map.containsKey("code") && map.containsKey("msg")) {
+                if (map.containsKey("code") && map.containsKey("msg")) {
                     Object data = map.get("data");
                     return mapper.writeValueAsString(data);
                 } else {
@@ -188,7 +187,7 @@ public class RestService implements Serializable {
         return result;
     }
 
-    private static String getConnection(HttpRequestBase request,String user, String passwd,Logger logger) throws IOException {
+    private static String getConnectionPost(HttpRequestBase request,String user, String passwd,Logger logger) throws IOException {
         URL url = new URL(request.getURI().toString());
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setInstanceFollowRedirects(false);
